@@ -88,10 +88,13 @@ function artThumb(taskId, name){
   const k=taskId+'|'+name;
   if(artThumbCache[k]!==undefined) return artThumbCache[k];
   artThumbCache[k]=null;
-  invoke('read_artifact',{ taskId, name }).then(c=>{ artThumbCache[k]=(c&&c.kind==='image'&&c.dataUrl)||null; if(fwTask===taskId&&cvShows('entrega')) renderWorkspace(); }).catch(()=>{});
+  invoke('read_artifact',{ taskId, name }).then(c=>{ artThumbCache[k]=(c&&c.kind==='image'&&c.dataUrl)||null; if(fwTask===taskId&&fwMode==='entrega') renderWorkspace(); }).catch(()=>{});
   return null;
 }
-// (os modos exclusivos Entrega|Código|Conversa|Revisão|Prévia|PR viraram ABAS do canvas — 58-canvas / CV_MODE2TYPE)
+function fwModesHtml(t){
+  const M=[['entrega','Entrega'],['codigo','Código'],['conversa','Conversa'],['revisao','Revisão'],['previa','Prévia']]; if(t.prUrl) M.push(['pr','PR']); // Prévia: 57-navegador
+  return M.map(([k,l])=>`<button class="fwmode${fwMode===k?' on':''}" data-fwmode="${k}">${l}</button>`).join('');
+}
 // ---- entrega SEM código (FT-6): investigação/design, ou tarefa que só produziu documentos ----
 // Júlia vetou um "modo" separado: é o TIPO da entrega que esconde branch/PR. O fim é salvar os
 // entregáveis numa pasta do usuário e concluir.
@@ -215,7 +218,7 @@ function enPvHtml(t, files){
   if(!files.length) return '';
   const sel=enPvPick(t, files); const a=files.find(x=>x.name===sel)||files[0];
   const k=t.id+'|'+a.name; const c=enPvCache[k];
-  if(c===undefined){ enPvCache[k]=null; invoke('read_artifact',{ taskId:t.id, name:a.name }).then(v=>{ enPvCache[k]=v||{ err:'vazio' }; }).catch(e=>{ enPvCache[k]={ err:String(e&&e.message||e) }; }).finally(()=>{ if(fwTask===t.id&&cvShows('entrega')) renderWorkspace(); }); }
+  if(c===undefined){ enPvCache[k]=null; invoke('read_artifact',{ taskId:t.id, name:a.name }).then(v=>{ enPvCache[k]=v||{ err:'vazio' }; }).catch(e=>{ enPvCache[k]={ err:String(e&&e.message||e) }; }).finally(()=>{ if(fwTask===t.id&&fwMode==='entrega') renderWorkspace(); }); }
   const kind=pvKind(a.name);
   const tag={ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[kind]||'ARQ';
   return `<section class="en-sec en-prev" id="enPv">
@@ -280,7 +283,7 @@ function pvKick(t, url){ if(!url || pvHealth[url] || pvBusy[url] || taskIsDone(t
 function pvRerender(taskId){
   if(fwTask!==taskId) return;
   const t=fwTaskObj(); if(!t) return;
-  if(cvShows('entrega')){ renderWorkspace(); return; }
+  if(fwMode==='entrega'){ renderWorkspace(); return; }
   const url=taskPreviewTarget(t), b=$id('fwPv');
   if(!!url !== !!b || (b && b.dataset.url!==url)){ renderWorkspace(); return; }
   pvDecorateGlobe(t);
@@ -355,7 +358,7 @@ function pvTick(){
   const ov=$id('fwOverlay'); if(!ov || ov.style.display==='none') return;
   const t=fwTaskObj(); if(!t || taskIsDone(t)) return;
   pvInfoEnsure(t);
-  if(!cvShows('entrega') && !$id('fwPv')) return;
+  if(fwMode!=='entrega' && !$id('fwPv')) return;
   const r=pvRun[t.id]; if(r && r.phase==='subindo') return; // o laço da subida já checa
   const url=taskPreviewTarget(t); if(url) pvCheck(url, t.id);
 }
@@ -403,7 +406,7 @@ function fwRenderEntrega(t, main){
   const done=taskIsDone(t);
   fwReqProofsEnsure(t.id); fwArtsEnsure(t); // 1 leitura em voo por tarefa (antes: uma nova a cada render)
   if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
-  if(!enDefDir) invoke('deliverables_default_dir').then(d=>{ if(d&&!enDefDir){ enDefDir=d; if(fwTask===t.id&&cvShows('entrega')) renderWorkspace(); } }).catch(()=>{});
+  if(!enDefDir) invoke('deliverables_default_dir').then(d=>{ if(d&&!enDefDir){ enDefDir=d; if(fwTask===t.id&&fwMode==='entrega') renderWorkspace(); } }).catch(()=>{});
   const arts=entregaArts(t);
   const nonCode=entregaNonCode(t);
   const imgs=arts.filter(a=>a.kind==='image');

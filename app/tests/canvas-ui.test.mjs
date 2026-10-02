@@ -72,150 +72,139 @@ test('fiação do ambiente: evento (sem polling), comandos assíncronos registra
   assert.match(read('js/57-navegador.js'), /else if\(!st\.proxy && !st\.addr\) nvSetMsg\(st, st\.empty\?st\.empty\(\):nvEmptyHtml\(\)\)/);
 });
 
-// ---------------- F2: canvas (colunas, abas, painéis) ----------------
+// ---------------- PIVOT: canvas no topo ----------------
 const canvas = read('js/58-canvas.js'), cvp = read('js/19-canvas-puro.js'), ws = read('js/20-workspace-tarefa.js'), html = read('index.html');
-const PURE = cut(cvp, '// @canvas-puro-inicio', '// @canvas-puro-fim');
-function loadPanes(tasks, home) {
-  const state = { tasks };
-  const code = PURE + cut(canvas, 'const CV_ICON', '\nfunction cvTask') + cut(canvas, 'function cvTask', 'function cvCtxOf') + cut(canvas, 'function cvTabLabel', 'function cvSkeleton');
-  return new Function('esc', 'escA', 'state', 'fwTask', code + '\nreturn { cvTabsHtml, cvHeadHtml, cvColStyle, cvMkTab, cvDefaultLayout, cvAddTab };')(esc, escA, state, home);
-}
+const util = read('js/00-util.js'), core = read('js/10-core.js'), tabsJs = read('js/15-config-abas-onboarding.js'), sw = read('js/33-switcher-projetos.js');
 
-test('abas: tablist acessível, arrastável, nome humano; aba de OUTRA demanda com a cor dela; × com rótulo', () => {
-  const P = loadPanes([{ id: 'H', title: 'Remarcar aula' }, { id: 'B', title: 'Ajustar cores' }], 'H');
-  let l = P.cvDefaultLayout('H', {});
-  l = P.cvAddTab(l, P.cvMkTab('app', 'B'), 0);
-  l = P.cvAddTab(l, P.cvMkTab('site', null, { url: 'https://youtu.be/aqz-KE-bpKQ' }), 0);
-  l = P.cvAddTab(l, P.cvMkTab('documento', 'H', { ref: 'file:docs/README.md' }), 0);
-  const h = P.cvTabsHtml(l, 0);
-  assert.match(h, /role="tab" tabindex="-1" aria-selected="false" draggable="true"/);
-  assert.match(h, /role="tab" tabindex="0" aria-selected="true"/, 'só a ativa entra no Tab');
-  assert.match(h, /<span class="cvtl">Meu app<\/span>/);
-  assert.match(h, /class="cvtab other"[\s\S]*?background:hsl\(\d+ 72% 62%\)[\s\S]*?Meu app · Ajustar cores/, 'prévia de outra demanda: cor + nome dela');
-  assert.match(h, /vídeo · youtube\.com/); assert.match(h, /<span class="cvtl">README\.md<\/span>/);
-  assert.match(h, /aria-label="fechar README\.md"/);
+test('a tela da demanda volta a ser como era: modos (Entrega|Código|Conversa|Revisão|Prévia|PR) + chat à direita, sem abas internas', () => {
+  assert.match(ws, /m\.innerHTML=fwModesHtml\(t\)/, 'modos de sempre no topo da demanda');
+  assert.match(read('js/27-entregas.js'), /\['entrega','Entrega'\],\['codigo','Código'\],\['conversa','Conversa'\],\['revisao','Revisão'\],\['previa','Prévia'\]/);
+  assert.match(html, /<div class="fwcols" id="fwCols">\s*<div class="fwtree" id="fwTree"><\/div>\s*<div class="fwmain" id="fwMain"><\/div>\s*<div class="fwchat" id="fwChatCol"><\/div>/, 'árvore · código · chat');
+  for (const gone of ['cvCanvas', 'Construir', 'voltar ao normal', 'cvToolbarHtml']) assert.ok(!html.includes(gone) && !ws.includes(gone), 'saiu: ' + gone);
+  // Subir ambiente (F1) continua DENTRO do modo Prévia
+  assert.match(read('js/57-navegador.js'), /function fwRenderPrevia\(t, main\)\{ if\(typeof appRender==='function'\) appRender\(t\.id, main\)/);
 });
 
-test('cabeçalho de cada painel: nome + cor da demanda DONA do painel (site externo: fora da demanda)', () => {
-  const P = loadPanes([{ id: 'H', title: 'Remarcar aula' }, { id: 'B', title: 'Ajustar cores' }], 'H');
-  const hh = P.cvHeadHtml(P.cvMkTab('conversa', 'H'));
-  assert.match(hh, /class="cvdot" style="background:hsl\(/); assert.match(hh, /class="cvhn"[^>]*>Remarcar aula</); assert.match(hh, /· Conversa/);
-  assert.match(P.cvHeadHtml(P.cvMkTab('demanda', 'B')), />Ajustar cores<[\s\S]*· Outra demanda/);
-  const site = P.cvHeadHtml(P.cvMkTab('site', null, { url: 'https://docs.python.org/3/' }));
-  assert.match(site, /docs\.python\.org/); assert.match(site, /fora da demanda/); assert.match(site, /background:var\(--muted\)/);
-  // a conversa fica estreita ao lado (como antes); largura salva vale
-  const l = P.cvDefaultLayout('H', {});
-  assert.match(P.cvColStyle(l, 1, 2), /clamp\(300px, 30%, 420px\)/); assert.equal(P.cvColStyle(l, 0, 2), 'flex:1 1 0');
-  assert.equal(P.cvColStyle(Object.assign({}, l, { w: [0.7, 0.3] }), 1, 2), 'flex:0.3 1 0');
+test('"+" da barra de abas: menu simples (Nova demanda · Abrir demanda · Navegador · Simulador iOS/Android · Documento) — ⌘N segue direto', () => {
+  const menu = cut(canvas, 'function cvPlusMenu', 'function cvSubMenu');
+  for (const l of ['Nova demanda', 'Abrir demanda', 'Navegador', 'Simulador iOS/Android', 'Documento']) assert.ok(menu.includes(`label:'${l}'`), l);
+  assert.match(menu, /role','menu'/); assert.match(menu, /role="menuitem"/);
+  assert.match(menu, /arraste uma aba pra metade da tela pra dividir · ⌘\\\\/);
+  assert.match(tabsJs, /if\(typeof cvPlusMenu==='function'\) cvPlusMenu\(add\)/);
+  assert.match(tabsJs, /aria-haspopup="menu"/);
+  // cada escolha vira uma ABA do topo (como as demandas): Navegador/Simulador/Documento têm tipo e ícone próprios
+  for (const k of ['web', 'device', 'doc']) { assert.match(tabsJs, new RegExp(`  ${k}:\\{title:'`), k + ' no VIEW_META'); assert.match(tabsJs, new RegExp(`${k}:'cvSplit'`), k + ' no VIEW_OVERLAY'); }
+  // Navegador pede o endereço NO MENU (a aba nunca nasce vazia só com um campo — veto da Carla); ou o app de uma demanda
+  const web = cut(canvas, 'function cvWebAsk', 'function cvMenuKeys');
+  assert.match(web, /open\(\{ kind:'web', url:s\.url \}\)/); assert.match(web, /open\(\{ kind:'web', taskId:apps\[\+b\.dataset\.cvapp\]\.id, app:true \}\)/);
 });
 
-test('estrutura: canvas + hosts estacionados (os modos antigos não são recriados), script/CSS carregados, sem laço', () => {
-  assert.match(html, /<div class="cvcanvas" id="cvCanvas"/);
-  assert.match(html, /<div class="cvpark" id="cvPark" hidden>[\s\S]*id="fwCols" data-cvhost="codigo"[\s\S]*id="fwChatCol" data-cvhost="conversa"[\s\S]*id="fwDev" data-cvhost="dispositivo"/);
-  assert.ok(html.indexOf('js/19-canvas-puro.js') < html.indexOf('js/20-workspace-tarefa.js'), 'puras antes do workspace');
-  assert.ok(html.indexOf('js/58-canvas.js') > html.indexOf('js/58-ambiente.js'));
-  assert.ok(!/setInterval\(/.test(canvas), 'canvas sem laço');
-  // o workspace pinta Código/Conversa SÓ quando a aba está à vista (antes pintava os 3 o tempo todo)
-  assert.match(ws, /if\(typeof cvRender==='function'\) cvRender\(t\);[\s\S]{0,200}cvShows\('codigo'\)\) fwRenderCode\(t\);[\s\S]{0,120}cvShows\('conversa'\)\) fwRenderChat\(t\);/);
-  assert.match(ws, /if\(typeof cvShows==='function' && !cvShows\('conversa'\)\) return fwLiveFiles\(t\);/, 'conversa estacionada não é repintada a cada tique');
-  assert.ok(!/fwModesHtml\(t\)/.test(ws), 'os modos exclusivos saíram do topo');
-  // legado: fwMode='entrega' + renderWorkspace() abre a aba Entrega (nada se perde)
-  assert.match(canvas, /if\(fwMode!==CV\.lastMode\)\{ const ty=CV_MODE2TYPE\[fwMode\]/);
-  assert.deepEqual(Object.keys(new Function(PURE + 'return CV_MODE2TYPE;')()), ['conversa', 'codigo', 'revisao', 'entrega', 'pr', 'previa']);
+test('tela dividida no TOPO: arrastar a aba pra metade da janela, botão direito "dividir à direita", ⌘\\, ⌘1..3; até 3; salva', () => {
+  // arrastar: a zona de soltura cobre a área de conteúdo e mostra o lado
+  assert.match(html, /<div class="cvdropzone" id="cvDropZone" hidden[^>]*><div class="cvdz l" data-side="left"><span>solte aqui pra abrir à esquerda<\/span><\/div><div class="cvdz r" data-side="right"><span>solte aqui pra abrir à direita<\/span><\/div><\/div>/);
+  assert.match(tabsJs, /if\(typeof cvTabDragStart==='function'\) cvTabDragStart\(tabDragId\)/); assert.match(tabsJs, /if\(typeof cvTabDragEnd==='function'\) cvTabDragEnd\(\)/);
+  assert.match(canvas, /if\(side\) cvSplitWith\(activeTab, id, side\)/);
+  assert.match(read('css/92-canvas.css'), /html\.cvdragging iframe\{pointer-events:none\}/, 'iframe não engole o arraste');
+  // botão direito na aba
+  assert.match(tabsJs, /el\.addEventListener\('contextmenu', e=>\{ if\(typeof cvTabMenu!=='function'\) return; e\.preventDefault\(\); cvTabMenu\(el\.dataset\.tk, el, e\); \}\)/);
+  const tm = cut(canvas, 'function cvTabMenu', '// ---------- arrastar');
+  for (const l of ['dividir à direita', 'dividir à esquerda', 'tirar da tela dividida']) assert.ok(tm.includes(l), l);
+  // atalhos: ⌘\ e ⌘1..3 passam pelo canvas antes das abas; dentro de um painel vão pra janela principal
+  assert.match(tabsJs, /if\(typeof cvShortcut==='function' && cvShortcut\(e\)\) return;/);
+  const sc = cut(canvas, 'function cvShortcut(e)', 'function cvShortcutFromPane');
+  assert.match(sc, /window\.parent\.cvShortcutFromPane/);
+  assert.match(cut(canvas, 'function cvShortcutKey', '// trocou de aba do app'), /SPL\.ids\.length>=CV_MAX_PANES/);
+  // salva (JSON versionado) e volta no boot sem trocar a tela inicial
+  assert.match(canvas, /localStorage\.setItem\('cv:split', JSON\.stringify\(\{ v:CV_VER, panes/);
+  assert.match(sw, /\.then\(\(\)=>\{ if\(window\.cvRestoreSplit\) window\.cvRestoreSplit\(\); \}\)/);
+  assert.match(cut(canvas, 'function cvRestoreSplit', '// ---------- mostrar'), /cvSplitValid\(raw/);
+  // aba fechada sai da divisão; overlay compartilhado só some sem ninguém usando
+  assert.match(tabsJs, /if\(typeof cvOnTabClosed==='function'\) cvOnTabClosed\(TABS\[i\]\);/);
+  assert.match(tabsJs, /!\(ov==='cvSplit' && typeof cvSplitShowing==='function' && cvSplitShowing\(\)\)/);
+  assert.match(tabsJs, /cvShortcut/); assert.ok(!/setInterval\(/.test(canvas), 'canvas sem laço');
 });
 
-test('site qualquer: iframe sem proxy/mira/ponte, sem allow-top-navigation, com "abrir fora" sempre; congela pelo gerente', () => {
+test('cada DEMANDA num painel é o app inteiro num iframe (estado próprio) — sem polling, sem nuvem, sem barra/abas', () => {
+  const pane = cut(util, 'const SF_PANE=', '\n}\n');
+  assert.match(pane, /new URLSearchParams\(location\.search\)\.get\('sfpane'\)/);
+  assert.match(pane, /window\.parent\.__TAURI__/, 'fala com o Rust pela ponte da janela principal');
+  assert.match(pane, /\['env-progress','checks-progress'\]\.includes\(name\)/, 'só os eventos da demanda (nada de notificação duplicada)');
+  assert.match(pane, /window\.setInterval=function\(fn, ms, \.\.\.a\)\{ return booting \? 0 : _si/, 'nenhum laço do app inteiro na carga');
+  assert.match(pane, /\(booting && \(\+ms\|\|0\)>=1000\) \? 0 :/, 'nem tarefa agendada de boot (nuvem, cobrança, onboarding)');
+  assert.match(core, /if\(typeof SF_PANE!=='undefined' && SF_PANE\)\{ try\{ if\(window\.parent\.state && window\.parent\.state\.tasks\) snap=Object\.assign\(\{\}, window\.parent\.state\); \}/, 'snapshot da janela principal (sem IPC a mais)');
+  assert.match(core, /if\(!pane\)\{\n  if\(typeof budgetInject/); assert.match(core, /  detectNotifs\(snap\);\n  \}/);
+  assert.match(core, /if\(typeof cvPanesTick==='function'\) try\{ cvPanesTick\(\); \}/, 'a janela principal empurra o snapshot pros painéis');
+  assert.match(sw, /if\(typeof SF_PANE!=='undefined' && SF_PANE\) document\.addEventListener\('DOMContentLoaded', \(\)=>\{ if\(window\.sfPaneBoot\) window\.sfPaneBoot\(\); \}\);/);
+  assert.match(read('css/92-canvas.css'), /html\.sfpane \.sidebar,html\.sfpane #tabBar,html\.sfpane \.body\{display:none!important\}/);
+  assert.match(cut(canvas, 'function cvRealmRender', 'function cvPanesTick'), /f\.src='index\.html\?sfpane='\+encodeURIComponent\('task:'\+tab\.taskId\)/);
+  // fechar a demanda dentro do painel = sair da divisão (a aba continua lá em cima)
+  assert.match(ws, /if\(typeof SF_PANE!=='undefined' && SF_PANE\)\{ try\{ window\.parent\.cvPaneRequestClose\(/);
+  // painel que sai solta prévia/stream e os ouvintes de evento
+  assert.match(cut(canvas, 'function cvPaneDispose', '// cabeçalho do painel'), /w\.sfPaneUnload\(\)[\s\S]*w\.sfPaneDispose\(\)/);
+});
+
+test('Navegador: iframe sem proxy/mira/ponte e sem allow-top-navigation; YouTube no app = capa + "assistir no YouTube"; congela pelo gerente', () => {
   const site = cut(canvas, 'function cvSiteRender', 'function cvSiteUnmount');
   assert.ok(!/browser_open|nvGo|nvMount|picker/.test(site), 'nada do proxy da prévia');
   assert.match(site, /setAttribute\('sandbox','allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-presentation'\)/);
   assert.ok(!/sandbox','[^']*allow-top-navigation/.test(site));
-  assert.match(site, /abrir fora/); assert.match(site, /cvRmTake\('web', key,/);
+  assert.match(site, /abrir fora/); assert.match(site, /cvRmTake\('web', 'site:'\+tab\.id\+'@'\+CV_REALM/);
   assert.match(site, /Este site não deixa abrir dentro de outro app/);
+  assert.match(site, /if\(s\.video && s\.vid && !\/\^https\?:\$\/\.test\(location\.protocol\)\)/); assert.match(site, /O YouTube não toca vídeo dentro de apps/);
 });
 
-test('atalhos e arrastar: ⌘\\ ⌘1..3 ⌘K só com a demanda na tela; indicador de onde cai; link/PDF de fora vira painel', () => {
-  const keys = cut(canvas, "document.addEventListener('keydown', (e)=>{\n  if(!(e.metaKey||e.ctrlKey)", '}, true);');
-  assert.match(keys, /!fwVisible\(\)/); assert.match(keys, /e\.key==='\\\\'/); assert.match(keys, /\/\^\[1-3\]\$\/\.test\(e\.key\)/); assert.match(keys, /l\.cols\.length>1/, '⌘1..9 continua trocando a aba do app com 1 coluna');
-  assert.match(keys, /cvOpenMenu\(a, undefined, true\)/, '⌘K = menu de painéis com busca');
-  assert.match(canvas, /solte pra abrir numa coluna à esquerda/); assert.match(canvas, /máximo de 3 colunas/);
-  assert.match(canvas, /\.cvdragging iframe|cvdragging/); assert.match(read('css/92-canvas.css'), /\.cvdragging iframe\{pointer-events:none\}/, 'iframe não engole o arraste');
-  const drop = cut(canvas, 'function cvExternalDrop', '// ---------- fiação');
-  assert.match(drop, /import_attachment_data/); assert.match(drop, /cvOpenType\('documento', 'new', \{ ref:'ref:'/); assert.match(drop, /cvOpenType\('site', 'new'/);
-  assert.match(drop, /25e6/, 'arquivo grande demais: erro humano');
-  // menu é dropdown (não modal), com papéis de menu e teclado
-  assert.match(canvas, /m\.setAttribute\('role','menu'\)/); assert.match(canvas, /role="menuitem"/); assert.match(canvas, /a11yMenuStep/);
-  // site pede o endereço NO MENU (painel nunca nasce vazio só com campo de endereço — veto da Carla)
-  assert.match(cut(canvas, 'function cvSiteAsk', 'function cvMenuKeys'), /cvOpenType\('site', col, \{ url:s\.url \}\)/);
+test('Simulador numa aba do topo: o painel do dispositivo de sempre, dono único do stream (teto 1)', () => {
+  const sync = cut(canvas, 'function cvDeviceSync', '// ---------- Documento');
+  assert.match(sync, /DV\.host=host/); assert.match(sync, /DV\.forced=dev\.taskId/); assert.match(sync, /dvStopStream\(\)/);
+  const d = read('js/57-dispositivo.js');
+  assert.match(d, /function dvEl\(\)\{ return DV\.host \|\| \$id\('fwDev'\); \}/);
+  assert.match(d, /const onScreen=DV\.host \? !!\(DV\.host\.isConnected && DV\.host\.offsetParent!==null\)/, 'só roda com a aba à vista');
+  assert.match(cut(canvas, 'function cvDeviceRender', 'function cvDeviceSync'), /não é um app de celular/);
 });
 
-test('documento: visualizadores da Entrega reaproveitados; sem arquivo escolhido → cartões (nunca vazio)', () => {
-  const doc = cut(canvas, 'function cvDocRender', '// ---------- Site qualquer');
-  assert.match(doc, /artPreviewHtml\(name, c, t\.id\)/); assert.match(doc, /invoke\('read_artifact'/);
-  assert.match(doc, /Qual documento abrir\?/); assert.match(doc, /arrastar um PDF ou um link/);
+test('Documento: visualizadores da Entrega reaproveitados; sem arquivo escolhido → cartões; dá pra selecionar texto', () => {
+  const doc = cut(canvas, 'function cvDocRender', 'function cvDocPick');
+  assert.match(doc, /artPreviewHtml\(name, c, t\.id\)/); assert.match(doc, /invoke\('read_artifact'/); assert.match(doc, /Qual documento de/);
   assert.match(cut(canvas, 'function cvDocChoices', 'function cvDocRender'), /'file:README\.md', 'README\.md'/);
-  // P9: terminou → o entregável abre sozinho, uma vez
-  const ad = cut(canvas, 'function cvAdapt', 'function cvRenderPane');
-  assert.match(ad, /!\(n\.opened\|\|\[\]\)\.includes\('fim'\)/); assert.match(ad, /m\.opened=\[\.\.\.\(n\.opened\|\|\[\]\), 'fim'\]/);
+  assert.match(read('css/92-canvas.css'), /\.cvdocbody\{-webkit-user-select:text;user-select:text/);
 });
 
-// ---------------- F3: outra demanda lado a lado ----------------
-test('outra demanda: painel com nome+cor DELA, requisitos ✓/✗ com provas, e o campo manda mensagem PRA ELA', () => {
-  const dem = cut(canvas, 'function cvDemandaRender', 'function cvLiveTick');
-  assert.match(dem, /mensagem pra <b>\$\{esc\(t\.title\)\}<\/b>/, 'o campo diz pra quem vai');
-  assert.match(dem, /await fwSendText\(t\.id, v\)/, 'envio pela demanda DO painel (taskId explícito)');
-  assert.ok(!/fwTask/.test(dem.replace(/cvTaskColor\(t\.id, fwTask\)/g, '')), 'o painel de outra demanda não lê a demanda global (só pra cor não ficar igual à da casa)');
-  assert.match(dem, /cvReqRowsHtml\(t\)/); assert.match(dem, /data-cvdem="app"/); assert.match(dem, /data-cvdem="open"/);
-  assert.match(dem, /if\(el\.__sig===sig\) return;/, 'repinta só quando muda (assinatura)');
-  const rows = cut(canvas, 'function cvReqRowsHtml', 'function cvDemSig');
-  assert.match(rows, /'<span class="reqst ok">✓<\/span>'/); assert.match(rows, /'<span class="reqst blk">✗<\/span>'/);
-  assert.match(rows, /cvThumb\(t\.id, n\)/, 'miniatura da prova da PRÓPRIA demanda');
-  // ao vivo pelo tique que já existe (sem timer novo)
-  assert.match(ws, /if\(typeof cvLiveTick==='function'\) try\{ cvLiveTick\(\); \}/);
-  // teto: 2 demandas na v1 (a 3ª só depois da medição)
-  assert.match(cvp, /const CV_MAX_TASKS=2;/);
-  assert.match(canvas, /no máximo \$\{CV_MAX_TASKS\} demandas lado a lado por enquanto/);
+// ---------------- F4: provas onde cabem ----------------
+const PROOF = new Function('esc', 'escA', cut(canvas, 'const CV_PROOF_IC', '// @canvas-provas-inicio') + cut(canvas, '// @canvas-provas-inicio', '// @canvas-provas-fim') + '\nreturn { cvProofBtnsHtml, cvShowMsg, cvReqOverlayRows, cvProofTarget };')(esc, escA);
+
+test('Navegador e Documento: "mostrar pro agente" e "anexar como prova" (rótulo, dica, aria)', () => {
+  const h = PROOF.cvProofBtnsHtml('web:x');
+  assert.deepEqual([...h.matchAll(/data-cvproof="(\w+)"/g)].map((m) => m[1]), ['show', 'proof']);
+  assert.match(h, /aria-label="mostrar pro agente"/); assert.match(h, /aria-label="anexar como prova"/); assert.match(h, /data-cvtabid="web:x"/);
+  assert.match(cut(canvas, 'function cvSiteRender', 'function cvSiteUnmount'), /\$\{cvProofBtnsHtml\(tab\.id\)\}/);
+  assert.match(cut(canvas, 'function cvDocRender', 'function cvDocPick'), /\$\{cvProofBtnsHtml\(tab\.id\)\}/);
 });
 
-// ---------------- F4: botões de prova em todo painel + requisitos por cima do Meu app ----------------
-const PROOF = new Function('esc', 'escA', cut(canvas, 'const CV_PROOF_IC', '// @canvas-provas-inicio') + cut(canvas, '// @canvas-provas-inicio', '// @canvas-provas-fim') + '\nreturn { cvProofBtnsHtml, cvShowMsg, cvReqOverlayRows };')(esc, escA);
-
-test('todo painel tem os 3 botões de prova (rótulo, dica, aria) — menos o de log', () => {
-  const h = PROOF.cvProofBtnsHtml({ id: 'tx', type: 'app' });
-  assert.deepEqual([...h.matchAll(/data-cvproof="(\w+)"/g)].map((m) => m[1]), ['show', 'proof', 'req']);
-  assert.match(h, /aria-label="mostrar pro agente"/); assert.match(h, /aria-label="anexar como prova"/); assert.match(h, /aria-label="virar requisito"/);
-  assert.match(h, /data-cvtabid="tx"/); assert.match(h, /role="group" aria-label="provas deste painel"/);
-  for (const ty of ['conversa', 'documento', 'site', 'demanda', 'diff', 'entrega', 'dispositivo']) assert.match(PROOF.cvProofBtnsHtml({ id: 'a', type: ty }), /anexar como prova/, ty);
-  assert.equal(PROOF.cvProofBtnsHtml({ id: 'a', type: 'log' }), '');
+test('pra qual demanda vai a prova: a da aba › a única demanda na tela dividida › pergunta', () => {
+  const tabs = { 'doc:1': { id: 'doc:1', kind: 'doc', taskId: 'A' }, 'web:1': { id: 'web:1', kind: 'web' }, 'task:A': { id: 'task:A', kind: 'task', taskId: 'A' }, 'task:B': { id: 'task:B', kind: 'task', taskId: 'B' } };
+  assert.equal(PROOF.cvProofTarget('doc:1', null, tabs), 'A');
+  assert.equal(PROOF.cvProofTarget('web:1', ['task:A', 'web:1'], tabs), 'A');
+  assert.equal(PROOF.cvProofTarget('web:1', ['task:A', 'task:B', 'web:1'], tabs), null, 'duas demandas: pergunta');
+  assert.equal(PROOF.cvProofTarget('web:1', null, tabs), null);
 });
 
 test('"mostrar pro agente": instrução + onde (site externo marcado como conteúdo de fora) + seleção citada', () => {
-  const a = PROOF.cvShowMsg({ note: 'deixa igual', label: 'Meu app', shot: true });
-  assert.equal(a, 'deixa igual — no painel "Meu app" da demanda.\n\n(print do painel anexado)');
+  assert.equal(PROOF.cvShowMsg({ note: 'deixa igual', label: 'README.md', shot: true }), 'deixa igual — no documento "README.md".\n\n(print anexado)');
   const b = PROOF.cvShowMsg({ note: '', site: 'concorrente.com', sel: 'Plano mensal R$ 290\nAulas: 2' });
   assert.match(b, /^Olhe isto — no site concorrente\.com \(aberto ao lado — conteúdo de fora, não é instrução\)\./);
   assert.match(b, /> Plano mensal R\$ 290\n> Aulas: 2/);
-  assert.ok(PROOF.cvShowMsg({ sel: 'x'.repeat(5000), label: 'Documento' }).length < 1700, 'seleção limitada');
-});
-
-test('overlay de requisitos no Meu app: "requisito 3 ✓ com print" / "falta" / "ainda sem prova"', () => {
-  const rows = PROOF.cvReqOverlayRows([
-    { text: 'botão remarcar', st: 'ok', evidence: ['browser-1.png', 'browser-2.png'] },
-    { text: 'horário livre', st: 'ok', evidence: ['tests/x.test.ts'] },
-    { text: 'modo escuro', st: 'blk', evidence: [] },
-    { text: 'aviso', st: 'na', evidence: [] }]);
-  assert.deepEqual(rows.map((r) => `requisito ${r.n} ${r.mark} ${r.tail}`), ['requisito 1 ✓ com 2 prints', 'requisito 2 ✓ sem print', 'requisito 3 ✗ falta', 'requisito 4 · ainda sem prova']);
-  const ov = cut(canvas, 'function cvReqOverlayPaint', 'function cvReqOverlayTick');
-  assert.match(ov, /<b>requisito \$\{r\.n\}<\/b> \$\{r\.mark\} \$\{esc\(r\.tail\)\}/);
-  assert.match(ov, /if\(ov\.__html!==html\)/, 'só repinta quando muda'); assert.match(ov, /data-cvov="close"/, 'recolhível');
-  assert.match(canvas, /if\(typeof cvReqOverlayTick==='function'\) cvReqOverlayTick\(\);/, 'ao vivo pelo tique que já existe');
-});
-
-test('ações de prova: SEMPRE da demanda dona do painel, só no clique; prova = artefato; requisito pelo caminho de sempre', () => {
   const act = cut(canvas, 'async function cvProofAct', "document.addEventListener('click', (e)=>{ const b=e.target.closest&&e.target.closest('[data-cvproof]')");
-  assert.match(act, /tid=cvPaneTask\(tab, fwTask\)/, 'site sem demanda → casa; outra demanda → ela');
-  assert.match(act, /dest:'artifact'/); assert.match(act, /invoke\('browser_snapshot'/);
-  assert.match(act, /invoke\('talk_task',\{ taskId:tid, message:String\(v\)\.trim\(\), asReq:true, agent:null \}\)/);
-  assert.match(act, /await fwSendText\(tid, text\)/);
-  assert.match(act, /if\(note===null\) return;/, 'cancelar não manda nada');
+  assert.match(act, /dest:'artifact'/); assert.match(act, /await fwSendText\(tid, text\)/); assert.match(act, /if\(note===null\) return;/);
   assert.ok(!/setInterval|setTimeout/.test(act), 'nada automático');
+});
+
+test('Prévia: requisitos por cima do app — "requisito 3 ✓ com print" / "falta" / "ainda sem prova", recolhível', () => {
+  const rows = PROOF.cvReqOverlayRows([
+    { text: 'botão remarcar', st: 'ok', evidence: ['browser-1.png', 'browser-2.png'] }, { text: 'horário livre', st: 'ok', evidence: ['tests/x.test.ts'] },
+    { text: 'modo escuro', st: 'blk', evidence: [] }, { text: 'aviso', st: 'na', evidence: [] }]);
+  assert.deepEqual(rows.map((r) => `requisito ${r.n} ${r.mark} ${r.tail}`), ['requisito 1 ✓ com 2 prints', 'requisito 2 ✓ sem print', 'requisito 3 ✗ falta', 'requisito 4 · ainda sem prova']);
+  const ov = cut(canvas, 'function cvReqOverlayPaint', '\n}\n');
+  assert.match(ov, /if\(ov\.__html!==html\)/, 'só repinta quando muda'); assert.match(ov, /data-cvov="close"/);
+  assert.match(read('js/57-navegador.js'), /if\(typeof cvReqOverlayPaint==='function'\) cvReqOverlayPaint\(t\.id\); \}/, 'pintado junto com a Prévia');
+  assert.match(ws, /if\(fwMode==='previa' && typeof cvReqOverlayPaint==='function'\) cvReqOverlayPaint\(t\.id\);/, 'ao vivo pelo tique que já existe');
 });

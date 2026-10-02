@@ -37,53 +37,39 @@
 .apppane{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0}
 .apppane .nvhost{display:flex;flex-direction:column;flex:1;min-height:0}
 
-/* ---------- Canvas (F2): até 3 colunas fixas, abas tipadas ---------- */
-.cvcanvas{flex:1;display:flex;min-width:0;min-height:0;background:var(--bg);gap:0}
-.cvpark{display:none!important}
-.cvcol{display:flex;flex-direction:column;min-width:240px;min-height:0;background:var(--surface);position:relative;border-left:1px solid var(--border)}
-.cvcol:first-child{border-left:0}
-.cvcanvas[data-n="1"] .cvcol{border-left:0}
-.cvcol.focus .cvbar{box-shadow:inset 0 2px 0 var(--accent-line)}
-.cvsplit{flex:none;width:5px;margin:0 -3px;cursor:col-resize;z-index:3;position:relative}
-.cvsplit:hover,.cvsplit:active{background:var(--accent-line)}
-.cvbar{display:flex;align-items:stretch;min-height:34px;border-bottom:1px solid var(--border);background:var(--surface-2);flex:none}
-.cvtabs{display:flex;align-items:stretch;min-width:0;overflow-x:auto;scrollbar-width:none;flex:0 1 auto}
-.cvtabs::-webkit-scrollbar{display:none}
-.cvtab{display:flex;align-items:center;gap:6px;padding:0 6px 0 11px;font-size:12px;color:var(--muted);border-right:1px solid var(--border);cursor:pointer;white-space:nowrap;max-width:220px;user-select:none;position:relative}
-.cvtab:hover{color:var(--text);background:var(--surface-3)}
-.cvtab.on{color:var(--text);background:var(--surface);font-weight:600}
-.cvtab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:var(--surface)}
-.cvtl{overflow:hidden;text-overflow:ellipsis;min-width:0}
-.cvtic{flex:none;width:14px;text-align:center;font-size:11px;opacity:.8}
-.cvtdot,.cvdot{flex:none;width:8px;height:8px;border-radius:50%;display:inline-block}
-.cvtx{flex:none;border:0;background:transparent;color:var(--muted);width:18px;height:18px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;opacity:0;padding:0}
-.cvtab:hover .cvtx,.cvtab.on .cvtx{opacity:1}
-.cvtx:focus-visible{opacity:1;outline:2px solid transparent;box-shadow:var(--ring)}
-.cvtx:hover{background:var(--surface-3);color:var(--text)}
-.cvplus{flex:none;border:0;background:transparent;color:var(--muted);font-size:17px;width:34px;cursor:pointer}
-.cvplus:hover{color:var(--accent);background:var(--surface-3)}
-.cvhead{display:flex;align-items:center;gap:7px;padding:5px 11px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--border);flex:none;min-width:0}
-.cvhn{color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:45%}
-.cvht{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cvhsp{flex:1}
-.cvbody{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;position:relative;overflow:hidden}
-.cvbody>*{flex:1;min-height:0;min-width:0}
-.cvbody>.fwchat{border-left:0}
-.cvbody>#fwCols{display:grid;grid-template-columns:256px 1fr}
-.cvbody>#fwCols.notree{grid-template-columns:1fr}
-.cvbody>.cvhost,.cvbody>.cvpane{overflow:auto;display:flex;flex-direction:column}
-.cvbody>.fwdev{width:auto;border-left:0}
-.cvbody .fwdev .dvresize,.cvbody .fwdev #dvExpand,.cvbody .fwdev #dvPop2{display:none}
-.cvbody>#cvHostEntrega{display:block}
-/* soltar: onde a aba vai cair */
-.cvdrop{position:absolute;z-index:5;pointer-events:none;border:2px dashed var(--accent);background:color-mix(in srgb,var(--accent) 22%,color-mix(in srgb,var(--surface) 70%,transparent));backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px);border-radius:10px;display:flex;align-items:center;justify-content:center;text-align:center;padding:10px}
-.cvdrop span{background:var(--surface);color:var(--text);font-size:12.5px;font-weight:600;padding:7px 12px;border-radius:999px;border:1px solid var(--accent-line);box-shadow:0 6px 20px rgba(0,0,0,.35)}
-.cvdrop[hidden]{display:none}
-.cvdrop.center,.cvdrop.center-full{inset:40px 8px 8px 8px}
-.cvdrop.left{top:40px;bottom:8px;left:8px;width:38%}
-.cvdrop.right{top:40px;bottom:8px;right:8px;width:38%}
-.cvdragging iframe{pointer-events:none}
-.cvdragging .cvtab.on{opacity:.75}
+/* botão com cara de link (ver detalhes, reiniciar, parar…) */
+button.lnk{border:0;background:none;font:inherit;padding:0}
+.envalt .lnk,.envacts .lnk{font-size:12px}
+
+/* ---------- CANVAS NO TOPO (pivot): abas Navegador/Simulador/Documento e a TELA DIVIDIDA ---------- */
+.overlay.cvsplit.astab{display:flex!important;flex-direction:column}
+.cvrow{flex:1;display:flex;min-height:0;min-width:0;background:var(--bg)}
+.cvpane{flex:1 1 0;min-width:260px;min-height:0;display:flex;flex-direction:column;background:var(--surface);position:relative}
+.cvpane.split{border-left:1px solid var(--border)}
+.cvpane.split:first-child{border-left:0}
+.cvpane.split.focus>.cvph{box-shadow:inset 0 -2px 0 var(--accent-line)}
+.cvph{display:flex;align-items:center;gap:7px;padding:0 6px 0 11px;min-height:30px;font-size:11.5px;color:var(--muted);border-bottom:1px solid var(--border);background:var(--surface-2);flex:none;min-width:0}
+.cvph:empty{display:none}
+.cvphn{color:var(--text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cvphk{white-space:nowrap}
+.cvphx{flex:none;border:0;background:transparent;color:var(--muted);width:24px;height:24px;border-radius:6px;cursor:pointer;font-size:15px;line-height:1}
+.cvphx:hover{background:var(--surface-3);color:var(--text)}
+.cvpb{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;position:relative;overflow:hidden;container-type:inline-size}
+.cvpb>*{flex:1;min-height:0;min-width:0}
+.cvrealm{flex:1;width:100%;height:100%;border:0;background:var(--bg);display:block}
+.cvsplitter{flex:none;width:5px;margin:0 -3px;cursor:col-resize;z-index:3;position:relative}
+.cvsplitter:hover,.cvsplitter:active{background:var(--accent-line)}
+.cvdot,.cvtdot{flex:none;width:8px;height:8px;border-radius:50%;display:inline-block}
+/* aba que está na tela dividida: marquinha no canto */
+.tab.insplit::before{content:"";position:absolute;left:5px;top:5px;width:5px;height:5px;border-radius:2px;background:var(--accent);opacity:.9}
+/* arrastar uma aba pra metade da tela: onde ela vai cair */
+.cvdropzone{position:fixed;left:var(--rail-w,250px);right:0;top:var(--chrome-h,96px);bottom:0;z-index:120;display:flex;gap:10px;padding:12px;pointer-events:auto}
+.cvdropzone[hidden]{display:none}
+.cvdz{flex:1;border:2px dashed transparent;border-radius:14px;display:flex;align-items:center;justify-content:center;transition:background .12s,border-color .12s}
+.cvdz span{opacity:0;background:var(--surface);color:var(--text);font-size:13px;font-weight:600;padding:8px 14px;border-radius:999px;border:1px solid var(--accent-line);box-shadow:0 6px 20px rgba(0,0,0,.35)}
+.cvdropzone.l .cvdz.l,.cvdropzone.r .cvdz.r{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.cvdropzone.l .cvdz.l span,.cvdropzone.r .cvdz.r span{opacity:1}
+html.cvdragging iframe{pointer-events:none}
 /* vazio que sempre diz o que dá pra fazer */
 .cvempty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:28px;text-align:center;color:var(--muted);font-size:13px;line-height:1.5;flex:1}
 .cvempty b{color:var(--text);font-size:14.5px}
@@ -94,21 +80,7 @@
 .cvcard b{display:block;font-size:12.5px;word-break:break-all}
 .cvcard .dim{font-size:11px}
 .cvcic{flex:none;font-size:9.5px;font-weight:700;letter-spacing:.04em;padding:3px 5px;border-radius:4px;background:var(--surface-3);color:var(--muted)}
-/* Mudanças: arquivos + diff */
-.cvdiff{display:grid;grid-template-columns:minmax(150px,220px) 1fr;flex:1;min-height:0}
-.cvdifffiles{border-right:1px solid var(--border);overflow:auto;padding:6px;background:var(--surface-2)}
-.cvdf{display:flex;justify-content:space-between;gap:8px;width:100%;border:0;background:transparent;color:var(--text);font:inherit;font-size:12px;padding:5px 7px;border-radius:6px;cursor:pointer;text-align:left}
-.cvdf.on,.cvdf:hover{background:var(--surface-3)}
-.cvdfn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.cvdfa{flex:none;font-size:11px;color:var(--good)}
-.cvdiffmain{min-height:0;overflow:auto}
-/* Documento */
-.cvdoc{display:flex;flex-direction:column;flex:1;min-height:0}
-.cvdocbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;flex:none;min-width:0}
-.cvdocn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
-.cvdocbody{flex:1;min-height:0;overflow:auto}
-.cvdocbody .pvpdf,.cvdocbody .pvhtml{width:100%;height:100%;min-height:400px;border:0}
-/* Site qualquer */
+/* Navegador */
 .cvsite{display:flex;flex-direction:column;flex:1;min-height:0}
 .cvsitebar{display:flex;align-items:center;gap:6px;padding:6px 10px;border-bottom:1px solid var(--border);flex:none;font-size:12px;min-width:0}
 .cvsitehost{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;color:var(--muted)}
@@ -116,81 +88,52 @@
 .cvsitestage:has(.cvempty){background:var(--surface-2)}
 .cvsiteframe{flex:1;border:0;width:100%;height:100%;background:#fff}
 .cvsitefoot{flex:none;padding:4px 10px;font-size:11px;color:var(--muted);border-top:1px solid var(--border)}
-/* Detalhes do ambiente */
-.cvlog{display:flex;flex-direction:column;flex:1;min-height:0}
-.cvlogbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;flex:none}
-.cvlogpre{flex:1;max-height:none;margin:0}
-/* menu "+" / ⌘K (dropdown, não modal) */
-.cvmenu{position:fixed;z-index:60;width:340px;max-height:min(560px,80vh);overflow:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;box-shadow:var(--shadow-lg,0 12px 40px rgba(0,0,0,.45));padding:6px;display:flex;flex-direction:column;gap:2px}
-.cvmq{margin:2px 2px 6px;font-size:13px}
+.cvvid{gap:12px}
+.cvvidth{position:relative;border:0;padding:0;border-radius:12px;overflow:hidden;cursor:pointer;width:min(420px,100%);aspect-ratio:16/9;background:#000;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.cvvidth img{width:100%;height:100%;object-fit:cover;display:block}
+.cvvidplay{position:absolute;inset:0;margin:auto;width:64px;height:44px;border-radius:12px;background:#e11;color:#fff;display:grid;place-items:center;font-size:18px}
+/* Simulador numa aba */
+.cvpb>.fwdev.cvdev{width:auto;border-left:0;flex:1}
+.cvpb .cvdev .dvresize,.cvpb .cvdev #dvExpand,.cvpb .cvdev #dvPop2,.cvpb .cvdev #dvClose{display:none}
+.cvdevnone[hidden]{display:none}
+/* Documento */
+.cvdoc{display:flex;flex-direction:column;flex:1;min-height:0}
+.cvdocbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12px;flex:none;min-width:0}
+.cvdocn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cvdocsub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cvdocbody{flex:1;min-height:0;overflow:auto}
+.cvdocbody .pvpdf,.cvdocbody .pvhtml{width:100%;height:100%;min-height:400px;border:0}
+/* menu "+" do topo / botão direito (dropdown, não modal) */
+.cvmenu{position:fixed;z-index:130;width:340px;max-height:min(560px,80vh);overflow:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.45);padding:6px;display:flex;flex-direction:column;gap:2px}
+.cvmenu.cvctx{width:270px}
 .cvml{display:flex;flex-direction:column;gap:1px}
 .cvmi{display:flex;align-items:center;gap:10px;text-align:left;border:0;background:transparent;color:var(--text);font:inherit;padding:7px 9px;border-radius:8px;cursor:pointer}
 .cvmi:hover{background:var(--surface-3)}
 .cvmi:focus-visible{background:var(--surface-3);outline:2px solid transparent;box-shadow:var(--ring-inset)}
-.cvmi.off{opacity:.5;cursor:default}
-.cvmi[hidden]{display:none}
 .cvmic{flex:none;width:22px;height:22px;border-radius:6px;background:var(--surface-3);display:grid;place-items:center;font-size:12px;color:var(--muted)}
 .cvmt{flex:1;min-width:0;display:flex;flex-direction:column}
 .cvmt b{font-size:13px;font-weight:600}
 .cvmt span{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cvmch{color:var(--muted)}
 .cvmsub{display:flex;align-items:center;gap:10px;padding:4px 6px 8px;font-size:12.5px}
-.cvmfoot{display:flex;gap:14px;padding:8px 9px 4px;border-top:1px solid var(--border);margin-top:4px;font-size:12px}
+.cvmfoot{padding:8px 9px 4px;border-top:1px solid var(--border);margin-top:4px;font-size:11.5px}
 .cvsiteask{display:flex;gap:6px;padding:2px 4px}
 .cvsiteask .in{flex:1;min-width:0;font-size:12.5px}
 .cvmhint{font-size:11.5px;padding:6px 6px 2px}
-.cvtool{display:inline-flex;gap:2px}
-@media (max-width:1100px){ .cvcol{min-width:220px} .cvbody>#fwCols{grid-template-columns:200px 1fr} .cvdiff{grid-template-columns:150px 1fr} }
-/* botão com cara de link (ver detalhes, reiniciar, parar, voltar…) */
-button.lnk{border:0;background:none;font:inherit;padding:0}
-.cvmfoot .lnk,.cvmsub .lnk,.envalt .lnk,.envacts .lnk{font-size:12px}
-/* painel estreito (3 colunas): cada painel se ajusta à PRÓPRIA largura (container query, não à janela) */
-.cvbody{container-type:inline-size}
-@container (max-width:560px){
-  .cvdiff{grid-template-columns:1fr;grid-template-rows:auto 1fr}
-  .cvdifffiles{display:flex;flex-wrap:wrap;gap:4px;border-right:0;border-bottom:1px solid var(--border);max-height:96px}
-  .cvdf{width:auto;max-width:100%}
-  .nvvp,.nvbar [data-nv="fwd"]{display:none}
-  .nvbar{gap:4px;padding:6px}
-}
-@container (max-width:420px){ .nvpick{padding-left:6px;padding-right:6px} .envbig{padding:14px} .envbigic{width:36px;height:36px} }
-/* ---------- F3: outra demanda lado a lado ---------- */
-.cvdem{display:flex;flex-direction:column;flex:1;min-height:0;border-top:3px solid var(--tc)}
-.cvdembody{flex:1;min-height:0;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:6px}
-.cvdemh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.cvdemask{font-size:11px;color:var(--st-ask,var(--warn));font-weight:600}
-.cvdemobj{margin:2px 0 6px;color:var(--muted);font-size:12.5px;line-height:1.5}
-.cvdemnone{font-size:12px;padding:2px 0}
-.cvreq{display:flex;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px}
-.cvreq .reqst{flex:none;margin-top:1px}
-.cvreqt{flex:1;min-width:0}
-.cvreqn{display:inline-grid;place-items:center;min-width:16px;height:16px;border-radius:4px;background:var(--surface-3);font-size:10px;color:var(--muted);margin-right:2px}
-.cvths{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
-.cvth{width:84px;height:54px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:zoom-in;background:var(--surface-3)}
-.cvth.ph{display:grid;place-items:center;font-size:10px;color:var(--muted);cursor:default}
-.cvdemmsg{font-size:12.5px;line-height:1.5;padding:6px 8px;border-radius:8px;background:var(--surface-2);overflow:hidden}
-.cvdemmsg.you{background:color-mix(in srgb,var(--accent) 10%,var(--surface-2))}
-.cvdemmsg>b{font-size:11px;color:var(--muted);margin-right:4px}
-.cvdemmsg p{margin:0}
-.cvdemsend{flex:none;border-top:1px solid var(--border);padding:8px 10px;display:flex;flex-direction:column;gap:6px;background:var(--surface-2)}
-.cvdemto{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
-.cvdemto b{color:var(--text)}
-.cvdemrow{display:flex;gap:6px;align-items:flex-end}
-.cvdemrow .in{flex:1;min-width:0;resize:vertical;font-size:12.5px}
-/* ---------- F4: provas em todo painel + requisitos por cima do Meu app ---------- */
+/* provas (Navegador/Documento) */
 .cvproofs{display:inline-flex;gap:2px;flex:none}
-.cvpb{display:inline-flex;align-items:center;gap:4px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:3px 6px;border-radius:6px;cursor:pointer;white-space:nowrap}
-.cvpb svg{width:13px;height:13px;flex:none}
-.cvpb:hover{background:var(--surface-3);color:var(--text)}
-.cvpb:disabled{opacity:.5;cursor:default}
-@container (max-width:620px){ .cvpb span{display:none} }
-.cvhead{container-type:inline-size}
-.cvask{position:fixed;z-index:70;width:320px;background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.45);padding:10px;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+.cvpf{display:inline-flex;align-items:center;gap:4px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:3px 6px;border-radius:6px;cursor:pointer;white-space:nowrap;flex:none}
+.cvpf svg{width:13px;height:13px;flex:none}
+.cvpf:hover{background:var(--surface-3);color:var(--text)}
+.cvpf:disabled{opacity:.5;cursor:default}
+@container (max-width:640px){ .cvpf span{display:none} .cvdocsub{display:none} }
+.cvask{position:fixed;z-index:140;width:320px;background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.45);padding:10px;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
 .cvask .in{resize:vertical;font-size:12.5px}
 .cvaskr{display:flex;justify-content:flex-end;gap:6px}
+/* requisitos por cima da Prévia */
 .apppane{position:relative}
 .cvreqov{position:absolute;left:12px;bottom:12px;z-index:4;width:min(340px,calc(100% - 24px));max-height:46%;overflow:auto;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.4);padding:8px 10px;font-size:12px}
-.cvreqov.closed{width:auto;padding:0;background:transparent;border:0;box-shadow:none;overflow:visible}
+.cvreqov.closed{width:auto;padding:0;background:transparent;border:0;box-shadow:none;overflow:visible;backdrop-filter:none;-webkit-backdrop-filter:none}
 .cvovh{display:flex;align-items:center;gap:8px;padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:4px}
 .cvovx{border:0;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;width:22px;height:22px;border-radius:6px}
 .cvovx:hover{background:var(--surface-3);color:var(--text)}
@@ -203,3 +146,10 @@ button.lnk{border:0;background:none;font:inherit;padding:0}
 .cvovtx{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cvovsh{flex:none;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font:inherit;font-size:11px;padding:2px 8px;border-radius:999px;cursor:pointer}
 .cvovpill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:inherit;font-size:12px;font-weight:600;padding:5px 10px 5px 6px;border-radius:999px;box-shadow:0 6px 18px rgba(0,0,0,.35);cursor:pointer}
+/* ---------- PAINEL da tela dividida (o app num iframe): só a demanda, sem barra lateral nem abas ---------- */
+html.sfpane{--rail-w:0px!important;--chrome-h:0px!important}
+html.sfpane .sidebar,html.sfpane #tabBar,html.sfpane .body{display:none!important}
+html.sfpane .overlay.astab{left:0!important;top:0!important}
+html.sfpane .appmain{margin-left:0!important}
+/* documento aberto do lado: dá pra selecionar um trecho (e mandar pro agente / virar requisito) */
+.cvdocbody{-webkit-user-select:text;user-select:text;cursor:auto}

@@ -437,28 +437,38 @@ const prevEvTop={};
 const costWarned=new Set();
 async function refresh(){
   let snap;
-  try{ snap = await Promise.race([ invoke("snapshot"), new Promise((_,rej)=>setTimeout(()=>rej(new Error('snapshot demorou >8s')), 8000)) ]); }
+  // painel da tela dividida: usa o snapshot que a janela principal JÁ leu (cópia rasa — nada de IPC nem de 0,5 MB a
+  // mais por painel); notificações, teto de custo e sincronias ficam só com a janela principal
+  if(typeof SF_PANE!=='undefined' && SF_PANE){ try{ if(window.parent.state && window.parent.state.tasks) snap=Object.assign({}, window.parent.state); }catch(_){ } }
+  if(!snap) try{ snap = await Promise.race([ invoke("snapshot"), new Promise((_,rej)=>setTimeout(()=>rej(new Error('snapshot demorou >8s')), 8000)) ]); }
   catch(e){ if(/demorou/.test(String(e&&e.message))){ console.error('refresh: snapshot', e); __diagLog('[preso] snapshot sem resposta · em voo ('+__inflight.size+'): '+__inflightTx()); }
     if(typeof ldBootFail==='function') ldBootFail(e, ()=>refresh()); // boot sem snapshot: erro com "tentar de novo", não esqueleto eterno
     return; }
   // pergunta do teto de custo = pendência sintética; entra ANTES do detectNotifs (vira "Precisa de você")
+  const pane=(typeof SF_PANE!=='undefined' && SF_PANE);
+  if(!pane){
   if(typeof budgetInject==='function') try{ budgetInject(snap); }catch(e){ tickErr('budgetInject', e); }
   evNormAll(snap&&snap.events); // R7: histórico antigo com emoji no prefixo → formato novo
   detectNotifs(snap);
+  }
   const prevGraph = state.graph, prevCfg = state.config, prevRepo = state.repo;
   state = snap;
+  if(!pane){
   if(typeof nvSweep==='function') try{ nvSweep(snap); }catch(e){ tickErr('nvSweep', e); } // Prévia: tarefa acabou → proxy dela morre (57-navegador)
   if(typeof envSweep==='function') try{ envSweep(snap); }catch(e){ tickErr('envSweep', e); } // "Subir ambiente": tarefa acabou → o site dela para (58-ambiente)
   if(typeof memLearnTick==='function') memLearnTick(snap); // selo dos aprendizados pra revisar (só lê a fila quando muda)
+  }
   // R5-5: o snapshot não traz o catálogo (config) — antes cada refresh o apagava e as cores dos agentes caíam no hash
   if(prevCfg && !state.config && prevRepo===snap.repo) state.config = prevCfg;
   connected = !!snap.repo;
-  if(typeof budgetWatch==='function') try{ budgetWatch(); }catch(e){ tickErr('budgetWatch', e); }
+  if(!pane && typeof budgetWatch==='function') try{ budgetWatch(); }catch(e){ tickErr('budgetWatch', e); }
   if(typeof protectLoad==='function' && !protectLoaded) protectLoad();
   gitUiSync(); // pasta sem git: esconde Grafo e o que depende de branch
   if(typeof noProjSync==='function') noProjSync(); // sem projeto: apaga Skills/Issues/Agentes/Chat/Daily (36-comecar)
+  if(!pane){
   loadAllTasks(); // atualiza o cache multi-projeto (não bloqueia)
   if(typeof trkSyncTasks==='function') trkSyncTasks(); // painel de issues: status da issue acompanha a tarefa
+  }
   // git log é caro: só recomputa o grafo quando a aba Grafo está aberta.
   if(curView()==="graph"){ try{ state.graph = await invoke("graph"); }catch(e){ state.graph = prevGraph || []; } }
   else state.graph = prevGraph || [];
@@ -482,7 +492,7 @@ async function refresh(){
   // overlay grande aberto (workspace/planner/modais) cobre o app inteiro:
   // não re-renderiza o fundo a cada segundo — só o que está visível. Isso era
   // uma das causas da digitação travada.
-  const bigOverlay=['fwOverlay','plannerOverlay','ntOverlay','agOverlay','artOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
+  const bigOverlay=['fwOverlay','cvSplit','plannerOverlay','ntOverlay','agOverlay','artOverlay','cloudOverlay','ctOverlay','envOverlay','cfgOverlay','obOverlay','bdOverlay','dailyOverlay','pcOverlay','txOverlay','skOverlay']
     .some(id=>{ const el=$id(id); return el && el.style.display && el.style.display!=='none'; });
   if(bigOverlay){
     lastSig='';                                   // ao fechar, força um render completo
@@ -490,6 +500,7 @@ async function refresh(){
     if(typeof renderRail==='function') safe(renderRail);
     const fw=$id('fwOverlay');
     if(fw && fw.style.display!=='none' && fwTask){ try{ fwLiveUpdate(); }catch(_){} }
+    if(typeof cvPanesTick==='function') try{ cvPanesTick(); }catch(e){ tickErr('cvPanesTick', e); } // tela dividida: os painéis acompanham
     return;
   }
   const sig = snapSig();

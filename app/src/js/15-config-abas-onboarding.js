@@ -222,6 +222,10 @@ const VIEW_META={
   form:{title:'Formulário',icon:'<path d="M4 2.5h6L12.5 5v8.5H4z" stroke-linejoin="round"/><path d="M5.8 6.5h4.4M5.8 8.5h4.4M5.8 10.5h2.6"/>'},
   prefs:{title:'Preferências do projeto',icon:'<path d="M3 4.5h10M3 8h10M3 11.5h10"/><circle cx="6" cy="4.5" r="1.3" fill="currentColor"/><circle cx="10.5" cy="8" r="1.3" fill="currentColor"/><circle cx="5" cy="11.5" r="1.3" fill="currentColor"/>'},
   task:{title:'Tarefa',icon:'<circle cx="8" cy="8" r="5.2"/><path d="M8 5.4v3l1.9 1"/>'},
+  // canvas no topo (58-canvas): abas que abrem pelo "+" e podem ir pra tela dividida
+  web:{title:'Navegador',icon:'<circle cx="8" cy="8" r="5.6"/><path d="M2.6 8h10.8M8 2.4c1.6 1.6 2.4 3.5 2.4 5.6S9.6 12 8 13.6M8 2.4C6.4 4 5.6 5.9 5.6 8s.8 4 2.4 5.6"/>'},
+  device:{title:'Simulador',icon:'<rect x="4.6" y="1.8" width="6.8" height="12.4" rx="1.6"/><path d="M7 12.3h2" stroke-linecap="round"/>'},
+  doc:{title:'Documento',icon:'<path d="M4 2.5h5.2L12 5.3v8.2H4z" stroke-linejoin="round"/><path d="M9 2.6v2.8h2.9M6 8h4M6 10.3h4" stroke-linecap="round"/>'},
   cttask:{title:'Entrega do time',icon:'<circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.2 8.2l1.6 1.6 2.4-2.8"/>'},
   skills:{title:'Skills',icon:'<rect x="2.4" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="9.1" y="2.4" width="4.5" height="4.5" rx="1"/><rect x="2.4" y="9.1" width="4.5" height="4.5" rx="1"/><path d="M11.35 9.3v4.1M9.3 11.35h4.1"/>'},
   issues:{title:'Issues',icon:'<circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/>'},
@@ -239,7 +243,7 @@ const VIEW_META={
   pilotorun:{title:'Progresso do piloto',icon:'<path d="M2.5 13.5h11"/><path d="M3.5 10.5l3-3 2.4 2 3.6-4.5" stroke-linecap="round" stroke-linejoin="round"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ memoria:'memOverlay', mesa:'mesaOverlay', orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', cttask:'ctPageOverlay', epic:'epicOverlay', uso:'usoOverlay', piloto:'pilotoOverlay', pilotorun:'pilotoRunOverlay' };
+const VIEW_OVERLAY={ memoria:'memOverlay', mesa:'mesaOverlay', orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', web:'cvSplit', device:'cvSplit', doc:'cvSplit', cttask:'ctPageOverlay', epic:'epicOverlay', uso:'usoOverlay', piloto:'pilotoOverlay', pilotorun:'pilotoRunOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // Views de INSTÂNCIA MÚLTIPLA: cada aba guarda o próprio estado (nova, planner, form, orq)
 // e o restaura ao voltar — dá pra ter duas "Montar conversando" abertas sem uma pisar na outra.
@@ -261,7 +265,10 @@ function viewOpen(kind, tab){
             form:()=>{ if(fresh||!window.ntShow) openNewTask(); else window.ntShow(); },
             skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), memoria:()=>window.openMemoria&&window.openMemoria(), mesa:()=>window.openMesa&&window.openMesa(), uso:()=>window.openUso&&window.openUso(), piloto:()=>window.openPiloto&&window.openPiloto(), pilotorun:()=>window.openPilotoRun&&window.openPilotoRun(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
+            web:()=>{ if(window.cvShowView) window.cvShowView(tab); }, device:()=>{ if(window.cvShowView) window.cvShowView(tab); }, doc:()=>{ if(window.cvShowView) window.cvShowView(tab); },
             task:()=>{ if(tabTaskId==null) return; const path=(tab&&tab.path)||null;
+              // demanda que está na TELA DIVIDIDA: a divisão inteira aparece (cada painel com o seu estado)
+              if(tab && window.cvInSplit && window.cvInSplit(tab.id)){ window.cvShowView(tab); return; }
               // aba de tarefa de OUTRO projeto (você trocou de projeto depois de abrir): volta pro projeto dela antes
               if(tab && tab.repo && state.repo && tab.repo!==state.repo && window.switchProject){
                 const tr=tab.repo, id=tab.id, tid=tabTaskId;
@@ -340,11 +347,13 @@ function closeTab(id){
   const kind=TABS[i].kind;
   // Agentes & Equipes com edição não salva: o X da aba passa pelo mesmo "descartar?" do cancelar (33 cancelAgents)
   if(kind==='agents' && typeof agDirty==='function' && agDirty() && typeof cancelAgents==='function'){ cancelAgents(); return; }
+  if(typeof cvOnTabClosed==='function') cvOnTabClosed(TABS[i]); // tela dividida: a aba sai da divisão junto
   if(kind==='task' && typeof nvOnTaskTabClose==='function') nvOnTaskTabClose(TABS[i].taskId); // Prévia: o proxy da tarefa morre com a aba
   if(kind==='task' && typeof envOnTaskTabClose==='function') envOnTaskTabClose(TABS[i].taskId); // "Subir ambiente": o site da demanda morre com a aba
   TABS.splice(i,1);
   // esconde o overlay do kind se nenhuma OUTRA aba do mesmo kind sobrou
-  if(!TABS.some(t=>t.kind===kind)){ const o=$id(VIEW_OVERLAY[kind]); if(o){ o.classList.remove('astab'); o.style.display='none'; } }
+  // (overlay compartilhado — a tela dividida serve Navegador/Simulador/Documento e as demandas divididas — só some sem ninguém usando)
+  { const ov=VIEW_OVERLAY[kind]; if(!TABS.some(t=>VIEW_OVERLAY[t.kind]===ov) && !(ov==='cvSplit' && typeof cvSplitShowing==='function' && cvSplitShowing())){ const o=$id(ov); if(o){ o.classList.remove('astab'); o.style.display='none'; } } }
   // fechou uma aba de FUNDO: a ativa continua como está (showActiveView restaurava nela o estado velho
   // guardado ao sair — ex.: o "Montar conversando" ativo perdia as mensagens mais recentes)
   if(activeTab!==id){ renderTabs(); return; }
@@ -384,7 +393,8 @@ function closeTabOfKind(kind){ const cur=tabById(activeTab); const t=(cur&&cur.k
 window.closeTabOfKind=closeTabOfKind;
 function showActiveView(){
   const t=tabById(activeTab)||TABS[0];
-  const target=t.kind==='flow'?null:VIEW_OVERLAY[t.kind];
+  // tela dividida (58-canvas): uma demanda que está nela mostra a divisão (cvSplit), não a tela da demanda sozinha
+  const target=t.kind==='flow'?null:((typeof cvViewTarget==='function' && cvViewTarget(t)) || VIEW_OVERLAY[t.kind]);
   // esconde as OUTRAS telas; a do destino fica como está (esconder e mostrar a mesma = piscada)
   Object.keys(VIEW_OVERLAY).forEach(k=>{ const id=VIEW_OVERLAY[k]; if(id===target) return; const o=$id(id); if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
   if(t.kind==='flow') return; // o quadro (.body) já aparece
@@ -417,22 +427,25 @@ function renderTabs(){
     // R7: aba pelo teclado (role=tab, Tab chega, Enter abre, ←/→ passa, Delete/Backspace fecha), título inteiro no
     // tooltip (o texto corta em 28) e arrastável pra reordenar (a Central fica fixa na frente). O X é só pro mouse
     // (aria-hidden: controle dentro de role=tab não é permitido) — pelo teclado fecha com Delete.
-    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true" aria-keyshortcuts="Delete"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" aria-hidden="true" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
-  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" role="button" tabindex="0" aria-label="nova demanda" aria-keyshortcuts="Meta+N Control+N" title="nova demanda — sempre abre uma aba nova (⌘N)&#10;? ou ⌘/ abre o painel de atalhos&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
+    const sp=(typeof cvInSplit==='function' && cvInSplit(t.id)) ? ' insplit' : '';
+    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}${sp}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true" aria-keyshortcuts="Delete"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" aria-hidden="true" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
+  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" role="button" tabindex="0" aria-haspopup="menu" aria-label="abrir: nova demanda, demanda, navegador, simulador ou documento" aria-keyshortcuts="Meta+N Control+N" title="abrir — nova demanda (⌘N), outra demanda, navegador, simulador ou documento&#10;arraste uma aba pra metade da tela pra dividir (⌘\\)&#10;? ou ⌘/ abre o painel de atalhos&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
   bar.querySelectorAll('[data-tk]').forEach(el=>{
     el.onclick=async e=>{ if(e.target.closest('[data-xk]')) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); };
     // botão do meio fecha a aba (como no navegador)
     // (mousedown do meio: sem isso o Windows/Linux liga o autoscroll ou cola a seleção)
     el.addEventListener('mousedown', e=>{ if(e.button===1) e.preventDefault(); });
     el.addEventListener('auxclick', e=>{ if(e.button!==1) return; e.preventDefault(); tabCloseGuarded(el.dataset.tk); });
+    // botão direito: dividir à direita/esquerda, tirar da divisão (58-canvas)
+    el.addEventListener('contextmenu', e=>{ if(typeof cvTabMenu!=='function') return; e.preventDefault(); cvTabMenu(el.dataset.tk, el, e); });
     el.onkeydown=e=>{
       if(e.key==='Enter'||e.key===' '){ e.preventDefault(); el.click(); }
       else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); tabCloseGuarded(el.dataset.tk).then(ok=>{ if(ok){ const n=bar.querySelector('.tab.on'); if(n) n.focus(); } }); }
       else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){ e.preventDefault(); const l=[...bar.querySelectorAll('[data-tk]')], i=l.indexOf(el); const n=l[(i+(e.key==='ArrowRight'?1:-1)+l.length)%l.length]; if(n) n.focus(); }
     };
     if(el.getAttribute('draggable')==='true'){
-      el.addEventListener('dragstart', e=>{ tabDragId=el.dataset.tk; el.classList.add('dragging'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', tabDragId); }catch(_){ } });
-      el.addEventListener('dragend', ()=>{ tabDragId=null; el.classList.remove('dragging'); bar.querySelectorAll('.tab.dropto,.tab.dropafter').forEach(x=>x.classList.remove('dropto','dropafter')); });
+      el.addEventListener('dragstart', e=>{ tabDragId=el.dataset.tk; el.classList.add('dragging'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', tabDragId); }catch(_){ } if(typeof cvTabDragStart==='function') cvTabDragStart(tabDragId); });
+      el.addEventListener('dragend', ()=>{ tabDragId=null; el.classList.remove('dragging'); bar.querySelectorAll('.tab.dropto,.tab.dropafter').forEach(x=>x.classList.remove('dropto','dropafter')); if(typeof cvTabDragEnd==='function') cvTabDragEnd(); });
     }
     // marca o lado certo: arrastando pra direita (ou sobre a fixa) entra DEPOIS do alvo
     el.addEventListener('dragover', e=>{ if(!tabDragId || tabDragId===el.dataset.tk) return; e.preventDefault(); const after=tabDropAfter(tabDragId, el.dataset.tk); el.classList.toggle('dropafter', after); el.classList.toggle('dropto', !after); });
@@ -441,7 +454,8 @@ function renderTabs(){
   });
   // E6 (bug #9): o X da aba perguntava nada e jogava fora a edição não salva do arquivo (só ⌘W e o botão fechar perguntavam)
   bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); tabCloseGuarded(el.dataset.xk); });
-  const add=$id('tabAdd'); if(add){ add.onclick=()=>openTab('nova'); add.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openTab('nova'); } }; } // R8 a11y: o + era um span fora do Tab
+  // "+" do topo: menu simples (Nova demanda · Abrir demanda · Navegador · Simulador · Documento) — 58-canvas; ⌘N segue direto
+  const add=$id('tabAdd'); if(add){ const go=()=>{ if(typeof cvPlusMenu==='function') cvPlusMenu(add); else openTab('nova'); }; add.onclick=go; add.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); go(); } }; } // R8 a11y: o + era um span fora do Tab
   { const m=$id('railToggleMain'); if(m) m.onclick=()=>setRailCollapsed(false); }
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
   // sem #tabRight o nó continua guardado em _updBtnNode e volta no próximo render (nunca se perde)
@@ -618,7 +632,8 @@ const SHORTCUTS=[
     [['⌘O'],'abrir pasta de projeto'],
     [['⌘B'],'recolher/mostrar a barra lateral (numa tarefa: a lista de arquivos)'],
     [['⌘W'],'fechar a aba atual'],
-    [['⌘1…⌘9'],'ir pra aba 1…8 (⌘9 = última)'],
+    [['⌘1…⌘9'],'ir pra aba 1…8 (⌘9 = última) — com a tela dividida, ⌘1…⌘3 vão pro painel 1…3'],
+    [['⌘\\'],'dividir a tela: a aba ativa + outra lado a lado (até 3)'],
     [['⌘⇧[','⌘⇧]'],'aba anterior / próxima'],
     [['Ctrl+Tab','Ctrl+⇧Tab'],'próxima / anterior aba'],
     [['←','→'],'com o foco na barra de abas: passar de aba'],
@@ -645,6 +660,9 @@ const SHORTCUTS_HELP=shortcutsHelpText(SHORTCUTS);
 document.addEventListener('keydown', async e=>{
   if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
   const k=(e.key||'').toLowerCase();
+  // tela dividida (58-canvas): ⌘\ divide, ⌘1..3 foca o painel — dentro de um painel, o atalho vai pra janela principal
+  if(typeof cvShortcut==='function' && cvShortcut(e)) return;
+  if(typeof SF_PANE!=='undefined' && SF_PANE) return; // abas são da janela principal
   if(k==='j' && !e.shiftKey){ e.preventDefault(); openTab('chat'); }
   else if(k===',' && !e.shiftKey){ e.preventDefault(); openTab('cfg'); }
   else if(k==='b' && !e.shiftKey){ e.preventDefault(); setRailCollapsed(!railIsCol()); }

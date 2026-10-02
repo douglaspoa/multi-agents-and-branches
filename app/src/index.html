@@ -491,20 +491,24 @@
       <button class="btn sm fwmore" id="fwMore" aria-label="Mais ações" title="mais ações: progresso, commit &amp; push, custo, preview no celular…"></button>
       <button class="btn sm fwclosebtn" id="fwClose" aria-label="Fechar a aba" title="fechar a aba (esc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
     </div>
-    <!-- CANVAS (58-canvas.js): até 3 colunas com abas tipadas. Os modos antigos são HOSTS que o canvas põe na coluna
-         da aba deles; fora da tela ficam estacionados (escondidos, com o estado intacto) -->
+    <!-- linha: as colunas do workspace + o painel Dispositivo DOCADO à direita (57-dispositivo.js) -->
     <div class="fwrow" id="fwRow">
-      <div class="cvcanvas" id="cvCanvas" aria-label="painéis da demanda"></div>
-      <div class="cvpark" id="cvPark" hidden>
-        <div class="fwcols cvcode" id="fwCols" data-cvhost="codigo"><div class="fwtree" id="fwTree"></div><div class="fwmain" id="fwMain"></div></div>
-        <div class="fwchat" id="fwChatCol" data-cvhost="conversa"></div>
-        <aside class="fwdev" id="fwDev" data-cvhost="dispositivo" hidden aria-label="Celular — simulador/emulador da demanda ao vivo"></aside>
+      <div class="fwcols" id="fwCols">
+        <div class="fwtree" id="fwTree"></div>
+        <div class="fwmain" id="fwMain"></div>
+        <div class="fwchat" id="fwChatCol"></div>
       </div>
+      <aside class="fwdev" id="fwDev" hidden aria-label="Dispositivo — simulador/emulador da tarefa ao vivo"></aside>
     </div>
   </div>
 </div>
 
 
+
+<!-- CANVAS NO TOPO (58-canvas.js): Navegador / Simulador / Documento abertos pelo "+" das abas, e a TELA DIVIDIDA
+     (até 3 abas lado a lado — cada demanda num painel com o próprio estado) -->
+<div class="overlay cvsplit" id="cvSplit" style="display:none" role="region" aria-label="painéis"></div>
+<div class="cvdropzone" id="cvDropZone" hidden aria-hidden="true"><div class="cvdz l" data-side="left"><span>solte aqui pra abrir à esquerda</span></div><div class="cvdz r" data-side="right"><span>solte aqui pra abrir à direita</span></div></div>
 
 <!-- lightbox das provas (prints) — setas navegam entre as evidências da demanda -->
 <div class="lbov" id="lbOverlay" style="display:none"><button class="lbx" id="lbClose" aria-label="fechar"><svg viewBox="0 0 16 16" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button><button class="lbnav lbprev" id="lbPrev" aria-label="anterior">‹</button><figure class="lbfig"><img id="lbImg" alt=""><figcaption class="lbcap" id="lbCap"></figcaption></figure><button class="lbnav lbnext" id="lbNext" aria-label="próxima">›</button></div>

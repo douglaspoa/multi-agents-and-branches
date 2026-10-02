@@ -9237,6 +9237,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             notif_mac::init(app.handle().clone());
             navegador::selftest_from_env(app.handle()); // só com STARFORK_NAV_SELFTEST (autoteste do print nativo)
+            ambiente::selftest_from_env(app.handle()); // só em build de depuração com STARFORK_CANVAS_SELFTEST (medição do canvas)
             // "Subir ambiente": derruba o que uma instância anterior (que caiu) deixou rodando
             std::thread::spawn(ambiente::sweep_boot);
             // depois do ENGINE_RESOURCE: o reparo usa o motor bundlado

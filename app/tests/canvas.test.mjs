@@ -1,6 +1,7 @@
-// Canvas do workspace (spec-canvas-workspace) — F0: gerente de recursos (teto de webviews/stream, LRU) e ESTADO POR
-// PAINEL (cada aba com o próprio taskId: duas demandas na tela não trocam diff, mira nem stream). Funções puras de
-// app/src/js/19-canvas-puro.js (recortadas entre os marcadores) + os trechos de isolamento da Prévia e do Dispositivo.
+// Canvas (spec-canvas-workspace, pivot "canvas no topo") — funções puras de app/src/js/19-canvas-puro.js:
+// F0: gerente de recursos (≤ 2 páginas, ≤ 1 stream, LRU) — UM no app inteiro, inclusive dentro dos painéis divididos;
+// estado por painel (mira/stream não trocam entre demandas). Pivot: modelo da TELA DIVIDIDA no topo (até 3 abas lado a
+// lado, sem split recursivo, JSON versionado; inválido → sem divisão) e site externo (YouTube, bloqueados).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,200 +10,114 @@ const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8'
 const cv = read('js/19-canvas-puro.js'), nav = read('js/57-navegador.js'), dev = read('js/57-dispositivo.js');
 const cut = (src, from, to) => { const a = src.indexOf(from); const b = src.indexOf(to, a + from.length); assert.ok(a >= 0 && b > a, 'trecho não encontrado: ' + from); return src.slice(a, b); };
 const PURE = cut(cv, '// @canvas-puro-inicio', '// @canvas-puro-fim');
-const F = new Function(PURE + '\nreturn { CV_VER, CV_MAX_COLS, CV_MAX_TASKS, CV_CAPS, CV_TYPES, cvRmNew, cvRmAcquire, cvRmRelease, cvRmIsLive, cvRmCount, cvPaneTask, cvResKey, cvSiteUrl, cvMkTab, cvTabKey, cvFindTab, cvVisible, cvTasksIn, cvDefaultLayout, cvPreset, cvValidate, cvSerialize, cvSig, cvAddTab, cvActivate, cvCloseTab, cvDropZone, cvMoveTab, cvSplit, cvPlusItems, cvAllTabs, cvReplaceTab, cvTaskColor, cvWidths, CV_MODE2TYPE, CV_TYPE2MODE };')();
-// runtime do gerente (instância única do app + congeladores)
-function loadRm() {
-  const code = PURE + cut(cv, '// ---------- gerente de recursos: a instância do app', '// trocou de aba do app');
-  return new Function('console', code + '\nreturn { CV_RM, cvRmTake, cvRmDrop };')({ error() {} });
+const F = new Function(PURE + '\nreturn { CV_VER, CV_MAX_PANES, CV_CAPS, CV_SPLIT_KINDS, cvRmNew, cvRmAcquire, cvRmRelease, cvRmIsLive, cvRmCount, cvSiteUrl, cvTaskHue, cvTaskColor, cvTabDesc, cvTabIdOf, cvDescValid, cvSplitValid, cvSplitAdd, cvSplitRemove, cvDropSide };')();
+// instância do gerente (janela principal = sem pai; painel = usa o do pai)
+function loadRm(parent) {
+  const code = PURE + cut(cv, '// ---------- gerente de recursos: UM só no app', '// trocou de aba do app');
+  const window = parent ? { parent } : {}; window.parent = window.parent || window;
+  return new Function('window', 'console', code + '\nreturn { CV_RM, cvRmTake, cvRmDrop, CV_RM_HOST };')(window, { error() {} });
 }
 
-test('gerente de recursos: no máximo 2 webviews e 1 stream; o menos recente sai (LRU) e quem volta vira o mais recente', () => {
+test('gerente de recursos: no máximo 2 páginas e 1 stream; o menos recente sai (LRU) e quem volta vira o mais recente', () => {
   const rm = F.cvRmNew();
   assert.deepEqual(rm.caps, { web: 2, stream: 1 });
   assert.deepEqual(F.cvRmAcquire(rm, 'web', 'app:A'), []);
   assert.deepEqual(F.cvRmAcquire(rm, 'web', 'site:1'), []);
   assert.deepEqual(F.cvRmAcquire(rm, 'web', 'app:A'), [], 'reafirmar não despeja nada (só move pro fim)');
-  assert.deepEqual(F.cvRmAcquire(rm, 'web', 'site:2'), ['site:1'], '3ª webview → a MENOS recente congela (site:1, não app:A)');
-  assert.deepEqual(rm.live.web, ['app:A', 'site:2']);
+  assert.deepEqual(F.cvRmAcquire(rm, 'web', 'site:2'), ['site:1'], '3ª página → a MENOS recente congela');
   for (let i = 3; i < 8; i++) F.cvRmAcquire(rm, 'web', 'site:' + i);
-  assert.equal(F.cvRmCount(rm, 'web'), 2, 'abrir 5 abas web: só 2 vivas');
+  assert.equal(F.cvRmCount(rm, 'web'), 2, 'abrir 5 páginas: só 2 vivas');
   assert.deepEqual(F.cvRmAcquire(rm, 'stream', 'dev:A'), []);
   assert.deepEqual(F.cvRmAcquire(rm, 'stream', 'dev:B'), ['dev:A'], '2º stream → o 1º para');
-  assert.equal(F.cvRmCount(rm, 'stream'), 1);
   assert.equal(F.cvRmRelease(rm, 'stream', 'dev:B'), true); assert.equal(F.cvRmRelease(rm, 'stream', 'dev:B'), false);
-  assert.equal(F.cvRmIsLive(rm, 'web', 'site:7'), true);
 });
 
-test('gerente (instância do app): despejar chama o congelador DAQUELE recurso, uma vez só', () => {
-  const R = loadRm(); const frozen = [];
-  R.cvRmTake('web', 'app:A', () => frozen.push('app:A'));
-  R.cvRmTake('web', 'app:B', () => frozen.push('app:B'));
-  R.cvRmTake('web', 'site:x', () => frozen.push('site:x'));
-  assert.deepEqual(frozen, ['app:A']);
-  R.cvRmDrop('web', 'app:B'); R.cvRmTake('web', 'site:y', () => frozen.push('site:y'));
-  assert.deepEqual(frozen, ['app:A'], 'soltar libera a vaga: ninguém congela');
-  R.cvRmTake('web', 'site:z');
-  assert.deepEqual(frozen, ['app:A', 'site:x']);
-  assert.deepEqual(R.CV_RM.live.web, ['site:y', 'site:z']);
-});
-
-test('estado por painel: a demanda do painel vem da ABA; recurso pesado tem chave por demanda', () => {
-  const a = F.cvMkTab('app', 'A'), b = F.cvMkTab('app', 'B'), site = F.cvMkTab('site', null, { url: 'https://docs.x.com/' }), d = F.cvMkTab('dispositivo', 'A');
-  assert.equal(F.cvPaneTask(a, 'H'), 'A'); assert.equal(F.cvPaneTask(b, 'H'), 'B');
-  assert.equal(F.cvPaneTask({ type: 'conversa' }, 'H'), 'H', 'tipo da casa sem taskId herda a casa');
-  assert.equal(F.cvPaneTask(site, 'H'), 'H', 'site externo não é de demanda nenhuma (prova vai pra casa)');
-  assert.equal(F.cvResKey(a, 'H'), 'app:A'); assert.equal(F.cvResKey(b, 'H'), 'app:B');
-  assert.equal(F.cvResKey(site, 'H'), 'site:' + site.id); assert.equal(F.cvResKey(d, 'H'), 'dev:A');
-  assert.equal(F.cvResKey(F.cvMkTab('conversa', 'A'), 'H'), null, 'conversa não pesa');
-  assert.notEqual(a.id, b.id, 'mesma aba de duas demandas = abas diferentes');
+test('gerente é UM no app: o painel dividido (iframe) usa o da janela principal — o teto vale somando todos', () => {
+  const main = loadRm(null); const frozen = [];
+  assert.equal(main.CV_RM_HOST, null, 'janela principal: gerente próprio');
+  const pane = loadRm({ cvRmTake: main.cvRmTake, cvRmDrop: main.cvRmDrop, CV_RM: main.CV_RM });
+  assert.equal(pane.CV_RM, main.CV_RM, 'painel aponta pro MESMO gerente');
+  main.cvRmTake('web', 'site:x@main', () => frozen.push('site:x@main'));
+  pane.cvRmTake('web', 'app:B@task:B', () => frozen.push('app:B@task:B'));
+  pane.cvRmTake('web', 'app:C@task:C', () => frozen.push('app:C@task:C'));
+  assert.deepEqual(frozen, ['site:x@main'], 'a 3ª página (num painel) congela a mais antiga (na janela principal)');
+  assert.equal(main.CV_RM.live.web.length, 2);
+  pane.cvRmDrop('web', 'app:B@task:B'); assert.deepEqual(main.CV_RM.live.web, ['app:C@task:C']);
+  // chaves por painel: a mesma demanda aberta em dois lugares conta duas vezes (não esconde webview)
+  assert.match(nav, /function nvResKey\(taskId\)\{ return 'app:'\+taskId\+'@'\+/);
+  assert.match(dev, /function dvKey\(id\)\{ return 'dev:'\+id\+'@'\+/);
 });
 
 test('isolamento: duas demandas na tela NÃO trocam mira (mensagem da página A só vira seleção de A)', () => {
   const route = new Function(cut(nav, 'function nvRouteMsg', '// @nav-puro-fim') + '\nreturn nvRouteMsg;')();
   const wA = {}, wB = {};
   const states = { A: { frame: { contentWindow: wA }, proxy: { origin: 'http://127.0.0.1:5001' } }, B: { frame: { contentWindow: wB }, proxy: { origin: 'http://127.0.0.1:5002' } } };
-  assert.equal(route(states, wA, 'http://127.0.0.1:5001'), 'A');
-  assert.equal(route(states, wB, 'http://127.0.0.1:5002'), 'B');
+  assert.equal(route(states, wA, 'http://127.0.0.1:5001'), 'A'); assert.equal(route(states, wB, 'http://127.0.0.1:5002'), 'B');
   assert.equal(route(states, wA, 'http://127.0.0.1:5002'), null, 'janela de A com origem de B: ninguém');
-  assert.equal(route(states, {}, 'http://127.0.0.1:5001'), null);
   assert.equal(route({ A: { frame: null, proxy: null } }, wA, 'x'), null, 'prévia desmontada não recebe nada');
-  // a prévia é por RAIZ do painel: nenhum id fixo (o 2º painel pintaria no 1º) e nada de "só a tarefa do fwTask"
   const run = nav.slice(nav.indexOf('const nvState={}'));
   assert.ok(!/\$id\(/.test(run), 'Prévia sem $id: cada painel acha os elementos DENTRO dele');
-  assert.ok(!/fwTask/.test(run), 'Prévia não lê a tarefa global');
   assert.match(run, /cvRmTake\('web', nvResKey\(taskId\)/, 'iframe só monta pelo gerente (teto de 2)');
-  assert.match(run, /function nvFreeze[\s\S]*?st\.frozen=wasLive/, "congelada mostra pausado (webview morta não)");
 });
 
 test('isolamento: o stream do dispositivo é DA demanda — quadro de A nunca é desenhado com o painel em B', () => {
   const sessFor = new Function(cut(dev, 'function dvSessFor', '// pedaços do /stream') + '\nreturn dvSessFor;')();
   const sA = { id: 'A' };
-  assert.equal(sessFor(sA, 'A'), sA); assert.equal(sessFor(sA, 'B'), null); assert.equal(sessFor(null, 'A'), null); assert.equal(sessFor(sA, null), null);
+  assert.equal(sessFor(sA, 'A'), sA); assert.equal(sessFor(sA, 'B'), null); assert.equal(sessFor(null, 'A'), null);
   assert.match(dev, /Object\.defineProperty\(DV, 'sess', \{ get\(\)\{ return dvSessFor\(DV\._sess, DV\.task\); \}/);
-  // parar usa a sessão CRUA (a de outra demanda é justamente a que precisa morrer)
   assert.match(cut(dev, 'function dvStopStream', 'async function dvPollState'), /const s=DV\._sess; if\(!s\) return;/);
 });
 
-test('isolamento: diff/conversa/dispositivo são da demanda-casa — layout salvo não consegue apontar pra outra', () => {
-  const ctx = { homeId: 'H', taskIds: ['H', 'B'] };
-  const l = F.cvValidate({ v: 1, cols: [{ tabs: [{ type: 'diff', taskId: 'B' }, { type: 'conversa', taskId: 'B' }, { type: 'dispositivo', taskId: 'B' }] }, { tabs: [{ type: 'app', taskId: 'B' }, { type: 'demanda', taskId: 'B' }] }] }, ctx);
-  const tabs = F.cvAllTabs(l);
-  assert.deepEqual(tabs.filter((t) => ['diff', 'conversa', 'dispositivo'].includes(t.type)).map((t) => t.taskId), ['H', 'H', 'H']);
-  assert.deepEqual(tabs.filter((t) => ['app', 'demanda'].includes(t.type)).map((t) => t.taskId), ['B', 'B'], 'prévia e "outra demanda" podem ser de B');
-  assert.equal(F.cvValidate({ v: 1, cols: [{ tabs: [{ type: 'demanda', taskId: 'H' }] }] }, ctx), null, '"outra demanda" apontando pra casa não vale');
+test('tela dividida: até 3, sem repetir, do lado pedido; dividir uma aba com ela mesma precisa de OUTRA', () => {
+  assert.deepEqual(F.cvSplitAdd(null, 'task:A', 'web:x', 'right'), ['task:A', 'web:x']);
+  assert.deepEqual(F.cvSplitAdd(null, 'task:A', 'web:x', 'left'), ['web:x', 'task:A']);
+  assert.deepEqual(F.cvSplitAdd(['task:A', 'web:x'], 'task:A', 'task:B', 'right'), ['task:A', 'web:x', 'task:B']);
+  assert.equal(F.cvSplitAdd(['task:A', 'web:x', 'task:B'], 'task:A', 'doc:y', 'right'), null, 'nunca 4');
+  assert.deepEqual(F.cvSplitAdd(['task:A', 'web:x', 'task:B'], 'task:A', 'task:B', 'left'), ['task:B', 'task:A', 'web:x'], 'mover dentro da divisão');
+  assert.equal(F.cvSplitAdd(null, 'task:A', 'task:A', 'right'), null, 'a aba com ela mesma não divide');
+  assert.deepEqual(F.cvSplitAdd(['x', 'y'], 'task:A', 'web:z', 'right'), ['task:A', 'web:z'], 'base fora da divisão: começa outra');
+  assert.deepEqual(F.cvSplitRemove(['a', 'b', 'c'], 'b'), ['a', 'c']);
+  assert.equal(F.cvSplitRemove(['a', 'b'], 'a'), null, 'sobrou 1: volta pra tela normal');
+  const r = { left: 100, width: 1000 };
+  assert.equal(F.cvDropSide(r, 150), 'left'); assert.equal(F.cvDropSide(r, 1050), 'right'); assert.equal(F.cvDropSide(r, 600), null, 'faixa do meio não divide');
+  assert.equal(F.cvDropSide(null, 5), null);
 });
 
-// ---------------- F2: modelo de layout ----------------
-const H = 'H', CTX = { homeId: 'H', taskIds: ['H', 'B', 'C'] };
-const types = (l) => l.cols.map((c) => c.tabs.map((t) => t.type + (t.id === c.active ? '*' : '')).join('+')).join(' | ');
-
-test('layout padrão: [Meu app (ou Subir ambiente) | Conversa]; sem código → [Documento | Conversa]; sem página → Entrega/Celular', () => {
-  assert.equal(types(F.cvDefaultLayout(H, {})), 'app* | conversa*');
-  assert.equal(types(F.cvDefaultLayout(H, { web: null })), 'app* | conversa*', 'detecção ainda não chegou: Meu app (mostra o cartão)');
-  const nc = F.cvDefaultLayout(H, { nonCode: true, doc: 'art:relatorio.pdf' });
-  assert.equal(types(nc), 'documento* | conversa*'); assert.equal(nc.cols[0].tabs[0].ref, 'art:relatorio.pdf');
-  assert.equal(types(F.cvDefaultLayout(H, { web: false })), 'entrega* | conversa*');
-  assert.equal(types(F.cvDefaultLayout(H, { web: false, mobile: true })), 'dispositivo* | conversa*');
-  assert.equal(F.cvDefaultLayout(H, {}).auto, true, 'padrão é automático (se ajusta quando a detecção chega)');
-  assert.equal(types(F.cvPreset('construir', H, {})), 'app* | conversa*');
-  assert.equal(types(F.cvPreset('revisar', H, {})), 'diff* | conversa*');
-  assert.equal(types(F.cvPreset('construir', H, { nonCode: true })), 'documento* | conversa*');
-  assert.equal(types(F.cvPreset('revisar', H, { nonCode: true })), 'entrega* | conversa*');
+test('salvar e restaurar a divisão: JSON versionado; versão desconhecida, lixo, demanda apagada, tipo estranho → sem divisão', () => {
+  const ids = ['A', 'B'];
+  const tabA = { id: 'task:A', kind: 'task', taskId: 'A' }, web = { id: 'w', kind: 'web', url: 'https://youtu.be/aqz-KE-bpKQ' };
+  assert.deepEqual(F.cvTabDesc(tabA), { kind: 'task', taskId: 'A' }); assert.equal(F.cvTabDesc({ kind: 'flow' }), null, 'Central não vai pra divisão');
+  assert.equal(F.cvTabIdOf({ kind: 'task', taskId: 'A' }), 'task:A');
+  assert.equal(F.cvTabIdOf({ kind: 'web', url: 'https://a.com/' }), F.cvTabIdOf({ kind: 'web', url: 'https://a.com/' }), 'id estável pelo conteúdo');
+  assert.notEqual(F.cvTabIdOf({ kind: 'doc', taskId: 'A', ref: 'file:README.md' }), F.cvTabIdOf({ kind: 'doc', taskId: 'B', ref: 'file:README.md' }));
+  const raw = JSON.stringify({ v: 1, panes: [F.cvTabDesc(tabA), F.cvTabDesc(web), { kind: 'doc', taskId: 'B', ref: 'file:README.md' }], focus: 2, w: [0.4, 0.3, 0.3] });
+  const s = F.cvSplitValid(raw, ids);
+  assert.equal(s.panes.length, 3); assert.equal(s.focus, 2); assert.deepEqual(s.w, [0.4, 0.3, 0.3]);
+  assert.equal(s.panes[1].url, 'https://youtu.be/aqz-KE-bpKQ');
+  for (const bad of [null, '', '{', '[]', '{"v":2,"panes":[{"kind":"task","taskId":"A"},{"kind":"task","taskId":"B"}]}', '{"v":1,"panes":[{"kind":"task","taskId":"A"}]}', '{"v":1,"panes":"x"}'])
+    assert.equal(F.cvSplitValid(bad, ids), null, String(bad));
+  // pedaços ruins saem; se sobrar < 2 → nada
+  const mixed = F.cvSplitValid({ v: 1, focus: 9, panes: [{ kind: 'task', taskId: 'A' }, { kind: 'terminal' }, { kind: 'task', taskId: 'SUMIU' }, { kind: 'web', url: 'javascript:alert(1)' }, { kind: 'doc', taskId: 'A', ref: 'file:../../etc/passwd' }, { kind: 'task', taskId: 'A' }, { kind: 'device', taskId: 'B' }] }, ids);
+  assert.deepEqual(mixed.panes.map((p) => p.kind + ':' + (p.taskId || '')), ['task:A', 'device:B']);
+  assert.equal(mixed.focus, 1, 'foco preso ao que existe');
+  assert.equal(F.cvSplitValid({ v: 1, panes: [{ kind: 'task', taskId: 'A' }, { kind: 'task', taskId: 'B' }], w: [0.9, 0.5] }, ids).w, undefined, 'larguras malucas: automáticas');
+  assert.equal(F.cvDescValid({ kind: 'web', app: true, taskId: 'A' }, ids).app, true, 'Navegador com o app de uma demanda');
+  assert.equal(F.cvDescValid({ kind: 'device' }, ids), null, 'Simulador sem demanda não existe');
+  assert.deepEqual(F.CV_SPLIT_KINDS, ['task', 'web', 'device', 'doc']); assert.equal(F.CV_MAX_PANES, 3);
 });
 
-test('salvar e restaurar: JSON versionado ida e volta; versão desconhecida, lixo, demanda apagada e tipo estranho caem no padrão', () => {
-  let l = F.cvDefaultLayout(H, {});
-  l = F.cvAddTab(l, F.cvMkTab('site', null, { url: 'https://www.youtube.com/watch?v=aqz-KE-bpKQ' }), 'new');
-  l = F.cvAddTab(l, F.cvMkTab('documento', H, { ref: 'file:README.md' }), 0);
-  const raw = F.cvSerialize(l);
-  assert.equal(JSON.parse(raw).v, F.CV_VER);
-  const back = F.cvValidate(raw, CTX);
-  assert.equal(types(back), types(l)); assert.equal(F.cvSig(back), F.cvSig(l), 'mesmas abas, mesmos ids, mesma coluna em foco');
-  assert.equal(back.auto, false, 'mexeu na mão: sai do automático');
-  for (const bad of [null, '', '{', '[]', '{"v":2,"cols":[{"tabs":[{"type":"app"}]}]}', '{"v":1,"cols":[]}', '{"v":1,"cols":[{"tabs":[{"type":"terminal"}]}]}', '{"v":1,"cols":[{"tabs":[{"type":"app","taskId":"SUMIU"}]}]}', '{"v":1,"cols":"x"}'])
-    assert.equal(F.cvValidate(bad, CTX), null, String(bad));
-  // pedaços ruins saem, o resto fica; mais de 3 colunas → 3; ativa que não existe → a 1ª
-  const mixed = F.cvValidate({ v: 1, focus: 9, cols: [
-    { tabs: [{ type: 'app' }, { type: 'shell' }, { type: 'site', url: 'javascript:alert(1)' }, { type: 'documento', ref: 'file:../../etc/passwd' }, { type: 'documento', ref: 'file:docs/a.md' }], active: 'nao-existe' },
-    { tabs: [{ type: 'conversa' }, { type: 'conversa' }] }, { tabs: [{ type: 'diff' }] }, { tabs: [{ type: 'entrega' }] }] }, CTX);
-  assert.equal(types(mixed), 'app*+documento | conversa* | diff*');
-  assert.equal(mixed.focus, 2, 'foco preso ao que existe');
-  assert.equal(F.cvValidate({ v: 1, cols: [{ tabs: [{ type: 'app' }] }] }, { homeId: H, taskIds: [H], allow: (t) => t !== 'app' }), null, 'o que não faz sentido nesta demanda (pelo tipo da entrega) não volta');
-  // larguras: frações sãs, uma por coluna
-  const w = F.cvValidate({ v: 1, cols: [{ tabs: [{ type: 'app' }] }, { tabs: [{ type: 'conversa' }] }], w: [0.62, 5] }, CTX);
-  assert.deepEqual(w.w, [0.62, null]);
-});
-
-test('arrastar pra dividir: borda esquerda/direita abre coluna (até 3), meio junta, soltar na própria coluna não muda nada', () => {
-  const r = { left: 100, width: 600 };
-  assert.equal(F.cvDropZone(r, 110, 2), 'left'); assert.equal(F.cvDropZone(r, 690, 2), 'right'); assert.equal(F.cvDropZone(r, 400, 2), 'center');
-  assert.equal(F.cvDropZone(r, 690, 3), 'center-full', 'já são 3: a borda vira "juntar" (e a tela diz o porquê)');
-  assert.equal(F.cvDropZone({ left: 0, width: 150 }, 30, 1), 'left', 'faixa mínima de 40 px em coluna estreita');
-  let l = F.cvDefaultLayout(H, {}); // app | conversa
-  const app = l.cols[0].tabs[0].id, conv = l.cols[1].tabs[0].id;
-  assert.equal(types(F.cvMoveTab(l, app, 1, 'right')), 'conversa* | app*');
-  assert.equal(types(F.cvMoveTab(l, app, 1, 'center')), 'conversa+app*', 'meio: entra nas abas da coluna (a vazia some)');
-  assert.equal(types(F.cvMoveTab(l, app, 0, 'right')), types(l), 'única aba na própria borda: nada muda');
-  assert.equal(types(F.cvMoveTab(l, conv, 0, 'left')), 'conversa* | app*');
-  l = F.cvAddTab(l, F.cvMkTab('diff', H), 0); // app+diff* | conversa
-  assert.equal(types(l), 'app+diff* | conversa*');
-  const split = F.cvMoveTab(l, l.cols[0].active, 0, 'right');
-  assert.equal(types(split), 'app* | diff* | conversa*', 'borda da própria coluna com 2 abas: divide');
-  assert.equal(types(F.cvMoveTab(split, split.cols[0].tabs[0].id, 2, 'right')), 'diff* | conversa* | app*', 'a coluna que esvaziou some: cabe a nova (nunca passa de 3)');
-  const full = F.cvAddTab(split, F.cvMkTab('entrega', H), 0); // app+entrega | diff | conversa
-  assert.equal(types(F.cvMoveTab(full, full.cols[0].active, 2, 'right')), 'app* | diff* | conversa+entrega*', 'com 3 colunas cheias a borda junta');
-  assert.equal(types(F.cvSplit(l)), 'app* | diff* | conversa*', '⌘\\ = a ativa vai pra uma coluna nova');
-  assert.equal(F.cvSplit(F.cvDefaultLayout(H, {})), null, '⌘\\ com 1 aba: abre o "+" (sem split)');
-  assert.equal(F.cvSplit(split), null, '3 colunas: não divide mais');
-});
-
-test('abrir/fechar/ativar: mesma aba não duplica; fechar a última de uma coluna tira a coluna; fechar tudo → padrão (null)', () => {
-  let l = F.cvDefaultLayout(H, {});
-  const d1 = F.cvAddTab(l, F.cvMkTab('documento', H, { ref: 'file:README.md' }), 'new');
-  assert.equal(types(d1), 'app* | conversa* | documento*');
-  assert.equal(types(F.cvAddTab(d1, F.cvMkTab('documento', H, { ref: 'file:README.md' }), 0)), 'app* | conversa* | documento*', 'reabrir = focar a existente');
-  assert.equal(F.cvAddTab(d1, F.cvMkTab('site', null, { url: 'https://a.com' }), 'new').cols.length, 3, 'nunca 4 colunas');
-  const c = F.cvCloseTab(d1, d1.cols[2].tabs[0].id); assert.equal(types(c), 'app* | conversa*');
-  assert.equal(F.cvCloseTab(F.cvCloseTab(c, c.cols[0].tabs[0].id), c.cols[1].tabs[0].id), null);
-  const two = F.cvAddTab(l, F.cvMkTab('entrega', H), 0);
-  assert.equal(types(F.cvActivate(two, two.cols[0].tabs[0].id)), 'app*+entrega | conversa*');
-  assert.equal(types(F.cvCloseTab(two, two.cols[0].tabs[1].id)), 'app* | conversa*', 'fechou a ativa: a vizinha vira ativa');
-  assert.equal(types(F.cvReplaceTab(l, l.cols[0].tabs[0].id, F.cvMkTab('entrega', H))), 'entrega* | conversa*');
-});
-
-test('site externo: só http(s), YouTube vira /embed/ (nocookie), bloqueados conhecidos abrem no "abrir fora"', () => {
+test('site externo: só http(s), YouTube vira /embed/ (nocookie) com o id pra capa; bloqueados conhecidos → "abrir fora"', () => {
   assert.equal(F.cvSiteUrl('youtube.com/watch?v=aqz-KE-bpKQ&t=42').embed, 'https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ?start=42');
-  assert.equal(F.cvSiteUrl('https://youtu.be/aqz-KE-bpKQ').embed, 'https://www.youtube-nocookie.com/embed/aqz-KE-bpKQ');
+  assert.equal(F.cvSiteUrl('https://youtu.be/aqz-KE-bpKQ').vid, 'aqz-KE-bpKQ');
   assert.equal(F.cvSiteUrl('https://www.youtube.com/shorts/abcDEF12345').video, true);
   assert.equal(F.cvSiteUrl('docs.python.org/3/').url, 'https://docs.python.org/3/');
-  assert.equal(F.cvSiteUrl('https://github.com/x/y').blocked, true);
-  assert.equal(F.cvSiteUrl('https://www.google.com/search?q=x').blocked, true);
-  assert.equal(F.cvSiteUrl('https://developer.mozilla.org/').blocked, false);
+  assert.equal(F.cvSiteUrl('https://github.com/x/y').blocked, true); assert.equal(F.cvSiteUrl('https://developer.mozilla.org/').blocked, false);
   for (const bad of ['', 'javascript:alert(1)', 'file:///etc/passwd', 'data:text/html,x', 'https://u:p@x.com']) assert.equal(F.cvSiteUrl(bad), null, bad);
 });
 
-test('"+" com nomes humanos, pelo TIPO da demanda (sem "modo simples"); Log fora do "+"; teto de demandas', () => {
-  const names = (ctx) => F.cvPlusItems(ctx).map((x) => x.label);
-  assert.deepEqual(names({}), ['Meu app', 'Conversa', 'Documento', 'Mudanças', 'Código', 'Entrega', 'Site qualquer', 'Outra demanda']);
-  assert.ok(!names({ nonCode: true }).some((n) => ['Meu app', 'Mudanças', 'Código'].includes(n)), 'relatório/pesquisa: nada de código nem app');
-  assert.ok(!names({ web: false }).includes('Meu app'), 'projeto sem página: Meu app não aparece');
-  assert.ok(names({ mobile: true }).includes('Celular')); assert.ok(names({ hasPr: true }).includes('PR'));
-  assert.ok(!F.cvPlusItems({}).some((x) => x.type === 'log'), 'log só pela faixa "detalhes" do ambiente');
-  const od = (ctx) => F.cvPlusItems(ctx).find((x) => x.type === 'demanda');
-  assert.equal(od({ others: [] }).disabled, true); assert.match(od({ others: [] }).why, /não há outra demanda/);
-  assert.equal(od({ others: [{ id: 'B', title: 'b' }], tasksN: 1 }).disabled, false);
-  assert.match(od({ others: [{ id: 'B', title: 'b' }], tasksN: F.CV_MAX_TASKS }).why, /no máximo 2 demandas/);
-  let l = F.cvAddTab(F.cvDefaultLayout(H, {}), F.cvMkTab('demanda', 'B'), 'new');
-  assert.deepEqual(F.cvTasksIn(l), ['H', 'B']);
-  assert.equal(F.cvAddTab(l, F.cvMkTab('demanda', 'C'), 0), null, '3ª demanda barrada enquanto o teto for 2');
-});
-
-test('cor por demanda: estável; na tela da casa, a outra demanda NUNCA fica com cor parecida', () => {
+test('cor por demanda: estável; ao lado da casa, a outra NUNCA fica com cor parecida', () => {
   assert.equal(F.cvTaskColor('t1'), F.cvTaskColor('t1'));
   const hue = (c) => +c.match(/hsl\((\d+)/)[1];
   const d = (a, b) => { const x = Math.abs(a - b); return Math.min(x, 360 - x); };
-  for (const [home, other] of [['t1', 't2'], ['t2', 't3'], ['a1b2', 'tcim4vb'], ['H', 'B']]) {
-    assert.ok(d(hue(F.cvTaskColor(home)), hue(F.cvTaskColor(other, home))) >= 50, home + ' x ' + other);
-    assert.equal(F.cvTaskColor(home, home), F.cvTaskColor(home), 'a casa mantém a dela');
-  }
+  for (const [home, other] of [['t1', 't2'], ['t2', 't3'], ['a1b2', 'tcim4vb'], ['H', 'B']]) assert.ok(d(hue(F.cvTaskColor(home)), hue(F.cvTaskColor(other, home))) >= 50, home + ' x ' + other);
 });

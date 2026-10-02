@@ -121,7 +121,7 @@ function nvSt(id){ return nvState[id]||(nvState[id]={ addr:'', proxy:null, vp:(l
 function nvQ(st, name){ const r=st&&st.root; return (r && r.isConnected) ? r.querySelector('[data-nv="'+name+'"]') : null; }
 function nvPost(st, msg){ try{ if(st.frame && st.frame.contentWindow && st.proxy) st.frame.contentWindow.postMessage(Object.assign({ sf:'nav' }, msg), st.proxy.origin); }catch(_){ } }
 function nvSetMsg(st, html){ const m=nvQ(st, 'msg'); if(m && m.__html!==html){ m.__html=html; m.innerHTML=html; m.style.display=html?'':'none'; } }
-function nvResKey(taskId){ return 'app:'+taskId; }
+function nvResKey(taskId){ return 'app:'+taskId+'@'+(typeof CV_REALM!=='undefined'?CV_REALM:'main'); } // um gerente no app; cada painel com a sua chave
 
 // painel da prévia de UMA demanda dentro de `el` (barato quando nada mudou: o iframe não é recriado)
 function nvRender(taskId, el, opts){
@@ -140,7 +140,7 @@ function nvRender(taskId, el, opts){
   nvPaint(taskId);
 }
 // modo Prévia da aba da tarefa (compat: o workspace antigo chamava com o #fwMain)
-function fwRenderPrevia(t, main){ if(typeof appRender==='function') appRender(t.id, main); else nvRender(t.id, main); }
+function fwRenderPrevia(t, main){ if(typeof appRender==='function') appRender(t.id, main); else nvRender(t.id, main); if(typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(t.id); }
 function nvEmptyHtml(){ return '<div class="nvempty"><b>Nenhum site aberto</b><span>Digite um endereço acima (ex.: <code>localhost:5173</code>) — ou peça pro agente subir o site da tarefa e ele aparece aqui sozinho.</span></div>'; }
 function nvWire(taskId){
   const st=nvSt(taskId), root=st.root; if(!root) return;

@@ -1,256 +1,193 @@
 // Starfork — 58-canvas
-// ===== Workspace como CANVAS (spec-canvas-workspace F2) =====
-// A tela da demanda deixa de ser "um modo por vez + chat fixo": são até 3 COLUNAS FIXAS (sem split recursivo), cada uma
-// com abas tipadas (Meu app, Conversa, Celular, Documento, Mudanças, Entrega, Código, PR, Site qualquer). "+" abre com
-// nomes humanos; arrastar uma aba pra borda de uma coluna divide (mostrando onde cai), pro meio junta; o layout é salvo
-// POR DEMANDA (JSON versionado; inválido → padrão; "voltar ao normal"). ⌘\ divide · ⌘1..3 foca coluna · ⌘K painéis.
-// Cada painel mostra nome+cor da demanda. Desempenho: só a aba ATIVA de cada coluna monta conteúdo; iframe/stream só
-// pelo gerente de recursos (19-canvas-puro); os modos antigos viram HOSTS que só mudam de lugar; nada de setInterval.
+// ===== CANVAS NO TOPO (spec-canvas-workspace — pivot pedido pelo dono em 02/10) =====
+// A tela da demanda continua EXATAMENTE como era (modos + chat à direita). O canvas mora na BARRA DE ABAS de cima:
+//  - "+" abre um menu simples: Nova demanda · Abrir demanda · Navegador · Simulador iOS/Android · Documento — cada
+//    um vira uma ABA normal do topo (como as demandas já são);
+//  - TELA DIVIDIDA: arrastar uma aba pra metade esquerda/direita da janela (ou botão direito → "dividir à direita",
+//    ou ⌘\) mostra 2 ou 3 abas lado a lado, cada uma do jeito que ela é sozinha (a demanda inteira, o navegador, o
+//    simulador, o documento). Sem split recursivo; até 3; a divisão fica salva (JSON versionado).
+//  - cada DEMANDA num painel é o app inteiro num iframe (00-util: SF_PANE) — estado próprio, nada de global trocado.
+// Desempenho: só o que está à vista roda; páginas e stream pelo gerente de recursos (≤ 2 / ≤ 1 no app inteiro);
+// os painéis não fazem polling (a janela principal empurra o snapshot); nenhum setInterval aqui.
 
-const CV={ layouts:{}, nCols:-1, menu:null, lastMode:null, docs:{}, logs:{}, panes:{}, home:null };
-const CV_HOSTS={ conversa:'fwChatCol', codigo:'fwCols', diff:'cvHostDiff', entrega:'cvHostEntrega', pr:'cvHostPr', dispositivo:'fwDev' };
-const CV_ICON={ app:'◉', conversa:'❝', dispositivo:'▯', documento:'▤', diff:'±', entrega:'✓', codigo:'</>', pr:'⇄', site:'◍', demanda:'◐', log:'≡' };
+const SPL={ ids:null, w:null, focus:0, panes:{}, docs:{}, menu:null, dragId:null };
 
 function cvTask(id){ return ((typeof state!=='undefined'&&state.tasks)||[]).find(t=>t.id===id)||null; }
-// o que faz sentido NESTA demanda — pelo TIPO da entrega/projeto (veto: nada de "modo simples")
-function cvCtxOf(t){
-  if(!t) return {};
-  const nonCode=!!((typeof fwArtOnly==='function' && fwArtOnly(t)) || (typeof entregaNonCode==='function' && entregaNonCode(t)));
-  const plan=(typeof ENV!=='undefined' && ENV[t.id]) ? ENV[t.id].plan : undefined;
-  const web=nonCode ? false : (plan==null ? null : !!plan.web);
-  const info=(typeof DV!=='undefined') ? DV.info[t.id] : null;
-  const mobile=!!(info && info.mobile && (info.platforms||[]).length);
-  return { nonCode, web, mobile, doc:nonCode?cvMainDoc(t):null, hasPr:!!t.prUrl };
+function cvTabOf(id){ return (typeof tabById==='function')?tabById(id):null; }
+function cvSplitable(tab){ return !!(tab && CV_SPLIT_KINDS.includes(tab.kind)); }
+function cvInSplit(id){ return !!(SPL.ids && SPL.ids.includes(id)); }
+function cvSplitShowing(){ const o=$id('cvSplit'); return !!(o && o.style.display!=='none' && SPL.ids && SPL.ids.includes(activeTab)); }
+// overlay da aba ativa: Navegador/Simulador/Documento e qualquer aba que esteja na divisão → cvSplit
+function cvViewTarget(t){ if(!t) return null; if(cvInSplit(t.id) || ['web','device','doc'].includes(t.kind)) return 'cvSplit'; return null; }
+function cvTitleOf(tab){
+  if(!tab) return '';
+  if(tab.kind==='task'){ const t=cvTask(tab.taskId); return t?t.title:(tab.title||'demanda'); }
+  if(tab.kind==='web'){ if(tab.app){ const t=cvTask(tab.taskId); return 'app · '+(t?t.title:'demanda'); } const s=cvSiteUrl(tab.url); return s?(s.video?'vídeo · ':'')+s.host:'Navegador'; }
+  if(tab.kind==='device'){ const t=cvTask(tab.taskId); return 'Simulador · '+(t?t.title:''); }
+  if(tab.kind==='doc'){ if(tab.ref) return String(tab.ref).slice(String(tab.ref).indexOf(':')+1).split('/').pop(); const t=cvTask(tab.taskId); return 'Documento · '+(t?t.title:''); }
+  return tab.title||'';
 }
-function cvMainDoc(t){ const arts=(typeof entregaArts==='function')?entregaArts(t):[]; if(!arts.length) return null; const n=(typeof enPvPick==='function')?enPvPick(t, arts):arts[0].name; return n?'art:'+n:null; }
-function cvAllow(t, ctx){ return (type)=>{
-  if(ctx.nonCode && ['app','diff','codigo','log'].includes(type)) return false;
-  if(ctx.web===false && ['app','log'].includes(type) && !ctx.nonCode) return false;
-  return true; }; }
-// ---------- layout da demanda (memória → localStorage → padrão) ----------
-function cvLayout(){
-  const h=typeof fwTask!=='undefined'?fwTask:null; if(!h) return null;
-  if(CV.layouts[h]) return CV.layouts[h];
-  const t=cvTask(h), ctx=cvCtxOf(t);
-  let raw=null; try{ raw=localStorage.getItem('cv:l:'+h); }catch(_){ }
-  let l=raw?cvValidate(raw, { homeId:h, taskIds:(state.tasks||[]).map(x=>x.id), allow:cvAllow(t, ctx) }):null;
-  if(!l) l=cvDefaultLayout(h, ctx);
-  CV.layouts[h]=l; return l;
-}
-function cvSave(l){ const h=fwTask; if(!h) return; CV.layouts[h]=l; try{ localStorage.setItem('cv:l:'+h, cvSerialize(l)); }catch(_){ } }
-function cvSet(l, noRender){
-  const h=fwTask; if(!h) return;
-  if(!l) l=cvDefaultLayout(h, cvCtxOf(cvTask(h)));
-  cvSave(l); cvSyncMode(l);
-  if(!noRender && typeof renderWorkspace==='function') renderWorkspace();
-}
-function cvReset(){ const h=fwTask; if(!h) return; try{ localStorage.removeItem('cv:l:'+h); }catch(_){ } delete CV.layouts[h]; cvSet(null); toast('painéis de volta ao normal','ok'); }
-function cvApplyPreset(name){ const h=fwTask; if(!h) return; cvSet(cvPreset(name, h, cvCtxOf(cvTask(h)))); }
-// tipo da aba visível da demanda-casa
-function cvShows(type){ const l=cvLayout(); if(!l) return false; return cvVisible(l).some(t=>t.type===type && cvPaneTask(t, fwTask)===fwTask); }
-// legado: os modos antigos continuam funcionando (fwMode='entrega' + renderWorkspace() abre a aba Entrega)
-function cvSyncMode(l){ const c=l&&l.cols[l.focus|0]; const a=c&&c.tabs.find(x=>x.id===c.active); const m=a&&CV_TYPE2MODE[a.type]; if(m){ fwMode=m; } CV.lastMode=fwMode; }
-// abre (ou foca) uma aba. col: índice, 'new', ou automático (a coluna em foco — mas sem cobrir a Conversa)
-function cvOpenType(type, col, extra, noRender){
-  const h=fwTask; const l=cvLayout(); if(!h||!l) return false;
-  const who=(CV_TYPES[type]||{}).who;
-  const tab=cvMkTab(type, who==='free'?null:((extra&&extra.taskId)||h), extra);
-  if(col===undefined){
-    const ex=cvFindTab(l, tab.id);
-    if(!ex){ const f=l.focus|0, fc=l.cols[f]; const act=fc&&fc.tabs.find(x=>x.id===fc.active);
-      if(act && act.type==='conversa' && type!=='conversa'){ const other=l.cols.findIndex((c,i)=>i!==f && !c.tabs.some(x=>x.id===c.active && x.type==='conversa')); col=other>=0?other:(l.cols.length<CV_MAX_COLS?'new':f); } }
+
+// ---------- abrir abas do topo (Navegador / Simulador / Documento / demanda) ----------
+// desc: { kind, taskId?, url?, ref?, app? }. opts.split: 'left'|'right' = já abre DIVIDINDO com a aba ativa
+function cvOpenTop(desc, opts){
+  opts=opts||{};
+  const base=activeTab;
+  if(desc.kind==='task'){
+    const id='task:'+desc.taskId;
+    if(opts.split && !cvTabOf(id)){ const t=cvTask(desc.taskId)||{}; TABS.push({ id, kind:'task', taskId:desc.taskId, repo:state.repo, path:null, title:(t.title||'Tarefa').slice(0,26) }); }
+    if(opts.split && cvSplitWith(base, id, opts.split)) return;
+    openWorkspace(desc.taskId); return;
   }
-  const n=cvAddTab(l, tab, col);
-  if(!n){ toast(`no máximo ${CV_MAX_TASKS} demandas lado a lado por enquanto`,'warn'); return false; }
-  cvSet(n, noRender); return true;
+  const id=cvTabIdOf(desc); let tab=cvTabOf(id);
+  if(!tab){ tab=Object.assign({ id, kind:desc.kind, title:'' }, desc); tab.title=cvTitleOf(tab).slice(0,28); TABS.push(tab); }
+  if(opts.split && cvSplitWith(base, id, opts.split)) return;
+  activateTab(id);
 }
-function cvCloseTabId(id){ const l=cvLayout(); if(!l) return; const f=cvFindTab(l, id); if(f) cvOnPaneGone(f.tab); cvSet(cvCloseTab(l, id)); }
-// ---------- hosts (os modos antigos) e painéis novos ----------
-function cvHostEl(type){ const id=CV_HOSTS[type]; if(!id) return null; let el=$id(id); if(!el){ el=document.createElement('div'); el.id=id; el.className='cvhost cvhost-'+type; const pk=$id('cvPark'); if(pk) pk.appendChild(el); } el.dataset.cvhost=type; return el; }
-function cvPaneEl(tab){ let el=CV.panes[tab.id]; if(!el){ el=document.createElement('div'); el.className='cvpane cvpane-'+tab.type; el.dataset.cvpane=tab.id; CV.panes[tab.id]=el; } return el; }
-function cvElFor(tab){
-  const home=cvPaneTask(tab, fwTask)===fwTask;
-  if(home && CV_HOSTS[tab.type]){
-    if(tab.type==='dispositivo'){ const t=cvTask(fwTask), c=cvCtxOf(t); if(!c.mobile) return cvPaneEl(tab); }
-    return cvHostEl(tab.type);
+// ---------- tela dividida ----------
+function cvSplitSave(){
+  try{
+    if(!SPL.ids){ localStorage.removeItem('cv:split'); return; }
+    const panes=SPL.ids.map(id=>cvTabDesc(cvTabOf(id))).filter(Boolean);
+    localStorage.setItem('cv:split', JSON.stringify({ v:CV_VER, panes, focus:SPL.focus|0, ...(SPL.w?{ w:SPL.w }:{}) }));
+  }catch(_){ }
+}
+// junta `id` à aba `baseId` (ou à divisão em que ela está), do lado pedido; mostra a divisão. false = não deu
+function cvSplitWith(baseId, id, side){
+  const base=cvTabOf(baseId), tab=cvTabOf(id);
+  if(!cvSplitable(base) || !cvSplitable(tab)){ toast('só demandas, navegador, simulador e documento dividem a tela','info'); return false; }
+  const cur=cvInSplit(baseId)?SPL.ids:null;
+  const next=cvSplitAdd(cur, baseId, id, side||'right');
+  if(!next){ toast(id===baseId?'arraste OUTRA aba pra cá — ou use o + pra abrir algo do lado':'no máximo 3 lado a lado','info'); return false; }
+  SPL.ids=next; SPL.w=null; SPL.focus=next.indexOf(id); cvSplitSave();
+  if(typeof renderTabs==='function') renderTabs();
+  activeTab=null; activateTab(id);
+  return true;
+}
+function cvUnsplit(id){
+  if(!cvInSplit(id)) return;
+  const rest=cvSplitRemove(SPL.ids, id); SPL.ids=rest; SPL.w=null; SPL.focus=0; cvSplitSave();
+  cvPaneDispose(id);
+  if(typeof renderTabs==='function') renderTabs();
+  // a aba que saiu continua aberta; a tela mostra o que sobrou (ou a aba ativa sozinha)
+  const show=rest?(rest.includes(activeTab)?activeTab:rest[0]):activeTab;
+  if(cvTabOf(show)){ activeTab=null; activateTab(show); }
+}
+function cvOnTabClosed(tab){ if(tab && cvInSplit(tab.id)){ SPL.ids=cvSplitRemove(SPL.ids, tab.id); SPL.w=null; SPL.focus=0; cvSplitSave(); } if(tab) cvPaneDispose(tab.id); }
+// boot: a divisão salva volta (as abas reabrem; a tela inicial continua a Central)
+function cvRestoreSplit(){
+  let raw=null; try{ raw=localStorage.getItem('cv:split'); }catch(_){ }
+  const s=raw?cvSplitValid(raw, ((state&&state.tasks)||[]).map(t=>t.id)):null;
+  if(!s){ if(raw) try{ localStorage.removeItem('cv:split'); }catch(_){ } return; }
+  const ids=[];
+  for(const d of s.panes){
+    const id=cvTabIdOf(d);
+    if(!cvTabOf(id)){ const tab=d.kind==='task' ? { id, kind:'task', taskId:d.taskId, repo:state.repo, path:null, title:(cvTitleOf({ kind:'task', taskId:d.taskId })||'Tarefa').slice(0,26) } : Object.assign({ id, kind:d.kind, title:'' }, d);
+      if(d.kind!=='task') tab.title=cvTitleOf(tab).slice(0,28); TABS.push(tab); }
+    ids.push(id);
   }
-  return cvPaneEl(tab);
+  SPL.ids=ids; SPL.w=s.w||null; SPL.focus=s.focus|0;
+  if(typeof renderTabs==='function') renderTabs();
 }
-// saiu da tela: host volta pro estacionamento (mantém estado); painel pesado solta o recurso NA HORA
-function cvUnplace(el){
-  if(el.dataset.cvhost){ const pk=$id('cvPark'); if(pk) pk.appendChild(el); return; }
-  cvPaneHidden(el); el.remove();
+
+// ---------- mostrar (uma aba sozinha, ou a divisão) ----------
+function cvShowView(tab){
+  const ov=$id('cvSplit'); if(!ov || !tab) return;
+  const ids=cvInSplit(tab.id)?SPL.ids:[tab.id];
+  const split=ids.length>1;
+  ov.classList.toggle('split', split);
+  // linha de painéis: mantém os elementos (um iframe que muda de lugar recarrega) — só mexe no que mudou
+  let row=ov.querySelector('.cvrow'); if(!row){ row=document.createElement('div'); row.className='cvrow'; ov.appendChild(row); cvWireRow(row); }
+  const want=[]; ids.forEach((id,i)=>{ if(i) want.push(cvSplitter(i-1)); want.push(cvPaneEl(id)); });
+  const cur=[...row.children];
+  if(cur.length!==want.length || cur.some((c,i)=>c!==want[i])){
+    cur.forEach(c=>{ if(!want.includes(c)){ if(c.dataset.tabid) cvPaneHidden(c); c.remove(); } });
+    want.forEach((el,i)=>{ if(row.children[i]!==el) row.insertBefore(el, row.children[i]||null); });
+  }
+  ids.forEach((id,i)=>{ const el=SPL.panes[id]; el.style.flex=(split && SPL.w && SPL.w[i])?SPL.w[i]+' 1 0':'1 1 0'; el.classList.toggle('focus', split && (SPL.focus|0)===i); el.classList.toggle('split', split); cvRenderPane(cvTabOf(id), el); });
+  cvDeviceSync();
+}
+function cvSplitter(i){ const k='__split'+i; let el=SPL.panes[k]; if(!el){ el=document.createElement('div'); el.className='cvsplitter'; el.dataset.split=i; el.setAttribute('role','separator'); el.setAttribute('aria-orientation','vertical'); el.setAttribute('aria-label','arrastar pra mudar a largura dos painéis'); SPL.panes[k]=el; } return el; }
+function cvPaneEl(id){
+  let el=SPL.panes[id];
+  if(!el){ el=document.createElement('section'); el.className='cvpane'; el.dataset.tabid=id;
+    el.innerHTML='<div class="cvph"></div><div class="cvpb"></div>'; SPL.panes[id]=el; }
+  return el;
 }
 function cvPaneHidden(el){
+  const id=el.dataset.tabid; const tab=cvTabOf(id);
+  if(tab && tab.kind==='web' && !tab.app) cvSiteUnmount(el);
   const app=el.querySelector('[data-envtask]'); if(app && typeof nvUnmount==='function'){ const st=(typeof nvState!=='undefined')?nvState[app.dataset.envtask]:null; if(st && st.frame) nvUnmount(app.dataset.envtask); }
-  if(el.classList.contains('cvpane-site')) cvSiteUnmount(el);
 }
-function cvOnPaneGone(tab){ const el=CV.panes[tab.id]; if(el){ cvPaneHidden(el); el.remove(); delete CV.panes[tab.id]; } }
-function cvPlace(body, el){
-  if(body.childElementCount===1 && body.firstElementChild===el) return false;
-  [...body.children].forEach(c=>cvUnplace(c));
-  body.appendChild(el); return true;
+// painel que saiu de vez (aba fechada / tirada da divisão): o iframe da demanda solta tudo antes de sumir
+function cvPaneDispose(id){
+  const el=SPL.panes[id]; if(!el) return;
+  const fr=el.querySelector('iframe.cvrealm'); if(fr){ try{ const w=fr.contentWindow; if(w && typeof w.sfPaneUnload==='function') w.sfPaneUnload(); if(w && w.sfPaneDispose) w.sfPaneDispose(); }catch(_){ } try{ fr.src='about:blank'; }catch(_){ } }
+  cvPaneHidden(el); el.remove(); delete SPL.panes[id];
 }
-// ---------- render ----------
-function cvTabLabel(tab){
-  const t=tab.taskId?cvTask(tab.taskId):null;
-  if(tab.type==='documento' && tab.ref) return String(tab.ref).slice(String(tab.ref).indexOf(':')+1).split('/').pop();
-  if(tab.type==='site'){ const s=cvSiteUrl(tab.url); return s?(s.video?'vídeo · ':'')+s.host:'site'; }
-  if(tab.type==='demanda') return t?t.title:'demanda';
-  if(tab.taskId && tab.taskId!==fwTask && t) return CV_TYPES[tab.type].label+' · '+t.title;
-  return CV_TYPES[tab.type].label;
+// cabeçalho do painel (só com a tela dividida): nome + cor da demanda, "tirar da divisão"
+function cvPaneHeadHtml(tab){
+  const tid=tab.taskId||null, color=tid?cvTaskColor(tid):'var(--muted)';
+  return `<span class="cvdot" style="background:${color}" aria-hidden="true"></span><span class="cvphn">${esc(cvTitleOf(tab))}</span><span class="cvphk">· ${esc((VIEW_META[tab.kind]||{}).title||'')}</span><span style="flex:1"></span><button type="button" class="cvphx" data-cvunsplit="${escA(tab.id)}" title="tirar da tela dividida (a aba continua aberta)" aria-label="${escA('tirar '+cvTitleOf(tab)+' da tela dividida')}">×</button>`;
 }
-function cvTabsHtml(l, ci){
-  const c=l.cols[ci];
-  return c.tabs.map(tab=>{ const on=tab.id===c.active, other=tab.taskId&&tab.taskId!==fwTask;
-    const lab=cvTabLabel(tab);
-    return `<div class="cvtab${on?' on':''}${other?' other':''}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" draggable="true" data-cvtab="${tab.id}" title="${escA(lab+' — arraste pra outra coluna ou pra borda pra dividir')}">${other?`<span class="cvtdot" style="background:${cvTaskColor(tab.taskId, fwTask)}"></span>`:`<span class="cvtic" aria-hidden="true">${esc(CV_ICON[tab.type]||'')}</span>`}<span class="cvtl">${esc(String(lab).slice(0,40))}</span><button type="button" class="cvtx" data-cvclose="${tab.id}" aria-label="${escA('fechar '+lab)}" title="fechar">×</button></div>`; }).join('');
-}
-// cabeçalho do painel: nome + cor da demanda DONA dele (+ botões de prova, F4)
-function cvHeadHtml(tab){
-  const tid=cvPaneTask(tab, fwTask), t=cvTask(tid);
-  const isSite=tab.type==='site';
-  const name=isSite?((cvSiteUrl(tab.url)||{}).host||'site'):(t?t.title:'demanda');
-  return `<span class="cvdot" style="background:${isSite?'var(--muted)':cvTaskColor(tid, fwTask)}" aria-hidden="true"></span><span class="cvhn" title="${escA(isSite?'site externo (fora da demanda)':'demanda: '+name)}">${esc(name)}</span><span class="cvht">· ${esc(CV_TYPES[tab.type].label)}${isSite?' · fora da demanda':''}</span><span class="cvhsp"></span>${typeof cvProofBtnsHtml==='function'?cvProofBtnsHtml(tab):''}`;
-}
-function cvColStyle(l, ci, n){
-  const w=Array.isArray(l.w)?l.w[ci]:null;
-  if(w) return `flex:${w} 1 0`;
-  const c=l.cols[ci], a=c.tabs.find(x=>x.id===c.active);
-  if(n>1 && a && a.type==='conversa') return 'flex:0 0 clamp(300px, 30%, 420px)'; // a conversa ao lado, como antes
-  return 'flex:1 1 0';
-}
-function cvSkeleton(root, n){
-  [...root.querySelectorAll('.cvbody')].forEach(b=>[...b.children].forEach(c=>cvUnplace(c)));
-  let h='';
-  for(let i=0;i<n;i++){
-    if(i) h+=`<div class="cvsplit" data-cvsplit="${i-1}" role="separator" aria-orientation="vertical" aria-label="arrastar pra mudar a largura das colunas" tabindex="-1"></div>`;
-    h+=`<section class="cvcol" data-col="${i}" aria-label="coluna ${i+1}"><div class="cvbar"><div class="cvtabs" role="tablist" aria-label="abas da coluna ${i+1}"></div><button type="button" class="cvplus" data-cvplus="${i}" aria-label="abrir outro painel nesta coluna" title="abrir outro painel (⌘K)">+</button></div><div class="cvhead" data-cvhead="${i}"></div><div class="cvbody" data-cvbody="${i}" role="tabpanel"></div><div class="cvdrop" hidden></div></section>`;
-  }
-  root.innerHTML=h; CV.nCols=n;
-}
-function cvRender(t){
-  const root=$id('cvCanvas'); if(!root||!t) return;
-  let l=cvLayout(); if(!l) return;
-  // pedido do jeito antigo (fwMode='entrega' + renderWorkspace) → abre a aba
-  if(fwMode!==CV.lastMode){ const ty=CV_MODE2TYPE[fwMode]; CV.lastMode=fwMode; if(ty && !cvShows(ty)){ cvOpenType(ty, undefined, null, true); l=cvLayout(); } }
-  // como ligar o projeto (1 detecção por demanda): decide se "Meu app" faz sentido no "+" e no layout automático
-  if(typeof envPlanEnsure==='function' && !cvCtxOf(t).nonCode) envPlanEnsure(t.id);
-  l=cvAdapt(t, l);
-  if(CV.home!==fwTask){ CV.home=fwTask; CV.nCols=-1; }
-  const n=l.cols.length;
-  if(CV.nCols!==n || root.childElementCount!==n*2-1) cvSkeleton(root, n);
-  root.dataset.n=n;
-  l.cols.forEach((c,ci)=>{
-    const col=root.querySelector(`.cvcol[data-col="${ci}"]`); if(!col) return;
-    col.classList.toggle('focus', (l.focus|0)===ci && n>1);
-    col.setAttribute('style', cvColStyle(l, ci, n));
-    const tabs=col.querySelector('.cvtabs'); const th=cvTabsHtml(l, ci); if(tabs.__html!==th){ tabs.__html=th; tabs.innerHTML=th; }
-    const tab=c.tabs.find(x=>x.id===c.active)||c.tabs[0];
-    const head=col.querySelector('.cvhead'); const hh=cvHeadHtml(tab); if(head.__html!==hh){ head.__html=hh; head.innerHTML=hh; }
-    const body=col.querySelector('.cvbody'); body.setAttribute('aria-label', cvTabLabel(tab));
-    const el=cvElFor(tab); cvPlace(body, el);
-    cvRenderPane(tab, el, t);
-  });
-  // o que não está visível volta pro estacionamento (hosts ficam vivos; painéis soltos saem)
-  const vis=new Set(cvVisible(l).map(x=>cvElFor(x)));
-  Object.keys(CV.panes).forEach(id=>{ if(!cvFindTab(l, id)){ cvOnPaneGone({ id }); } else { const el=CV.panes[id]; if(!vis.has(el) && el.isConnected && !el.closest('#cvPark')){ cvUnplace(el); } } });
-  // Celular: só quando a aba dele está na tela (o stream respeita o teto de 1)
-  if(typeof dvSync==='function') dvSync(t);
-  cvWireOnce(root);
-}
-// adaptação do layout AUTOMÁTICO (ninguém mexeu): o que a demanda tem de verdade chegou depois (detecção, provas)
-function cvAdapt(t, l){
-  const ctx=cvCtxOf(t); let n=l, changed=false;
-  if(l.auto){
-    for(const c of n.cols) for(const tab of c.tabs){
-      if(tab.type==='app' && tab.taskId===t.id && ctx.web===false){ const rep=ctx.nonCode?cvMkTab('documento', t.id, ctx.doc?{ ref:ctx.doc }:null):ctx.mobile?cvMkTab('dispositivo', t.id):cvMkTab('entrega', t.id); n=cvReplaceTab(n, tab.id, rep); n.auto=true; changed=true; break; }
-      if(tab.type==='documento' && !tab.ref && tab.taskId===t.id && ctx.doc){ n=cvReplaceTab(n, tab.id, cvMkTab('documento', t.id, { ref:ctx.doc })); n.auto=true; changed=true; break; }
-    }
-  }
-  // P9 — terminou: o entregável abre sozinho (uma vez por demanda)
-  const fin=['review','delivered'].includes(t.status) || (typeof taskIsDone==='function' && taskIsDone(t));
-  if(fin && !(n.opened||[]).includes('fim')){
-    const tab=ctx.nonCode?cvMkTab('documento', t.id, ctx.doc?{ ref:ctx.doc }:null):cvMkTab('entrega', t.id);
-    if(!ctx.nonCode || ctx.doc){
-      const keepAuto=n.auto;
-      const at=n.cols.findIndex(c=>!c.tabs.some(x=>x.id===c.active && x.type==='conversa'));
-      const m=cvAddTab(n, tab, at>=0?at:undefined)||n; m.auto=keepAuto; m.opened=[...(n.opened||[]), 'fim'];
-      n=m; changed=true;
-    }
-  }
-  if(changed){ cvSave(n); cvSyncMode(n); }
-  return n;
-}
-function cvRenderPane(tab, el, home){
-  const tid=cvPaneTask(tab, fwTask), t=cvTask(tid);
+function cvRenderPane(tab, el){
+  if(!tab) return;
+  const head=el.querySelector('.cvph'), body=el.querySelector('.cvpb');
+  const hh=el.classList.contains('split')?cvPaneHeadHtml(tab):''; if(head.__html!==hh){ head.__html=hh; head.innerHTML=hh; }
   try{
-    if(tab.type==='app'){ if(typeof appRender==='function') appRender(tid, el); cvReqOverlayPaint(tid); return; }
-    if(tab.type==='diff') return cvDiffRender(home, el);
-    if(tab.type==='entrega') return fwRenderEntrega(home, el);
-    if(tab.type==='pr') return fwRenderPrPage(home, el);
-    if(tab.type==='documento') return cvDocRender(tab, el, t);
-    if(tab.type==='site') return cvSiteRender(tab, el);
-    if(tab.type==='log') return cvLogRender(tab, el);
-    if(tab.type==='demanda') return (typeof cvDemandaRender==='function') ? cvDemandaRender(tab, el, t) : null;
-    if(tab.type==='dispositivo' && el.classList.contains('cvpane')) return cvPaint(el, `<div class="cvempty"><b>Este projeto não é de celular</b><span>O painel Celular mostra o Simulador iOS ou o emulador Android quando a demanda é um app de celular. Pelo <b>+</b> dá pra abrir o app no navegador, um documento ou um site.</span></div>`);
-    // conversa / código: o renderWorkspace pinta (guarda própria)
-  }catch(e){ console.error('painel '+tab.type, e); }
+    if(tab.kind==='task') return cvRealmRender(tab, body);
+    if(tab.kind==='web') return tab.app ? cvAppTabRender(tab, body) : cvSiteRender(tab, body);
+    if(tab.kind==='device') return cvDeviceRender(tab, body);
+    if(tab.kind==='doc') return cvDocRender(tab, body);
+  }catch(e){ console.error('painel '+tab.kind, e); }
 }
 function cvPaint(el, html){ if(el.__html!==html){ el.__html=html; el.innerHTML=html; return true; } return false; }
-// ---------- Mudanças (diff): lista de arquivos + o diff do escolhido (o renderer de sempre) ----------
-function cvDiffRender(t, el){
-  if(!el.querySelector('.cvdiffmain')) el.innerHTML='<div class="cvdiff"><div class="cvdifffiles" role="listbox" aria-label="arquivos alterados"></div><div class="cvdiffmain fwmain"></div></div>';
-  const files=(fwFiles||[]).filter(f=>!f.doc);
-  const list=el.querySelector('.cvdifffiles');
-  const lh=files.length?files.map(f=>`<button type="button" class="cvdf${f.path===fwPath?' on':''}" role="option" aria-selected="${f.path===fwPath}" data-cvdf="${escA(f.path)}" title="${escA(f.path)}"><span class="cvdfn mono">${esc(f.path.split('/').pop())}</span><span class="cvdfa">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span></button>`).join(''):`<div class="dim" style="padding:8px;font-size:11.5px">${fwFilesLoading?'carregando…':'nenhum arquivo alterado ainda'}</div>`;
-  if(list.__html!==lh){ list.__html=lh; list.innerHTML=lh; list.querySelectorAll('[data-cvdf]').forEach(b=>b.onclick=()=>{ fwPath=b.dataset.cvdf; fwEditing=false; if(typeof fwLoadFile==='function') fwLoadFile(); renderWorkspace(); }); }
-  if(typeof fwRenderDiff==='function') fwRenderDiff(t, el.querySelector('.cvdiffmain'));
+
+// ---------- demanda num painel: o app inteiro num iframe (estado próprio) ----------
+function cvRealmRender(tab, body){
+  if(body.querySelector('iframe.cvrealm')) return;
+  body.__html=''; body.innerHTML='';
+  const f=document.createElement('iframe');
+  f.className='cvrealm'; f.dataset.tabid=tab.id; f.title='demanda: '+cvTitleOf(tab);
+  f.src='index.html?sfpane='+encodeURIComponent('task:'+tab.taskId);
+  body.appendChild(f);
 }
-// ---------- Documento (README, arquivo, entregável) — leitura, com os visualizadores da Entrega ----------
-function cvDocChoices(t){
-  const out=[], seen=new Set(); const add=(ref, label, hint)=>{ if(seen.has(ref)) return; seen.add(ref); out.push({ ref, label, hint }); };
-  ((typeof entregaArts==='function')?entregaArts(t):[]).forEach(a=>add('art:'+a.name, a.name, 'entregue pelo agente'));
-  add('file:README.md', 'README.md', 'o leia-me do projeto');
-  if(t && t.id===fwTask) (fwFiles||[]).filter(f=>/\.(md|markdown|pdf|csv|tsv|txt)$/i.test(f.path)).slice(0,12).forEach(f=>add('file:'+f.path, f.path.split('/').pop(), f.doc?'anexo':'alterado nesta demanda'));
-  (Array.isArray(t&&t.refs)?t.refs:[]).slice(0,8).forEach(r=>{ const rel=String(r); add('ref:'+(rel.includes('/')?rel:'.cardume/refs/'+rel), rel.split('/').pop(), 'anexo da demanda'); });
-  return out;
+// a janela principal leu um snapshot novo: os painéis visíveis acompanham (sem polling próprio)
+function cvPanesTick(){
+  if(!cvSplitShowing()) return;
+  for(const id of SPL.ids){ const el=SPL.panes[id]; const fr=el&&el.querySelector('iframe.cvrealm'); if(!fr) continue; try{ const w=fr.contentWindow; if(w && typeof w.sfPaneTick==='function') w.sfPaneTick(); }catch(_){ } }
 }
-function cvDocRender(tab, el, t){
-  if(!t) return cvPaint(el, '<div class="cvempty"><b>Esta demanda não existe mais</b></div>');
-  if(!tab.ref){
-    if(typeof fwArtsEnsure==='function' && t.id===fwTask) fwArtsEnsure(t);
-    const ch=cvDocChoices(t);
-    const h=`<div class="cvempty cvchooser"><b>Qual documento abrir?</b><span>Escolha um arquivo pra ler aqui, ao lado da demanda.</span><div class="cvcards">${ch.map(c=>`<button type="button" class="cvcard" data-cvdoc="${escA(c.ref)}"><span class="cvcic">${esc(({ pdf:'PDF', md:'MD', csv:'CSV', image:'IMG', text:'TXT', html:'HTML' }[pvKind(c.label)]||'ARQ'))}</span><span><b>${esc(c.label)}</b><span class="dim">${esc(c.hint)}</span></span></button>`).join('')}</div><span class="dim">Também dá pra arrastar um PDF ou um link pra cá.</span></div>`;
-    if(cvPaint(el, h)) el.querySelectorAll('[data-cvdoc]').forEach(b=>b.onclick=()=>{ const l=cvLayout(); cvSet(cvReplaceTab(l, tab.id, cvMkTab('documento', t.id, { ref:b.dataset.cvdoc }))); });
-    return;
+// --- lado do PAINEL (rodando dentro do iframe) ---
+function sfPaneBoot(){
+  const [kind, id]=String(SF_PANE).split(':');
+  window.sfPaneTick=()=>{ refresh().catch(()=>{}); };
+  window.sfPaneUnload=()=>{ try{ if(typeof nvState!=='undefined') Object.keys(nvState).forEach(k=>{ if(typeof nvUnmount==='function') nvUnmount(k); }); }catch(_){ } try{ if(typeof dvStopStream==='function') dvStopStream(); }catch(_){ } };
+  // foco: clicou neste painel → a janela principal marca ele (⌘1..3, cabeçalho)
+  window.addEventListener('pointerdown', ()=>{ try{ window.parent.cvPaneFocus(window.frameElement&&window.frameElement.dataset.tabid); }catch(_){ } }, true);
+  refresh().then(()=>{ if(kind==='task' && id) openWorkspace(id); }).catch(()=>{ if(kind==='task' && id) openWorkspace(id); });
+}
+// a demanda do painel pediu pra fechar (× da tela da demanda, Esc): sai da divisão — a aba continua aberta
+function cvPaneRequestClose(tabId){ if(tabId && cvInSplit(tabId)) cvUnsplit(tabId); }
+function cvPaneFocus(tabId){ if(!SPL.ids) return; const i=SPL.ids.indexOf(tabId); if(i<0 || i===(SPL.focus|0)) return; SPL.focus=i; cvSplitSave(); const ov=$id('cvSplit'); if(ov) ov.querySelectorAll('.cvpane').forEach(p=>p.classList.toggle('focus', p.dataset.tabid===tabId)); }
+
+// ---------- Navegador: site qualquer (sem proxy/mira/ponte) ou o app de uma demanda ----------
+function cvAppTabRender(tab, body){ if(typeof appRender==='function') appRender(tab.taskId, body); if(typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(tab.taskId); }
+function cvSiteRender(tab, body){
+  const s=cvSiteUrl(tab.url); if(!s) return cvPaint(body, '<div class="cvempty"><b>Endereço inválido</b><span>Só endereços http(s).</span></div>');
+  if(body.dataset.site!==tab.url || !body.querySelector('.cvsitestage')){
+    body.dataset.site=tab.url; body.__html='';
+    body.innerHTML=`<div class="cvsite"><div class="cvsitebar"><span class="cvsitehost mono" title="${escA(s.url)}">${esc(s.url.replace(/^https?:\/\//,'').slice(0,90))}</span><span style="flex:1"></span>${cvProofBtnsHtml(tab.id)}<button type="button" class="btn sm ghost" data-cvs="reload" title="recarregar" aria-label="recarregar">${IC.refresh||'↻'}</button><button type="button" class="btn sm" data-cvs="ext">${IC.extlink||'↗'} abrir fora</button></div><div class="cvsitestage"></div><div class="cvsitefoot">não apareceu? alguns sites não deixam abrir dentro de outro app — <button type="button" class="lnk" data-cvs="ext">abrir fora</button></div></div>`;
+    body.querySelectorAll('[data-cvs]').forEach(b=>b.onclick=()=>{ if(b.dataset.cvs==='ext') openExternal(s.url); else { cvSiteUnmount(body); body.__frozen=false; cvSiteRender(tab, body); } });
   }
-  const ref=String(tab.ref), kind=ref.slice(0, ref.indexOf(':')), name=ref.slice(ref.indexOf(':')+1);
-  const k=t.id+'|'+ref; let c=CV.docs[k];
-  if(c===undefined){ CV.docs[k]=null; c=null;
-    invoke('read_artifact',{ taskId:t.id, name }).then(v=>{ CV.docs[k]=v||{ err:'arquivo vazio' }; }).catch(e=>{ CV.docs[k]={ err:(typeof humanErr==='function'?humanErr(e,'Não consegui abrir o documento').msg:String(e&&e.message||e)) }; })
-      .finally(()=>{ const e2=CV.panes[tab.id]; if(e2 && e2.isConnected) cvDocRender(tab, e2, cvTask(t.id)); }); }
-  const pk=pvKind(name);
-  const h=`<div class="cvdoc"><div class="cvdocbar"><span class="en-dic">${esc(({ pdf:'PDF', md:'MD', csv:'CSV', image:'IMG', text:'TXT', html:'HTML', video:'VÍDEO' }[pk]||'ARQ'))}</span><b class="cvdocn" title="${escA(name)}">${esc(name)}</b><span class="dim">· ${esc(kind==='art'?'entregue':kind==='ref'?'anexo':'do projeto')}</span><span style="flex:1"></span><button type="button" class="btn sm ghost" data-cvdocx="choose">trocar</button>${kind==='art'?`<button type="button" class="btn sm" data-cvdocx="open" title="abre no programa padrão do computador">${IC.extlink||'↗'} abrir no app padrão</button>`:''}</div><div class="pv-body pv-${pk} cvdocbody">${artPreviewHtml(name, c, t.id)}</div></div>`;
-  if(cvPaint(el, h)) el.querySelectorAll('[data-cvdocx]').forEach(b=>b.onclick=()=>{
-    if(b.dataset.cvdocx==='open') invoke('open_artifact',{ taskId:t.id, name }).catch(e=>showErr(e, 'Não abriu'));
-    else { const l=cvLayout(); cvSet(cvReplaceTab(l, tab.id, cvMkTab('documento', t.id))); } });
-}
-// ---------- Site qualquer: iframe SEM proxy, SEM mira, SEM ponte; "abrir fora" sempre à mão ----------
-function cvSiteRender(tab, el){
-  const s=cvSiteUrl(tab.url); if(!s) return cvPaint(el, '<div class="cvempty"><b>Endereço inválido</b><span>Só endereços http(s).</span></div>');
-  const key='site:'+tab.id;
-  if(el.dataset.site!==tab.url || !el.querySelector('.cvsitestage')){
-    el.dataset.site=tab.url; el.__html='';
-    el.innerHTML=`<div class="cvsite"><div class="cvsitebar"><span class="cvsitehost mono" title="${escA(s.url)}">${esc(s.url.replace(/^https?:\/\//,'').slice(0,80))}</span><span style="flex:1"></span><button type="button" class="btn sm ghost" data-cvs="reload" title="recarregar">${IC.refresh||'↻'}</button><button type="button" class="btn sm" data-cvs="ext">${IC.extlink||'↗'} abrir fora</button></div><div class="cvsitestage"></div><div class="cvsitefoot">não apareceu? alguns sites não deixam abrir dentro de outro app — <button type="button" class="lnk" data-cvs="ext">abrir fora</button></div></div>`;
-    el.querySelectorAll('[data-cvs]').forEach(b=>b.onclick=()=>{ if(b.dataset.cvs==='ext') openExternal(s.url); else { cvSiteUnmount(el); el.__frozen=false; cvSiteRender(tab, el); } });
-  }
-  const stage=el.querySelector('.cvsitestage');
+  const stage=body.querySelector('.cvsitestage');
   if(s.blocked){ cvPaint(stage, `<div class="cvempty"><b>Este site não deixa abrir dentro de outro app</b><span>${esc(s.host)} bloqueia isso por segurança. Abra no seu navegador — a demanda continua aqui.</span><button type="button" class="btn primary" data-cvsx="1">${IC.extlink||'↗'} abrir ${esc(s.host)} fora</button></div>`); const b=stage.querySelector('[data-cvsx]'); if(b) b.onclick=()=>openExternal(s.url); return; }
-  if(el.__frozen){ cvPaint(stage, '<div class="cvempty"><b>Site pausado</b><span>Pra o Mac não esquentar, ficam no máximo 2 páginas vivas ao mesmo tempo.</span><button type="button" class="btn sm primary" data-cvres="1">continuar daqui</button></div>'); const b=stage.querySelector('[data-cvres]'); if(b) b.onclick=()=>{ el.__frozen=false; stage.__html=''; stage.innerHTML=''; cvSiteRender(tab, el); }; return; }
+  // YouTube DENTRO do app (origem tauri://): o player recusa tocar sem "Referer" http (erro 153 — visto no WKWebView
+  // de verdade). Não finge: capa + "assistir no YouTube" (abre fora). No navegador (harness) o /embed/ toca.
+  if(s.video && s.vid && !/^https?:$/.test(location.protocol)){ cvPaint(stage, `<div class="cvempty cvvid"><button type="button" class="cvvidth" data-cvsx="1" aria-label="assistir no YouTube (abre fora)"><img src="https://i.ytimg.com/vi/${escA(s.vid)}/hqdefault.jpg" alt="" loading="lazy"><span class="cvvidplay" aria-hidden="true">▶</span></button><b>O YouTube não toca vídeo dentro de apps</b><span>Ele bloqueia o player fora do navegador. Clique pra assistir no YouTube — a demanda continua aqui do lado.</span><button type="button" class="btn primary" data-cvsx="1">${IC.extlink||'↗'} assistir no YouTube</button></div>`); stage.querySelectorAll('[data-cvsx]').forEach(b=>b.onclick=()=>openExternal(s.url)); return; }
+  if(body.__frozen){ cvPaint(stage, '<div class="cvempty"><b>Site pausado</b><span>Pra o Mac não esquentar, ficam no máximo 2 páginas vivas ao mesmo tempo.</span><button type="button" class="btn sm primary" data-cvres="1">continuar daqui</button></div>'); const b=stage.querySelector('[data-cvres]'); if(b) b.onclick=()=>{ body.__frozen=false; stage.__html=''; stage.innerHTML=''; cvSiteRender(tab, body); }; return; }
   if(stage.querySelector('iframe')) return;
   stage.__html=''; stage.innerHTML='';
-  cvRmTake('web', key, ()=>{ cvSiteUnmount(el); el.__frozen=true; if(el.isConnected) cvSiteRender(tab, el); });
+  cvRmTake('web', 'site:'+tab.id+'@'+CV_REALM, ()=>{ cvSiteUnmount(body); body.__frozen=true; if(body.isConnected) cvSiteRender(tab, body); });
   const f=document.createElement('iframe');
   f.className='cvsiteframe'; f.title='site: '+s.host; f.src=s.embed;
   // sem allow-top-navigation (não tira o Starfork da tela); same-origin aqui é a origem DO SITE, nunca a do app
@@ -259,273 +196,234 @@ function cvSiteRender(tab, el){
   f.setAttribute('referrerpolicy','strict-origin-when-cross-origin');
   stage.appendChild(f);
 }
-function cvSiteUnmount(el){ const f=el.querySelector('iframe.cvsiteframe'); if(f){ try{ f.src='about:blank'; f.remove(); }catch(_){ } } const id=el.dataset.cvpane; if(id) cvRmDrop('web', 'site:'+id); }
-// ---------- Detalhes do ambiente (log) — só quando a pessoa pede ----------
-function cvLogRender(tab, el){
-  const tid=cvPaneTask(tab, fwTask); const lg=CV.logs[tid];
-  if(lg===undefined) cvLogLoad(tid, tab);
-  const s=(typeof ENV!=='undefined'&&ENV[tid])?ENV[tid]:{};
-  cvPaint(el, `<div class="cvlog"><div class="cvlogbar"><b>Detalhes do ambiente</b><span class="dim">${esc((s.plan&&s.plan.label)||'')}</span><span style="flex:1"></span><button type="button" class="btn sm" data-cvlog="1">atualizar</button></div><pre class="mono envlog cvlogpre">${esc(lg==null?'carregando…':(lg||'(nada ainda — o registro aparece quando o ambiente sobe)'))}</pre></div>`);
-  const b=el.querySelector('[data-cvlog]'); if(b) b.onclick=()=>cvLogLoad(tid, tab);
-}
-function cvLogLoad(tid, tab){ CV.logs[tid]=null; invoke('env_status',{ taskId:tid, log:true }).then(v=>{ CV.logs[tid]=(v&&v.log)||''; }).catch(e=>{ CV.logs[tid]=String(e&&e.message||e); }).finally(()=>{ const el=CV.panes[tab.id]; if(el&&el.isConnected) cvLogRender(tab, el); }); }
-// "detalhes" da faixa do ambiente → painel de log (numa coluna nova, se couber)
-function cvOpenLog(taskId){ if(!fwTask) return; CV.logs[taskId]=undefined; cvOpenType('log', cvLayout().cols.length<CV_MAX_COLS?'new':undefined); }
+function cvSiteUnmount(el){ const f=el.querySelector('iframe.cvsiteframe'); if(f){ try{ f.src='about:blank'; f.remove(); }catch(_){ } } const pane=el.closest?el.closest('[data-tabid]'):null; const id=(pane&&pane.dataset.tabid)||el.dataset.tabid; if(id) cvRmDrop('web', 'site:'+id+'@'+CV_REALM); }
 
-// ---------- menu "+" / ⌘K ----------
-function cvCloseMenu(){ const m=CV.menu; CV.menu=null; if(m){ m.remove(); document.removeEventListener('mousedown', cvMenuOut, true); } }
-function cvMenuOut(e){ const m=CV.menu; if(m && !m.contains(e.target) && !e.target.closest('[data-cvplus]')) cvCloseMenu(); }
-function cvOthers(){ return (state.tasks||[]).filter(x=>x.id!==fwTask && !(typeof taskIsDone==='function' && taskIsDone(x) && x.flag==='closed')).slice(-12).reverse(); }
-function cvMenuItems(col){
-  const t=cvTask(fwTask), ctx=cvCtxOf(t), l=cvLayout();
-  return cvPlusItems(Object.assign({}, ctx, { others:cvOthers().map(x=>({ id:x.id, title:x.title })), tasksN:cvTasksIn(l).length||1 }));
+// ---------- Simulador (o painel do dispositivo, numa aba do topo) ----------
+function cvDeviceRender(tab, body){
+  const t=cvTask(tab.taskId);
+  if(!t) return cvPaint(body, '<div class="cvempty"><b>Esta demanda não existe mais</b><span>Feche esta aba.</span></div>');
+  let host=body.querySelector('aside.cvdev');
+  if(!host){ body.__html=''; body.innerHTML='<aside class="fwdev cvdev" aria-label="Simulador da demanda ao vivo"></aside><div class="cvdevnone" hidden></div>'; host=body.querySelector('aside.cvdev'); }
+  const info=(typeof DV!=='undefined')?DV.info[t.id]:undefined;
+  const none=body.querySelector('.cvdevnone');
+  if(info && !(info.mobile && (info.platforms||[]).length)){ none.hidden=false; host.hidden=true; cvPaint(none, `<div class="cvempty"><b>"${esc(t.title)}" não é um app de celular</b><span>O Simulador mostra o iOS ou o Android quando a demanda é um app de celular (iOS, Android, React Native, Expo). Pelo <b>+</b> lá em cima dá pra abrir o app dela no Navegador.</span></div>`); return; }
+  none.hidden=true;
 }
-function cvOpenMenu(anchor, col, quick){
-  cvCloseMenu();
-  const m=document.createElement('div'); m.className='cvmenu'; m.setAttribute('role','menu'); m.setAttribute('aria-label','abrir um painel');
-  const items=cvMenuItems(col);
-  const row=(i, x)=>`<button type="button" class="cvmi${x.disabled?' off':''}" role="menuitem" data-cvmi="${i}"${x.disabled?' aria-disabled="true"':''} title="${escA(x.why||x.hint)}"><span class="cvmic" aria-hidden="true">${esc(CV_ICON[x.type]||'')}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.why||x.hint)}</span></span>${x.type==='documento'||x.type==='demanda'||x.type==='site'?'<span class="cvmch" aria-hidden="true">›</span>':''}</button>`;
-  m.innerHTML=(quick?'<input class="in cvmq" placeholder="painel, documento ou demanda…" aria-label="filtrar painéis">':'')+
-    `<div class="cvml">${items.map((x,i)=>row(i,x)).join('')}</div>`+
-    `<div class="cvmfoot"><button type="button" class="lnk" data-cvpreset="construir">Construir</button><button type="button" class="lnk" data-cvpreset="revisar">Revisar</button><button type="button" class="lnk" data-cvpreset="normal">voltar ao normal</button></div>`;
-  document.body.appendChild(m); CV.menu=m;
-  const r=anchor?anchor.getBoundingClientRect():{ left:window.innerWidth/2-160, bottom:120, right:window.innerWidth/2+160 };
+// quem é o dono do painel do dispositivo agora: a aba Simulador à vista (senão a tela da demanda, docado)
+function cvDeviceSync(){
+  if(typeof DV==='undefined' || typeof dvSync!=='function') return;
+  const ov=$id('cvSplit'); const showing=ov && ov.style.display!=='none';
+  const ids=showing?(cvInSplit(activeTab)?SPL.ids:[activeTab]):[];
+  const dev=ids.map(cvTabOf).find(t=>t && t.kind==='device');
+  if(dev){ const el=SPL.panes[dev.id]; const host=el&&el.querySelector('aside.cvdev');
+    if(host){ if(DV.host!==host){ if(typeof dvStopStream==='function') dvStopStream(); DV.host=host; DV.sig=''; DV.task=null; } DV.forced=dev.taskId; const t=cvTask(dev.taskId); if(t) dvSync(t); if(el) cvDeviceRender(dev, el.querySelector('.cvpb')); return; } }
+  if(DV.host){ if(typeof dvStopStream==='function') dvStopStream(); DV.host=null; DV.forced=null; DV.sig=''; DV.task=null; }
+}
+
+// ---------- Documento (README, arquivo, entregável) — leitura, com os visualizadores da Entrega ----------
+function cvDocChoices(t){
+  const out=[], seen=new Set(); const add=(ref, label, hint)=>{ if(seen.has(ref)) return; seen.add(ref); out.push({ ref, label, hint }); };
+  ((typeof entregaArts==='function')?entregaArts(t):[]).forEach(a=>add('art:'+a.name, a.name, 'entregue pelo agente'));
+  add('file:README.md', 'README.md', 'o leia-me do projeto');
+  (Array.isArray(t&&t.refs)?t.refs:[]).slice(0,8).forEach(r=>{ const rel=String(r); add('ref:'+(rel.includes('/')?rel:'.cardume/refs/'+rel), rel.split('/').pop(), 'anexo da demanda'); });
+  return out;
+}
+function cvDocRender(tab, body){
+  const t=cvTask(tab.taskId);
+  if(!t) return cvPaint(body, '<div class="cvempty"><b>Esta demanda não existe mais</b><span>Feche esta aba.</span></div>');
+  if(!tab.ref){
+    if(typeof artifactsCache!=='undefined' && artifactsCache[t.id]===undefined && typeof loadArtifacts==='function' && !body.__artLoading){ body.__artLoading=1; loadArtifacts(t.id, t.status).then(()=>{ if(body.isConnected){ body.__html=''; cvDocRender(tab, body); } }).catch(()=>{}); }
+    const ch=cvDocChoices(t);
+    const h=`<div class="cvempty cvchooser"><b>Qual documento de "${esc(t.title)}"?</b><span>Escolha um arquivo pra ler aqui, ao lado do que você está fazendo.</span><div class="cvcards">${ch.map(c=>`<button type="button" class="cvcard" data-cvdoc="${escA(c.ref)}"><span class="cvcic">${esc(({ pdf:'PDF', md:'MD', csv:'CSV', image:'IMG', text:'TXT', html:'HTML' }[pvKind(c.label)]||'ARQ'))}</span><span><b>${esc(c.label)}</b><span class="dim">${esc(c.hint)}</span></span></button>`).join('')}</div></div>`;
+    if(cvPaint(body, h)) body.querySelectorAll('[data-cvdoc]').forEach(b=>b.onclick=()=>cvDocPick(tab, b.dataset.cvdoc));
+    return;
+  }
+  const ref=String(tab.ref), kind=ref.slice(0, ref.indexOf(':')), name=ref.slice(ref.indexOf(':')+1);
+  const k=t.id+'|'+ref; let c=SPL.docs[k];
+  if(c===undefined){ SPL.docs[k]=null; c=null;
+    invoke('read_artifact',{ taskId:t.id, name }).then(v=>{ SPL.docs[k]=v||{ err:'arquivo vazio' }; }).catch(e=>{ SPL.docs[k]={ err:(typeof humanErr==='function'?humanErr(e,'Não consegui abrir o documento').msg:String(e&&e.message||e)) }; })
+      .finally(()=>{ if(body.isConnected) cvDocRender(tab, body); }); }
+  const pk=pvKind(name);
+  const h=`<div class="cvdoc"><div class="cvdocbar"><span class="en-dic">${esc(({ pdf:'PDF', md:'MD', csv:'CSV', image:'IMG', text:'TXT', html:'HTML', video:'VÍDEO' }[pk]||'ARQ'))}</span><b class="cvdocn" title="${escA(name)}">${esc(name)}</b><span class="dim cvdocsub">· ${esc(kind==='art'?'entregue':kind==='ref'?'anexo':'do projeto')} · ${esc(t.title)}</span><span style="flex:1"></span>${cvProofBtnsHtml(tab.id)}<button type="button" class="btn sm ghost" data-cvdocx="choose">trocar</button>${kind==='art'?`<button type="button" class="btn sm" data-cvdocx="open" title="abre no programa padrão do computador">${IC.extlink||'↗'} abrir no app padrão</button>`:''}</div><div class="pv-body pv-${pk} cvdocbody">${artPreviewHtml(name, c, t.id)}</div></div>`;
+  if(cvPaint(body, h)) body.querySelectorAll('[data-cvdocx]').forEach(b=>b.onclick=()=>{
+    if(b.dataset.cvdocx==='open') invoke('open_artifact',{ taskId:t.id, name }).catch(e=>showErr(e, 'Não abriu'));
+    else cvDocPick(tab, null); });
+}
+// trocar o arquivo de uma aba Documento: vira OUTRA aba (id pelo conteúdo) no mesmo lugar (e na divisão, se estava)
+function cvDocPick(tab, ref){
+  const desc={ kind:'doc', taskId:tab.taskId }; if(ref) desc.ref=ref;
+  const id=cvTabIdOf(desc); if(id===tab.id) return;
+  let nt=cvTabOf(id);
+  if(!nt){ nt=Object.assign({ id, kind:'doc', title:'' }, desc); nt.title=cvTitleOf(nt).slice(0,28); const i=TABS.indexOf(tab); TABS.splice(i<0?TABS.length:i+1, 0, nt); }
+  if(SPL.ids && SPL.ids.includes(tab.id)){ SPL.ids=SPL.ids.map(x=>x===tab.id?id:x).filter((x,i,a)=>a.indexOf(x)===i); cvSplitSave(); }
+  const i=TABS.indexOf(tab); if(i>=0) TABS.splice(i,1); cvPaneDispose(tab.id);
+  activeTab=null; activateTab(id);
+}
+
+// ---------- menu "+" do topo ----------
+function cvCloseMenu(){ const m=SPL.menu; SPL.menu=null; if(m){ m.remove(); document.removeEventListener('mousedown', cvMenuOut, true); } }
+function cvMenuOut(e){ const m=SPL.menu; if(m && !m.contains(e.target) && !e.target.closest('#tabAdd')) cvCloseMenu(); }
+function cvTasksForMenu(){ return ((state&&state.tasks)||[]).filter(x=>!(typeof taskIsDone==='function' && taskIsDone(x) && x.flag==='closed')).slice(-14).reverse(); }
+// opts.split: 'right' = o que for escolhido abre DIVIDINDO a tela com a aba ativa (⌘\ / "dividir à direita…")
+function cvPlusMenu(anchor, opts){
+  opts=opts||{};
+  if(SPL.menu){ cvCloseMenu(); if(!opts.split) return; }
+  const m=document.createElement('div'); m.className='cvmenu'; m.setAttribute('role','menu'); m.setAttribute('aria-label', opts.split?'abrir ao lado':'abrir');
+  const items=[
+    !opts.split && { k:'nova', label:'Nova demanda', hint:'começar uma demanda (⌘N)', ic:'+' },
+    { k:'task', label:'Abrir demanda', hint:'uma demanda deste projeto', ic:'◐', sub:true },
+    { k:'web', label:'Navegador', hint:'YouTube, documentação, ou o app de uma demanda', ic:'◍', sub:true },
+    { k:'device', label:'Simulador iOS/Android', hint:'o celular de uma demanda ao vivo', ic:'▯', sub:true },
+    { k:'doc', label:'Documento', hint:'README, um arquivo ou o que foi entregue', ic:'▤', sub:true },
+  ].filter(Boolean);
+  m.innerHTML=(opts.split?`<div class="cvmsub"><b>Abrir ao lado</b><span class="dim">vai pra direita da aba atual</span></div>`:'')+`<div class="cvml">${items.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvmi="${i}"><span class="cvmic" aria-hidden="true">${esc(x.ic)}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span>${x.sub?'<span class="cvmch" aria-hidden="true">›</span>':''}</button>`).join('')}</div><div class="cvmfoot dim">arraste uma aba pra metade da tela pra dividir · ⌘\\</div>`;
+  document.body.appendChild(m); SPL.menu=m;
+  const r=anchor?anchor.getBoundingClientRect():{ left:window.innerWidth/2-170, bottom:90 };
   m.style.top=Math.min(window.innerHeight-m.offsetHeight-8, r.bottom+6)+'px';
   m.style.left=Math.max(8, Math.min(window.innerWidth-m.offsetWidth-8, r.left))+'px';
   setTimeout(()=>document.addEventListener('mousedown', cvMenuOut, true), 0);
-  const pick=(x)=>{
-    if(x.disabled){ if(x.why) toast(x.why,'info'); return; }
-    if(x.type==='documento') return cvSubMenu(m, cvDocChoices(cvTask(fwTask)).map(c=>({ label:c.label, hint:c.hint, go:()=>cvOpenType('documento', col, { ref:c.ref }) })).concat([{ label:'escolher depois', hint:'abre o painel com os documentos pra escolher', go:()=>cvOpenType('documento', col) }]), 'Documento');
-    if(x.type==='demanda') return cvSubMenu(m, x.others.map(o=>({ label:o.title, hint:'lado a lado, pra comparar ou acompanhar', dot:cvTaskColor(o.id, fwTask), go:()=>cvOpenType('demanda', cvLayout().cols.length<CV_MAX_COLS?'new':col, { taskId:o.id }) })), 'Outra demanda');
-    if(x.type==='site') return cvSiteAsk(m, col);
-    cvCloseMenu(); cvOpenType(x.type, col);
-  };
-  m.querySelectorAll('[data-cvmi]').forEach(b=>b.onclick=()=>pick(items[+b.dataset.cvmi]));
-  m.querySelectorAll('[data-cvpreset]').forEach(b=>b.onclick=()=>{ cvCloseMenu(); const p=b.dataset.cvpreset; if(p==='normal') cvReset(); else cvApplyPreset(p); });
+  const split=opts.split||null;
+  const open=(desc)=>{ cvCloseMenu(); cvOpenTop(desc, split?{ split }:{}); };
+  const taskList=(title, hint, go)=>cvSubMenu(m, cvTasksForMenu().map(t=>({ label:t.title, hint:hint(t), dot:cvTaskColor(t.id), go:()=>go(t) })), title);
+  m.querySelectorAll('[data-cvmi]').forEach(b=>b.onclick=()=>{
+    const x=items[+b.dataset.cvmi];
+    if(x.k==='nova'){ cvCloseMenu(); openTab('nova'); return; }
+    if(x.k==='task') return taskList('Abrir demanda', ()=>'a tela da demanda', t=>open({ kind:'task', taskId:t.id }));
+    if(x.k==='web') return cvWebAsk(m, open);
+    if(x.k==='device') return taskList('Simulador iOS/Android', t=>{ const i=(typeof DV!=='undefined')?DV.info[t.id]:null; return i&&i.mobile?'app de celular':'o simulador desta demanda'; }, t=>open({ kind:'device', taskId:t.id }));
+    if(x.k==='doc') return taskList('Documento de qual demanda?', ()=>'README, entregáveis e anexos', t=>open({ kind:'doc', taskId:t.id }));
+  });
   cvMenuKeys(m);
-  const q=m.querySelector('.cvmq');
-  if(q){ q.focus(); q.oninput=()=>{ const v=q.value.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); m.querySelectorAll('[data-cvmi]').forEach(b=>{ const x=items[+b.dataset.cvmi]; const hay=(x.label+' '+x.hint+' '+(x.others||[]).map(o=>o.title).join(' ')).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); b.hidden=!!v && !hay.includes(v); }); };
-    q.onkeydown=(e)=>{ if(e.key==='Enter'){ const b=[...m.querySelectorAll('[data-cvmi]')].find(x=>!x.hidden); if(b){ e.preventDefault(); b.click(); } } }; }
-  else { const f=m.querySelector('[data-cvmi]'); if(f) f.focus(); }
+  const f=m.querySelector('[data-cvmi]'); if(f) f.focus();
 }
 function cvSubMenu(m, list, title){
   const l=m.querySelector('.cvml');
-  l.innerHTML=`<div class="cvmsub"><button type="button" class="lnk" data-cvback="1">‹ voltar</button><b>${esc(title)}</b></div>`+(list.length?list.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvsub="${i}"><span class="cvmic" aria-hidden="true">${x.dot?`<span class="cvtdot" style="background:${x.dot}"></span>`:'▤'}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint||'')}</span></span></button>`).join(''):'<div class="dim" style="padding:10px">nada por aqui ainda</div>');
-  l.querySelector('[data-cvback]').onclick=()=>{ const a=$id('cvCanvas')&&document.querySelector('[data-cvplus]'); cvCloseMenu(); cvOpenMenu(a, undefined); };
+  l.innerHTML=`<div class="cvmsub"><b>${esc(title)}</b></div>`+(list.length?list.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvsub="${i}"><span class="cvmic" aria-hidden="true">${x.dot?`<span class="cvtdot" style="background:${x.dot}"></span>`:'▤'}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint||'')}</span></span></button>`).join(''):'<div class="dim" style="padding:10px">nenhuma demanda neste projeto ainda</div>');
   l.querySelectorAll('[data-cvsub]').forEach(b=>b.onclick=()=>{ const x=list[+b.dataset.cvsub]; cvCloseMenu(); x.go(); });
   const f=l.querySelector('[data-cvsub]'); if(f) f.focus();
 }
-// site: o endereço é pedido AQUI no menu — o painel nunca nasce vazio com um campo de endereço (veto da Carla)
-function cvSiteAsk(m, col){
+// Navegador: o endereço é pedido AQUI no menu (a aba nunca nasce vazia só com um campo); ou o app de uma demanda
+function cvWebAsk(m, open){
   const l=m.querySelector('.cvml');
-  l.innerHTML=`<div class="cvmsub"><button type="button" class="lnk" data-cvback="1">‹ voltar</button><b>Site qualquer</b></div><form class="cvsiteask"><input class="in" name="u" placeholder="cole o endereço — ex.: youtube.com/watch?v=… ou docs.site.com" aria-label="endereço do site" autocomplete="off" spellcheck="false"><button class="btn primary sm">abrir</button></form><div class="dim cvmhint">Abre num painel separado, sem acesso ao Starfork. Se o site não deixar, aparece "abrir fora".</div>`;
-  l.querySelector('[data-cvback]').onclick=()=>{ const a=document.querySelector('[data-cvplus]'); cvCloseMenu(); cvOpenMenu(a, col); };
+  const apps=cvTasksForMenu().slice(0,6);
+  l.innerHTML=`<div class="cvmsub"><b>Navegador</b></div><form class="cvsiteask"><input class="in" name="u" placeholder="cole o endereço — ex.: youtube.com/watch?v=… ou docs.site.com" aria-label="endereço do site" autocomplete="off" spellcheck="false"><button class="btn primary sm">abrir</button></form><div class="dim cvmhint">Abre numa aba separada, sem acesso ao Starfork. Se o site não deixar, aparece "abrir fora".</div>`+
+    (apps.length?`<div class="cvmsub" style="margin-top:6px"><b>ou o app de uma demanda</b></div>`+apps.map((t,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvapp="${i}"><span class="cvmic" aria-hidden="true"><span class="cvtdot" style="background:${cvTaskColor(t.id)}"></span></span><span class="cvmt"><b>app · ${esc(t.title)}</b><span>a página dela rodando (ou "Subir ambiente")</span></span></button>`).join(''):'');
   const f=l.querySelector('form'), i=f.querySelector('input'); i.focus();
-  f.onsubmit=(e)=>{ e.preventDefault(); const s=cvSiteUrl(i.value); if(!s){ toast('só endereços http(s) — ex.: youtube.com/watch?v=…','warn'); return; } cvCloseMenu(); cvOpenType('site', col, { url:s.url }); };
+  f.onsubmit=(e)=>{ e.preventDefault(); const s=cvSiteUrl(i.value); if(!s){ toast('só endereços http(s) — ex.: youtube.com/watch?v=…','warn'); return; } open({ kind:'web', url:s.url }); };
+  l.querySelectorAll('[data-cvapp]').forEach(b=>b.onclick=()=>open({ kind:'web', taskId:apps[+b.dataset.cvapp].id, app:true }));
 }
 function cvMenuKeys(m){
   m.addEventListener('keydown', (e)=>{
-    if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cvCloseMenu(); return; }
+    if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cvCloseMenu(); const a=$id('tabAdd'); if(a) a.focus(); return; }
     if(!['ArrowDown','ArrowUp','Home','End'].includes(e.key)) return;
-    const its=[...m.querySelectorAll('[role=menuitem]')].filter(b=>!b.hidden); if(!its.length) return;
+    const its=[...m.querySelectorAll('[role=menuitem]')]; if(!its.length) return;
     const cur=its.indexOf(document.activeElement);
     const nx=(typeof a11yMenuStep==='function')?a11yMenuStep(its.length, cur, e.key):(e.key==='ArrowUp'?(cur-1+its.length)%its.length:(cur+1)%its.length);
     if(nx>=0){ e.preventDefault(); its[nx].focus(); }
   });
 }
+// botão direito numa aba: dividir à direita/esquerda · tirar da tela dividida
+function cvTabMenu(id, anchor, ev){
+  cvCloseMenu();
+  const tab=cvTabOf(id); if(!cvSplitable(tab)) return;
+  const inS=cvInSplit(id), act=cvTabOf(activeTab);
+  const items=[];
+  if(id!==activeTab && cvSplitable(act) && !(inS && cvInSplit(activeTab))){ items.push({ label:'dividir à direita', hint:'lado a lado com '+cvTitleOf(act), go:()=>cvSplitWith(activeTab, id, 'right') }); items.push({ label:'dividir à esquerda', hint:'lado a lado com '+cvTitleOf(act), go:()=>cvSplitWith(activeTab, id, 'left') }); }
+  if(id===activeTab && !(SPL.ids && cvInSplit(id) && SPL.ids.length>=CV_MAX_PANES)) items.push({ label:'dividir à direita…', hint:'escolher o que abrir do lado', go:()=>cvPlusMenu($id('tabAdd'), { split:'right' }) });
+  if(inS) items.push({ label:'tirar da tela dividida', hint:'a aba continua aberta', go:()=>cvUnsplit(id) });
+  if(!items.length) return;
+  const m=document.createElement('div'); m.className='cvmenu cvctx'; m.setAttribute('role','menu'); m.setAttribute('aria-label','opções da aba');
+  m.innerHTML=`<div class="cvml">${items.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-ctx="${i}"><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span></button>`).join('')}</div>`;
+  document.body.appendChild(m); SPL.menu=m;
+  const x=ev&&ev.clientX!=null?ev.clientX:anchor.getBoundingClientRect().left, y=ev&&ev.clientY!=null?ev.clientY:anchor.getBoundingClientRect().bottom;
+  m.style.top=Math.min(window.innerHeight-m.offsetHeight-8, y+4)+'px'; m.style.left=Math.max(8, Math.min(window.innerWidth-m.offsetWidth-8, x))+'px';
+  setTimeout(()=>document.addEventListener('mousedown', cvMenuOut, true), 0);
+  m.querySelectorAll('[data-ctx]').forEach(b=>b.onclick=()=>{ const it=items[+b.dataset.ctx]; cvCloseMenu(); it.go(); });
+  cvMenuKeys(m); const f=m.querySelector('[data-ctx]'); if(f) f.focus();
+}
 
-// ---------- arrastar: aba → outra coluna (meio junta, borda divide); link/PDF de fora → painel ----------
-let cvDragTab=null;
-function cvColAt(root, x, y){ const cols=[...root.querySelectorAll('.cvcol')]; return cols.find(c=>{ const r=c.getBoundingClientRect(); return x>=r.left && x<=r.right && y>=r.top && y<=r.bottom; })||null; }
-function cvShowDrop(col, zone){
-  const root=$id('cvCanvas'); if(!root) return;
-  root.querySelectorAll('.cvdrop').forEach(d=>{ if(!col || d.parentElement!==col){ d.hidden=true; d.className='cvdrop'; } });
-  if(!col) return;
-  const d=col.querySelector('.cvdrop'); d.hidden=false; d.className='cvdrop '+zone;
-  d.innerHTML='<span>'+(zone==='left'?'solte pra abrir numa coluna à esquerda':zone==='right'?'solte pra abrir numa coluna à direita':zone==='center-full'?'máximo de 3 colunas — solte aqui pra juntar':'solte pra juntar nesta coluna')+'</span>';
+// ---------- arrastar uma aba do topo pra metade da tela ----------
+function cvTabDragStart(id){
+  const tab=cvTabOf(id), act=cvTabOf(activeTab); if(!cvSplitable(tab) || !cvSplitable(act)) return;
+  SPL.dragId=id; const z=$id('cvDropZone'); if(z){ z.hidden=false; z.classList.remove('l','r'); }
+  document.documentElement.classList.add('cvdragging');
 }
-function cvExternalDrop(dt){
-  if(!dt) return false;
-  const files=[...(dt.files||[])];
-  if(files.length){ cvDropFiles(files); return true; }
-  const raw=(dt.getData('text/uri-list')||dt.getData('text/plain')||'').split('\n').map(x=>x.trim()).find(x=>x && !x.startsWith('#'));
-  if(raw){ const s=cvSiteUrl(raw); if(s){ cvOpenType('site', 'new', { url:s.url }); return true; } }
-  return false;
-}
-async function cvDropFiles(files){
-  const tid=fwTask; if(!tid) return;
-  for(const f of files.slice(0,3)){
-    if(f.size>25e6){ toast(`${f.name}: maior que 25 MB`,'warn'); continue; }
-    try{ const b64=(typeof attFileToB64==='function')?await attFileToB64(f):null; if(!b64) continue;
-      const a=await invoke('import_attachment_data',{ name:f.name, dataB64:b64, taskId:tid });
-      cvOpenType('documento', 'new', { ref:'ref:'+(a&&a.rel||'.cardume/refs/'+f.name) });
-      toast(`${f.name} virou anexo da demanda e abriu num painel`,'ok');
-    }catch(e){ showErr(e, 'Não consegui abrir o arquivo'); }
-  }
-}
-// ---------- fiação (uma vez por raiz) ----------
-function cvWireOnce(root){
-  if(root.__cvWired) return; root.__cvWired=1;
-  root.addEventListener('click', (e)=>{
-    const x=e.target.closest('[data-cvclose]'); if(x){ e.stopPropagation(); cvCloseTabId(x.dataset.cvclose); return; }
-    const tb=e.target.closest('[data-cvtab]'); if(tb){ const l=cvLayout(); cvSet(cvActivate(l, tb.dataset.cvtab)); return; }
-    const p=e.target.closest('[data-cvplus]'); if(p){ e.stopPropagation(); if(CV.menu){ cvCloseMenu(); return; } cvOpenMenu(p, +p.dataset.cvplus); return; }
-  });
-  // coluna em foco = onde você clicou (sem re-render: só a classe)
-  root.addEventListener('mousedown', (e)=>{ const c=e.target.closest('.cvcol'); if(!c) return; const l=cvLayout(); const i=+c.dataset.col; if(l && (l.focus|0)!==i){ l.focus=i; cvSave(l); cvSyncMode(l); root.querySelectorAll('.cvcol').forEach(cc=>cc.classList.toggle('focus', +cc.dataset.col===i && l.cols.length>1)); } }, true);
-  // abas pelo teclado (padrão tablist): ←/→ trocam, Delete fecha
-  root.addEventListener('keydown', (e)=>{
-    const tb=e.target.closest&&e.target.closest('[data-cvtab]'); if(!tb) return;
-    if(e.key==='Enter'||e.key===' '){ e.preventDefault(); tb.click(); return; }
-    if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); cvCloseTabId(tb.dataset.cvtab); return; }
-    if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight') return;
-    const sib=[...tb.parentElement.querySelectorAll('[data-cvtab]')]; const i=sib.indexOf(tb); const nx=sib[(i+(e.key==='ArrowRight'?1:-1)+sib.length)%sib.length];
-    if(nx){ e.preventDefault(); const l=cvLayout(); cvSet(cvActivate(l, nx.dataset.cvtab)); setTimeout(()=>{ const f=document.querySelector(`[data-cvtab="${nx.dataset.cvtab}"]`); if(f) f.focus(); }, 0); }
-  });
-  root.addEventListener('dragstart', (e)=>{ const tb=e.target.closest&&e.target.closest('[data-cvtab]'); if(!tb) return; cvDragTab=tb.dataset.cvtab; try{ e.dataTransfer.setData('text/x-cvtab', cvDragTab); e.dataTransfer.effectAllowed='move'; }catch(_){ } root.classList.add('cvdragging'); });
-  root.addEventListener('dragend', ()=>{ cvDragTab=null; root.classList.remove('cvdragging'); cvShowDrop(null); });
-  root.addEventListener('dragover', (e)=>{
-    const col=e.target.closest&&e.target.closest('.cvcol'); if(!col) return;
-    const ext=!cvDragTab && e.dataTransfer && [...(e.dataTransfer.types||[])].some(t=>t==='Files'||t==='text/uri-list');
-    if(!cvDragTab && !ext) return;
-    e.preventDefault(); try{ e.dataTransfer.dropEffect=cvDragTab?'move':'copy'; }catch(_){ }
-    const l=cvLayout(); cvShowDrop(col, cvDragTab?cvDropZone(col.getBoundingClientRect(), e.clientX, l.cols.length):'center');
-  });
-  root.addEventListener('dragleave', (e)=>{ if(!root.contains(e.relatedTarget)) cvShowDrop(null); });
-  root.addEventListener('drop', (e)=>{
-    const col=e.target.closest&&e.target.closest('.cvcol'); cvShowDrop(null); root.classList.remove('cvdragging');
-    if(cvDragTab && col){ e.preventDefault(); const l=cvLayout(); const zone=cvDropZone(col.getBoundingClientRect(), e.clientX, l.cols.length); const id=cvDragTab; cvDragTab=null; cvSet(cvMoveTab(l, id, +col.dataset.col, zone==='center-full'?'center':zone)); return; }
-    if(e.defaultPrevented) return; // o composer do chat já pegou (anexo da mensagem) — não abre painel junto
-    if(cvExternalDrop(e.dataTransfer)) e.preventDefault();
-  });
-  // largura das colunas: arrastar o divisor (fração salva na demanda)
-  root.addEventListener('pointerdown', (e)=>{
-    const sp=e.target.closest&&e.target.closest('[data-cvsplit]'); if(!sp) return;
-    e.preventDefault(); sp.setPointerCapture(e.pointerId); root.classList.add('cvdragging');
-    const cols=[...root.querySelectorAll('.cvcol')]; const ws=cols.map(c=>c.getBoundingClientRect().width); const total=ws.reduce((a,b)=>a+b,0);
-    const i=+sp.dataset.cvsplit, x0=e.clientX;
-    const mv=(ev)=>{ const d=ev.clientX-x0; const a=Math.max(220, ws[i]+d), b=Math.max(220, ws[i+1]-(a-ws[i])); const a2=ws[i]+ws[i+1]-b; cols.forEach((c,k)=>{ const w=k===i?a2:k===i+1?b:ws[k]; c.style.flex=(w/total)+' 1 0'; }); };
-    const up=()=>{ sp.removeEventListener('pointermove', mv); sp.removeEventListener('pointerup', up); root.classList.remove('cvdragging');
-      const ws2=cols.map(c=>c.getBoundingClientRect().width), tt=ws2.reduce((a,b)=>a+b,0)||1; const l=cvLayout(); if(!l) return;
-      const n=Object.assign({}, l, { w:cvWidths(ws2.map(w=>w/tt), ws2.length) }); cvSave(n); };
+function cvTabDragEnd(){ SPL.dragId=null; const z=$id('cvDropZone'); if(z){ z.hidden=true; z.classList.remove('l','r'); } document.documentElement.classList.remove('cvdragging'); }
+{ const z=$id('cvDropZone');
+  if(z){
+    z.addEventListener('dragover', (e)=>{ if(!SPL.dragId) return; e.preventDefault(); try{ e.dataTransfer.dropEffect='move'; }catch(_){ } const side=cvDropSide(z.getBoundingClientRect(), e.clientX); z.classList.toggle('l', side==='left'); z.classList.toggle('r', side==='right'); });
+    z.addEventListener('dragleave', (e)=>{ if(!z.contains(e.relatedTarget)) z.classList.remove('l','r'); });
+    z.addEventListener('drop', (e)=>{ if(!SPL.dragId) return; e.preventDefault(); const side=cvDropSide(z.getBoundingClientRect(), e.clientX); const id=SPL.dragId; cvTabDragEnd(); if(side) cvSplitWith(activeTab, id, side); });
+  } }
+// ---------- fiação da linha de painéis (uma vez) ----------
+function cvWireRow(row){
+  row.addEventListener('click', (e)=>{ const x=e.target.closest('[data-cvunsplit]'); if(x){ e.stopPropagation(); cvUnsplit(x.dataset.cvunsplit); } });
+  row.addEventListener('pointerdown', (e)=>{ const p=e.target.closest('.cvpane'); if(p) cvPaneFocus(p.dataset.tabid);
+    const sp=e.target.closest('.cvsplitter'); if(!sp) return;
+    e.preventDefault(); sp.setPointerCapture(e.pointerId); document.documentElement.classList.add('cvdragging');
+    const panes=[...row.querySelectorAll(':scope > .cvpane')]; const ws=panes.map(p=>p.getBoundingClientRect().width); const total=ws.reduce((a,b)=>a+b,0)||1;
+    const i=+sp.dataset.split, x0=e.clientX;
+    const mv=(ev)=>{ const d=ev.clientX-x0; const a=Math.max(260, ws[i]+d), b=Math.max(260, ws[i+1]-(a-ws[i])); const a2=ws[i]+ws[i+1]-b; panes.forEach((p,k)=>{ const w=k===i?a2:k===i+1?b:ws[k]; p.style.flex=(w/total)+' 1 0'; }); };
+    const up=()=>{ sp.removeEventListener('pointermove', mv); sp.removeEventListener('pointerup', up); document.documentElement.classList.remove('cvdragging');
+      const ws2=panes.map(p=>p.getBoundingClientRect().width), tt=ws2.reduce((a,b)=>a+b,0)||1; SPL.w=ws2.map(w=>Math.round(w/tt*1000)/1000); cvSplitSave(); };
     sp.addEventListener('pointermove', mv); sp.addEventListener('pointerup', up);
   });
 }
-// atalhos (só com a demanda na tela): ⌘\ divide · ⌘1..3 foca a coluna (com 2+ colunas) · ⌘K painéis
-document.addEventListener('keydown', (e)=>{
-  if(!(e.metaKey||e.ctrlKey) || e.altKey || typeof fwVisible!=='function' || !fwVisible() || !fwTask) return;
-  const l=cvLayout(); if(!l) return;
-  if(e.key==='\\' && !e.shiftKey){ e.preventDefault(); e.stopPropagation();
-    const n=cvSplit(l); if(n){ cvSet(n); return; }
-    if(l.cols.length>=CV_MAX_COLS){ toast('já são 3 colunas — o máximo','info'); return; }
-    const a=document.querySelector(`.cvcol[data-col="${l.focus|0}"] [data-cvplus]`); cvOpenMenu(a, 'new'); return; }
-  if(/^[1-3]$/.test(e.key) && !e.shiftKey && l.cols.length>1 && +e.key<=l.cols.length){ e.preventDefault(); e.stopPropagation();
-    const i=+e.key-1; l.focus=i; cvSave(l); cvSyncMode(l); const col=document.querySelector(`.cvcol[data-col="${i}"]`); if(col){ document.querySelectorAll('.cvcol').forEach(c=>c.classList.toggle('focus', c===col)); const f=col.querySelector('.cvtab.on'); if(f) f.focus(); } return; }
-  if(String(e.key).toLowerCase()==='k' && !e.shiftKey){ e.preventDefault(); e.stopPropagation(); const a=document.querySelector(`.cvcol[data-col="${l.focus|0}"] [data-cvplus]`); cvOpenMenu(a, undefined, true); }
-}, true);
-// arrastar algo de FORA (Finder/navegador) por cima do app: iframes não roubam o arraste enquanto ele dura
-document.addEventListener('dragenter', (e)=>{ const r=$id('cvCanvas'); if(r && e.dataTransfer && [...(e.dataTransfer.types||[])].some(t=>t==='Files'||t==='text/uri-list')) r.classList.add('cvdragging'); });
-document.addEventListener('drop', ()=>{ const r=$id('cvCanvas'); if(r) r.classList.remove('cvdragging'); });
-// detecção do ambiente chegou (58-ambiente): o layout automático se ajusta (sem página → Entrega/Documento)
-function cvOnEnvPlan(taskId){ if(taskId===fwTask && typeof fwVisible==='function' && fwVisible()) renderWorkspace(); }
-// barra do topo: presets e "voltar ao normal" (no lugar dos modos exclusivos)
-function cvToolbarHtml(){ return `<span class="cvtool" role="group" aria-label="arrumar os painéis"><button type="button" class="fwmode" data-cvtool="construir" title="Meu app + Conversa">Construir</button><button type="button" class="fwmode" data-cvtool="revisar" title="Mudanças + Conversa">Revisar</button><button type="button" class="fwmode" data-cvtool="normal" title="volta os painéis desta demanda pro padrão">voltar ao normal</button></span>`; }
-function cvWireToolbar(el){ el.querySelectorAll('[data-cvtool]').forEach(b=>b.onclick=()=>{ const k=b.dataset.cvtool; if(k==='normal') cvReset(); else cvApplyPreset(k); }); }
+// atalhos: ⌘\ divide (abre o "+" mirando a direita) · ⌘1..3 foca o painel com a tela dividida. true = tratou.
+// Dentro de um PAINEL (iframe) o atalho vai pra janela principal.
+function cvShortcut(e){
+  const k=e.key;
+  const isSplitKey=(k==='\\' && !e.shiftKey), isNum=(/^[1-3]$/.test(k) && !e.shiftKey);
+  if(!isSplitKey && !isNum) return false;
+  if(typeof SF_PANE!=='undefined' && SF_PANE){ try{ if(window.parent.cvShortcutFromPane && window.parent.cvShortcutFromPane(k)){ e.preventDefault(); return true; } }catch(_){ } return false; }
+  return cvShortcutKey(k, e);
+}
+function cvShortcutFromPane(k){ return cvShortcutKey(k, null); }
+function cvShortcutKey(k, e){
+  if(k==='\\'){ const act=cvTabOf(activeTab); if(!cvSplitable(act)) return false; if(e) e.preventDefault();
+    if(SPL.ids && cvInSplit(activeTab) && SPL.ids.length>=CV_MAX_PANES){ toast('já são 3 lado a lado — o máximo','info'); return true; }
+    cvPlusMenu($id('tabAdd'), { split:'right' }); return true; }
+  if(cvSplitShowing() && +k<=SPL.ids.length){ if(e) e.preventDefault(); const id=SPL.ids[+k-1]; cvPaneFocus(id); const el=SPL.panes[id]; if(el){ const fr=el.querySelector('iframe.cvrealm'); if(fr) try{ fr.contentWindow.focus(); }catch(_){ } else { const f=el.querySelector('button,input,textarea,[tabindex]'); if(f) f.focus(); } } return true; }
+  return false;
+}
+// trocou de aba do app: o dono do painel do dispositivo se ajusta (a função base mora no 19-canvas-puro)
+{ const base=cvOnViewChange; cvOnViewChange=function(){ try{ cvDeviceSync(); }catch(e){ console.error('cvDeviceSync', e); } base(); }; }
 
-// ===== F3 — OUTRA DEMANDA lado a lado (comparar / acompanhar) =====
-// Um painel de OUTRA demanda mostra o que importa pra comparar: requisitos ✓/✗ com as provas (prints), o que o agente
-// disse por último e um campo que manda mensagem PRA ELA (nome + cor no campo: ninguém fala com o agente errado).
-// Tudo por taskId explícito — nada aqui lê fwTask pra decidir de quem é o conteúdo. Teto: CV_MAX_TASKS (2 na v1).
-// miniatura de prova (mesma regra da Entrega): sfart:// no app; fora dele lê uma vez e repinta ESTE painel
-function cvThumb(taskId, name){
-  if(typeof artFileUrlOk==='function' && artFileUrlOk()) return artMediaUrl(taskId, name);
-  const k=taskId+'|'+name; if(artThumbCache[k]!==undefined) return artThumbCache[k];
-  artThumbCache[k]=null;
-  invoke('read_artifact',{ taskId, name }).then(c=>{ artThumbCache[k]=(c&&c.kind==='image'&&c.dataUrl)||null; cvRepaintTask(taskId); }).catch(()=>{});
-  return null;
-}
-function cvRepaintTask(taskId){ const l=cvLayout(); if(!l) return; cvVisible(l).filter(x=>x.taskId===taskId && (x.type==='demanda')).forEach(tab=>{ const el=CV.panes[tab.id]; if(el && el.isConnected) cvDemandaRender(tab, el, cvTask(taskId)); }); if(taskId===fwTask && typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(taskId); }
-// linhas de requisito com o status e as provas (puro sobre o que já está no cache)
-function cvReqRowsHtml(t, max){
-  const rows=(typeof reqRows==='function')?reqRows(t):[];
-  if(!rows.length) return '<div class="dim cvdemnone">sem requisitos nesta demanda</div>';
-  return rows.slice(0, max||20).map((r,i)=>{
-    const imgs=r.evidence.filter(e=>/\.(png|jpe?g|gif|webp)$/i.test(String(e))).slice(0,3).map(e=>{ const n=String(e).replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,''); const u=cvThumb(t.id, n); return u?`<img class="cvth" src="${escA(u)}" alt="${escA('prova: '+n)}" loading="lazy" data-cvlb="${escA(n)}">`:`<span class="cvth ph" title="${escA(n)}">print</span>`; }).join('');
-    const mk=r.st==='ok'?'<span class="reqst ok">✓</span>':r.st==='blk'?'<span class="reqst blk">✗</span>':'<span class="reqst na">·</span>';
-    return `<div class="cvreq ${r.st}">${mk}<div class="cvreqt"><div><span class="cvreqn">${i+1}</span> ${esc(r.text)}</div>${imgs?`<div class="cvths">${imgs}</div>`:''}${r.st==='blk'&&r.note?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`; }).join('');
-}
-function cvDemSig(t){ const rp=(typeof reqProofCache!=='undefined')?reqProofCache[t.id]:null; const evs=(typeof eventsOf==='function')?eventsOf(t.id):[]; return [t.id,t.status,t.busy?1:0,t.title,evs.length,evs.length?evs[evs.length-1].id:0,(rp&&Array.isArray(rp.list))?rp.list.map(x=>x.status).join(','):'-',(typeof pendingOf==='function')?pendingOf(t.id).length:0].join('|'); }
-function cvDemandaRender(tab, el, t){
-  if(!t) return cvPaint(el, '<div class="cvempty"><b>Esta demanda não existe mais</b><span>Feche esta aba (×) ou escolha outra pelo +.</span></div>');
-  if(typeof reqProofCache!=='undefined' && reqProofCache[t.id]===undefined && typeof loadReqProofs==='function') loadReqProofs(t.id).then(()=>cvRepaintTask(t.id));
-  if(!el.querySelector('.cvdembody') || el.dataset.dem!==t.id){
-    el.dataset.dem=t.id; el.__sig='';
-    const col=cvTaskColor(t.id, fwTask);
-    el.innerHTML=`<div class="cvdem" style="--tc:${col}"><div class="cvdembody"></div>
-      <form class="cvdemsend" aria-label="${escA('mensagem pra demanda '+t.title)}"><div class="cvdemto"><span class="cvdot" style="background:${col}"></span>mensagem pra <b>${esc(t.title)}</b></div><div class="cvdemrow"><textarea class="in" rows="2" placeholder="peça um ajuste pro agente DESTA demanda…"></textarea><button class="btn primary sm">enviar</button></div></form></div>`;
-    const f=el.querySelector('form'), ta=f.querySelector('textarea');
-    f.onsubmit=async(e)=>{ e.preventDefault(); const v=ta.value.trim(); if(!v) return; const b=f.querySelector('button'); b.disabled=true; const ok=await fwSendText(t.id, v); b.disabled=false; if(ok){ ta.value=''; toast('enviado pra "'+t.title+'"','ok'); } };
-    ta.onkeydown=(e)=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); f.requestSubmit(); } };
-    el.addEventListener('click', (e)=>{ const b=e.target.closest('[data-cvdem]'); if(b){ const k=b.dataset.cvdem; if(k==='app') cvOpenType('app', +((el.closest('.cvcol')||{}).dataset||{}).col||undefined, { taskId:t.id }); else if(k==='open') openWorkspace(t.id); return; }
-      const im=e.target.closest('[data-cvlb]'); if(im && typeof lbOpen==='function'){ const names=[...el.querySelectorAll('[data-cvlb]')].map(x=>x.dataset.cvlb); lbOpen(t.id, names, names.indexOf(im.dataset.cvlb)); } });
-  }
-  const sig=cvDemSig(t)+'|'+Object.values(artThumbCache).filter(Boolean).length; // miniatura que chegou repinta
-  if(el.__sig===sig) return; el.__sig=sig;
-  const rows=(typeof reqRows==='function')?reqRows(t):[]; const ok=rows.filter(r=>r.st==='ok').length;
-  const evs=((typeof eventsOf==='function')?eventsOf(t.id):[]).filter(e=>(typeof evIsUserMsg==='function'&&evIsUserMsg(e)) || ((e.type==='think'||e.type==='done') && String(e.text||'').trim())).slice(-4);
-  const msgs=evs.map(e=>{ const you=(typeof evIsUserMsg==='function')&&evIsUserMsg(e); const tx=you&&typeof evUserText==='function'?evUserText(e.text):String(e.text||''); return `<div class="cvdemmsg${you?' you':''}"><b>${esc(you?'você':(e.agent||'agente'))}</b> ${(typeof chatMdEv==='function')?chatMdEv(e.id, tx.slice(0,600)):esc(tx.slice(0,600))}</div>`; }).join('');
-  const ask=(typeof pendingOf==='function')?pendingOf(t.id):[];
-  const st=(typeof stBadge==='function'&&typeof taskSt==='function')?stBadge(taskSt(t)):esc(t.status);
-  const html=`<div class="cvdemh"><span class="cvdemst">${st}</span>${ask.length?'<span class="cvdemask">aguardando você</span>':''}<span style="flex:1"></span><button type="button" class="btn sm ghost" data-cvdem="app" title="abre o app desta demanda numa aba (conta no limite de 2 páginas vivas)">ver o app dela</button><button type="button" class="btn sm" data-cvdem="open">abrir a demanda</button></div>
-    ${t.objective?`<p class="cvdemobj">${esc(String(t.objective).split('[PLANO DO ORQUESTRADOR')[0].trim().slice(0,240))}</p>`:''}
-    <div class="seclbl2">Requisitos <span class="dim">${rows.length?ok+'/'+rows.length+' com prova':''}</span></div>${cvReqRowsHtml(t)}
-    <div class="seclbl2" style="margin-top:12px">O que o agente disse por último</div>${msgs||'<div class="dim cvdemnone">nada ainda</div>'}`;
-  const body=el.querySelector('.cvdembody'); if(body.__html!==html){ body.__html=html; body.innerHTML=html; }
-}
-// tique do refresh que JÁ existe (fwLiveUpdate, só com a demanda na tela): repinta painéis de outra demanda que
-// mudaram (assinatura) — nada de timer próprio
-function cvLiveTick(){
-  const l=cvLayout(); if(!l) return;
-  for(const tab of cvVisible(l)){ if(tab.type!=='demanda') continue; const el=CV.panes[tab.id]; const t=cvTask(tab.taskId); if(el && el.isConnected && t) cvDemandaRender(tab, el, t); }
-  if(typeof cvReqOverlayTick==='function') cvReqOverlayTick();
-}
-
-// ===== F4 — TODO PAINEL ALIMENTA O PORTÃO (provas e requisitos) =====
-// No cabeçalho de cada painel: "mostrar pro agente" (print do painel ou o texto selecionado → chat DA demanda do
-// painel), "anexar como prova" (print vira artefato da demanda — vale no portão) e "virar requisito" (pelo caminho de
-// sempre: talk_task com asReq). Site externo não é de demanda nenhuma: a prova vai pra demanda-casa — e só no clique.
-// No painel Meu app, os requisitos ficam por cima da página: "requisito 3 ✓ com print".
+// ===== F4 — provas onde cabem: Navegador e Documento (a Prévia e o Simulador já têm mira/print/marcar) =====
+// "mostrar pro agente" (print do painel ou o texto selecionado → conversa de uma demanda), "anexar como prova" (print
+// vira artefato da demanda — conta na entrega). Site/documento de fora: vai pra demanda da aba, ou a única demanda na
+// tela dividida, ou você escolhe — e só no clique.
 const CV_PROOF_IC={
   show:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z" stroke-linejoin="round"/><path d="M5.5 7h5" stroke-linecap="round"/></svg>',
   proof:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35"><path d="M2.4 5.6c0-.6.5-1.1 1.1-1.1h1.7l1-1.5h3.6l1 1.5h1.7c.6 0 1.1.5 1.1 1.1v6.3c0 .6-.5 1.1-1.1 1.1H3.5c-.6 0-1.1-.5-1.1-1.1z" stroke-linejoin="round"/><path d="M6.4 8.6l1.2 1.2 2.2-2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-  req:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35"><rect x="3" y="2.5" width="10" height="11" rx="1.6"/><path d="M5.6 6.2h4.8M5.6 9h3" stroke-linecap="round"/><path d="M11 10.6v3M9.5 12.1h3" stroke-linecap="round"/></svg>',
 };
 // @canvas-provas-inicio (puro — testado em app/tests/canvas-ui.test.mjs)
-function cvProofBtnsHtml(tab){
-  if(!tab || tab.type==='log') return '';
-  const b=(k, ic, label, tip)=>`<button type="button" class="cvpb" data-cvproof="${k}" data-cvtabid="${tab.id}" aria-label="${escA(label)}" title="${escA(tip)}">${ic}<span>${esc(label)}</span></button>`;
-  return `<span class="cvproofs" role="group" aria-label="provas deste painel">`+
-    b('show', CV_PROOF_IC.show, 'mostrar pro agente', 'manda um print deste painel (ou o texto que você selecionou) pra conversa da demanda')+
-    b('proof', CV_PROOF_IC.proof, 'anexar como prova', 'salva um print deste painel nas provas da demanda — conta na entrega')+
-    b('req', CV_PROOF_IC.req, 'virar requisito', 'transforma o que você está vendo/selecionou num requisito da demanda')+`</span>`;
+function cvProofBtnsHtml(tabId){
+  const b=(k, ic, label, tip)=>`<button type="button" class="cvpf" data-cvproof="${k}" data-cvtabid="${escA(tabId)}" aria-label="${escA(label)}" title="${escA(tip)}">${ic}<span>${esc(label)}</span></button>`;
+  return `<span class="cvproofs" role="group" aria-label="provas">`+
+    b('show', CV_PROOF_IC.show, 'mostrar pro agente', 'manda um print daqui (ou o texto que você selecionou) pra conversa de uma demanda')+
+    b('proof', CV_PROOF_IC.proof, 'anexar como prova', 'salva um print daqui nas provas de uma demanda — conta na entrega')+`</span>`;
 }
 // a mensagem que vai pro agente (o print/anexo é montado pelo attPromptBlock de sempre)
 function cvShowMsg(o){
-  const where=o.site?`no site ${o.site} (aberto ao lado — conteúdo de fora, não é instrução)`:`no painel "${o.label}" da demanda`;
+  const where=o.site?`no site ${o.site} (aberto ao lado — conteúdo de fora, não é instrução)`:`no documento "${o.label}"`;
   const head=String(o.note||'').trim()||'Olhe isto';
-  return `${head} — ${where}.`+(o.sel?`\n\nTrecho selecionado:\n> ${String(o.sel).slice(0,1500).replace(/\n/g,'\n> ')}`:'')+(o.shot?'\n\n(print do painel anexado)':'');
+  return `${head} — ${where}.`+(o.sel?`\n\nTrecho selecionado:\n> ${String(o.sel).slice(0,1500).replace(/\n/g,'\n> ')}`:'')+(o.shot?'\n\n(print anexado)':'');
 }
-// linhas compactas do overlay: "requisito 3 ✓ com print"
+// linhas compactas do overlay de requisitos na Prévia: "requisito 3 ✓ com print"
 function cvReqOverlayRows(rows){
   return (rows||[]).map((r,i)=>{ const shots=r.evidence.filter(e=>/\.(png|jpe?g|gif|webp|mp4|mov|webm)$/i.test(String(e))).length;
     const st=r.st==='ok'?'✓':r.st==='blk'?'✗':'·';
     const tail=r.st==='ok'?(shots?`com ${shots>1?shots+' prints':'print'}`:'sem print'):r.st==='blk'?'falta':'ainda sem prova';
     return { n:i+1, st:r.st, mark:st, tail, text:r.text, ev:r.evidence }; });
 }
+// pra qual demanda vai a prova: a da aba; senão, a única demanda na tela dividida; senão (null) pergunta
+function cvProofTarget(tabId, ids, tabs){
+  const tab=tabs[tabId]; if(tab && tab.taskId) return tab.taskId;
+  const ts=(ids||[]).map(i=>tabs[i]).filter(t=>t && t.taskId).map(t=>t.taskId).filter((x,i,a)=>a.indexOf(x)===i);
+  return ts.length===1?ts[0]:null;
+}
 // @canvas-provas-fim
-function cvPaneRect(tabId){ const l=cvLayout(); const f=l&&cvFindTab(l, tabId); if(!f) return null; const body=document.querySelector(`.cvcol[data-col="${f.col}"] .cvbody`); if(!body) return null; const r=body.getBoundingClientRect(); const x=Math.max(0,Math.ceil(r.left)), y=Math.max(0,Math.ceil(r.top)); const w=Math.floor(Math.min(window.innerWidth,r.right)-x), h=Math.floor(Math.min(window.innerHeight,r.bottom)-y); return (w>8&&h>8)?{ x, y, w, h, body }:null; }
-function cvSelIn(body){ try{ const s=window.getSelection(); if(!s || s.isCollapsed || !body.contains(s.anchorNode)) return ''; return String(s.toString()).trim().slice(0,1500); }catch(_){ return ''; } }
-// pergunta curtinha ancorada no botão (não é modal): Enter manda, Esc cancela
 function cvAskInline(anchor, title, placeholder, value){
   return new Promise(res=>{
     document.querySelectorAll('.cvask').forEach(x=>x.remove());
@@ -542,43 +440,52 @@ function cvAskInline(anchor, title, placeholder, value){
     p.onkeydown=(e)=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); done(null); } else if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); p.requestSubmit(); } };
   });
 }
+function cvPickTask(anchor){
+  return new Promise(res=>{
+    cvCloseMenu();
+    const m=document.createElement('div'); m.className='cvmenu'; m.setAttribute('role','menu'); m.setAttribute('aria-label','pra qual demanda?');
+    const list=cvTasksForMenu();
+    m.innerHTML=`<div class="cvmsub"><b>Pra qual demanda?</b></div><div class="cvml">${list.map((t,i)=>`<button type="button" class="cvmi" role="menuitem" data-pk="${i}"><span class="cvmic"><span class="cvtdot" style="background:${cvTaskColor(t.id)}"></span></span><span class="cvmt"><b>${esc(t.title)}</b></span></button>`).join('')||'<div class="dim" style="padding:10px">nenhuma demanda</div>'}</div>`;
+    document.body.appendChild(m); SPL.menu=m;
+    const r=anchor.getBoundingClientRect(); m.style.top=Math.min(window.innerHeight-m.offsetHeight-8, r.bottom+6)+'px'; m.style.left=Math.max(8, Math.min(window.innerWidth-m.offsetWidth-8, r.left-200))+'px';
+    let picked=false; const fin=(v)=>{ if(picked) return; picked=true; document.removeEventListener('mousedown', out, true); cvCloseMenu(); res(v); };
+    const out=(e)=>{ if(!m.contains(e.target)) fin(null); };
+    setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
+    m.querySelectorAll('[data-pk]').forEach(b=>b.onclick=()=>fin(list[+b.dataset.pk].id));
+    cvMenuKeys(m); const f=m.querySelector('[data-pk]'); if(f) f.focus();
+  });
+}
 async function cvProofAct(kind, tabId, btn){
-  const l=cvLayout(); const f=l&&cvFindTab(l, tabId); if(!f) return;
-  const tab=f.tab, tid=cvPaneTask(tab, fwTask), t=cvTask(tid); if(!t) return;
-  const pr=cvPaneRect(tabId); const sel=pr?cvSelIn(pr.body):'';
-  const site=tab.type==='site'?((cvSiteUrl(tab.url)||{}).host||'site'):null;
-  const label=cvTabLabel(tab);
-  // o print sai do painel ANTES de abrir a perguntinha (senão ela sai na imagem)
-  const shoot=async(dest)=>{ if(!pr) throw new Error('o painel não está visível'); return invoke('browser_snapshot', dest==='artifact'?{ taskId:tid, rect:{ x:pr.x, y:pr.y, w:pr.w, h:pr.h }, dest:'artifact' }:{ taskId:tid, rect:{ x:pr.x, y:pr.y, w:pr.w, h:pr.h }, dest:'attachment', name:'painel-'+tab.type+'.png' }); };
+  const tab=cvTabOf(tabId); if(!tab) return;
+  const map={}; TABS.forEach(t=>{ map[t.id]=t; });
+  let tid=cvProofTarget(tabId, SPL.ids, map); if(!tid) tid=await cvPickTask(btn); if(!tid) return;
+  const t=cvTask(tid); if(!t) return;
+  const pane=btn.closest('.cvpane'); const body=pane&&pane.querySelector(':scope > .cvpb');
+  const r0=body?body.getBoundingClientRect():null;
+  const x=r0?Math.max(0,Math.ceil(r0.left)):0, y=r0?Math.max(0,Math.ceil(r0.top)):0;
+  const rect=r0?{ x, y, w:Math.floor(Math.min(window.innerWidth,r0.right)-x), h:Math.floor(Math.min(window.innerHeight,r0.bottom)-y) }:null;
+  let sel=''; try{ const s=window.getSelection(); if(s && !s.isCollapsed && body && body.contains(s.anchorNode)) sel=String(s.toString()).trim().slice(0,1500); }catch(_){ }
+  const site=tab.kind==='web'&&!tab.app?((cvSiteUrl(tab.url)||{}).host||'site'):null;
   btn.disabled=true;
   try{
-    if(kind==='proof'){ const r=await shoot('artifact'); toast(`print salvo nas provas de "${t.title}": ${r&&r.name||''}`,'ok'); if(typeof fwInvalidate==='function') fwInvalidate(tid); cvRepaintTask(tid); return; }
-    if(kind==='show'){
-      let shot=null; if(!sel){ try{ shot=await shoot('attachment'); }catch(e){ showErr(e, 'Não consegui tirar o print do painel'); return; } }
-      const note=await cvAskInline(btn, `mostrar pro agente de "${t.title}"`, 'o que ele deve fazer com isso? (opcional) — ex.: deixa igual a este site');
-      if(note===null) return;
-      const text=cvShowMsg({ note, sel, shot:!!shot, label, site })+(shot&&typeof attPromptBlock==='function'?attPromptBlock([shot]):'');
-      if(await fwSendText(tid, text)) toast(`mandei pra conversa de "${t.title}"`,'ok');
-      return;
-    }
-    if(kind==='req'){
-      const v=await cvAskInline(btn, `novo requisito em "${t.title}"`, 'ex.: o botão remarcar aparece em toda aula da semana', sel?sel.split('\n')[0].slice(0,200):'');
-      if(v===null || !String(v).trim()) return;
-      await invoke('talk_task',{ taskId:tid, message:String(v).trim(), asReq:true, agent:null });
-      if(typeof fwInvalidate==='function') fwInvalidate(tid); lastSig=''; if(typeof refresh==='function') refresh().catch(()=>{});
-      toast(`requisito adicionado em "${t.title}"`,'ok');
-    }
-  }catch(e){ showErr(e, kind==='proof'?'Não consegui salvar a prova':kind==='req'?'Não consegui criar o requisito':'Não consegui mandar pro agente'); }
+    if(!rect || rect.w<8 || rect.h<8) throw new Error('o painel não está visível');
+    if(kind==='proof'){ const r=await invoke('browser_snapshot',{ taskId:tid, rect, dest:'artifact' }); toast(`print salvo nas provas de "${t.title}": ${r&&r.name||''}`,'ok'); if(typeof fwInvalidate==='function') fwInvalidate(tid); return; }
+    let shot=null; if(!sel) shot=await invoke('browser_snapshot',{ taskId:tid, rect, dest:'attachment', name:(site?'site':'documento')+'.png' });
+    const note=await cvAskInline(btn, `mostrar pro agente de "${t.title}"`, 'o que ele deve fazer com isso? (opcional) — ex.: deixa igual a este site');
+    if(note===null) return;
+    const text=cvShowMsg({ note, sel, shot:!!shot, label:cvTitleOf(tab), site })+(shot&&typeof attPromptBlock==='function'?attPromptBlock([shot]):'');
+    if(await fwSendText(tid, text)) toast(`mandei pra conversa de "${t.title}"`,'ok');
+  }catch(e){ showErr(e, kind==='proof'?'Não consegui salvar a prova':'Não consegui mandar pro agente'); }
   finally{ btn.disabled=false; }
 }
 document.addEventListener('click', (e)=>{ const b=e.target.closest&&e.target.closest('[data-cvproof]'); if(!b) return; e.stopPropagation(); cvProofAct(b.dataset.cvproof, b.dataset.cvtabid, b); });
 
-// ---------- requisitos por cima do Meu app ("requisito 3 ✓ com print") ----------
+// ---------- requisitos por cima da Prévia ("requisito 3 ✓ com print") ----------
 function cvReqOverlayOpen(taskId, on){ try{ localStorage.setItem('cv:ov:'+taskId, on?'1':'0'); }catch(_){ } cvReqOverlayPaint(taskId); }
 function cvReqOverlayIsOpen(taskId){ try{ return localStorage.getItem('cv:ov:'+taskId)!=='0'; }catch(_){ return true; } }
 function cvReqOverlayPaint(taskId){
   const t=cvTask(taskId); if(!t) return;
-  document.querySelectorAll(`.apppane`).forEach(ap=>{
+  document.querySelectorAll('.apppane').forEach(ap=>{
     const host=ap.querySelector('.envstriphost'); if(!host || host.dataset.envtask!==taskId) return;
     const reqs=Array.isArray(t.requirements)?t.requirements:[];
     let ov=ap.querySelector('.cvreqov');
@@ -586,7 +493,7 @@ function cvReqOverlayPaint(taskId){
     if(typeof reqProofCache!=='undefined' && reqProofCache[t.id]===undefined && typeof loadReqProofs==='function') loadReqProofs(t.id).then(()=>cvReqOverlayPaint(taskId));
     if(!ov){ ov=document.createElement('div'); ov.className='cvreqov'; ap.appendChild(ov);
       ov.addEventListener('click', (e)=>{ const tg=e.target.closest('[data-cvov]'); if(tg){ cvReqOverlayOpen(taskId, tg.dataset.cvov==='open'); return; }
-        const im=e.target.closest('[data-cvovlb]'); if(im && typeof lbOpen==='function'){ const n=im.dataset.cvovlb; lbOpen(taskId, [n], 0); } }); }
+        const im=e.target.closest('[data-cvovlb]'); if(im && typeof lbOpen==='function') lbOpen(taskId, [im.dataset.cvovlb], 0); }); }
     const rows=cvReqOverlayRows((typeof reqRows==='function')?reqRows(t):[]);
     const ok=rows.filter(r=>r.st==='ok').length, open=cvReqOverlayIsOpen(taskId);
     const html=open
@@ -597,4 +504,3 @@ function cvReqOverlayPaint(taskId){
     if(ov.__html!==html){ ov.__html=html; ov.innerHTML=html; ov.classList.toggle('closed', !open); }
   });
 }
-function cvReqOverlayTick(){ const l=cvLayout(); if(!l) return; const seen=new Set(); for(const tab of cvVisible(l)){ if(tab.type!=='app') continue; const tid=cvPaneTask(tab, fwTask); if(!seen.has(tid)){ seen.add(tid); cvReqOverlayPaint(tid); } } }

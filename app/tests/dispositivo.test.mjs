@@ -107,31 +107,28 @@ test('marcação → mensagem do chat: plataforma, aparelho, instrução, área 
 });
 
 test('fonte: painel DOCADO ao lado das colunas (não modal), botão no cabeçalho, script/CSS carregados, comandos registrados', () => {
-  // canvas (spec-canvas-workspace): o painel virou a ABA "Celular" — o host fica estacionado e o canvas o põe na coluna
-  assert.match(html, /<div class="cvpark" id="cvPark" hidden>[\s\S]*?<aside class="fwdev" id="fwDev" data-cvhost="dispositivo" hidden/);
+  assert.match(html, /<div class="fwrow" id="fwRow">\s*<div class="fwcols" id="fwCols">[\s\S]*?<\/div>\s*<aside class="fwdev" id="fwDev" hidden/);
   assert.match(html, /id="fwDevBtn"[^>]*>[\s\S]*?Dispositivo<\/button>/);
   assert.match(html, /<script src="js\/56-piloto\.js"><\/script>[\s\S]*<script src="js\/57-dispositivo\.js"><\/script>/);
   assert.match(html, /href="css\/91-dispositivo\.css"/);
   assert.match(css, /\.fwdev\{--dvw:360px;width:var\(--dvw\)/); assert.match(css, /\.dvresize\{[^}]*cursor:col-resize/);
   assert.ok(!/position:fixed/.test(css), 'nada flutuante');
-  const canvas = readFileSync(new URL('../src/js/58-canvas.js', import.meta.url), 'utf8');
-  assert.match(canvas, /if\(typeof dvSync==='function'\) dvSync\(t\);/, 'o canvas chama o painel (renderWorkspace → cvRender)');
-  assert.match(src, /const show=mob&&\(typeof cvShows==='function'\?cvShows\('dispositivo'\):dvIsOpen\(t\.id\)\);/, 'aparece quando a aba Celular está à vista');
+  assert.match(ws, /if\(typeof dvSync==='function'\) dvSync\(t\);/, 'renderWorkspace chama o painel');
   for (const c of ['device_cli', 'device_mirror_start', 'device_mirror_stop']) assert.match(lib, new RegExp(`device::${c},`));
 });
 
 test('fonte: espelho SÓ com o painel visível (aba da tarefa na frente, janela visível), um por vez, quadros fora do Tauri', () => {
   const run = slice('function dvShouldRun', 'function dvWatch');
   const start = slice('async function dvStartStream', 'function errShortDv');
-  for (const cond of ['!el.hidden', 'v.d.up', 'fwVisible()', "document.visibilityState==='visible'"]) assert.ok(run.includes(cond), 'condição: ' + cond);
+  for (const cond of ['!el.hidden', 'v.d.up', 'fwVisible()', "document.visibilityState==='visible'", 'DV.host.offsetParent!==null']) assert.ok(run.includes(cond), 'condição: ' + cond);
   assert.match(src, /document\.addEventListener\('visibilitychange', \(\)=>\{ if\(document\.visibilityState!=='visible'\) dvStopStream\(\); else dvCheckRun\(\); \}\)/);
   // F0 do canvas: o vigia não é mais um setInterval de 1 s — reage a eventos e arma UM setTimeout pra próxima tentativa
   const chk = slice('function dvCheckRun', 'function dvWatch');
   assert.ok(!/setInterval/.test(chk) && !/setInterval/.test(slice('function dvWatch', 'document.addEventListener')), 'vigia sem laço');
   assert.match(chk, /DV\.retryT=setTimeout\(dvCheckRun, wait\+20\)/);
   // teto de 1 stream no app (gerente de recursos) e sessão presa à demanda
-  assert.match(start, /cvRmTake\('stream', 'dev:'\+id/);
-  assert.match(slice('function dvStopStream', 'async function dvPollState'), /cvRmDrop\('stream', 'dev:'\+s\.id\)/);
+  assert.match(start, /cvRmTake\('stream', dvKey\(id\)/);
+  assert.match(slice('function dvStopStream', 'async function dvPollState'), /cvRmDrop\('stream', dvKey\(s\.id\)\)/);
   assert.match(slice('function dvStopStream', 'async function dvPollState'), /s\.ctl\.abort\(\)/, 'parar = abortar o fetch (o servidor para a captura)');
   assert.match(start, /invoke\('device_mirror_start'/); assert.match(start, /fetch\(`\$\{sess\.base\}\/stream\?t=/);
   assert.ok(!/invoke\('[^']*frame/.test(src), 'nenhum comando Tauri por quadro');

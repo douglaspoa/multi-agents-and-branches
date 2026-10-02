@@ -169,10 +169,8 @@ test('limite de seleções, Esc e ciclo de vida do proxy (aba fechada / tarefa c
 
 test('fiação: modo Prévia no workspace, bolha resumida, ganchos de aba/refresh, script e CSS na página, comandos registrados', () => {
   const ent = read('js/27-entregas.js'), ws = read('js/20-workspace-tarefa.js'), tabs = read('js/15-config-abas-onboarding.js'), core = read('js/10-core.js'), html = read('index.html');
-  // canvas: o modo Prévia virou a aba "Meu app" (58-canvas → appRender → nvRender); o legado continua mapeado
-  const cvs = read('js/58-canvas.js'), cvp = read('js/19-canvas-puro.js');
-  assert.match(cvp, /previa:'app'/); assert.match(cvs, /appRender\(tid, el\)/);
-  assert.match(nav, /function fwRenderPrevia\(t, main\)\{ if\(typeof appRender==='function'\) appRender\(t\.id, main\)/);
+  assert.match(ent, /\['previa','Prévia'\]/);
+  assert.match(ws, /fwRenderPrevia\(t, /);
   assert.match(ws, /function chatMd\(t\)\{[^\n]*nvSplit[^\n]*nvSummaryHtml/);
   assert.match(tabs, /if\(kind==='task' && typeof nvOnTaskTabClose==='function'\) nvOnTaskTabClose\(TABS\[i\]\.taskId\);/);
   assert.match(core, /nvSweep\(snap\)/);

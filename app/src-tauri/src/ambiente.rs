@@ -350,3 +350,37 @@ mod tests {
         assert!(!pid_alive(pid), "o supervisor morreu");
     }
 }
+
+/// Autoteste do CANVAS no app de verdade (SÓ em build de depuração; nunca no app instalado):
+/// `STARFORK_CANVAS_SELFTEST="<roteiro.js>|<saida-prefixo>|<segundos,…>"` → roda o roteiro na janela (abre o projeto,
+/// arruma as colunas, sobe o ambiente) e tira prints NATIVOS da janela inteira nos instantes pedidos
+/// (`<prefixo>-<s>s.png`). Usado pra medir CPU ociosa com 3 colunas e provar o iframe externo no WKWebView.
+#[cfg(debug_assertions)]
+pub fn selftest_from_env(app: &AppHandle) {
+    let Ok(spec) = std::env::var("STARFORK_CANVAS_SELFTEST") else { return };
+    let mut it = spec.split('|');
+    let script = it.next().unwrap_or("").to_string();
+    let out = it.next().map(String::from).filter(|s| !s.is_empty());
+    let marks: Vec<u64> = it.next().unwrap_or("40").split(',').filter_map(|s| s.trim().parse().ok()).collect();
+    let Ok(js) = std::fs::read_to_string(&script) else { eprintln!("[canvas selftest] roteiro não encontrado: {script}"); return };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        use tauri::Manager;
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        if let Some(w) = app.get_webview_window("main") { let _ = w.eval(&js); }
+        let Some(out) = out else { return };
+        let mut waited = 0u64;
+        for m in marks {
+            if m > waited { tokio::time::sleep(Duration::from_secs(m - waited)).await; waited = m; }
+            let Some(w) = app.get_webview_window("main") else { return };
+            let (Ok(sz), Ok(k)) = (w.inner_size(), w.scale_factor()) else { continue };
+            let r = super::navegador::SnapRect { x: 0.0, y: 0.0, w: sz.width as f64 / k, h: sz.height as f64 / k };
+            match super::navegador::snapshot(&app, r).await {
+                Ok(png) => { let p = format!("{out}-{m}s.png"); let _ = std::fs::write(&p, &png); eprintln!("[canvas selftest] print {p}"); }
+                Err(e) => eprintln!("[canvas selftest] print falhou: {e}"),
+            }
+        }
+    });
+}
+#[cfg(not(debug_assertions))]
+pub fn selftest_from_env(_app: &AppHandle) {}
