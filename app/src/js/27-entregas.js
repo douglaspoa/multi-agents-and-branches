@@ -79,7 +79,12 @@ function flowDemandCard(t){
 }
 // ---- ABA ENTREGA (dentro da demanda) ----
 const artThumbCache={}; // taskId|name → dataUrl | null
+// Print vem DIRETO do disco pelo protocolo sfart:// (o mesmo do vídeo): nada de read_artifact + base64.
+// Antes cada miniatura lia a imagem inteira em base64 — com 40+ prints de iPhone (1206x2622) a aba
+// passava de 2 GB de RAM e 100% de CPU. Fora do Tauri (preview no navegador) mantém o caminho antigo.
+function artFileUrlOk(){ return !!(window.__TAURI__&&window.__TAURI__.core&&window.__TAURI__.core.convertFileSrc); }
 function artThumb(taskId, name){
+  if(artFileUrlOk()) return artMediaUrl(taskId, name);
   const k=taskId+'|'+name;
   if(artThumbCache[k]!==undefined) return artThumbCache[k];
   artThumbCache[k]=null;
@@ -412,7 +417,7 @@ function fwRenderEntrega(t, main){
   const c=commitsCache[t.id]||[];
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence));
   const evNorm=new Set([...evidenceNames].map(e=>enEvResolve(t.id, e, arts)).filter(Boolean)); // MESMA regra das mídias por requisito
-  const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${th}" alt="">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
+  const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${escA(th)}" alt="" loading="lazy" decoding="async">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
   const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
   const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(n)]||'ARQ');
   const listed=nonCode?arts:docs;
@@ -491,7 +496,7 @@ function enEvMediaHtml(t, evidence, arts, imgs){
     const n=enEvResolve(t.id, e, arts); if(!n || seen.has(n)) continue; seen.add(n);
     const k=pvKind(n);
     if(k==='video') items.push(`<div class="en-evv">${artVideoHtml(t.id, n, 'en-evvid')}<span class="en-evn">${IC.play} ${esc(n)}</span></div>`);
-    else if(k==='image'){ const i=(imgs||[]).findIndex(a=>a.name===n); const th=artThumb(t.id, n); items.push(`<button class="en-evi" ${i>=0?`data-lb="${i}"`:`data-art="${escA(n)}"`} title="${escA(n)}">${th?`<img src="${th}" alt="${escA('print: '+n)}">`:`<span class="en-ph">${IC.image}</span>`}</button>`); }
+    else if(k==='image'){ const i=(imgs||[]).findIndex(a=>a.name===n); const th=artThumb(t.id, n); items.push(`<button class="en-evi" ${i>=0?`data-lb="${i}"`:`data-art="${escA(n)}"`} title="${escA(n)}">${th?`<img src="${escA(th)}" alt="${escA('print: '+n)}" loading="lazy" decoding="async">`:`<span class="en-ph">${IC.image}</span>`}</button>`); }
   }
   return items.length?`<div class="en-evm">${items.join('')}</div>`:'';
 }
@@ -501,7 +506,7 @@ function lbOpen(taskId, names, idx){ lbTask=taskId; lbList=names; lbIdx=idx||0; 
 function lbShow(){
   const name=lbList[lbIdx]; if(!name) return;
   $id('lbCap').textContent=`${name} · ${lbIdx+1} de ${lbList.length}`;
-  const img=$id('lbImg'); img.alt='prova: '+name; const th=artThumbCache[lbTask+'|'+name]; // R8 a11y: o print tinha alt vazio
+  const img=$id('lbImg'); img.alt='prova: '+name; const th=artFileUrlOk()?artMediaUrl(lbTask,name):artThumbCache[lbTask+'|'+name]; // R8 a11y: o print tinha alt vazio
   if(th){ img.src=th; } else { img.removeAttribute('src'); invoke('read_artifact',{ taskId:lbTask, name }).then(c=>{ artThumbCache[lbTask+'|'+name]=c.dataUrl||null; if(lbList[lbIdx]===name) img.src=c.dataUrl||''; }).catch(()=>{}); }
   $id('lbPrev').style.visibility=lbIdx>0?'visible':'hidden'; $id('lbNext').style.visibility=lbIdx<lbList.length-1?'visible':'hidden';
 }
