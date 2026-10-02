@@ -37,7 +37,7 @@ function flowDemandCard(t){
   const prN=prNumOf(t);
   const proj=t.proj||pathBase(state.repo);
   const ty=taskType(t);
-  if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
+  if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(flowRerenderSoon);
   const rows=reqRows(t);
   const okN=rows.filter(r=>r.st==='ok').length;
   const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?IC.ok:r.st==='blk'?IC.stErr:''}</i><span class="dc-rt">${esc(r.text)}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
@@ -51,9 +51,9 @@ function flowDemandCard(t){
     : (t.status==='error' && ev && humanErr(ev.text).id!=='generic') ? `<b style="color:var(--crit)">${esc(humanErr(ev.text).msg)}</b>`
     : ev ? `${esc(ev.agent||t.agent)} — ${esc(String(ev.text||'').slice(0,90))}` : 'iniciando…';
   const artC=artifactsCache[t.id];
-  if(done && (!artC||artC.status!==t.status)) loadArtifacts(t.id, t.status).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } });
+  if(done && (!artC||artC.status!==t.status)) loadArtifacts(t.id, t.status).then(flowRerenderSoon);
   const arts=(artC&&artC.list||[]).filter(a=>a.name!=='requirements.json');
-  const nImg=arts.filter(a=>a.kind==='image').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
+  const nImg=arts.filter(a=>a.kind==='image'||a.kind==='video').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
   const readyPr=['review','delivered'].includes(t.status);
   const artOnly=['invest','design'].includes(ty)||entregaNonCode(t); // FT-6: entrega só de documentos também não abre PR
   const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra">${IC.bolt} resolver conflito</button>`
@@ -79,7 +79,12 @@ function flowDemandCard(t){
 }
 // ---- ABA ENTREGA (dentro da demanda) ----
 const artThumbCache={}; // taskId|name → dataUrl | null
+// Print vem DIRETO do disco pelo protocolo sfart:// (o mesmo do vídeo): nada de read_artifact + base64.
+// Antes cada miniatura lia a imagem inteira em base64 — com 40+ prints de iPhone (1206x2622) a aba
+// passava de 2 GB de RAM e 100% de CPU. Fora do Tauri (preview no navegador) mantém o caminho antigo.
+function artFileUrlOk(){ return !!(window.__TAURI__&&window.__TAURI__.core&&window.__TAURI__.core.convertFileSrc); }
 function artThumb(taskId, name){
+  if(artFileUrlOk()) return artMediaUrl(taskId, name);
   const k=taskId+'|'+name;
   if(artThumbCache[k]!==undefined) return artThumbCache[k];
   artThumbCache[k]=null;
@@ -215,15 +220,15 @@ function enPvHtml(t, files){
   const k=t.id+'|'+a.name; const c=enPvCache[k];
   if(c===undefined){ enPvCache[k]=null; invoke('read_artifact',{ taskId:t.id, name:a.name }).then(v=>{ enPvCache[k]=v||{ err:'vazio' }; }).catch(e=>{ enPvCache[k]={ err:String(e&&e.message||e) }; }).finally(()=>{ if(fwTask===t.id&&fwMode==='entrega') renderWorkspace(); }); }
   const kind=pvKind(a.name);
-  const tag={ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', text:'TXT' }[kind]||'ARQ';
+  const tag={ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[kind]||'ARQ';
   return `<section class="en-sec en-prev" id="enPv">
     <div class="seclbl2">Prévia <span class="dim">· o arquivo de verdade, sem sair daqui</span></div>
-    ${files.length>1?`<div class="pv-tabs">${files.map(f=>`<button class="pv-tab${f.name===a.name?' on':''}" data-pvsel="${escA(f.name)}" title="${escA(f.name)}"><i>${({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', text:'TXT' }[pvKind(f.name)]||'ARQ')}</i>${esc(f.name.split('/').pop())}</button>`).join('')}</div>`:''}
+    ${files.length>1?`<div class="pv-tabs">${files.map(f=>`<button class="pv-tab${f.name===a.name?' on':''}" data-pvsel="${escA(f.name)}" title="${escA(f.name)}"><i>${({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(f.name)]||'ARQ')}</i>${esc(f.name.split('/').pop())}</button>`).join('')}</div>`:''}
     <div class="pv-bar"><span class="en-dic">${tag}</span><b class="pv-name">${esc(a.name)}</b><span class="dim pv-meta">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span><span style="flex:1"></span>
       ${kind==='md'?`<button class="btn sm ghost" id="pvPdf" title="gera um PDF formatado deste documento">${ic('doc')}exportar PDF</button>`:''}
       <button class="btn sm" id="pvOpen" title="abre no programa padrão do computador (Preview, Excel, Word, navegador…)">${IC.extlink||'↗'} abrir no app padrão</button>
       <button class="btn sm" id="pvReveal" title="mostra o arquivo na pasta">${ic('folder')}mostrar na pasta</button></div>
-    <div class="pv-body pv-${kind}">${artPreviewHtml(a.name, c)}</div>
+    <div class="pv-body pv-${kind}">${artPreviewHtml(a.name, c, t.id)}</div>
   </section>`;
 }
 function enWirePv(t, main){
@@ -405,14 +410,16 @@ function fwRenderEntrega(t, main){
   const arts=entregaArts(t);
   const nonCode=entregaNonCode(t);
   const imgs=arts.filter(a=>a.kind==='image');
-  const docs=arts.filter(a=>!/\.(png|jpe?g|gif|webp|svg)$/i.test(a.name));
+  const vids=arts.filter(a=>pvKind(a.name)==='video');
+  const docs=arts.filter(a=>!/\.(png|jpe?g|gif|webp|svg|mp4|m4v|mov|webm)$/i.test(a.name));
   const rows=reqRows(t); const okN=rows.filter(r=>r.st==='ok').length;
   const prN=prNumOf(t); const cost=taskCost(t.id); const d=diffOf(t.id); const rev=reviewOf(t.id);
   const c=commitsCache[t.id]||[];
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence));
-  const proofsHtml = imgs.length ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${th}" alt="">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evidenceNames.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}</div>` : `<div class="en-empty">nenhum print de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
-  const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
-  const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', text:'TXT' }[pvKind(n)]||'ARQ');
+  const evNorm=new Set([...evidenceNames].map(e=>enEvResolve(t.id, e, arts)).filter(Boolean)); // MESMA regra das mídias por requisito
+  const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${escA(th)}" alt="" loading="lazy" decoding="async">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
+  const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
+  const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(n)]||'ARQ');
   const listed=nonCode?arts:docs;
   const pvSel=enPvPick(t, nonCode?arts:docs);
   const docsHtml = listed.length ? listed.map(a=>`<div class="en-doc${a.name===pvSel?' on':''}"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-pvsel="${escA(a.name)}" title="mostra na prévia abaixo">ver</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
@@ -439,7 +446,7 @@ function fwRenderEntrega(t, main){
     ${nonCode?enSaveBarHtml(t, arts)+pvSec:enVerifHtml(t)}
     <div class="en-grid">
       <section class="en-sec"><div class="seclbl2">Entregáveis <span class="dim">· requisitos e a prova de cada um</span></div>${reqHtml}${dels.length?`<div class="seclbl2" style="margin-top:14px">Escopo combinado</div>${dels.map(x=>`<div class="en-del">◆ ${esc(x)}</div>`).join('')}`:''}${rev&&rev.howToTest?`<div class="seclbl2" style="margin-top:14px">Como testar</div><div class="en-how">${esc(rev.howToTest)}</div>`:''}</section>
-      <section class="en-sec">${nonCode?'':`<div class="seclbl2">Provas <span class="dim">· prints anexados pelo agente</span></div>${proofsHtml}`}
+      <section class="en-sec">${nonCode?'':`<div class="seclbl2">Provas <span class="dim">· prints e vídeos anexados pelo agente</span></div>${proofsHtml}`}
         <div class="seclbl2"${nonCode?'':' style="margin-top:16px"'}>${nonCode?'Arquivos entregues':'Documentos'} <span style="flex:1"></span><button class="btn sm primary" id="enGen" title="a IA escreve o relatório desta entrega — o que foi feito, por quê, como e o que foi validado">${IC.ai} gerar relatório da entrega</button></div>
         <div id="enGenOut"></div>${docsHtml}</section>
     </div>
@@ -449,9 +456,13 @@ function fwRenderEntrega(t, main){
   // guarda: só troca o DOM quando o conteúdo mudou (o PDF da prévia não recarrega a cada tick; log aberto fica aberto)
   const cur=main.firstElementChild;
   if(main._enHtml===html && cur && cur.classList.contains('enpage') && cur.dataset.task===t.id) return;
+  // vídeo da prova TOCANDO: não reconstrói a página (o <video> recomeçaria do zero) — redesenha quando ele pausar/acabar
+  if(cur && cur.dataset.task===t.id && enVideoPlaying(main)){ main._enPending=true; return; }
+  main._enPending=false;
   const out=$id('enGenOut'); const genBusy=out&&out.innerHTML&&cur&&cur.dataset.task===t.id?out.innerHTML:''; // relatório sendo gerado: não some
   main.innerHTML=html; main._enHtml=html;
   if(genBusy){ const o2=$id('enGenOut'); if(o2) o2.innerHTML=genBusy; }
+  main.querySelectorAll('video').forEach(v=>{ v.onpause=v.onended=()=>{ if(main._enPending && !enVideoPlaying(main)){ main._enPending=false; if(typeof renderWorkspace==='function') renderWorkspace(); } }; });
   main.querySelectorAll('[data-art]').forEach(b=>b.onclick=()=>openArtifact(t.id, b.dataset.art));
   main.querySelectorAll('[data-lb]').forEach(b=>b.onclick=()=>lbOpen(t.id, imgs.map(a=>a.name), +b.dataset.lb));
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
@@ -468,13 +479,34 @@ function fwRenderEntrega(t, main){
   if(!nonCode) enWireVerif(t, main);
   enWirePv(t, main);
 }
+// ---- provas DENTRO de cada requisito: miniaturas dos prints e o player dos vídeos citados como evidência ----
+// nome citado no requirements.json ("./.cardume/artifacts/mobile-ios-1.png", "<tarefa>/x.mp4") → nome do artefato
+function enEvName(taskId, e){ let n=String(e||'').trim().replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,''); if(taskId && n.startsWith(taskId+'/')) n=n.slice(taskId.length+1); return n; }
+// evidência citada → nome do artefato: igual normalizado; senão pelo nome do arquivo SÓ se UM artefato bater (ambíguo = nada)
+function enEvResolve(taskId, e, arts){
+  const n=enEvName(taskId, e); const list=arts||[];
+  if(list.some(a=>a.name===n)) return n;
+  const b=n.split('/').pop(); const hits=list.filter(a=>a.name.split('/').pop()===b);
+  return hits.length===1?hits[0].name:null;
+}
+function enVideoPlaying(root){ try{ return [...root.querySelectorAll('video')].some(v=>!v.paused && !v.ended); }catch(_){ return false; } }
+function enEvMediaHtml(t, evidence, arts, imgs){
+  const seen=new Set(); const items=[];
+  for(const e of (evidence||[])){
+    const n=enEvResolve(t.id, e, arts); if(!n || seen.has(n)) continue; seen.add(n);
+    const k=pvKind(n);
+    if(k==='video') items.push(`<div class="en-evv">${artVideoHtml(t.id, n, 'en-evvid')}<span class="en-evn">${IC.play} ${esc(n)}</span></div>`);
+    else if(k==='image'){ const i=(imgs||[]).findIndex(a=>a.name===n); const th=artThumb(t.id, n); items.push(`<button class="en-evi" ${i>=0?`data-lb="${i}"`:`data-art="${escA(n)}"`} title="${escA(n)}">${th?`<img src="${escA(th)}" alt="${escA('print: '+n)}" loading="lazy" decoding="async">`:`<span class="en-ph">${IC.image}</span>`}</button>`); }
+  }
+  return items.length?`<div class="en-evm">${items.join('')}</div>`:'';
+}
 // ---- lightbox das provas ----
 let lbList=[], lbIdx=0, lbTask='';
 function lbOpen(taskId, names, idx){ lbTask=taskId; lbList=names; lbIdx=idx||0; $id('lbOverlay').style.display='flex'; lbShow(); }
 function lbShow(){
   const name=lbList[lbIdx]; if(!name) return;
   $id('lbCap').textContent=`${name} · ${lbIdx+1} de ${lbList.length}`;
-  const img=$id('lbImg'); img.alt='prova: '+name; const th=artThumbCache[lbTask+'|'+name]; // R8 a11y: o print tinha alt vazio
+  const img=$id('lbImg'); img.alt='prova: '+name; const th=artFileUrlOk()?artMediaUrl(lbTask,name):artThumbCache[lbTask+'|'+name]; // R8 a11y: o print tinha alt vazio
   if(th){ img.src=th; } else { img.removeAttribute('src'); invoke('read_artifact',{ taskId:lbTask, name }).then(c=>{ artThumbCache[lbTask+'|'+name]=c.dataUrl||null; if(lbList[lbIdx]===name) img.src=c.dataUrl||''; }).catch(()=>{}); }
   $id('lbPrev').style.visibility=lbIdx>0?'visible':'hidden'; $id('lbNext').style.visibility=lbIdx<lbList.length-1?'visible':'hidden';
 }

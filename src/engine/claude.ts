@@ -9,6 +9,7 @@ import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
 import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
+import { mobileRule } from "../mobile.ts";
 
 /**
  * Perfil do Chrome pra este agente. O perfil é PERSISTENTE por repo (login feito uma vez
@@ -279,11 +280,13 @@ export class ClaudeEngine implements AgentEngine {
           ? " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, um formulário que só o humano tem os dados) — NÃO tente logar nem inventar credenciais. Navegue até a tela, tire um screenshot, e chame mcp__cardume__ask_human dizendo 'abri o navegador na tela X, faça login/preencha e me avise quando terminar' e AGUARDE. O humano usa a MESMA janela pra logar; quando ele responder, continue de onde parou — a sessão dele já estará ativa no navegador. Peça login UMA vez: o perfil persiste, então em rodadas seguintes você provavelmente já estará logado."
           : " LOGIN / HUMANO NO MEIO: se a página exigir autenticação (login, 2FA, captcha, dados que só o humano tem) — NÃO tente logar nem inventar credenciais. Como o navegador está em segundo plano, o humano não consegue usar a janela: tire um screenshot e chame mcp__cardume__ask_human pedindo que ele (1) ligue 'mostrar o navegador dos agentes' em Configurações e (2) responda 'ok'. Quando ele responder, FINALIZE o turno dizendo exatamente o que ficou pendente (a URL da tela de login) — na retomada o navegador abre visível e ele faz o login na sua janela. O perfil persiste: peça login UMA vez.")
       : "";
+    // PROVAS MOBILE: projeto iOS/Android/RN/Expo → roteiro + `cardume mobile` (simulador/emulador, print e vídeo)
+    const mobRule = mobileRule({ cwd: input.cwd, role: input.role, spec: input.spec });
     const editRule = specEditRule(input); // só no turno fresco (baseline): o resume não repete
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${specGapRule}${scratchRule}${previewRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${editRule}${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${editRule}${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}${mobRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
     // groundRule/parallelRule valem pra TODO turno (pipeline, chat/resume e
@@ -296,8 +299,8 @@ export class ClaudeEngine implements AgentEngine {
     const protectOn = protectEnabled();
     const protectRule = protectOn ? PROTECT_RULE : "";
     const prompt = input.resume
-      ? input.resume.instruction + skillsRule + groundRule + doneRule + parallelRule + browserRule + protectRule
-      : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule + protectRule : baseline + protectRule);
+      ? input.resume.instruction + skillsRule + groundRule + doneRule + parallelRule + browserRule + mobRule + protectRule
+      : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule + mobRule + protectRule : baseline + protectRule);
 
     // Escreve o mcp.json que injeta o servidor MCP do Starfork neste run.
     // Dev: src/mcp/server.ts ao lado do fonte. App empacotado: o bundle vira

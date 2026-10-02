@@ -14,6 +14,7 @@ import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
+import { mobileCli } from "./mobile.ts";
 import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
 import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
 
@@ -956,6 +957,9 @@ async function main() {
     case "claude-statusline":
       cmdClaudeStatusline(a._[1], a);
       break;
+    case "mobile":
+      process.exitCode = await mobileCli(a);
+      break;
     case "autopilot":
       await cmdAutopilot(a);
       break;
@@ -1007,6 +1011,10 @@ ${c.dim("entregar & integrar")}
   ${c.green("cardume review-pr")} ${c.dim("--pr <url|nº>")}      revisa um PR do GitHub (sem branch/worktree)
   ${c.green("cardume merge")} ${c.dim("<taskId>")}               faz merge da branch na base e remove a worktree
   ${c.green("cardume rm")}   ${c.dim("<taskId>")}                remove worktree + branch + registros
+
+${c.dim("provas mobile (iOS/Android · nativo, React Native, Expo)")}
+  ${c.green("cardume mobile")} ${c.dim("doctor | up --platform ios|android | install <app> | launch <id|url> | shot [nome] | rec start|stop | flow <yaml> | down")}
+      simulador iOS por tarefa / emulador Android com trava; prints e vídeos em .cardume/artifacts/
 
 ${c.dim("Claude Code")}
   ${c.green("cardume claude-statusline")} ${c.dim("install [--node <caminho>] | uninstall | status [--json]")}

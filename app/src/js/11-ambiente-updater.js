@@ -13,6 +13,10 @@ const ENV_KIND_TAG={ req:'', rec:'recomendado', opt:'opcional' };
 // pra que serve cada peça, em linguagem de gente (quem não programa não sabe o que é "gh")
 function envWhat(c){ const n=String((c&&c.name)||'');
   // "Motor de IA" ANTES do /motor/ (que é o Motor do Starfork): basta UMA IA — o Claude não é mais obrigatório
+  // provas mobile (src/mobile.ts) — ANTES do /motor/: "Emulador" não é o motor
+  if(/simulador ios/i.test(n)) return 'Pros agentes provarem app iPhone com prints e vídeos reais — cada tarefa ganha o seu simulador. Opcional.';
+  if(/emulador android/i.test(n)) return 'Pros agentes provarem app Android com prints e vídeos reais (o emulador é um só: as tarefas revezam). Opcional.';
+  if(/maestro/i.test(n)) return 'Fluxos de toque automáticos (toca, digita, confere a tela) nos testes de app mobile. Sem ele, os agentes provam com prints e vídeos.';
   if(/motor de ia/i.test(n)) return 'A IA que faz o trabalho. Basta uma: Claude Code, Codex, o gateway da sua empresa ou o DeepSeek Harness (beta).';
   // ANTES do /claude/: o DeepSeek é a opção open source (beta)
   if(/deepseek/i.test(n)) return 'BETA — DeepSeek Harness (open source): motor pra quem não tem plano da Anthropic nem da OpenAI. Precisa da DEEPSEEK_API_KEY em Configurações → Sua IA.';

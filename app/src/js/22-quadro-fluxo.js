@@ -434,7 +434,7 @@ function taskPct(t){
   if(t.prUrl) return 92;
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
   const c=reqProofCache[t.id];
-  if(reqs.length && c===undefined){ loadReqProofs(t.id).then(()=>{ if(activeIs('flow')){ lastSig=''; safe(renderFlow); } }); }
+  if(reqs.length && c===undefined){ loadReqProofs(t.id).then(flowRerenderSoon); }
   let reqFrac=null;
   if(reqs.length && c && c.list){ const m=matchReqProofs(reqs, c.list); const done=m.filter(x=>x&&x.status==='done').length; reqFrac=done/reqs.length; }
   if(['review','delivered'].includes(t.status)) return Math.round(80+(reqFrac==null?5:reqFrac*15));
