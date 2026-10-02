@@ -355,6 +355,12 @@ export interface AiOnceOpts {
   timeout: number;
   /** livro de uso (aba Uso): origem + projeto/tarefa. Sem isto conta como "outros". */
   usage?: { source: UsageSource; project?: string; taskId?: string };
+  /** motor/modelo PEDIDOS por quem chama (ex.: o piloto automático usa a IA escolhida nele) — sem isto vale a IA
+   * auxiliar padrão (settings.json). Indisponível → mesma regra de fallback (pickWith). */
+  engine?: string;
+  model?: string;
+  /** custo da chamada em US$ (informado ou estimado pelo livro de uso), avisado ao fim — ex.: o teto do piloto */
+  onCost?: (usd: number) => void;
 }
 /** Ganchos de teste: disponibilidade e binário do codex forçados. */
 export interface AiOnceDeps { avail?: Partial<AiAvail>; codexBin?: string; dshBin?: string }
@@ -453,7 +459,7 @@ export async function gatewayCall(g: GatewayCfg, prompt: string, timeout: number
 
 /** O ponto único. Lança Error com mensagem humana (nunca JSON cru). Grava UMA linha no livro de uso (melhor-esforço). */
 export async function aiOnce(prompt: string, o: AiOnceOpts, deps: AiOnceDeps = {}): Promise<string> {
-  const prefs = readAiPrefs();
+  const prefs = o.engine && engineOf(o.engine) ? { engine: o.engine, model: String(o.model ?? "").trim() } : readAiPrefs();
   const has = (e: AiEngineKind) => (deps.avail && deps.avail[e] !== undefined ? !!deps.avail[e] : engineAvail(e));
   const engine = pickWith(prefs.engine, has);
   if (!engine) throw new Error(NO_ENGINE_MSG);
@@ -463,11 +469,14 @@ export async function aiOnce(prompt: string, o: AiOnceOpts, deps: AiOnceDeps = {
   // modelo planejado DESTE motor (nunca o do Claude numa linha de outro motor); o acumulador traz o USADO de verdade
   // (Codex sem -m depois da recusa = padrão do Codex; Claude = o de maior custo no modelUsage)
   const planned = engine === "claude" ? o.claudeModel : engine === "codex" ? codexPlan(o.tier, userModel).model : engine === "deepseek" ? dshPlan(o.tier, userModel) : (userModel || gatewayCfg()?.model);
-  const log = (ok: boolean) => recordUsage({
+  const log = (ok: boolean) => {
+    const r = recordUsage({
     source: o.usage?.source ?? "outros", project: o.usage?.project, taskId: o.usage?.taskId, engine,
     model: engine === "claude" ? (o.claudeModel ?? acc.model) : ("model" in acc ? acc.model : planned),
     inTok: acc.inTok, cachedTok: acc.cachedTok, outTok: acc.outTok, usd: acc.usd, ms: Date.now() - t0, ok,
-  });
+    });
+    try { o.onCost?.(r ? r.usd : acc.usd); } catch { /* quem pediu o custo */ }
+  };
   try {
     const out = await runEngine(engine, prompt, o, deps, userModel, acc);
     log(true);
