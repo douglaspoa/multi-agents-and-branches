@@ -14,7 +14,7 @@ import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
-import { AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
+import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
 import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
 
 // ---------- parse de flags simples (src/util/args.ts) ----------
@@ -842,11 +842,17 @@ function cmdClaudeStatusline(sub: string | undefined, a: Args) {
 async function cmdAutopilot(a: Args) {
   const dir = a.flags.dir || a._[1];
   if (!dir || dir === "true") {
-    console.error(c.red('✕ use: cardume autopilot --idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine …] [--model …] [--parallel 2] [--attempts 2] [--budget-usd N]'));
+    console.error(c.red(`✕ use: cardume autopilot --idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine …] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] [--budget-usd N (0 = sem teto)]`));
     process.exitCode = 1;
     return;
   }
   if (a.flags.stop) {
+    // sem piloto nesta pasta: erro e NADA criado (antes criava .cardume/autopilot/STOP em qualquer pasta)
+    if (!readState(dir)) {
+      console.error(c.red("✕ nenhum piloto nesta pasta"));
+      process.exitCode = 1;
+      return;
+    }
     requestStop(dir);
     console.log(c.green("✓") + " pedido de parada registrado — o piloto termina o passo atual e para");
     return;
@@ -977,7 +983,7 @@ ${c.dim("criar & rodar")}
   ${c.green("cardume start")} ${c.dim("<taskId>")}               inicia uma tarefa em rascunho (--no-start)
   ${c.green("cardume rework")} ${c.dim("<taskId>")}              re-roda a equipe aplicando os ajustes do humano
 
-  ${c.green("cardume autopilot")} ${c.dim('--idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine claude] [--parallel 2] [--attempts 2] [--budget-usd N]')}
+  ${c.green("cardume autopilot")} ${c.dim(`--idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine claude] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] [--budget-usd N (0 = sem teto)]`)}
       piloto automático: cria o projeto local, planeja o épico e constrói o app sozinho (rode de novo pra continuar; --stop para; --status mostra)
 
 ${c.dim("acompanhar")}

@@ -756,9 +756,15 @@ export class Orchestrator {
 
   /** Roda o teste do repo NA WORKTREE, se houver `scripts.test` real. Timeout 180s. */
   private async runRepoTests(worktree: string): Promise<{ ran: boolean; passed: boolean; detail: string }> {
-    // sem package.json (projeto não-node, ou ainda vazio) = sem comando de teste — não é teste FALHANDO
+    // SÓ a falta do package.json (projeto não-node, ou ainda vazio) = sem comando de teste. package.json
+    // ilegível/quebrado continua REPROVANDO, como antes (o projeto não roda).
     let pkg: { scripts?: Record<string, string> };
-    try { pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8")); } catch { return { ran: false, passed: true, detail: "sem package.json" }; }
+    try {
+      pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8"));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return { ran: false, passed: true, detail: "sem package.json" };
+      return { ran: true, passed: false, detail: `package.json inválido: ${String((err as Error)?.message ?? err).slice(0, 140)}` };
+    }
     try {
       const testCmd = pkg.scripts?.test ?? "";
       if (!testCmd || /no test specified/i.test(testCmd)) return { ran: false, passed: true, detail: "sem comando de teste" };

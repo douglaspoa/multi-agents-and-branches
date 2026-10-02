@@ -7,12 +7,12 @@
 // Estado em .cardume/autopilot/state.json (o app lê pra mostrar o progresso); rodar de novo na mesma pasta
 // CONTINUA do estado; o arquivo .cardume/autopilot/STOP para entre passos; o teto de custo para com relatório.
 // NUNCA: remoto, push, PR; perguntar ao humano; apagar trabalho de tarefa que falhou (fica na branch dela).
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Orchestrator, engineKind, pidAlive } from "./orchestrator.ts";
 import { GitService } from "./git.ts";
-import { aiOnce } from "./ai-once.ts";
+import { aiOnce, engineOf } from "./ai-once.ts";
 import { extractJson } from "./memory.ts";
 import { renderEpicMd, writeEpicContext, type EpicContext, type EpicTaskItem } from "./epic-context.ts";
 import { run } from "./util/run.ts";
@@ -21,7 +21,13 @@ import { slugify, type TaskSpec } from "./types.ts";
 
 export type ApPlatform = "web" | "ios" | "android" | "mobile";
 export const AP_PLATFORMS: ApPlatform[] = ["web", "ios", "android", "mobile"];
-export type ApPhase = "creating" | "planning" | "building" | "final" | "report" | "done" | "stopped" | "budget" | "failed";
+/** Limites do piloto — os MESMOS nas três camadas: aqui (motor), app/src-tauri/src/autopilot.rs
+ * (AP_MAX_PARALLEL/AP_MAX_ATTEMPTS) e app/src/js/56-piloto.js (PILOTO_MAX_PAR/PILOTO_MAX_ATT). */
+export const AP_MAX_PARALLEL = 4;
+export const AP_MAX_ATTEMPTS = 5;
+/** Fases em que o piloto terminou (o processo saiu ou vai sair). */
+export const AP_END_PHASES: ApPhase[] = ["done", "stopped", "budget", "failed"];
+export type ApPhase = "starting" | "creating" | "planning" | "building" | "final" | "report" | "done" | "stopped" | "budget" | "failed";
 export type ApStage = "pending" | "running" | "verify" | "merge" | "merged" | "blocked";
 
 export interface ApPlanTask {
@@ -54,8 +60,11 @@ export interface ApTaskState {
   attempts: number;
   /** motivos da última reprovação (ou do bloqueio) */
   reasons: string[];
-  /** ajuste pendente pro próximo rework (motivos da prova/conflito) */
+  /** ajuste pendente pro próximo rework (motivos da prova/conflito). Fica gravado ATÉ o rework rodar — uma queda
+   * no meio não faz o piloto re-verificar a entrega velha. */
   rework?: string;
+  /** o ajuste já foi entregue ao agente (addInstruction) — retomada não duplica a instrução */
+  reworkSent?: boolean;
   triedResolver?: boolean;
   history: { attempt: number; ok: boolean; reasons: string[]; at: number }[];
   startedAt?: number;
@@ -76,14 +85,21 @@ export interface ApState {
   epicId: string;
   epicTitle: string;
   phase: ApPhase;
+  /** última fase de TRABALHO alcançada (não muda nas fases de fim) — a aba mostra onde parou/falhou */
+  lastPhase?: ApPhase;
   /** processo que está rodando o piloto agora (0 = ninguém) */
   pid: number;
   runs: number;
   startedAt: number;
+  /** início DESTA rodada (o pid é dela): pid vivo que nasceu depois disto é pid reciclado */
+  runStartedAt?: number;
   updatedAt: number;
   finishedAt?: number;
   stopReason?: string;
+  /** custo total: tarefas + planejamento */
   costUsd: number;
+  /** custo da chamada de planejamento (IA auxiliar) — entra no costUsd e no teto */
+  planCostUsd?: number;
   tasks: ApTaskState[];
   events: ApEvent[];
 }
@@ -111,6 +127,12 @@ export const stateFile = (dir: string) => join(apDir(dir), "state.json");
 export const epicFile = (dir: string) => join(apDir(dir), "epic.json");
 export const epicMdFile = (dir: string) => join(apDir(dir), "EPIC.md");
 export const stopFile = (dir: string) => join(apDir(dir), "STOP");
+/** trava exclusiva (O_EXCL) de quem está rodando o piloto nesta pasta: {pid, at} */
+export const lockFile = (dir: string) => join(apDir(dir), "lock");
+/** marcador do app (Rust autopilot_start/resume) entre o spawn e o CLI pegar a trava — o CLI apaga ao pegar */
+export const startingFile = (dir: string) => join(apDir(dir), "starting");
+/** assunto do 1º commit do piloto (pasta só com ele = retomável) */
+export const FIRST_COMMIT_MSG = "chore: projeto criado pelo piloto automático do Starfork";
 const MAX_EVENTS = 400;
 const FINAL_ID = "verificacao-final";
 
@@ -140,6 +162,54 @@ export function readEpic(dir: string): ApEpic | null {
 /** Pede pra parar: o piloto termina o passo atual e para (relatório "parado"). */
 export function requestStop(dir: string): void {
   writeAtomic(stopFile(resolve(dir)), new Date().toISOString() + "\n");
+}
+
+// ---------------------------------------------------------------- trava (um piloto por pasta)
+
+export interface ApLock { pid: number; at: number }
+export function readLock(dir: string): ApLock | null {
+  try {
+    const o = JSON.parse(readFileSync(lockFile(resolve(dir)), "utf8")) as ApLock;
+    return o && Number(o.pid) > 0 ? { pid: Number(o.pid), at: Number(o.at) || 0 } : null;
+  } catch {
+    return null;
+  }
+}
+/** A trava está VALENDO? Dono vivo e nascido antes da trava (pid reciclado não segura). Trava recém-criada e
+ * ainda vazia (o dono está escrevendo) também vale por alguns segundos. */
+export function lockHeld(dir: string): ApLock | null {
+  const l = readLock(dir);
+  if (l) return pidAlive(l.pid, l.at || null) ? l : null;
+  try {
+    if (Date.now() - statSync(lockFile(resolve(dir))).mtimeMs < 5000) return { pid: 0, at: 0 };
+  } catch { /* sem trava */ }
+  return null;
+}
+/**
+ * Pega a trava EXCLUSIVA (O_EXCL) do piloto nesta pasta; devolve quem a solta. Trava obsoleta (dono morto ou pid
+ * reciclado) é tomada. Dois pilotos na mesma pasta → o segundo recebe erro (inclusive no mesmo processo).
+ */
+export function acquireLock(dir: string): () => void {
+  mkdirSync(apDir(dir), { recursive: true });
+  for (let i = 0; i < 3; i++) {
+    let fd: number;
+    try {
+      fd = openSync(lockFile(dir), "wx");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      const held = lockHeld(dir);
+      if (held) throw new Error(`o piloto já está rodando nesta pasta${held.pid ? ` (processo ${held.pid})` : ""}`);
+      rmSync(lockFile(dir), { force: true }); // obsoleta: toma
+      continue;
+    }
+    const me: ApLock = { pid: process.pid, at: Date.now() };
+    try { writeSync(fd, JSON.stringify(me)); } finally { closeSync(fd); }
+    return () => {
+      const cur = readLock(dir);
+      if (cur && cur.pid === me.pid && cur.at === me.at) rmSync(lockFile(dir), { force: true });
+    };
+  }
+  throw new Error("não consegui pegar a trava do piloto nesta pasta — tente de novo");
 }
 
 // ---------------------------------------------------------------- planejamento
@@ -223,7 +293,7 @@ export function normalizePlan(raw: unknown, idea: string, platform: ApPlatform):
   if (!list.length) throw new Error("o plano veio sem tarefas");
   const ids: string[] = [];
   for (const t of list) {
-    const base = slugify(String(t.title ?? "") || "tarefa");
+    const base = slugify(String(t.title ?? "")) || "tarefa"; // título só com símbolos → "tarefa", "tarefa-2"…
     let id = base;
     for (let n = 2; ids.includes(id) || id === FINAL_ID; n++) id = `${base}-${n}`;
     ids.push(id);
@@ -258,7 +328,7 @@ export function normalizePlan(raw: unknown, idea: string, platform: ApPlatform):
   if (!dw.length) dw = ["Abrir o app mostra a tela inicial", `Dá pra usar o app pra: ${idea.trim().slice(0, 100)}`];
   const title = String(r.epic ?? "").trim().slice(0, 90) || idea.trim().slice(0, 60) || "App";
   return {
-    epicId: "piloto-" + slugify(title).slice(0, 40),
+    epicId: "piloto-" + (slugify(title).slice(0, 40).replace(/-+$/, "") || "tarefa"),
     title,
     outcome: String(r.outcome ?? "").trim() || idea.trim().slice(0, 200),
     requirements: reqs,
@@ -268,12 +338,18 @@ export function normalizePlan(raw: unknown, idea: string, platform: ApPlatform):
   };
 }
 
-async function planEpic(o: { idea: string; platform: ApPlatform; engine: string; planFile?: string; dir: string }): Promise<ApEpic> {
+/** Planeja com a IA DO PILOTO (motor/modelo escolhidos — não a IA auxiliar padrão); custo vai pro livro de uso
+ * como "autopilot" e volta por `onCost` pra entrar no teto. */
+async function planEpic(o: { idea: string; platform: ApPlatform; engine: string; model?: string; planFile?: string; dir: string; onCost?: (usd: number) => void }): Promise<ApEpic> {
   let raw: unknown;
   if (o.planFile) raw = JSON.parse(readFileSync(o.planFile, "utf8"));
   else if (engineKind(o.engine) === "mock") raw = mockPlan(o.idea, o.platform);
   else {
-    const out = await aiOnce(planPrompt(o.idea, o.platform), { tier: "capaz", timeout: 600_000, usage: { source: "nova-tarefa", project: o.dir } });
+    const out = await aiOnce(planPrompt(o.idea, o.platform), {
+      tier: "capaz", timeout: 600_000, engine: o.engine, model: o.model,
+      claudeModel: engineOf(o.engine) === "claude" ? o.model || undefined : undefined,
+      usage: { source: "autopilot", project: o.dir }, onCost: o.onCost,
+    });
     raw = extractJson(out);
     if (!raw) throw new Error("a IA não devolveu um plano em JSON — tente de novo");
   }
@@ -314,18 +390,38 @@ async function git(dir: string, ...args: string[]) {
   return run("git", ["-C", dir, ...args]);
 }
 
-/** Pasta nova (ou vazia) → git init na main, README + .gitignore + 1º commit. NUNCA cria remoto. */
-export async function createProject(dir: string, name: string): Promise<void> {
-  if (existsSync(dir)) {
-    const left = readdirSync(dir).filter((f) => f !== ".cardume" && f !== ".DS_Store");
-    if (left.length) throw new Error(`a pasta ${dir} já existe e não está vazia — o piloto automático só cria projeto em pasta nova (ou continua um piloto que já começou nela)`);
-  }
-  mkdirSync(dir, { recursive: true });
+async function hasHead(dir: string): Promise<boolean> {
+  try { await git(dir, "rev-parse", "--verify", "-q", "HEAD"); return true; } catch { return false; }
+}
+/** Dá pra (re)começar o piloto nesta pasta? Inexistente, vazia (fora .cardume/.DS_Store) ou só com o esqueleto
+ * do PRÓPRIO piloto (git + README + .gitignore, no máximo o 1º commit dele — criação interrompida). */
+export async function canStartIn(dir: string): Promise<boolean> {
+  if (!existsSync(dir)) return true;
+  const left = readdirSync(dir).filter((f) => f !== ".cardume" && f !== ".DS_Store");
+  if (!left.length) return true;
+  if (!left.includes(".git") || !left.every((f) => [".git", "README.md", ".gitignore"].includes(f))) return false;
+  if (!(await hasHead(dir))) return true; // git init feito, commit não
   try {
-    await run("git", ["init", "-q", "-b", "main", dir]);
+    const subjects = (await git(dir, "log", "--format=%s", "-n", "2", "HEAD")).stdout.trim().split("\n");
+    return subjects.length === 1 && subjects[0] === FIRST_COMMIT_MSG;
   } catch {
-    await run("git", ["init", "-q", dir]);
-    await git(dir, "symbolic-ref", "HEAD", "refs/heads/main");
+    return false;
+  }
+}
+const NOT_EMPTY = (dir: string) => `a pasta ${dir} já existe e não está vazia — o piloto automático só cria projeto em pasta nova (ou continua um piloto que já começou nela)`;
+
+/** Pasta nova (ou vazia) → git init na main, README + .gitignore + 1º commit. NUNCA cria remoto. Idempotente:
+ * retoma uma criação interrompida (git sem commit, ou só o 1º commit do piloto). */
+export async function createProject(dir: string, name: string): Promise<void> {
+  if (!(await canStartIn(dir))) throw new Error(NOT_EMPTY(dir));
+  mkdirSync(dir, { recursive: true });
+  if (!existsSync(join(dir, ".git"))) {
+    try {
+      await run("git", ["init", "-q", "-b", "main", dir]);
+    } catch {
+      await run("git", ["init", "-q", dir]);
+      await git(dir, "symbolic-ref", "HEAD", "refs/heads/main");
+    }
   }
   // identidade LOCAL (do repo) quando o git não tem uma — os commits das worktrees e os merges precisam dela
   let email = "";
@@ -334,33 +430,61 @@ export async function createProject(dir: string, name: string): Promise<void> {
     await git(dir, "config", "user.name", "Starfork Piloto");
     await git(dir, "config", "user.email", "piloto@starfork.local");
   }
-  writeFileSync(join(dir, "README.md"), `# ${name}\n\nProjeto criado pelo piloto automático do Starfork.\n`, "utf8");
-  writeFileSync(join(dir, ".gitignore"), ".DS_Store\nnode_modules/\n.env\n.cardume/\n", "utf8");
+  if (await hasHead(dir)) return; // o 1º commit já existe (retomada)
+  if (!existsSync(join(dir, "README.md"))) writeFileSync(join(dir, "README.md"), `# ${name}\n\nProjeto criado pelo piloto automático do Starfork.\n`, "utf8");
+  if (!existsSync(join(dir, ".gitignore"))) writeFileSync(join(dir, ".gitignore"), ".DS_Store\nnode_modules/\n.env\n.cardume/\n", "utf8");
   await git(dir, "add", "-A");
-  await git(dir, "commit", "-q", "-m", "chore: projeto criado pelo piloto automático do Starfork");
+  await git(dir, "commit", "-q", "-m", FIRST_COMMIT_MSG);
 }
 
 // ---------------------------------------------------------------- relatório
 
 const fmtUsd = (n: number) => `US$ ${n.toFixed(2)}`;
 const when = (ms: number) => new Date(ms).toISOString().replace("T", " ").slice(0, 16);
-const STAGE_PT: Record<ApStage, string> = { pending: "na fila", running: "rodando", verify: "verificando", merge: "mergeando", merged: "mergeada ✓", blocked: "bloqueada ✕" };
+export const STAGE_PT: Record<ApStage, string> = { pending: "na fila", running: "rodando", verify: "verificando", merge: "mergeando", merged: "mergeada ✓", blocked: "bloqueada ✕" };
 export const PHASE_PT: Record<ApPhase, string> = {
-  creating: "criando o projeto", planning: "planejando o épico", building: "construindo", final: "verificação final",
+  starting: "começando", creating: "criando o projeto", planning: "planejando o épico", building: "construindo", final: "verificação final",
   report: "escrevendo o relatório", done: "concluído", stopped: "parado", budget: "parou por custo", failed: "falhou",
 };
 
-function readJson(p: string): unknown { try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } }
+function readJson(p: string | null): unknown { if (!p) return null; try { return JSON.parse(readFileSync(p, "utf8")); } catch { return null; } }
+
+/**
+ * Onde está a versão MAIS NOVA de um artefato da tarefa (`requirements.json`, `ASSUMPTIONS.md`…). O agente escreve
+ * em `.cardume/artifacts/<arquivo>` NA WORKTREE dele; ao fim de cada turno o orquestrador (collectArtifacts) copia
+ * pra `<repo>/.cardume/artifacts/<taskId>/` — e quando o arquivo MUDOU entre tentativas a cópia nova vira
+ * `<nome>-v2.<ext>`, `-v3`… A worktree some depois do merge, então: worktree (se ainda existe) → maior versão coletada.
+ */
+export function latestArtifact(repo: string, taskId: string, name: string, worktree?: string | null): string | null {
+  if (worktree) {
+    const w = join(worktree, ".cardume", "artifacts", name);
+    if (existsSync(w)) return w;
+  }
+  const dir = join(repo, ".cardume", "artifacts", taskId);
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name, ext = dot > 0 ? name.slice(dot) : "";
+  let best: { n: number; f: string } | null = null;
+  try {
+    for (const f of readdirSync(dir)) {
+      if (f === name) { if (!best) best = { n: 1, f }; continue; }
+      if (f.startsWith(stem + "-v") && f.endsWith(ext)) {
+        const n = Number(f.slice(stem.length + 2, f.length - ext.length));
+        if (Number.isInteger(n) && n > 1 && (!best || n > best.n)) best = { n, f };
+      }
+    }
+  } catch { /* nada coletado */ }
+  return best ? join(dir, best.f) : null;
+}
 
 /** Relatório AUTOPILOT.md: ideia, épico, linha do tempo, tarefas (status/tentativas/provas), suposições, custo e como rodar. */
-export function renderReport(s: ApState, epic: ApEpic | null, extra: { costs: Map<string, number>; questions: string[] }): string {
+export function renderReport(s: ApState, epic: ApEpic | null, extra: { costs: Map<string, number>; questions: string[]; worktrees?: Map<string, string> }): string {
   const L: string[] = [];
   const result = s.phase === "done"
     ? (s.tasks.every((t) => t.stage === "merged") ? "✓ app pronto — todas as tarefas e a verificação final passaram" : "concluído com pendências — veja as tarefas bloqueadas")
     : s.phase === "budget" ? `parou por custo — o teto de ${fmtUsd(s.budgetUsd)} foi atingido (${fmtUsd(s.costUsd)})`
     : s.phase === "stopped" ? "parado a pedido — rode de novo na mesma pasta pra continuar"
     : s.phase === "failed" ? `falhou: ${s.stopReason ?? "erro inesperado"}` : PHASE_PT[s.phase];
-  L.push(`# Piloto automático — ${epic?.title ?? s.epicTitle ?? s.name}`, "");
+  L.push(`# Piloto automático — ${epic?.title || s.epicTitle || s.name || "app"}`, "");
   L.push(`**Resultado:** ${result}`, "");
   L.push(`- Plataforma: ${s.platform} · IA: ${s.engine}${s.model ? " (" + s.model + ")" : ""} · paralelo: ${s.parallel} · tentativas por tarefa: ${s.attempts}`);
   L.push(`- Início: ${when(s.startedAt)}${s.finishedAt ? ` · fim: ${when(s.finishedAt)}` : ""} · rodadas do piloto: ${s.runs}`, "");
@@ -380,8 +504,8 @@ export function renderReport(s: ApState, epic: ApEpic | null, extra: { costs: Ma
   for (const t of s.tasks) {
     L.push(`### ${t.title}`, "");
     if (t.stage === "blocked") L.push(`Bloqueada: ${t.reasons.join(" · ") || "sem motivo registrado"}. O trabalho dela continua na branch da tarefa (nada foi apagado).`, "");
-    const reqs = readJson(join(s.dir, ".cardume", "artifacts", t.id, "requirements.json"));
-    const list = Array.isArray(reqs) ? (reqs as { req?: string; status?: string; evidence?: string[] }[]) : [];
+    const reqs = readJson(latestArtifact(s.dir, t.id, "requirements.json", extra.worktrees?.get(t.id)));
+    const list = (Array.isArray(reqs) ? reqs : reqs && Array.isArray((reqs as { list?: unknown }).list) ? (reqs as { list: unknown[] }).list : []) as { req?: string; status?: string; evidence?: string[] }[];
     if (list.length) {
       L.push("Provas:");
       for (const r of list) {
@@ -397,14 +521,15 @@ export function renderReport(s: ApState, epic: ApEpic | null, extra: { costs: Ma
   let any = false;
   for (const t of s.tasks) {
     try {
-      const txt = readFileSync(join(s.dir, ".cardume", "artifacts", t.id, "ASSUMPTIONS.md"), "utf8").trim();
+      const f = latestArtifact(s.dir, t.id, "ASSUMPTIONS.md", extra.worktrees?.get(t.id));
+      const txt = f ? readFileSync(f, "utf8").trim() : "";
       if (txt) { L.push(`**${t.title}**`, "", txt, ""); any = true; }
     } catch { /* sem suposições nesta tarefa */ }
   }
   for (const q of extra.questions) { L.push(`- ${q}`); any = true; }
   if (!any) L.push("_(nenhuma registrada)_");
   L.push("");
-  L.push("## Custo", "", `Total das tarefas: **${fmtUsd(s.costUsd)}**${s.budgetUsd > 0 ? ` (teto: ${fmtUsd(s.budgetUsd)})` : ""}. O planejamento também aparece na aba Uso (origem "Nova tarefa"). Em plano de assinatura o valor é o equivalente em API.`, "");
+  L.push("## Custo", "", `Total: **${fmtUsd(s.costUsd)}**${s.planCostUsd ? ` (planejamento: ${fmtUsd(s.planCostUsd)})` : ""}${s.budgetUsd > 0 ? ` · teto: ${fmtUsd(s.budgetUsd)}` : ""}. Na aba Uso aparece com a origem "Piloto automático" (planejamento) e "Tarefas". Em plano de assinatura o valor é o equivalente em API.`, "");
   L.push("## Como rodar o app", "");
   let readme = "";
   try { readme = readFileSync(join(s.dir, "README.md"), "utf8"); } catch { /* sem README */ }
@@ -427,40 +552,80 @@ class Mutex {
   }
 }
 
+const round4 = (n: number) => Math.round(n * 1e4) / 1e4;
+
 export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = {}): Promise<ApState> {
   const dir = resolve(o.dir);
   const log = o.log ?? ((l: string) => console.log(l));
   const prev = readState(dir);
-  if (prev && prev.pid && prev.pid !== process.pid && pidAlive(prev.pid)) throw new Error(`o piloto já está rodando nesta pasta (processo ${prev.pid})`);
   const idea = (o.idea ?? prev?.idea ?? "").trim();
   if (!idea) throw new Error('falta a ideia: use --idea "…"');
+  // pasta com conteúdo que não é de um piloto: recusa ANTES de criar qualquer coisa nela
+  if (!prev && !(await canStartIn(dir))) throw new Error(NOT_EMPTY(dir));
+  // retomar depois do teto com um teto que já foi gasto só pararia de novo na hora: exige subir (ou 0 = sem teto)
+  if (prev?.phase === "budget") {
+    const cap = o.budgetUsd !== undefined && o.budgetUsd >= 0 ? o.budgetUsd : prev.budgetUsd;
+    if (cap > 0 && cap <= (prev.costUsd || 0)) {
+      throw new Error(`o teto de ${fmtUsd(cap)} já foi gasto (${fmtUsd(prev.costUsd || 0)}) — pra continuar, aumente o teto (--budget-usd) ou use 0 pra seguir sem teto`);
+    }
+  }
+  // UM piloto por pasta: trava exclusiva ANTES de mexer em qualquer coisa (inclusive criar o projeto)
+  const release = acquireLock(dir);
+  try { rmSync(startingFile(dir), { force: true }); } catch { /* o app não marcou */ }
+  try {
+    return await pilot(dir, prev, idea, o, hooks, log);
+  } finally {
+    release();
+  }
+}
+
+async function pilot(dir: string, prev: ApState | null, idea: string, o: AutopilotOptions, hooks: AutopilotHooks, log: (l: string) => void): Promise<ApState> {
   const platform: ApPlatform = (AP_PLATFORMS.includes(o.platform as ApPlatform) ? o.platform : prev?.platform ?? "web") as ApPlatform;
   const name = (o.name ?? prev?.name ?? "").trim() || idea.split(/\s+/).slice(0, 5).join(" ");
   const now = Date.now();
   const s: ApState = prev ?? {
     version: 1, idea, name, platform, engine: o.engine ?? "claude", model: o.model, parallel: 2, attempts: 2, budgetUsd: 0, dir,
-    epicId: "", epicTitle: "", phase: "creating", pid: process.pid, runs: 0, startedAt: now, updatedAt: now, costUsd: 0, tasks: [], events: [],
+    epicId: "", epicTitle: "", phase: "starting", lastPhase: "starting", pid: process.pid, runs: 0, startedAt: now, updatedAt: now, costUsd: 0, tasks: [], events: [],
   };
+  const setPhase = (p: ApPhase) => { s.phase = p; if (!AP_END_PHASES.includes(p)) s.lastPhase = p; };
   // numa retomada, só o que foi passado de novo muda (teto, tentativas, paralelo, IA)
   if (o.engine) s.engine = o.engine;
   if (o.model) s.model = o.model;
-  if (o.parallel && o.parallel > 0) s.parallel = Math.min(8, Math.floor(o.parallel));
-  if (o.attempts && o.attempts > 0) s.attempts = Math.min(10, Math.floor(o.attempts));
+  if (o.parallel && o.parallel > 0) s.parallel = Math.min(AP_MAX_PARALLEL, Math.max(1, Math.floor(o.parallel)));
+  if (o.attempts && o.attempts > 0) s.attempts = Math.min(AP_MAX_ATTEMPTS, Math.max(1, Math.floor(o.attempts)));
   if (o.budgetUsd !== undefined && o.budgetUsd >= 0) s.budgetUsd = o.budgetUsd;
   s.dir = dir;
   s.pid = process.pid;
+  s.runStartedAt = now;
   s.runs++;
   delete s.stopReason;
   delete s.finishedAt;
-
-  if (!prev) await createProject(dir, name);
-  if (await new GitService(dir).hasRemote("origin")) throw new Error("este projeto tem um remoto (origin) — o piloto automático só roda em projeto LOCAL, sem remoto");
-  try { rmSync(stopFile(dir), { force: true }); } catch { /* sem pedido de parada */ }
+  // retomada de um fim (parado/teto/falha): enquanto roda, a fase volta pra onde o trabalho estava
+  if (AP_END_PHASES.includes(s.phase)) setPhase(s.lastPhase && !AP_END_PHASES.includes(s.lastPhase) ? s.lastPhase : "building");
+  // estado mínimo ANTES do git init: criação interrompida aparece na aba e é retomável (rodar de novo)
+  const saveRaw = () => { s.updatedAt = Date.now(); writeAtomic(stateFile(dir), JSON.stringify(s, null, 2)); };
+  saveRaw();
 
   const restore = { ap: process.env.CARDUME_AUTOPILOT, nt: process.env.CARDUME_NOTIFY };
-  process.env.CARDUME_AUTOPILOT = "1"; // ask_human automático + regra de autonomia (bus) + mock que prova
-  process.env.CARDUME_NOTIFY = "0"; // nada de "pronta pra review" a cada tarefa — o aviso é um só, no fim
-  const orch = new Orchestrator(dir); // cria .cardume/state.sqlite ANTES do state.json (o app abre o projeto ao ver o estado)
+  const restoreEnv = () => {
+    if (restore.ap === undefined) delete process.env.CARDUME_AUTOPILOT; else process.env.CARDUME_AUTOPILOT = restore.ap;
+    if (restore.nt === undefined) delete process.env.CARDUME_NOTIFY; else process.env.CARDUME_NOTIFY = restore.nt;
+  };
+  let orch: Orchestrator;
+  try {
+    if (!prev || !(await hasHead(dir))) { setPhase("creating"); saveRaw(); await createProject(dir, name); }
+    if (await new GitService(dir).hasRemote("origin")) throw new Error("este projeto tem um remoto (origin) — o piloto automático só roda em projeto LOCAL, sem remoto");
+    try { rmSync(stopFile(dir), { force: true }); } catch { /* sem pedido de parada */ }
+    process.env.CARDUME_AUTOPILOT = "1"; // ask_human automático + regra de autonomia (bus) + mock que prova
+    process.env.CARDUME_NOTIFY = "0"; // nada de "pronta pra review" a cada tarefa — o aviso é um só, no fim
+    orch = new Orchestrator(dir); // .cardume/state.sqlite: o app só abre o projeto quando ele existe (Rust wait_state)
+  } catch (e) {
+    restoreEnv();
+    setPhase("failed"); s.stopReason = (e as Error).message; s.pid = 0; s.finishedAt = Date.now();
+    s.events.push({ at: Date.now(), text: `o piloto falhou ao preparar o projeto: ${s.stopReason}`, ok: false });
+    try { saveRaw(); } catch { /* sem disco */ }
+    throw e;
+  }
   const gitLock = new Mutex();
 
   const ev = (text: string, taskId?: string, ok?: boolean) => {
@@ -468,14 +633,19 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
     if (s.events.length > MAX_EVENTS) s.events.splice(0, s.events.length - MAX_EVENTS);
     log(/^[✓✕↻▶⇢⚠·]/.test(text) ? text : `${ok === false ? "✕" : "·"} ${text}`);
   };
-  const costs = () => {
-    const m = new Map<string, number>();
-    try { for (const c of orch.store.costByTask()) m.set(c.taskId, c.usd); } catch { /* banco ocupado: fica o último */ }
-    return m;
+  /** custo por tarefa (tabela `cost` do projeto); null = banco ocupado agora (fica o último total) */
+  const costs = (): Map<string, number> | null => {
+    try {
+      const m = new Map<string, number>();
+      for (const c of orch.store.costByTask()) m.set(c.taskId, c.usd);
+      return m;
+    } catch { return null; }
   };
+  /** total = tarefas + planejamento */
+  const totalOf = (m: Map<string, number>) => round4([...m.values()].reduce((a, b) => a + b, 0) + (s.planCostUsd ?? 0));
   const save = () => {
     const m = costs();
-    if (m.size) s.costUsd = [...m.values()].reduce((a, b) => a + b, 0);
+    if (m) s.costUsd = totalOf(m);
     s.updatedAt = Date.now();
     writeAtomic(stateFile(dir), JSON.stringify(s, null, 2));
     try { hooks.onSave?.(s); } catch { /* hook de teste */ }
@@ -484,7 +654,7 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
     if (existsSync(stopFile(dir))) return "stopped";
     if (s.budgetUsd > 0) {
       const m = costs();
-      const total = [...m.values()].reduce((a, b) => a + b, 0);
+      const total = m ? totalOf(m) : s.costUsd;
       if (total >= s.budgetUsd) { s.costUsd = total; return "budget"; }
     }
     return null;
@@ -513,7 +683,9 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
     return {
       id: t.id, title: t.title, agent, objective,
       deliverables: [t.title], requirements: t.final ? finalReqs : p?.requirements ?? [t.title],
-      branchType: "feat", autoPr: "no", budgetUsd: 0,
+      // teto da TAREFA = o que sobra do teto do piloto (0 = sem teto). O custo entra no banco no fim de cada turno;
+      // o app não pausa tarefa de piloto (53-teto-protecao: `autopilot`) — quem decide é o piloto, entre passos.
+      branchType: "feat", autoPr: "no", budgetUsd: s.budgetUsd > 0 ? Math.max(0.01, Math.round((s.budgetUsd - s.costUsd) * 100) / 100) : 0, autopilot: true,
       epicId: epic!.epicId, verify: t.final ? 'todos os itens do "pronto quando" provados no app rodando' : p?.verify, covers: p?.covers?.length ? p.covers : undefined,
       after: t.after.length ? t.after : undefined, wave: t.final ? undefined : t.wave + 1, boundaries: epic!.boundaries.length ? epic!.boundaries : undefined,
       scope: { owns: t.final ? [] : p?.owns ?? [], offLimits: [] },
@@ -538,10 +710,15 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
       if (t.stage === "running") {
         const row = orch.store.getTask(t.id);
         if (t.rework) {
-          orch.store.addInstruction(t.id, t.rework);
-          ev(`↻ refazendo "${t.title}" (tentativa ${t.attempts}/${s.attempts}): ${t.rework.split("\n")[0].slice(0, 160)}`, t.id);
-          delete t.rework; save();
+          // o ajuste fica gravado ATÉ o rework rodar: uma queda no meio refaz (não re-verifica a entrega velha)
+          if (!t.reworkSent) {
+            orch.store.addInstruction(t.id, t.rework);
+            t.reworkSent = true;
+            ev(`↻ refazendo "${t.title}" (tentativa ${t.attempts}/${s.attempts}): ${t.rework.split("\n")[0].slice(0, 160)}`, t.id);
+          } else ev(`↻ retomando o rework de "${t.title}" (tentativa ${t.attempts}/${s.attempts})`, t.id);
+          save();
           try { await orch.reworkTask(t.id); } catch (e) { ev(`rework de "${t.title}" falhou: ${(e as Error).message}`, t.id, false); }
+          delete t.rework; delete t.reworkSent;
         } else if (row && row.status === "review") {
           /* retomada: o turno já tinha terminado — só verifica */
         } else {
@@ -568,6 +745,7 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
           ev(`✕ "${t.title}" bloqueada depois de ${t.attempts} tentativa(s): ${gate.reasons.slice(0, 2).join(" · ")}`, t.id, false);
         } else {
           t.attempts++; t.reasons = gate.reasons; t.stage = "running";
+          t.reworkSent = false;
           t.rework = `A VERIFICAÇÃO AUTOMÁTICA do piloto reprovou a entrega (tentativa ${t.attempts - 1}). Corrija e PROVE de novo (requirements.json com evidência real no disco):\n- ` + gate.reasons.join("\n- ");
           ev(`✕ provas de "${t.title}" reprovadas: ${gate.reasons.slice(0, 2).join(" · ")}`, t.id, false);
         }
@@ -596,7 +774,7 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
           continue; // tenta o merge de novo
         }
         if (r.conflict && t.attempts < s.attempts) {
-          t.attempts++; t.stage = "running"; t.triedResolver = false;
+          t.attempts++; t.stage = "running"; t.triedResolver = false; t.reworkSent = false;
           t.reasons = [`conflito ao mergear na main: ${r.msg}`];
           t.rework = `O MERGE NA MAIN CONFLITOU. Integre a main na sua branch (git merge main — projeto local, sem remoto), resolva cada conflito preservando o que já está na main E o objetivo desta tarefa, commite e prove de novo.`;
           ev(`⚠ conflito ao mergear "${t.title}" — refazendo com o conflito (tentativa ${t.attempts}/${s.attempts})`, t.id, false);
@@ -638,8 +816,11 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
   try {
     save();
     if (!epic) {
-      s.phase = "planning"; ev(`planejando o épico (${s.platform}) com ${s.engine}…`); save();
-      epic = await planEpic({ idea, platform, engine: s.engine, planFile: o.planFile, dir });
+      setPhase("planning"); ev(`planejando o épico (${s.platform}) com ${s.engine}${s.model ? ` (${s.model})` : ""}…`); save();
+      epic = await planEpic({
+        idea, platform: s.platform, engine: s.engine, model: s.model, planFile: o.planFile, dir,
+        onCost: (usd) => { s.planCostUsd = round4((s.planCostUsd ?? 0) + (usd > 0 ? usd : 0)); },
+      });
       writeAtomic(epicFile(dir), JSON.stringify(epic, null, 2));
       s.epicId = epic.epicId; s.epicTitle = epic.title;
       s.tasks = epic.tasks.map((t) => ({ id: t.id, title: t.title, after: t.after, wave: t.wave, stage: "pending", attempts: 0, reasons: [], history: [] }));
@@ -649,7 +830,7 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
     } else if (prev) {
       ev(`retomando o piloto (rodada ${s.runs}) — ${s.tasks.filter((t) => t.stage === "merged").length}/${s.tasks.length} tarefas já na main`);
     }
-    s.phase = "building"; save();
+    setPhase("building"); save();
     outcome = await schedule();
     // VERIFICAÇÃO FINAL: com tudo assentado (mergeado ou bloqueado), prova o "pronto quando" no app da main
     if (outcome === "ok") {
@@ -658,19 +839,19 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
         s.tasks.push({ id: FINAL_ID, title: "Verificação final do épico", after: merged, wave: 1 + Math.max(0, ...s.tasks.map((t) => t.wave)), final: true, stage: "pending", attempts: 0, reasons: [], history: [] });
       }
       if (s.tasks.some((t) => t.final && t.stage !== "merged" && t.stage !== "blocked")) {
-        s.phase = "final"; ev('verificação final: provando cada item do "pronto quando" no app da main'); save();
+        setPhase("final"); ev('verificação final: provando cada item do "pronto quando" no app da main'); save();
         outcome = await schedule();
       }
     }
-    s.phase = outcome === "ok" ? "report" : s.phase;
+    if (outcome === "ok") setPhase("report");
   } catch (e) {
-    s.phase = "failed"; s.stopReason = (e as Error).message;
+    setPhase("failed"); s.stopReason = (e as Error).message;
     ev(`o piloto falhou: ${s.stopReason}`, undefined, false);
   }
 
   // RELATÓRIO (sempre — inclusive parado/teto/falha) + commit LOCAL na main
   try {
-    if (s.phase !== "failed") s.phase = outcome === "stopped" ? "stopped" : outcome === "budget" ? "budget" : "done";
+    if (s.phase !== "failed") setPhase(outcome === "stopped" ? "stopped" : outcome === "budget" ? "budget" : "done");
     if (s.phase === "stopped") { s.stopReason = "parado a pedido"; ev("parado a pedido — rode de novo na mesma pasta pra continuar"); }
     if (s.phase === "budget") { s.stopReason = `teto de custo atingido (${fmtUsd(s.costUsd)} ≥ ${fmtUsd(s.budgetUsd)})`; ev(`parou por custo: ${fmtUsd(s.costUsd)} ≥ teto ${fmtUsd(s.budgetUsd)}`, undefined, false); }
     if (s.phase === "done") ev(s.tasks.every((t) => t.stage === "merged") ? "✓ app pronto — relatório em AUTOPILOT.md" : "concluído com pendências — relatório em AUTOPILOT.md", undefined, s.tasks.every((t) => t.stage === "merged"));
@@ -679,7 +860,9 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
     const questions = s.tasks.flatMap((t) => {
       try { return orch.store.eventsForTask(t.id).filter((e) => /^perguntou \(piloto automático/.test(e.text)).map((e) => `${t.title}: ${e.text.replace(/^perguntou \(piloto automático, sem humano\):\s*/, "")} → a IA decidiu sozinha`); } catch { return []; }
     });
-    writeFileSync(join(dir, "AUTOPILOT.md"), renderReport(s, epic, { costs: costs(), questions }), "utf8");
+    const worktrees = new Map<string, string>();
+    for (const t of s.tasks) { try { const w = orch.store.getTask(t.id)?.worktree; if (w) worktrees.set(t.id, w); } catch { /* sem tarefa */ } }
+    writeFileSync(join(dir, "AUTOPILOT.md"), renderReport(s, epic, { costs: costs() ?? new Map(), questions, worktrees }), "utf8");
     await gitLock.run(async () => {
       try {
         await git(dir, "add", "AUTOPILOT.md");
@@ -692,8 +875,7 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
     s.pid = 0;
     save();
     orch.close();
-    if (restore.ap === undefined) delete process.env.CARDUME_AUTOPILOT; else process.env.CARDUME_AUTOPILOT = restore.ap;
-    if (restore.nt === undefined) delete process.env.CARDUME_NOTIFY; else process.env.CARDUME_NOTIFY = restore.nt;
+    restoreEnv();
   }
   notify("Starfork — piloto automático", s.phase === "done" ? "Terminou — veja o AUTOPILOT.md" : PHASE_PT[s.phase], s.epicTitle || s.name);
   return s;

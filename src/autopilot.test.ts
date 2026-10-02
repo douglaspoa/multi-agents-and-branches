@@ -5,11 +5,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizePlan, propagateBlocked, readState, requestStop, runAutopilot, runnable, type ApTaskState } from "./autopilot.ts";
+import { canStartIn, lockFile, normalizePlan, propagateBlocked, readState, requestStop, runAutopilot, runnable, stateFile, FIRST_COMMIT_MSG, type ApTaskState } from "./autopilot.ts";
+import { Orchestrator } from "./orchestrator.ts";
 import { Store } from "./store.ts";
 import { tempHome } from "./testing/temp-home.ts";
 
@@ -214,4 +215,158 @@ test("agendador puro: só anda quem tem as dependências mergeadas; bloqueio pro
   const tasks = [t("a", [], "merged"), t("b", ["a"], "blocked", 1), t("c", ["b"], "pending", 2), t("d", ["a"], "pending", 1), t("e", ["d"], "pending", 2)];
   assert.deepEqual(propagateBlocked(tasks), ["c"]);
   assert.deepEqual(runnable(tasks).map((x) => x.id), ["d"]);
+});
+
+test("relatório: Provas e Suposições vêm dos artefatos coletados (a versão MAIS NOVA depois do rework)", async () => {
+  const e = env();
+  try {
+    const planFile = e.plan([T("Esqueleto do app", []), T("Adicionar itens", [0], ["itens aparecem [mock:falha-1]"])]);
+    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, attempts: 2, log: quiet });
+    assert.equal(st.phase, "done");
+    const rep = readFileSync(join(e.dir, "AUTOPILOT.md"), "utf8");
+    const sec = (h: string) => rep.split(`### ${h}`)[1].split(/\n### |\n## /)[0];
+    assert.match(sec("Esqueleto do app"), /Provas:\n- ✓ funciona — \[evidence-esqueleto-do-app\.md\]\(\.cardume\/artifacts\/esqueleto-do-app\/evidence-esqueleto-do-app\.md\)/);
+    // 2ª tentativa passou: a prova mostrada é a da 2ª (requirements-v2.json coletado), não a reprovada
+    assert.match(sec("Adicionar itens"), /- ✓ itens aparecem/);
+    assert.ok(existsSync(join(e.dir, ".cardume", "artifacts", "adicionar-itens", "requirements-v2.json")), "o orquestrador versiona a cópia coletada");
+    const sup = rep.split("## Suposições")[1].split("\n## ")[0];
+    assert.match(sup, /\*\*Esqueleto do app\*\*[\s\S]*decidi seguir a opção mais simples \(tentativa 1\)/);
+    assert.match(sup, /\*\*Adicionar itens\*\*[\s\S]*\(tentativa 2\)/);
+    assert.doesNotMatch(sup, /nenhuma registrada/);
+  } finally { e.done(); }
+});
+
+test("trava: um segundo piloto na MESMA pasta é recusado enquanto o primeiro roda; trava obsoleta é tomada", async () => {
+  const e = env();
+  try {
+    const planFile = e.plan([T("Esqueleto do app", []), T("Adicionar itens", [0])]);
+    const first = runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, log: quiet });
+    for (let k = 0; k < 200 && !existsSync(lockFile(e.dir)); k++) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(existsSync(lockFile(e.dir)), "a trava nasce no começo");
+    await assert.rejects(runAutopilot({ dir: e.dir, engine: "mock", log: quiet, idea: "lista" }), /já está rodando nesta pasta/);
+    const st = await first;
+    assert.equal(st.phase, "done");
+    assert.ok(!existsSync(lockFile(e.dir)), "solta a trava ao sair");
+    // trava de um processo morto (ou pid reciclado): é tomada e o piloto segue
+    writeFileSync(lockFile(e.dir), JSON.stringify({ pid: 2 ** 22 + 12345, at: Date.now() }));
+    const again = await runAutopilot({ dir: e.dir, log: quiet });
+    assert.equal(again.runs, 2);
+  } finally { e.done(); }
+});
+
+test("teto: retomar com o mesmo teto (já gasto) é recusado com erro humano; com teto maior ou 0 continua", async () => {
+  const e = env({ CARDUME_MOCK_COST_USD: "0.6" });
+  try {
+    const planFile = e.plan([T("Esqueleto do app", []), T("Adicionar itens", [0])]);
+    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 1, log: quiet });
+    assert.equal(st.phase, "budget");
+    assert.equal(st.lastPhase, "building", "lembra onde parou");
+    await assert.rejects(runAutopilot({ dir: e.dir, log: quiet }), /teto de US\$ 1\.00 já foi gasto[\s\S]*aumente o teto[\s\S]*0 pra seguir sem teto/);
+    await assert.rejects(runAutopilot({ dir: e.dir, budgetUsd: 1.1, log: quiet }), /já foi gasto/);
+    assert.equal(readState(e.dir)!.phase, "budget", "recusa não mexe no estado");
+    // a 1ª tarefa nasceu com o teto inteiro; o teto da tarefa = o que sobrava do piloto
+    const store = new Store(join(e.dir, ".cardume", "state.sqlite"));
+    try {
+      assert.equal(JSON.parse(store.getTask("esqueleto-do-app")!.spec_json).budgetUsd, 1);
+      assert.equal(JSON.parse(store.getTask("adicionar-itens")!.spec_json).budgetUsd, 0.4);
+      assert.equal(JSON.parse(store.getTask("adicionar-itens")!.spec_json).autopilot, true);
+    } finally { store.close(); }
+    const st2 = await runAutopilot({ dir: e.dir, budgetUsd: 0, log: quiet });
+    assert.equal(st2.phase, "done");
+  } finally { e.done(); }
+});
+
+test("criação interrompida: estado 'starting' gravado antes do git init; pasta só com o 1º commit do piloto é retomável", async () => {
+  const e = env();
+  try {
+    const planFile = e.plan([T("Esqueleto do app", [])]);
+    // simula a queda logo depois do 1º commit (antes do planejamento)
+    mkdirSync(e.dir, { recursive: true });
+    execFileSync("git", ["init", "-q", "-b", "main", e.dir]);
+    git(e.dir, "config", "user.name", "t"); git(e.dir, "config", "user.email", "t@t");
+    writeFileSync(join(e.dir, "README.md"), "# x\n"); writeFileSync(join(e.dir, ".gitignore"), ".cardume/\n");
+    git(e.dir, "add", "-A"); git(e.dir, "commit", "-q", "-m", FIRST_COMMIT_MSG);
+    assert.equal(await canStartIn(e.dir), true);
+    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, log: quiet });
+    assert.equal(st.phase, "done");
+    // pasta com um commit que NÃO é do piloto: recusada
+    const other = join(e.root, "outro");
+    mkdirSync(other);
+    execFileSync("git", ["init", "-q", "-b", "main", other]);
+    writeFileSync(join(other, "README.md"), "meu\n");
+    git(other, "-c", "user.name=t", "-c", "user.email=t@t", "add", "-A"); git(other, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "meu commit");
+    assert.equal(await canStartIn(other), false);
+    // falha na preparação: o estado mínimo existe e fica "failed" com o motivo (a aba mostra; rodar de novo retoma)
+    const bad = join(e.root, "com-remoto");
+    mkdirSync(join(bad, ".cardume", "autopilot"), { recursive: true });
+    writeFileSync(stateFile(bad), JSON.stringify({ version: 1, idea: "x", name: "x", platform: "web", engine: "mock", parallel: 1, attempts: 1, budgetUsd: 0, dir: bad, epicId: "", epicTitle: "", phase: "starting", pid: 0, runs: 0, startedAt: 1, updatedAt: 1, costUsd: 0, tasks: [], events: [] }));
+    execFileSync("git", ["init", "-q", "-b", "main", bad]);
+    git(bad, "remote", "add", "origin", "https://example.com/x.git");
+    await assert.rejects(runAutopilot({ dir: bad, log: quiet }), /remoto/);
+    const sb = readState(bad)!;
+    assert.equal(sb.phase, "failed");
+    assert.match(sb.stopReason!, /remoto/);
+    assert.equal(sb.pid, 0);
+  } finally { e.done(); }
+});
+
+test("slug vazio: título só com símbolos vira 'tarefa', 'tarefa-2'…; o épico também nunca fica sem id", () => {
+  const ep = normalizePlan({ epic: "!!!", tasks: [{ title: "???" }, { title: "###" }] }, "x", "web");
+  assert.deepEqual(ep.tasks.map((t) => t.id), ["tarefa", "tarefa-2"]);
+  assert.equal(ep.epicId, "piloto-tarefa");
+  assert.equal(normalizePlan({ tasks: [{ title: "" }, {}] }, "", "web").tasks.map((t) => t.id).join(","), "tarefa,tarefa-2");
+});
+
+test("runRepoTests: só a FALTA do package.json conta como 'sem testes'; package.json quebrado reprova", async () => {
+  const d = realpathSync(mkdtempSync(join(tmpdir(), "starfork-rt-")));
+  try {
+    const rt = (Orchestrator.prototype as unknown as { runRepoTests: (w: string) => Promise<{ ran: boolean; passed: boolean; detail: string }> }).runRepoTests;
+    assert.deepEqual(await rt.call({}, d), { ran: false, passed: true, detail: "sem package.json" });
+    writeFileSync(join(d, "package.json"), "{ quebrado");
+    const r = await rt.call({}, d);
+    assert.equal(r.passed, false);
+    assert.match(r.detail, /package\.json inválido/);
+  } finally { rmSync(d, { recursive: true, force: true }); }
+});
+
+// ---- CLI (src/cli.ts) ----
+const CLI = fileURLToPath(new URL("./cli.ts", import.meta.url));
+const cli = (args: string[]) => {
+  try {
+    return { code: 0, out: execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, ...args], { encoding: "utf8", env: { ...process.env } }) };
+  } catch (err) {
+    const x = err as { status: number; stdout: string; stderr: string };
+    return { code: x.status, out: x.stdout + x.stderr };
+  }
+};
+
+test("CLI: `cardume autopilot` com --plan, --budget-usd/--parallel/--attempts grava os limites no state.json; --stop sem piloto erra e não cria nada", () => {
+  const e = env();
+  try {
+    const planFile = e.plan([T("Esqueleto do app", [])]);
+    const r = cli(["autopilot", "--idea", "um app de lista de compras", "--dir", e.dir, "--engine", "mock", "--plan", planFile, "--budget-usd", "1", "--parallel", "2", "--attempts", "2"]);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /piloto automático: concluído/);
+    const st = JSON.parse(readFileSync(stateFile(e.dir), "utf8"));
+    assert.equal(st.budgetUsd, 1);
+    assert.equal(st.parallel, 2);
+    assert.equal(st.attempts, 2);
+    assert.equal(st.phase, "done");
+    // limites do app valem no motor também (paralelo 1–4, tentativas 1–5)
+    const big = cli(["autopilot", "--dir", e.dir, "--parallel", "9", "--attempts", "50"]);
+    assert.equal(big.code, 0, big.out);
+    const st2 = JSON.parse(readFileSync(stateFile(e.dir), "utf8"));
+    assert.equal(st2.parallel, 4);
+    assert.equal(st2.attempts, 5);
+    // --stop numa pasta sem piloto
+    const empty = join(e.root, "vazia");
+    mkdirSync(empty);
+    const s = cli(["autopilot", "--dir", empty, "--stop"]);
+    assert.equal(s.code, 1);
+    assert.match(s.out, /nenhum piloto nesta pasta/);
+    assert.deepEqual(readdirSync(empty), [], "nada criado");
+    const none = cli(["autopilot", "--dir", join(e.root, "nao-existe"), "--stop"]);
+    assert.equal(none.code, 1);
+    assert.ok(!existsSync(join(e.root, "nao-existe")));
+  } finally { e.done(); }
 });

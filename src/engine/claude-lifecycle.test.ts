@@ -199,3 +199,21 @@ test("medidor do plano: o rate_limit_event do stream vai pra ~/.constellation/us
     s.restore();
   }
 });
+
+test("piloto automático: o mcp.json do Claude repassa CARDUME_AUTOPILOT ao servidor do Starfork — só quando ligado", POSIX, async () => {
+  for (const on of [true, false]) {
+    const s = setup(`out({ type: "system", subtype: "init", session_id: "s1", model: "m" });
+    out({ type: "result", is_error: false, result: "pronto", total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 } });`);
+    if (on) process.env.CARDUME_AUTOPILOT = "1"; else delete process.env.CARDUME_AUTOPILOT;
+    try {
+      for await (const _ of new ClaudeEngine({ approval: "auto" }).run(s.input)) { /* consome o turno */ }
+      const cfg = JSON.parse(readFileSync(join(s.input.cwd, ".cardume", "mcp.json"), "utf8"));
+      const env = cfg.mcpServers.cardume.env;
+      assert.equal(env.CARDUME_TASK, "t1");
+      if (on) assert.equal(env.CARDUME_AUTOPILOT, "1");
+      else assert.ok(!("CARDUME_AUTOPILOT" in env));
+    } finally {
+      s.restore();
+    }
+  }
+});

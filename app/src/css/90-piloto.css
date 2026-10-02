@@ -26,6 +26,10 @@
 .pil-step{font-size:11px;padding:4px 10px;border-radius:99px;border:1px solid var(--border);color:var(--text-3)}
 .pil-step.ok{color:var(--text);border-color:var(--good)}
 .pil-step.cur{color:var(--text);border-color:var(--accent);background:var(--accent-soft);font-weight:600}
+.pil-step.stop{color:var(--text);border-color:var(--warn);font-weight:600}
+.pil-step.fail{color:var(--text);border-color:var(--crit);font-weight:600}
+.pil-budget{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
+.pil-budget input{width:110px}
 .pil-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .pil-waves{display:flex;flex-direction:column;gap:10px}
 .pil-wave{display:flex;flex-direction:column;gap:6px}

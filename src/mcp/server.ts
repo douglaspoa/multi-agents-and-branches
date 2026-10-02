@@ -26,7 +26,8 @@ if (!DB) {
 const store = new Store(DB);
 const bus = new CoordinationBus(store);
 
-/** Resposta do ask_human no piloto automático (sem humano). Exportada só como texto — o teste confere. */
+/** Resposta do ask_human no piloto automático (sem humano, CARDUME_AUTOPILOT=1). Não é exportada: o teste
+ * (src/autopilot.test.ts) chama o servidor de verdade e confere o texto devolvido. */
 const AUTOPILOT_ANSWER =
   "PILOTO AUTOMÁTICO — não há humano para responder. Decida você mesmo seguindo o objetivo da tarefa e o .cardume/refs/EPIC.md " +
   "(na dúvida, a opção mais simples que entrega o \"pronto quando\"). Registre a suposição em .cardume/artifacts/ASSUMPTIONS.md " +

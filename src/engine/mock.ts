@@ -103,6 +103,8 @@ export class MockEngine implements AgentEngine {
           : { req, status: "done", evidence: [ev], note: "mock" };
       });
       await writeFile(join(art, "requirements.json"), JSON.stringify(list, null, 2), "utf8");
+      // suposição registrada como o piloto manda (bus.ts / ask_human automático) — o relatório lê daqui
+      await writeFile(join(art, "ASSUMPTIONS.md"), `- (mock) ${spec.title}: decidi seguir a opção mais simples (tentativa ${attempt})\n`, "utf8");
       yield { type: "write", text: `.cardume/artifacts/requirements.json — ${list.filter((x) => x.status === "done").length}/${list.length} provados`, ok: true };
       const usd = Number(process.env.CARDUME_MOCK_COST_USD);
       if (usd > 0) yield { type: "note", text: "custo do turno (mock)", cost: { usd, inTok: 1000, outTok: 100 } };
