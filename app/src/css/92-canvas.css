@@ -177,3 +177,29 @@ button.lnk{border:0;background:none;font:inherit;padding:0}
 .cvdemto b{color:var(--text)}
 .cvdemrow{display:flex;gap:6px;align-items:flex-end}
 .cvdemrow .in{flex:1;min-width:0;resize:vertical;font-size:12.5px}
+/* ---------- F4: provas em todo painel + requisitos por cima do Meu app ---------- */
+.cvproofs{display:inline-flex;gap:2px;flex:none}
+.cvpb{display:inline-flex;align-items:center;gap:4px;border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;padding:3px 6px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.cvpb svg{width:13px;height:13px;flex:none}
+.cvpb:hover{background:var(--surface-3);color:var(--text)}
+.cvpb:disabled{opacity:.5;cursor:default}
+@container (max-width:620px){ .cvpb span{display:none} }
+.cvhead{container-type:inline-size}
+.cvask{position:fixed;z-index:70;width:320px;background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.45);padding:10px;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+.cvask .in{resize:vertical;font-size:12.5px}
+.cvaskr{display:flex;justify-content:flex-end;gap:6px}
+.apppane{position:relative}
+.cvreqov{position:absolute;left:12px;bottom:12px;z-index:4;width:min(340px,calc(100% - 24px));max-height:46%;overflow:auto;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:1px solid var(--border-strong);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.4);padding:8px 10px;font-size:12px}
+.cvreqov.closed{width:auto;padding:0;background:transparent;border:0;box-shadow:none;overflow:visible}
+.cvovh{display:flex;align-items:center;gap:8px;padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.cvovx{border:0;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;width:22px;height:22px;border-radius:6px}
+.cvovx:hover{background:var(--surface-3);color:var(--text)}
+.cvovr{display:flex;align-items:center;gap:8px;padding:4px 0}
+.cvovm{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;background:var(--surface-3);color:var(--muted)}
+.cvovr.ok .cvovm,.cvovm.ok{background:var(--good);color:var(--on-accent)}
+.cvovr.blk .cvovm{background:color-mix(in srgb,var(--crit) 25%,var(--surface));color:var(--crit)}
+.cvovt{flex:1;min-width:0;display:flex;flex-direction:column}
+.cvovt b{font-weight:600}
+.cvovtx{color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cvovsh{flex:none;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font:inherit;font-size:11px;padding:2px 8px;border-radius:999px;cursor:pointer}
+.cvovpill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:inherit;font-size:12px;font-weight:600;padding:5px 10px 5px 6px;border-radius:999px;box-shadow:0 6px 18px rgba(0,0,0,.35);cursor:pointer}
