@@ -94,9 +94,16 @@ test('"+" da barra de abas: menu simples (Nova demanda · Abrir demanda · Naveg
   assert.match(tabsJs, /aria-haspopup="menu"/);
   // cada escolha vira uma ABA do topo (como as demandas): Navegador/Simulador/Documento têm tipo e ícone próprios
   for (const k of ['web', 'device', 'doc']) { assert.match(tabsJs, new RegExp(`  ${k}:\\{title:'`), k + ' no VIEW_META'); assert.match(tabsJs, new RegExp(`${k}:'cvSplit'`), k + ' no VIEW_OVERLAY'); }
-  // Navegador pede o endereço NO MENU (a aba nunca nasce vazia só com um campo — veto da Carla); ou o app de uma demanda
-  const web = cut(canvas, 'function cvWebAsk', 'function cvMenuKeys');
-  assert.match(web, /open\(\{ kind:'web', url:s\.url \}\)/); assert.match(web, /open\(\{ kind:'web', taskId:apps\[\+b\.dataset\.cvapp\]\.id, app:true \}\)/);
+  // Navegador abre JÁ (pedido do Douglas, 02/10): aba nova com a barra focada; endereço ou busca; vazio explica em pt-BR
+  assert.match(canvas, /if\(x\.k==='web'\) return open\(\{ kind:'web', url:'' \}\)/);
+  assert.doesNotMatch(canvas, /function cvWebAsk/);
+  const bl = cut(canvas, 'function cvBlankTarget', 'function cvSiteRender');
+  assert.match(bl, /Digite um endereço \(ex\.: youtube\.com\) ou o que quer pesquisar/);
+  const t = new Function('cvSiteUrl', cut(canvas, 'function cvBlankTarget', 'function cvSiteBlank') + '; return cvBlankTarget;')((x) => ({ url: 'https://' + x.replace(/^https?:\/\//, '') + (x.includes('/') ? '' : '/') }));
+  assert.equal(t('youtube.com'), 'https://youtube.com/');
+  assert.equal(t('receita de bolo'), 'https://www.google.com/search?q=receita%20de%20bolo');
+  assert.equal(t('   '), null);
+  assert.match(canvas, /if\(!tab\.url\) return cvSiteBlank\(tab, body\);/);
 });
 
 test('tela dividida no TOPO: arrastar a aba pra metade da janela, botão direito "dividir à direita", ⌘\\, ⌘1..3; até 3; salva', () => {
