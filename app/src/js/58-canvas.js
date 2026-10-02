@@ -179,7 +179,25 @@ function cvAppTabRender(tab, body){ if(typeof appRender==='function') appRender(
 // aba de fundo / menu do app aberto / arrastando aba → o webview esconde (menu do app nunca fica por baixo dele).
 const NAT={ views:{}, q:0 };
 function cvNatLabel(tabId){ return 'sfweb-'+String(tabId).replace(/^web:/,'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,40); }
+// texto da barra de uma aba nova: endereço → URL; qualquer outra coisa → busca (como num navegador comum)
+function cvBlankTarget(raw){
+  const t=String(raw||'').trim(); if(!t) return null;
+  const s=(!/\s/.test(t) && /[.:]/.test(t)) ? cvSiteUrl(t) : null;
+  return s ? s.url : 'https://www.google.com/search?q='+encodeURIComponent(t);
+}
+function cvSiteBlank(tab, body){
+  if(body.querySelector('.cvblank')) return;
+  body.__html='';
+  body.innerHTML=`<div class="cvsite cvblank"><form class="cvsitebar cvnaddr" autocomplete="off"><input class="in mono" name="u" spellcheck="false" aria-label="endereço ou busca" placeholder="digite um endereço ou pesquise"></form><div class="cvempty"><b>Nova aba</b><span>Digite um endereço (ex.: youtube.com) ou o que quer pesquisar e aperte Enter.</span></div></div>`;
+  const f=body.querySelector('form'), i=f.querySelector('input');
+  f.onsubmit=(e)=>{ e.preventDefault(); const u=cvBlankTarget(i.value); if(!u) return;
+    tab.url=u; tab.title=cvTitleOf(tab).slice(0,28);
+    if(typeof renderTabs==='function') renderTabs(); if(cvInSplit(tab.id)) cvSplitSave();
+    body.__html=''; body.innerHTML=''; cvSiteRender(tab, body); };
+  setTimeout(()=>{ try{ i.focus(); }catch(_){ } }, 0);
+}
 function cvSiteRender(tab, body){
+  if(!tab.url) return cvSiteBlank(tab, body);
   const s=cvSiteUrl(tab.url); if(!s) return cvPaint(body, '<div class="cvempty"><b>Endereço inválido</b><span>Só endereços http(s).</span></div>');
   const v=NAT.views[tab.id]||(NAT.views[tab.id]={ tab:tab.id, label:cvNatLabel(tab.id), cur:s.url, open:false, opening:false, frozen:false, failed:false, shown:undefined, rect:'' });
   if(v.failed) return cvSiteIframeRender(tab, body); // fora do app de verdade (harness): iframe
@@ -359,7 +377,7 @@ function cvPlusMenu(anchor, opts){
     const x=items[+b.dataset.cvmi];
     if(x.k==='nova'){ cvCloseMenu(); openTab('nova'); return; }
     if(x.k==='task') return taskList('Abrir demanda', ()=>'a tela da demanda', t=>open({ kind:'task', taskId:t.id }));
-    if(x.k==='web') return cvWebAsk(m, open);
+    if(x.k==='web') return open({ kind:'web', url:'' }); // abre o navegador JÁ (aba em branco, barra de endereço focada) — sem formulário nem lista
     if(x.k==='device') return taskList('Simulador iOS/Android', t=>{ const i=(typeof DV!=='undefined')?DV.info[t.id]:null; return i&&i.mobile?'app de celular':'o simulador desta demanda'; }, t=>open({ kind:'device', taskId:t.id }));
     if(x.k==='doc') return taskList('Documento de qual demanda?', ()=>'README, entregáveis e anexos', t=>open({ kind:'doc', taskId:t.id }));
   });
@@ -373,15 +391,6 @@ function cvSubMenu(m, list, title){
   const f=l.querySelector('[data-cvsub]'); if(f) f.focus();
 }
 // Navegador: o endereço é pedido AQUI no menu (a aba nunca nasce vazia só com um campo); ou o app de uma demanda
-function cvWebAsk(m, open){
-  const l=m.querySelector('.cvml');
-  const apps=cvTasksForMenu().slice(0,6);
-  l.innerHTML=`<div class="cvmsub"><b>Navegador</b></div><form class="cvsiteask"><input class="in" name="u" placeholder="cole o endereço — ex.: youtube.com/watch?v=… ou docs.site.com" aria-label="endereço do site" autocomplete="off" spellcheck="false"><button class="btn primary sm">abrir</button></form><div class="dim cvmhint">Abre numa aba separada, sem acesso ao Starfork. Se o site não deixar, aparece "abrir fora".</div>`+
-    (apps.length?`<div class="cvmsub" style="margin-top:6px"><b>ou o app de uma demanda</b></div>`+apps.map((t,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvapp="${i}"><span class="cvmic" aria-hidden="true"><span class="cvtdot" style="background:${cvTaskColor(t.id)}"></span></span><span class="cvmt"><b>app · ${esc(t.title)}</b><span>a página dela rodando (ou "Subir ambiente")</span></span></button>`).join(''):'');
-  const f=l.querySelector('form'), i=f.querySelector('input'); i.focus();
-  f.onsubmit=(e)=>{ e.preventDefault(); const s=cvSiteUrl(i.value); if(!s){ toast('só endereços http(s) — ex.: youtube.com/watch?v=…','warn'); return; } open({ kind:'web', url:s.url }); };
-  l.querySelectorAll('[data-cvapp]').forEach(b=>b.onclick=()=>open({ kind:'web', taskId:apps[+b.dataset.cvapp].id, app:true }));
-}
 function cvMenuKeys(m){
   m.addEventListener('keydown', (e)=>{
     if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cvCloseMenu(); const a=$id('tabAdd'); if(a) a.focus(); return; }
