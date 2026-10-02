@@ -98,7 +98,10 @@ test('"+" da barra de abas: menu simples (Nova demanda · Abrir demanda · Naveg
   assert.match(canvas, /if\(x\.k==='web'\) return open\(\{ kind:'web', url:'' \}\)/);
   assert.doesNotMatch(canvas, /function cvWebAsk/);
   const bl = cut(canvas, 'function cvBlankTarget', 'function cvSiteRender');
-  assert.match(bl, /Digite um endereço \(ex\.: youtube\.com\) ou o que quer pesquisar/);
+  assert.match(bl, /Digite um endereço, como <b>youtube\.com<\/b>, ou o que quer pesquisar/);
+  assert.match(bl, /cvSiteBarHtml\('', true\)/, 'aba nova usa a MESMA barra do site aberto');
+  assert.match(bl, /<h2>Recentes<\/h2>/);
+  assert.doesNotMatch(canvas, /data-cvn="back"[^>]*>‹</, 'ícone de verdade, não caractere');
   const t = new Function('cvSiteUrl', cut(canvas, 'function cvBlankTarget', 'function cvSiteBlank') + '; return cvBlankTarget;')((x) => ({ url: 'https://' + x.replace(/^https?:\/\//, '') + (x.includes('/') ? '' : '/') }));
   assert.equal(t('youtube.com'), 'https://youtube.com/');
   assert.equal(t('receita de bolo'), 'https://www.google.com/search?q=receita%20de%20bolo');

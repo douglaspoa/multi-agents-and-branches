@@ -185,28 +185,39 @@ function cvBlankTarget(raw){
   const s=(!/\s/.test(t) && /[.:]/.test(t)) ? cvSiteUrl(t) : null;
   return s ? s.url : 'https://www.google.com/search?q='+encodeURIComponent(t);
 }
+// sites recentes (só neste computador; try/catch — armazenamento pode estar bloqueado)
+function cvWebHist(){ try{ const l=JSON.parse(localStorage.getItem('cv:webhist')||'[]'); return Array.isArray(l)?l.filter(x=>x&&typeof x.url==='string').slice(0,8):[]; }catch(_){ return []; } }
+function cvWebHistPush(url){ const s=cvSiteUrl(url); if(!s || (cvWebHist()[0]||{}).url===s.url || /google\.[a-z.]+\/search/.test(s.url)) return; try{ const l=cvWebHist().filter(x=>x.url!==s.url); l.unshift({ url:s.url, host:s.host }); localStorage.setItem('cv:webhist', JSON.stringify(l.slice(0,8))); }catch(_){ } }
+function cvSiteBarHtml(val, blank){
+  const dis=blank?' disabled':'';
+  return `<div class="cvsitebar"><button type="button" class="btn sm ghost nvic" data-cvn="back" aria-label="voltar" title="voltar"${dis}>${IC.cleft}</button><button type="button" class="btn sm ghost nvic" data-cvn="forward" aria-label="avançar" title="avançar"${dis}>${IC.cright}</button><button type="button" class="btn sm ghost nvic" data-cvn="reload" aria-label="recarregar" title="recarregar"${dis}>${IC.refresh}</button><form class="cvnaddr" role="search"><input class="in" data-cvn="addr" spellcheck="false" autocomplete="off" aria-label="endereço ou busca" placeholder="digite um endereço ou pesquise" value="${escA(val||'')}"></form>`;
+}
 function cvSiteBlank(tab, body){
   if(body.querySelector('.cvblank')) return;
+  const hist=cvWebHist();
   body.__html='';
-  body.innerHTML=`<div class="cvsite cvblank"><form class="cvsitebar cvnaddr" autocomplete="off"><input class="in mono" name="u" spellcheck="false" aria-label="endereço ou busca" placeholder="digite um endereço ou pesquise"></form><div class="cvempty"><b>Nova aba</b><span>Digite um endereço (ex.: youtube.com) ou o que quer pesquisar e aperte Enter.</span></div></div>`;
-  const f=body.querySelector('form'), i=f.querySelector('input');
-  f.onsubmit=(e)=>{ e.preventDefault(); const u=cvBlankTarget(i.value); if(!u) return;
-    tab.url=u; tab.title=cvTitleOf(tab).slice(0,28);
+  body.innerHTML=`<div class="cvsite cvblank">${cvSiteBarHtml('', true)}</div><div class="cvnewtab">${hist.length
+    ? `<h2>Recentes</h2><ul class="cvrecent">${hist.map((h,i)=>`<li><button type="button" data-cvh="${i}"><span class="cvrhost">${esc(h.host)}</span><span class="cvrurl">${esc(h.url.replace(/^https?:\/\//,''))}</span></button></li>`).join('')}</ul>`
+    : `<p class="cvnthint">Digite um endereço, como <b>youtube.com</b>, ou o que quer pesquisar. Os sites que você abrir aparecem aqui.</p>`}</div></div>`;
+  const go=(u)=>{ if(!u) return; cvWebHistPush(u); tab.url=u; tab.title=cvTitleOf(tab).slice(0,28);
     if(typeof renderTabs==='function') renderTabs(); if(cvInSplit(tab.id)) cvSplitSave();
     body.__html=''; body.innerHTML=''; cvSiteRender(tab, body); };
+  const f=body.querySelector('form'), i=f.querySelector('input');
+  f.onsubmit=(e)=>{ e.preventDefault(); go(cvBlankTarget(i.value)); };
+  body.querySelectorAll('[data-cvh]').forEach(b=>b.onclick=()=>go(hist[+b.dataset.cvh].url));
   setTimeout(()=>{ try{ i.focus(); }catch(_){ } }, 0);
 }
 function cvSiteRender(tab, body){
   if(!tab.url) return cvSiteBlank(tab, body);
-  const s=cvSiteUrl(tab.url); if(!s) return cvPaint(body, '<div class="cvempty"><b>Endereço inválido</b><span>Só endereços http(s).</span></div>');
+  const s=cvSiteUrl(tab.url); if(!s) return cvPaint(body, '<div class="cvempty"><b>Endereço inválido</b><span>Só endereços http(s).</span></div>'); cvWebHistPush(s.url);
   const v=NAT.views[tab.id]||(NAT.views[tab.id]={ tab:tab.id, label:cvNatLabel(tab.id), cur:s.url, open:false, opening:false, frozen:false, failed:false, shown:undefined, rect:'' });
   if(v.failed) return cvSiteIframeRender(tab, body); // fora do app de verdade (harness): iframe
   if(!body.querySelector('.cvnatarea')){
     body.__html='';
-    body.innerHTML=`<div class="cvsite"><div class="cvsitebar"><button type="button" class="btn sm ghost nvic" data-cvn="back" aria-label="voltar" title="voltar">‹</button><button type="button" class="btn sm ghost nvic" data-cvn="forward" aria-label="avançar" title="avançar">›</button><button type="button" class="btn sm ghost nvic" data-cvn="reload" aria-label="recarregar" title="recarregar">${IC.refresh||'↻'}</button><form class="cvnaddr"><input class="in mono" data-cvn="addr" spellcheck="false" autocomplete="off" aria-label="endereço" value="${escA(v.cur)}"></form>${cvProofBtnsHtml(tab.id)}<button type="button" class="btn sm" data-cvn="ext" title="abrir no seu navegador">${IC.extlink||'↗'} abrir fora</button></div><div class="cvnatarea" aria-label="${escA('site: '+s.host)}"><div class="cvnatmsg"><span class="spin"></span> abrindo ${esc(s.host)}…</div></div></div>`;
+    body.innerHTML=`<div class="cvsite">${cvSiteBarHtml(v.cur, false)}${cvProofBtnsHtml(tab.id)}<button type="button" class="btn sm" data-cvn="ext" title="abrir no seu navegador">${IC.extlink} abrir fora</button></div><div class="cvnatarea" aria-label="${escA('site: '+s.host)}"><div class="cvnatmsg"><span class="spin"></span> abrindo ${esc(s.host)}…</div></div></div>`;
     const area=body.querySelector('.cvnatarea');
     body.querySelectorAll('[data-cvn]').forEach(b=>{ if(b.tagName==='INPUT') return; b.onclick=()=>{ const k=b.dataset.cvn; if(k==='ext') openExternal(v.cur); else invoke('web_nav',{ label:v.label, action:k }).catch(e=>showErr(e, 'Não consegui')); }; });
-    const f=body.querySelector('.cvnaddr'); f.onsubmit=(e)=>{ e.preventDefault(); const u=cvSiteUrl(f.querySelector('input').value); if(!u){ toast('só endereços http(s)','warn'); return; } v.cur=u.url; invoke('web_nav',{ label:v.label, action:'go', url:u.url }).catch(err=>showErr(err, 'Não consegui abrir o endereço')); };
+    const f=body.querySelector('.cvnaddr'); f.onsubmit=(e)=>{ e.preventDefault(); const u=cvSiteUrl(f.querySelector('input').value); if(!u){ toast('só endereços http(s)','warn'); return; } v.cur=u.url; cvWebHistPush(u.url); invoke('web_nav',{ label:v.label, action:'go', url:u.url }).catch(err=>showErr(err, 'Não consegui abrir o endereço')); };
     if(typeof ResizeObserver==='function'){ const ro=new ResizeObserver(()=>cvNatSync()); ro.observe(area); }
     area.addEventListener('click', (e)=>{ if(e.target.closest('[data-cvnres]')){ v.frozen=false; cvSiteRender(tab, body); } });
   }
@@ -261,10 +272,10 @@ document.addEventListener('visibilitychange', ()=>cvNatSync());
   }catch(_){ } }
 // fallback (fora do app de verdade — harness/navegador comum): iframe sem proxy/mira/ponte
 function cvSiteIframeRender(tab, body){
-  const s=cvSiteUrl(tab.url); if(!s) return cvPaint(body, '<div class="cvempty"><b>Endereço inválido</b><span>Só endereços http(s).</span></div>');
+  const s=cvSiteUrl(tab.url); if(!s) return cvPaint(body, '<div class="cvempty"><b>Endereço inválido</b><span>Só endereços http(s).</span></div>'); cvWebHistPush(s.url);
   if(body.dataset.site!==tab.url || !body.querySelector('.cvsitestage')){
     body.dataset.site=tab.url; body.__html='';
-    body.innerHTML=`<div class="cvsite"><div class="cvsitebar"><span class="cvsitehost mono" title="${escA(s.url)}">${esc(s.url.replace(/^https?:\/\//,'').slice(0,90))}</span><span style="flex:1"></span>${cvProofBtnsHtml(tab.id)}<button type="button" class="btn sm ghost" data-cvs="reload" title="recarregar" aria-label="recarregar">${IC.refresh||'↻'}</button><button type="button" class="btn sm" data-cvs="ext">${IC.extlink||'↗'} abrir fora</button></div><div class="cvsitestage"></div><div class="cvsitefoot">não apareceu? alguns sites não deixam abrir dentro de outro app — <button type="button" class="lnk" data-cvs="ext">abrir fora</button></div></div>`;
+    body.innerHTML=`<div class="cvsite"><div class="cvsitebar"><span class="cvsitehost mono" title="${escA(s.url)}">${esc(s.url.replace(/^https?:\/\//,'').slice(0,90))}</span><span style="flex:1"></span>${cvProofBtnsHtml(tab.id)}<button type="button" class="btn sm ghost" data-cvs="reload" title="recarregar" aria-label="recarregar">${IC.refresh||'↻'}</button><button type="button" class="btn sm" data-cvs="ext">${IC.extlink} abrir fora</button></div><div class="cvsitestage"></div><div class="cvsitefoot">não apareceu? alguns sites não deixam abrir dentro de outro app — <button type="button" class="lnk" data-cvs="ext">abrir fora</button></div></div>`;
     body.querySelectorAll('[data-cvs]').forEach(b=>b.onclick=()=>{ if(b.dataset.cvs==='ext') openExternal(s.url); else { cvSiteUnmount(body); body.__frozen=false; cvSiteRender(tab, body); } });
   }
   const stage=body.querySelector('.cvsitestage');
