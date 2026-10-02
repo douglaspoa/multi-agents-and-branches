@@ -269,7 +269,7 @@ async function orqPlanNow(){
     let obj=null; try{ const m=String(raw||'').match(/```json\s*([\s\S]*?)```/i)||String(raw||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
     if(!obj||!Array.isArray(obj.phases)||!obj.phases.length){ console.warn('[orquestrador] resposta sem plano', String(raw||'').slice(0,2000)); throw new Error('ORQ_BAD_PLAN'); }
     const phases=orqNormPhases(obj.phases);
-    o.plan={ id:orqNewId(), title:String(obj.title||text.slice(0,60)).slice(0,80), summary:String(obj.summary||''), briefing:text, createdAt:Date.now(), status:'planned', model, engine:d.eng||'claude', phases, repo:state.repo||'' };
+    o.plan={ id:orqNewId(), title:String(obj.title||text.slice(0,60)).slice(0,80), summary:String(obj.summary||''), briefing:text, createdAt:Date.now(), status:'planned', model, engine:d.eng||defaultAiEngine(), phases, repo:state.repo||'' };
     o.step='plan'; o.sel=phases[0].key; o.pan={x:20,y:20}; o.zoom=1; o.needFit=true;
     await invoke('orch_save',{ id:o.plan.id, data:o.plan, repo:o.plan.repo||null }).catch(()=>{});
     orqListAt=0;
@@ -582,7 +582,7 @@ async function orqCreatePhaseTask(p, ph, created){
   const intTxt=integrate?`\n\nESTA É A FASE DE INTEGRAÇÃO: sua branch nasceu da main e recebeu o MERGE das branches das fases de build (${intBranches.join(', ')||'ver commits de merge'}). Se houver CONFLITO de merge pendente na worktree (git status), resolva-o PRIMEIRO e complete os merges que faltarem (git merge --no-ff <branch>). Depois rode o projeto e os testes com TUDO junto, corrija problemas de integração e prove na UI real. O Pull Request final sai DESTA branch — com todos os merges.`:'';
   // começa já se não depende de ninguém OU se todas as dependências já provaram (plano em andamento)
   const startNow=deps.length===0 || (p.status!=='planned' && deps.every(d=>orqProved((state.tasks||[]).find(t=>t.id===(created[d.key]||d.taskId)))));
-  const payload={ start:startNow, title:ph.name, workflow:null, agents:orqAgentIdFor(ph), engine:p.engine||'claude', model:p.model||null, approval:ph.autonomy==='ask'?'ask':'auto',
+  const payload={ start:startNow, title:ph.name, workflow:null, agents:orqAgentIdFor(ph), engine:p.engine||defaultAiEngine(), model:p.model||null, approval:ph.autonomy==='ask'?'ask':'auto',
     owns:null, off:null, objective:(ph.objective||ph.name)+ctx+intTxt, deliverables:[], requirements:(ph.objectives||[]).slice(), doc:kd.doc,
     proof:ph.kind==='build'||ph.kind==='review', tests:ph.kind==='build'||integrate, planApproval:'auto', refs:[], branchType:integrate?'integration':kd.branch, issue:null,
     autoPr:integrate?'ask':(ph.kind==='build'&&!orqHasIntegration(p)?'ask':'no'), prBase:null, base:integrate?null:(buildDep&&buildDep.branch?buildDep.branch:null) };

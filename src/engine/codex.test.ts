@@ -12,8 +12,10 @@ test("turn.failed traz o MOTIVO (antes: sumia e o turno morria só com 'código 
   assert.equal(evs.length, 1);
   assert.equal(evs[0].type, "error");
   assert.match(evs[0].text, /usage limit reached/);
-  // erro de topo continua valendo
-  assert.equal(mapCodexLine(JSON.stringify({ type: "error", message: "stream disconnected" }))[0].text, "stream disconnected");
+  // erro de TOPO é aviso não terminal (o codex reconecta e segue): vira nota, não encerra o turno
+  const [w] = mapCodexLine(JSON.stringify({ type: "error", message: "stream disconnected" }));
+  assert.equal(w.type, "note");
+  assert.match(w.text, /stream disconnected/);
 });
 
 test("comando aparece UMA vez no feed (antes: item.started e item.completed duplicavam)", () => {

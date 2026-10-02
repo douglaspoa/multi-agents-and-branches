@@ -94,6 +94,48 @@ function buildPrompt(input: RunInput): string {
   return (input.resume ? input.resume.instruction + groundRule + mob : (input.promptOverride ? input.promptOverride + groundRule + mob : base + mob + sys));
 }
 
+/**
+ * Erro do Codex → frase HUMANA em português, com o que fazer. O texto cru vai junto entre parênteses (o
+ * orquestrador reconhece limite/rede/sessão perdida por ele). Nunca sugere trocar de IA: a tarefa SEGUE no Codex.
+ */
+export function codexFriendlyError(raw: string): string {
+  const m = String(raw ?? "").trim();
+  const l = m.toLowerCase();
+  const tail = m ? `\n\n(${m.slice(0, 400)})` : "";
+  if (/usage limit|rate[ _-]?limit|too many requests|\b429\b|quota|limit reached|insufficient_quota/.test(l))
+    return "O Codex bateu o limite de uso do seu plano/chave da OpenAI. Espere o limite resetar e mande a mensagem de novo — a tarefa continua no Codex." + tail;
+  if (/\b401\b|\b403\b|unauthori[sz]ed|forbidden|not logged in|log ?in again|please (re-?)?log ?in|invalid api key|incorrect api key|authentication|refresh token|token (has )?expired/.test(l))
+    return "O Codex não está logado (ou a chave da OpenAI é inválida/expirou). Abra um terminal, rode `codex login` (ou confira a chave em Configurações → Sua IA) e mande a mensagem de novo — a tarefa continua no Codex." + tail;
+  if (/no saved session|thread not found|no rollout found|resume failed|session not found/.test(l))
+    return "A sessão anterior do Codex não foi encontrada neste computador." + tail;
+  if (/context (window|length)|maximum context|too long|out of tokens/.test(l))
+    return "A conversa ficou longa demais pro Codex (limite de contexto)." + tail;
+  if (/stream disconnected|reconnecting|error sending request|connection (reset|refused|closed|error)|network|timed? ?out|econnreset|enotfound|eai_again|dns/.test(l))
+    return "Caiu a conexão do Codex com a OpenAI. Confira a internet e mande a mensagem de novo — a tarefa continua no Codex." + tail;
+  return m ? `O Codex parou com um erro: ${m.slice(0, 400)}` : "O Codex parou com um erro sem detalhes.";
+}
+
+/** Reconexão/aviso transitório que o próprio Codex trata (ele tenta de novo sozinho)? */
+const CODEX_TRANSIENT = /reconnecting|stream disconnected|retrying|falling back from websockets|waiting for network|waiting to retry/i;
+
+/**
+ * Mensagem de um erro NÃO terminal da linha (evento de topo `error` ou item `error`). O `codex exec --json`
+ * emite `{"type":"error"}` também pra avisos que ele mesmo contorna ("Reconnecting... 1/5 (stream disconnected…)")
+ * e o turno SEGUE e conclui. Só `turn.failed` (ou a saída ≠ 0) encerra o turno. "" = a linha não é erro.
+ */
+export function codexLineError(line: string): string {
+  let o: Record<string, unknown>;
+  try { o = JSON.parse(String(line ?? "").trim()); } catch { return ""; }
+  if (!o || typeof o !== "object") return "";
+  const t = String(o.type ?? "");
+  const item = (o.item ?? null) as Record<string, unknown> | null;
+  const errObj = o.error;
+  const errMsg = errObj && typeof errObj === "object" ? String((errObj as { message?: unknown }).message ?? "") : typeof errObj === "string" ? errObj : "";
+  if (t === "error") return String(o.message ?? errMsg ?? "") || "erro sem detalhes";
+  if (item && String(item.type ?? "") === "error") return String(item.message ?? item.text ?? "") || "erro sem detalhes";
+  return "";
+}
+
 /** Mapeia uma linha JSONL do `codex exec --json` em AgentEvents (defensivo entre versões). */
 /** `seen`: ids de item já mostrados no turno (compartilhado entre as linhas de UM turno). */
 export function mapCodexLine(line: string, seen: Set<string> = new Set()): AgentEvent[] {
@@ -119,8 +161,14 @@ export function mapCodexLine(line: string, seen: Set<string> = new Set()): Agent
   // nenhum ramo e o turno morria só com "codex saiu com código 1", sem o porquê (e sem retry/espera)
   const errObj = (o as { error?: unknown }).error;
   const errMsg = errObj && typeof errObj === "object" ? String((errObj as { message?: unknown }).message ?? "") : typeof errObj === "string" ? errObj : "";
-  if (/error|failed/i.test(itemType) || /\.failed$/.test(t)) {
-    evs.push({ type: "error", text: (errMsg || text || s).slice(0, 400), status: "error" });
+  if (/\.failed$/.test(t) && !/^item\./.test(t)) {
+    // FIM do turno com falha (turn.failed): o único erro terminal vindo do stream
+    evs.push({ type: "error", text: codexFriendlyError(errMsg || text || s), status: "error" });
+  } else if (t === "error" || itemType === "error") {
+    // aviso/erro NÃO terminal: o codex segue (ex.: "Reconnecting... 1/5"). Antes virava "error" e o turno era
+    // dado como falho no meio — a conversa fechava e a tarefa ia pra erro com o codex ainda trabalhando.
+    const msg = codexLineError(s);
+    evs.push({ type: "note", ok: false, text: CODEX_TRANSIENT.test(msg) ? `Codex: conexão instável com a OpenAI — reconectando sozinho (${msg.slice(0, 160)})` : `Codex avisou: ${msg.slice(0, 300)}` });
   } else if (/command|exec|shell/i.test(itemType)) {
     const cmd = (item as { command?: unknown }).command;
     const shown = Array.isArray(cmd) ? cmd.join(" ") : String(cmd ?? text ?? "");
@@ -209,6 +257,8 @@ export class CodexEngine implements AgentEngine {
     let exited = false;
     let sawDone = false;
     let sawError = false; // erro terminal (turn.failed) já emitido: o "saiu com código 1" genérico não o encobre
+    let lastErr = ""; // último aviso de erro NÃO terminal: vira o motivo se o codex sair ≠ 0 sem turn.failed
+    let stderrTail = ""; // fim do stderr: idem (ex.: "Error: Not logged in")
     const seen = new Set<string>();
     let killTimer: ReturnType<typeof setTimeout> | undefined;
     let doneTimer: ReturnType<typeof setTimeout> | undefined;
@@ -243,6 +293,8 @@ export class CodexEngine implements AgentEngine {
 
     rl.on("line", (line) => {
       resetIdle();
+      const le = codexLineError(line);
+      if (le) lastErr = le;
       for (const ev of mapCodexLine(line, seen)) {
         if (ev.type === "done" && !sawDone) { sawDone = true; armDoneTimer(); }
         if (ev.type === "error") sawError = true;
@@ -253,14 +305,23 @@ export class CodexEngine implements AgentEngine {
     child.stderr.on("data", (d) => {
       resetIdle();
       const s = String(d).trim();
-      if (s) queue.push({ type: "note", text: `stderr: ${s.slice(0, 200)}` });
+      if (s) {
+        stderrTail = (stderrTail + "\n" + s).slice(-600);
+        queue.push({ type: "note", text: `stderr: ${s.slice(0, 200)}` });
+      }
       wake();
     });
     const pushExit = (code: number | null, signal: NodeJS.Signals | null) => {
       // `done` já ENTREGUE não fica na fila: sem o sawDone vinha um 2º "done" (ou um erro falso) no fim
       if (sawDone || done) return;
       if (code === 0) queue.push({ type: "done", text: "codex finalizou", status: "review", cost: { usd: 0, inTok: 0, outTok: 0 } });
-      else if (!sawError) queue.push({ type: "error", text: `codex saiu com código ${code ?? signal}`, status: "error" });
+      else if (!sawError) {
+        // o motivo real (último aviso de erro / stderr) em português — o "código N" fica no fim (o orquestrador
+        // reconhece sinal/inatividade por ele)
+        const why = lastErr || stderrTail.trim().split("\n").slice(-3).join(" ");
+        const head = why ? codexFriendlyError(why) : "O Codex encerrou sem concluir o turno.";
+        queue.push({ type: "error", text: `${head}\n\n(codex saiu com código ${code ?? signal})`, status: "error" });
+      }
     };
     child.on("exit", (code, signal) => {
       exited = true;
@@ -280,7 +341,9 @@ export class CodexEngine implements AgentEngine {
       exited = true;
       queue.push({
         type: "error",
-        text: `falha ao iniciar codex: ${err.message} — instale com: npm i -g @openai/codex`,
+        text:
+          `O Codex não foi encontrado neste computador — esta tarefa roda no Codex e o Starfork não troca de IA sozinho. ` +
+          `Instale com: npm i -g @openai/codex (depois confira em Mais › Ambiente) e mande a mensagem de novo.\n\n(falha ao iniciar codex: ${err.message})`,
         status: "error",
       });
       finish();

@@ -380,3 +380,8 @@ function fmtCostRange(lo, hi){
 }
 // teto padrão por tarefa (US$; 0 = sem teto) — Configurações
 function costCapDefault(){ const raw=lsGet('costCap'); const v=parseFloat(raw==null||raw===''?'5':raw); return v>=0?v:5; }
+// IA PADRÃO do usuário (painel Sua IA → aiDefaults em 29-ia-picker) pra demanda criada SEM motor escolhido
+// (mesa, card do time, celular, orquestrador). Antes esses caminhos gravavam 'claude' fixo — quem só usa Codex
+// ganhava tarefa no Claude. O 'claude' daqui só vale se o seletor ainda não carregou (boot/teste isolado).
+function defaultAiEngine(){ try{ return (typeof aiDefaults==='function' && aiDefaults().eng) || 'claude'; }catch(_){ return 'claude'; } }
+function defaultAiModel(){ try{ return (typeof aiDefaults==='function' && aiDefaults().model) || null; }catch(_){ return null; } }

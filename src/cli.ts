@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Orchestrator, branchName } from "./orchestrator.ts";
+import { Orchestrator, branchName, defaultEngine } from "./orchestrator.ts";
 import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { detectScopeOverlap, type ScopeOverlap } from "./bus.ts";
@@ -455,7 +455,8 @@ async function cmdReviewPr(repo: string, a: Args) {
     console.error(c.red("✕ use --pr <url|número>"));
     process.exit(1);
   }
-  const engine = a.flags.engine ?? "claude"; // review sem Claude não faz sentido
+  // sem --engine (o app não manda): a IA PADRÃO do usuário — antes era sempre o Claude, e quem só tem Codex não revisava
+  const engine = a.flags.engine ?? defaultEngine();
   let roles = buildRoles({ ...a, flags: { ...a.flags, engine } } as Args, repo);
   // garante ao menos um revisor
   if (!roles.some((r) => r.role === "reviewer")) {

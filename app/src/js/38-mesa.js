@@ -580,7 +580,7 @@ async function mesaCreate(){
       if(made){ m.epicoPend=null; m.criadas=Object.assign({}, m.criadas||{}, { epico:{ id:made.id, name:made.name } }); }
     } else {
       for(const r of ap){
-        const payload={ start:false, title:r.titulo.slice(0,90), workflow:null, agents:null, engine:'claude', model:null, approval:'auto', owns:null, off:null,
+        const payload={ start:false, title:r.titulo.slice(0,90), workflow:null, agents:null, engine:defaultAiEngine(), model:defaultAiModel(), approval:'auto', owns:null, off:null,
           objective:obj(r), deliverables:[], requirements:[((m.cands||[]).find(x=>x.id===r.id)||{}).descricao||r.titulo],
           doc:null, proof:!!(typeof ntPolicy!=='undefined'&&ntPolicy.proofRequired), tests:!!(typeof ntPolicy!=='undefined'&&ntPolicy.testsRequired),
           autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null };

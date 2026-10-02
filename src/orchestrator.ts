@@ -18,7 +18,7 @@ import { appendPending, applySkill, itemText, learnedSkills, parseRetro, readLea
 import { userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
-import { aiOnce, type AiTier } from "./ai-once.ts";
+import { aiOnce, engineOf, readAiPrefs, type AiTier } from "./ai-once.ts";
 import { DshEngine, isDshLabel } from "./engine/dsh.ts";
 import { CodexEngine } from "./engine/codex.ts";
 import { readAltConfig } from "./engine/altProxy.ts";
@@ -126,8 +126,35 @@ export function engineKind(name: string | undefined): "mock" | "codex" | "gatewa
     : n.startsWith("gateway") ? "gateway"
     : n.startsWith("logcomex") ? "logcomex"
     : n.startsWith("claude") ? "claude"
-    : (n === "" ? "mock" : "claude");
+    // rótulo desconhecido: a IA PADRÃO do usuário — antes caía no Claude fixo (quem só tem Codex ficava sem nada)
+    : (n === "" ? "mock" : defaultEngine());
 }
+
+/**
+ * IA PADRÃO do usuário (`aiEngine` em ~/.constellation/settings.json, espelhado pelo app). Só vale pra
+ * tarefa/papel SEM motor registrado — uma tarefa com motor usa SEMPRE o dela. Sem config → claude (legado).
+ */
+export function defaultEngine(): "claude" | "codex" | "gateway" | "deepseek" {
+  return engineOf(readAiPrefs().engine) ?? "claude";
+}
+
+/**
+ * MOTOR GRUDADO NA TAREFA: preenche o motor que falta (spec antiga, card do time, papel sem `engine`) com a
+ * IA padrão do usuário. Devolve true se mudou algo — quem chama grava o spec, e daí em diante TODO turno
+ * (conversa, rework, retomada, entregável, conflito) usa esse motor; nunca troca sozinho pro Claude.
+ */
+export function stickEngines(spec: TaskSpec): boolean {
+  let changed = false;
+  const blank = (e: unknown) => !String(e ?? "").trim();
+  if (blank(spec.engine)) { spec.engine = defaultEngine(); changed = true; }
+  for (const r of spec.roles ?? []) {
+    if (blank(r.engine)) { r.engine = spec.engine; if (!r.model && spec.model) r.model = spec.model; changed = true; }
+  }
+  return changed;
+}
+
+/** Motores SEM a ferramenta ask_human do Starfork (não há MCP no codex/gateway): pergunta vai em texto. */
+const noAskTool = (engine: string | undefined) => ["codex", "gateway", "logcomex"].includes(engineKind(engine));
 /** Papel capaz de conversar/retomar sessão (qualquer motor real — Claude, Codex, gateway). */
 const canTalk = (engine: string | undefined) => engineKind(engine) !== "mock";
 
@@ -688,11 +715,12 @@ export class Orchestrator {
   /** Queda de REDE/socket no meio do turno (API Error: socket closed, ECONNRESET, fetch failed…):
    * o trabalho parcial está na worktree — continuar faz sentido, igual à inatividade. */
   private static networkDeath(text: string): boolean {
-    return /socket connection was closed|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|other side closed|Connection error/i.test(text || "");
+    return /socket connection was closed|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|other side closed|Connection error|stream disconnected|error sending request/i.test(text || "");
   }
   /** `--resume <id>` sem a sessão no disco (Claude guarda por pasta; histórico apagado/outra máquina). */
   private static sessionMissing(text: string): boolean {
-    return /no conversation found|session (id )?.{0,60}not found|could not find session/i.test(text || "");
+    // + mensagens do Codex (`codex exec resume <id>` sem a sessão: outra máquina, id de outro motor…)
+    return /no conversation found|session (id )?.{0,60}not found|could not find session|no saved session found|thread not found|no rollout found|resume failed/i.test(text || "");
   }
   private static retriableDeath(text: string): boolean {
     return Orchestrator.tokenDeath(text) || Orchestrator.idleOrSignalDeath(text) || Orchestrator.networkDeath(text);
@@ -829,6 +857,20 @@ export class Orchestrator {
    * tempo — a saída é ESPERAR e retomar, não recomeçar na hora. */
   private static usageLimitDeath(text: string): boolean {
     return /session limit|usage limit|hit your .{0,24}limit|rate[ _-]?limit|too many requests|\b429\b|quota|resets? (at|\d)|limit reached|upgrade to increase|please try again later/i.test(text || "");
+  }
+
+  /** Regra da conversa pros motores COM ask_human (Claude, DeepSeek): pergunta e espera no mesmo turno. */
+  private static readonly CHAT_RULE_ASK =
+    "\n\n[CONVERSA CONTÍNUA — NÃO FINALIZE SOZINHO] (1) Precisando de QUALQUER resposta/decisão minha, chame mcp__cardume__ask_human (com options quando fizer sentido) e AGUARDE — a conversa segue no MESMO turno; NUNCA finalize com pergunta em texto. (2) Ao CONCLUIR o pedido, também NÃO finalize: chame ask_human dizendo o que fez e perguntando se quero mais algum ajuste (ex.: options ['Está ótimo, pode finalizar','Quero ajustar algo']) e AGUARDE. (3) Só finalize de verdade quando eu mandar (ex.: 'pode finalizar') ou quando o sistema avisar que estou inativo — aí encerre com um resumo educado. (4) PEDIDO NOVO = REGISTRO OBRIGATÓRIO: se a minha mensagem pedir algo que ainda NÃO fazia parte da tarefa (não é correção/ajuste do que você já fez), registre PRIMEIRO com mcp__cardume__add_requirement (critério curto e verificável — ele entra na checklist X/Y que eu acompanho) e, sendo uma entrega nova, TAMBÉM com mcp__cardume__add_deliverable; só então implemente. 'Entender' o pedido sem registrar NÃO vale — pedido registrado só na conversa não conta na checklist.";
+  /** Regra da conversa pros motores SEM ask_human (Codex/gateway): mandar o agente "chamar ask_human e AGUARDAR"
+   * sem ter a ferramenta o deixava preso esperando (sleep/loop) até o watchdog de inatividade matar o turno. */
+  private static readonly CHAT_RULE_TEXT =
+    "\n\n[CONVERSA CONTÍNUA] Neste motor NÃO existe a ferramenta ask_human. (1) Precisando de uma resposta/decisão minha, termine a resposta com a PERGUNTA em texto (objetiva; numere as opções quando fizer sentido) e finalize o turno — eu respondo aqui na conversa e você continua desta mesma sessão. NUNCA fique esperando resposta (sleep, loop, polling). (2) Ao CONCLUIR o pedido, diga em poucas linhas o que fez e pergunte se quero mais algum ajuste. (3) PEDIDO NOVO (algo que não fazia parte da tarefa): diga explicitamente no fim que é um requisito novo, pra eu registrar.";
+
+  /** Interlocutor quando a tarefa não tem papel que converse: o motor DA TAREFA (ou a IA padrão do usuário). Nunca o Claude fixo. */
+  private static fallbackRole(spec: TaskSpec): TaskSpec["roles"][number] {
+    const own = canTalk(spec.engine);
+    return { role: "builder", name: spec.agent, engine: own ? spec.engine : defaultEngine(), model: own ? spec.model : (readAiPrefs().model || undefined) } as TaskSpec["roles"][number];
   }
 
   /** Instrução pra RETOMAR uma tarefa que morreu — o parcial está na worktree. */
@@ -1006,6 +1048,7 @@ export class Orchestrator {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
+    if (stickEngines(spec)) this.store.updateSpec(taskId, JSON.stringify(spec));
     this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     await this.waitForScopeClear(taskId, spec); // sequential-lock: espera o escopo liberar antes de editar
     const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
@@ -1080,7 +1123,8 @@ export class Orchestrator {
         }
         // ROUTE AI: Claude bateu limite e o fallback está ligado → em vez de esperar,
         // roteia esta tarefa pra IA alternativa NA HORA e retoma continuando da worktree.
-        if (deathText && Orchestrator.usageLimitDeath(deathText) && !usingAlt) {
+        // (só o motor CLAUDE tem Route AI — tarefa Codex/gateway/DeepSeek nunca é desviada de motor)
+        if (deathText && Orchestrator.usageLimitDeath(deathText) && !usingAlt && engineKind(r.engine) === "claude") {
           const altCfg = readAltConfig();
           if (altCfg && altCfg.fallback) {
             usingAlt = true;
@@ -1482,12 +1526,13 @@ export class Orchestrator {
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     if (task.status === "merged") throw new Error("tarefa mergeada — a worktree foi removida; não dá pra gerar entregável");
     const spec = JSON.parse(task.spec_json) as TaskSpec;
+    if (stickEngines(spec)) this.store.updateSpec(taskId, JSON.stringify(spec));
     const roles = spec.roles || [];
     const pref = kind === "doc" ? ["docs", "builder"] : ["builder", "tester"];
     const role =
       roles.find((r) => pref.includes(r.role) && canTalk(r.engine)) ||
       roles.find((r) => canTalk(r.engine)) ||
-      ({ role: "builder", name: spec.agent, engine: canTalk(spec.engine) ? spec.engine : "claude", model: spec.model } as (typeof roles)[number]);
+      Orchestrator.fallbackRole(spec);
 
     const DOC = "MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados; 3) Resultado esperado & como validar. Conciso e visual.";
     const TESTS = "TESTES REAIS na branch desta worktree — PROIBIDO testar num script isolado ou num front mockado que nao reflete o ambiente real. Faca: 1) suba o ambiente LOCAL de verdade nesta branch (as envs reais existem — procure `.env`, `code-refuge-relay/supabase`, docker-compose); 2) escreva e RODE os testes na suite real do projeto (unittest/pytest/vitest — a que o repo usa), exercitando a funcionalidade contra o ambiente que subiu; 3) salve a comprovacao em `.cardume/artifacts/tests.md` com os comandos e a SAIDA real (quantos passaram/falharam). Se algo nao subir/rodar, escreva EXATAMENTE o que travou (comando, erro literal) e PERGUNTE ao humano (mcp__cardume__ask_human) — nao improvise mock.";
@@ -1580,6 +1625,7 @@ export class Orchestrator {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
+    if (stickEngines(spec)) this.store.updateSpec(taskId, JSON.stringify(spec));
     // pedido novo vira REQUISITO da tarefa (checklist cresce e cobra evidência)
     if (asReq && message.trim()) {
       spec.requirements = [...(spec.requirements ?? []), message.trim()];
@@ -1593,9 +1639,7 @@ export class Orchestrator {
     // caía num builder Claude genérico (o "segue no Claude sempre").
     const deflt = roles.find((r) => canTalk(r.engine));
     const picked = agentName ? roles.find((r) => r.name === agentName && canTalk(r.engine)) : undefined;
-    const role =
-      picked || deflt ||
-      ({ role: "builder", name: spec.agent, engine: canTalk(spec.engine) ? spec.engine : "claude", model: spec.model } as (typeof roles)[number]);
+    const role = picked || deflt || Orchestrator.fallbackRole(spec);
     // sessão pertence ao último agente que falou — trocar de agente = turno
     // FRESCO com a persona dele (senão ele "vira" o outro agente da sessão).
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
@@ -1609,8 +1653,7 @@ export class Orchestrator {
     this.store.setStatus(taskId, "thinking");
     let failed = false;
     try {
-      const chatRule =
-        "\n\n[CONVERSA CONTÍNUA — NÃO FINALIZE SOZINHO] (1) Precisando de QUALQUER resposta/decisão minha, chame mcp__cardume__ask_human (com options quando fizer sentido) e AGUARDE — a conversa segue no MESMO turno; NUNCA finalize com pergunta em texto. (2) Ao CONCLUIR o pedido, também NÃO finalize: chame ask_human dizendo o que fez e perguntando se quero mais algum ajuste (ex.: options ['Está ótimo, pode finalizar','Quero ajustar algo']) e AGUARDE. (3) Só finalize de verdade quando eu mandar (ex.: 'pode finalizar') ou quando o sistema avisar que estou inativo — aí encerre com um resumo educado. (4) PEDIDO NOVO = REGISTRO OBRIGATÓRIO: se a minha mensagem pedir algo que ainda NÃO fazia parte da tarefa (não é correção/ajuste do que você já fez), registre PRIMEIRO com mcp__cardume__add_requirement (critério curto e verificável — ele entra na checklist X/Y que eu acompanho) e, sendo uma entrega nova, TAMBÉM com mcp__cardume__add_deliverable; só então implemente. 'Entender' o pedido sem registrar NÃO vale — pedido registrado só na conversa não conta na checklist.";
+      const chatRule = noAskTool(role.engine) ? Orchestrator.CHAT_RULE_TEXT : Orchestrator.CHAT_RULE_ASK;
       const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext() };
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
