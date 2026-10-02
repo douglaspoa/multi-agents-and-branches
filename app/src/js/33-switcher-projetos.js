@@ -87,7 +87,11 @@ $id('pubGo').onclick=async()=>{
   let si=0; const tick=setInterval(()=>{ si=Math.min(si+1,stats.length-1); const e=$id('pubStatus'); if(e) e.textContent=stats[si]; },4000);
   $id('pubStatus').textContent=stats[0];
   try{
-    const msg=await invoke('publish_release',{ url:SB.url(), anon:SB.key(), token:SB.sess().access_token, notes });
+    // token SEMPRE válido: sessão sem access_token (expirou/ficou pela metade) renova antes; sem conta → frase
+    // humana. Antes: token undefined sumia do JSON e o Rust respondia "missing required key token".
+    let s=SB.sess(); if(!s||!s.access_token){ try{ s=await sbRefresh(); }catch(_){ s=null; } }
+    if(!s||!s.access_token) throw new Error('Sua sessão expirou — entre de novo na sua conta (botão Entrar, no rodapé da barra lateral) e publique outra vez.');
+    const msg=await invoke('publish_release',{ url:SB.url(), anon:SB.key(), token:s.access_token, notes });
     clearInterval(tick);
     pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--accent);font-size:20px;line-height:1">✓</span><div><b style="font-size:13px">Release publicada!</b><div class="dim" style="font-size:12px;margin-top:4px">${esc(msg)}</div></div></div><div style="display:flex;margin-top:14px"><span style="flex:1"></span><button class="btn primary" id="pubOk">fechar</button></div>`);
     bindClick('pubOk', closePub);
