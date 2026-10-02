@@ -296,7 +296,7 @@ function ovShow(o){
 }
 function tabsOfKind(kind){ return TABS.filter(t=>t.kind===kind); }
 function tabIcon(kind){ if(kind==='flow') return '<rect x="2.5" y="3" width="11" height="10" rx="1.4"/><path d="M2.5 6h11"/>'; return (VIEW_META[kind]||{}).icon||''; }
-function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id; renderTabs(); showActiveView(); }
+function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id; renderTabs(); showActiveView(); if(typeof cvOnViewChange==='function') cvOnViewChange(); } // canvas: stream/webview reavaliam (sem laço)
 // openTab(kind, opts): views únicas reaproveitam a aba; views múltiplas abrem uma NOVA aba,
 // salvo opts.replace (a aba ativa de "Nova demanda" vira o método escolhido, mantendo o id)
 // ou opts.reuse (função que escolhe uma aba já aberta do mesmo kind).
@@ -348,7 +348,7 @@ function closeTab(id){
   // guardado ao sair — ex.: o "Montar conversando" ativo perdia as mensagens mais recentes)
   if(activeTab!==id){ renderTabs(); return; }
   activeTab=(TABS[i-1]||TABS[0]).id;
-  renderTabs(); showActiveView();
+  renderTabs(); showActiveView(); if(typeof cvOnViewChange==='function') cvOnViewChange();
 }
 // R7: reordenar abas arrastando. A aba fixa (Central) fica sempre na frente; soltar sobre outra aba põe a
 // arrastada no lugar dela. Devolve true quando mudou. Pura sobre TABS (testada em app/tests/central.test.mjs).

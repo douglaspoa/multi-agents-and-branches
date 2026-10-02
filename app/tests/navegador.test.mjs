@@ -23,14 +23,16 @@ const item = (o = {}) => ({ selector: 'main > button.cta', tag: 'button', text: 
 
 test('aba: barra (voltar/avançar/recarregar/endereço/tamanhos/mira/print/abrir fora), palco no tamanho certo, painel escondido', () => {
   const h = F.nvTabHtml({ addr: 'http://localhost:5173/"x"', vp: 'phone', picking: true, picks: [] });
-  for (const id of ['nvBack', 'nvFwd', 'nvReload', 'nvForm', 'nvAddr', 'nvPick', 'nvShot', 'nvExt', 'nvStage', 'nvFrameWrap', 'nvPanel', 'nvPicks', 'nvNote', 'nvSendBtn']) assert.match(h, new RegExp(`id="${id}"`), id);
+  // F0 (canvas): por data-nv dentro da raiz do painel — nada de id fixo (duas prévias convivem)
+  for (const id of ['back', 'fwd', 'reload', 'form', 'addr', 'pick', 'shot', 'ext', 'stage', 'wrap', 'panel', 'picks', 'note', 'send']) assert.match(h, new RegExp(`data-nv="${id}"`), id);
+  assert.ok(!/\sid="nv/.test(h), 'sem id fixo na prévia');
   assert.match(h, /value="http:\/\/localhost:5173\/&quot;x&quot;"/, 'endereço escapado');
   assert.match(h, /class="on" data-nvvp="phone"/); assert.match(h, /data-nvvp="tablet" title="tablet — 768 px de largura"/);
-  assert.match(h, /id="nvFrameWrap" style="width:390px"/);
-  assert.match(h, /class="btn sm nvpick on" id="nvPick" aria-pressed="true"/);
-  assert.match(h, /id="nvPanel" style="display:none"/);
+  assert.match(h, /data-nv="wrap" style="width:390px"/);
+  assert.match(h, /class="btn sm nvpick on" data-nv="pick" aria-pressed="true"/);
+  assert.match(h, /data-nv="panel" style="display:none"/);
   assert.ok(!/<iframe/.test(h), 'o iframe só é montado quando a Prévia está visível (nvMount)');
-  assert.match(F.nvTabHtml({ vp: 'xpto' }), /id="nvFrameWrap" style="width:100%"/, 'tamanho desconhecido cai no computador');
+  assert.match(F.nvTabHtml({ vp: 'xpto' }), /data-nv="wrap" style="width:100%"/, 'tamanho desconhecido cai no computador');
   assert.match(h, /mandar pra tarefa/); assert.match(h, /tirar print da prévia/);
 });
 
@@ -91,21 +93,23 @@ test('print do elemento: recorte ao iframe visível, pedido de ANEXO da tarefa c
 function loadFlow() {
   const els = {}; const calls = []; const sent = []; const toasts = []; const handlers = {};
   const el = (id) => (els[id] = els[id] || { id, value: '', style: {}, classList: { toggle() {}, add() {}, remove() {} }, setAttribute() {}, disabled: false, textContent: '', innerHTML: '' });
-  ['nvPick', 'nvAddr', 'nvPanel', 'nvPicks', 'nvSendBtn', 'nvShot', 'nvMsg', 'nvNote'].forEach(el);
+  ['pick', 'addr', 'panel', 'picks', 'send', 'shot', 'msg', 'note', 'wrap'].forEach(el);
+  // raiz do painel (F0): o módulo só acha os elementos DENTRO dela
+  const root = { isConnected: true, querySelector: (sel) => els[(sel.match(/data-nv="(\w+)"/) || [])[1]] || null, querySelectorAll: () => [] };
   const window = { addEventListener: (n, f) => { handlers[n] = f; }, innerWidth: 1400, innerHeight: 900 };
   const document = { querySelectorAll: () => [], activeElement: null };
   const invoke = async (cmd, args) => { calls.push([cmd, args]); if (cmd === 'browser_snapshot') return { name: 'elemento-comprar-agora.png', kind: 'image', size: 4096, rel: '.cardume/refs/elemento-comprar-agora.png', dataUrl: 'data:image/png;base64,QQ' }; return null; };
   const code = nav + '\n' + ATT;
   const api = new Function('window', 'document', 'esc', 'escA', 'IC', '$id', 'invoke', 'toast', 'showErr', 'lsGet', 'lsSet', 'bindClick', 'openExternal', 'fwSendText', 'fwInvalidate', 'fwTask',
-    code + '\nreturn { nvSt, nvSend, nvSweep, nvOnTaskTabClose, nvLive, nvState, nvEscape };')(
+    code + '\nreturn { nvSt, nvSend, nvSweep, nvOnTaskTabClose, nvLive, nvState, nvEscape, nvRouteMsg };')(
     window, document, esc, escA, IC, (id) => els[id] || null, invoke, (m, k) => toasts.push([k, m]), (e) => toasts.push(['err', String(e)]), () => null, () => {}, () => {}, () => {},
     async (taskId, text) => { sent.push([taskId, text]); return true; }, () => {}, null);
-  return { api, els, calls, sent, toasts, handlers };
+  return { api, els, calls, sent, toasts, handlers, root };
 }
 
 test('fluxo: seleção no iframe pede o print ao Rust como ANEXO e "mandar pra tarefa" leva instrução + bloco + anexo', async () => {
-  const { api, els, calls, sent, handlers } = loadFlow();
-  const st = api.nvSt('t1');
+  const { api, els, calls, sent, handlers, root } = loadFlow();
+  const st = api.nvSt('t1'); st.root = root;
   const posted = [];
   const cw = { postMessage: (m, origin) => { posted.push([m, origin]); if (m.cmd === 'hide') setTimeout(() => handlers.message({ data: { sf: 'nav', type: 'hidden', nonce: m.nonce }, source: cw, origin: 'http://127.0.0.1:5555' }), 0); } };
   st.frame = { contentWindow: cw, getBoundingClientRect: () => ({ left: 300, top: 100, right: 690, bottom: 944, width: 390, height: 844 }) };
@@ -124,7 +128,7 @@ test('fluxo: seleção no iframe pede o print ao Rust como ANEXO e "mandar pra t
   assert.deepEqual(posted.map((p) => p[0].cmd), ['hide', 'show'], 'destaques escondidos durante o print e mostrados depois');
   assert.ok(posted.every((p) => p[1] === 'http://127.0.0.1:5555'), 'comandos só pra origem do proxy');
   assert.equal(st.picks[0].shotSt, 'ok'); assert.equal(st.picks[0].shot.rel, '.cardume/refs/elemento-comprar-agora.png');
-  els.nvNote.value = 'deixa esse botão verde e maior';
+  els.note.value = 'deixa esse botão verde e maior';
   await api.nvSend('t1');
   assert.equal(sent.length, 1); const [tid, text] = sent[0];
   assert.equal(tid, 't1');
@@ -166,8 +170,7 @@ test('limite de seleções, Esc e ciclo de vida do proxy (aba fechada / tarefa c
 test('fiação: modo Prévia no workspace, bolha resumida, ganchos de aba/refresh, script e CSS na página, comandos registrados', () => {
   const ent = read('js/27-entregas.js'), ws = read('js/20-workspace-tarefa.js'), tabs = read('js/15-config-abas-onboarding.js'), core = read('js/10-core.js'), html = read('index.html');
   assert.match(ent, /\['previa','Prévia'\]/);
-  assert.match(ws, /else if\(fwMode==='previa'\)\{ fwRenderPrevia\(t, main\); \}/);
-  assert.match(ws, /'m-entrega','m-previa'/);
+  assert.match(ws, /fwRenderPrevia\(t, /);
   assert.match(ws, /function chatMd\(t\)\{[^\n]*nvSplit[^\n]*nvSummaryHtml/);
   assert.match(tabs, /if\(kind==='task' && typeof nvOnTaskTabClose==='function'\) nvOnTaskTabClose\(TABS\[i\]\.taskId\);/);
   assert.match(core, /nvSweep\(snap\)/);
