@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { sleep } from "../util/run.ts";
 import { camelId } from "../types.ts";
@@ -15,7 +15,8 @@ export class MockEngine implements AgentEngine {
   private speed: number;
 
   constructor(opts: { speed?: number } = {}) {
-    this.speed = opts.speed ?? 1;
+    // CARDUME_MOCK_SPEED acelera o mock nos testes (piloto automático roda várias tarefas)
+    this.speed = opts.speed ?? (Number(process.env.CARDUME_MOCK_SPEED) > 0 ? Number(process.env.CARDUME_MOCK_SPEED) : 1);
   }
 
   async *run(input: RunInput): AsyncIterable<AgentEvent> {
@@ -81,6 +82,30 @@ export class MockEngine implements AgentEngine {
       await sleep(step);
       yield { type: "bash", text: `npm test ${ownDir} — passed`, ok: true };
       await sleep(step);
+    }
+    // PILOTO AUTOMÁTICO (CARDUME_AUTOPILOT=1): o mock também PROVA os requisitos (requirements.json com
+    // evidência real no disco), pro gate do piloto ter o que verificar sem IA. Marcadores no texto do
+    // requisito simulam prova que falha: "[mock:falha-N]" reprova as N primeiras tentativas; "[mock:falha-sempre]" nunca passa.
+    if (process.env.CARDUME_AUTOPILOT === "1") {
+      const art = join(cwd, ".cardume", "artifacts");
+      await mkdir(art, { recursive: true });
+      const counter = join(cwd, ".cardume", "mock-attempts");
+      let attempt = 1;
+      try { attempt = (Number((await readFile(counter, "utf8")).trim()) || 0) + 1; } catch { /* 1ª tentativa */ }
+      await writeFile(counter, String(attempt), "utf8");
+      const ev = `evidence-${spec.id}.md`;
+      await writeFile(join(art, ev), `# Prova (mock) — ${spec.title}\n\nTentativa ${attempt}: ${rel} criado.\n`, "utf8");
+      const list = (spec.requirements ?? []).map((req) => {
+        const m = /\[mock:falha-(\d+|sempre)\]/.exec(req);
+        const fails = m ? (m[1] === "sempre" ? true : attempt <= Number(m[1])) : false;
+        return fails
+          ? { req, status: "blocked", evidence: [], note: `mock: prova falhou na tentativa ${attempt}` }
+          : { req, status: "done", evidence: [ev], note: "mock" };
+      });
+      await writeFile(join(art, "requirements.json"), JSON.stringify(list, null, 2), "utf8");
+      yield { type: "write", text: `.cardume/artifacts/requirements.json — ${list.filter((x) => x.status === "done").length}/${list.length} provados`, ok: true };
+      const usd = Number(process.env.CARDUME_MOCK_COST_USD);
+      if (usd > 0) yield { type: "note", text: "custo do turno (mock)", cost: { usd, inTok: 1000, outTok: 100 } };
     }
     yield { type: "note", text: "implementação concluída · pronta para revisão", status: "review" };
   }

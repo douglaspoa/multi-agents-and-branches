@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
 mod ai_once;
+mod autopilot;
 mod epic_context;
 mod learn;
 mod memoria;
@@ -9237,6 +9238,11 @@ pub fn run() {
             create_project,
             quick_project_target,
             quick_create_project,
+            autopilot::autopilot_start,
+            autopilot::autopilot_status,
+            autopilot::autopilot_stop,
+            autopilot::autopilot_resume,
+            autopilot::autopilot_open_report,
             reveal_project,
             ai_orchestrate,
             ai_orchestrate_chat,

@@ -325,6 +325,8 @@ export class ClaudeEngine implements AgentEngine {
               CARDUME_ROLE: String(input.role ?? ""), // só o revisor pode marcar o "pronto quando" (check_done_when)
               CARDUME_AGENT: input.agentName,
               CARDUME_ASK_TIMEOUT_MIN: String(input.askTimeoutMin ?? 0),
+              // piloto automático: o ask_human responde sozinho (sem humano) — src/autopilot.ts
+              ...(process.env.CARDUME_AUTOPILOT === "1" ? { CARDUME_AUTOPILOT: "1" } : {}),
             },
           },
           // Navegador REAL só em tarefas web/UI — usa o Chrome do sistema (sem baixar
