@@ -104,6 +104,7 @@ function cvShowView(tab){
     cur.forEach(c=>{ if(!want.includes(c)){ if(c.dataset.tabid) cvPaneHidden(c); c.remove(); } });
     want.forEach((el,i)=>{ if(row.children[i]!==el) row.insertBefore(el, row.children[i]||null); });
   }
+  cvNatSync();
   ids.forEach((id,i)=>{ const el=SPL.panes[id]; el.style.flex=(split && SPL.w && SPL.w[i])?SPL.w[i]+' 1 0':'1 1 0'; el.classList.toggle('focus', split && (SPL.focus|0)===i); el.classList.toggle('split', split); cvRenderPane(cvTabOf(id), el); });
   cvDeviceSync();
 }
@@ -116,14 +117,14 @@ function cvPaneEl(id){
 }
 function cvPaneHidden(el){
   const id=el.dataset.tabid; const tab=cvTabOf(id);
-  if(tab && tab.kind==='web' && !tab.app) cvSiteUnmount(el);
+  if(tab && tab.kind==='web' && !tab.app){ cvSiteUnmount(el); cvNatSync(); } // nativo: só esconde (continua vivo)
   const app=el.querySelector('[data-envtask]'); if(app && typeof nvUnmount==='function'){ const st=(typeof nvState!=='undefined')?nvState[app.dataset.envtask]:null; if(st && st.frame) nvUnmount(app.dataset.envtask); }
 }
 // painel que saiu de vez (aba fechada / tirada da divisão): o iframe da demanda solta tudo antes de sumir
 function cvPaneDispose(id){
   const el=SPL.panes[id]; if(!el) return;
   const fr=el.querySelector('iframe.cvrealm'); if(fr){ try{ const w=fr.contentWindow; if(w && typeof w.sfPaneUnload==='function') w.sfPaneUnload(); if(w && w.sfPaneDispose) w.sfPaneDispose(); }catch(_){ } try{ fr.src='about:blank'; }catch(_){ } }
-  cvPaneHidden(el); el.remove(); delete SPL.panes[id];
+  cvPaneHidden(el); el.remove(); delete SPL.panes[id]; cvNatDispose(id);
 }
 // cabeçalho do painel (só com a tela dividida): nome + cor da demanda, "tirar da divisão"
 function cvPaneHeadHtml(tab){
@@ -172,7 +173,76 @@ function cvPaneFocus(tabId){ if(!SPL.ids) return; const i=SPL.ids.indexOf(tabId)
 
 // ---------- Navegador: site qualquer (sem proxy/mira/ponte) ou o app de uma demanda ----------
 function cvAppTabRender(tab, body){ if(typeof appRender==='function') appRender(tab.taskId, body); if(typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(tab.taskId); }
+// ---------- Navegador de verdade: site externo num WKWebView FILHO da janela (navexterno.rs) ----------
+// Como o navegador do Claude Desktop: o site roda num webview nativo À PARTE (sem ponte, sem permissão, cookies
+// isolados), posicionado exatamente sobre a área do painel. A área é medida por ResizeObserver + resize da janela;
+// aba de fundo / menu do app aberto / arrastando aba → o webview esconde (menu do app nunca fica por baixo dele).
+const NAT={ views:{}, q:0 };
+function cvNatLabel(tabId){ return 'sfweb-'+String(tabId).replace(/^web:/,'').toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,40); }
 function cvSiteRender(tab, body){
+  const s=cvSiteUrl(tab.url); if(!s) return cvPaint(body, '<div class="cvempty"><b>Endereço inválido</b><span>Só endereços http(s).</span></div>');
+  const v=NAT.views[tab.id]||(NAT.views[tab.id]={ tab:tab.id, label:cvNatLabel(tab.id), cur:s.url, open:false, opening:false, frozen:false, failed:false, shown:undefined, rect:'' });
+  if(v.failed) return cvSiteIframeRender(tab, body); // fora do app de verdade (harness): iframe
+  if(!body.querySelector('.cvnatarea')){
+    body.__html='';
+    body.innerHTML=`<div class="cvsite"><div class="cvsitebar"><button type="button" class="btn sm ghost nvic" data-cvn="back" aria-label="voltar" title="voltar">‹</button><button type="button" class="btn sm ghost nvic" data-cvn="forward" aria-label="avançar" title="avançar">›</button><button type="button" class="btn sm ghost nvic" data-cvn="reload" aria-label="recarregar" title="recarregar">${IC.refresh||'↻'}</button><form class="cvnaddr"><input class="in mono" data-cvn="addr" spellcheck="false" autocomplete="off" aria-label="endereço" value="${escA(v.cur)}"></form>${cvProofBtnsHtml(tab.id)}<button type="button" class="btn sm" data-cvn="ext" title="abrir no seu navegador">${IC.extlink||'↗'} abrir fora</button></div><div class="cvnatarea" aria-label="${escA('site: '+s.host)}"><div class="cvnatmsg"><span class="spin"></span> abrindo ${esc(s.host)}…</div></div></div>`;
+    const area=body.querySelector('.cvnatarea');
+    body.querySelectorAll('[data-cvn]').forEach(b=>{ if(b.tagName==='INPUT') return; b.onclick=()=>{ const k=b.dataset.cvn; if(k==='ext') openExternal(v.cur); else invoke('web_nav',{ label:v.label, action:k }).catch(e=>showErr(e, 'Não consegui')); }; });
+    const f=body.querySelector('.cvnaddr'); f.onsubmit=(e)=>{ e.preventDefault(); const u=cvSiteUrl(f.querySelector('input').value); if(!u){ toast('só endereços http(s)','warn'); return; } v.cur=u.url; invoke('web_nav',{ label:v.label, action:'go', url:u.url }).catch(err=>showErr(err, 'Não consegui abrir o endereço')); };
+    if(typeof ResizeObserver==='function'){ const ro=new ResizeObserver(()=>cvNatSync()); ro.observe(area); }
+    area.addEventListener('click', (e)=>{ if(e.target.closest('[data-cvnres]')){ v.frozen=false; cvSiteRender(tab, body); } });
+  }
+  const area=body.querySelector('.cvnatarea'), msg=area.querySelector('.cvnatmsg');
+  if(v.frozen){ msg.innerHTML='<b>Site pausado</b><span>Pra o Mac não esquentar, ficam no máximo 2 páginas vivas ao mesmo tempo.</span><button type="button" class="btn sm primary" data-cvnres="1">continuar daqui</button>'; return; }
+  if(!v.open && !v.opening){
+    v.opening=true;
+    cvRmTake('web', 'nat:'+tab.id+'@'+CV_REALM, ()=>cvNatFreeze(tab.id));
+    const r=area.getBoundingClientRect();
+    invoke('web_open',{ label:v.label, url:v.cur, rect:{ x:r.left, y:r.top, w:r.width, h:r.height } })
+      .then(()=>{ v.open=true; v.shown=undefined; v.rect=''; })
+      .catch(()=>{ v.failed=true; cvRmDrop('web', 'nat:'+tab.id+'@'+CV_REALM); if(body.isConnected){ body.__html=''; body.innerHTML=''; cvSiteIframeRender(tab, body); } })
+      .finally(()=>{ v.opening=false; cvNatSync(); });
+  }
+  cvNatSync();
+}
+// algo do app por cima (menu, perguntinha, janela, arrastando aba): o webview nativo não pode cobrir — esconde
+function cvNatBlocked(){
+  if(document.documentElement.classList.contains('cvdragging')) return true;
+  if(document.querySelector('body > .cvmenu, body > .fwmenu, body > .cvask, body > .fwmodepop')) return true;
+  for(const o of document.querySelectorAll('.overlay, .lbov')){ if(o.id==='cvSplit' || o.classList.contains('astab')) continue; if(o.style.display && o.style.display!=='none') return true; }
+  return false;
+}
+function cvNatSync(){ if(NAT.q) return; NAT.q=requestAnimationFrame(()=>{ NAT.q=0; cvNatSyncNow(); }); }
+function cvNatSyncNow(){
+  const blocked=cvNatBlocked();
+  for(const id of Object.keys(NAT.views)){
+    const v=NAT.views[id]; if(!v.open) continue;
+    const pane=SPL.panes[id]; const area=pane&&pane.querySelector('.cvnatarea');
+    const vis=!!(area && area.isConnected && area.offsetParent!==null && !blocked && document.visibilityState==='visible');
+    if(!vis){ if(v.shown!==false){ v.shown=false; invoke('web_show',{ label:v.label, visible:false }).catch(()=>{}); } continue; }
+    const r=area.getBoundingClientRect(); const key=[r.left,r.top,r.width,r.height].map(Math.round).join(',');
+    if(key!==v.rect){ v.rect=key; invoke('web_bounds',{ label:v.label, rect:{ x:r.left, y:r.top, w:r.width, h:r.height } }).catch(()=>{}); }
+    if(v.shown!==true){ v.shown=true; cvRmTake('web', 'nat:'+id+'@'+CV_REALM, ()=>cvNatFreeze(id)); invoke('web_show',{ label:v.label, visible:true }).catch(()=>{}); }
+  }
+}
+// o gerente de recursos despejou (3ª página): fecha o webview, fica o "pausado — continuar daqui"
+function cvNatFreeze(id){ const v=NAT.views[id]; if(!v) return; invoke('web_close',{ label:v.label }).catch(()=>{}); v.open=false; v.frozen=true; v.shown=undefined; v.rect=''; const el=SPL.panes[id]; const body=el&&el.querySelector(':scope > .cvpb'); const tab=cvTabOf(id); if(body && tab && body.isConnected) cvSiteRender(tab, body); }
+function cvNatDispose(id){ const v=NAT.views[id]; if(!v) return; delete NAT.views[id]; cvRmDrop('web', 'nat:'+id+'@'+CV_REALM); if(v.open||v.opening) invoke('web_close',{ label:v.label }).catch(()=>{}); }
+// endereço/título que o site mudou (inclusive navegação por dentro, tipo trocar de vídeo no YouTube)
+try{ window.__TAURI__.event.listen('web-nav', (ev)=>{ const p=ev&&ev.payload; if(!p) return; const v=Object.values(NAT.views).find(x=>x.label===p.label); if(!v) return;
+  if(p.url && /^https?:/.test(p.url)) v.cur=p.url;
+  const el=SPL.panes[v.tab]; const inp=el&&el.querySelector('[data-cvn="addr"]'); if(inp && document.activeElement!==inp && inp.value!==v.cur) inp.value=v.cur;
+  if(p.title){ const tab=cvTabOf(v.tab); if(tab){ const tt=String(p.title).slice(0,28); if(tab.title!==tt){ tab.title=tt; if(typeof renderTabs==='function') renderTabs(); } } } }); }catch(_){ }
+// gatilhos (sem polling): janela mudou de tamanho, ficou visível/escondida, menus/janelas do app abriram/fecharam
+window.addEventListener('resize', ()=>cvNatSync());
+document.addEventListener('visibilitychange', ()=>cvNatSync());
+{ try{ const mo=new MutationObserver(()=>{ if(Object.keys(NAT.views).length) cvNatSync(); });
+    mo.observe(document.body, { childList:true });
+    mo.observe(document.documentElement, { attributes:true, attributeFilter:['class'] });
+    document.querySelectorAll('.overlay, .lbov').forEach(o=>mo.observe(o, { attributes:true, attributeFilter:['style','class'] }));
+  }catch(_){ } }
+// fallback (fora do app de verdade — harness/navegador comum): iframe sem proxy/mira/ponte
+function cvSiteIframeRender(tab, body){
   const s=cvSiteUrl(tab.url); if(!s) return cvPaint(body, '<div class="cvempty"><b>Endereço inválido</b><span>Só endereços http(s).</span></div>');
   if(body.dataset.site!==tab.url || !body.querySelector('.cvsitestage')){
     body.dataset.site=tab.url; body.__html='';
@@ -387,7 +457,7 @@ function cvShortcutKey(k, e){
   return false;
 }
 // trocou de aba do app: o dono do painel do dispositivo se ajusta (a função base mora no 19-canvas-puro)
-{ const base=cvOnViewChange; cvOnViewChange=function(){ try{ cvDeviceSync(); }catch(e){ console.error('cvDeviceSync', e); } base(); }; }
+{ const base=cvOnViewChange; cvOnViewChange=function(){ try{ cvDeviceSync(); }catch(e){ console.error('cvDeviceSync', e); } cvNatSync(); base(); }; }
 
 // ===== F4 — provas onde cabem: Navegador e Documento (a Prévia e o Simulador já têm mira/print/marcar) =====
 // "mostrar pro agente" (print do painel ou o texto selecionado → conversa de uma demanda), "anexar como prova" (print
@@ -469,8 +539,10 @@ async function cvProofAct(kind, tabId, btn){
   btn.disabled=true;
   try{
     if(!rect || rect.w<8 || rect.h<8) throw new Error('o painel não está visível');
-    if(kind==='proof'){ const r=await invoke('browser_snapshot',{ taskId:tid, rect, dest:'artifact' }); toast(`print salvo nas provas de "${t.title}": ${r&&r.name||''}`,'ok'); if(typeof fwInvalidate==='function') fwInvalidate(tid); return; }
-    let shot=null; if(!sel) shot=await invoke('browser_snapshot',{ taskId:tid, rect, dest:'attachment', name:(site?'site':'documento')+'.png' });
+    // Navegador nativo: o print vem do PRÓPRIO webview do site (o da janela não enxerga ele)
+    const nat=NAT.views[tabId]; const snap=(dest, name)=>(nat && nat.open) ? invoke('web_snapshot',{ taskId:tid, label:nat.label, dest, name }) : invoke('browser_snapshot',{ taskId:tid, rect, dest, name });
+    if(kind==='proof'){ const r=await snap('artifact'); toast(`print salvo nas provas de "${t.title}": ${r&&r.name||''}`,'ok'); if(typeof fwInvalidate==='function') fwInvalidate(tid); return; }
+    let shot=null; if(!sel) shot=await snap('attachment', (site?'site':'documento')+'.png');
     const note=await cvAskInline(btn, `mostrar pro agente de "${t.title}"`, 'o que ele deve fazer com isso? (opcional) — ex.: deixa igual a este site');
     if(note===null) return;
     const text=cvShowMsg({ note, sel, shot:!!shot, label:cvTitleOf(tab), site })+(shot&&typeof attPromptBlock==='function'?attPromptBlock([shot]):'');
@@ -504,3 +576,12 @@ function cvReqOverlayPaint(taskId){
     if(ov.__html!==html){ ov.__html=html; ov.innerHTML=html; ov.classList.toggle('closed', !open); }
   });
 }
+
+// atalhos que chegam pelo MENU do app (macOS) — com o foco dentro de um Navegador nativo o JS da janela não vê a tecla.
+// Se o JS já tratou a mesma tecla agorinha (foco na janela), ignora (sem ação dupla).
+function cvMenuKey(k){
+  const last=window.__sfLastKey; if(last && last.k===k && Date.now()-last.at<600) return;
+  if(k==='\\' || /^[1-3]$/.test(k)){ if(cvShortcutKey(k, null)) return; if(/^[1-3]$/.test(k)){ const t=TABS[+k-1]; if(t && t.id!==activeTab) activateTab(t.id); } return; }
+  if(k==='w'){ const t=cvTabOf(activeTab); if(t && !t.pin && typeof tabCloseGuarded==='function') tabCloseGuarded(t.id); }
+}
+try{ window.__TAURI__.event.listen('sf-key', (ev)=>{ if(typeof SF_PANE!=='undefined' && SF_PANE) return; cvMenuKey(String(ev&&ev.payload||'')); }); }catch(_){ }

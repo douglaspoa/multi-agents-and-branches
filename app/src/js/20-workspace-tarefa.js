@@ -576,12 +576,74 @@ function fwAskWhy(taskId, path){
     .catch(e=>{ fwWhyCache[k]={ err:String(e&&e.message||e) }; if(fwTask===taskId) renderWorkspace(); });
   renderWorkspace();
 }
+// ---- cabeçalho que se ajusta à LARGURA DO PAINEL (tela dividida / janela estreita) ----
+// Com pouco espaço os modos viram UM botão "Conversa ▾" (menu com todos, o ativo marcado, setas/Esc), o título corta
+// com "…" (inteiro no tooltip) e o que é secundário (fases, branch, chips, texto do "protegido") recolhe. Mede o
+// próprio cabeçalho com ResizeObserver — nada de laço, nada de olhar a janela inteira.
+// Escolha: menu em vez de "⋯ mais" — a 300–450 px nem 2 modos cabem ao lado do título e da ação principal; um botão
+// só, com o nome do modo atual, lê melhor e não esconde qual é o modo ativo.
+// @fw-head-puro-inicio (testado em app/tests/canvas-ui.test.mjs)
+const FW_HEAD_COMPACT=980; // abaixo disso: fases/branch/chips somem e o "protegido" vira só o ícone
+function fwHeadLayout(o){
+  const compact=o.headW<FW_HEAD_COMPACT;
+  const need=o.fixedW+o.modesW+16;
+  const menu = o.cur==='menu' ? o.headW<need+32 : o.headW<need; // folga pra não ficar piscando no limite
+  return { compact, modes:(menu||!(o.modesW>0)&&o.cur==='menu')?'menu':'tabs' };
+}
+function fwModesMenuBtnHtml(list, cur){
+  const l=(list.find(([k])=>k===cur)||list[0]||['',''])[1];
+  return `<button class="fwmode on fwmodedd" id="fwModeDd" aria-haspopup="menu" aria-expanded="false" title="trocar o que aparece: ${escA(list.map(x=>x[1]).join(', '))}">${esc(l)} <span class="fwddc" aria-hidden="true">▾</span></button>`;
+}
+function fwModesListHtml(list, cur){ return list.map(([k,l])=>`<button class="fwmi fwmodemi" role="menuitemradio" aria-checked="${k===cur}" data-fwmode="${k}"><span>${k===cur?'✓ ':''}${esc(l)}</span></button>`).join(''); }
+// @fw-head-puro-fim
+const FW_HEAD={ mode:'tabs', modesW:0, ro:null, head:null };
+async function fwSetMode(nm){ if(nm===fwMode) return; if(fwMode==='codigo' && !await fwLeaveEditor()) return; fwMode=nm; fwRememberTab(); renderWorkspace(); }
+function fwModesPaint(t){
+  const m=$id('fwModes'); if(!m || !t) return;
+  const list=(typeof fwModesList==='function')?fwModesList(t):[];
+  const html=FW_HEAD.mode==='menu' ? fwModesMenuBtnHtml(list, fwMode) : fwModesHtml(t);
+  if(m.__html!==html){ m.__html=html; m.innerHTML=html; }
+  m.classList.toggle('asmenu', FW_HEAD.mode==='menu');
+  m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=()=>fwSetMode(b.dataset.fwmode));
+  const dd=$id('fwModeDd'); if(dd) dd.onclick=(e)=>{ e.stopPropagation(); fwModesMenuOpen(t, dd); };
+  fwHeadWatch();
+}
+function fwModesMenuOpen(t, anchor){
+  const old=$id('fwModePop'); if(old){ old.remove(); anchor.setAttribute('aria-expanded','false'); return; }
+  const pop=document.createElement('div'); pop.id='fwModePop'; pop.className='fwmenu fwmodepop';
+  pop.innerHTML=fwModesListHtml(fwModesList(t), fwMode);
+  document.body.appendChild(pop);
+  const r=anchor.getBoundingClientRect(); pop.style.top=(r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.left))+'px';
+  const close=(back)=>{ pop.remove(); anchor.setAttribute('aria-expanded','false'); document.removeEventListener('mousedown', out, true); if(back) try{ anchor.focus(); }catch(_){ } };
+  const out=e=>{ if(!pop.contains(e.target) && e.target!==anchor) close(false); };
+  setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
+  pop.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=()=>{ close(true); fwSetMode(b.dataset.fwmode); });
+  if(typeof a11yMenu==='function') a11yMenu(pop, anchor, close);
+}
+// mede e decide (no ResizeObserver do cabeçalho e quando a lista de modos muda)
+function fwHeadFit(){
+  const head=FW_HEAD.head; if(!head || !head.isConnected || head.offsetParent===null) return;
+  const headW=head.clientWidth; if(!(headW>0)) return;
+  head.classList.toggle('narrow', headW<FW_HEAD_COMPACT);
+  const m=$id('fwModes');
+  if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=m.scrollWidth;
+  let fixed=140+32; // título (mínimo legível) + respiro das bordas
+  for(const el of head.children){ if(el===m || el.id==='fwTaskName' || String(el.style.flex||'').startsWith('1') || el.offsetParent===null) continue; fixed+=el.offsetWidth+9; }
+  const r=fwHeadLayout({ headW, modesW:FW_HEAD.modesW, fixedW:fixed, cur:FW_HEAD.mode });
+  if(r.modes!==FW_HEAD.mode){ FW_HEAD.mode=r.modes; const t=fwTaskObj(); if(t) fwModesPaint(t); }
+}
+function fwHeadWatch(){
+  const head=document.querySelector('#fwOverlay .fwhead'); if(!head) return;
+  if(FW_HEAD.head!==head){ FW_HEAD.head=head; if(FW_HEAD.ro) try{ FW_HEAD.ro.disconnect(); }catch(_){ }
+    if(typeof ResizeObserver==='function'){ FW_HEAD.ro=new ResizeObserver(()=>{ requestAnimationFrame(fwHeadFit); }); FW_HEAD.ro.observe(head); } }
+  requestAnimationFrame(fwHeadFit);
+}
 function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
-  { const m=$id('fwModes'); if(m){ m.innerHTML=fwModesHtml(t); m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=async()=>{ const nm=b.dataset.fwmode; if(nm===fwMode) return; if(fwMode==='codigo' && !await fwLeaveEditor()) return; fwMode=nm; fwRememberTab(); renderWorkspace(); }); } }
+  fwModesPaint(t);
   { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
   // painel Dispositivo (57-dispositivo.js): barato — só o botão/visibilidade; o painel tem guarda própria
   if(typeof dvSync==='function') dvSync(t);

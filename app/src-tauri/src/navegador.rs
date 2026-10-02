@@ -182,12 +182,17 @@ pub fn snap_rect_ok(r: &SnapRect) -> Result<SnapRect, String> {
 }
 
 /// PNG do pedaço da janela principal (macOS). Roda o snapshot na thread principal e espera até 8 s.
-#[cfg(target_os = "macos")]
+/// (pelo webview "main" — com um Navegador aberto a janela tem 2 webviews e `get_webview_window` não serve mais)
 pub async fn snapshot(app: &tauri::AppHandle, r: SnapRect) -> Result<Vec<u8>, String> {
-    use std::sync::Arc;
     use tauri::Manager;
+    let win = app.get_webview("main").ok_or("janela principal não encontrada")?;
+    snapshot_of(&win, r).await
+}
+/// PNG de um pedaço de QUALQUER webview do app (o principal, ou o navegador de uma aba — navexterno.rs).
+#[cfg(target_os = "macos")]
+pub async fn snapshot_of(win: &tauri::Webview, r: SnapRect) -> Result<Vec<u8>, String> {
+    use std::sync::Arc;
     let r = snap_rect_ok(&r)?;
-    let win = app.get_webview_window("main").ok_or("janela principal não encontrada")?;
     let (tx, rx) = tokio::sync::oneshot::channel::<Result<Vec<u8>, String>>();
     let tx = Arc::new(Mutex::new(Some(tx)));
     let tx2 = tx.clone();
@@ -205,7 +210,7 @@ pub async fn snapshot(app: &tauri::AppHandle, r: SnapRect) -> Result<Vec<u8>, St
 }
 
 #[cfg(not(target_os = "macos"))]
-pub async fn snapshot(_app: &tauri::AppHandle, r: SnapRect) -> Result<Vec<u8>, String> {
+pub async fn snapshot_of(_win: &tauri::Webview, r: SnapRect) -> Result<Vec<u8>, String> {
     snap_rect_ok(&r)?;
     Err("o print da prévia por enquanto só funciona no macOS — o resto (seletor, HTML, estilos) vai normalmente".into())
 }
@@ -221,7 +226,7 @@ pub fn selftest_from_env(app: &tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         use tauri::Manager;
         tokio::time::sleep(Duration::from_secs(4)).await;
-        if let Some(w) = app.get_webview_window("main") {
+        if let Some(w) = app.get_webview("main") {
             let js = format!("(()=>{{const f=document.createElement('iframe');f.src={};f.style.cssText='position:fixed;left:40px;top:60px;width:420px;height:320px;border:0;z-index:2147483647;background:#fff';f.setAttribute('sandbox','allow-scripts allow-same-origin');document.body.appendChild(f);}})()", serde_json::to_string(&url).unwrap_or_default());
             let _ = w.eval(&js);
         }

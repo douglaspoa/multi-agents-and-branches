@@ -367,12 +367,26 @@ pub fn selftest_from_env(app: &AppHandle) {
     tauri::async_runtime::spawn(async move {
         use tauri::Manager;
         tokio::time::sleep(Duration::from_secs(6)).await;
-        if let Some(w) = app.get_webview_window("main") { let _ = w.eval(&js); }
+        // janela num lugar conhecido (o print de tela inteira — com os Navegadores, que são webviews à parte — usa isso)
+        if let Some(win) = app.get_webview("main").map(|wv| wv.window()) { let _ = win.set_position(tauri::LogicalPosition::new(0.0, 30.0)); let _ = win.set_size(tauri::LogicalSize::new(1440.0, 860.0)); let _ = win.set_focus(); }
+        if let Some(w) = app.get_webview("main") { let _ = w.eval(&js); }
+        // STARFORK_CANVAS_PLAY=<s> / STARFORK_CANVAS_PAUSE=<s>: depois de <s> segundos dá play (mudo) / pausa os vídeos
+        // dos Navegadores abertos (medição de CPU com o YouTube parado; print com ele tocando)
+        for (var, js) in [("STARFORK_CANVAS_PLAY", "try{const v=document.querySelector('video'); if(v){ v.muted=true; v.play(); }}catch(_){}"), ("STARFORK_CANVAS_PAUSE", "try{document.querySelectorAll('video').forEach(v=>v.pause())}catch(_){}")] {
+            if let Some(secs) = std::env::var(var).ok().and_then(|v| v.parse::<u64>().ok()) {
+                let app2 = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(Duration::from_secs(secs)).await;
+                    for (label, wv) in app2.webviews() { if label.starts_with(super::navexterno::LABEL_PREFIX) { let _ = wv.eval(js); } }
+                    eprintln!("[canvas selftest] {var} nos navegadores");
+                });
+            }
+        }
         let Some(out) = out else { return };
         let mut waited = 0u64;
         for m in marks {
             if m > waited { tokio::time::sleep(Duration::from_secs(m - waited)).await; waited = m; }
-            let Some(w) = app.get_webview_window("main") else { return };
+            let Some(w) = app.get_webview("main").map(|wv| wv.window()) else { return };
             let (Ok(sz), Ok(k)) = (w.inner_size(), w.scale_factor()) else { continue };
             let r = super::navegador::SnapRect { x: 0.0, y: 0.0, w: sz.width as f64 / k, h: sz.height as f64 / k };
             match super::navegador::snapshot(&app, r).await {

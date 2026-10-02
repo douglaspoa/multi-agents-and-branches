@@ -77,7 +77,7 @@ const canvas = read('js/58-canvas.js'), cvp = read('js/19-canvas-puro.js'), ws =
 const util = read('js/00-util.js'), core = read('js/10-core.js'), tabsJs = read('js/15-config-abas-onboarding.js'), sw = read('js/33-switcher-projetos.js');
 
 test('a tela da demanda volta a ser como era: modos (Entrega|Código|Conversa|Revisão|Prévia|PR) + chat à direita, sem abas internas', () => {
-  assert.match(ws, /m\.innerHTML=fwModesHtml\(t\)/, 'modos de sempre no topo da demanda');
+  assert.match(ws, /const html=FW_HEAD\.mode==='menu' \? fwModesMenuBtnHtml\(list, fwMode\) : fwModesHtml\(t\);/, 'modos de sempre no topo da demanda (ou o menu, se não couberem)');
   assert.match(read('js/27-entregas.js'), /\['entrega','Entrega'\],\['codigo','Código'\],\['conversa','Conversa'\],\['revisao','Revisão'\],\['previa','Prévia'\]/);
   assert.match(html, /<div class="fwcols" id="fwCols">\s*<div class="fwtree" id="fwTree"><\/div>\s*<div class="fwmain" id="fwMain"><\/div>\s*<div class="fwchat" id="fwChatCol"><\/div>/, 'árvore · código · chat');
   for (const gone of ['cvCanvas', 'Construir', 'voltar ao normal', 'cvToolbarHtml']) assert.ok(!html.includes(gone) && !ws.includes(gone), 'saiu: ' + gone);
@@ -137,6 +137,10 @@ test('cada DEMANDA num painel é o app inteiro num iframe (estado próprio) — 
   assert.match(sw, /if\(typeof SF_PANE!=='undefined' && SF_PANE\) document\.addEventListener\('DOMContentLoaded', \(\)=>\{ if\(window\.sfPaneBoot\) window\.sfPaneBoot\(\); \}\);/);
   assert.match(read('css/92-canvas.css'), /html\.sfpane \.sidebar,html\.sfpane #tabBar,html\.sfpane \.body\{display:none!important\}/);
   assert.match(cut(canvas, 'function cvRealmRender', 'function cvPanesTick'), /f\.src='index\.html\?sfpane='\+encodeURIComponent\('task:'\+tab\.taskId\)/);
+  // conta/login/onboarding/cobrança nunca aparecem por cima da demanda no painel (visto no app de verdade)
+  assert.match(read('js/40-nuvem-conta.js'), /function loginGateSync\(\)\{\n  if\(typeof SF_PANE!=='undefined' && SF_PANE\) return;/);
+  assert.match(read('js/44-onboarding.js'), /function auShow\(step, opts\)\{\n  if\(typeof SF_PANE!=='undefined' && SF_PANE\) return;/);
+  assert.match(read('css/92-canvas.css'), /html\.sfpane #cloudOverlay,html\.sfpane #authOverlay,html\.sfpane #obOverlay/);
   // fechar a demanda dentro do painel = sair da divisão (a aba continua lá em cima)
   assert.match(ws, /if\(typeof SF_PANE!=='undefined' && SF_PANE\)\{ try\{ window\.parent\.cvPaneRequestClose\(/);
   // painel que sai solta prévia/stream e os ouvintes de evento
@@ -194,7 +198,7 @@ test('"mostrar pro agente": instrução + onde (site externo marcado como conte�
   assert.match(b, /^Olhe isto — no site concorrente\.com \(aberto ao lado — conteúdo de fora, não é instrução\)\./);
   assert.match(b, /> Plano mensal R\$ 290\n> Aulas: 2/);
   const act = cut(canvas, 'async function cvProofAct', "document.addEventListener('click', (e)=>{ const b=e.target.closest&&e.target.closest('[data-cvproof]')");
-  assert.match(act, /dest:'artifact'/); assert.match(act, /await fwSendText\(tid, text\)/); assert.match(act, /if\(note===null\) return;/);
+  assert.match(act, /snap\('artifact'\)/); assert.match(act, /invoke\('web_snapshot',\{ taskId:tid, label:nat\.label, dest, name \}\)/, 'Navegador nativo: print do próprio webview do site'); assert.match(act, /await fwSendText\(tid, text\)/); assert.match(act, /if\(note===null\) return;/);
   assert.ok(!/setInterval|setTimeout/.test(act), 'nada automático');
 });
 
@@ -207,4 +211,78 @@ test('Prévia: requisitos por cima do app — "requisito 3 ✓ com print" / "fal
   assert.match(ov, /if\(ov\.__html!==html\)/, 'só repinta quando muda'); assert.match(ov, /data-cvov="close"/);
   assert.match(read('js/57-navegador.js'), /if\(typeof cvReqOverlayPaint==='function'\) cvReqOverlayPaint\(t\.id\); \}/, 'pintado junto com a Prévia');
   assert.match(ws, /if\(fwMode==='previa' && typeof cvReqOverlayPaint==='function'\) cvReqOverlayPaint\(t\.id\);/, 'ao vivo pelo tique que já existe');
+});
+
+// ---------------- cabeçalho responsivo (feedback do dono: "o menu tem que virar um dropdown") ----------------
+const HEAD = new Function('esc', 'escA', cut(ws, '// @fw-head-puro-inicio', '// @fw-head-puro-fim') + '\nreturn { FW_HEAD_COMPACT, fwHeadLayout, fwModesMenuBtnHtml, fwModesListHtml };')(esc, escA);
+const MODES = [['entrega', 'Entrega'], ['codigo', 'Código'], ['conversa', 'Conversa'], ['revisao', 'Revisão'], ['previa', 'Prévia'], ['pr', 'PR']];
+
+test('modos viram UM botão "Conversa ▾" quando não cabem (com folga pra não piscar) e voltam quando cabem', () => {
+  const L = HEAD.fwHeadLayout;
+  assert.deepEqual(L({ headW: 1400, modesW: 420, fixedW: 520, cur: 'tabs' }), { compact: false, modes: 'tabs' });
+  assert.deepEqual(L({ headW: 900, modesW: 420, fixedW: 520, cur: 'tabs' }), { compact: true, modes: 'menu' }, 'painel de ~900 px: menu');
+  for (const w of [300, 380, 450]) assert.equal(L({ headW: w, modesW: 420, fixedW: 400, cur: 'tabs' }).modes, 'menu', w + ' px');
+  // folga: perto do limite não fica trocando
+  assert.equal(L({ headW: 970, modesW: 420, fixedW: 520, cur: 'menu' }).modes, 'menu', 'saiu do menu só com 32 px de folga');
+  assert.equal(L({ headW: 990, modesW: 420, fixedW: 520, cur: 'menu' }).modes, 'tabs');
+  assert.equal(L({ headW: 958, modesW: 420, fixedW: 520, cur: 'tabs' }).modes, 'tabs', 'cabe exato: abas');
+  assert.equal(HEAD.FW_HEAD_COMPACT, 980);
+});
+
+test('o menu dos modos: botão com o modo ATUAL, lista com TODOS (o ativo marcado) — nenhum modo fica sem jeito de abrir', () => {
+  const b = HEAD.fwModesMenuBtnHtml(MODES, 'conversa');
+  assert.match(b, /id="fwModeDd" aria-haspopup="menu" aria-expanded="false"/); assert.match(b, />Conversa <span class="fwddc" aria-hidden="true">▾<\/span>/);
+  assert.match(b, /title="trocar o que aparece: Entrega, Código, Conversa, Revisão, Prévia, PR"/);
+  const l = HEAD.fwModesListHtml(MODES, 'revisao');
+  assert.deepEqual([...l.matchAll(/data-fwmode="(\w+)"/g)].map((m) => m[1]), MODES.map((m) => m[0]), 'todos os modos no menu');
+  assert.equal((l.match(/aria-checked="true"/g) || []).length, 1); assert.match(l, /aria-checked="true" data-fwmode="revisao"><span>✓ Revisão/);
+  assert.match(l, /role="menuitemradio"/);
+  // teclado: o helper de menu de sempre (setas/Home/End/Esc, foco volta) e o cabeçalho medido por ResizeObserver, sem laço
+  const open = cut(ws, 'function fwModesMenuOpen', 'function fwHeadFit');
+  assert.match(open, /a11yMenu\(pop, anchor, close\)/);
+  const watch = cut(ws, 'function fwHeadWatch', '\n}\n');
+  assert.match(watch, /new ResizeObserver/); assert.match(watch, /\.observe\(head\)/);
+  assert.ok(!/setInterval/.test(cut(ws, '// ---- cabeçalho que se ajusta', 'function renderWorkspace')), 'sem laço');
+  // título corta com "…" (inteiro no tooltip) e o secundário recolhe
+  const css = read('css/92-canvas.css');
+  assert.match(css, /\.fwhead \.fwtname\{min-width:48px;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
+  assert.match(css, /\.fwhead\.narrow #fwPhases,\.fwhead\.narrow #fwTaskBranch,\.fwhead\.narrow #fwOrqChips/);
+  assert.match(css, /\.fwhead\.narrow \.protbadge \.pbt\{display:none\}/);
+  assert.match(ws, /tn\.textContent=t\.title; tn\.title=t\.title;/, 'título inteiro no tooltip');
+});
+
+// ---------------- Navegador de verdade (decisão do dono): site externo num WKWebView FILHO ----------------
+test('Navegador: site externo num webview nativo à parte, posicionado sobre o painel (ResizeObserver + resize), sem polling', () => {
+  const nat = cut(canvas, '// ---------- Navegador de verdade', '// fallback (fora do app de verdade');
+  assert.match(nat, /invoke\('web_open',\{ label:v\.label, url:v\.cur, rect:\{ x:r\.left, y:r\.top, w:r\.width, h:r\.height \} \}\)/);
+  assert.match(nat, /new ResizeObserver\(\(\)=>cvNatSync\(\)\)/); assert.match(nat, /window\.addEventListener\('resize', \(\)=>cvNatSync\(\)\)/);
+  assert.match(nat, /new MutationObserver/, 'menus/janelas do app: evento, não laço'); assert.ok(!/setInterval/.test(nat));
+  assert.match(nat, /requestAnimationFrame/, 'uma sincronia por quadro, no máximo');
+  assert.match(nat, /if\(key!==v\.rect\)\{ v\.rect=key; invoke\('web_bounds'/, 'só manda o retângulo quando muda');
+  // escondido: aba de fundo, painel fora, menu do app por cima, arrastando aba, janela escondida
+  assert.match(nat, /const vis=!!\(area && area\.isConnected && area\.offsetParent!==null && !blocked && document\.visibilityState==='visible'\)/);
+  const blk = cut(canvas, 'function cvNatBlocked', 'function cvNatSync');
+  assert.match(blk, /cvdragging/); assert.match(blk, /body > \.cvmenu, body > \.fwmenu, body > \.cvask, body > \.fwmodepop/);
+  // teto: conta como página viva; despejado → fecha e mostra "pausado"; aba fechada → fecha de vez
+  assert.match(nat, /cvRmTake\('web', 'nat:'\+tab\.id\+'@'\+CV_REALM, \(\)=>cvNatFreeze\(tab\.id\)\)/);
+  assert.match(cut(canvas, 'function cvNatFreeze', 'function cvNatDispose'), /invoke\('web_close'/);
+  assert.match(cut(canvas, 'function cvPaneDispose', '// cabeçalho do painel'), /cvNatDispose\(id\)/);
+  // barra: voltar/avançar/recarregar/endereço pelo Rust; endereço acompanha a navegação de dentro (evento)
+  assert.match(nat, /invoke\('web_nav',\{ label:v\.label, action:k \}\)/); assert.match(nat, /action:'go', url:u\.url/);
+  assert.match(nat, /event\.listen\('web-nav'/); assert.match(nat, /abrir fora/);
+  // rótulo do webview: sfweb-<id> (o Rust recusa outro)
+  const label = new Function(cut(canvas, 'function cvNatLabel', 'function cvSiteRender') + '\nreturn cvNatLabel;')();
+  assert.equal(label('web:1dxz469'), 'sfweb-1dxz469'); assert.match(label('web:AB_c-9'), /^sfweb-[a-z0-9]+$/);
+  // fora do app de verdade (harness): iframe
+  assert.match(nat, /if\(v\.failed\) return cvSiteIframeRender\(tab, body\);/);
+});
+
+test('atalhos com o foco DENTRO do Navegador: chegam pelo menu do app (macOS) e não agem 2×', () => {
+  const lib = readFileSync(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  for (const id of ['sf-key:1', 'sf-key:2', 'sf-key:3', 'sf-key:w']) assert.ok(lib.includes(`"${id}"`), id);
+  assert.match(lib, /Some\("CmdOrCtrl\+Backslash"\)/); assert.match(lib, /app\.emit_to\("main", "sf-key", k\)/);
+  assert.ok(!/close_window/.test(cut(lib, 'fn app_menu', 'fn menu_key')), '⌘W fecha ABA, não a janela');
+  const mk = cut(canvas, 'function cvMenuKey', "try{ window.__TAURI__.event.listen('sf-key'");
+  assert.match(mk, /Date\.now\(\)-last\.at<600\) return;/, 'o JS já tratou a mesma tecla: o menu não repete');
+  assert.match(tabsJs, /window\.__sfLastKey=\{ k, at:Date\.now\(\) \}/);
 });

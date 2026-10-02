@@ -86,7 +86,7 @@ define_class!(
             let task_id = task_id_of(response);
             if let Some(app) = APP.get() {
                 use tauri::{Emitter, Manager};
-                if let Some(w) = app.get_webview_window("main") {
+                if let Some(w) = app.get_webview("main").map(|wv| wv.window()) {
                     let _ = w.show();
                     let _ = w.unminimize();
                     let _ = w.set_focus();

@@ -660,6 +660,7 @@ const SHORTCUTS_HELP=shortcutsHelpText(SHORTCUTS);
 document.addEventListener('keydown', async e=>{
   if(!(e.metaKey||e.ctrlKey) || e.altKey) return;
   const k=(e.key||'').toLowerCase();
+  try{ window.__sfLastKey={ k, at:Date.now() }; if(typeof SF_PANE!=='undefined' && SF_PANE) window.parent.__sfLastKey=window.__sfLastKey; }catch(_){ } // o mesmo atalho vindo do menu do app (58-canvas: cvMenuKey) não age 2×
   // tela dividida (58-canvas): ⌘\ divide, ⌘1..3 foca o painel — dentro de um painel, o atalho vai pra janela principal
   if(typeof cvShortcut==='function' && cvShortcut(e)) return;
   if(typeof SF_PANE!=='undefined' && SF_PANE) return; // abas são da janela principal

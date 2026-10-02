@@ -16,6 +16,7 @@ mod epic_context;
 mod learn;
 mod media_proto;
 mod navegador;
+mod navexterno;
 mod memoria;
 mod mesa;
 mod plan_usage;
@@ -8941,6 +8942,19 @@ fn browser_close(task_id: String) -> Result<bool, String> {
 #[tauri::command]
 async fn browser_snapshot(app: tauri::AppHandle, state: State<'_, AppState>, task_id: String, rect: navegador::SnapRect, dest: String, name: Option<String>) -> Result<serde_json::Value, String> {
     let png = navegador::snapshot(&app, rect).await?;
+    save_snapshot(&state, &task_id, png, &dest, name)
+}
+
+/// Print do Navegador de uma aba (o WKWebView filho — navexterno.rs) → prova ou anexo da demanda, igual à Prévia.
+#[tauri::command]
+async fn web_snapshot(app: tauri::AppHandle, state: State<'_, AppState>, task_id: String, label: String, dest: String, name: Option<String>) -> Result<serde_json::Value, String> {
+    let png = navexterno::snapshot(&app, &label).await?;
+    save_snapshot(&state, &task_id, png, &dest, name)
+}
+
+/// PNG → `.cardume/artifacts/browser-<n>.png` (dest "artifact", vale como prova) ou anexo da tarefa (.cardume/refs).
+fn save_snapshot(state: &State<'_, AppState>, task_id: &str, png: Vec<u8>, dest: &str, name: Option<String>) -> Result<serde_json::Value, String> {
+    let task_id = task_id.to_string();
     if png.is_empty() { return Err("print vazio".into()); }
     if dest == "artifact" {
         let (wt, _) = task_wt_base(&state, &task_id)?;
@@ -9238,6 +9252,10 @@ pub fn run() {
             notif_mac::init(app.handle().clone());
             navegador::selftest_from_env(app.handle()); // só com STARFORK_NAV_SELFTEST (autoteste do print nativo)
             ambiente::selftest_from_env(app.handle()); // só em build de depuração com STARFORK_CANVAS_SELFTEST (medição do canvas)
+            // macOS: menu do app com os atalhos da tela dividida — com o foco DENTRO de um Navegador (WKWebView filho),
+            // a tecla não chega no JS da janela; pelo menu ela chega (evento "sf-key"). Sem o "Fechar janela" (⌘W fecha ABA).
+            #[cfg(target_os = "macos")]
+            if let Err(e) = app_menu(app) { web_log(format!("[menu] não consegui montar o menu: {e}")); }
             // "Subir ambiente": derruba o que uma instância anterior (que caiu) deixou rodando
             std::thread::spawn(ambiente::sweep_boot);
             // depois do ENGINE_RESOURCE: o reparo usa o motor bundlado
@@ -9482,7 +9500,13 @@ pub fn run() {
             read_artifact,
             browser_open,
             browser_close,
-            browser_snapshot
+            browser_snapshot,
+            web_snapshot,
+            navexterno::web_open,
+            navexterno::web_bounds,
+            navexterno::web_show,
+            navexterno::web_nav,
+            navexterno::web_close
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o Starfork")
@@ -9495,6 +9519,53 @@ pub fn run() {
                 let _ = Command::new("pkill").args(["-f", "cloudflared tunnel --no-autoupdate"]).output();
             }
         });
+}
+
+/// Menu do app (macOS): o padrão do sistema (app, editar, tela cheia, janela) + "Tela" com os atalhos do canvas.
+/// ⌘W vira "Fechar aba" (o "Fechar janela" padrão fecharia o Starfork inteiro com o foco num site).
+#[cfg(target_os = "macos")]
+fn app_menu(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+    let h = app.handle();
+    let sep = || PredefinedMenuItem::separator(h);
+    let app_m = Submenu::with_items(h, "Starfork", true, &[
+        &PredefinedMenuItem::about(h, None, None)?, &sep()?, &PredefinedMenuItem::services(h, None)?, &sep()?,
+        &PredefinedMenuItem::hide(h, None)?, &PredefinedMenuItem::hide_others(h, None)?, &PredefinedMenuItem::show_all(h, None)?, &sep()?,
+        &PredefinedMenuItem::quit(h, None)?])?;
+    let edit = Submenu::with_items(h, "Editar", true, &[
+        &PredefinedMenuItem::undo(h, None)?, &PredefinedMenuItem::redo(h, None)?, &sep()?,
+        &PredefinedMenuItem::cut(h, None)?, &PredefinedMenuItem::copy(h, None)?, &PredefinedMenuItem::paste(h, None)?, &PredefinedMenuItem::select_all(h, None)?])?;
+    let tela = Submenu::with_items(h, "Tela", true, &[
+        &MenuItem::with_id(h, "sf-key:\\", "Dividir a tela", true, Some("CmdOrCtrl+Backslash"))?,
+        &MenuItem::with_id(h, "sf-key:1", "Painel 1", true, Some("CmdOrCtrl+1"))?,
+        &MenuItem::with_id(h, "sf-key:2", "Painel 2", true, Some("CmdOrCtrl+2"))?,
+        &MenuItem::with_id(h, "sf-key:3", "Painel 3", true, Some("CmdOrCtrl+3"))?, &sep()?,
+        &MenuItem::with_id(h, "sf-key:w", "Fechar aba", true, Some("CmdOrCtrl+W"))?, &sep()?,
+        &PredefinedMenuItem::fullscreen(h, None)?])?;
+    let janela = Submenu::with_items(h, "Janela", true, &[&PredefinedMenuItem::minimize(h, None)?, &PredefinedMenuItem::maximize(h, None)?])?;
+    app.set_menu(Menu::with_items(h, &[&app_m, &edit, &tela, &janela])?)?;
+    app.on_menu_event(|app, ev| {
+        use tauri::Emitter;
+        if let Some(k) = menu_key(ev.id().as_ref()) { let _ = app.emit_to("main", "sf-key", k); }
+    });
+    Ok(())
+}
+/// id do item do menu → tecla pro front ("sf-key:1" → "1"). Puro (testado).
+fn menu_key(id: &str) -> Option<&str> {
+    let k = id.strip_prefix("sf-key:")?;
+    matches!(k, "\\" | "1" | "2" | "3" | "w").then_some(k)
+}
+
+#[cfg(test)]
+mod menu_tests {
+    #[test]
+    fn itens_do_menu_viram_teclas() {
+        assert_eq!(super::menu_key("sf-key:1"), Some("1"));
+        assert_eq!(super::menu_key("sf-key:\\"), Some("\\"));
+        assert_eq!(super::menu_key("sf-key:w"), Some("w"));
+        assert_eq!(super::menu_key("sf-key:q"), None);
+        assert_eq!(super::menu_key("quit"), None);
+    }
 }
 
 #[cfg(test)]

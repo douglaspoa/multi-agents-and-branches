@@ -153,3 +153,34 @@ html.sfpane .overlay.astab{left:0!important;top:0!important}
 html.sfpane .appmain{margin-left:0!important}
 /* documento aberto do lado: dá pra selecionar um trecho (e mandar pro agente / virar requisito) */
 .cvdocbody{-webkit-user-select:text;user-select:text;cursor:auto}
+/* no painel, conta/login/onboarding/cobrança são da janela principal — nunca aparecem por cima da demanda */
+html.sfpane #cloudOverlay,html.sfpane #authOverlay,html.sfpane #obOverlay,html.sfpane #payOverlay,html.sfpane #envOverlay{display:none!important}
+/* painel estreito: a Prévia não pode virar uma tira de 150 px ao lado do chat */
+@media (max-width:900px){ html.sfpane .fwcols.m-previa{grid-template-columns:1fr 280px} }
+@media (max-width:700px){ html.sfpane .fwcols.m-previa{grid-template-columns:1fr} html.sfpane .fwcols.m-previa .fwchat{display:none} }
+/* ---------- cabeçalho da demanda que cabe no painel (tela dividida / janela estreita) ---------- */
+.fwhead .fwtname{min-width:48px;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fwhead.narrow #fwPhases,.fwhead.narrow #fwTaskBranch,.fwhead.narrow #fwOrqChips,.fwhead.narrow #fwTaskEpic{display:none}
+.fwhead.narrow .protbadge .pbt{display:none}
+.fwhead.narrow{gap:7px;padding-left:12px;padding-right:10px}
+.fwhead.narrow .fwdevbtn{font-size:0;gap:0;padding-left:7px;padding-right:7px}
+.fwhead.narrow .fwdevbtn svg{width:14px;height:14px}
+.fwmodes.asmenu{background:transparent;padding:0;margin-left:2px}
+.fwmodedd{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border-strong)!important;border-radius:8px}
+.fwddc{font-size:10px;opacity:.75}
+.fwmodepop{min-width:170px}
+.fwmodepop .fwmi[aria-checked="true"]{color:var(--accent);font-weight:600}
+/* barras da Prévia/Navegador/Simulador em painel estreito: o que é secundário recolhe, nada some sem jeito de voltar */
+.nvwrap{container-type:inline-size}
+@container (max-width:560px){ .nvvp,.nvbar [data-nv="fwd"]{display:none} .nvbar{gap:4px;padding:6px} }
+@container (max-width:380px){ .nvbar [data-nv="ext"],.nvbar [data-nv="shot"]{display:none} }
+.cvsitebar{flex-wrap:nowrap}
+@container (max-width:420px){ .cvsitebar [data-cvs="reload"]{display:none} }
+.fwdev .dvbar{flex-wrap:wrap;row-gap:4px}
+/* Navegador de verdade: a área onde o WKWebView filho fica (o nativo cobre exatamente este retângulo) */
+.cvnaddr{flex:1;min-width:80px;display:flex}
+.cvnaddr .in{flex:1;min-width:0;height:28px;padding:3px 10px;font-size:12px;border-radius:var(--r-pill)}
+.cvnatarea{flex:1;min-height:0;position:relative;background:var(--surface-2);display:flex}
+.cvnatmsg{margin:auto;display:flex;flex-direction:column;align-items:center;gap:8px;color:var(--muted);font-size:12.5px;text-align:center;padding:20px}
+.cvnatmsg b{color:var(--text)}
+@container (max-width:460px){ .cvsitebar [data-cvn="forward"]{display:none} }
