@@ -23,11 +23,13 @@ export const TEXT_FLAGS = new Set([
   "node",
   // piloto automático (src/autopilot.ts)
   "idea", "dir", "name", "platform", "parallel", "attempts", "budget-usd", "plan",
+  // modo terminal (src/terminal.ts)
+  "starfork-task", "term-mode", "deliver",
 ]);
 
 /** Flags SEM valor (booleanas). */
 export const BOOL_FLAGS = new Set([
-  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design",
+  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design", "resume",
 ]);
 
 const isKnownFlag = (tok: string) => tok.startsWith("--") && (TEXT_FLAGS.has(tok.slice(2)) || BOOL_FLAGS.has(tok.slice(2)) || tok === "--artifact-doc");

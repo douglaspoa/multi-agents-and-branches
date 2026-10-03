@@ -249,7 +249,7 @@ function cicloReport(d){
   if(d.reviewOverride) L.push(`**Seguiu sem nova revisão:** ${md(d.reviewOverride)}`,'');
   if(d.rounds.length) L.push(`**Revisão:** ${d.rounds.map(r=>`rodada ${r.round} (${md(r.reviewer)}) — ${r.verdict==='aprova'?'aprova':r.verdict==='muda'?`muda (${r.items.length})`:'ilegível'}`).join(' · ')}`,'');
   const per=d.costByRole.filter(c=>c.usd>0).map(c=>`${CIC_ROLE_PT[c.role]||c.role} (${md(c.name)}) ${cicUsdBr(c.usd)}`).join(' · ');
-  L.push(`**Custo:** ${cicUsdBr(d.totalUsd)} de ${cicUsdBr(d.capUsd)} de teto${per?` — ${per}`:''}`,'');
+  L.push(`**Custo:** ${cicUsdBr(d.totalUsd)} ${d.capUsd>0?`de ${cicUsdBr(d.capUsd)} de teto`:'— sem teto (explícito)'}${per?` — ${per}`:''}`,'');
   if(d.releases.length) L.push('**Liberações de teto**','',...d.releases.map(r=>`- +${cicUsdBr(r.usd)} (teto ${cicUsdBr(r.capBefore)} → ${cicUsdBr(r.capAfter)}): ${md(r.reason)}`),'');
   if(d.runs.length) L.push(`**Versões:** ${d.runs.map(r=>`${CIC_ROLE_PT[r.role]||r.role} \`${tag(r)}\``).join(' · ')}`,'');
   return L.join('\n').trimEnd()+'\n';
@@ -266,7 +266,7 @@ function cicloReportFor(t){
     return '\n\n'+cicloReport({
       requirements:rows.map(r=>({ text:r.text, status:r.st==='ok'&&r.evidence.length?'provado':'sem prova', evidence:r.st==='ok'?r.evidence:[] })),
       noProofReason:ov&&ov.reason||'', noProofBy:ov&&ov.reason?who:'', reviewOverride:(sp.reviewOverride&&sp.reviewOverride.reason)||'',
-      costByRole:Object.values(byRole), totalUsd:taskCost(t.id).usd, capUsd:budgetOf(t),
+      costByRole:Object.values(byRole), totalUsd:taskCost(t.id).usd, capUsd:(sp.autopilot && !(+sp.budgetUsd>0))?0:budgetOf(t),
       releases:Array.isArray(sp.budgetReleases)?sp.budgetReleases:[], rounds:Array.isArray(sp.reviewRounds)?sp.reviewRounds:[], runs:Array.isArray(sp.roleRuns)?sp.roleRuns:[],
     });
   }catch(e){ console.error('relatório starfork', e); return ''; }

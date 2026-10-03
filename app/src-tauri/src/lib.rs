@@ -25,6 +25,10 @@ mod mesa;
 mod ideia;
 mod plan_usage;
 mod projetos_conta;
+mod pty;
+mod term;
+#[cfg(test)]
+mod pty_e2e;
 mod usage_ledger;
 #[cfg(target_os = "macos")]
 mod notif_mac;
@@ -744,6 +748,43 @@ mod claude_json_tests {
 }
 
 #[cfg(test)]
+mod commit_info_tests {
+    use super::*;
+    fn git(d: &Path, a: &[&str]) { let o = Command::new("git").arg("-C").arg(d).args(a).output().unwrap(); assert!(o.status.success(), "{a:?}: {}", String::from_utf8_lossy(&o.stderr)); }
+    /// Repo real com worktree: commits contados a partir do HEAD da worktree (mesmo que a branch gravada não exista),
+    /// alteração não commitada detectada, .cardume/ ignorada.
+    #[test]
+    fn conta_a_frente_da_base_pela_worktree_e_ve_nao_commitado() {
+        let d = std::env::temp_dir().join(format!("sf-commits-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let repo = d.join("repo"); std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "base"]);
+        let wt = d.join("wt");
+        git(&repo, &["worktree", "add", "-q", "-b", "homol", wt.to_str().unwrap()]);
+        for i in 0..2 {
+            std::fs::write(wt.join(format!("f{i}.txt")), "x").unwrap();
+            git(&wt, &["add", "."]);
+            git(&wt, &["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", &format!("c{i}")]);
+        }
+        // a branch gravada na tarefa NÃO existe (antes: 0 commits)
+        let i = commit_info_in(&repo, "main", "feat/nome-antigo", Some(&wt));
+        assert_eq!(i.commits.len(), 2);
+        assert_eq!(i.commits[0]["subject"], "c1", "mais novo primeiro");
+        assert!(!i.uncommitted);
+        std::fs::create_dir_all(wt.join(".cardume/artifacts")).unwrap();
+        std::fs::write(wt.join(".cardume/artifacts/p.png"), "x").unwrap();
+        assert!(!commit_info_in(&repo, "main", "homol", Some(&wt)).uncommitted, ".cardume não conta");
+        std::fs::write(wt.join("f0.txt"), "mudou").unwrap();
+        assert!(commit_info_in(&repo, "main", "homol", Some(&wt)).uncommitted);
+        // sem worktree: pela branch no repo; branch que não existe → vazio
+        assert_eq!(commit_info_in(&repo, "main", "homol", None).commits.len(), 2);
+        assert!(commit_info_in(&repo, "main", "sumiu", None).commits.is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
 mod artifact_tests {
     use super::*;
     #[test]
@@ -753,6 +794,44 @@ mod artifact_tests {
         assert_eq!(artifact_norm_name("t1/x.md", "t1"), "x.md");
         assert_eq!(artifact_norm_name("entregaveis/r.pdf", "t1"), "entregaveis/r.pdf");
         assert_eq!(artifact_norm_name("t10/x.md", "t1"), "t10/x.md");
+        // caminho inteiro da worktree / do repo citado como evidência
+        assert_eq!(artifact_norm_name("/Users/a/pou/.cardume/worktrees/t1/.cardume/artifacts/mobile-ios-1.png", "t1"), "mobile-ios-1.png");
+        assert_eq!(artifact_norm_name("/Users/a/pou/.cardume/artifacts/t1/mobile-ios-1.png", "t1"), "mobile-ios-1.png");
+        assert_eq!(artifact_norm_name("././x.png", "t1"), "x.png");
+        // escapar pela evidência continua barrado
+        assert!(!artifact_name_ok(&artifact_norm_name("/x/.cardume/artifacts/../../etc/passwd", "t1")));
+    }
+    /// Miniatura da prova (sfart://) com o layout REAL do Pou (cópia coletada em .cardume/artifacts/<tarefa>/,
+    /// worktree já removida): cada forma de citar a evidência chega no arquivo; arquivo ausente = 404 (o front mostra
+    /// "arquivo da prova não encontrado").
+    #[test]
+    fn miniatura_da_prova_pelo_sfart_com_caminhos_reais() {
+        let repo = std::env::temp_dir().join(format!("sf-sfart-real-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        let task = "salvar-o-progresso-do-pou-e-retomar-ao-reabrir";
+        let col = repo.join(".cardume").join("artifacts").join(task);
+        std::fs::create_dir_all(col.join(task)).unwrap();
+        let png = b"\x89PNG\r\n\x1a\nfake";
+        std::fs::write(col.join("mobile-ios-1.png"), png).unwrap();
+        std::fs::write(col.join(task).join("aninhado.png"), png).unwrap();
+        let get = |cited: &str| {
+            // o front manda "<tarefa>/<nome normalizado>" (artRelName ≡ artifact_norm_name), codificado
+            let rel = format!("{task}/{}", artifact_norm_name(cited, task));
+            let url = format!("/{}", rel.replace('/', "%2F"));
+            media_proto::serve(&url, None, |t, n| {
+                let f = artifact_in_repo(&repo, t, &artifact_norm_name(n, t))?;
+                Some((f, vec![repo.join(".cardume").join("artifacts").join(t)]))
+            })
+        };
+        for cited in ["mobile-ios-1.png", ".cardume/artifacts/mobile-ios-1.png", &format!(".cardume/artifacts/{task}/mobile-ios-1.png"),
+            &format!("/Users/x/pou/.cardume/worktrees/{task}/.cardume/artifacts/mobile-ios-1.png"), "aninhado.png"] {
+            let (st, h, body) = get(cited);
+            assert_eq!(st, 200, "{cited}");
+            assert_eq!(body, png.to_vec(), "{cited}");
+            assert!(h.iter().any(|(k, v)| *k == "Content-Type" && v == "image/png"), "{cited}");
+        }
+        assert_eq!(get("nao-existe.png").0, 404);
+        let _ = std::fs::remove_dir_all(&repo);
     }
     #[test]
     fn nome_com_subpasta_vale_mas_escape_nao() {
@@ -1027,8 +1106,8 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 /// o antes/depois vem por `task_agent_edit`) e as propostas de remoção (agentProposals, curtas).
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
-    // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel
-    for k in ["budgetUsd", "budgetHit", "autopilot", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns"] {
+    // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal)
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     // Cadeado 1 na faixa: a tarefa pausa pra aprovar o plano?
@@ -1478,44 +1557,66 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
 /// Commits de uma tarefa (base..branch) — para vincular commits à tarefa.
 #[tauri::command(async)]
 fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_json::Value>, String> {
+    Ok(task_commit_info(state, task_id)?.commits)
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct CommitInfo {
+    /// commits À FRENTE da base (mais novo primeiro)
+    commits: Vec<serde_json::Value>,
+    /// a worktree tem alterações ainda não commitadas (o front diz "alterações não commitadas")
+    uncommitted: bool,
+}
+
+/// Commits à frente da base + se há alteração não commitada. Conta a partir da WORKTREE (HEAD — o mesmo ponto do
+/// diffstat do motor, `base...HEAD`) quando ela existe; só sem worktree cai na branch gravada no repo. Antes contava
+/// SÓ por `task.branch` no repo: worktree noutra branch (ex.: PR de fora em "homol") ou branch renomeada → "0 commits"
+/// numa tarefa em revisão com +20 −14.
+#[tauri::command(async)]
+fn task_commit_info(state: State<AppState>, task_id: String) -> Result<CommitInfo, String> {
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let repo = dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or("repo inválido")?;
     let conn = open(&dbpath)?;
     // tarefa fora do state.sqlite do projeto ATIVO (apagada, de outro projeto, só na nuvem): não há
     // commits a listar — vazio, não "Query returned no rows" (era o erro recorrente em app_errors)
-    let (branch, base): (String, String) = match conn
-        .query_row("SELECT branch, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
+    let (branch, base, wt): (String, String, String) = match conn
+        .query_row("SELECT branch, base, worktree FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
     {
         Ok(v) => v,
-        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(vec![]),
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(CommitInfo::default()),
         Err(e) => return Err(e.to_string()),
     };
-    let mb = merge_base_ref(&repo, &base, &branch);
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(&repo)
-        .args([
-            "log",
-            &format!("{mb}..{branch}"),
-            "--format=%H\u{1f}%s\u{1f}%an\u{1f}%ad",
-            "--date=short",
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Ok(vec![]); // branch pode ter sido removida (tarefa mergeada)
-    }
+    Ok(commit_info_in(&repo, &base, &branch, (!wt.is_empty()).then(|| PathBuf::from(&wt)).as_deref()))
+}
+
+fn commit_info_in(repo: &Path, base: &str, branch: &str, wt: Option<&Path>) -> CommitInfo {
+    let live = wt.filter(|w| w.join(".git").exists());
+    let (dir, tip) = match live { Some(w) => (w.to_path_buf(), "HEAD".to_string()), None => (repo.to_path_buf(), branch.to_string()) };
+    let mb = merge_base_ref(&dir, base, &tip);
     let mut commits = Vec::new();
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
-        let f: Vec<&str> = line.split('\u{1f}').collect();
-        if f.len() >= 2 {
-            commits.push(serde_json::json!({
-                "hash": f[0], "subject": f[1],
-                "author": f.get(2).unwrap_or(&""), "date": f.get(3).unwrap_or(&""),
-            }));
+    if let Ok(out) = Command::new("git").arg("-C").arg(&dir)
+        .args(["log", &format!("{mb}..{tip}"), "--format=%H\u{1f}%s\u{1f}%an\u{1f}%ad", "--date=short"]).output()
+    {
+        // falhou (branch removida — tarefa mergeada): sem commits a listar
+        if out.status.success() {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                let f: Vec<&str> = line.split('\u{1f}').collect();
+                if f.len() >= 2 {
+                    commits.push(serde_json::json!({
+                        "hash": f[0], "subject": f[1],
+                        "author": f.get(2).unwrap_or(&""), "date": f.get(3).unwrap_or(&""),
+                    }));
+                }
+            }
         }
     }
-    Ok(commits)
+    // alteração não commitada (ignora a pasta do próprio Starfork: .cardume/ é artefato, não código)
+    let uncommitted = live.is_some_and(|w| Command::new("git").arg("-C").arg(w)
+        .args(["status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).cardume"]).output()
+        .map(|o| o.status.success() && !o.stdout.iter().all(|b| b.is_ascii_whitespace()))
+        .unwrap_or(false));
+    CommitInfo { commits, uncommitted }
 }
 
 /// Resolve o repo do projeto ativo (parent do .cardume/state.sqlite).
@@ -2880,6 +2981,9 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
     }
     // enfileira o feedback como instrução (reutiliza o mesmo mecanismo)
     add_instruction(state.clone(), task_id.clone(), text.clone())?;
+    if term::is_terminal(&state, &task_id) {
+        return term::route(&state, &task_id, "rework", "", false, None); // "pedir ajuste" na mesma sessão
+    }
     let repo = repo_of(&state)?;
     let mut cmd = node_cmd();
     cmd.args([
@@ -2903,6 +3007,7 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
 #[tauri::command(async)]
 fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
+    term::kill_task(&task_id);
     // 1) encerra o processo atual, se houver
     if let Some(p) = live_task_pid(&state, &task_id) {
         signal_group(p, procsig::CONT);
@@ -2925,7 +3030,11 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     for tbl in ["event", "claim", "review", "pending", "cost", "diffstat"] {
         let _ = conn.execute(&format!("DELETE FROM {tbl} WHERE task_id=?1"), params![task_id]);
     }
-    // 5) re-executa o time
+    // 5) re-executa o time (modo terminal: sessão NOVA no terminal)
+    if term::is_terminal(&state, &task_id) {
+        term::open_task(&repo, &path, &task_id, 120, 34, false, None)?;
+        return Ok(());
+    }
     let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
@@ -2948,6 +3057,9 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let k = if kind == "tests" || kind == "proof" || kind == "all" { kind } else { "doc".to_string() };
+    if term::is_terminal(&state, &task_id) {
+        return term::route(&state, &task_id, "deliver", "", false, Some(&k)); // "pedir prova/doc/testes"
+    }
     let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
@@ -2973,6 +3085,10 @@ fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: O
     let m = message.trim().to_string();
     if m.is_empty() {
         return Err("mensagem vazia".to_string());
+    }
+    // MODO TERMINAL: conversa, mira/Prévia, "mostrar pro agente" e follow-up do celular vão pra sessão do CLI
+    if term::is_terminal(&state, &task_id) {
+        return term::route(&state, &task_id, "talk", &m, as_req.unwrap_or(false), None);
     }
     let mut cmd = node_cmd();
     cmd.args([
@@ -3218,6 +3334,8 @@ fn new_task(
     // ciclo da tarefa (mesa 03/10): tipo de entrega (codigo|pagina|pesquisa|documento) e teto escolhido no intake
     task_kind: Option<String>,
     budget_usd: Option<f64>,
+    // "terminal" | "auto" — ausente = o padrão de Configurações ("modo das tarefas"); piloto/ondas/épico mandam "auto"
+    term_mode: Option<String>,
 ) -> Result<String, String> {
     // tolerante: lista de strings (números viram texto), wave numérica ou "2", hitl true/"true"
     let strs = |v: &Option<serde_json::Value>| -> Vec<String> {
@@ -3357,6 +3475,15 @@ fn new_task(
     if wave > 0 { args.push("--wave".to_string()); args.push(wave.to_string()); }
     push_opt(&mut args, "--risk", &risk);
     if hitl { args.push("--hitl".to_string()); }
+    // MODO DA TAREFA: terminal só pra motor com CLI interativo oficial (claude/codex); o resto segue automático
+    let ek = args.iter().position(|a| a == "--engine").and_then(|i| args.get(i + 1)).map(|e| e.to_lowercase()).unwrap_or_default();
+    let mode = term_mode.filter(|m| m == "terminal" || m == "auto").unwrap_or_else(|| term::default_mode().to_string());
+    let terminal = mode == "terminal" && (ek.contains("claude") || ek == "codex");
+    args.push("--term-mode".to_string());
+    args.push(if terminal { "terminal" } else { "auto" }.to_string());
+    // terminal: o CLI só CRIA (worktree, TASK.yaml); quem abre o terminal é o app, quando a criação termina
+    let open_terminal = terminal && start != Some(false);
+    if open_terminal { args.push("--no-start".to_string()); }
 
     let mut cmd = node_cmd();
     cmd.args(&args).current_dir(&repo);
@@ -3368,7 +3495,22 @@ fn new_task(
         cmd.stdout(Stdio::from(o)).stderr(Stdio::from(e));
     }
     // rastreia só quando a tarefa realmente vai rodar (rascunho não tem processo)
-    if start == Some(false) {
+    if open_terminal {
+        let mut child = cmd.stdin(Stdio::null()).spawn().map_err(|e| format!("falha ao criar a tarefa: {e}"))?;
+        let (repo2, id2) = (repo.clone(), id.clone());
+        let db2 = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            if let Some(db) = db2 {
+                if let Err(e) = term::open_task(&repo2, &db, &id2, 120, 34, false, None) {
+                    web_log(format!("[term] não abri o terminal de {id2}: {e}"));
+                    if let Ok(c) = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+                        let _ = c.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'error', ?3, 0)", params![id2, now_ms(), format!("não consegui abrir o terminal: {e}")]);
+                    }
+                }
+            }
+        });
+    } else if start == Some(false) {
         cmd.stdin(Stdio::null())
             .spawn()
             .map_err(|e| format!("falha ao criar rascunho: {e}"))?;
@@ -3677,6 +3819,12 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
         return Err("essa tarefa já está rodando".into());
     }
     let repo = repo_of(&state)?;
+    // MODO TERMINAL: ▶ abre o CLI oficial num terminal (a tela da tarefa se conecta a ele)
+    if term::is_terminal(&state, &task_id) {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        term::open_task(&repo, &db, &task_id, 120, 34, true, None)?;
+        return Ok(());
+    }
     let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
@@ -3900,6 +4048,11 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// worktree e os registros como estão — aí o humano manda uma nova mensagem.
 #[tauri::command(async)]
 fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    // MODO TERMINAL: "■ parar" = Esc no CLI (interrompe o turno; a sessão segue aberta pra próxima mensagem)
+    if term::is_terminal(&state, &task_id) && term::mgr().and_then(|m| m.live(&task_id)).is_some() {
+        term::interrupt(&state, &task_id)?;
+        return set_task_status(&state, &task_id, "review");
+    }
     // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
     // vivo (setsid) — live_task_pid cai no lock busy_pid do banco.
     let pid = live_task_pid(&state, &task_id);
@@ -3945,6 +4098,7 @@ fn stop_and_wait(p: i32, grace_ms: u64) -> bool {
 /// pra não travar outros agentes. A worktree é preservada pra inspeção.
 #[tauri::command(async)]
 fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    term::kill_task(&task_id); // terminal da tarefa (grupo inteiro)
     let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
         signal_group(p, procsig::CONT); // caso esteja pausado, destrava pra poder morrer
@@ -4940,8 +5094,11 @@ fn llm_env_get(key: &str) -> Option<String> {
 /// Nome como o AGENTE cita (evidência do requirements.json, link no chat): "./.cardume/artifacts/x.png",
 /// ".cardume/artifacts/<task>/x.png" → "x.png". Era a origem do "artefato não encontrado" ao clicar na prova.
 fn artifact_norm_name(name: &str, task_id: &str) -> String {
-    let mut n = name.trim().trim_start_matches("./");
-    n = n.strip_prefix(".cardume/artifacts/").unwrap_or(n);
+    let mut n = name.trim();
+    // caminho ABSOLUTO (ou relativo) que passa por .cardume/artifacts/ — o agente às vezes cita o caminho inteiro da
+    // worktree ("/…/worktrees/<t>/.cardume/artifacts/x.png"): vale o que vem depois da ÚLTIMA ocorrência
+    if let Some(i) = n.rfind(".cardume/artifacts/") { n = &n[i + ".cardume/artifacts/".len()..]; }
+    while let Some(r) = n.strip_prefix("./") { n = r; }
     if !task_id.is_empty() {
         if let Some(rest) = n.strip_prefix(task_id).and_then(|r| r.strip_prefix('/')) { n = rest; }
     }
@@ -4971,13 +5128,14 @@ fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<P
         }
     }
     let repo = repo_of(state)?;
+    artifact_in_repo(&repo, task_id, name).ok_or_else(|| format!("artefato não encontrado: {cited} (ainda não foi gerado ou já foi removido)"))
+}
+
+/// Cópia coletada no repo: `.cardume/artifacts/<task>/<nome>` ou `<task>/<task>/<nome>` (o agente escreveu em
+/// .cardume/artifacts/<task>/ na worktree e o coletor copiou a subpasta inteira — a lista achata, aqui resolve).
+fn artifact_in_repo(repo: &Path, task_id: &str, name: &str) -> Option<PathBuf> {
     let col = repo.join(".cardume").join("artifacts").join(task_id);
-    // <task>/<task>/x: o agente escreveu em .cardume/artifacts/<task>/ na worktree
-    // e o coletor copiou a subpasta inteira — a lista achata, aqui resolve.
-    for p in [col.join(name), col.join(task_id).join(name)] {
-        if p.is_file() { return Ok(p); }
-    }
-    Err(format!("artefato não encontrado: {cited} (ainda não foi gerado ou já foi removido)"))
+    [col.join(name), col.join(task_id).join(name)].into_iter().find(|p| p.is_file())
 }
 
 /// Envia um artefato pro Slack (files.getUploadURLExternal → PUT → completeUploadExternal).
@@ -8236,6 +8394,7 @@ fn remove_worktree_dir(repo: &Path, wt: &Path) -> bool {
 /// Worktree da tarefa → fora. Chamado quando a tarefa vira `merged` por
 /// qualquer caminho (merge pelo app, merge externo detectado, marcação manual).
 fn remove_task_worktree(repo: &Path, conn: &Connection, task_id: &str) {
+    term::kill_task(task_id);
     if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
         if !wt.is_empty() { remove_worktree_dir(repo, &PathBuf::from(wt)); }
     }
@@ -8541,6 +8700,7 @@ fn resolve_conflict(state: State<AppState>, task_id: String) -> Result<(), Strin
 #[tauri::command(async)]
 fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
+    term::kill_task(&task_id); // fim da tarefa: o terminal (e o que ele subiu) morre
     let out = node_cmd()
         .args([
             "--disable-warning=ExperimentalWarning",
@@ -8821,6 +8981,7 @@ async fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
 #[tauri::command(async)]
 fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
+    term::kill_task(&task_id);
     preview_kill(&state.procs, &task_id); // o preview que o app subiu não fica órfão
     node_cmd()
         .args([
@@ -9490,6 +9651,8 @@ pub fn run() {
             std::thread::spawn(ambiente::sweep_boot);
             // depois do ENGINE_RESOURCE: o reparo usa o motor bundlado
             std::thread::spawn(claude_statusline_boot_repair);
+            // MODO TERMINAL: gerenciador dos PTYs + varredura de terminais órfãos de uma execução que caiu
+            term::init(app.handle().clone());
             Ok(())
         })
         .manage(AppState::from_env())
@@ -9745,6 +9908,7 @@ pub fn run() {
             ai_commit_summary,
             commit_summary_cached,
             task_commits,
+            task_commit_info,
             list_artifacts,
             read_artifact,
             browser_open,
@@ -9755,13 +9919,23 @@ pub fn run() {
             navexterno::web_bounds,
             navexterno::web_show,
             navexterno::web_nav,
-            navexterno::web_close
+            navexterno::web_close,
+            term::term_open,
+            term::term_attach,
+            term::term_detach,
+            term::term_write,
+            term::term_resize,
+            term::term_send,
+            term::term_interrupt,
+            term::term_kill,
+            term::term_status
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o Starfork")
         .run(|_app, event| {
             // app fechando → nenhum túnel fica exposto pra trás
             if let tauri::RunEvent::Exit = event {
+                term::kill_all(); // terminais das tarefas (claude/codex + o que eles subiram)
                 navegador::kill_all(); // proxies da Prévia (spec-navegador-design)
                 ambiente::kill_all(); // "Subir ambiente": supervisor + site de cada demanda (spec-canvas-workspace)
                 mesa::mesa_kill_all(); // personas da mesa rodam em grupo destacado: não sobrevivem ao app

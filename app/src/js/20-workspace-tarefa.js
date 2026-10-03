@@ -379,7 +379,7 @@ async function fwLiveUpdate(){
   const now=$id('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=$id('fwSteer'); if(b) b.onclick=()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   // conversa + requisitos ao vivo (o input não é tocado — foco/texto preservados)
   const th=$id('fwThread');
-  if(th){ const atBottom=th.scrollHeight-th.scrollTop-th.clientHeight<80; th.innerHTML=fwThreadHtml(t); if(atBottom) th.scrollTop=th.scrollHeight; }
+  if(th && !th.dataset.term){ const atBottom=th.scrollHeight-th.scrollTop-th.clientHeight<80; th.innerHTML=fwThreadHtml(t); if(atBottom) th.scrollTop=th.scrollHeight; }
   const rq=$id('fwReqs'); if(rq) rq.innerHTML=fwReqsHtml(t);
   const cb=$id('fwCtxBar'); if(cb) cb.innerHTML=fwCtxBarHtml(t);
   const sub=$id('fwChatSub');
@@ -904,13 +904,14 @@ function renderWorkspace(){
   chat.innerHTML=`
     <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" aria-hidden="true" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div></div>
     <div class="fwctx"><button class="fwctxbar" id="fwCtxBar" aria-expanded="${fwCtxOpen?'true':'false'}" title="${fwCtxOpen?'recolher':'ver'} o que ele está fazendo e os requisitos">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
-    <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
+    ${termModeOf(t)?termSlotHtml(t):`<div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>`}
     <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">${IC.chevR} ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
       <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
-      <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?(askingW[0].kind==='budget'?'pra seguir: valor e motivo (ex.: liberar 2 porque falta o teste) — ou toque em Parar aqui':'responda a pergunta — o turno continua'):'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
+      <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?(askingW[0].kind==='budget'?'pra seguir: valor e motivo (ex.: liberar 2 porque falta o teste) — ou toque em Parar aqui':'responda a pergunta — o turno continua'):termModeOf(t)?'mande pro terminal…  (Enter = na fila se ele estiver ocupado · ⌘Enter = Esc e manda · / skills · ⌘V print)':'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
       <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button>${chatModelPillHtml(fwModelPill(t))}<label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
       <div class="fwhint chathint" id="fwHint">${sr.hint}</div></div>`;
   chat.dataset.tk=t.id;
+  if(termModeOf(t)) termMount(t); else termSweep(); // MODO TERMINAL (60-terminal.js)
   bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
@@ -1364,7 +1365,7 @@ function fwStickBottom(th){
   requestAnimationFrame(tick);
   th.addEventListener('wheel', ()=>{ th.__fwStick=(th.__fwStick||0)+1; }, { once:true, passive:true }); // rolou: não puxa mais
 }
-function fwPaintThread(t){ const th=$id('fwThread'); if(!th||!t) return; th.innerHTML=fwThreadHtml(t); th.scrollTop=th.scrollHeight; }
+function fwPaintThread(t){ const th=$id('fwThread'); if(!th||!t||th.dataset.term) return; th.innerHTML=fwThreadHtml(t); th.scrollTop=th.scrollHeight; }
 async function fwSendMsg(queueOnly){
   const t=fwTaskObj(); if(!t) return;
   const inp=$id('fwInput'); if(!inp) return; const typed=inp.value; let v=typed.trim();

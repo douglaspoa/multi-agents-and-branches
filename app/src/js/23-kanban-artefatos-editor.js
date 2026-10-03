@@ -361,20 +361,33 @@ function pvKind(name){ const n=String(name||'').toLowerCase();
     : /\.html?$/.test(n)?'html' : /\.(txt|log|json|ya?ml|xml|js|ts|py|sql|sh|toml|ini)$/.test(n)?'text' : 'other'; }
 // VÍDEO das provas (mobile): toca DIRETO do disco pelo protocolo sfart:// (lib.rs → media_proto.rs) — nada de
 // base64; o WebKit pede em pedaços (Range), então um mp4 grande não trava a UI. Escopo: só as pastas de artefatos.
+// nome citado pelo agente → nome do artefato (MESMA regra do Rust artifact_norm_name): "./x.png",
+// ".cardume/artifacts/<tarefa>/x.png" e caminho ABSOLUTO da worktree/repo (".../.cardume/artifacts/x.png") → "x.png"
+function artRelName(taskId, name){
+  let n=String(name||'').trim();
+  const k=n.lastIndexOf('.cardume/artifacts/'); if(k>=0) n=n.slice(k+19);
+  n=n.replace(/^(\.\/)+/,'');
+  if(taskId && n.startsWith(taskId+'/')) n=n.slice(String(taskId).length+1);
+  return n;
+}
 function artMediaUrl(taskId, name){
-  const rel=String(taskId||'')+'/'+String(name||'').replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,'');
+  const rel=String(taskId||'')+'/'+artRelName(taskId, name);
   const cv=window.__TAURI__&&window.__TAURI__.core&&window.__TAURI__.core.convertFileSrc;
   return cv ? cv(rel, 'sfart') : 'sfart://localhost/'+encodeURIComponent(rel);
 }
 function artVideoHtml(taskId, name, cls){
-  return `<video class="${cls||'pvvid'}" controls preload="metadata" playsinline src="${escA(artMediaUrl(taskId, name))}" aria-label="${escA('vídeo: '+name)}"></video>`;
+  // data-sfthumb: arquivo sumiu (404 no sfart://) → 27-entregas troca por "arquivo da prova não encontrado"
+  return `<video class="${cls||'pvvid'}" controls preload="metadata" playsinline src="${escA(artMediaUrl(taskId, name))}" data-sfthumb="${escA(taskId+'|'+name)}" aria-label="${escA('vídeo: '+name)}"></video>`;
 }
 // conteúdo já lido (read_artifact) → HTML da prévia
 function artPreviewHtml(name, c, taskId){
   const k=pvKind(name);
   if(k==='video' && taskId) return `<div class="pvvideo">${artVideoHtml(taskId, name)}</div>`; // não precisa ler o arquivo
   if(!c) return skeletonHtml('lista',{ n:6, compact:true, inline:true, label:'carregando a prévia' });
-  if(c.err) return `<div class="en-empty" style="color:var(--warn)">não consegui ler o arquivo: ${esc(c.err)}</div>`;
+  // erro em texto de gente (humanErr: catálogo de erros) — arquivo que sumiu diz isso, não a mensagem crua
+  if(c.err) return /não encontrado|not found|No such file/i.test(String(c.err))
+    ? `<div class="en-empty">arquivo não encontrado — ainda não foi gerado ou já foi removido</div>`
+    : `<div class="en-empty" style="color:var(--warn)">${esc(typeof humanErr==='function'?humanErr(c.err,'Não consegui ler o arquivo').msg:'não consegui ler o arquivo: '+c.err)}</div>`;
   if(k==='image' && c.dataUrl) return `<div class="pvimg"><img src="${c.dataUrl}" alt="${escA(name)}"></div>`;
   if(k==='pdf' && c.dataUrl) return `<iframe class="pvpdf" src="${c.dataUrl}#zoom=page-width" title="${escA(name)}"></iframe>`;
   const tx=c.text==null?null:String(c.text);

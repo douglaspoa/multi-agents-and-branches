@@ -23,6 +23,8 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 libc = "0.2"
 regex = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "net", "sync"] }
+# Terminal de verdade por tarefa (pty.rs): o CLI OFICIAL (claude/codex) num PTY
+portable-pty = "0.9"
 
 # Notificação nativa com clique útil só existe no macOS: UNUserNotificationCenter
 # (a API atual — a NSUserNotification antiga parou de aparecer depois do rename do

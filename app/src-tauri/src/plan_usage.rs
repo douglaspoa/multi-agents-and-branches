@@ -104,6 +104,18 @@ pub(crate) struct DeepseekUsage {
     pub balances: Vec<Balance>,
 }
 
+/// Gasto de uma IA no mês (livro de uso ~/.constellation/usage/usage.sqlite) — a linha do medidor quando não há %
+/// (sem barra de status, Codex sem sessão, DeepSeek sem rede): "uso deste mês: US$ 3,20 · 14 tarefas".
+#[derive(Serialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct MonthUse {
+    pub usd: f64,
+    /// tarefas distintas (task_id) com gasto no mês
+    pub tasks: i64,
+    /// chamadas registradas (tarefas + nova demanda + retro + …)
+    pub calls: i64,
+}
+
 #[derive(Serialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PlanUsage {
@@ -114,6 +126,47 @@ pub(crate) struct PlanUsage {
     pub claude: Option<ClaudeUsage>,
     pub codex: Option<CodexUsage>,
     pub deepseek: Option<DeepseekUsage>,
+    /// gasto do mês por IA (claude | codex | deepseek | gateway) desde `monthSince` — sempre presente; vazio = nada no livro
+    pub month: std::collections::BTreeMap<String, MonthUse>,
+    /// início do mês (epoch ms, meia-noite local do dia 1 — mandado pelo front)
+    pub month_since: i64,
+    /// não deu pra ler o livro de uso (o medidor só esconde a linha do mês)
+    pub month_error: Option<String>,
+}
+
+/// Soma o livro desde `since` por IA (id do motor normalizado: codex/deepseek/gateway/claude).
+pub(crate) fn month_use(ledger: &Path, since: i64) -> Result<std::collections::BTreeMap<String, MonthUse>, String> {
+    let rows = usage_ledger::ledger_rows(ledger, since, None, None)?;
+    let mut out: std::collections::BTreeMap<String, MonthUse> = Default::default();
+    let mut tasks: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for r in rows {
+        let e = usage_ledger::norm_engine(&r.engine);
+        let m = out.entry(e.clone()).or_default();
+        m.usd += r.usd;
+        m.calls += 1;
+        if let Some(t) = r.task_id.as_deref().filter(|t| !t.trim().is_empty()) {
+            tasks.entry(e).or_default().insert(t.to_string());
+        }
+    }
+    for (e, m) in out.iter_mut() {
+        m.usd = (m.usd * 100.0).round() / 100.0;
+        m.tasks = tasks.get(e).map(|s| s.len() as i64).unwrap_or(0);
+    }
+    Ok(out)
+}
+
+/// Meia-noite do dia 1 (aproximação em UTC) — só quando o front não manda o início do mês local.
+fn month_start_utc(now: i64) -> i64 {
+    let days = now.div_euclid(86_400_000);
+    // civil-from-days (Howard Hinnant) → dia do mês
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    (days - (d - 1)) * 86_400_000
 }
 
 const FIVE_H_MS: i64 = 5 * 3600 * 1000;
@@ -258,11 +311,17 @@ pub(crate) fn statusline_windows(sl: &Value, now: i64) -> Option<(Option<ClaudeW
 /// bloqueado (`rejected`) com a volta ainda no futuro — ou mais novo que a barra; perto do limite (`allowed_warning`)
 /// — a menos que a barra mostre aquela janela abaixo de 70 %. Destaque (window/pct/resetsAt) = a janela mais cheia
 /// (empate → 5 h).
+/// Barra de status mais velha que isso não decide o estado nem a % (o front mostra o gasto do mês).
+pub(crate) const SL_OLD_MS: i64 = 12 * 3600 * 1000;
+
 pub(crate) fn with_statusline(mut c: ClaudeUsage, sl: Option<&Value>, now: i64) -> ClaudeUsage {
     let Some((f, s, at)) = sl.and_then(|v| statusline_windows(v, now)) else { return c };
     c.five_hour = f;
     c.seven_day = s;
     c.updated_at = Some(at);
+    // gravada há mais de 12 h (o Claude Code interativo não rodou desde então): a % é de outra janela — o resumo
+    // fica com o rate_limit_event; as janelas vão junto só pro front explicar ("a % é de há X")
+    if now - at > SL_OLD_MS { return c; }
     let file_pct = match c.window.as_deref() {
         Some("five_hour") => c.five_hour.as_ref().map(|w| w.pct),
         Some("seven_day") => c.seven_day.as_ref().map(|w| w.pct),
@@ -555,8 +614,18 @@ pub(crate) fn clear_caches() {
     *DS_CACHE.lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
 
-pub(crate) fn collect(db: Option<PathBuf>, configured: Vec<&'static str>, now: i64) -> PlanUsage {
-    collect_in(&claude_usage_dir(), &claude_config_dir(), db, configured, now)
+pub(crate) fn collect(db: Option<PathBuf>, configured: Vec<&'static str>, now: i64, month_since: Option<i64>) -> PlanUsage {
+    let mut u = collect_in(&claude_usage_dir(), &claude_config_dir(), db, configured, now);
+    with_month(&mut u, &usage_ledger::db_path(), month_since.filter(|s| *s > 0 && *s <= now).unwrap_or_else(|| month_start_utc(now)));
+    u
+}
+
+pub(crate) fn with_month(u: &mut PlanUsage, ledger: &Path, since: i64) {
+    u.month_since = since;
+    match month_use(ledger, since) {
+        Ok(m) => { u.month = m; u.month_error = None; }
+        Err(e) => { u.month = Default::default(); u.month_error = Some(e); }
+    }
 }
 
 /// `usage_dir` = ~/.constellation/usage; `claude_dir` = config do Claude Code (parametrizados pros testes).
@@ -582,14 +651,14 @@ pub(crate) fn collect_in(usage_dir: &Path, claude_dir: &Path, db: Option<PathBuf
     });
     let codex = has("codex").then(|| codex_usage(now));
     let deepseek = has("deepseek").then(deepseek_usage);
-    PlanUsage { default_engine, configured, claude, codex, deepseek }
+    PlanUsage { default_engine, configured, claude, codex, deepseek, month: Default::default(), month_since: 0, month_error: None }
 }
 
 /// Medidor do plano (widget do menu lateral). Async: nunca segura a janela.
 #[tauri::command(async)]
-pub(crate) fn plan_usage(state: State<AppState>) -> PlanUsage {
+pub(crate) fn plan_usage(state: State<AppState>, month_since: Option<i64>) -> PlanUsage {
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    collect(db, ready_engines(), now_ms())
+    collect(db, ready_engines(), now_ms(), month_since)
 }
 
 #[cfg(test)]
@@ -980,7 +1049,7 @@ mod tests {
 
     #[test]
     fn so_aparece_ia_configurada() {
-        let u = collect(None, vec![], NOW);
+        let u = collect(None, vec![], NOW, None);
         assert!(u.claude.is_none() && u.codex.is_none() && u.deepseek.is_none());
     }
 
@@ -999,15 +1068,62 @@ mod tests {
             }),
             codex: Some(codex_from_tail(CODEX_LINE, NOW)),
             deepseek: Some(parse_deepseek_balance(r#"{"is_available":true,"balance_infos":[{"currency":"USD","total_balance":"4.20"}]}"#).unwrap()),
+            month: [("claude".to_string(), MonthUse { usd: 3.2, tasks: 14, calls: 41 }), ("codex".to_string(), MonthUse { usd: 0.85, tasks: 2, calls: 5 })].into_iter().collect(),
+            month_since: 1_790_823_600_000,
+            month_error: None,
         };
         assert_eq!(serde_json::to_value(&u).unwrap(), golden);
+    }
+
+    #[test]
+    fn mes_soma_o_livro_por_ia_e_conta_tarefas_distintas() {
+        let d = tmpdir("month");
+        let db = d.join("usage.sqlite");
+        let mk = |at: i64, engine: &str, task: Option<&str>, usd: f64| {
+            let mut e = usage_ledger::Entry::new("tarefa", engine);
+            e.at = at; e.task_id = task.map(String::from); e.usd = usd;
+            usage_ledger::record_in(&db, &e).unwrap();
+        };
+        let since = NOW - 10 * 86_400_000;
+        mk(since - 1, "claude", Some("velha"), 9.0); // mês passado: fora
+        mk(NOW - 1000, "claude", Some("t1"), 1.5);
+        mk(NOW - 900, "claude", Some("t1"), 0.5);
+        mk(NOW - 800, "claude", Some("t2"), 1.2);
+        mk(NOW - 700, "claude", None, 0.004); // nova demanda / retro: conta no gasto, não como tarefa
+        mk(NOW - 600, "codex", Some("c1"), 0.85);
+        let m = month_use(&db, since).unwrap();
+        assert_eq!(m["claude"], MonthUse { usd: 3.2, tasks: 2, calls: 4 });
+        assert_eq!(m["codex"], MonthUse { usd: 0.85, tasks: 1, calls: 1 });
+        assert!(!m.contains_key("deepseek"));
+        // livro inexistente = vazio (nunca erro)
+        assert!(month_use(&d.join("nao-existe.sqlite"), since).unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn barra_de_status_velha_nao_decide_a_porcentagem() {
+        let f = json!({ "windows": { "five_hour": { "status": "allowed", "resetsAt": 1_790_884_800 } } });
+        let base = claude_summary(Some(&f), NOW, Ok(StarforkUse::default()));
+        let sl = json!({ "v": 1, "fiveHour": { "pct": 43, "resetsAt": NOW + 3_600_000 }, "sevenDay": { "pct": 61, "resetsAt": NOW + 86_400_000 }, "at": NOW - SL_OLD_MS - 1 });
+        let c = with_statusline(base.clone(), Some(&sl), NOW);
+        assert_eq!((c.state, c.pct, c.window.as_deref()), (base.state, None, base.window.as_deref()), "velha: o resumo fica com o evento");
+        assert_eq!(c.updated_at, Some(NOW - SL_OLD_MS - 1), "o front sabe de quando é");
+        let fresh = json!({ "v": 1, "fiveHour": { "pct": 43, "resetsAt": NOW + 3_600_000 }, "at": NOW - 1000 });
+        assert_eq!(with_statusline(base, Some(&fresh), NOW).pct, Some(43.0));
+    }
+
+    #[test]
+    fn inicio_do_mes_utc() {
+        // 2026-10-01 13:13 UTC → 2026-10-01 00:00 UTC; 2024-02-29 → 2024-02-01
+        assert_eq!(month_start_utc(1_790_870_000_000), 1_790_812_800_000);
+        assert_eq!(month_start_utc(1_709_208_000_000), 1_706_745_600_000);
     }
 
     /// Conferência manual nesta máquina: `cargo test real_machine -- --ignored --nocapture`
     #[test]
     #[ignore]
     fn real_machine_plan_usage() {
-        let u = collect(None, vec!["claude", "codex"], now_ms());
+        let u = collect(None, vec!["claude", "codex"], now_ms(), None);
         println!("{}", serde_json::to_string_pretty(&serde_json::json!({ "claude": u.claude, "codex": u.codex })).unwrap());
         println!("rollouts: {:?}", codex_recent_rollouts(&codex_home().join("sessions")).iter().take(2).collect::<Vec<_>>());
     }

@@ -593,7 +593,7 @@ export function renderReport(s: ApState, epic: ApEpic | null, extra: { costs: Ma
   for (const q of extra.questions) { L.push(`- ${q}`); any = true; }
   if (!any) L.push("_(nenhuma registrada)_");
   L.push("");
-  L.push("## Custo", "", `Total: **${fmtUsd(s.costUsd)}**${s.planCostUsd ? ` (planejamento: ${fmtUsd(s.planCostUsd)})` : ""}${s.budgetUsd > 0 ? ` · teto: ${fmtUsd(s.budgetUsd)}` : ""}. Na aba Uso aparece com a origem "Piloto automático" (planejamento) e "Tarefas". Em plano de assinatura o valor é o equivalente em API.`, "");
+  L.push("## Custo", "", `Total: **${fmtUsd(s.costUsd)}**${s.planCostUsd ? ` (planejamento: ${fmtUsd(s.planCostUsd)})` : ""}${s.budgetUsd > 0 ? ` · teto: ${fmtUsd(s.budgetUsd)}` : " · sem teto (explícito)"}. Na aba Uso aparece com a origem "Piloto automático" (planejamento) e "Tarefas". Em plano de assinatura o valor é o equivalente em API.`, "");
   L.push("## Como rodar o app", "");
   let readme = "";
   try { readme = readFileSync(join(s.dir, "README.md"), "utf8"); } catch { /* sem README */ }

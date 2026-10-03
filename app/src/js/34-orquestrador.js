@@ -582,7 +582,8 @@ async function orqCreatePhaseTask(p, ph, created){
   const intTxt=integrate?`\n\nESTA É A FASE DE INTEGRAÇÃO: sua branch nasceu da main e recebeu o MERGE das branches das fases de build (${intBranches.join(', ')||'ver commits de merge'}). Se houver CONFLITO de merge pendente na worktree (git status), resolva-o PRIMEIRO e complete os merges que faltarem (git merge --no-ff <branch>). Depois rode o projeto e os testes com TUDO junto, corrija problemas de integração e prove na UI real. O Pull Request final sai DESTA branch — com todos os merges.`:'';
   // começa já se não depende de ninguém OU se todas as dependências já provaram (plano em andamento)
   const startNow=deps.length===0 || (p.status!=='planned' && deps.every(d=>orqProved((state.tasks||[]).find(t=>t.id===(created[d.key]||d.taskId)))));
-  const payload={ start:startNow, title:ph.name, workflow:null, agents:orqAgentIdFor(ph), engine:p.engine||defaultAiEngine(), model:p.model||null, approval:ph.autonomy==='ask'?'ask':'auto',
+  // ondas do orquestrador rodam sozinhas → modo automático (sem terminal)
+  const payload={ termMode:'auto', start:startNow, title:ph.name, workflow:null, agents:orqAgentIdFor(ph), engine:p.engine||defaultAiEngine(), model:p.model||null, approval:ph.autonomy==='ask'?'ask':'auto',
     owns:null, off:null, objective:(ph.objective||ph.name)+ctx+intTxt, deliverables:[], requirements:(ph.objectives||[]).slice(), doc:kd.doc,
     proof:ph.kind==='build'||ph.kind==='review', tests:ph.kind==='build'||integrate, planApproval:'auto', refs:[], branchType:integrate?'integration':kd.branch, issue:null,
     autoPr:integrate?'ask':(ph.kind==='build'&&!orqHasIntegration(p)?'ask':'no'), prBase:null, base:integrate?null:(buildDep&&buildDep.branch?buildDep.branch:null) };

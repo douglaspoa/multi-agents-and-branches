@@ -16,6 +16,7 @@ import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
 import { mobileCli } from "./mobile.ts";
+import { hookCli, HOOK_MARK, statuslineCli, termMessage, termPrep, turnEndCli } from "./terminal.ts";
 import { browserProxyCli } from "./browser-proxy.ts";
 import { envCli } from "./env-up.ts";
 import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
@@ -194,6 +195,8 @@ async function cmdNew(repo: string, a: Args) {
     boundaries: a.multi.boundary?.length ? a.multi.boundary : undefined,
     risk: (["low", "medium", "high"].includes(a.flags.risk) ? a.flags.risk : undefined) as TaskSpec["risk"],
     hitl: a.flags.hitl === "true" || undefined,
+    // modo da tarefa (terminal | auto) — fixo a partir daqui (src/terminal.ts)
+    termMode: a.flags["term-mode"] === "terminal" ? "terminal" : a.flags["term-mode"] === "auto" ? "auto" : undefined,
     epicDoneWhen: a.multi["done-when"]?.length ? a.multi["done-when"] : undefined,
     scope: { owns: list(a.flags.owns), offLimits: list(a.flags.off) },
     autonomy: {
@@ -968,6 +971,38 @@ async function main() {
     case "talk":
       await cmdTalk(repo, a._[1], a.flags.msg, !!a.flags["as-req"], a.flags.agent);
       break;
+    // ---- MODO TERMINAL (src/terminal.ts) — chamados pelos hooks do CLI e pelo app ----
+    case "hook":
+      // codex-notify: o Codex passa o JSON como ÚLTIMO argumento
+      process.exitCode = hookCli(a._[1], a.flags[HOOK_MARK.slice(2)] ?? "", repo, a._[1] === "codex-notify" ? argv[argv.length - 1] : undefined);
+      break;
+    case "statusline":
+      process.exitCode = statuslineCli(a.flags[HOOK_MARK.slice(2)] ?? "", repo);
+      break;
+    case "turn-end":
+      await turnEndCli(repo, a._[1]);
+      break;
+    case "term-prep": {
+      // JSON numa linha no stdout: o app (pty.rs) spawna exatamente isto
+      const orch = new Orchestrator(repo);
+      try {
+        console.log(JSON.stringify(termPrep(orch, a._[1], { resume: !!a.flags.resume, message: a.flags.msg })));
+      } catch (e) {
+        console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));
+        process.exitCode = 1;
+      } finally { orch.close(); }
+      break;
+    }
+    case "term-msg": {
+      const orch = new Orchestrator(repo);
+      try {
+        console.log(JSON.stringify({ text: await termMessage(orch, a._[1], a.flags.kind ?? "talk", { msg: a.flags.msg, asReq: !!a.flags["as-req"], deliver: a.flags.deliver }) }));
+      } catch (e) {
+        console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));
+        process.exitCode = 1;
+      } finally { orch.close(); }
+      break;
+    }
     case "claude-statusline":
       cmdClaudeStatusline(a._[1], a);
       break;

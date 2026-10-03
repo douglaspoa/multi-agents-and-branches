@@ -93,9 +93,11 @@ test("início de turno: EPIC.md velho (sem ids) é regenerado com ids e títulos
   } finally { e.done(); }
 });
 
-test("orquestrador regenera o contexto em TODO turno (pipeline, instruções, chat/resume, entregável)", () => {
+test("orquestrador regenera o contexto em TODO turno (pipeline, instruções, chat/resume, entregável, terminal)", () => {
   const src = readFileSync(new URL("./orchestrator.ts", import.meta.url), "utf8");
-  assert.equal((src.match(/this\.prepEpic\(spec, (task\.)?worktree\)/g) ?? []).length, 4);
+  assert.equal((src.match(/this\.prepEpic\(spec, (task\.)?worktree\)/g) ?? []).length, 5);
+  const term = src.slice(src.indexOf("terminalContext(taskId: string)"), src.indexOf("terminalContext(taskId: string)") + 1500);
+  assert.ok(term.indexOf("this.prepEpic(spec, task.worktree)") < term.indexOf("this.epicContext(spec)"), "terminal: antes de montar o contexto");
   const talk = src.slice(src.indexOf("private async talkToAgentInner"), src.indexOf("private async talkToAgentInner") + 4000);
   assert.ok(talk.indexOf("this.prepEpic(spec, task.worktree)") < talk.indexOf("this.epicContext(spec)"), "no resume, antes de montar o contexto");
 });

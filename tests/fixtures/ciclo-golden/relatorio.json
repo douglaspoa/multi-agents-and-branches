@@ -113,6 +113,24 @@
         "runs": []
       },
       "expected": "## Relatório Starfork\n\n**Custo:** US$ 0,00 de US$ 5,00 de teto\n"
+    },
+    {
+      "input": {
+        "requirements": [],
+        "costByRole": [
+          {
+            "role": "builder",
+            "name": "Piloto 1",
+            "usd": 0.3
+          }
+        ],
+        "totalUsd": 0.3,
+        "capUsd": 0,
+        "releases": [],
+        "rounds": [],
+        "runs": []
+      },
+      "expected": "## Relatório Starfork\n\n**Custo:** US$ 0,30 — sem teto (explícito) — construção (Piloto 1) US$ 0,30\n"
     }
   ]
 }

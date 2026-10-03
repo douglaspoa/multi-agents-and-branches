@@ -539,7 +539,7 @@ async function plCreateEpic(){
     const w1=created.filter(c=>c.wave===1);
     const nLater=created.length-w1.length;
     if(w1.length && !ctx.noStartPrompt && await askYes(`Épico "${name}" criado com ${created.length} tarefa(s).\n\nIniciar AGORA as ${w1.length} tarefa(s) da onda 1 nesta máquina?\n(escopos disjuntos — rodam em paralelo)`+(nLater?`\n\nAs outras ${nLater} ficam AGUARDANDO e começam sozinhas aqui quando as anteriores forem mergeadas.`:''))){
-      for(const c of w1){ try{ await teamClaimStart(c.row, null); }catch(e){ console.error('onda1:', e); } }
+      for(const c of w1){ try{ await teamClaimStart(c.row, null, { auto:true }); }catch(e){ console.error('onda1:', e); } }
     }
   }catch(e){ showErr(e, 'Falha ao criar o épico (clique em aprovar de novo: o que já foi criado não se repete)'); { const P=PLP(); if(P){ P.locked=false; plPlanRerender(); } } }
 }

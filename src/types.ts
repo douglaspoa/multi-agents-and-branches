@@ -153,6 +153,12 @@ export interface TaskSpec {
   budgetUsd?: number;
   /** A tarefa bateu no teto e espera a decisão do humano (continuar/parar). Limpo ao decidir. */
   budgetHit?: { usd: number; cap: number; at: number; mode: "paused" | "stopped" } | null;
+  /**
+   * MODO DA TAREFA (fixo depois de iniciar): "terminal" = o CLI oficial (claude/codex) num terminal dentro do
+   * app, com hooks alimentando o feed (src/terminal.ts); "auto" = sem terminal (`claude -p`, o pipeline de
+   * papéis). Ausente = "auto" (tarefas de antes do terminal). Piloto, ondas e épico em auto-start usam "auto".
+   */
+  termMode?: "terminal" | "auto";
   /** Tarefa do PILOTO AUTOMÁTICO (src/autopilot.ts): ninguém responde — o app não pausa no teto (o piloto decide). */
   autopilot?: boolean;
   // ---- Tarefa SOB ÉPICO. Todos opcionais: tarefa criada fora do planner não tem nenhum. ----
