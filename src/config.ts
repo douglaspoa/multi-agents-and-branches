@@ -79,7 +79,7 @@ export function ensureConfig(repo: string): boolean {
 }
 
 function toRole(a: Agent, engineOverride?: string, model?: string): AgentRole {
-  return { role: a.role, name: a.name, engine: engineOverride ?? a.engine, model: model ?? a.model, persona: a.persona };
+  return { role: a.role, agentId: a.id, name: a.name, engine: engineOverride ?? a.engine, model: model ?? a.model, persona: a.persona };
 }
 
 export function resolveWorkflow(cfg: CardumeConfig, workflowId: string, engineOverride?: string, model?: string): AgentRole[] {

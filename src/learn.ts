@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { extractJson, looksSecret } from "./memory.ts";
+import { bumpAgent, revertSkill, writeSkillVersion, type RevertResult } from "./agent-versions.ts";
 
 export type LearnMode = "sugerir" | "auto" | "desligado";
 export const RETRO_MODEL_DEFAULT = "claude-sonnet-5";
@@ -37,6 +38,10 @@ export interface PendingItem {
   createdAt: number;
   nota?: RetroNota;
   skill?: RetroSkill;
+  /** agente DONO do aprendizado (id do catálogo). Com dono: aceitar cria nova versão do agente; o modo `auto` nunca aplica. */
+  agente?: string;
+  /** papel do dono (ex.: "reviewer") */
+  papel?: string;
 }
 export interface LearnedSkill { name: string; description: string; body: string; tarefas: string[] }
 
@@ -264,7 +269,7 @@ export function learnedSkills(repo: string): LearnedSkill[] {
  * Depois liga em `.cardume/skills.json` (o motor injeta no prompt via skillsContext) e põe a pasta no
  * `info/exclude` do git (não suja a árvore do checkout principal).
  */
-export function applySkill(repo: string, cardumeDir: string, sk: RetroSkill, taskId: string, personalDir = join(homedir(), ".claude", "skills")): { name: string; action: "created" | "updated" } {
+export function applySkill(repo: string, cardumeDir: string, sk: RetroSkill, taskId: string, personalDir = join(homedir(), ".claude", "skills"), now = Date.now()): { name: string; action: "created" | "updated"; version: number } {
   const base = skillName(sk.nome) || "skill-aprendida";
   const root = skillsDir(repo);
   const slotOf = (n: string): { tarefas: string[] } | null | "other" => {
@@ -283,11 +288,31 @@ export function applySkill(repo: string, cardumeDir: string, sk: RetroSkill, tas
   for (let i = 2; taken(cur); i++) { name = `${base}-${i}`; cur = slotOf(name); }
   const prev = cur && cur !== "other" ? cur : null;
   const tarefas = [...(prev ? prev.tarefas : []), taskId];
-  mkdirSync(join(root, name), { recursive: true });
-  writeFileSync(join(root, name, "SKILL.md"), skillMd(name, sk.descricao, tarefas, sk.corpo), "utf8");
+  // P11: cada gravação é uma VERSÃO (bytes guardados no histórico, as últimas 5) — dá pra voltar byte a byte
+  const version = writeSkillVersion(cardumeDir, root, name, skillMd(name, sk.descricao, tarefas, sk.corpo), { at: now, action: prev ? "atualizar" : "criar", taskId });
   enableSkill(cardumeDir, name, sk.descricao);
   excludeSkill(repo, name);
-  return { name, action: prev ? "updated" : "created" };
+  return { name, action: prev ? "updated" : "created", version };
+}
+
+/** Tira uma skill do `.cardume/skills.json` (o motor para de injetar). O arquivo some só do skills.json. */
+export function disableSkill(cardumeDir: string, name: string): void {
+  const f = join(cardumeDir, "skills.json");
+  let arr: any[] = [];
+  try { const j = JSON.parse(readFileSync(f, "utf8")); if (Array.isArray(j)) arr = j; } catch { return; }
+  const next = arr.filter((x) => !(x && x.name === name));
+  if (next.length !== arr.length) atomicWrite(f, JSON.stringify(next, null, 2));
+}
+
+/**
+ * "Voltar pro jeito antigo" de uma skill aprendida (P11, ≡ `learn_revert` do Rust): restaura byte a byte a
+ * versão anterior e registra o motivo; sem anterior, arquiva (move pro histórico + tira do skills.json).
+ * Skill com agente dono → o agente ganha versão nova ("voltar").
+ */
+export function revertLearnedSkill(repo: string, cardumeDir: string, name: string, reason: string, now = Date.now()): RevertResult & { agentVersion: number | null } {
+  const r = revertSkill(cardumeDir, skillsDir(repo), skillName(name) || name, reason, now, (n) => disableSkill(cardumeDir, n));
+  const agentVersion = r.agente ? bumpAgent(cardumeDir, r.agente, { at: now, change: "voltar", what: `${r.name}: ${r.action === "arquivada" ? "arquivada" : `voltou pra v${r.restored}`}` }) : null;
+  return { ...r, agentVersion };
 }
 
 /** Põe `/.claude/skills/<nome>/` no `info/exclude` do repo (idempotente; fora de git: nada). */

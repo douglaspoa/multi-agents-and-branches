@@ -12,7 +12,7 @@ function kCard(t){
   const roles=t.roles||[]; const curIdx=roles.findIndex(r=>r.role===t.stage);
   const crew=roles.map((r,i)=>`<span class="kav${r.role===t.stage?' cur':''}" style="background:${agentColor(r.name)};${(curIdx>=0&&i>curIdx)?'opacity:.4':''}" title="${escA(r.name+(r.role===t.stage?' — na vez agora':''))}">${agentBadge(r.name)}</span>`).join('');
   const ev=lastEventOf(t.id);
-  const amber = t.status==='plan-review'||pendingOf(t.id).length||t.status==='aborted';
+  const amber = t.status==='plan-review'||t.status==='needs-you'||pendingOf(t.id).length||t.status==='aborted';
   const note = pendingOf(t.id).length?'perguntou — responda'
     : t.status==='plan-review'?'plano pronto · aprove pra continuar'
     : t.status==='conflict'?'conflito de merge — resolva'

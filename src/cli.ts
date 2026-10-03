@@ -10,6 +10,7 @@ import { run } from "./util/run.ts";
 import { c, statusColor, eventGlyph } from "./util/ansi.ts";
 import { slugify } from "./types.ts";
 import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
+import { rolesForKind, TASK_KINDS, type TaskKind } from "./lifecycle.ts";
 import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
@@ -150,7 +151,13 @@ async function cmdNew(repo: string, a: Args) {
   }
   // id pode vir do app (pra ele já rastrear o processo); senão, do título.
   const id = a.flags.id ? slugify(a.flags.id) : slugify(title);
-  const roles = buildRoles(a, repo);
+  // P2: o TIPO de entrega muda as etapas. Sem workflow/agentes/papéis explícitos, a equipe vem do tipo (FLOW_BY_KIND).
+  const kindFlag = String(a.flags["task-kind"] ?? "").trim();
+  const taskKind = (TASK_KINDS as string[]).includes(kindFlag) ? (kindFlag as TaskKind) : undefined;
+  const explicitTeam = !!(a.flags.workflow || a.flags.agents || a.flags.roles);
+  const roles = taskKind && !explicitTeam
+    ? applyModelOverrides(rolesForKind(taskKind, loadConfig(repo).agents, { engine: a.flags.engine, model: a.flags.model, withDesign: a.flags["with-design"] === "true" }), a.flags.models)
+    : buildRoles(a, repo);
   const lead = roles.find((r) => r.role === "builder") ?? roles[0];
   const artifacts: TaskSpec["artifacts"] = [];
   if (a.flags["artifact-doc"]) {
@@ -197,7 +204,8 @@ async function cmdNew(repo: string, a: Args) {
       commit: "at-end",
       runTests: a.flags["no-tests"] ? false : true,
       approval: (a.flags.approve as TaskSpec["autonomy"]["approval"]) ?? "ask",
-      planApproval: a.flags["plan-approval"] === "review" ? "review" : "auto",
+      // Cadeado 1 (K1): tarefa com tipo de entrega aprova o plano por padrão (só "--plan-approval auto" tira)
+      planApproval: a.flags["plan-approval"] === "review" || (taskKind && a.flags["plan-approval"] !== "auto" && roles.some((r) => r.role === "planner")) ? "review" : "auto",
       busPolicy: (["first-claim-wins", "human-tiebreak", "sequential-lock"].includes(a.flags["bus-policy"])
         ? a.flags["bus-policy"]
         : undefined) as TaskSpec["autonomy"]["busPolicy"],
@@ -205,6 +213,9 @@ async function cmdNew(repo: string, a: Args) {
     engine: a.flags.engine ?? "mock",
     model: a.flags.model,
     roles,
+    taskKind,
+    // teto da tarefa (P6) já na criação — o app também grava depois (patch_task_spec)
+    budgetUsd: Number(a.flags["budget-usd-task"]) > 0 ? Number(a.flags["budget-usd-task"]) : undefined,
   };
 
   const refSources = a.multi.ref ?? [];

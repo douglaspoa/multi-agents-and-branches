@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
+mod agent_versions;
 mod ambiente;
 mod device;
 mod ai_once;
@@ -695,6 +696,16 @@ mod budget_spec_tests {
         assert_eq!(e["agentProposals"][0]["id"], "p1");
         assert!(e.get("objective").is_none());
     }
+    #[test]
+    fn snapshot_leva_o_ciclo_da_tarefa() {
+        let sp = serde_json::json!({"needsYou":{"kind":"teto","text":"x"},"budgetReleases":[{"usd":1,"reason":"falta o teste"}],"taskKind":"codigo","reviewRounds":[],"roleRuns":[{"role":"reviewer"}],"autonomy":{"planApproval":"review"},"objective":"y"});
+        let b = task_front_spec(&sp).expect("tem ciclo");
+        assert_eq!(b["needsYou"]["kind"], "teto");
+        assert_eq!(b["budgetReleases"][0]["reason"], "falta o teste");
+        assert_eq!(b["taskKind"], "codigo");
+        assert_eq!(b["planApproval"], "review");
+        assert!(b.get("objective").is_none());
+    }
 }
 
 #[cfg(test)]
@@ -1095,9 +1106,12 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 /// o antes/depois vem por `task_agent_edit`) e as propostas de remoção (agentProposals, curtas).
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
-    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode"] {
+    // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal)
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
+    // Cadeado 1 na faixa: a tarefa pausa pra aprovar o plano?
+    if let Some(v) = spec.pointer("/autonomy/planApproval").and_then(|v| v.as_str()) { m.insert("planApproval".into(), serde_json::json!(v)); }
     if let Some(e) = agent_edits::compact_edits(spec) { m.insert("agentEdits".into(), e); }
     if let Some(p) = spec.get("agentProposals").and_then(|v| v.as_array()) {
         let tail: Vec<serde_json::Value> = p.iter().rev().take(10).rev().cloned().collect();
@@ -1216,6 +1230,8 @@ struct Cost {
     out_tok: i64,
     /// duração somada dos turnos (ms) — base da previsão de tempo
     ms: i64,
+    /// P7: id estável do agente (None = linha antiga, "sem ficha")
+    agent_id: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -1260,6 +1276,11 @@ fn ensure_app_schema(db: &PathBuf) {
         );
         // duração por turno (previsão de tempo) — idempotente
         let _ = conn.execute("ALTER TABLE cost ADD COLUMN ms INTEGER NOT NULL DEFAULT 0", []);
+        // P7 (mesa 03/10): identidade estável do agente; linha antiga fica NULL ("sem ficha")
+        let _ = conn.execute("ALTER TABLE cost ADD COLUMN agent_id TEXT", []);
+        let _ = conn.execute("ALTER TABLE event ADD COLUMN agent_id TEXT", []);
+        let _ = conn.execute("CREATE INDEX IF NOT EXISTS cost_agent ON cost(agent_id)", []);
+        let _ = conn.execute("CREATE INDEX IF NOT EXISTS ev_agent ON event(agent_id, type)", []);
         // previsão de tempo/tokens gravada ao criar a tarefa (previsto × real)
         let _ = conn.execute(
             "CREATE TABLE IF NOT EXISTS estimate (task_id TEXT PRIMARY KEY, json TEXT NOT NULL, created_at INTEGER NOT NULL)",
@@ -2901,8 +2922,9 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
 
     // DB sem a coluna ms (migração não rodou) → cai pro 0, nunca derruba o snapshot
     let mut cost_stmt = conn
-        .prepare("SELECT task_id, agent, role, SUM(usd), SUM(in_tok), SUM(out_tok), COALESCE(SUM(ms),0) FROM cost GROUP BY task_id, agent, role")
-        .or_else(|_| conn.prepare("SELECT task_id, agent, role, SUM(usd), SUM(in_tok), SUM(out_tok), 0 FROM cost GROUP BY task_id, agent, role"))
+        .prepare("SELECT task_id, agent, role, SUM(usd), SUM(in_tok), SUM(out_tok), COALESCE(SUM(ms),0), agent_id FROM cost GROUP BY task_id, agent, role, agent_id")
+        .or_else(|_| conn.prepare("SELECT task_id, agent, role, SUM(usd), SUM(in_tok), SUM(out_tok), COALESCE(SUM(ms),0), NULL FROM cost GROUP BY task_id, agent, role"))
+        .or_else(|_| conn.prepare("SELECT task_id, agent, role, SUM(usd), SUM(in_tok), SUM(out_tok), 0, NULL FROM cost GROUP BY task_id, agent, role"))
         .map_err(|e| e.to_string())?;
     let costs = cost_stmt
         .query_map([], |r| {
@@ -2914,6 +2936,7 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                 in_tok: r.get(4)?,
                 out_tok: r.get(5)?,
                 ms: r.get(6)?,
+                agent_id: r.get::<_, Option<String>>(7).unwrap_or(None),
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -3172,9 +3195,96 @@ fn merge_global_catalog(mut cfg: serde_json::Value) -> serde_json::Value {
 #[tauri::command(async)]
 fn save_config(state: State<AppState>, config: serde_json::Value) -> Result<(), String> {
     let repo = repo_of(&state)?;
+    let old: serde_json::Value = std::fs::read_to_string(repo.join("cardume.config.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(serde_json::json!({}));
     let s = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     std::fs::write(repo.join("cardume.config.json"), s + "\n").map_err(|e| e.to_string())?;
+    // P11: persona/modelo/motor salvos à mão (aceite explícito da pessoa) = nova versão do agente, com o valor de antes
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    for c in config_agent_changes(&old, &config) {
+        let _ = agent_versions::bump_agent(&repo.join(".cardume"), &c.0, now, &c.1, &c.2, c.3.as_deref(), Some(&c.4));
+    }
     Ok(())
+}
+
+/// O que mudou por agente entre dois catálogos: (id, mudança, frase, persona nova, valor de antes).
+/// Só persona/modelo/motor (o que muda o comportamento). Agente novo não conta (nasce na v1).
+fn config_agent_changes(old: &serde_json::Value, new: &serde_json::Value) -> Vec<(String, String, String, Option<String>, String)> {
+    let mut out = vec![];
+    let olds: Vec<serde_json::Value> = old["agents"].as_array().cloned().unwrap_or_default();
+    for a in new["agents"].as_array().cloned().unwrap_or_default() {
+        let id = a["id"].as_str().unwrap_or("").to_string();
+        if id.is_empty() { continue; }
+        let Some(o) = olds.iter().find(|x| x["id"].as_str() == Some(id.as_str())) else { continue };
+        let g = |v: &serde_json::Value, k: &str| v[k].as_str().unwrap_or("").to_string();
+        if g(o, "persona") != g(&a, "persona") { out.push((id.clone(), "persona".into(), "persona editada à mão".into(), Some(g(&a, "persona")), g(o, "persona"))); }
+        if g(o, "model") != g(&a, "model") { out.push((id.clone(), "modelo".into(), format!("modelo: {} → {}", if g(o, "model").is_empty() { "padrão".into() } else { g(o, "model") }, if g(&a, "model").is_empty() { "padrão".into() } else { g(&a, "model") }), None, g(o, "model"))); }
+        if g(o, "engine") != g(&a, "engine") { out.push((id.clone(), "motor".into(), format!("motor: {} → {}", g(o, "engine"), g(&a, "engine")), None, g(o, "engine"))); }
+    }
+    out
+}
+
+/// "Voltar pro jeito antigo" de persona/modelo/motor (P11): restaura BYTE A BYTE o valor de antes da versão atual
+/// do agente no cardume.config.json e registra a volta como versão nova.
+#[tauri::command(async)]
+fn agent_revert(state: State<AppState>, agent_id: String, reason: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = repo_of(&state)?;
+    agent_revert_in(&repo, &agent_id, reason.as_deref().unwrap_or(""))
+}
+fn agent_revert_in(repo: &Path, agent_id: &str, reason: &str) -> Result<serde_json::Value, String> {
+    let cd = repo.join(".cardume");
+    let cur = agent_versions::read_agent_versions(&cd, agent_id);
+    let v = cur["current"].as_i64().unwrap_or(1);
+    let entry = cur["versions"].as_array().and_then(|l| l.iter().find(|x| x["v"].as_i64() == Some(v)).cloned()).ok_or("esse agente ainda não tem versão anterior pra voltar")?;
+    let change = entry["change"].as_str().unwrap_or("");
+    let key = match change { "persona" => "persona", "modelo" => "model", "motor" => "engine", _ => return Err("a última mudança desse agente foi um aprendizado — volte pela skill dele".into()) };
+    let before = entry["before"].as_str().ok_or("essa versão não guardou o valor de antes")?.to_string();
+    let path = repo.join("cardume.config.json");
+    let mut cfg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let agents = cfg["agents"].as_array_mut().ok_or("catálogo sem agentes")?;
+    let a = agents.iter_mut().find(|x| x["id"].as_str() == Some(agent_id)).ok_or("agente não está no catálogo do projeto")?;
+    let now_val = a[key].as_str().unwrap_or("").to_string();
+    if before.is_empty() && key != "persona" { if let Some(o) = a.as_object_mut() { o.remove(key); } } else { a[key] = serde_json::json!(before); }
+    std::fs::write(&path, serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())? + "\n").map_err(|e| e.to_string())?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    let what = if reason.trim().is_empty() { format!("voltou {change} da v{}", v - 1) } else { format!("voltou {change} da v{}: {}", v - 1, reason.trim()) };
+    let nv = agent_versions::bump_agent(&cd, agent_id, now, "voltar", &what, if key == "persona" { Some(before.as_str()) } else { None }, Some(&now_val))?;
+    Ok(serde_json::json!({ "agentId": agent_id, "version": nv, "restored": key }))
+}
+
+#[cfg(test)]
+mod agent_version_cfg_tests {
+    use super::*;
+    #[test]
+    fn persona_editada_vira_versao_e_voltar_restaura_byte_a_byte() {
+        let repo = std::env::temp_dir().join(format!("sf-cfgv-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(repo.join(".cardume")).unwrap();
+        let old = serde_json::json!({ "agents": [{ "id": "nyx", "persona": "Você revisa código.\nCom calma — ç", "engine": "claude" }] });
+        std::fs::write(repo.join("cardume.config.json"), serde_json::to_string_pretty(&old).unwrap()).unwrap();
+        let new = serde_json::json!({ "agents": [{ "id": "nyx", "persona": "Você revisa.", "engine": "claude", "model": "sonnet" }] });
+        let ch = config_agent_changes(&old, &new);
+        assert_eq!(ch.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["persona", "modelo"]);
+        std::fs::write(repo.join("cardume.config.json"), serde_json::to_string_pretty(&new).unwrap()).unwrap();
+        for c in &ch { agent_versions::bump_agent(&repo.join(".cardume"), &c.0, 1, &c.1, &c.2, c.3.as_deref(), Some(&c.4)).unwrap(); }
+        // a última versão é a do modelo: voltar tira o "sonnet"
+        let r = agent_revert_in(&repo, "nyx", "").unwrap();
+        assert_eq!(r["restored"], "model");
+        let r = agent_revert_in(&repo, "nyx", "x");
+        assert!(r.is_err(), "a última agora é um 'voltar' — não volta em cascata");
+        let cfg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(repo.join("cardume.config.json")).unwrap()).unwrap();
+        assert!(cfg["agents"][0].get("model").is_none());
+        // persona: grava versão e volta byte a byte
+        let cur = cfg.clone();
+        let mut nxt = cfg.clone();
+        nxt["agents"][0]["persona"] = serde_json::json!("Outra persona");
+        for c in config_agent_changes(&cur, &nxt) { agent_versions::bump_agent(&repo.join(".cardume"), &c.0, 2, &c.1, &c.2, c.3.as_deref(), Some(&c.4)).unwrap(); }
+        std::fs::write(repo.join("cardume.config.json"), serde_json::to_string_pretty(&nxt).unwrap()).unwrap();
+        agent_revert_in(&repo, "nyx", "a persona curta errava mais").unwrap();
+        let back: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(repo.join("cardume.config.json")).unwrap()).unwrap();
+        assert_eq!(back["agents"][0]["persona"], "Você revisa.");
+        assert_eq!(agent_versions::agent_version(&repo.join(".cardume"), "nyx"), 6, "v1 → persona → modelo → voltar → persona → voltar");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
 }
 
 /// Cria e dispara uma tarefa (detached) — roda o núcleo em background; o SQLite
@@ -3221,6 +3331,9 @@ fn new_task(
     risk: Option<String>,
     hitl: Option<serde_json::Value>,
     epic_done_when: Option<serde_json::Value>,
+    // ciclo da tarefa (mesa 03/10): tipo de entrega (codigo|pagina|pesquisa|documento) e teto escolhido no intake
+    task_kind: Option<String>,
+    budget_usd: Option<f64>,
     // "terminal" | "auto" — ausente = o padrão de Configurações ("modo das tarefas"); piloto/ondas/épico mandam "auto"
     term_mode: Option<String>,
 ) -> Result<String, String> {
@@ -3321,6 +3434,15 @@ fn new_task(
     if start == Some(false) {
         args.push("--no-start".to_string());
     }
+    if let Some(k) = task_kind.as_deref().filter(|k| ["codigo", "pagina", "pesquisa", "documento"].contains(k)) {
+        args.push("--task-kind".to_string());
+        args.push(k.to_string());
+    }
+    if let Some(b) = budget_usd.filter(|b| b.is_finite() && *b > 0.0) {
+        args.push("--budget-usd-task".to_string());
+        args.push(format!("{b}"));
+    }
+    // com tipo de entrega o Cadeado 1 (aprovar o plano) é fixo (K1) — o motor liga sozinho; "auto" não desliga
     if plan_approval.as_deref() == Some("review") {
         args.push("--plan-approval".to_string());
         args.push("review".to_string());
@@ -8076,7 +8198,7 @@ fn projects_overview() -> Vec<ProjOverview> {
             if let Ok(conn) = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
                 if let Ok(mut st) = conn.prepare(
-                    "SELECT id,title,status FROM task WHERE (flag IS NULL OR flag!='closed') AND status IN ('running','thinking','queued','plan-review','error','conflict','review','delivered') ORDER BY rowid DESC LIMIT 8",
+                    "SELECT id,title,status FROM task WHERE (flag IS NULL OR flag!='closed') AND status IN ('running','thinking','queued','plan-review','needs-you','error','conflict','review','delivered') ORDER BY rowid DESC LIMIT 8",
                 ) {
                     if let Ok(rows) = st.query_map([], |r| {
                         Ok(ProjTaskLite { id: r.get(0)?, title: r.get(1)?, status: r.get(2)? })
@@ -9557,6 +9679,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_repo,
+            learn::learn_revert,
+            learn::learn_history,
+            agent_revert,
             device::device_cli,
             ambiente::env_detect,
             ambiente::env_up,

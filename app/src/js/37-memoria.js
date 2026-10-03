@@ -401,7 +401,8 @@ async function memLearnAct(id, accept, btn){
   try{
     if(accept){
       const r=await invoke('learn_accept',{ repo, id });
-      if(r && r.kind==='skill') toast('Skill '+r.name+(r.action==='updated'?' atualizada':' criada')+' e ligada — as próximas tarefas deste projeto usam.','ok');
+      // P11: todo aceite tem "voltar pro jeito antigo" a um clique (restaura byte a byte a versão anterior; skill nova é arquivada)
+      if(r && r.kind==='skill') toast('Skill '+r.name+(r.action==='updated'?' atualizada':' criada')+' (v'+(r.version||1)+') e ligada — as próximas tarefas deste projeto usam.','ok', { label:'voltar pro jeito antigo', fn:()=>memLearnRevert(repo, r.name, 'voltou logo depois de aceitar') });
       else { toast(r&&r.action==='unchanged'?'O cérebro já tinha isso — nada mudou.':'Nota gravada no cérebro'+(r&&r.action==='updated'?' (juntei com a nota de mesmo título)':'')+'.','ok'); if(r&&r.slug) MEM.sel={ scope:r.scope, slug:r.slug }; }
       await memLoad(repo); memRender();
       if(r && r.scope==='time') memTeamSync().then(ch=>{ if(ch) memRefresh(); });
@@ -413,6 +414,13 @@ async function memLearnAct(id, accept, btn){
     showErr(memErr(e), accept?'Não consegui aplicar o aprendizado':'Não consegui descartar o aprendizado');
     if(card) card.querySelectorAll('button').forEach(x=>x.disabled=false);
   }
+}
+async function memLearnRevert(repo, name, reason){
+  try{
+    const r=await invoke('learn_revert',{ repo, name, reason:reason||'' });
+    toast(r&&r.action==='arquivada'?'Skill '+name+' arquivada — saiu das próximas tarefas (o texto fica no histórico).':'Skill '+name+' voltou pra v'+(r&&r.restored)+' — exatamente como era.','ok');
+    if(MEM.repo===repo){ await memLoad(repo); memRender(); }
+  }catch(e){ showErr(memErr(e), 'Não consegui voltar a skill'); }
 }
 function memWireLinks(root){
   root.querySelectorAll('[data-mslug]').forEach(a=>a.onclick=(ev)=>{ ev.preventDefault(); memOpenNote(a.dataset.mscope, a.dataset.mslug); });

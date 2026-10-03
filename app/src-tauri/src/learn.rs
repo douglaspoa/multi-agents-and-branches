@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use tauri::State;
 
 use super::{home_dir_s, repo_or, AppState};
-use crate::memoria;
+use crate::{agent_versions, memoria};
 
 /// `pendentes.json`: só o MOTOR escreve (enfileira e poda resolvidos). O app NUNCA reescreve.
 pub fn pending_path(repo: &Path) -> PathBuf {
@@ -138,7 +138,17 @@ pub fn enable_skill(repo: &Path, name: &str, description: &str) -> Result<(), St
 /// Grava a skill aprendida: `atualizar` de uma APRENDIDA que existe → atualiza (acumula a tarefa);
 /// `criar` com nome ocupado (aprendida ou não) ou nome de skill NÃO aprendida (repo ou pessoal) →
 /// `nome-2`, `nome-3`…; não existe → cria. Depois liga no skills.json e exclui do git.
+#[allow(dead_code)] // os testes usam a forma sem dono; o app usa apply_skill_as
 pub fn apply_skill(repo: &Path, personal: &Path, skill: &serde_json::Value, task_id: &str) -> Result<serde_json::Value, String> {
+    apply_skill_as(repo, personal, skill, task_id, "")
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+/// Igual ao `apply_skill`, com o AGENTE dono (P11): cada gravação vira versão no histórico (bytes guardados).
+pub fn apply_skill_as(repo: &Path, personal: &Path, skill: &serde_json::Value, task_id: &str, agente: &str) -> Result<serde_json::Value, String> {
     let base = { let n = skill_name(&s(skill, "nome")); if n.is_empty() { "skill-aprendida".to_string() } else { n } };
     let desc = s(skill, "descricao");
     let body = s(skill, "corpo");
@@ -157,12 +167,10 @@ pub fn apply_skill(repo: &Path, personal: &Path, skill: &serde_json::Value, task
     }
     let (mut tarefas, action) = match cur { Slot::Learned(t) => (t, "updated"), _ => (vec![], "created") };
     if !task_id.is_empty() { tarefas.push(task_id.to_string()); }
-    let dir = root.join(&name);
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join("SKILL.md"), skill_md(&name, &desc, &tarefas, &body)).map_err(|e| e.to_string())?;
+    let version = agent_versions::write_skill_version(&repo.join(".cardume"), &root, &name, skill_md(&name, &desc, &tarefas, &body).as_bytes(), now_ms(), if action == "updated" { "atualizar" } else { "criar" }, "", task_id, agente)?;
     enable_skill(repo, &name, &desc)?;
     exclude_skill(repo, &name);
-    Ok(serde_json::json!({ "kind": "skill", "name": name, "action": action }))
+    Ok(serde_json::json!({ "kind": "skill", "name": name, "action": action, "version": version }))
 }
 
 /// Põe `/.claude/skills/<nome>/` no `info/exclude` do git (idempotente; fora de git: nada) — a skill
@@ -272,12 +280,18 @@ pub fn accept(repo: &Path, personal: &Path, id: &str, edited: Option<&serde_json
         None => {}
     }
     let task_id = s(&item, "taskId");
-    let r = if key == "skill" {
-        apply_skill(repo, personal, &payload, &task_id)?
+    let agente = s(&item, "agente");
+    let mut r = if key == "skill" {
+        apply_skill_as(repo, personal, &payload, &task_id, &agente)?
     } else {
         let title: String = s(&item, "taskTitle").chars().take(60).collect();
         apply_note(repo, &payload, &format!("agente · retro da tarefa \"{title}\" ({task_id}) · aceita na Memória"))?
     };
+    // P11: aprendizado com agente DONO aceito item a item = nova versão do agente
+    if !agente.is_empty() {
+        let what = if key == "skill" { r["name"].as_str().unwrap_or("").to_string() } else { s(&payload, "title") };
+        r["agentVersion"] = serde_json::json!(agent_versions::bump_agent(&repo.join(".cardume"), &agente, now_ms(), key, &what, None, None)?);
+    }
     mark_resolved(repo, id)?;
     Ok(r)
 }
@@ -325,6 +339,43 @@ pub fn learn_pending(state: State<AppState>, repo: Option<String>) -> Result<ser
 pub fn learn_accept(state: State<AppState>, repo: Option<String>, id: String, edited: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
     let repo = repo_or(&state, repo)?;
     accept(&repo, &personal_root(), &id, edited.as_ref())
+}
+
+/// Tira a skill do `.cardume/skills.json` (≡ `disableSkill` do TS).
+pub fn disable_skill(repo: &Path, name: &str) -> Result<(), String> {
+    let p = repo.join(".cardume").join("skills.json");
+    let Some(arr) = std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).and_then(|v| v.as_array().cloned()) else { return Ok(()) };
+    let next: Vec<serde_json::Value> = arr.iter().filter(|x| x.get("name").and_then(|n| n.as_str()) != Some(name)).cloned().collect();
+    if next.len() == arr.len() { return Ok(()); }
+    atomic_write(&p, &serde_json::to_string_pretty(&next).map_err(|e| e.to_string())?)
+}
+
+/// "Voltar pro jeito antigo" (P11, ≡ `revertLearnedSkill` do TS): restaura byte a byte a versão anterior da skill
+/// e registra o motivo; sem anterior, arquiva (move) e tira do skills.json. Skill com agente dono → nova versão dele.
+pub fn revert(repo: &Path, name: &str, reason: &str) -> Result<serde_json::Value, String> {
+    let n = { let k = skill_name(name); if k.is_empty() { name.to_string() } else { k } };
+    let cd = repo.join(".cardume");
+    let mut r = agent_versions::revert_skill(&cd, &repo.join(".claude").join("skills"), &n, reason, now_ms())?;
+    if r["action"] == "arquivada" { disable_skill(repo, &n)?; }
+    let agente = r["agente"].as_str().unwrap_or("").to_string();
+    if !agente.is_empty() {
+        let what = if r["action"] == "arquivada" { format!("{n}: arquivada") } else { format!("{n}: voltou pra v{}", r["restored"]) };
+        r["agentVersion"] = serde_json::json!(agent_versions::bump_agent(&cd, &agente, now_ms(), "voltar", &what, None, None)?);
+    }
+    Ok(r)
+}
+
+#[tauri::command(async)]
+pub fn learn_revert(state: State<AppState>, repo: Option<String>, name: String, reason: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = repo_or(&state, repo)?;
+    revert(&repo, &name, reason.as_deref().unwrap_or(""))
+}
+
+/// Histórico de uma skill aprendida (versões + motivo) pra tela — lido sob demanda, nunca em laço.
+#[tauri::command(async)]
+pub fn learn_history(state: State<AppState>, repo: Option<String>, name: String) -> Result<serde_json::Value, String> {
+    let repo = repo_or(&state, repo)?;
+    Ok(agent_versions::read_skill_history(&repo.join(".cardume"), &skill_name(&name)).unwrap_or(serde_json::Value::Null))
 }
 
 #[tauri::command(async)]
@@ -453,6 +504,30 @@ mod tests {
         assert_eq!(read_pending(&r).unwrap().len(), 1);
         assert!(accept(&r, &personal, "nao-existe", None).is_err());
         let _ = std::fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn learn_accept_com_agente_versiona_e_voltar_restaura_byte_a_byte() {
+        let r = tmp_repo("rev");
+        let personal = r.join("home-skills");
+        queue(&r, serde_json::json!([
+            { "id": "v1", "kind": "skill", "taskId": "t1", "taskTitle": "T", "agente": "nyx", "skill": skill("rodar-testes", "criar", "## Passo a passo\nnpm test") },
+            { "id": "v2", "kind": "skill", "taskId": "t2", "taskTitle": "T", "agente": "nyx", "skill": skill("rodar-testes", "atualizar", "## Passo a passo\nnpm test && lint") }
+        ]));
+        let a = accept(&r, &personal, "v1", None).unwrap();
+        assert_eq!(a["version"], 1);
+        assert_eq!(a["agentVersion"], 2, "aceitar aprendizado com dono cria versão do agente");
+        let md = r.join(".claude").join("skills").join("rodar-testes").join("SKILL.md");
+        let v1 = std::fs::read(&md).unwrap();
+        let b = accept(&r, &personal, "v2", None).unwrap();
+        assert_eq!(b["version"], 2);
+        assert_eq!(b["agentVersion"], 3);
+        let back = revert(&r, "rodar-testes", "lint quebra no CI").unwrap();
+        assert_eq!(back["action"], "restaurada");
+        assert_eq!(std::fs::read(&md).unwrap(), v1, "byte a byte");
+        assert_eq!(back["agentVersion"], 4);
+        let h = agent_versions::read_skill_history(&r.join(".cardume"), "rodar-testes").unwrap();
+        assert_eq!(h["versions"].as_array().unwrap().last().unwrap()["reason"], "lint quebra no CI");
     }
 
     #[test]

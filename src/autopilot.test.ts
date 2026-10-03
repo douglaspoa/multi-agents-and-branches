@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canStartIn, lockFile, normalizePlan, propagateBlocked, readState, requestStop, runAutopilot, runnable, stateFile, FIRST_COMMIT_MSG, type ApTaskState } from "./autopilot.ts";
+import { canStartIn, lockFile, renderReport, normalizePlan, propagateBlocked, readState, requestStop, runAutopilot, runnable, stateFile, FIRST_COMMIT_MSG, type ApTaskState } from "./autopilot.ts";
 import { Orchestrator } from "./orchestrator.ts";
 import { Store } from "./store.ts";
 import { tempHome } from "./testing/temp-home.ts";
@@ -273,6 +273,8 @@ test("teto: retomar com o mesmo teto (já gasto) é recusado com erro humano; co
     } finally { store.close(); }
     const st2 = await runAutopilot({ dir: e.dir, budgetUsd: 0, log: quiet });
     assert.equal(st2.phase, "done");
+    // 0 explícito continua "sem teto" (compatibilidade, mesa 03/10) — e o relatório diz isso com todas as letras
+    assert.match(renderReport(st2, null, { costs: new Map(), questions: [] }), /sem teto \(explícito\)/);
   } finally { e.done(); }
 });
 

@@ -12,7 +12,7 @@ function renderGraph(){
   const commits=state.graph||[];
   const mainCommits=commits.filter(c=>{ const r=parseRefs(c.refs); return r.includes('main')||r.includes('master')||!(c.parents||[]).length||true; }).slice(0,14);
   const tasks=(state.tasks||[]).filter(t=>t.kind!=='review' && t.status!=='draft' && notHidden(t));
-  const ORDER={running:0,thinking:0,queued:1,'plan-review':1,paused:1,error:2,conflict:2,review:3,aborted:4,merged:5};
+  const ORDER={running:0,thinking:0,queued:1,'plan-review':1,'needs-you':1,paused:1,error:2,conflict:2,review:3,aborted:4,merged:5};
   tasks.sort((a,b)=>(ORDER[a.status]??3)-(ORDER[b.status]??3) || taskTs(b)-taskTs(a));
   // garante os commits de cada tarefa (lazy — re-renderiza quando chegar)
   tasks.forEach(t=>{ if(commitsNeedLoad(t.id) && !commitsLoading[t.id]){ const before=JSON.stringify(commitsCache[t.id]||null); loadCommits(t.id).then(c=>{ if(JSON.stringify(c||null)!==before) lastSig=''; }); } });
@@ -198,7 +198,7 @@ function railHi(){
 // L4 "esperando você" primeiro: pergunta aberta › plano › erro/conflito › pra revisar › PR aberto › rodando › fila › rascunho.
 // L1 projeto sem demanda viva vira UMA linha. L2 rodapé em português, sem o "− N/4 +" (o limite mora em Configurações).
 // @rail-mesa-inicio (testado em app/tests/barra-lateral.test.mjs)
-const RAIL_RANK={ asking:0, 'plan-review':1, error:2, conflict:2, aborted:2, review:3, delivered:3, 'pr-open':4, running:5, thinking:5, queued:6, paused:6, waiting:6, draft:7 };
+const RAIL_RANK={ asking:0, 'plan-review':1, 'needs-you':1, error:2, conflict:2, aborted:2, review:3, delivered:3, 'pr-open':4, running:5, thinking:5, queued:6, paused:6, waiting:6, draft:7 };
 function railRank(st){ const r=RAIL_RANK[st]; return r==null?6:r; }
 // "esperando você" = as etapas da Central que pedem o humano: aguardando você + prontas pra revisar
 const RAIL_VOCE=new Set(['aguardando','prontas']);

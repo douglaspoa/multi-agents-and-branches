@@ -92,7 +92,8 @@ test('dailyBtnState: escrevendo › carregando › sem atividade › livre (tít
 test('cfgValidate: faixas com aviso em vez de ajuste silencioso', () => {
   const ok = { cap: '5', cost: '25', brl: '5,5', slots: '4', retry: '60' };
   assert.equal(cfgValidate(ok), null);
-  assert.equal(cfgValidate({ ...ok, cap: '0', cost: '0', retry: '0' }), null);
+  assert.equal(cfgValidate({ ...ok, cost: '0', retry: '0' }), null);
+  assert.equal(cfgValidate({ ...ok, cap: '0' }).field, 'cfgCap', 'teto sempre ligado: 0 não desliga');
   assert.equal(cfgValidate({ ...ok, cap: '-1' }).field, 'cfgCap');
   assert.equal(cfgValidate({ ...ok, cost: '' }).field, 'cfgCost');
   assert.equal(cfgValidate({ ...ok, brl: '0' }).field, 'cfgBrl');

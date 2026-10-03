@@ -261,7 +261,7 @@ export function applyHook(store: Store, taskId: string, eff: HookEffect): void {
   if (eff.claim) {
     try { store.addClaim(taskId, agent, eff.claim.path, eff.claim.mode); } catch { /* claim é melhor-esforço */ }
   }
-  for (const e of eff.events) store.addEvent(taskId, e.agent ?? agent, e.type, e.text, e.ok, e.agent ? undefined : role?.role);
+  for (const e of eff.events) store.addEvent(taskId, e.agent ?? agent, e.type, e.text, e.ok, e.agent ? undefined : role?.role, e.agent ? undefined : role?.agentId);
 }
 
 // ======================= custo pela statusLine =======================
@@ -295,7 +295,7 @@ export function recordStatuslineCost(store: Store, taskId: string, j: Record<str
     try { spec = JSON.parse(task.spec_json); } catch { /* sem spec */ }
     const role = spec?.roles?.find((r) => r.role === "builder") ?? spec?.roles?.[0];
     const model = typeof j?.model?.id === "string" ? j.model.id : role?.model;
-    store.addCost(taskId, role?.name || task.agent, role?.role ?? "builder", delta, 0, 0, 0, "claude", model);
+    store.addCost(taskId, role?.name || task.agent, role?.role ?? "builder", delta, 0, 0, 0, "claude", model, 0, role?.agentId);
   }
   return delta;
 }

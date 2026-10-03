@@ -31,7 +31,7 @@ function pilotoValidate(f){
   if(!(parallel>=1 && parallel<=PILOTO_MAX_PAR)) return { ok:false, err:`Tarefas ao mesmo tempo: de 1 a ${PILOTO_MAX_PAR}.` };
   if(!(attempts>=1 && attempts<=PILOTO_MAX_ATT)) return { ok:false, err:`Tentativas por tarefa: de 1 a ${PILOTO_MAX_ATT}.` };
   const budgetUsd=pilotoMoney(f.budget);
-  if(Number.isNaN(budgetUsd)) return { ok:false, err:'Teto de custo: um valor em US$ (0 ou vazio = sem teto).' };
+  if(Number.isNaN(budgetUsd)) return { ok:false, err:'Teto de custo: um valor em US$ (vazio = padrão de US$ 20).' };
   const engine=PILOTO_ENGINES.some(e=>e[0]===f.engine)?f.engine:'claude';
   return { ok:true, args:{ idea, platform, name:String(f.name||'').trim()||null, engine, model:String(f.model||'').trim()||null, parallel, attempts, budgetUsd } };
 }
@@ -52,7 +52,7 @@ function pilotoFormHtml(f, busy, err){
     +`<div class="pil-row">`
       +`<label>Tarefas ao mesmo tempo <input id="pilPar" type="number" min="1" max="${PILOTO_MAX_PAR}" value="${escA(f.parallel)}"></label>`
       +`<label>Tentativas por tarefa <input id="pilAtt" type="number" min="1" max="${PILOTO_MAX_ATT}" value="${escA(f.attempts)}"></label>`
-      +`<label>Teto de custo (US$) <input id="pilBudget" type="text" inputmode="decimal" value="${escA(f.budget)}" placeholder="sem teto"></label>`
+      +`<label>Teto de custo (US$) <input id="pilBudget" type="text" inputmode="decimal" value="${escA(f.budget)}" placeholder="padrão US$ 20"></label>`
     +`</div>`
     +`<div class="pil-note dim">A pasta nasce em Documentos › Starfork. Teto de custo: deixe vazio ou ponha 0 pra não ter teto. Ao bater o teto, o piloto para entre passos e escreve o relatório. Dá pra parar e continuar quando quiser.</div>`
     +(err?`<div class="pil-err" role="alert">${esc(err)}</div>`:'')

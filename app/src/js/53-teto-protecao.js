@@ -11,14 +11,16 @@
 // A pergunta do teto é uma PENDÊNCIA sintética (id negativo) injetada no snapshot: assim ela
 // aparece em TODO lugar que já sabe mostrar "aguardando você" (quadro, aba, notificação,
 // conversa com os botões de opção) sem um caminho paralelo. resolvePending() desvia ids < 0 pra cá.
-function budgetOf(t){ const b=((t&&t.spec)||{}).budgetUsd; return (b!=null && b!=='' && +b>=0) ? +b : costCapDefault(); }
+// teto SEMPRE ligado (mesa 03/10): 0 não é mais "sem teto" — vale o padrão de Configurações
+function budgetOf(t){ const b=((t&&t.spec)||{}).budgetUsd; return (b!=null && b!=='' && +b>0) ? +b : costCapDefault(); }
 function budgetPendId(taskId){ let h=0; for(const ch of String(taskId)) h=(h*31+ch.charCodeAt(0))|0; return -(Math.abs(h)%2000000000+1); }
-const BUDGET_STEP_TXT='Continuar com mais ';
+// liberar mais NUNCA é um clique só (veto da Carla + pedido do Rafa): é sempre o VALOR escrito e o MOTIVO, que vai pro PR
+const BUDGET_STOP_TXT='Parar aqui';
 function budgetPrompt(t, hit){
-  const cap=+hit.cap||budgetOf(t);
-  return `A tarefa “${t.title||t.id}” chegou no teto de ${fmtCost(cap)}. Já gastou ${fmtCost(+hit.usd||0)}.\n\n`+
-    (hit.mode==='stopped' ? 'O agente foi parado (neste sistema não dá pra congelar). ' : 'O agente está pausado — nada se perde. ')+
-    'Continuar libera mais um teto igual; parar deixa o trabalho como está, pra você revisar.';
+  const cap=+hit.cap||budgetOf(t), usd=+hit.usd||0, pct=Math.round(usd/(cap||1)*100);
+  return `A tarefa “${t.title||t.id}” já usou ${fmtCost(usd)} de ${fmtCost(cap)} (${pct}% do teto).\n\n`+
+    (hit.mode==='stopped' ? 'O agente foi parado (neste sistema não dá pra congelar). ' : hit.mode==='etapa' ? 'Parei antes da próxima etapa — nada se perde. ' : 'O agente está pausado — nada se perde. ')+
+    'Pra seguir, escreva quanto liberar e o motivo (ex.: “liberar 2 porque falta o teste de login”) — o motivo vai pro PR. Parar deixa o trabalho como está, pra você revisar.';
 }
 // chamada no refresh ANTES do detectNotifs: a pergunta nova vira notificação "Precisa de você"
 function budgetInject(snap){
@@ -26,10 +28,9 @@ function budgetInject(snap){
   const pend=Array.isArray(snap.pending)?snap.pending:(snap.pending=[]);
   for(const t of snap.tasks){
     const hit=(t.spec||{}).budgetHit; if(!hit) continue;
-    if(!(t.status==='paused' || (hit.mode==='stopped' && t.status==='review'))) continue;
-    const cap=+hit.cap||budgetOf(t);
+    if(!(t.status==='paused' || t.status==='needs-you' || (hit.mode==='stopped' && t.status==='review'))) continue;
     pend.push({ id:budgetPendId(t.id), taskId:t.id, agent:'Starfork', kind:'budget', createdAt:+hit.at||0,
-      prompt:budgetPrompt(t, hit), options:[BUDGET_STEP_TXT+fmtCost(cap,{usdOnly:true}), 'Parar aqui'] });
+      prompt:budgetPrompt(t, hit), options:[BUDGET_STOP_TXT] });
   }
 }
 const budgetBusy=new Set();
@@ -61,11 +62,13 @@ function budgetWatch(){
       continue;
     }
     if(sp.budgetHit){
-      // retomada por outro caminho (▶ retomar, nova mensagem): a pergunta caducou → libera mais um teto
-      if(active){ budgetBusy.add(t.id); invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetHit:null, budgetUsd:Math.max(cap, spent)+(costCapDefault()||cap||5) } }).catch(e=>console.error('teto', e)).finally(()=>budgetBusy.delete(t.id)); }
+      // retomada por outro caminho (▶ retomar, nova mensagem): a pergunta caducou, mas o teto NÃO sobe sozinho —
+      // limpa a marca e, se o gasto segue ≥ 80%, o próximo tick pausa e pergunta de novo (liberar = valor + motivo)
+      if(active){ budgetBusy.add(t.id); invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetHit:null, needsYou:null } }).catch(e=>console.error('teto', e)).finally(()=>budgetBusy.delete(t.id)); }
       continue;
     }
-    if(!active || !(cap>0) || spent<cap) continue;
+    // pausa a 80% do teto (o motor também confere antes de cada etapa — aqui é o meio de um turno longo)
+    if(!active || capCheck(spent, cap)==='ok') continue;
     // tarefa que já tinha gastado além do teto PADRÃO antes de ter um teto próprio (ex.: criada antes do
     // teto existir): não congela no meio do trabalho — o teto passa a contar a partir do gasto atual
     if((sp.budgetUsd==null || sp.budgetUsd==='') && taskCreatedMs(t)<BUDGET_SINCE_MS){
@@ -96,33 +99,51 @@ async function budgetAnswer(pendId, answer){
     if(stop){
       // parar aqui: encerra o turno congelado e volta pra revisão (sem a notificação de "pronta")
       if(hit.mode!=='stopped'){ budgetQuiet.add(t.id); await invoke('stop_task',{ taskId:t.id }); }
-      await invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetHit:null } });
+      await invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetHit:null, needsYou:null } });
       toast('Parada no teto — o trabalho ficou como está','ok');
     } else {
-      const next=+(Math.max(cap, +hit.usd||0)+(cap||costCapDefault()||5)).toFixed(2);
-      await invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetHit:null, budgetUsd:next } });
-      if(hit.mode==='stopped'){ if(typeof talkTask==='function') await talkTask(t.id, 'Pode continuar de onde parou (o teto de custo foi ampliado).'); }
-      else await invoke('resume_task',{ taskId:t.id });
-      toast('Teto ampliado pra '+fmtCost(next),'ok');
+      // liberar = valor + motivo escritos (conversa, celular ou a seção da tarefa) — sem os dois, nada muda
+      const r=parseRelease(answer); if(!r.ok) throw new Error(r.why);
+      budgetBusy.delete(t.id);
+      await budgetRelease(t, r.usd, r.reason);
     }
   }
   // o erro SOBE (quem respondeu mostra e destrava as opções): antes era engolido aqui e a conversa achava que
   // a resposta tinha ido — opções travadas e a tarefa parada no teto sem aviso
   finally{ budgetBusy.delete(t.id); lastSig=''; refresh().catch(()=>{}); }
 }
+// LIBERAR MAIS (P6): sobe o teto pelo valor escrito, guarda {valor, motivo} em spec.budgetReleases (vai pro PR) e
+// retoma do jeito que parou: pausada → continua o processo; parada → manda seguir; entre etapas (motor) → ▶.
+// Liberar pouco demais (ainda ≥ 80% do teto novo) só pararia de novo na hora: recusa dizendo o mínimo.
+async function budgetRelease(t, usd, reason){
+  const r=releaseCheck(usd, reason); if(!r.ok) throw new Error(r.why);
+  const sp=t.spec||{}, hit=sp.budgetHit||null, cap=budgetOf(t), spent=taskCost(t.id).usd;
+  const capAfter=+(cap+r.usd).toFixed(2);
+  if(capCheck(spent, capAfter)!=='ok'){ const min=Math.max(0.01, Math.ceil((spent/CAP_PAUSE_AT-cap)*100+1)/100); throw new Error(`com ${fmtCost(r.usd,{usdOnly:true})} a tarefa ainda fica acima de 80% do teto — libere pelo menos ${fmtCost(min,{usdOnly:true})}`); }
+  const rel={ usd:r.usd, reason:r.reason, at:Date.now(), capBefore:cap, capAfter };
+  budgetBusy.add(t.id);
+  try{
+    await invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetUsd:capAfter, budgetHit:null, needsYou:null, budgetReleases:[...(Array.isArray(sp.budgetReleases)?sp.budgetReleases:[]), rel] } });
+    if(hit && hit.mode==='stopped'){ if(typeof talkTask==='function') await talkTask(t.id, 'Pode continuar de onde parou (o teto de custo foi ampliado).'); }
+    else if(hit && hit.mode==='etapa') await invoke('start_task',{ taskId:t.id });
+    else if(hit || t.status==='paused') await invoke('resume_task',{ taskId:t.id });
+    toast('Liberado: teto agora é '+fmtCost(capAfter,{usdOnly:true})+' — o motivo vai pro PR','ok');
+  } finally { budgetBusy.delete(t.id); lastSig=''; refresh().catch(()=>{}); }
+}
 // teto escolhido na criação (planner / Como executar) → vai pro spec depois do new_task
 let ntBudgetPending=null;
 function budgetFieldHtml(id){
   const v=ntBudgetPending!=null?ntBudgetPending:costCapDefault();
-  return `<label class="budgetfld" title="Quando o custo desta tarefa chegar aqui, ela pausa e pergunta se continua. 0 = sem teto."><span>parar e me perguntar se passar de US$</span><input class="in" id="${id}" type="number" min="0" step="1" value="${escA(String(v))}"><span class="dim" data-brl="${id}">${v>0?'≈ R$ '+fmtNumBR(v*usdBrlRate(),true):'sem teto'}</span></label>`;
+  return `<label class="budgetfld" title="Teto sempre ligado: a 80% dele a tarefa para e pergunta. Liberar mais pede o valor e o motivo."><span>teto da tarefa US$</span><input class="in" id="${id}" type="number" min="0.5" step="0.5" value="${escA(String(v))}"><span class="dim" data-brl="${id}">≈ R$ ${fmtNumBR(v*usdBrlRate(),true)} · para a 80%</span></label>`;
 }
 function budgetFieldWire(id){
   const el=$id(id); if(!el) return;
-  el.oninput=()=>{ const v=Math.max(0, parseFloat(el.value)||0); ntBudgetPending=v; const s=document.querySelector(`[data-brl="${id}"]`); if(s) s.textContent=v>0?'≈ R$ '+fmtNumBR(v*usdBrlRate(),true):'sem teto'; };
+  // 0/vazio não desliga: vira o padrão de Configurações (o teto fica sempre ligado)
+  el.oninput=()=>{ const raw=parseFloat(el.value); const v=raw>0?raw:costCapDefault(); ntBudgetPending=v; const s=document.querySelector(`[data-brl="${id}"]`); if(s) s.textContent='≈ R$ '+fmtNumBR(v*usdBrlRate(),true)+' · para a 80%'; };
 }
 async function budgetApply(taskId){
-  const v=ntBudgetPending; ntBudgetPending=null;
-  if(!taskId || v==null || v===costCapDefault()) return; // igual ao padrão: não grava (segue o padrão)
+  const v=ntBudgetPending>0?ntBudgetPending:costCapDefault(); ntBudgetPending=null;
+  if(!taskId) return; // grava SEMPRE (inclusive igual ao padrão): o motor lê o teto do spec antes de cada etapa
   try{ await invoke('patch_task_spec',{ taskId:String(taskId), patch:{ budgetUsd:v } }); }catch(e){ console.error('teto da tarefa', e); }
 }
 // estimativa grosseira (nº de agentes × faixa por modelo) — mesma régua do "Como executar?"

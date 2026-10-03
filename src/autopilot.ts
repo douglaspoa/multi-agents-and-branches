@@ -25,6 +25,8 @@ export const AP_PLATFORMS: ApPlatform[] = ["web", "ios", "android", "mobile"];
 /** Limites do piloto — os MESMOS nas três camadas: aqui (motor), app/src-tauri/src/autopilot.rs
  * (AP_MAX_PARALLEL/AP_MAX_ATTEMPTS) e app/src/js/56-piloto.js (PILOTO_MAX_PAR/PILOTO_MAX_ATT). */
 export const AP_MAX_PARALLEL = 4;
+/** Teto padrão do piloto (mesa 03/10, veto da Carla: nada que gaste começa sem teto ligado por padrão). 0 explícito = sem teto. */
+export const AP_DEFAULT_BUDGET_USD = 20;
 export const AP_MAX_ATTEMPTS = 5;
 /** Fases em que o piloto terminou (o processo saiu ou vai sair). */
 export const AP_END_PHASES: ApPhase[] = ["done", "stopped", "budget", "failed"];
@@ -591,7 +593,7 @@ export function renderReport(s: ApState, epic: ApEpic | null, extra: { costs: Ma
   for (const q of extra.questions) { L.push(`- ${q}`); any = true; }
   if (!any) L.push("_(nenhuma registrada)_");
   L.push("");
-  L.push("## Custo", "", `Total: **${fmtUsd(s.costUsd)}**${s.planCostUsd ? ` (planejamento: ${fmtUsd(s.planCostUsd)})` : ""}${s.budgetUsd > 0 ? ` · teto: ${fmtUsd(s.budgetUsd)}` : ""}. Na aba Uso aparece com a origem "Piloto automático" (planejamento) e "Tarefas". Em plano de assinatura o valor é o equivalente em API.`, "");
+  L.push("## Custo", "", `Total: **${fmtUsd(s.costUsd)}**${s.planCostUsd ? ` (planejamento: ${fmtUsd(s.planCostUsd)})` : ""}${s.budgetUsd > 0 ? ` · teto: ${fmtUsd(s.budgetUsd)}` : " · sem teto (explícito)"}. Na aba Uso aparece com a origem "Piloto automático" (planejamento) e "Tarefas". Em plano de assinatura o valor é o equivalente em API.`, "");
   L.push("## Como rodar o app", "");
   let readme = "";
   try { readme = readFileSync(join(s.dir, "README.md"), "utf8"); } catch { /* sem README */ }
@@ -651,7 +653,7 @@ async function pilot(dir: string, prev: ApState | null, idea: string, o: Autopil
   const name = (o.name ?? prev?.name ?? "").trim() || idea.split(/\s+/).slice(0, 5).join(" ");
   const now = Date.now();
   const s: ApState = prev ?? {
-    version: 1, idea, name, platform, engine: o.engine ?? "claude", model: o.model, parallel: 2, attempts: 2, budgetUsd: 0, dir,
+    version: 1, idea, name, platform, engine: o.engine ?? "claude", model: o.model, parallel: 2, attempts: 2, budgetUsd: AP_DEFAULT_BUDGET_USD, dir,
     epicId: "", epicTitle: "", phase: "starting", lastPhase: "starting", pid: process.pid, runs: 0, startedAt: now, updatedAt: now, costUsd: 0, tasks: [], events: [],
   };
   const setPhase = (p: ApPhase) => { s.phase = p; if (!AP_END_PHASES.includes(p)) s.lastPhase = p; };

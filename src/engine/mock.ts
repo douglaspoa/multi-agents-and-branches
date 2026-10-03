@@ -27,6 +27,9 @@ export class MockEngine implements AgentEngine {
     } else {
       yield* this.build(input);
     }
+    // custo por PAPEL (testes do teto/ciclo): CARDUME_MOCK_ROLE_COST_USD vale pra todo papel, inclusive revisão
+    const per = Number(process.env.CARDUME_MOCK_ROLE_COST_USD);
+    if (per > 0) yield { type: "note", text: `custo do turno (mock, ${input.role})`, cost: { usd: per, inTok: 500, outTok: 50 } };
   }
 
   private async *plan(input: RunInput): AsyncIterable<AgentEvent> {
@@ -86,7 +89,7 @@ export class MockEngine implements AgentEngine {
     // PILOTO AUTOMÁTICO (CARDUME_AUTOPILOT=1): o mock também PROVA os requisitos (requirements.json com
     // evidência real no disco), pro gate do piloto ter o que verificar sem IA. Marcadores no texto do
     // requisito simulam prova que falha: "[mock:falha-N]" reprova as N primeiras tentativas; "[mock:falha-sempre]" nunca passa.
-    if (process.env.CARDUME_AUTOPILOT === "1") {
+    if (process.env.CARDUME_AUTOPILOT === "1" || process.env.CARDUME_MOCK_PROVE === "1") {
       const art = join(cwd, ".cardume", "artifacts");
       await mkdir(art, { recursive: true });
       const counter = join(cwd, ".cardume", "mock-attempts");
@@ -118,6 +121,20 @@ export class MockEngine implements AgentEngine {
     await sleep(step);
     yield { type: "read", text: "lendo o diff da branch (git diff base...HEAD)" };
     await sleep(step);
+    // VEREDITO (P3): CARDUME_MOCK_VERDICTS="muda,aprova" dá um por rodada (o último se repete); "ilegivel" não escreve
+    // linha de veredito. Sem a variável: aprova.
+    const list = String(process.env.CARDUME_MOCK_VERDICTS ?? "aprova").split(",").map((x) => x.trim()).filter(Boolean);
+    const counter = join(input.cwd, ".cardume", "mock-review-round");
+    let n = 0;
+    try { n = Number((await readFile(counter, "utf8")).trim()) || 0; } catch { /* 1ª rodada */ }
+    await mkdir(join(input.cwd, ".cardume"), { recursive: true });
+    await writeFile(counter, String(n + 1), "utf8");
+    const v = list[Math.min(n, list.length - 1)] ?? "aprova";
+    const body = v === "muda" ? "VEREDITO: muda\n- cobrir o caso de lista vazia\n- nomear melhor a função principal\n"
+      : v === "ilegivel" ? "Revisei e parece ok, mas não tenho certeza.\n"
+      : "VEREDITO: aprova\n";
+    await writeFile(join(input.cwd, ".cardume", "VEREDITO.md"), body, "utf8");
+    yield { type: "write", text: `.cardume/VEREDITO.md — ${v}`, ok: true };
     // O Review fatual é montado pelo orquestrador (a partir do diff real).
     yield { type: "note", text: "resumo de revisão gerado · pronto para review humano", status: "review" };
   }

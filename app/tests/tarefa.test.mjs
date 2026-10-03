@@ -120,11 +120,19 @@ test('provas/artefatos: invalidação durante a carga descarta o resultado velho
 test('budgetAnswer: pergunta que sumiu e falha do backend viram ERRO (a tela destrava)', async () => {
   const teto = readFileSync(new URL('../src/js/53-teto-protecao.js', import.meta.url), 'utf8');
   const m = teto.match(/async function budgetAnswer\([^)]*\)\{[\s\S]*?\n\}\n/); assert.ok(m);
+  const ciclo = readFileSync(new URL('../src/js/60-ciclo.js', import.meta.url), 'utf8');
+  const pure = ciclo.slice(ciclo.indexOf('// @ciclo-puro-inicio'), ciclo.indexOf('// @ciclo-puro-fim'));
   const c = ctxWith({ budgetBusy: new Set(), budgetQuiet: new Set(), budgetOf: () => 5, costCapDefault: () => 5, fmtCost: (x) => 'US$ ' + x, failOn: 'patch_task_spec' });
-  vm.runInContext(m[0] + '\nthis.budgetAnswer=budgetAnswer;', c);
+  c.budgetRelease = async (t, usd, why) => { c.calls.push(['budgetRelease', usd, why]); await c.invoke('patch_task_spec', {}); };
+  vm.runInContext(pure + m[0] + '\nthis.budgetAnswer=budgetAnswer;', c);
   await assert.rejects(c.budgetAnswer(-1, 'Continuar'), /já não está aberta/);
   c.state.pending = [{ id: -1, taskId: 't1' }]; c.state.tasks = [{ id: 't1', spec: { budgetHit: { cap: 5, usd: 5.2 } } }];
-  await assert.rejects(c.budgetAnswer(-1, 'Continuar'), /falhou patch_task_spec/);
+  // liberar SEMPRE pede valor + motivo (veto da Carla): "Continuar" sozinho não sobe o teto
+  await assert.rejects(c.budgetAnswer(-1, 'Continuar'), /escreva quanto liberar/);
+  await assert.rejects(c.budgetAnswer(-1, 'liberar 2'), /motivo/);
+  assert.ok(!c.calls.some((x) => x[0] === 'budgetRelease'), 'sem motivo, nada é liberado');
+  await assert.rejects(c.budgetAnswer(-1, 'liberar 2 porque falta o teste de login'), /falhou patch_task_spec/);
+  assert.deepEqual(c.calls.find((x) => x[0] === 'budgetRelease').slice(1), [2, 'falta o teste de login']);
   assert.ok(!c.calls.some((x) => x[0] === 'showErr'), 'quem mostra o erro é quem respondeu (sem mensagem dupla)');
 });
 

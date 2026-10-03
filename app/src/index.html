@@ -31,6 +31,7 @@
 <link rel="stylesheet" href="css/94-ideia.css">
 <link rel="stylesheet" href="vendor/xterm/xterm.css">
 <link rel="stylesheet" href="css/95-terminal.css">
+<link rel="stylesheet" href="css/95-ciclo.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -246,6 +247,8 @@
       <input class="in" id="ntTitle" placeholder="ex.: Adicionar tela de login">
       <label>Objetivo</label>
       <textarea class="in ta" id="ntObj" rows="7" placeholder="o que precisa ser feito e por quê — cole contexto à vontade: sintomas, telas, critérios, links… · digite / pra referenciar uma tarefa já feita · ⌘V ou arraste um print pra anexar"></textarea>
+      <label style="margin-top:12px">Tipo de entrega <span class="dim" style="text-transform:none;letter-spacing:0">(muda as etapas, a equipe e o preço)</span></label>
+      <div id="ntKindHost"></div>
       </div>
       <div class="wstep" data-w="2">
       <div id="ntDeliverables" class="listed" style="display:none"></div>
@@ -503,6 +506,8 @@
       <button class="btn sm fwmore" id="fwMore" aria-label="Mais ações" title="mais ações: progresso, commit &amp; push, custo, preview no celular…"></button>
       <button class="btn sm fwclosebtn" id="fwClose" aria-label="Fechar a aba" title="fechar a aba (esc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
     </div>
+    <!-- o ciclo da tarefa (60-ciclo.js): faixa de etapas + a decisão "precisa de você" — fora do re-render do chat -->
+    <div class="fwciclo" id="fwCiclo" hidden></div>
     <!-- linha: as colunas do workspace + o painel Dispositivo DOCADO à direita (57-dispositivo.js) -->
     <div class="fwrow" id="fwRow">
       <div class="fwcols" id="fwCols">
@@ -760,5 +765,6 @@
 <script src="vendor/xterm/addon-fit.js"></script>
 <script src="js/60-terminal.js"></script>
 <script src="js/59-ideia.js"></script>
+<script src="js/60-ciclo.js"></script>
 </body>
 </html>

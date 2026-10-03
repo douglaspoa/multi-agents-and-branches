@@ -1,0 +1,682 @@
+{
+  "steps": [
+    {
+      "op": "write",
+      "name": "rodar-testes",
+      "content": "---\nname: rodar-testes\n---\n\nA: rode `npm test` — ação\n",
+      "action": "criar",
+      "agente": "nyx",
+      "at": 1,
+      "result": 1,
+      "expect": {
+        "skill": "---\nname: rodar-testes\n---\n\nA: rode `npm test` — ação\n",
+        "history": {
+          "name": "rodar-testes",
+          "current": 1,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v1.md"
+        ]
+      }
+    },
+    {
+      "op": "write",
+      "name": "rodar-testes",
+      "content": "---\nname: rodar-testes\n---\n\nB: rode tudo\r\nsem newline final",
+      "action": "atualizar",
+      "agente": "nyx",
+      "at": 2,
+      "result": 2,
+      "expect": {
+        "skill": "---\nname: rodar-testes\n---\n\nB: rode tudo\r\nsem newline final",
+        "history": {
+          "name": "rodar-testes",
+          "current": 2,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 2,
+              "at": 2,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v1.md",
+          "v2.md"
+        ]
+      }
+    },
+    {
+      "op": "revert",
+      "name": "rodar-testes",
+      "reason": "o B piorou a revisão",
+      "at": 3,
+      "result": {
+        "name": "rodar-testes",
+        "action": "restaurada",
+        "from": 2,
+        "to": 3,
+        "restored": 1,
+        "agente": "nyx"
+      },
+      "expect": {
+        "skill": "---\nname: rodar-testes\n---\n\nA: rode `npm test` — ação\n",
+        "history": {
+          "name": "rodar-testes",
+          "current": 3,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 2,
+              "at": 2,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 3,
+              "at": 3,
+              "action": "voltar",
+              "reason": "o B piorou a revisão",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v1.md",
+          "v2.md",
+          "v3.md"
+        ]
+      }
+    },
+    {
+      "op": "write",
+      "name": "rodar-testes",
+      "content": "C\n",
+      "action": "atualizar",
+      "agente": "nyx",
+      "at": 4,
+      "result": 4,
+      "expect": {
+        "skill": "C\n",
+        "history": {
+          "name": "rodar-testes",
+          "current": 4,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 2,
+              "at": 2,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 3,
+              "at": 3,
+              "action": "voltar",
+              "reason": "o B piorou a revisão",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 4,
+              "at": 4,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v1.md",
+          "v2.md",
+          "v3.md",
+          "v4.md"
+        ]
+      }
+    },
+    {
+      "op": "write",
+      "name": "rodar-testes",
+      "content": "D\n",
+      "action": "atualizar",
+      "agente": "nyx",
+      "at": 5,
+      "result": 5,
+      "expect": {
+        "skill": "D\n",
+        "history": {
+          "name": "rodar-testes",
+          "current": 5,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 2,
+              "at": 2,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 3,
+              "at": 3,
+              "action": "voltar",
+              "reason": "o B piorou a revisão",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 4,
+              "at": 4,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 5,
+              "at": 5,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v1.md",
+          "v2.md",
+          "v3.md",
+          "v4.md",
+          "v5.md"
+        ]
+      }
+    },
+    {
+      "op": "write",
+      "name": "rodar-testes",
+      "content": "E — ç\n",
+      "action": "atualizar",
+      "agente": "nyx",
+      "at": 6,
+      "result": 6,
+      "expect": {
+        "skill": "E — ç\n",
+        "history": {
+          "name": "rodar-testes",
+          "current": 6,
+          "archived": false,
+          "versions": [
+            {
+              "v": 2,
+              "at": 2,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 3,
+              "at": 3,
+              "action": "voltar",
+              "reason": "o B piorou a revisão",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 4,
+              "at": 4,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 5,
+              "at": 5,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 6,
+              "at": 6,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v2.md",
+          "v3.md",
+          "v4.md",
+          "v5.md",
+          "v6.md"
+        ]
+      }
+    },
+    {
+      "op": "write",
+      "name": "rodar-testes",
+      "content": "F\n",
+      "action": "atualizar",
+      "agente": "nyx",
+      "at": 7,
+      "result": 7,
+      "expect": {
+        "skill": "F\n",
+        "history": {
+          "name": "rodar-testes",
+          "current": 7,
+          "archived": false,
+          "versions": [
+            {
+              "v": 3,
+              "at": 3,
+              "action": "voltar",
+              "reason": "o B piorou a revisão",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 4,
+              "at": 4,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 5,
+              "at": 5,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 6,
+              "at": 6,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 7,
+              "at": 7,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v3.md",
+          "v4.md",
+          "v5.md",
+          "v6.md",
+          "v7.md"
+        ]
+      }
+    },
+    {
+      "op": "revert",
+      "name": "rodar-testes",
+      "reason": "voltar pro E",
+      "at": 8,
+      "result": {
+        "name": "rodar-testes",
+        "action": "restaurada",
+        "from": 7,
+        "to": 8,
+        "restored": 6,
+        "agente": "nyx"
+      },
+      "expect": {
+        "skill": "E — ç\n",
+        "history": {
+          "name": "rodar-testes",
+          "current": 8,
+          "archived": false,
+          "versions": [
+            {
+              "v": 4,
+              "at": 4,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 5,
+              "at": 5,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 6,
+              "at": 6,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 7,
+              "at": 7,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 8,
+              "at": 8,
+              "action": "voltar",
+              "reason": "voltar pro E",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v4.md",
+          "v5.md",
+          "v6.md",
+          "v7.md",
+          "v8.md"
+        ]
+      }
+    },
+    {
+      "op": "legacy",
+      "name": "antiga",
+      "content": "skill antiga sem histórico\n",
+      "expect": {
+        "skill": "skill antiga sem histórico\n",
+        "history": null,
+        "files": []
+      }
+    },
+    {
+      "op": "write",
+      "name": "antiga",
+      "content": "nova versão\n",
+      "action": "atualizar",
+      "agente": "",
+      "at": 9,
+      "result": 2,
+      "expect": {
+        "skill": "nova versão\n",
+        "history": {
+          "name": "antiga",
+          "current": 2,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 9,
+              "action": "legado",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            },
+            {
+              "v": 2,
+              "at": 9,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            }
+          ]
+        },
+        "files": [
+          "v1.md",
+          "v2.md"
+        ]
+      }
+    },
+    {
+      "op": "revert",
+      "name": "antiga",
+      "reason": "a antiga era melhor",
+      "at": 10,
+      "result": {
+        "name": "antiga",
+        "action": "restaurada",
+        "from": 2,
+        "to": 3,
+        "restored": 1,
+        "agente": ""
+      },
+      "expect": {
+        "skill": "skill antiga sem histórico\n",
+        "history": {
+          "name": "antiga",
+          "current": 3,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 9,
+              "action": "legado",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            },
+            {
+              "v": 2,
+              "at": 9,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            },
+            {
+              "v": 3,
+              "at": 10,
+              "action": "voltar",
+              "reason": "a antiga era melhor",
+              "taskId": "",
+              "agente": ""
+            }
+          ]
+        },
+        "files": [
+          "v1.md",
+          "v2.md",
+          "v3.md"
+        ]
+      }
+    },
+    {
+      "op": "write",
+      "name": "nova",
+      "content": "recém criada\n",
+      "action": "criar",
+      "agente": "lumen",
+      "at": 11,
+      "result": 1,
+      "expect": {
+        "skill": "recém criada\n",
+        "history": {
+          "name": "nova",
+          "current": 1,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 11,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "lumen"
+            }
+          ]
+        },
+        "files": [
+          "v1.md"
+        ]
+      }
+    },
+    {
+      "op": "revert",
+      "name": "nova",
+      "reason": "não serve pra nada aqui",
+      "at": 12,
+      "result": {
+        "name": "nova",
+        "action": "arquivada",
+        "from": 1,
+        "to": 2,
+        "restored": null,
+        "agente": "lumen"
+      },
+      "expect": {
+        "skill": null,
+        "history": {
+          "name": "nova",
+          "current": 2,
+          "archived": true,
+          "versions": [
+            {
+              "v": 1,
+              "at": 11,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "lumen"
+            },
+            {
+              "v": 2,
+              "at": 12,
+              "action": "arquivar",
+              "reason": "não serve pra nada aqui",
+              "taskId": "",
+              "agente": "lumen"
+            }
+          ]
+        },
+        "files": [
+          "arquivada.md",
+          "v1.md"
+        ]
+      }
+    },
+    {
+      "op": "agent",
+      "agentId": "nyx",
+      "change": "skill",
+      "what": "rodar-testes",
+      "at": 13,
+      "result": 2,
+      "expect": {
+        "agent": {
+          "agentId": "nyx",
+          "current": 2,
+          "versions": [
+            {
+              "v": 2,
+              "at": 13,
+              "change": "skill",
+              "what": "rodar-testes"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "agent",
+      "agentId": "nyx",
+      "change": "persona",
+      "what": "persona editada",
+      "persona": "Você revisa.",
+      "before": "Você revisa código.",
+      "at": 14,
+      "result": 3,
+      "expect": {
+        "agent": {
+          "agentId": "nyx",
+          "current": 3,
+          "versions": [
+            {
+              "v": 2,
+              "at": 13,
+              "change": "skill",
+              "what": "rodar-testes"
+            },
+            {
+              "v": 3,
+              "at": 14,
+              "change": "persona",
+              "what": "persona editada",
+              "persona": "Você revisa.",
+              "before": "Você revisa código."
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

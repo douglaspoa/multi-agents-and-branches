@@ -318,6 +318,7 @@ async function cloudIntentTick(){
         let body; try{ body=await invoke('pr_body_ai',{taskId:lid}); }catch(_){ body=prBodyOf(t); }
         // mesma seção "## Provas"/"## Verificação" do PR aberto pelo Mac (override do celular incluso)
         try{ if(typeof chkPrBodyExtra==='function') body=String(body||'')+chkPrBodyExtra(t); }catch(_){ }
+        try{ if(typeof cicloReportFor==='function') body=String(body||'')+cicloReportFor(t); }catch(_){ } // Relatório Starfork
         try{
           const url=await invoke('open_pr',{taskId:lid, base:lsGet('prBase:'+lid)||'main', title:t.title, body});
           prCache[lid]=undefined;
