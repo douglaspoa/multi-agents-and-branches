@@ -116,10 +116,14 @@
 /* pane pequeno (canvas em grade): folha compacta — sem descrição das opções, menos respiro */
 .tlsheethost.tight .tlot small,.tlsheethost.tight .tlkeys{display:none}
 .tlsheethost.tight .tlq{padding:8px 12px 2px;font-size:var(--fs-base)}
-.tlsheethost.tight .tlopt{padding:5px 8px}
-.tlsheethost.tight .tlother{padding:0 12px 6px}
+.tlsheethost.tight .tlopt{padding:3px 8px}
+.tlsheethost.tight .tlother{display:none} /* pane pequeno: "outra resposta" sai da folha — o compositor embaixo responde a pergunta da vez */
 .tlsheethost.tight .tlsf{padding:6px 10px}
-.tlsheethost.tight .tlsh{padding:6px 8px 6px 12px}
+.tlsheethost.tight .tlsh{padding:4px 8px 4px 10px}
+/* abas das perguntas numa linha só (o "Íris pergunta" sai — a borda lilás já diz quem pergunta): sobra lugar pras opções */
+.tlsheethost.tight .tlshk{display:none}
+.tlsheethost.tight .tlqtabs{flex-wrap:nowrap;overflow:hidden;min-width:0}
+.tlsheethost.tight .tlqt{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* a linha do ciclo (etapas + decisões) não engole o terminal num pane pequeno */
 html.sfpane .fw:has(.fwchat.tl) .fwciclo{max-height:34vh;overflow:auto}
 @media (prefers-reduced-motion:reduce){ .tlsheet{animation:none} .tlbar i{transition:none} }

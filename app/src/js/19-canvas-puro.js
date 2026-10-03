@@ -94,8 +94,27 @@ function cvSplitValid(raw, taskIds){
 // ---------- layout do grupo: lado a lado · empilhado · grade (foco grande à esquerda + 2 empilhadas) ----------
 const CV_LAYS=['side','stack','grid'];
 const CV_GUTTER=6; // px da divisória arrastável (trilho da grade)
-// layout efetivo: grade só existe com 3; com 2 a grade vira lado a lado
-function cvLayEff(n, lay){ return lay==='stack'?'stack':(lay==='grid' && n>=3)?'grid':'side'; }
+// Painel abaixo disto fica espremido (título quebrando em 4 linhas, número cortado): o layout escolhido só vale
+// enquanto CADA painel couber; senão o grupo troca sozinho (3 → grade, 2 → empilhado) e volta quando a janela alargar.
+const CV_PANE_MIN_W=460, CV_PANE_MIN_H=220, CV_GRID_SIDE_MIN_W=300;
+// o layout `lay` cabe numa área `box` ({ w, h } em px)? Sem medida (área escondida) = cabe
+function cvLayFits(n, lay, box){
+  if(!box || !(box.w>0) || !(box.h>0) || n<2) return true;
+  const G=CV_GUTTER*(n-1);
+  if(lay==='side') return (box.w-G)/n>=CV_PANE_MIN_W;
+  if(lay==='stack') return (box.h-G)/n>=CV_PANE_MIN_H;
+  if(lay==='grid') return box.w*0.44>=CV_GRID_SIDE_MIN_W && (box.h-CV_GUTTER)/2>=CV_PANE_MIN_H;
+  return true;
+}
+// layout efetivo: grade só existe com 3; com 2 a grade vira lado a lado. Com `box`: a escolha da pessoa vale
+// enquanto couber — senão 3 painéis viram grade e 2 viram empilhados (a escolha salva NÃO muda)
+function cvLayEff(n, lay, box){
+  const want=lay==='stack'?'stack':(lay==='grid' && n>=3)?'grid':'side';
+  if(cvLayFits(n, want, box)) return want;
+  // o automático: o 1º que cabe (3 → grade antes; 2 → empilhado antes); nenhum cabe → o padrão do nº de painéis
+  const alts=n>=3?['grid','side','stack']:['stack','side'];
+  return alts.find(l=>l!==want && cvLayFits(n, l, box)) || (n>=3?'grid':'stack');
+}
 // fração por painel (lista salva válida ou partes iguais)
 function cvFracs(n, l){ return (Array.isArray(l) && l.length===n) ? l.slice() : Array.from({ length:n }, ()=>1/n); }
 /**

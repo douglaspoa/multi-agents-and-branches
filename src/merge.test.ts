@@ -69,6 +69,8 @@ test("merge limpo segue funcionando", async () => {
     await orch.mergeTask("t-m");
     assert.equal(orch.store.getTask("t-m")!.status, "merged");
     assert.equal(git(repo, "show", "HEAD:app.txt"), "linha da tarefa");
+    const d = orch.store.getDiff("t-m")!; // tamanho do MOMENTO da integração (depois do merge o fork vira o HEAD)
+    assert.deepEqual([d.files, d.additions, d.deletions], [1, 1, 1]);
   } finally {
     orch.close();
     rmSync(root, { recursive: true, force: true });

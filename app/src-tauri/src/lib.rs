@@ -13,6 +13,7 @@ mod agent_stats;
 mod amostra;
 mod curador;
 mod ambiente;
+mod orfaos;
 mod device;
 mod ai_once;
 mod bin_resolve;
@@ -783,6 +784,43 @@ mod commit_info_tests {
         // sem worktree: pela branch no repo; branch que não existe → vazio
         assert_eq!(commit_info_in(&repo, "main", "homol", None).commits.len(), 2);
         assert!(commit_info_in(&repo, "main", "sumiu", None).commits.is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn diffstat_do_pr_grava_e_resposta_vazia_nao_zera() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE diffstat (task_id TEXT PRIMARY KEY, files INTEGER NOT NULL, additions INTEGER NOT NULL, deletions INTEGER NOT NULL, updated_at INTEGER NOT NULL); INSERT INTO diffstat VALUES ('t',924,132189,3107,1);").unwrap();
+        let get = |c: &Connection| c.query_row("SELECT files,additions,deletions FROM diffstat WHERE task_id='t'", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))).unwrap();
+        diffstat_from_pr(&c, "t", &serde_json::json!({ "additions": 412, "deletions": 57, "changedFiles": 9 }));
+        assert_eq!(get(&c), (9, 412, 57), "o número do PR substitui o inflado");
+        diffstat_from_pr(&c, "t", &serde_json::json!({ "additions": 0, "deletions": 0, "changedFiles": 0 }));
+        assert_eq!(get(&c), (9, 412, 57), "resposta sem arquivos não zera");
+    }
+    /// Ponto de bifurcação: o merge-base MAIS NOVO entre origin/main e main local. Main local defasada (caso real:
+    /// 171 commits atrás) não pode arrastar o avanço da main pro número da tarefa.
+    #[test]
+    fn merge_base_fica_o_mais_novo() {
+        let d = std::env::temp_dir().join(format!("sf-mb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let up = d.join("up"); std::fs::create_dir_all(&up).unwrap();
+        let c = |dir: &Path, m: &str| git(dir, &["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", m]);
+        git(&up, &["init", "-q", "-b", "main"]); c(&up, "base");
+        let repo = d.join("repo");
+        let o = Command::new("git").args(["clone", "-q", up.to_str().unwrap(), repo.to_str().unwrap()]).output().unwrap(); assert!(o.status.success());
+        for i in 0..5 { c(&up, &format!("avanço {i}")); }
+        git(&repo, &["fetch", "-q", "origin"]);
+        let wt = d.join("wt");
+        git(&repo, &["worktree", "add", "-q", "-b", "feat/x", wt.to_str().unwrap(), "origin/main"]);
+        c(&wt, "tarefa");
+        let head_origin = String::from_utf8_lossy(&Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "origin/main"]).output().unwrap().stdout).trim().to_string();
+        assert_eq!(merge_base_ref(&wt, "main", "HEAD"), head_origin, "main local 5 commits atrás: vale o fork na origin/main");
+        assert_eq!(merge_base_ref(&wt, "origin/main", "HEAD"), head_origin);
+        // o contrário: merge feito na main LOCAL (sem push) e trazido pra branch — vale o fork na main local
+        git(&repo, &["checkout", "-q", "main"]); git(&repo, &["merge", "-q", "--ff-only", "origin/main"]);
+        c(&repo, "só local");
+        git(&wt, &["-c", "user.email=a@b", "-c", "user.name=a", "merge", "-q", "--no-edit", "main"]);
+        let head_local = String::from_utf8_lossy(&Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "main"]).output().unwrap().stdout).trim().to_string();
+        assert_eq!(merge_base_ref(&wt, "main", "HEAD"), head_local, "origin não buscado não esconde o merge local");
         let _ = std::fs::remove_dir_all(&d);
     }
 }
@@ -6304,15 +6342,35 @@ fn merge_base_ref(dir: &PathBuf, base: &str, tip: &str) -> String {
     //    vazio (correto: nada pendente; o trabalho novo aparece como untracked em task_files).
     // NUNCA cai no <base> LOCAL quando o origin resolve: a main local costuma estar
     // defasada e arrasta dezenas de arquivos do avanço do main como se fossem da tarefa.
-    for cand in [format!("origin/{clean}"), clean.to_string()] {
-        if let Ok(o) = Command::new("git").arg("-C").arg(dir).args(["merge-base", &cand, tip]).output() {
-            if o.status.success() {
-                let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-                if !s.is_empty() { return s; }
-            }
+    // As DUAS bases contam: fica o merge-base MAIS PERTO do HEAD (o mais novo). A main local defasada (171 commits
+    // atrás, caso real) não arrasta o avanço da main; e um origin não buscado não esconde um merge feito localmente.
+    let mbs: Vec<String> = [format!("origin/{clean}"), clean.to_string()].iter().filter_map(|cand| {
+        let o = Command::new("git").arg("-C").arg(dir).args(["merge-base", cand, tip]).output().ok()?;
+        let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        (o.status.success() && !s.is_empty()).then_some(s)
+    }).collect();
+    match mbs.as_slice() {
+        [] => base.to_string(),
+        [one] => one.clone(),
+        [a, b, ..] => {
+            if a == b { return a.clone(); }
+            // a é ancestral de b → b é o mais novo
+            let a_old = Command::new("git").arg("-C").arg(dir).args(["merge-base", "--is-ancestor", a, b]).status().map(|s| s.success()).unwrap_or(false);
+            if a_old { b.clone() } else { a.clone() }
         }
     }
-    base.to_string()
+}
+
+/// Tamanho de uma tarefa integrada = o do PR no GitHub (gh `additions/deletions/changedFiles`). Só grava com números
+/// de verdade (PR sem arquivos = resposta incompleta — não zera o que havia).
+fn diffstat_from_pr(conn: &Connection, task_id: &str, v: &serde_json::Value) {
+    let (add, del, files) = (v["additions"].as_i64().unwrap_or(0), v["deletions"].as_i64().unwrap_or(0), v["changedFiles"].as_i64().unwrap_or(0));
+    if files <= 0 { return; }
+    let _ = conn.execute(
+        "INSERT INTO diffstat (task_id, files, additions, deletions, updated_at) VALUES (?1, ?2, ?3, ?4, ?5) \
+         ON CONFLICT(task_id) DO UPDATE SET files=excluded.files, additions=excluded.additions, deletions=excluded.deletions, updated_at=excluded.updated_at",
+        params![task_id, files, add, del, now_ms()],
+    );
 }
 fn task_diff_base(wt: &PathBuf, base: &str) -> String {
     merge_base_ref(wt, base, "HEAD")
@@ -7255,6 +7313,11 @@ struct PrInfo {
     gh_user: String,
     /// quando o PR foi aberto (ISO 8601 do GitHub; vazio = desconhecido) — linha do tempo e "do pedido ao PR"
     created_at: String,
+    /// tamanho do PR segundo o GitHub (+/− e arquivos) — a FONTE do número de uma tarefa integrada (o diff local
+    /// contra uma main defasada contava o avanço inteiro da main: "+132189 −3107 · 924 arquivos")
+    additions: i64,
+    deletions: i64,
+    changed_files: i64,
 }
 
 fn pr_is_bot(a: &str) -> bool {
@@ -7500,9 +7563,10 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), body: String::new(),
         comments: vec![], reviews: vec![], is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
         checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(), created_at: String::new(),
+        additions: 0, deletions: 0, changed_files: 0,
     };
     let mut vcmd = gh_contas::gh_in(&repo);
-    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName,createdAt"]).args(gh_repo_args(&repo)).current_dir(&repo);
+    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName,createdAt,additions,deletions,changedFiles"]).args(gh_repo_args(&repo)).current_dir(&repo);
     let view = output_timeout(vcmd, 12).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
     if !view.status.success() {
         let err = String::from_utf8_lossy(&view.stderr).to_string();
@@ -7653,6 +7717,8 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
                 ).unwrap_or(0);
                 // worktree mergeada não serve mais — libera o disco na hora
                 if flipped > 0 { if let Ok(repo) = repo_of(&state) { preview_kill(&state.procs, &task_id); remove_task_worktree(&repo, &conn, &task_id); } }
+                // o tamanho da tarefa integrada é o do PR (fonte única: diffstat — card, Entrega, celular leem dali)
+                diffstat_from_pr(&conn, &task_id, &v);
             }
         }
     }
@@ -7675,6 +7741,9 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         failing_checks,
         gh_user: me,
         created_at: v["createdAt"].as_str().unwrap_or("").to_string(),
+        additions: v["additions"].as_i64().unwrap_or(0),
+        deletions: v["deletions"].as_i64().unwrap_or(0),
+        changed_files: v["changedFiles"].as_i64().unwrap_or(0),
     })
 }
 
@@ -8510,6 +8579,8 @@ fn remove_worktree_dir(repo: &Path, wt: &Path) -> bool {
     if !(wt.starts_with(base.join("worktrees")) || wt.starts_with(base.join("reviews"))) || wt == repo {
         return false;
     }
+    // quem roda DENTRO da pasta (dev server da prévia, agente solto) morre antes — senão vira órfão servindo 404
+    orfaos::kill_in_dir(wt);
     let _ = Command::new("git").arg("-C").arg(repo).args(["worktree", "remove", "--force", "--force"]).arg(wt).output();
     if wt.exists() { let _ = std::fs::remove_dir_all(wt); }
     let _ = Command::new("git").arg("-C").arg(repo).args(["worktree", "prune"]).output();
@@ -9415,6 +9486,27 @@ fn preview_alive(url: String) -> Result<bool, String> {
     preview_alive_url(&url, 800)
 }
 
+/// Saúde da Prévia ANTES de mostrar um endereço local (nunca tela branca): a pasta da tarefa existe? o servidor
+/// responde algo além de 404/conexão recusada? `verdict`: ok | down (servidor parou) | gone (tarefa integrada, pasta
+/// removida). `tail` = fim do log da prévia (o que o app subiu), pra tela mostrar o erro curto.
+#[tauri::command(async)]
+fn preview_health(state: State<AppState>, task_id: String, url: String) -> Result<serde_json::Value, String> {
+    let (host, port) = preview_host_port(&url)?;
+    let wt = task_worktree(&state, &task_id);
+    let wt_gone = matches!(&wt, Err(e) if e == WT_GONE);
+    let path = orfaos::url_path(&url);
+    let status = orfaos::http_status(&host, port, &path, 1500);
+    let root_status = if status == Some(404) && path != "/" { orfaos::http_status(&host, port, "/", 1500) } else { status };
+    let tail = wt.as_ref().ok().map(|w| preview_tail(w, 12)).unwrap_or_default();
+    // integrada de verdade (merged/done) — cancelada/abortada não diz "já foi integrada"
+    let merged = (|| -> Option<bool> {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        let conn = open(&db).ok()?;
+        conn.query_row("SELECT status FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)).ok().map(|s| matches!(s.as_str(), "merged" | "done"))
+    })().unwrap_or(false);
+    Ok(serde_json::json!({ "verdict": orfaos::verdict(wt_gone, status, root_status), "wtGone": wt_gone, "status": status, "rootStatus": root_status, "finished": merged, "tail": tail }))
+}
+
 /// Como subir o preview desta tarefa: .cardume/preview.json (do agente) ou palpite
 /// (`guessed: true`). `url` = a última anunciada no chat, completa o palpite. null = não sei.
 #[tauri::command(async)]
@@ -9774,6 +9866,12 @@ pub fn run() {
             if let Err(e) = app_menu(app) { web_log(format!("[menu] não consegui montar o menu: {e}")); }
             // "Subir ambiente": derruba o que uma instância anterior (que caiu) deixou rodando
             std::thread::spawn(ambiente::sweep_boot);
+            // servidores de prévia cuja worktree já foi apagada (integrada/limpa) — a Prévia mostrava branco por eles
+            {
+                let mut projs = read_project_list();
+                if let Ok(r) = std::env::var("CARDUME_REPO") { projs.push(r); }
+                std::thread::spawn(move || orfaos::sweep_boot(projs));
+            }
             // depois do ENGINE_RESOURCE: o reparo usa o motor bundlado
             std::thread::spawn(claude_statusline_boot_repair);
             // MODO TERMINAL: gerenciador dos PTYs + varredura de terminais órfãos de uma execução que caiu
@@ -9864,6 +9962,7 @@ pub fn run() {
             mesa::mesa_read,
             mesa::mesa_list,
             preview_alive,
+            preview_health,
             preview_info,
             preview_start,
             preview_stop,
@@ -10289,6 +10388,7 @@ mod pr_status_tests {
             exists: true, number: 1, url: "u".into(), state: "OPEN".into(), decision: decision.into(), mergeable: String::new(), body: String::new(),
             comments: vec![], reviews: rs.clone(), is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
             checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(), created_at: String::new(),
+            additions: 0, deletions: 0, changed_files: 0,
         };
         let none = std::collections::HashSet::new();
         let info = mk("CHANGES_REQUESTED");

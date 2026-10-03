@@ -696,8 +696,8 @@ const FW_HEAD_TIGHT=560;
 function fwHeadWatch(){
   const head=document.querySelector('#fwOverlay .fwhead'); if(!head) return;
   if(FW_HEAD.head!==head){ FW_HEAD.head=head; if(FW_HEAD.ro) try{ FW_HEAD.ro.disconnect(); }catch(_){ }
-    if(typeof ResizeObserver==='function'){ FW_HEAD.ro=new ResizeObserver(()=>{ requestAnimationFrame(fwHeadFit); }); FW_HEAD.ro.observe(head); } }
-  requestAnimationFrame(fwHeadFit);
+    if(typeof ResizeObserver==='function'){ FW_HEAD.ro=new ResizeObserver(()=>{ setTimeout(fwHeadFit, 0); }); FW_HEAD.ro.observe(head); } }
+  setTimeout(fwHeadFit, 0); // timer: o rAF para com a janela coberta e o cabeçalho ficava com a medida velha
 }
 function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }

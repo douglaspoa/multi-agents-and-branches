@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { netEnv, netTimeoutMs, run } from "./util/run.ts";
+import { killInDir } from "./orfaos.ts";
 
 export interface WorktreeInfo {
   path: string;
@@ -204,6 +205,7 @@ export class GitService {
   }
 
   async worktreeRemove(path: string): Promise<void> {
+    await killInDir(path); // dev server/prévia rodando na pasta não fica órfão (servindo 404 → Prévia branca)
     await run("git", ["-C", this.repo, "worktree", "remove", "--force", path]);
   }
 
@@ -252,15 +254,37 @@ export class GitService {
     return true;
   }
 
-  /** Diff da branch da worktree contra a base (após commit). */
+  /**
+   * Ponto de bifurcação REAL da tarefa (espelho de `merge_base_ref` no Rust): merge-base do HEAD com origin/<base> E
+   * com <base> local — fica o MAIS NOVO. Antes era `<base>...HEAD` com a base LOCAL: main local 171 commits atrás
+   * (a branch nasce da origin/main) → o diff contava o avanço inteiro da main ("+132189 −3107 · 924 arquivos").
+   */
+  async forkPoint(worktree: string, base: string, tip = "HEAD"): Promise<string> {
+    const clean = base.replace(/^origin\//, "");
+    const mbs: string[] = [];
+    for (const cand of [`origin/${clean}`, clean]) {
+      try {
+        const { stdout } = await run("git", ["-C", worktree, "merge-base", cand, tip]);
+        const s = stdout.trim();
+        if (s && !mbs.includes(s)) mbs.push(s);
+      } catch { /* essa base não existe aqui */ }
+    }
+    if (mbs.length === 0) return base;
+    if (mbs.length === 1) return mbs[0];
+    try {
+      await run("git", ["-C", worktree, "merge-base", "--is-ancestor", mbs[0], mbs[1]]);
+      return mbs[1]; // o 1º é ancestral do 2º → o 2º é o mais novo
+    } catch {
+      return mbs[0];
+    }
+  }
+
+  /** Diff da branch da worktree contra o ponto de bifurcação real (após commit). */
   async diffStat(worktree: string, base: string): Promise<DiffStat> {
-    const { stdout } = await run("git", [
-      "-C",
-      worktree,
-      "diff",
-      "--numstat",
-      `${base}...HEAD`,
-    ]);
+    const fork = await this.forkPoint(worktree, base);
+    // sem merge-base nenhum: fica o `base...HEAD` de antes (dois pontos contaria a base ao contrário)
+    const range = fork === base ? [`${base}...HEAD`] : [fork, "HEAD"];
+    const { stdout } = await run("git", ["-C", worktree, "diff", "--numstat", ...range]);
     let files = 0;
     let add = 0;
     let del = 0;

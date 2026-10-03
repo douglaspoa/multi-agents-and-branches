@@ -2219,6 +2219,11 @@ export class Orchestrator {
       this.store.addEvent(taskId, task.agent, "error", `não deu pra mergear: ${why}`, false);
       throw new Error(`não deu pra mergear em ${task.base}: ${why}`);
     }
+    // o tamanho da tarefa fica o do MOMENTO da integração (depois do merge o ponto de bifurcação vira o próprio HEAD)
+    try {
+      const d = await this.git.diffStat(task.worktree, task.base);
+      if (d.files > 0) this.store.setDiff(taskId, d.files, d.add, d.del);
+    } catch { /* worktree já sem git: fica o último número */ }
     try {
       await this.git.mergeBranch(task.branch, `starfork: merge ${task.title} (${task.branch})`);
     } catch (err) {

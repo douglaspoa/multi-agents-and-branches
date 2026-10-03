@@ -41,3 +41,7 @@
 .nvsum code{font-family:var(--mono);font-size:var(--fs-xs);background:var(--surface-3);padding:1px 5px;border-radius:4px}
 .nvsum-ic{color:var(--accent);font-weight:700}
 @media (max-width:1100px){ .fwcols.m-previa,.fwcols.m-previa.notree{grid-template-columns:1fr 300px} .nvvp button{padding:4px 6px} }
+/* saúde da Prévia: tarefa integrada (pasta removida) / servidor parado — cartão no lugar da tela branca */
+.nvhealth b{text-wrap:balance;max-width:440px}
+.nvhacts{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px}
+.nvhlog{max-width:min(560px,100%);max-height:120px;overflow:auto;margin:2px 0 0;padding:8px 10px;text-align:left;white-space:pre-wrap;font-size:var(--fs-xs);line-height:1.5;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-xs)}
