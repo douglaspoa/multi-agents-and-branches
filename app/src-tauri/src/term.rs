@@ -82,9 +82,10 @@ fn spec_of(db: &Path, task_id: &str) -> Option<serde_json::Value> {
 pub fn is_terminal(state: &State<AppState>, task_id: &str) -> bool {
     db_of(state).ok().and_then(|db| spec_of(&db, task_id)).map(|s| s.get("termMode").and_then(|v| v.as_str()) == Some("terminal")).unwrap_or(false)
 }
-/// Modo padrão das tarefas novas (Configurações → "modo das tarefas"): terminal, salvo escolha contrária.
+/// Modo padrão das tarefas novas (Configurações → "modo das tarefas"): automático até o layout do terminal
+/// ser escolhido e validado no app instalado (03/10); terminal só quando a pessoa liga (beta).
 pub fn default_mode() -> &'static str {
-    if setting_get("taskMode").as_deref() == Some("auto") { "auto" } else { "terminal" }
+    if setting_get("taskMode").as_deref() == Some("terminal") { "terminal" } else { "auto" }
 }
 /// Livre? (hook Stop gravou busy=0). None = sem linha (sessão ainda subindo).
 fn idle_probe(db: PathBuf, task_id: String) -> Arc<dyn Fn() -> Option<bool> + Send + Sync> {
