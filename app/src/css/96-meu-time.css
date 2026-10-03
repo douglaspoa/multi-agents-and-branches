@@ -162,6 +162,7 @@
 .agpol-c input{margin-top:3px;accent-color:var(--accent)}
 .agpol-l{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;font-size:var(--fs-sm);color:var(--text-2)}
 .agpol-n{width:120px}
+#agOverlay .agpol-c,#agOverlay .agpol-l,#agOverlay .agsmp-pick label{text-transform:none;letter-spacing:normal;font-weight:400}
 .agpol-a{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px}
 .agpol-who{margin:4px 0 0;font-size:var(--fs-sm)}
 .agwarn.agpol-b{border-left:3px solid var(--crit)}

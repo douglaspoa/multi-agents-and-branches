@@ -3229,8 +3229,8 @@ fn config_agent_changes(old: &serde_json::Value, new: &serde_json::Value) -> Vec
 /// "Voltar pro jeito antigo" de persona/modelo/motor (P11): restaura BYTE A BYTE o valor de antes da versão atual
 /// do agente no cardume.config.json e registra a volta como versão nova.
 #[tauri::command(async)]
-fn agent_revert(state: State<AppState>, agent_id: String, reason: Option<String>) -> Result<serde_json::Value, String> {
-    let repo = repo_of(&state)?;
+fn agent_revert(state: State<AppState>, repo: Option<String>, agent_id: String, reason: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = repo_or(&state, repo)?; // F5: a Memória pode estar mostrando outro projeto — o cartão manda o dele
     agent_revert_in(&repo, &agent_id, reason.as_deref().unwrap_or(""))
 }
 fn agent_revert_in(repo: &Path, agent_id: &str, reason: &str) -> Result<serde_json::Value, String> {

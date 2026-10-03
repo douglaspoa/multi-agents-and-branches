@@ -197,11 +197,13 @@ function memLearnSentence(it){
   const w=memLearnWho(it), sk=it&&it.kind==='skill', d=sk?((it&&it.skill)||{}):((it&&it.nota)||{});
   const low=s=>{ s=String(s||'').replace(/\s+/g,' ').trim().replace(/[.;:!]+$/,''); return /^[A-ZÀ-Ý][a-zà-ÿ]/.test(s)?s.charAt(0).toLowerCase()+s.slice(1):s; };
   // F5: persona sugerida pela retro (só com a P12 madura) — a frase diz o porquê; o texto e o diff ficam em "ver detalhes"
-  if(it && it.kind==='persona') return (w ? (w.art?w.art+' ':'')+w.name : 'O agente')+' vai mudar o jeito de trabalhar: '+low((it.persona||{}).porque||'ajuste sugerido pela retro')+'.';
+  if(it && it.kind==='persona') return (w ? (w.art?w.art+' ':'')+w.name : 'O agente')+' vai mudar o jeito de trabalhar'+((it.persona||{}).porque?', porque '+low(it.persona.porque):'')+'.';
   const tx=sk ? 'um jeito de fazer: '+String(d.nome||'').replace(/-/g,' ')+(d.descricao?' — '+low(d.descricao):'') : low(d.title);
   return (w ? (w.art?w.art+' ':'')+w.name : 'O projeto')+' vai lembrar'+(sk?' ':': ')+tx+'.';
 }
 // o: { editing:{ a, b } } — o cartão em modo Editar (o texto que a pessoa está mudando)
+// de onde veio: a tarefa da retro, ou "compartilhado pelo time por Ana" (F5 · P17, trazido do time)
+function memLearnSrc(it){ return it&&it.origem==='time' ? memLEsc(it.taskTitle||'compartilhado pelo time') : 'da tarefa '+(it.taskTitle?'"'+memLEsc(it.taskTitle)+'"':memLEsc(it.taskId||'')); }
 // F5: o cartão da persona sugerida — só "Guardar pra X" (persona é do agente: não existe "só no projeto"), Editar o texto
 // novo e Descartar; o diff antes → depois em "ver detalhes" (agLineDiff do 61-meu-time, quando carregado)
 function memPersonaCard(it, o){
@@ -210,7 +212,7 @@ function memPersonaCard(it, o){
   const edit=ed?'<div class="memledit"><label>A persona nova (o texto inteiro)<textarea class="in" id="le-b-'+id+'" data-leditb rows="8">'+memLEsc(ed.b)+'</textarea></label></div>':'';
   return '<article class="memlcard" data-lid="'+id+'">'+
     '<p class="memlsent">'+memLEsc(memLearnSentence(it))+'</p>'+
-    '<div class="memlsrc dim">da tarefa '+(it.taskTitle?'"'+memLEsc(it.taskTitle)+'"':memLEsc(it.taskId||''))+'</div>'+
+    '<div class="memlsrc dim">'+memLearnSrc(it)+'</div>'+
     edit+
     '<div class="memlacts">'+(w?'<button class="btn sm primary" data-laccept="'+id+'" data-como="agente">Guardar pra '+memLEsc(w.name)+'</button>':'')+
       (ed?'<button class="btn sm" data-ledit="'+id+'" data-off="1">cancelar edição</button>':'<button class="btn sm" data-ledit="'+id+'">Editar</button>')+'<button class="btn sm" data-ldiscard="'+id+'">Descartar</button></div>'+
@@ -234,7 +236,7 @@ function memLearnCard(it, o){
     :'<button class="btn sm primary" data-laccept="'+id+'" data-como="projeto">Guardar no projeto</button>';
   return '<article class="memlcard" data-lid="'+id+'">'+
     '<p class="memlsent">'+memLEsc(memLearnSentence(it))+'</p>'+
-    '<div class="memlsrc dim">da tarefa '+(it.taskTitle?'"'+memLEsc(it.taskTitle)+'"':memLEsc(it.taskId||''))+'</div>'+
+    '<div class="memlsrc dim">'+memLearnSrc(it)+'</div>'+
     edit+
     '<div class="memlacts">'+keep+(ed?'<button class="btn sm" data-ledit="'+id+'" data-off="1">cancelar edição</button>':'<button class="btn sm" data-ledit="'+id+'">Editar</button>')+'<button class="btn sm" data-ldiscard="'+id+'">Descartar</button></div>'+
     '<details class="memldet"><summary>ver detalhes</summary>'+
@@ -477,7 +479,7 @@ async function learnAct(ctx, id, act, btn){
     delete LEARN_EDIT[id];
     if(typeof cicLearn!=='undefined') for(const k in cicLearn) delete cicLearn[k]; // a etapa Retro da tarefa relê a fila
     const w=act==='agente'?memLearnWho(it||{}):null;
-    const undo=r&&r.kind==='persona'&&r.action==='persona'?async()=>{ try{ await invoke('agent_revert',{ agentId:r.agente, reason:'voltou logo depois de aceitar' }); toast('Voltou pra persona de antes — virou uma versão nova.','ok'); if(ctx&&ctx.after) await ctx.after(repo, null); }catch(err){ showErr(err, 'Não consegui voltar'); } }
+    const undo=r&&r.kind==='persona'&&r.action==='persona'?async()=>{ try{ await invoke('agent_revert',{ repo, agentId:r.agentId||r.agente, reason:'voltou logo depois de aceitar' }); toast('Voltou pra persona de antes — virou uma versão nova.','ok'); if(ctx&&ctx.after) await ctx.after(repo, null); }catch(err){ showErr(err, 'Não consegui voltar'); } }
       :r&&r.kind==='skill'?()=>memLearnRevert(repo, r.name, 'voltou logo depois de aceitar', ctx)
       :(r&&r.action==='lembra'&&w)?()=>learnForget(repo, w.id, 'nota', id, 'voltou logo depois de aceitar', ctx, 'voltar'):null;
     const msg=r&&r.kind==='persona'&&w?(w.name+(r.action==='unchanged'?' já trabalhava assim — nada mudou.':' mudou o jeito de trabalhar'+(r.agentVersion?' (agora v'+r.agentVersion+')':'')+' — dá pra voltar com 1 clique.'))

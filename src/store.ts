@@ -642,7 +642,7 @@ export class Store {
       JOIN (SELECT task_id, MIN(id) AS mid FROM event WHERE type = 'papel' AND agent_id = ? GROUP BY task_id) m ON m.mid = e.id
       JOIN task t ON t.id = e.task_id
       WHERE t.status IN ('review', 'delivered', 'done', 'merged', 'closed')
-         OR (json_valid(t.spec_json) AND json_type(t.spec_json, '$.prUrl') = 'text')`).all(agentId) as { text: string }[];
+         OR (CASE WHEN json_valid(t.spec_json) THEN json_type(t.spec_json, '$.prUrl') END) = 'text'`).all(agentId) as { text: string }[];
     const tag = `${agentId}@v${v}`;
     return rows.filter((r) => { const p = String(r.text ?? "").split(" · "); return p.length >= 2 && /^skills ativas:/.test(p[0]) && p[1].trim() === tag; }).length;
   }

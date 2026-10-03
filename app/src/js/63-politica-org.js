@@ -53,6 +53,12 @@ function teamPolicyView(roles, p, catalogHasReviewer){
     return { text:x.text, blocked:!claude, fix:claude?'ao criar a tarefa, o revisor vai pra outro modelo do Claude':'' };
   });
 }
+// papéis de uma equipe do catálogo como o MOTOR monta (`cardume new --workflow` aplica o --engine/--model da tarefa
+// em todos os papéis — toRole de src/config.ts): é isso que a política confere
+function polWorkflowRoles(steps, agents, engine, model){
+  const byId=Object.fromEntries((agents||[]).map(a=>[a.id,a]));
+  return (steps||[]).map(id=>byId[id]).filter(Boolean).map(a=>({ role:a.role||'builder', name:a.name, engine:engine||a.engine||'claude', model:model!=null&&model!==''?model:(a.model||'') }));
+}
 // plano da org pras superfícies de nuvem: 'empresa' (política vale) · 'pago' (licença com validade) · '' (nada)
 function orgPlanOf(org, now){
   if(!org) return '';
@@ -131,27 +137,31 @@ function sampleCompareText(r){
 // ---------------------------------------------------------------- estado (contido aqui)
 const ORGP={ pol:null, at:0, key:'' };            // política lida (10 min em memória; a última fica em localStorage)
 const ORGL={ id:null, rows:null, err:'', busy:false }; // itens do time do agente aberto na ficha
-const SMP={ id:null, list:null, running:'', sel:'' };   // amostras do revisor aberto na ficha
+const SMP={ id:null, repo:'', list:null, running:'', runRepo:'', sel:'' };   // amostras do revisor aberto na ficha
 
 function orgSessOk(){ return typeof SB!=='undefined' && SB.configured && SB.configured() && !!SB.sess(); }
 function orgCur(){ return (typeof cloudData!=='undefined' && cloudData && cloudData.org) || null; }
 function orgMe(){ return typeof cloudUserId==='function'?cloudUserId():''; }
 function orgIsAdmin(){ const r=typeof cloudData!=='undefined'&&cloudData?cloudData.meRole:''; return r==='owner'||r==='admin'; }
+// a RLS de `orgs` (0001: orgs_update) só deixa o DONO da org gravar — o formulário da política é só dele
+function orgIsOwner(){ return typeof cloudData!=='undefined' && !!cloudData && cloudData.meRole==='owner'; }
 function orgCloudOk(){ return orgSessOk() && orgCloudPaid(orgCur(), typeof myBilling!=='undefined'?myBilling:null, Date.now()); }
 
 // P14: a política vigente (null = nenhuma). Sem sessão/Grátis: null sem tocar na rede. Offline com sessão: a última lida.
 async function orgPolGet(force){
-  if(!orgSessOk()) return null;
-  const me=orgMe(), org=orgCur(), lk='orgpol:'+me;
+  if(!orgSessOk()){ ORGP.pol=null; return null; } // saiu da conta = Grátis: nada da política antiga fica valendo
+  const me=orgMe(), org=orgCur(), lk='orgpol:'+me+':'+(org?org.id:(lsGet('orgpol-last:'+me)||''));
   const cached=()=>{ try{ const j=JSON.parse(lsGet(lk)||'null'); return j?orgAgentPolicy(j):null; }catch(_){ return null; } };
   if(!org){                                          // a nuvem ainda não carregou (ou está fora): vale a última lida
-    if(typeof cloudData!=='undefined' && cloudData){ try{ lsSet(lk, 'null'); }catch(_){ } return null; } // carregou e não há org
+    if(typeof cloudData!=='undefined' && cloudData){ ORGP.pol=null; return null; } // carregou e não há org
     return cached();
   }
-  if(orgPlanOf(org, Date.now())!=='empresa'){ try{ lsSet(lk, 'null'); }catch(_){ } return null; }
+  try{ lsSet('orgpol-last:'+me, org.id); }catch(_){ }
+  if(orgPlanOf(org, Date.now())!=='empresa'){ ORGP.pol=null; try{ lsSet(lk, 'null'); }catch(_){ } return null; }
   if(!force && ORGP.pol && ORGP.key===org.id && Date.now()-ORGP.at<10*60*1000) return ORGP.pol;
   try{
-    const rows=await sbGet('orgs?select=policy&id=eq.'+org.id);
+    // rede presa (VPN, portal cativo) não segura a criação da tarefa: 3 s e vale a última lida
+    const rows=await Promise.race([sbGet('orgs?select=policy&id=eq.'+org.id), new Promise((_,rej)=>setTimeout(()=>rej(new Error('sem resposta da nuvem')), 3000))]);
     const p=orgAgentPolicy(((rows&&rows[0])||{}).policy||{});
     Object.assign(ORGP, { pol:p, at:Date.now(), key:org.id }); try{ lsSet(lk, JSON.stringify(p)); }catch(_){ }
     return p;
@@ -162,12 +172,14 @@ async function orgPolGet(force){
 async function orgPolBeforeNewTask(payload){
   let p=null; try{ p=await orgPolGet(); }catch(_){ p=null; }
   if(!p || !orgPolActive(p) || !payload) return payload;
-  const cat=(state&&state.config&&state.config.agents)||[];
-  if(p.revisor && !cat.some(a=>a&&a.role==='reviewer')) throw new Error('a política da organização exige um revisor e o catálogo deste projeto não tem nenhum agente revisor — crie um em Meu time');
+  // o catálogo DESTE projeto, lido agora (state.config pode não ter carregado); sem cardume.config.json o motor usa o
+  // catálogo padrão (que tem revisor) — aí quem julga é ele
+  let cfg=null; try{ cfg=await invoke('config'); }catch(_){ cfg=state&&state.config; }
+  const cat=(cfg&&cfg.agents)||[];
+  if(p.revisor && cat.length && !cat.some(a=>a&&a.role==='reviewer')) throw new Error('a política da organização exige um revisor e o catálogo deste projeto não tem nenhum agente revisor — crie um em Meu time');
   if(p.revisorDiferente && payload.workflow){
-    const w=((state.config&&state.config.workflows)||[]).find(x=>x.id===payload.workflow);
-    const byId=Object.fromEntries(cat.map(a=>[a.id,a]));
-    const roles=w?(w.steps||[]).map(id=>byId[id]).filter(Boolean).map(a=>({ role:a.role||'builder', name:a.name, engine:a.engine||'claude', model:a.model||'' })):[];
+    const w=((cfg&&cfg.workflows)||[]).find(x=>x.id===payload.workflow);
+    const roles=w?polWorkflowRoles(w.steps, cat, payload.engine, payload.model):[];
     const bad=teamPolicyView(roles, Object.assign({}, p, { revisor:false }), true).find(x=>x.blocked);
     if(bad) throw new Error(bad.text+' — troque o motor ou o modelo do revisor na ficha dele (Meu time)');
   }
@@ -175,12 +187,30 @@ async function orgPolBeforeNewTask(payload){
   return payload;
 }
 window.orgPolBeforeNewTask=orgPolBeforeNewTask;
+// o teto máximo da política JÁ lida (budgetApply de 53-teto-protecao): null = sem máximo
+function orgPolMaxUsd(){ const p=orgSessOk()?ORGP.pol:null; return p && p.tetoMaxUsd!=null ? p.tetoMaxUsd : null; }
+// piloto automático: com o portão obrigatório ele não começa (aprova e mergeia sozinho); o resto vai pro motor
+async function orgPolForPilot(){
+  let p=null; try{ p=await orgPolGet(); }catch(_){ p=null; }
+  if(!p || !orgPolActive(p)) return null;
+  if(p.portao) throw new Error('a política da organização exige o portão em toda tarefa — o piloto automático aprova e mergeia sozinho, então ele não roda nesta organização');
+  return p;
+}
+window.orgPolForPilot=orgPolForPilot;
+// PATCH/DELETE que a RLS filtra devolvem 200 com 0 linhas — sem conferir, "salvo" mentiria
+async function orgWrite(path, method, body){
+  const r=await sbFetch(path, { method, headers:{ 'Prefer':'return=representation' }, body:body==null?undefined:JSON.stringify(body) });
+  if(!Array.isArray(r) || !r.length) throw new Error('a nuvem não aceitou (sem permissão pra isso, ou alguém mudou agora há pouco)');
+  return r;
+}
 
+// com a política exigindo revisor diferente, o aviso genérico "revisor igual ao builder" sai (a regra da org já diz)
+function orgPolCovers(){ return !!(ORGP.pol && ORGP.pol.revisorDiferente); }
 // avisos inline nas equipes (prontas e montadas): usa a política JÁ lida ao abrir a aba — nenhuma chamada aqui
 function orgPolIssuesHtml(roles){
   const p=ORGP.pol; if(!p || !orgPolActive(p)) return '';
   const hasRev=(typeof cfgEdit!=='undefined'&&cfgEdit&&cfgEdit.agents||[]).some(a=>a&&a.role==='reviewer');
-  return teamPolicyView(roles, p, hasRev).map(x=>`<p class="agwarn${x.blocked?' agpol-b':''}" role="note">${x.blocked?'bloqueado pela política da organização: ':''}${esc(x.text)}${x.fix?` <span class="dim">— ${esc(x.fix)}</span>`:''}</p>`).join('');
+  return teamPolicyView(roles, p, hasRev).map(x=>`<p class="agwarn${x.blocked?' agpol-b':''}" role="note">${x.blocked?'bloqueado: ':''}${esc(x.text)}${x.fix?` <span class="dim">— ${esc(x.fix)}</span>`:''}</p>`).join('');
 }
 
 // "⇡ compartilhar com o time" de uma EQUIPE (escondido desde a F3 à espera da F5): só admin de org com nuvem paga
@@ -206,28 +236,30 @@ async function orgPolRender(){
   if(!agVisible()) return;
   const pol=p||orgAgentPolicy({});
   const rules=policyRules(pol);
-  const admin=orgIsAdmin();
+  const admin=orgIsOwner();
   const form=admin?`<form class="agpol-f" id="agPolForm" aria-label="Editar a política da organização">
       <label class="agpol-c"><input type="checkbox" name="portao"${pol.portao?' checked':''}> toda tarefa passa pelo portão (nenhum PR abre sozinho; prova obrigatória)</label>
       <label class="agpol-c"><input type="checkbox" name="revisor"${pol.revisor?' checked':''}> toda equipe tem um revisor</label>
       <label class="agpol-c"><input type="checkbox" name="revisorDiferente"${pol.revisorDiferente?' checked':''}> o revisor roda em motor ou modelo diferente de quem constrói</label>
-      <label class="agpol-l">Teto máximo por tarefa (US$) <input class="in agpol-n" type="number" name="tetoMaxUsd" min="0" step="0.5" inputmode="decimal" value="${pol.tetoMaxUsd!=null?escA(pol.tetoMaxUsd):''}" placeholder="sem máximo"></label>
+      <label class="agpol-l">Teto máximo por tarefa (US$) <input class="in agpol-n" type="text" name="tetoMaxUsd" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" value="${pol.tetoMaxUsd!=null?escA(pol.tetoMaxUsd):''}" placeholder="sem máximo"></label>
       <label class="agpol-l">Quem aprova aprendizado compartilhado <select class="sel" name="aprovaAprendizado"><option value="admins"${pol.aprovaAprendizado==='admins'?' selected':''}>um admin da organização</option><option value="membros"${pol.aprovaAprendizado==='membros'?' selected':''}>outra pessoa da organização</option></select></label>
       <div class="agpol-a"><button class="btn sm primary" type="submit" id="agPolSave">salvar política</button><span class="dim" id="agPolMsg" aria-live="polite"></span></div>
-    </form>`:`<p class="dim agpol-who">Quem muda a política: um admin da organização.</p>`;
+    </form>`:`<p class="dim agpol-who">Quem muda a política: o dono da organização.</p>`;
   el.innerHTML=`<div class="seclbl2" style="margin-top:22px">Política da organização</div>
     <p class="imhint">Vale pra toda tarefa criada por quem é da organização — o Starfork aplica ao criar a tarefa, e o PR leva as regras no Relatório.</p>
     <ul class="agpol-r">${rules.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>${form}`;
   const f=$id('agPolForm'); if(f) f.onsubmit=async(ev)=>{ ev.preventDefault();
     const fd=new FormData(f), b=$id('agPolSave'), msg=$id('agPolMsg');
+    const tetoTx=String(fd.get('tetoMaxUsd')||'').trim().replace(',','.');
+    if(tetoTx && !(Number(tetoTx)>0)){ const m=$id('agPolMsg'); if(m) m.textContent='O teto máximo tem que ser um valor em US$ maior que zero (ex.: 5 ou 2,50) — ou vazio pra sem máximo.'; return; }
     const next=orgAgentPolicy({ portao:fd.get('portao')==='on', revisor:fd.get('revisor')==='on', revisorDiferente:fd.get('revisorDiferente')==='on',
-      tetoMaxUsd:String(fd.get('tetoMaxUsd')||'').replace(',','.'), aprovaAprendizado:fd.get('aprovaAprendizado') });
+      tetoMaxUsd:tetoTx, aprovaAprendizado:fd.get('aprovaAprendizado') });
     if(!await askYes('Salvar a política pra organização inteira?\n\n'+policyRules(next).map(x=>'• '+x).join('\n')+'\n\nVale nas próximas tarefas de todo mundo da organização.')) return;
     b.disabled=true; if(msg) msg.textContent='salvando…';
     try{
       // mescla: os padrões de demanda (minRequirements, provas…) moram no mesmo jsonb e não podem sumir
       const rows=await sbGet('orgs?select=policy&id=eq.'+org.id); const cur=((rows&&rows[0])||{}).policy||{};
-      await sbFetch('/rest/v1/orgs?id=eq.'+org.id, { method:'PATCH', body:JSON.stringify({ policy:Object.assign({}, cur, { agentes:next }) }) });
+      await orgWrite('/rest/v1/orgs?id=eq.'+org.id, 'PATCH', { policy:Object.assign({}, cur, { agentes:next }) });
       if(typeof orgDefCache!=='undefined'){ orgDefCache=null; orgDefAt=0; }
       ORGP.at=0; await orgPolGet(true);
       toast('Política salva — vale nas próximas tarefas da organização.','ok');
@@ -257,28 +289,30 @@ async function orgTeamLoad(agentId){
   if(!orgCloudOk()){ ORGL.id=agentId; ORGL.rows=null; return; }
   const org=orgCur(); ORGL.id=agentId; ORGL.err='';
   try{
-    const rows=await sbGet('org_learnings?select=*&org_id=eq.'+org.id+'&agent_id=eq.'+encodeURIComponent(agentId)+'&status=neq.recusado&order=created_at.desc&limit=50');
-    if(ORGL.id===agentId) ORGL.rows=rows||[];
+    const rows=await sbGet('org_learnings?select=*&org_id=eq.'+org.id+'&agent_id=eq.'+encodeURIComponent(agentId)+'&order=created_at.desc&limit=50');
+    // recusados: só quem compartilhou vê (com o motivo) — e pode compartilhar de novo
+    if(ORGL.id===agentId) ORGL.rows=(rows||[]).filter(r=>r.status!=='recusado' || r.shared_by===orgMe());
   }catch(e){ if(ORGL.id===agentId){ ORGL.rows=[]; ORGL.err=(typeof cloudErrMsg==='function')?cloudErrMsg(e,'Não consegui ler o que o time compartilhou'):String(e&&e.message||e); } }
 }
 function orgTeamLearnHtml(a){
   if(!orgCloudOk() || ORGL.id!==a.id) return '';
   if(ORGL.rows==null) return `<section class="agf-sec"><h3 class="agf-h3">Do time</h3><p class="dim">lendo o que o time compartilhou…</p></section>`;
   const p=ORGP.pol||orgAgentPolicy({}), me=orgMe(), role=(typeof cloudData!=='undefined'&&cloudData)?cloudData.meRole:'';
-  const pend=ORGL.rows.filter(r=>r.status==='pendente'), ok=ORGL.rows.filter(r=>r.status==='aprovado');
+  const pend=ORGL.rows.filter(r=>r.status==='pendente'), ok=ORGL.rows.filter(r=>r.status==='aprovado'), no=ORGL.rows.filter(r=>r.status==='recusado');
   const by=r=>r.shared_by===me?'você':(r.shared_by_name||'alguém do time');
   const li=r=>{
     let acts='';
     if(r.status==='pendente'){
       if(canDecideLearning(p, role, me, r.shared_by)) acts=`<button class="btn sm primary" data-orgdec="aprovado" data-oid="${escA(r.id)}">aprovar pro time</button><button class="btn sm" data-orgdec="recusado" data-oid="${escA(r.id)}">recusar</button>`;
       else acts=`<span class="dim">esperando a aprovação de ${esc(approverWords(p))}</span>`+(r.shared_by===me?`<button class="btn sm" data-orgundo="${escA(r.id)}">desfazer</button>`:'');
-    } else acts=`<button class="btn sm primary" data-orgimp="${escA(r.id)}">trazer pra ${esc(a.name||'ele')}</button>`;
+    } else if(r.status==='recusado') acts=`<span class="dim">o time recusou${r.reason?': '+esc(r.reason):''}</span><button class="btn sm" data-orgundo="${escA(r.id)}">tirar da lista</button>`;
+    else acts=`<button class="btn sm primary" data-orgimp="${escA(r.id)}">trazer pra ${esc(a.name||'ele')}</button>`;
     return `<li class="agf-li"><p class="agf-ls">${esc(orgLearnSentence(r))}</p><p class="dim agorg-by">compartilhado por ${esc(by(r))}${r.status==='aprovado'?' · aprovado pelo time':''}</p>
       <div class="agf-la">${acts}</div><details class="agf-det"><summary>ver detalhes</summary>${r.description?`<p>${esc(r.description)}</p>`:''}<pre class="memlbody">${esc(r.body||'')}</pre></details></li>`;
   };
   const body=(ORGL.err?`<p class="agf-err">${esc(ORGL.err)}</p>`:'')+(pend.length||ok.length
-    ?`${ok.length?`<ul class="agf-list">${ok.map(li).join('')}</ul>`:''}${pend.length?`<h4 class="agorg-h4">Esperando aprovação</h4><ul class="agf-list">${pend.map(li).join('')}</ul>`:''}`
-    :`<p class="agf-empty">Ninguém do time compartilhou nada pra ${esc(a.name||'esse agente')} ainda. Trazer um item do time põe ele em "Pra você decidir" — só entra com o seu sim.</p>`);
+    ?`${ok.length?`<ul class="agf-list">${ok.map(li).join('')}</ul>`:''}${pend.length?`<h4 class="agorg-h4">Esperando aprovação</h4><ul class="agf-list">${pend.map(li).join('')}</ul>`:''}${no.length?`<h4 class="agorg-h4">Recusados (só você vê)</h4><ul class="agf-list">${no.map(li).join('')}</ul>`:''}`
+    :no.length?`<h4 class="agorg-h4">Recusados (só você vê)</h4><ul class="agf-list">${no.map(li).join('')}</ul>`:`<p class="agf-empty">Ninguém do time compartilhou nada pra ${esc(a.name||'esse agente')} ainda. Trazer um item do time põe ele em "Pra você decidir" — só entra com o seu sim.</p>`);
   return `<section class="agf-sec agorg"><h3 class="agf-h3">Do time</h3>${body}</section>`;
 }
 function orgTeamWire(host, a, after){
@@ -295,27 +329,29 @@ function orgTeamWire(host, a, after){
     b.disabled=true;
     try{
       const org=orgCur(), me=orgMe(), prof=(cloudData&&cloudData.profileByUser&&cloudData.profileByUser[me])||{};
-      await sbPost('org_learnings', { org_id:org.id, agent_id:a.id, agent_name:a.name||'', kind:it.kind, title:it.title.slice(0,160), description:(it.description||'').slice(0,600), body:(it.body||'').slice(0,8000), shared_by_name:String(prof.name||prof.email||'').slice(0,120) });
+      await sbPost('org_learnings', { org_id:org.id, agent_id:a.id, agent_name:String(a.name||'').slice(0,80), kind:it.kind, title:it.title.slice(0,160), description:(it.description||'').slice(0,600), body:(it.body||'').slice(0,8000), shared_by_name:String(prof.name||prof.email||'').slice(0,120) });
       toast('Compartilhado com o time — esperando a aprovação de '+approverWords(p)+'.','ok');
       await orgTeamLoad(a.id); after();
     }catch(e){ const raw=String(e&&e.message||e); toast(/duplicate|unique|23505|409/i.test(raw)?'Esse item já foi compartilhado com o time.':((typeof cloudErrMsg==='function')?cloudErrMsg(e,'Não consegui compartilhar'):raw),'warn'); b.disabled=false; }
   });
   host.querySelectorAll('[data-orgdec]').forEach(b=>b.onclick=async()=>{
     const st=b.dataset.orgdec, id=b.dataset.oid, org=orgCur(); let reason=null;
+    const row=(ORGL.rows||[]).find(x=>x.id===id);
+    if(st==='aprovado' && !await askYes('Aprovar pro time?\n\n“'+(row?orgLearnSentence(row):'')+'”\n\nDepois de aprovado, qualquer pessoa da organização pode trazer pro agente dela (cada uma decide no próprio projeto). A decisão não volta atrás.')) return;
     if(st==='recusado'){ reason=typeof askText==='function'?await askText('Por que recusar? (vai junto, pra quem compartilhou)','ex.: vale só pro projeto dela',''):''; if(reason===null) return; }
     b.disabled=true;
-    try{ await sbFetch('/rest/v1/org_learnings?org_id=eq.'+org.id+'&id=eq.'+encodeURIComponent(id), { method:'PATCH', body:JSON.stringify({ status:st, reason:reason||null }) });
+    try{ await orgWrite('/rest/v1/org_learnings?org_id=eq.'+org.id+'&id=eq.'+encodeURIComponent(id), 'PATCH', { status:st, reason:reason||null });
       toast(st==='aprovado'?'Aprovado — o time já pode trazer pros agentes.':'Recusado.','ok'); await orgTeamLoad(a.id); after(); }
     catch(e){ showErr(e, 'Não consegui decidir'); b.disabled=false; }
   });
   host.querySelectorAll('[data-orgundo]').forEach(b=>b.onclick=async()=>{
     const org=orgCur(); b.disabled=true;
-    try{ await sbFetch('/rest/v1/org_learnings?org_id=eq.'+org.id+'&id=eq.'+encodeURIComponent(b.dataset.orgundo), { method:'DELETE' }); await orgTeamLoad(a.id); after(); }
+    try{ await orgWrite('/rest/v1/org_learnings?org_id=eq.'+org.id+'&id=eq.'+encodeURIComponent(b.dataset.orgundo), 'DELETE'); await orgTeamLoad(a.id); after(); }
     catch(e){ showErr(e, 'Não consegui desfazer'); b.disabled=false; }
   });
   host.querySelectorAll('[data-orgimp]').forEach(b=>b.onclick=async()=>{
     const r=(ORGL.rows||[]).find(x=>x.id===b.dataset.orgimp); if(!r) return;
-    const item={ id:'time-'+r.id, kind:r.kind, taskId:'', taskTitle:'compartilhado pelo time'+(r.shared_by_name?' ('+r.shared_by_name+')':''), agente:a.id, papel:a.role||'', agenteNome:a.name||'', origem:'time',
+    const item={ id:'time-'+r.id, kind:r.kind, taskId:'', taskTitle:'compartilhado pelo time'+(r.shared_by_name?' por '+r.shared_by_name:''), agente:a.id, papel:a.role||'', agenteNome:a.name||'', origem:'time',
       ...(r.kind==='skill'?{ skill:{ acao:'criar', nome:r.title, descricao:r.description||'', corpo:r.body||'', porque:'compartilhado pelo time' } }:{ nota:{ title:r.title, type:'regra', tags:[], body:r.body||'' } }) };
     b.disabled=true;
     try{ const res=await invoke('learn_import',{ repo, item });
@@ -326,8 +362,8 @@ function orgTeamWire(host, a, after){
 
 // ---------------------------------------------------------------- P15: testar numa amostra (só o revisor)
 async function sampleLoad(repo, agentId){
-  SMP.id=agentId;
-  try{ const l=await invoke('agent_samples',{ repo, agentId }); if(SMP.id===agentId) SMP.list=Array.isArray(l)?l:[]; }catch(_){ if(SMP.id===agentId) SMP.list=[]; }
+  SMP.id=agentId; SMP.repo=repo;
+  try{ const l=await invoke('agent_samples',{ repo, agentId }); if(SMP.id===agentId && SMP.repo===repo) SMP.list=Array.isArray(l)?l:[]; }catch(_){ if(SMP.id===agentId && SMP.repo===repo) SMP.list=[]; }
 }
 function sampleSectionHtml(a){
   if(a.role!=='reviewer') return '';
@@ -338,18 +374,18 @@ function sampleSectionHtml(a){
   const est=sampleEstimate(rows, a.id);
   if(SMP.id===a.id && SMP.sel && !cand.some(c=>c.taskId===SMP.sel)) SMP.sel='';
   const sel=SMP.sel||(cand[0]&&cand[0].taskId)||'';
-  const run=SMP.running;
+  const run=SMP.runRepo===(state.repo||'')?SMP.running:''; // amostra de outro projeto não aparece aqui
   const pick=cand.length?`<div class="agsmp-pick"><label for="agSmpSel">Tarefa</label><select class="sel" id="agSmpSel"${run?' disabled':''}>${cand.map(c=>`<option value="${escA(c.taskId)}"${c.taskId===sel?' selected':''}>${esc(c.title)}${c.v!=null?' · revisada na v'+c.v:''}</option>`).join('')}</select>
       <button class="btn sm primary" id="agSmpRun"${run?' disabled':''}>${run?'testando…':'testar '+esc(vtx)+' nesta tarefa'}</button></div>
-      <p class="dim agsmp-cost">custo estimado <b>${esc(est.text)}</b> · teto ${esc(polUsd(est.cap))} (para se passar)</p>
+      <p class="dim agsmp-cost">custo estimado <b>${esc(est.text)}</b> · teto ${esc(polUsd(est.cap))} — se o custo informado passar disso, a amostra para e o resultado diz</p>
       ${run?`<p class="agsmp-run" role="status">testando na tarefa "${esc((cand.find(c=>c.taskId===run)||{}).title||run)}" — a revisão leva alguns minutos; pode sair daqui, o resultado fica guardado.</p>`:''}`
     :`<p class="agf-empty">${esc(a.name||'Esse agente')} ainda não revisou nenhuma tarefa deste projeto — a amostra precisa de uma tarefa que ele já revisou.</p>`;
-  const list=SMP.id===a.id?(SMP.list||[]):[];
+  const list=SMP.id===a.id&&SMP.repo===(state.repo||'')?(SMP.list||[]):[];
   const res=list.length?`<ul class="agsmp-l">${list.slice(0,8).map(r=>`<li><p class="agf-ls"><b>${esc(r.title||r.taskId)}</b> — ${r.old&&r.old.v!=null?'na v'+esc(r.old.v):'antes'}: ${esc(sampleVerdictText(r.old))} · na v${esc(r.now&&r.now.v!=null?r.now.v:'?')}: ${esc(sampleVerdictText(r.now))}</p>
       <p class="dim">${esc(sampleCompareText(r))} · ${esc(polUsd(r.usd))}${r.stopped?' · parou no teto':''} · ${esc(new Date(+r.at||0).toLocaleDateString('pt-BR'))}</p>
       <details class="agf-det"><summary>ver detalhes</summary>${['old','now'].map(k=>{ const v=r[k]||{}; return `<p><b>${k==='old'?'antes':'agora'}</b>: ${esc(sampleVerdictText(v))}</p>${(v.items||[]).length?`<ul>${v.items.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}`; }).join('')}</details></li>`).join('')}</ul>`:'';
   return `<section class="agf-sec agsmp"><h3 class="agf-h3">Testar numa amostra</h3>
-    <p class="dim">Roda só a revisão de ${esc(vtx)} numa tarefa que ${esc(a.name||'ele')} já revisou, numa cópia descartável da branch. A tarefa original não muda, e o veredito de antes aparece ao lado do de agora.</p>${pick}${res}</section>`;
+    <p class="dim">Roda só a revisão ${esc(cur!=null?'da v'+cur:'da versão atual')} numa tarefa que ${esc(a.name||'ele')} já revisou, numa cópia descartável da branch. A tarefa original não muda, e o veredito de antes aparece ao lado do de agora.</p>${pick}${res}</section>`;
 }
 function sampleWire(host, a, rerender){
   const s=host.querySelector('#agSmpSel'); if(s) s.onchange=()=>{ SMP.sel=s.value; };
@@ -362,10 +398,10 @@ function sampleWire(host, a, rerender){
     const est=sampleEstimate(rows, a.id);
     const cur=AGF.card&&AGF.card.versions?AGF.card.versions.current:null;
     if(!await askYes('Testar '+(a.name||'o revisor')+(cur!=null?' v'+cur:'')+' na tarefa "'+c.title+'"?\n\nRoda só a revisão, numa cópia descartável da branch. A tarefa original não muda.\n\nCusto estimado: '+est.text+'\nTeto: '+polUsd(est.cap)+' — para se passar disso.')) return;
-    SMP.running=taskId; SMP.sel=taskId; rerender();
+    SMP.running=taskId; SMP.runRepo=repo; SMP.sel=taskId; rerender();
     try{
       const r=await invoke('agent_sample_review',{ repo, taskId, agentId:a.id, capUsd:est.cap });
-      if(SMP.id===a.id && r) SMP.list=[r, ...(SMP.list||[]).filter(x=>x.at!==r.at)];
+      if(SMP.id===a.id && SMP.repo===repo && r) SMP.list=[r, ...(SMP.list||[]).filter(x=>x.at!==r.at)];
       toast('Amostra pronta: '+sampleCompareText(r)+'.','ok');
     }catch(e){ showErr(e, 'Não consegui testar na amostra'); }
     finally{ SMP.running=''; if(typeof agVisible==='function' && agVisible() && AGF.id===a.id) rerender(); }

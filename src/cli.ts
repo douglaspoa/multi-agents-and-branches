@@ -935,6 +935,7 @@ async function cmdAutopilot(a: Args) {
       idea: a.flags.idea, dir, name: a.flags.name, platform: platform as ApPlatform | undefined,
       engine: a.flags.engine, model: a.flags.model, parallel: num("parallel"), attempts: num("attempts"), budgetUsd: num("budget-usd"),
       planFile: a.flags.plan,
+      orgPolicy: a.flags["org-policy"] ? (() => { try { return JSON.parse(a.flags["org-policy"]); } catch { return null; } })() : undefined,
     });
     console.log((st.phase === "done" ? c.green("✓ ") : c.yellow("! ")) + `piloto automático: ${PHASE_PT[st.phase]} — relatório em ${join(st.dir, "AUTOPILOT.md")}`);
     if (st.phase === "failed") process.exitCode = 1;

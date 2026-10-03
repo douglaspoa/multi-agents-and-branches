@@ -30,6 +30,8 @@ export const MAX_SKILLS = 2;
 /** F5: persona sugerida pela retro — reaberta só com a P12 madura (n ≥ 10 tarefas no portão na versão atual), 1 por retro */
 export const PERSONA_MIN_N = 10;
 export const MAX_PERSONAS = 1;
+/** persona maior que isso não ganha sugestão (o texto completo tem que caber no prompt e na resposta) */
+export const PERSONA_MAX_CHARS = 3000;
 
 /** `dono`: o que a retro disse sobre quem é o dono (id/nome de alguém da equipe ou "projeto") — só existe na saída do
  * parseRetro; o orquestrador valida com `retroOwner` e tira do item antes de enfileirar. */
@@ -170,7 +172,7 @@ export function retroPrompt(ctx: RetroCtx): string {
     `- DONO: em cada nota e skill ponha "agente" com o id de quem da equipe deve lembrar disso (a lição é sobre como ESSE papel trabalha — ex.: o que a revisão devolveu é lição de quem construiu) ou "projeto" quando é um fato do projeto que vale pra todos.\n` +
     (ctx.personaAgents?.length
       ? `- PERSONA: só estes agentes têm histórico suficiente pra medir uma mudança de persona: ${ctx.personaAgents.map((a) => `${a.agentId} (${clip(a.name, 40)}, ${a.n} tarefas na versão atual)`).join(", ")}. Se as correções e a revisão mostram um padrão de COMPORTAMENTO dele (não um fato do projeto), proponha NO MÁXIMO ${MAX_PERSONAS} persona nova em "personas": o texto COMPLETO revisado (mantenha o que já funciona) e o porquê. Na dúvida, não proponha. Nunca mude modelo nem motor.\n` +
-        ctx.personaAgents.map((a) => `\n### Persona atual de ${a.agentId}\n${clip(a.persona, 2000) || "(vazia)"}\n`).join("") + "\n"
+        ctx.personaAgents.map((a) => `\n### Persona atual de ${a.agentId}\n${a.persona || "(vazia)"}\n`).join("") + "\n"
       : `- NUNCA proponha mudar a persona, o modelo ou o motor de um agente — só notas e skills.\n\n`) +
     `Responda SÓ um JSON:\n` +
     `{"notas":[{"title":"título curto e geral","type":"decisão|regra|gotcha|contexto|glossário","tags":["tema"],"body":"...","agente":"id da equipe ou projeto"}],` +

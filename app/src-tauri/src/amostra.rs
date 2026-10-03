@@ -13,6 +13,8 @@ use super::{cli_path, node_cmd, repo_or, AppState};
 
 /// Uma amostra por vez por projeto (dois cliques não pagam duas revisões).
 static RUNNING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Prazo duro de uma amostra (uma revisão só; o motor também tem os próprios limites).
+const SAMPLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25 * 60);
 
 pub fn samples_path(repo: &Path) -> std::path::PathBuf {
     repo.join(".cardume").join("aprendizado").join("amostras.json")
@@ -48,7 +50,12 @@ pub fn agent_sample_review(state: State<AppState>, repo: Option<String>, task_id
         if r.contains(&key) { return Err("já tem uma amostra rodando neste projeto — espere ela terminar".into()); }
         r.push(key.clone());
     }
-    let out = (|| {
+    // saída em arquivo (nada de pipe cheio travando o filho) e prazo DURO: uma amostra que não volta em
+    // SAMPLE_TIMEOUT é morta — o projeto nunca fica preso em "já tem uma amostra rodando"
+    let dir = repo.join(".cardume").join("aprendizado");
+    let _ = std::fs::create_dir_all(&dir);
+    let (fo, fe) = (dir.join(format!("amostra-{}.out", std::process::id())), dir.join(format!("amostra-{}.err", std::process::id())));
+    let out = (|| -> Result<(String, String), String> {
         let mut cmd = node_cmd();
         cmd.args([
             "--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "sample-review".to_string(), task_id.clone(),
@@ -56,17 +63,31 @@ pub fn agent_sample_review(state: State<AppState>, repo: Option<String>, task_id
             "--repo".to_string(), repo.display().to_string(), "--json".to_string(),
         ])
         .current_dir(&repo)
-        .stdin(Stdio::null());
-        cmd.output().map_err(|e| format!("não consegui rodar o motor: {e}"))
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(std::fs::File::create(&fo).map_err(|e| e.to_string())?))
+        .stderr(Stdio::from(std::fs::File::create(&fe).map_err(|e| e.to_string())?));
+        let mut child = cmd.spawn().map_err(|e| format!("não consegui rodar o motor: {e}"))?;
+        let t0 = std::time::Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(_)) => break,
+                Ok(None) if t0.elapsed() > SAMPLE_TIMEOUT => {
+                    let _ = child.kill(); let _ = child.wait();
+                    return Err(format!("a amostra passou de {} minutos e foi parada — nada mudou na tarefa original", SAMPLE_TIMEOUT.as_secs() / 60));
+                }
+                Ok(None) => std::thread::sleep(std::time::Duration::from_millis(500)),
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+        Ok((std::fs::read_to_string(&fo).unwrap_or_default(), std::fs::read_to_string(&fe).unwrap_or_default()))
     })();
-    if let Ok(mut r) = RUNNING.lock() { r.retain(|k| k != &key); }
-    let o = out?;
-    let stdout = String::from_utf8_lossy(&o.stdout);
+    RUNNING.lock().unwrap_or_else(|e| e.into_inner()).retain(|k| k != &key);
+    let _ = std::fs::remove_file(&fo); let _ = std::fs::remove_file(&fe);
+    let (stdout, err) = out?;
     if let Some(j) = last_json(&stdout) {
         if let Some(e) = j.get("error").and_then(|e| e.as_str()) { return Err(e.to_string()); }
         return Ok(j);
     }
-    let err = String::from_utf8_lossy(&o.stderr);
     let line = err.lines().rev().map(str::trim).find(|l| !l.is_empty()).unwrap_or("o motor não devolveu o resultado da amostra");
     Err(line.trim_start_matches("✕ ").to_string())
 }

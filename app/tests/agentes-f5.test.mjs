@@ -20,7 +20,7 @@ const cut = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b, i); assert.o
 const gold = (f) => JSON.parse(readFileSync(root('tests/fixtures/ciclo-golden/' + f), 'utf8'));
 
 const P = new Function(cut(pol, '// @politica-puro-inicio', '// @politica-puro-fim') +
-  '\nreturn { orgAgentPolicy, orgPolActive, policyRules, teamPolicyIssues, teamPolicyView, orgPlanOf, orgCloudPaid, canDecideLearning, approverWords, shareNames, sampleCandidates, sampleEstimate, sampleVerdictText, sampleCompareText, polVerOf };')();
+  '\nreturn { polWorkflowRoles, orgAgentPolicy, orgPolActive, policyRules, teamPolicyIssues, teamPolicyView, orgPlanOf, orgCloudPaid, canDecideLearning, approverWords, shareNames, sampleCandidates, sampleEstimate, sampleVerdictText, sampleCompareText, polVerOf };')();
 
 // ---------------------------------------------------------------- P14
 test('golden politica.json: o app normaliza, escreve as regras e acha o que a equipe fere igual ao motor', () => {
@@ -57,7 +57,8 @@ test('orgPlanOf / orgCloudPaid: política só com Empresa ativa; nuvem do aprend
 
 test('o Grátis nunca toca na rede: sem sessão orgPolGet volta null antes de qualquer sbGet; o new_task passa pelo gancho', () => {
   const get = cut(pol, 'async function orgPolGet(', '\n}\n');
-  assert.ok(get.indexOf('if(!orgSessOk()) return null;') < get.indexOf('sbGet('), 'sessão conferida antes da rede');
+  assert.ok(get.indexOf('if(!orgSessOk()){ ORGP.pol=null; return null; }') >= 0 && get.indexOf('if(!orgSessOk())') < get.indexOf('sbGet('), 'sessão conferida antes da rede (e a política antiga sai)');
+  assert.match(get, /setTimeout\(\(\)=>rej\(new Error\('sem resposta da nuvem'\)\), 3000\)/);
   assert.match(get, /orgPlanOf\(org, Date\.now\(\)\)!=='empresa'/);
   const hook = cut(iss, 'async function trkBeforeNewTask(payload){', '\n}\n');
   assert.ok(hook.indexOf('orgPolBeforeNewTask') < hook.indexOf('try{'), 'fora do try: a recusa da política sobe pra quem chamou');
@@ -72,7 +73,8 @@ test('a política mora na aba Meu time (seção, nunca modal), salva mesclando o
   assert.ok(!/overlay|modal|confirm\(/i.test(r), 'sem modal nem confirm');
   assert.match(r, /await askYes\('Salvar a política/);
   assert.match(r, /Object\.assign\(\{\}, cur, \{ agentes:next \}\)/);
-  assert.match(r, /orgIsAdmin\(\)/);
+  assert.match(r, /const admin=orgIsOwner\(\);/, 'a RLS de orgs só deixa o dono gravar');
+  assert.match(r, /await orgWrite\('\/rest\/v1\/orgs\?id=eq\.'/);
   assert.match(mt, /orgPolIssuesHtml\(roles\)/);
   assert.match(sw, /orgPolIssuesHtml\(roles\)/);
   for (const c of ['.agpol-r', '.agpol-f', '.agsmp-l', '.agorg-by']) assert.ok(css.includes(c), c);
@@ -177,7 +179,7 @@ const M = new Function('agLineDiff', cut(mem, '// ---- aprendizados para revisar
 test('persona sugerida: frase com o nome e o porquê; só "Guardar pra X", Editar e Descartar; diff em "ver detalhes"', () => {
   const it = { id: 'p1', kind: 'persona', taskId: 't', taskTitle: 'Agenda', agente: 'nyx', papel: 'reviewer', agenteNome: 'Nyx',
     persona: { texto: 'Você revisa e roda os testes.', porque: 'Aprovou sem rodar os testes', antes: 'Você revisa.' } };
-  assert.equal(M.memLearnSentence(it), 'A Nyx vai mudar o jeito de trabalhar: aprovou sem rodar os testes.');
+  assert.equal(M.memLearnSentence(it), 'A Nyx vai mudar o jeito de trabalhar, porque aprovou sem rodar os testes.');
   assert.equal(M.memLearnLabel(it), 'persona nova');
   const h = M.memLearnCard(it, {});
   assert.match(h, /Guardar pra Nyx/);
@@ -185,7 +187,7 @@ test('persona sugerida: frase com o nome e o porquê; só "Guardar pra X", Edita
   assert.match(h, /<details class="memldet"><summary>ver detalhes<\/summary>[\s\S]*class="dr">- Você revisa\./);
   assert.match(M.memLearnCard(it, { editing: { a: '', b: 'novo texto' } }), /data-leditb rows="8">novo texto</);
   assert.match(mem, /edited=it\.kind==='persona'\?\{ texto:e\.b \}/);
-  assert.match(mem, /invoke\('agent_revert',\{ agentId:r\.agente/);
+  assert.match(mem, /invoke\('agent_revert',\{ repo, agentId:r\.agentId\|\|r\.agente/);
 });
 
 test('Relatório do PR pelo app leva a política (golden relatorio.json com o caso novo)', () => {
@@ -194,4 +196,57 @@ test('Relatório do PR pelo app leva a política (golden relatorio.json com o ca
   assert.ok(cases.some((k) => k.input.orgPolicy));
   for (const k of cases) assert.equal(c(k.input), k.expected);
   assert.match(ciclo, /orgPolicy:sp\.orgPolicy&&Array\.isArray\(sp\.orgPolicy\.rules\)/);
+});
+
+// ---------------------------------------------------------------- correções da revisão (F5)
+test('polWorkflowRoles: a equipe como o motor monta (o --engine/--model da tarefa vale pra todos os papéis)', () => {
+  const cat = [{ id: 'kai', name: 'Kai', role: 'builder', engine: 'codex' }, { id: 'zed', name: 'Zed', role: 'reviewer', engine: 'codex', model: 'gpt-5' }];
+  assert.deepEqual(P.polWorkflowRoles(['kai', 'zed', 'sumiu'], cat, 'claude', '').map((r) => [r.engine, r.model]), [['claude', ''], ['claude', 'gpt-5']]);
+  const p = P.orgAgentPolicy({ revisorDiferente: true });
+  assert.equal(P.teamPolicyView(P.polWorkflowRoles(['kai', 'zed'], cat, 'claude', 'opus'), p, true)[0].blocked, false, 'claude: o motor põe o revisor noutro modelo');
+  assert.equal(P.teamPolicyView(P.polWorkflowRoles(['kai', 'zed'], cat, 'codex', 'x'), p, true)[0].blocked, true);
+});
+
+test('nuvem: escrita que a RLS filtra (200 com 0 linhas) vira erro; decidir pede askYes; recusado volta pra quem compartilhou', () => {
+  const w = cut(pol, 'async function orgWrite(', '\n}\n');
+  assert.match(w, /'Prefer':'return=representation'/);
+  assert.match(w, /if\(!Array\.isArray\(r\) \|\| !r\.length\) throw new Error/);
+  const t = cut(pol, 'function orgTeamWire(', '\n// ----');
+  assert.ok(t.indexOf("st==='aprovado' && !await askYes(") < t.indexOf("await orgWrite('/rest/v1/org_learnings"), 'aprovar pede o sim antes');
+  assert.ok(!/sbFetch\('\/rest\/v1\/org_learnings/.test(t), 'toda escrita confere as linhas');
+  assert.match(cut(pol, 'async function orgTeamLoad(', '\n}\n'), /r\.status!=='recusado' \|\| r\.shared_by===orgMe\(\)/);
+  assert.match(pol, /o time recusou\$\{r\.reason\?': '\+esc\(r\.reason\):''\}/);
+  assert.match(pol, /agent_name:String\(a\.name\|\|''\)\.slice\(0,80\)/);
+});
+
+test('teto máximo da org vale depois de criar (budgetApply) e na liberação (budgetRelease, em palavra)', () => {
+  const t = rd('js/53-teto-protecao.js');
+  assert.match(cut(t, 'async function budgetApply(', '\n}\n'), /orgPolMaxUsd\(\); if\(max!=null && !\(v>0 && v<=max\)\) v=max;/);
+  assert.match(cut(t, 'async function budgetRelease(', '\n}\n'), /a política da organização limita o teto a /);
+  assert.match(pol, /function orgPolMaxUsd\(\)\{ const p=orgSessOk\(\)\?ORGP\.pol:null; return p && p\.tetoMaxUsd!=null \? p\.tetoMaxUsd : null; \}/);
+});
+
+test('piloto automático: a política vai junto e o portão obrigatório recusa antes de começar', () => {
+  assert.match(rd('js/56-piloto.js'), /orgPolForPilot\(\):null;\n\s*const res=await pilCall\(\)\('autopilot_start', op\?Object\.assign\(\{\}, r\.args, \{ orgPolicy:op \}\):r\.args\);/);
+  assert.match(rd('js/59-ideia.js'), /invoke\('autopilot_start',\{ orgPolicy:op,/);
+  assert.match(cut(pol, 'async function orgPolForPilot(', '\n}\n'), /if\(p\.portao\) throw new Error\('a política da organização exige o portão/);
+});
+
+test('contrato JS ↔ Rust dos comandos novos (nome dos parâmetros e registro)', () => {
+  const lib = readFileSync(root('app/src-tauri/src/lib.rs'), 'utf8');
+  const am = readFileSync(root('app/src-tauri/src/amostra.rs'), 'utf8');
+  const lr = readFileSync(root('app/src-tauri/src/learn.rs'), 'utf8');
+  const ap = readFileSync(root('app/src-tauri/src/autopilot.rs'), 'utf8');
+  assert.match(lib, /org_policy: Option<serde_json::Value>,\n\) -> Result<String, String>/);
+  assert.match(lib, /if let Some\(p\) = org_policy\.as_ref\(\)\.filter\(\|p\| p\.is_object\(\)\)/);
+  assert.match(ap, /org_policy: Option<serde_json::Value>\) -> Result<serde_json::Value, String>/);
+  assert.match(am, /pub fn agent_sample_review\(state: State<AppState>, repo: Option<String>, task_id: String, agent_id: String, cap_usd: f64\)/);
+  assert.match(am, /pub fn agent_samples\(state: State<AppState>, repo: Option<String>, agent_id: String\)/);
+  assert.match(lr, /pub fn learn_import\(state: State<AppState>, repo: Option<String>, item: serde_json::Value\)/);
+  assert.match(lr, /pub fn learn_check_text\(text: String\)/);
+  assert.match(lib, /fn agent_revert\(state: State<AppState>, repo: Option<String>, agent_id: String/);
+  for (const c of ['learn::learn_check_text', 'learn::learn_import', 'amostra::agent_sample_review', 'amostra::agent_samples']) assert.ok(lib.includes(c + ','), c);
+  assert.match(pol, /invoke\('agent_sample_review',\{ repo, taskId, agentId:a\.id, capUsd:est\.cap \}\)/);
+  assert.match(pol, /invoke\('agent_samples',\{ repo, agentId \}\)/);
+  assert.match(mem, /invoke\('agent_revert',\{ repo, agentId:r\.agentId\|\|r\.agente/);
 });

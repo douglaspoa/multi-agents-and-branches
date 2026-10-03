@@ -213,7 +213,7 @@ export interface TaskSpec {
   /** P10: o que rodou em cada papel (agente@versão · motor · skills) — vai pro Relatório do PR. */
   roleRuns?: import("./lifecycle.ts").RoleRun[];
   /** F5 · P14: a política da organização (Empresa) que valia quando a tarefa nasceu — em frases, vai pro Relatório do PR. */
-  orgPolicy?: { rules: string[] } | null;
+  orgPolicy?: { rules: string[]; tetoMaxUsd?: number; portao?: boolean } | null;
 }
 
 /** Uma função descoberta no diff, para o review humano. */

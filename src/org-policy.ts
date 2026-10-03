@@ -105,6 +105,6 @@ export function applyOrgPolicy(spec0: TaskSpec, p: OrgAgentPolicy, catalog: { id
     const arts = spec.artifacts ?? [];
     if (!arts.some((x) => x.kind === "proof")) { spec.artifacts = [...arts, { kind: "proof", name: "proof", desc: "Prova comprovando a solução" }]; notes.push("prova obrigatória pela política da organização"); }
   }
-  spec.orgPolicy = { rules: policyRules(p) };
+  spec.orgPolicy = { rules: policyRules(p), ...(p.tetoMaxUsd != null ? { tetoMaxUsd: p.tetoMaxUsd } : {}), ...(p.portao ? { portao: true } : {}) };
   return { spec, blocked: "", notes };
 }

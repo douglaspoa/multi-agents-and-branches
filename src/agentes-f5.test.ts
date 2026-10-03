@@ -276,3 +276,59 @@ test("cardume sample-review --json: erro vem em JSON (o app mostra a frase)", PO
     assert.deepEqual(JSON.parse(out.trim().split("\n").pop()!), { error: "essa tarefa não existe mais neste projeto" });
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+// ---------------------------------------------------------------- correções da revisão
+test("cardume new --org-policy (caminho feliz): revisor entra, teto da org, PR pergunta, prova, regras e notas na tarefa", POSIX, () => {
+  const root = tmp("sf-f5-new-ok-");
+  try {
+    const r = join(root, "repo");
+    execFileSync("git", ["init", "-q", "-b", "main", r]);
+    writeFileSync(join(r, "cardume.config.json"), JSON.stringify({ agents: [...CAT.map((a) => ({ ...a, engine: "mock", ...(a.id === "nyx" ? { model: "haiku" } : {}) }))], workflows: [{ id: "so-iris", name: "Só Íris", steps: ["iris"] }] }));
+    execFileSync("git", ["-C", r, "add", "."]); execFileSync("git", ["-C", r, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-qm", "i"]);
+    const cli = fileURLToPath(new URL("./cli.ts", import.meta.url));
+    execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", cli, "new", "--id", "t-pol", "--repo", r, "--title", "X", "--engine", "mock", "--approve", "auto", "--workflow", "so-iris", "--auto-pr", "auto", "--no-start",
+      "--org-policy", JSON.stringify({ agentes: { portao: true, tetoMaxUsd: 2, revisor: true, revisorDiferente: true } })], { stdio: "pipe", env: { ...process.env, HOME: join(root, "home") } });
+    const st = new Store(join(r, ".cardume", "state.sqlite"));
+    try {
+      const sp = JSON.parse(st.getTask("t-pol")!.spec_json) as TaskSpec;
+      assert.deepEqual(sp.roles.map((x) => x.role), ["builder", "reviewer"]);
+      assert.equal(sp.budgetUsd, 2); assert.equal(sp.autoPr, "ask");
+      assert.ok(sp.artifacts?.some((a) => a.kind === "proof"));
+      assert.equal(sp.orgPolicy?.tetoMaxUsd, 2); assert.equal(sp.orgPolicy?.portao, true);
+      assert.ok(sp.orgPolicy?.rules.some((x) => /portão/.test(x)));
+      const notes = st.eventsForTask("t-pol").filter((e) => e.type === "note").map((e) => e.text);
+      assert.ok(notes.some((n) => /pôs Nyx pra revisar/.test(n)), notes.join(" | "));
+    } finally { st.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("piloto automático: portão obrigatório da org recusa antes de criar qualquer coisa; política vale nas tarefas", POSIX, async () => {
+  const { runAutopilot, AP_GATE_POLICY } = await import("./autopilot.ts");
+  const root = tmp("sf-f5-ap-");
+  try {
+    const dir = join(root, "novo");
+    await assert.rejects(runAutopilot({ dir, idea: "um app", orgPolicy: { agentes: { portao: true } }, log: () => {} }), (e: Error) => e.message === AP_GATE_POLICY);
+    assert.ok(!existsSync(dir) || readdirSync(dir).length === 0, "nada criado");
+    const src = readFileSync(new URL("./autopilot.ts", import.meta.url), "utf8");
+    assert.match(src, /const r = applyOrgPolicy\(spec, s\.orgPolicy,/);
+    assert.match(src, /if \(r\.blocked\) throw new Error\(r\.blocked\);/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("sampleReview: o motor falhar no meio não deixa a cópia descartável pra trás", POSIX, async () => {
+  const root = tmp("sf-f5-amostra-fail-");
+  try {
+    const r = await sampleRepo(root);
+    writeFileSync(join(r, "cardume.config.json"), JSON.stringify({ agents: [{ id: "nyx", name: "Nyx", role: "reviewer", engine: "claude" }], workflows: [] }));
+    const fake = join(root, "claude-quebra.sh");
+    writeFileSync(fake, "#!/bin/sh\necho 'boom' >&2\nexit 3\n"); chmodSync(fake, 0o755);
+    const orch = new Orchestrator(r);
+    try {
+      orch.store.createTask({ id: "t-f", title: "T", objective: "o", requirements: [], deliverables: [], agent: "Nyx", engine: "claude", scope: { owns: [], offLimits: [] },
+        autonomy: { clarifications: "ask", commit: "at-end", runTests: true, approval: "ask" }, roles: [] } as unknown as TaskSpec, "feat/agenda", join(r, "x"), "main");
+      try { await withEnv({ CARDUME_CLAUDE: fake, CARDUME_IDLE_MS: "3000" }, () => orch.sampleReview("t-f", "nyx", 1)); } catch { /* falhar é aceitável; sobrar worktree não */ }
+      assert.ok(!existsSync(join(r, ".cardume", "amostras")) || readdirSync(join(r, ".cardume", "amostras")).length === 0, "a cópia saiu");
+      assert.ok(!execFileSync("git", ["-C", r, "worktree", "list"]).toString().includes("amostras"));
+    } finally { orch.close(); }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

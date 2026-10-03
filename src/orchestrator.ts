@@ -14,7 +14,7 @@ import { prepEpicTurn } from "./epic-context.ts";
 import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, mobileTurnRelease, realDeps, UI_FILE_RE, type MobileDeps } from "./mobile.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
-import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
+import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MAX_CHARS, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
 import { homedir, userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
@@ -659,11 +659,14 @@ export class Orchestrator {
         .flatMap((x) => { const p = producerOf(x); return (x.items ?? []).map((it) => `${x.reviewer || "o revisor"} pediu a ${p?.name ?? "quem construiu"} (${agentIdOf(p) || "?"}): ${it}`); });
       // F5: persona sugerida reaberta com a trava da Júlia — só pra quem tem a P12 madura (n ≥ 10 tarefas no portão na
       // versão ATUAL) e está no catálogo do projeto (a persona mora no cardume.config.json)
-      const catalog = (() => { try { return loadConfig(this.ws.repo).agents; } catch { return []; } })();
+      // só o catálogo DO REPO (cardume.config.json): é lá que o aceite grava a persona (agente global/padrão não entra)
+      const catalog = (() => { try { const j = JSON.parse(readFileSync(join(this.ws.repo, "cardume.config.json"), "utf8")); return Array.isArray(j?.agents) ? j.agents as { id: string; persona?: string }[] : []; } catch { return []; } })();
       const personaAgents = team.map((m) => {
         const a = catalog.find((x) => x.id === m.agentId);
         if (!a) return null;
         const n = this.store.agentVersionGateCount(m.agentId, agentVersion(this.ws.dir, m.agentId));
+        // persona longa demais pro prompt: não sugere (reescrever a partir de um corte apagaria o resto)
+        if (String(a.persona ?? "").length > PERSONA_MAX_CHARS) return null;
         return n >= PERSONA_MIN_N ? { agentId: m.agentId, name: m.name, n, persona: String(a.persona ?? "") } : null;
       }).filter((x): x is { agentId: string; name: string; n: number; persona: string } => !!x);
       const out = await this.aux(retroPrompt({
@@ -2056,11 +2059,6 @@ export class Orchestrator {
   }
 
   /**
-   * REWORK: aplica um ajuste pedido pelo humano (sobre um commit/etapa) numa
-   * tarefa já concluída (review/error), continuando a sessão do agente via
-   * --resume na worktree existente, recommitando e refazendo o review.
-   */
-  /**
    * F5 · P15 — TESTAR NUMA AMOSTRA (só o revisor). Reexecuta SÓ a revisão, com a persona e as skills ATUAIS do agente,
    * numa worktree descartável (detached) no último commit da branch de uma tarefa passada. Nada grava na tarefa antiga:
    * o motor roda com um banco próprio da amostra (sem evento, sem `cost`, sem prova); o gasto vai pro livro de uso.
@@ -2080,16 +2078,21 @@ export class Orchestrator {
     const stamp = Date.now();
     const dir = join(this.ws.dir, "amostras", `${taskId}-${stamp}`);
     await mkdir(join(this.ws.dir, "amostras"), { recursive: true });
-    await run("git", ["-C", this.ws.repo, "worktree", "add", "--detach", dir, ref]);
-    let usd = 0, stopped = false, inTok = 0, outTok = 0, ms = 0;
+    let usd = 0, stopped = false, inTok = 0, outTok = 0, ms = 0, text = "", failed = "";
+    const said: string[] = []; // sem VEREDITO.md, vale o que o revisor disse no fim (≡ verdictText do fluxo normal)
     const role: AgentRole = { role: "reviewer", agentId: agent.id, name: agent.name, engine: agent.engine, model: agent.model, persona: agent.persona };
     try {
+      await run("git", ["-C", this.ws.repo, "worktree", "add", "--detach", dir, ref]);
+      // o mesmo ambiente de uma tarefa (.env, dependências): sem isso a revisão não roda os testes e a comparação
+      // mediria a máquina, não a versão do agente
+      await this.seedWorktreeEnv(dir);
       // o motor lê o TASK.yaml da worktree (.cardume não vai pro git) — a spec da tarefa com outro id: nada volta pra ela
       const spec: TaskSpec = {
         ...spec0, id: `amostra-${taskId}-${stamp}`.slice(0, 80), roles: [role], reviewRounds: [], adjustment: undefined, autoPr: "no",
+        artifacts: undefined, // sem regras de prova/teste da entrega (elas mandam perguntar ao humano — aqui ninguém responde)
         deliverables: Array.isArray(spec0.deliverables) ? spec0.deliverables : [], requirements: Array.isArray(spec0.requirements) ? spec0.requirements : [],
         scope: { owns: spec0.scope?.owns ?? [], offLimits: spec0.scope?.offLimits ?? [] },
-        autonomy: { clarifications: "ask", commit: "at-end", runTests: true, approval: "ask", ...(spec0.autonomy ?? {}) },
+        autonomy: { ...(spec0.autonomy ?? {}), clarifications: "auto", commit: "at-end", runTests: true, approval: "auto" },
       };
       await mkdir(join(dir, ".cardume"), { recursive: true });
       await writeFile(join(dir, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
@@ -2098,17 +2101,23 @@ export class Orchestrator {
       const lens = FLOW_BY_KIND[taskKindOf(spec0)].find((x) => x.role === "reviewer")?.lens ?? "codigo";
       const persona = agent.persona ? `## Seu perfil (${agent.name} · reviewer)\n${agent.persona}\n\n` : "";
       const ctx = persona + this.projectMemory(spec) + this.skillsContext(role) + verdictInstructions(lens, 1);
-      const engine = this.engineFor(agent.engine, agent.model, "ask");
-      for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: "reviewer", agentName: agent.name, dbFile: sampleDb })) {
+      const engine = this.engineFor(agent.engine, agent.model, "auto");
+      // askTimeoutMin: uma pergunta ao humano não fica esperando pra sempre (ninguém lê o banco da amostra)
+      for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: "reviewer", agentName: agent.name, dbFile: sampleDb, askTimeoutMin: 1 })) {
+        if (ev.type === "error" || (ev.type === "done" && ev.ok === false)) failed = String(ev.text ?? "").split("\n")[0].slice(0, 200) || "o motor parou com erro";
+        if ((ev.type === "done" || ev.type === "note" || ev.type === "think") && ev.text && !/^custo do turno/.test(ev.text)) said.push(ev.text);
         if (ev.cost) { usd += Number(ev.cost.usd) || 0; inTok += ev.cost.inTok || 0; outTok += ev.cost.outTok || 0; ms += ev.cost.ms ?? 0; }
         if (usd > capUsd) { stopped = true; break; } // teto: para (o motor encerra o processo ao sair do laço)
       }
+      try { text = await readFile(join(dir, ".cardume", "VEREDITO.md"), "utf8"); } catch { /* o revisor não escreveu */ }
+      if (!text.trim()) text = said.slice(-6).join("\n");
     } finally {
       if (usd > 0 || inTok > 0) recordUsage({ source: "outros", project: this.ws.repo, taskId, role: "amostra", engine: engineKind(agent.engine), model: agent.model, inTok, outTok, usd, ms });
+      // a cópia descartável sai SEMPRE (inclusive se o motor quebrar no meio)
+      try { await this.git.worktreeRemove(dir); } catch { try { await rm(dir, { recursive: true, force: true }); await run("git", ["-C", this.ws.repo, "worktree", "prune"]); } catch { /* sobra varrida no próximo prune */ } }
     }
-    let text = "";
-    try { text = await readFile(join(dir, ".cardume", "VEREDITO.md"), "utf8"); } catch { /* o revisor não escreveu */ }
-    try { await this.git.worktreeRemove(dir); } catch { try { await rm(dir, { recursive: true, force: true }); await run("git", ["-C", this.ws.repo, "worktree", "prune"]); } catch { /* sobra varrida no próximo prune */ } }
+    // motor que quebrou (login, limite, queda) NÃO vira veredito — senão "veredito mudou" seria falso
+    if (failed && !stopped) throw new Error(`a revisão da amostra não terminou: ${failed}`);
     const v = stopped && !text.trim() ? { kind: "ilegivel" as const, items: [] } : parseVerdict(text);
     const res: SampleResult = {
       at: Date.now(), agentId, agentName: agent.name, taskId, title: t.title,
@@ -2118,6 +2127,11 @@ export class Orchestrator {
     return res;
   }
 
+  /**
+   * REWORK: aplica um ajuste pedido pelo humano (sobre um commit/etapa) numa
+   * tarefa já concluída (review/error), continuando a sessão do agente via
+   * --resume na worktree existente, recommitando e refazendo o review.
+   */
   async reworkTask(taskId: string): Promise<void> {
     await this.withTaskLock(taskId, "rework", {}, () => this.reworkTaskInner(taskId));
   }

@@ -405,7 +405,9 @@ function agFichaWire(host, a, i){
   host.querySelectorAll('[data-agtask]').forEach(b=>b.onclick=()=>{ if(typeof openWorkspace==='function') openWorkspace(b.dataset.agtask); });
   // aprendizados: os 4 botões do cartão (mesmo caminho da Memória) + voltar/esquecer do que ele já lembra
   const repo=state.repo||'';
-  const ctx={ repo:()=>repo, items:()=>AGF.pend||[], repaint:agFichaRender, after:async()=>{ await Promise.all([agFichaLoad(), agStatsLoad()]); } };
+  // persona aceita/desfeita (F5) muda o cardume.config.json: o catálogo em edição é relido — senão um "salvar" depois
+  // gravaria a persona velha por cima
+  const ctx={ repo:()=>repo, items:()=>AGF.pend||[], repaint:agFichaRender, after:async(_r, res)=>{ if(res && res.kind==='persona' && !agDirty()) await agReloadCatalog(); await Promise.all([agFichaLoad(), agStatsLoad()]); } };
   if(typeof learnWire==='function') learnWire(host, ctx);
   host.querySelectorAll('[data-agback]').forEach(b=>b.onclick=async()=>{
     if(b.dataset.agback==='skill'){ await memLearnRevert(repo, b.dataset.key, 'voltou pela ficha do agente', ctx); }
@@ -470,7 +472,7 @@ function renderTeams(){
   el.innerHTML=AG_READY_KINDS.map(k=>{ const roles=agReadyRoles(k); const ws=agTeamWarnings(roles);
     return `<article class="agteam"><header class="agteam-h"><b>${esc(KIND_TEAM[k])}</b><span class="dim">${esc(KIND_LABEL[k])} · ${esc(roles.map(r=>r.name).join(' → '))}</span></header>
       ${roles.length?agStripFor(roles):'<p class="dim">faltam agentes no catálogo pra esta equipe</p>'}
-      ${ws.map(w=>`<p class="agwarn" role="note">${esc(w.text)} (${esc(w.detail)})</p>`).join('')}${typeof orgPolIssuesHtml==='function'?orgPolIssuesHtml(roles):''}</article>`; }).join('');
+      ${(typeof orgPolCovers==='function'&&orgPolCovers()?[]:ws).map(w=>`<p class="agwarn" role="note">${esc(w.text)} (${esc(w.detail)})</p>`).join('')}${typeof orgPolIssuesHtml==='function'?orgPolIssuesHtml(roles):''}</article>`; }).join('');
   el.querySelectorAll('[data-cicst]').forEach(b=>{ b.tabIndex=-1; b.setAttribute('aria-disabled','true'); });
 }
 // teclado na grade: setas movem o foco entre os cartões (padrão de 54-acessibilidade), Enter abre a ficha

@@ -7,13 +7,14 @@
 -- Recurso de NUVEM = plano pago (regra do dono: o Grátis não guarda dado do usuário na nossa nuvem). A RLS confere o
 -- plano no insert (org_cloud_ok). Idempotente: pode rodar de novo sem efeito.
 
--- plano pago ativo pra recurso de nuvem: licença da org (Empresa/Time com validade) OU assinatura ativa de alguém da org
+-- plano pago ativo pra recurso de nuvem: licença da org (Empresa/Time com validade) OU a assinatura ativa de QUEM
+-- está escrevendo (o Pro é por criador: a assinatura de um colega não destrava a nuvem pros outros)
 create or replace function org_cloud_ok(p_org uuid) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from orgs o where o.id = p_org
                    and ((o.paid_until is not null and o.paid_until > now()) or (o.plan = 'enterprise' and o.paid_until is null)))
       or exists (select 1 from billing b join org_members om on om.user_id = b.user_id
-                  where om.org_id = p_org and b.status in ('active', 'trialing'));
+                  where om.org_id = p_org and b.user_id = auth.uid() and b.status in ('active', 'trialing'));
 $$;
 
 create table if not exists org_learnings (
@@ -34,7 +35,9 @@ create table if not exists org_learnings (
   created_at     timestamptz not null default now(),
   primary key (org_id, id)
 );
-create unique index if not exists org_learnings_item_uq on org_learnings (org_id, agent_id, kind, title);
+-- um item vivo por (agente, tipo, título); o RECUSADO não segura a vaga — dá pra corrigir e compartilhar de novo
+drop index if exists org_learnings_item_uq;
+create unique index if not exists org_learnings_item_live_uq on org_learnings (org_id, agent_id, kind, title) where status <> 'recusado';
 create index if not exists org_learnings_agent_idx on org_learnings (org_id, agent_id, created_at desc);
 
 alter table org_learnings drop constraint if exists org_learnings_chk;
@@ -71,6 +74,7 @@ begin
   -- o conteúdo não muda depois de compartilhado (pra mudar: recusar e compartilhar de novo)
   new.org_id := old.org_id; new.agent_id := old.agent_id; new.kind := old.kind; new.title := old.title;
   new.description := old.description; new.body := old.body; new.shared_by := old.shared_by; new.created_at := old.created_at;
+  new.agent_name := old.agent_name; new.shared_by_name := old.shared_by_name;
   return new;
 end $$;
 drop trigger if exists org_learnings_stamp on org_learnings;
@@ -91,6 +95,15 @@ create policy org_learnings_decide on org_learnings for update
   using (status = 'pendente' and org_learning_can_decide(org_id, shared_by))
   with check (status in ('aprovado', 'recusado'));
 create policy org_learnings_delete on org_learnings for delete
-  using ((shared_by = auth.uid() and status = 'pendente') or is_org_admin(org_id));
+  using ((shared_by = auth.uid() and status in ('pendente', 'recusado')) or is_org_admin(org_id));
 
 grant select, insert, update, delete on org_learnings to authenticated;
+
+-- o "⇡ compartilhar" de EQUIPE (org_agents/org_workflows, 0002) volta na F5: escrever no catálogo do time também é
+-- recurso de nuvem pago (regra do dono) — além de admin, o plano tem que estar ativo
+drop policy if exists org_agents_write on org_agents;
+create policy org_agents_write on org_agents for all
+  using (is_org_admin(org_id) and org_cloud_ok(org_id)) with check (is_org_admin(org_id) and org_cloud_ok(org_id));
+drop policy if exists org_workflows_write on org_workflows;
+create policy org_workflows_write on org_workflows for all
+  using (is_org_admin(org_id) and org_cloud_ok(org_id)) with check (is_org_admin(org_id) and org_cloud_ok(org_id));
