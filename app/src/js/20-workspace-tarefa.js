@@ -381,6 +381,7 @@ async function fwLiveUpdate(){
   const th=$id('fwThread');
   if(th && !th.dataset.term){ const atBottom=th.scrollHeight-th.scrollTop-th.clientHeight<80; th.innerHTML=fwThreadHtml(t); if(atBottom) th.scrollTop=th.scrollHeight; }
   const rq=$id('fwReqs'); if(rq) rq.innerHTML=fwReqsHtml(t);
+  if(typeof tlLivePaint==='function') tlLivePaint(t); // modo terminal: barra, painel de requisitos e folha de pergunta
   const cb=$id('fwCtxBar'); if(cb) cb.innerHTML=fwCtxBarHtml(t);
   const sub=$id('fwChatSub');
   if(sub) sub.textContent=fwChatSubText(t);
@@ -599,6 +600,8 @@ async function fwMoreDo(t, k, anchor){
   else if(k==='close'){ if(await fwLeaveEditor()) closeWorkspace(); }
 }
 function fwAskFix(){ if(fwMode!=='conversa'){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } // o chat pode estar escondido (Entrega/PR)
+  // modo terminal: a pergunta mora na folha por cima do terminal (60-terminal-layout)
+  { const t=fwTaskObj(); if(t && termModeOf(t) && typeof tlAskOf==='function'){ const a=tlAskOf(t); if(a){ a.st.min=false; tlAskPaint(t, true); return; } } }
   const i=$id('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } }
 async function fwTunnelOff(t){
   // falhou ao fechar: diz (antes avisava "acesso fechado" com o túnel ainda aberto pro celular)
@@ -901,17 +904,24 @@ function renderWorkspace(){
   const workingW=fwIsWorking(t);
   const sel2=fwSelRange();
   const sr=fwSendRowHtml(t);
-  chat.innerHTML=`
-    <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" aria-hidden="true" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div></div>
-    <div class="fwctx"><button class="fwctxbar" id="fwCtxBar" aria-expanded="${fwCtxOpen?'true':'false'}" title="${fwCtxOpen?'recolher':'ver'} o que ele está fazendo e os requisitos">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
-    ${termModeOf(t)?termSlotHtml(t):`<div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>`}
+  const isTerm=termModeOf(t);
+  // compositor de sempre (anexos, "/" skills, IA, "vira requisito"): o MESMO no chat e no modo terminal (layout A)
+  const composer=`
     <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">${IC.chevR} ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
       <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
       <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?(askingW[0].kind==='budget'?'pra seguir: valor e motivo (ex.: liberar 2 porque falta o teste) — ou toque em Parar aqui':'responda a pergunta — o turno continua'):termModeOf(t)?'mande pro terminal…  (Enter = na fila se ele estiver ocupado · ⌘Enter = Esc e manda · / skills · ⌘V print)':'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
       <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button>${chatModelPillHtml(fwModelPill(t))}<label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
       <div class="fwhint chathint" id="fwHint">${sr.hint}</div></div>`;
+  // foco no terminal (xterm) sobrevive ao re-render: o host é movido pro slot novo e o foco volta pra ele
+  const termHadFocus=isTerm && typeof TERM!=='undefined' && TERM[t.id] && TERM[t.id].host.contains(document.activeElement);
+  chat.classList.toggle('tl', isTerm);
+  chat.innerHTML=isTerm ? tlChatHtml(t, composer) : `
+    <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" aria-hidden="true" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div></div>
+    <div class="fwctx"><button class="fwctxbar" id="fwCtxBar" aria-expanded="${fwCtxOpen?'true':'false'}" title="${fwCtxOpen?'recolher':'ver'} o que ele está fazendo e os requisitos">${fwCtxBarHtml(t)}</button><div class="fwctxbody" id="fwCtxBody" style="display:${fwCtxOpen?'block':'none'}">${nowBox}<div class="fwreqs" id="fwReqs">${fwReqsHtml(t)}</div></div></div>
+    <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>${composer}`;
   chat.dataset.tk=t.id;
-  if(termModeOf(t)) termMount(t); else termSweep(); // MODO TERMINAL (60-terminal.js)
+  // MODO TERMINAL (60-terminal.js + layout A em 60-terminal-layout.js): terminal, painel de requisitos e folha de pergunta
+  if(isTerm){ termMount(t); tlWire(t); if(termHadFocus && !chat.querySelector('.tlsheet:focus-within')) setTimeout(()=>tlFocusTerm(t.id), 0); } else termSweep();
   bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
@@ -1372,6 +1382,8 @@ async function fwSendMsg(queueOnly){
   const atts=(fwPend[t.id]||[]).splice(0);
   if(!v && atts.length) v='Anexei estes arquivos — leia e considere.';
   if(!v) return;
+  // modo terminal com pergunta aberta: o texto vira a resposta da pergunta da vez (a folha manda pro hook)
+  if(termModeOf(t) && !atts.length && typeof tlAskFromComposer==='function' && pendingOf(t.id).some(p=>!fwIsBudgetAsk(p)) && tlAskFromComposer(t, v)){ inp.value=''; fwDraft[t.id]=''; return; }
   const sel=fwSelRange();
   // só amarra ao arquivo quando o usuário SELECIONOU linhas — mensagem sem seleção vai pura
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';

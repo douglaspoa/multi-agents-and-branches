@@ -11,7 +11,7 @@ function openAsk(pendingId){
   { const tab=(typeof tabById==='function')?tabById('task:'+tid):null; if(tab) tab.mode='conversa'; }
   if(typeof fwTask!=='undefined' && fwTask===tid && typeof fwMode!=='undefined' && fwMode!=='conversa'){ fwMode='conversa'; }
   openWorkspace(tid);
-  setTimeout(()=>{ const i=$id('fwInput'); if(i) i.focus(); }, 350);
+  setTimeout(()=>{ const t=(state.tasks||[]).find(x=>x.id===tid); if(t && typeof termModeOf==='function' && termModeOf(t) && typeof fwAskFix==='function'){ fwAskFix(); return; } const i=$id('fwInput'); if(i) i.focus(); }, 350);
 }
 // rascunho: clicar EDITA — reabre a Nova demanda preenchida; ao salvar/iniciar,
 // o rascunho antigo é substituído (remove_task + criação nova)
