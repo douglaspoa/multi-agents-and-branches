@@ -7,7 +7,9 @@
 //  - equipes prontas pelo tipo de entrega (FLOW_BY_KIND) com a MESMA faixa da tarefa (stageStripHtml) e o custo médio
 //    por papel; "Montar minha equipe" mostra a faixa e o aviso "revisor igual ao builder".
 // O boletim sai de UMA query (comando `agent_stats`, Rust) chamada ao ABRIR a aba — sem polling, sem timer.
-// Nenhuma conclusão de "ficou melhor" (veto da Júlia); antes/depois por versão é a F4.
+// F4 (P12): antes × depois de cada versão do agente, no MESMO tipo de tarefa, a partir do evento `papel` gravado no início
+// de cada papel (a versão desde o aceite). Limiares por lado: < 5 "ainda medindo"; 5–9 contagens cruas; ≥ 10 % e, se algo
+// piorou além da margem, "voltar pro jeito antigo?". Regra única: agBeforeAfter. A palavra da Júlia nunca aparece.
 
 // @meutime-puro-inicio (testado em app/tests/meu-time.test.mjs — sem DOM nem estado global)
 const AG_MIN_N=10;
@@ -53,8 +55,6 @@ function agStatsView(rows, minN, o){
   return { tasks, n, first, pct, totalUsd, avgUsd, reworkTasks, rounds, returned, reviewed:rev.length, lembra, knowing,
     line:parts.join(' · '), note:knowing?'ainda conhecendo esse agente':'' };
 }
-// "isso ajudou?" na F3 é só a contagem desde o aceite — a comparação antes/depois (com n ≥ 10 por lado) é a F4
-function agHelpedText(nSince){ const k=Math.max(0, +nSince||0); return k<AG_MIN_N ? 'ainda medindo ('+k+' de '+AG_MIN_N+')' : k+' tarefas desde então — a comparação antes/depois chega na próxima versão'; }
 // diff por linha (LCS) pro histórico da persona: [{ t:'='|'-'|'+', s }]
 function agLineDiff(a, b){
   const A=String(a==null?'':a).split('\n'), B=String(b==null?'':b).split('\n');
@@ -106,11 +106,96 @@ function agTeamCost(roles, avg){
   for(const r of (roles||[])){ const a=avg&&avg[r.role]; if(a&&a.n){ usd+=a.usd; n=Math.min(n, a.n); any=true; } }
   return any ? { usd, n } : null;
 }
+// ---------------------------------------------------------------- F4 · P12: antes × depois por versão
+const AG_BA_LOW=5;                              // abaixo disso em algum lado: "ainda medindo" (nenhum número de métrica)
+const AG_BA_MARGIN={ pts:10, rel:0.10, abs:0.05 }; // "piorou": prova de primeira −10 pontos; médias +10% (e +0,05 no mínimo)
+const AG_KINDS=['codigo','pagina','pesquisa','documento'];
+const AG_KIND_LABEL={ codigo:'Código', pagina:'Página/tela', pesquisa:'Pesquisa', documento:'Documento' };
+// tipo da tarefa da linha (≡ taskKindOf de 60-ciclo/lifecycle): sem tipo gravado = pelo branchType; sem nada = Código
+function agKindOfRow(r){ const k=String((r&&r.kind)||''); if(AG_KINDS.includes(k)) return k; const b=String((r&&r.branchType)||'').toLowerCase(); return b==='design'?'pagina':b==='docs'?'documento':b==='invest'?'pesquisa':'codigo'; }
+// versão do agente no 1º evento `papel` da tarefa: "skills ativas: a@v3, b@v1 · nyx@v4 · codex" → 4 (ilegível → null)
+function agVerOf(text){
+  const parts=String(text==null?'':text).split(' · ');
+  if(parts.length<2 || !/^skills ativas:/.test(parts[0])) return null;
+  const m=/^\S.*@v(\d+)$/.exec(parts[1].trim()); return m?+m[1]:null;
+}
+// a versão que valia a partir de um instante (fallback quando a versão do aceite saiu das últimas 5): a da 1ª tarefa medida depois
+function agVersionAt(rows, at){
+  let best=null, bt=Infinity;
+  for(const r of (rows||[])){ const v=agVerOf(r&&r.papel); if(v==null||!(+r.createdAt>=+at)) continue; if(+r.createdAt<bt){ bt=+r.createdAt; best=v; } }
+  return best;
+}
+// a versão do agente que um aprendizado criou: nota = n.v; skill = a entrada "skill" com o nome dela; senão, pela data
+function agLearnVersion(kind, item, versions, rows){
+  if(kind==='nota' && +item.v>0) return +item.v;
+  const vs=(versions||[]).filter(x=>x && x.change==='skill' && x.what===item.name);
+  if(vs.length) return +vs[vs.length-1].v;
+  const at=+item.at||0; return at>0?agVersionAt(rows, at):null;
+}
+function agBaRows(rows){ const m=new Map(); for(const r of (rows||[])) if(r&&r.taskId!=null&&!m.has(r.taskId)) m.set(r.taskId, r); return [...m.values()].filter(r=>agReachedGate(r) && agVerOf(r.papel)!=null); }
+// tipos com tarefa medida, o com mais comparação primeiro (o menor lado decide)
+function agBaKinds(rows, v){
+  const acc={};
+  for(const r of agBaRows(rows)){ const k=agKindOfRow(r), a=acc[k]||(acc[k]={ kind:k, label:AG_KIND_LABEL[k], nb:0, na:0 }); if(v!=null && agVerOf(r.papel)<v) a.nb++; else a.na++; }
+  return Object.values(acc).sort((a,b)=>(Math.min(b.nb,b.na)-Math.min(a.nb,a.na)) || ((b.nb+b.na)-(a.nb+a.na)) || AG_KINDS.indexOf(a.kind)-AG_KINDS.indexOf(b.kind));
+}
+function agPlural(n, um, varios){ return n+' '+(n===1?um:varios); }
+function agNum(x){ return (Math.round(x*10)/10).toFixed(1).replace('.',','); }
+function agRel(b, a){ if(!(b>0)) return a>0?'antes era 0':'igual'; const d=Math.round((a-b)/b*100); return d===0?'igual':(d>0?'+':'−')+Math.abs(d)+'%'; }
+/**
+ * Antes × depois da versão `v` (P12). Puro. rows = linhas do agent_stats DESTE agente; o = { kind, minN=10, lowN=5 }.
+ * Só tarefas que chegaram ao portão, do MESMO tipo, com a versão gravada no `papel` (sem isso = não medida).
+ * antes = versão < v; depois = versão ≥ v. stage: 'medindo' (algum lado < lowN) | 'cru' (< minN) | 'pct' (≥ minN nos dois).
+ */
+function agBeforeAfter(rows, v, o){
+  o=o||{}; const minN=o.minN==null?AG_MIN_N:o.minN, lowN=o.lowN==null?AG_BA_LOW:o.lowN;
+  const kind=AG_KINDS.includes(o.kind)?o.kind:'codigo';
+  const side=()=>({ n:0, first:0, rounds:0, rework:0, usd:0, fcN:0, fcPrev:0, fcReal:0, fcErr:0 });
+  const B=side(), A=side();
+  if(v!=null) for(const r of agBaRows(rows)){
+    if(agKindOfRow(r)!==kind) continue;
+    const s=agVerOf(r.papel)<v?B:A;
+    s.n++; if(agFirstTry(r)) s.first++;
+    s.rounds+=+(r.trounds!=null?r.trounds:r.rounds)||0; s.rework+=+r.reworks||0; s.usd+=+r.usd||0;
+    const p=+r.prevUsd, real=+r.tusd;
+    if(p>0 && real>0){ s.fcN++; s.fcPrev+=p; s.fcReal+=real; s.fcErr+=Math.abs(real-p)/p; }
+  }
+  const nb=B.n, na=A.n, k=Math.min(nb, na);
+  const base={ v, kind, kindLabel:AG_KIND_LABEL[kind], nb, na, k, minN, metrics:[], worse:[], offerBack:false };
+  if(v==null || nb<lowN || na<lowN) return Object.assign(base, { stage:'medindo', text:'ainda medindo ('+k+' de '+minN+')' });
+  const tk=n=>agPlural(n, 'tarefa', 'tarefas');
+  if(nb<minN || na<minN){
+    const raw=(s)=>({
+      first:s.first+' de '+s.n,
+      rounds:agPlural(s.rounds, 'rodada', 'rodadas')+' em '+tk(s.n),
+      rework:agPlural(s.rework, 'retrabalho', 'retrabalhos')+' em '+tk(s.n),
+      usd:agUsdBr(s.usd)+' em '+tk(s.n),
+      fc:s.fcN?'previsto '+agUsdBr(s.fcPrev)+' · real '+agUsdBr(s.fcReal)+' ('+tk(s.fcN)+')':'sem previsão salva' });
+    const rb=raw(B), ra=raw(A);
+    base.metrics=[['first','prova de primeira'],['rounds','rodadas de revisão'],['rework','retrabalho'],['usd','custo dele'],['fc','previsto × real']].map(([key,label])=>({ key, label, before:rb[key], after:ra[key], change:'', worse:false }));
+    return Object.assign(base, { stage:'cru', text:'lado a lado, sem conclusão: '+tk(nb)+' antes e '+tk(na)+' depois — a comparação só vale com '+minN+' de cada lado' });
+  }
+  const pct=s=>Math.round(s.first/s.n*100);
+  const worseAvg=(b,a)=>a>b+Math.max(b*AG_BA_MARGIN.rel, AG_BA_MARGIN.abs);
+  const m=[];
+  const pb=pct(B), pa=pct(A), dp=pa-pb;
+  m.push({ key:'first', label:'prova de primeira', before:pb+'% ('+B.first+' de '+B.n+')', after:pa+'% ('+A.first+' de '+A.n+')', change:dp===0?'igual':(dp>0?'+':'−')+Math.abs(dp)+' pontos', worse:pb-pa>=AG_BA_MARGIN.pts });
+  const avg=(key, label, fb, fa, fmt)=>m.push({ key, label, before:fmt(fb), after:fmt(fa), change:agRel(fb, fa), worse:worseAvg(fb, fa) });
+  avg('rounds', 'rodadas de revisão', B.rounds/B.n, A.rounds/A.n, x=>agNum(x)+' por tarefa');
+  avg('rework', 'retrabalho', B.rework/B.n, A.rework/A.n, x=>agNum(x)+' por tarefa');
+  avg('usd', 'custo dele', B.usd/B.n, A.usd/A.n, x=>agUsdBr(x)+' por tarefa');
+  if(B.fcN>=minN && A.fcN>=minN){
+    const eb=B.fcErr/B.fcN, ea=A.fcErr/A.fcN;
+    m.push({ key:'fc', label:'erro da previsão', before:'erra '+Math.round(eb*100)+'% em média', after:'erra '+Math.round(ea*100)+'% em média', change:agRel(eb, ea), worse:worseAvg(eb, ea) });
+  } else m.push({ key:'fc', label:'erro da previsão', before:B.fcN+' com previsão', after:A.fcN+' com previsão', change:'poucas previsões pra comparar', worse:false });
+  base.metrics=m; base.worse=m.filter(x=>x.worse).map(x=>x.label); base.offerBack=base.worse.length>0;
+  return Object.assign(base, { stage:'pct', text:base.offerBack?'parece ter atrapalhado ('+base.worse.join(', ')+') — voltar pro jeito antigo?':'antes × depois com '+tk(nb)+' e '+tk(na)+': nada pesou além da margem' });
+}
 // @meutime-puro-fim
 
 // ---------------------------------------------------------------- estado da página (contido aqui)
 const AGS={ rows:null, lembra:{}, ms:0, repo:'', err:'' };   // boletim de todos (uma chamada ao abrir a aba)
-const AGF={ id:null, tab:'historico', card:null, pend:[], err:'' }; // a ficha aberta
+const AGF={ id:null, tab:'historico', card:null, pend:[], err:'', kind:null }; // a ficha aberta (kind = tipo da comparação antes/depois)
 function agVisible(){ const o=$id('agOverlay'); return !!(o && o.style.display!=='none'); }
 async function agStatsLoad(){
   const repo=state.repo||''; AGS.repo=repo; AGS.err='';
@@ -133,6 +218,7 @@ function agCardHtml(a, i){
 
 // ---------------------------------------------------------------- a ficha
 function agFichaOpen(id, tab){
+  if(AGF.id!==id) AGF.kind=null;
   AGF.id=id; AGF.tab=tab||'historico'; AGF.card=null; AGF.pend=null; AGF.err='';
   agShowFicha(true); agFichaRender(); agFichaLoad();
 }
@@ -143,6 +229,8 @@ function agShowFicha(on){
 async function agFichaLoad(){
   const id=AGF.id, repo=state.repo||''; if(!id) return;
   try{
+    // o curador não segura a ficha: pinta quando chegar (1×/dia; o resto do dia é só um arquivo)
+    if(typeof curLoad==='function') curLoad(repo).then(()=>{ if(AGF.id===id && AGF.tab==='aprendizados' && agVisible()) agFichaRender(); }).catch(()=>{});
     const [card, pend]=await Promise.all([ invoke('agent_card',{ repo, agentId:id }), invoke('learn_pending',{ repo }).catch(()=>[]) ]);
     if(AGF.id!==id) return;
     AGF.card=card||{}; AGF.pend=(pend||[]).filter(p=>String(p.agente||'')===id);
@@ -198,7 +286,9 @@ function agHistHtml(a){
 function agLearnTabHtml(a){
   if(!AGF.card) return '<p class="dim">lendo o que ele lembra…</p>';
   const L=AGF.card.learnings||{}, notes=(L.notes||[]), skills=(L.skills||[]);
-  const since=at=>+at>0?agRowsOf(a.id).filter(r=>+r.createdAt>=+at).length:0; // sem data do aceite: não conta nada (nunca "todas as tarefas")
+  // P12: "isso ajudou?" = o antes/depois da versão que o aceite criou (a mesma conta da seção "Antes e depois")
+  const versions=(AGF.card.versions&&AGF.card.versions.versions)||[];
+  const ver=(k, key, at)=>agLearnVersion(k, k==='nota'?(notes.find(n=>n.id===key)||{ at }):{ name:key, at }, versions, agRowsOf(a.id));
   const pend=(AGF.pend||[]);
   const pendH=pend.length?`<section class="agf-sec"><h3 class="agf-h3">Pra você decidir</h3><div class="memlgrid">${pend.map(it=>memLearnCard(it, { editing:LEARN_EDIT[it.id] })).join('')}</div></section>`:'';
   const act=notes.filter(n=>!n.forgottenAt), gone=notes.filter(n=>n.forgottenAt);
@@ -206,7 +296,7 @@ function agLearnTabHtml(a){
     <div class="agf-la"><span class="agf-lv" title="cada aceite vira uma versão — dá pra voltar">${esc(verTx)}</span>
     <button class="btn sm" data-agback="${escA(k)}" data-key="${escA(key)}">voltar pro jeito antigo</button>
     <button class="btn sm" data-agforget="${escA(k)}" data-key="${escA(key)}">esquecer</button>
-    <span class="agf-help">isso ajudou? ${esc(agHelpedText(since(at)))}</span></div>
+    </div>${agBaBlock(a, ver(k, key, at), 'isso ajudou? ', { back:{ k, key } })}
     <details class="agf-det"><summary>ver detalhes</summary>${det}</details></li>`;
   const art=(MEM_ART[a.id]||'');
   const who=(art?art+' ':'')+(a.name||'');
@@ -218,8 +308,50 @@ function agLearnTabHtml(a){
   ];
   const remembered=lis.length?`<section class="agf-sec"><h3 class="agf-h3">O que ${esc(a.name||'ele')} lembra</h3><ul class="agf-list">${lis.join('')}</ul></section>`
     :`<p class="agf-empty">${esc(a.name||'Esse agente')} ainda não lembra de nada. Quando a retro de uma tarefa propuser algo pra ${esc(a.name||'esse agente')}, aparece aqui pra você aceitar ou descartar — nada entra sem o seu sim.</p>`;
-  const forgotten=gone.length?`<details class="agf-det"><summary>esquecidas (${gone.length})</summary><ul>${gone.map(n=>`<li>${esc(n.title)}${n.forgetReason?` — <span class="dim">${esc(n.forgetReason)}</span>`:''}</li>`).join('')}</ul></details>`:'';
-  return pendH+remembered+forgotten;
+  // esquecidas/arquivadas (notas) + skills arquivadas dele: nada foi apagado, "restaurar" volta igual (F4 · P13)
+  const me=typeof curKey==='function'?curKey(a.id):a.id;
+  const arqSk=(typeof CUR!=='undefined'&&CUR.archived||[]).filter(x=>x.kind==='skill'&&x.owner===me);
+  // esquecida 2× (mesmo id) = uma linha, a última; reaceita (id ativo) não aparece
+  const goneU=[...new Map(gone.filter(n=>!act.some(x=>x.id===n.id)).map(n=>[n.id, n])).values()];
+  const goneN=goneU.length+arqSk.length;
+  const forgotten=goneN?`<details class="agf-det"><summary>esquecidas (${goneN})</summary><ul class="agf-gone">${goneU.map(n=>`<li>${esc(n.title)}${n.forgetReason?` — <span class="dim">${esc(n.forgetReason)}</span>`:''} <button class="btn sm" data-currestore="nota" data-key="${escA(n.id)}" data-owner="${escA(a.id)}">restaurar</button></li>`).join('')}${arqSk.map(x=>`<li>um jeito de fazer: ${esc(String(x.key).replace(/-/g,' '))}${x.reason?` — <span class="dim">${esc(x.reason)}</span>`:''} <button class="btn sm" data-currestore="skill" data-key="${escA(x.key)}" data-owner="${escA(a.id)}">restaurar</button></li>`).join('')}</ul></details>`:'';
+  const cur=typeof curHtml==='function'?curHtml(a.id, { name:a.name }):'';
+  return agBaSection(a)+cur+pendH+remembered+forgotten;
+}
+// ---------------------------------------------------------------- P12: antes × depois na ficha
+// o tipo de tarefa da comparação: o escolhido, ou o que tem mais comparação; nunca "todos misturados"
+function agBaKind(a){
+  const rows=agRowsOf(a.id), cur=AGF.card&&AGF.card.versions?AGF.card.versions.current:null;
+  const ks=agBaKinds(rows, cur);
+  if(AGF.kind && AG_KINDS.includes(AGF.kind)) return { kind:AGF.kind, kinds:ks };
+  return { kind:(ks[0]&&ks[0].kind)||'codigo', kinds:ks };
+}
+// bloco "isso ajudou?" / versão: a frase sempre à vista; a tabela (só com n ≥ 5 por lado) dentro do details
+function agBaBlock(a, v, lead, o){
+  o=o||{};
+  const ba=agBeforeAfter(agRowsOf(a.id), v, { kind:agBaKind(a).kind });
+  const cur=AGF.card&&AGF.card.versions?+AGF.card.versions.current:null;
+  const later=v!=null&&cur>v?` · o "depois" inclui ${cur-v===1?'a v'+cur:'as v'+(v+1)+' a v'+cur}`:'';
+  const sides=`<span class="agba-n">antes ${ba.nb} · depois ${ba.na} · ${esc(ba.kindLabel)}${esc(later)}</span>`;
+  const table=ba.metrics.length?`<table class="agba"><thead><tr><th scope="col">${esc(ba.kindLabel)}</th><th scope="col">antes da v${esc(v)}</th><th scope="col">da v${esc(v)} em diante</th>${ba.stage==='pct'?'<th scope="col">diferença</th>':''}</tr></thead><tbody>${ba.metrics.map(m=>`<tr${m.worse?' class="isw"':''}><th scope="row">${esc(m.label)}</th><td>${esc(m.before)}</td><td>${esc(m.after)}</td>${ba.stage==='pct'?`<td>${esc(m.change)}${m.worse?' <span class="agba-w">pesou</span>':''}</td>`:''}</tr>`).join('')}</tbody></table>`
+    :`<p class="dim agba-why">A comparação aparece com ${AG_BA_LOW} tarefas de cada lado, e só vira conclusão com ${AG_MIN_N}. Conta só tarefa de ${esc(ba.kindLabel)} que chegou ao portão.</p>`;
+  let back='';
+  if(ba.offerBack){
+    if(o.back) back=`<button class="btn sm primary" data-agback="${escA(o.back.k)}" data-key="${escA(o.back.key)}">voltar pro jeito antigo</button>`;
+    else if(o.revert) back=`<button class="btn sm primary" data-agrevert="1">voltar pro jeito antigo</button>`;
+    else if(['persona','modelo','motor'].includes(o.change)) back=`<span class="dim">pra voltar, use Editar (avançado) › Versões — "restaurar esta persona" ou trocar o ${esc(o.change==='persona'?'texto':o.change)} de volta.</span>`;
+    else back=`<span class="dim">volte pelo item em "O que ${esc(a.name||'ele')} lembra", logo abaixo.</span>`;
+  }
+  return `<details class="agf-ba${ba.offerBack?' isw':''}"><summary>${esc(lead||'')}<span class="agba-t">${esc(ba.text)}</span></summary>${sides}${table}${back?`<div class="agba-back">${back}</div>`:''}</details>`;
+}
+function agBaSection(a){
+  const vs=((AGF.card&&AGF.card.versions&&AGF.card.versions.versions)||[]).filter(x=>+x.v>=2).slice().reverse();
+  const cur=AGF.card&&AGF.card.versions?AGF.card.versions.current:null;
+  const { kind, kinds }=agBaKind(a);
+  const chips=kinds.length>1||(kinds.length===1&&kinds[0].kind!==kind)?`<div class="agba-kinds" role="radiogroup" aria-label="Tipo de tarefa da comparação">${kinds.map(k=>`<button type="button" role="radio" class="agba-k${k.kind===kind?' on':''}" aria-checked="${k.kind===kind}" data-agbakind="${escA(k.kind)}">${esc(k.label)} <span class="dim">${k.nb+k.na}</span></button>`).join('')}</div>`:'';
+  const body=vs.length?`<ul class="agba-vers">${vs.map(x=>`<li><span class="agf-lv">v${esc(x.v)}</span> <span class="agba-what">${esc(x.what||x.change)}</span>${agBaBlock(a, +x.v, '', { revert:x.v===cur&&['persona','modelo','motor'].includes(x.change), change:x.change })}</li>`).join('')}</ul>`
+    :`<p class="agf-empty">${esc(a.name||'Esse agente')} ainda está na primeira versão. Cada coisa que você aceitar pra ele vira uma versão, e aqui aparece o antes e o depois dela.</p>`;
+  return `<section class="agf-sec agba-sec"><h3 class="agf-h3">Antes e depois de cada versão</h3><p class="dim agba-lead">Mesmo tipo de tarefa dos dois lados. Abaixo de ${AG_BA_LOW} tarefas por lado, ainda medindo; até ${AG_MIN_N - 1}, só os números crus; a partir de ${AG_MIN_N}, a comparação.</p>${chips}${body}</section>`;
 }
 function agEditTabHtml(a, i){
   const engs=(typeof AI_ENGINES!=='undefined'?AI_ENGINES:[{ id:'claude', name:'Claude', models:[] }]).filter(e=>e.id!=='mock'||a.engine==='mock'||(typeof devInstall!=='undefined'&&devInstall));
@@ -271,6 +403,8 @@ function agFichaWire(host, a, i){
     if(b.dataset.agback==='skill'){ await memLearnRevert(repo, b.dataset.key, 'voltou pela ficha do agente', ctx); }
     else await learnForget(repo, a.id, 'nota', b.dataset.key, 'voltou pela ficha do agente', ctx, 'voltar');
   });
+  host.querySelectorAll('[data-agbakind]').forEach(b=>b.onclick=()=>{ AGF.kind=b.dataset.agbakind; agFichaRender(); const n=host.querySelector(`[data-agbakind="${b.dataset.agbakind}"]`); if(n&&n.focus) n.focus(); });
+  if(typeof curWire==='function') curWire(host, { repo:()=>repo, after:async()=>{ await Promise.all([agFichaLoad(), agStatsLoad()]); } });
   host.querySelectorAll('[data-agforget]').forEach(b=>b.onclick=async()=>{
     if(!await askYes((a.name||'O agente')+' vai esquecer isso nas próximas tarefas.\n\nNada é apagado: fica no histórico, e dá pra recuperar.')) return;
     await learnForget(repo, a.id, b.dataset.agforget, b.dataset.key, 'esquecido pela ficha', ctx);

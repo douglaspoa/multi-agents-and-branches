@@ -167,6 +167,58 @@ export function revertSkill(cardumeDir: string, skillsRoot: string, name: string
   return { name, action: "arquivada", from, to, restored: null, agente };
 }
 
+// ---------------------------------------------------------------- F4 · P13: arquivar e restaurar (curador)
+
+/**
+ * Arquiva uma skill (≡ `archive_skill` do Rust): o SKILL.md é MOVIDO pro histórico (`arquivada-v<N>.md`) e vira versão
+ * "arquivar". Sem histórico ainda, os bytes atuais viram a v1 ("legado") antes. Nunca apaga. Quem chama tira do skills.json.
+ */
+export function archiveSkill(cardumeDir: string, skillsRoot: string, name: string, reason: string, at: number, agente: string): { name: string; action: "arquivada"; to: number } {
+  const md = join(skillsRoot, name, "SKILL.md");
+  if (!existsSync(md)) throw new Error("essa skill não está mais ativa");
+  const dir = skillHistDir(cardumeDir, name);
+  let h = readSkillHistory(cardumeDir, name);
+  if (!h) {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "v1.md"), readFileSync(md));
+    h = { name, current: 1, archived: false, versions: [{ v: 1, at, action: "legado", reason: "", taskId: "", agente }] };
+  }
+  mkdirSync(dir, { recursive: true });
+  const to = h.current + 1;
+  renameSync(md, join(dir, `arquivada-v${to}.md`));
+  h.current = to;
+  h.archived = true;
+  h.versions.push({ v: to, at, action: "arquivar", reason: String(reason ?? "").trim(), taskId: "", agente });
+  saveHist(cardumeDir, h);
+  return { name, action: "arquivada", to };
+}
+
+/**
+ * "Restaurar" uma skill arquivada (≡ `restore_skill` do Rust): o arquivo arquivado volta BYTE A BYTE pro SKILL.md (os bytes
+ * ficam também em `v<N>.md`) e vira versão "restaurar". O dono é o da última versão com dono. Quem chama religa no skills.json.
+ */
+export function restoreSkill(cardumeDir: string, skillsRoot: string, name: string, at: number): { name: string; action: "restaurada"; to: number; agente: string } {
+  const h = readSkillHistory(cardumeDir, name);
+  if (!h) throw new Error("essa skill não tem histórico pra restaurar");
+  if (!h.archived) throw new Error("essa skill não está arquivada");
+  const md = join(skillsRoot, name, "SKILL.md");
+  if (existsSync(md)) throw new Error("já existe uma skill ativa com esse nome — arquive ou renomeie ela antes");
+  const dir = skillHistDir(cardumeDir, name);
+  const src = [join(dir, `arquivada-v${h.current}.md`), join(dir, "arquivada.md")].find((p) => existsSync(p));
+  if (!src) throw new Error("não achei o texto arquivado dessa skill no histórico");
+  const bytes = readFileSync(src);
+  const to = h.current + 1;
+  const agente = [...h.versions].reverse().find((x) => x.agente)?.agente ?? "";
+  writeFileSync(join(dir, `v${to}.md`), bytes); // os bytes vão pro histórico ANTES de mover
+  mkdirSync(dirname(md), { recursive: true });
+  renameSync(src, md);
+  h.current = to;
+  h.archived = false;
+  h.versions.push({ v: to, at, action: "restaurar", reason: "", taskId: "", agente });
+  saveHist(cardumeDir, h);
+  return { name, action: "restaurada", to, agente };
+}
+
 // ---------------------------------------------------------------- P10: o que rodou no papel
 
 /** Skills ativas no projeto (`.cardume/skills.json`) com a versão de cada uma: ["rodar-testes@v3", …].

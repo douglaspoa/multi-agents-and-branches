@@ -107,12 +107,62 @@
 .ciclearn .memlgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:8px}
 .ciclearn-h{margin:0;font-size:var(--fs-sm);color:var(--text-2)}
 
+/* ---- F4 · P12: antes × depois de cada versão ("isso ajudou?" abre a mesma conta) ---- */
+.agba-sec{padding-bottom:4px}
+.agba-lead{margin:-2px 0 8px;font-size:var(--fs-sm);max-width:70ch;line-height:1.5}
+.agba-kinds{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.agba-k{font-size:var(--fs-sm);padding:3px 10px;border-radius:var(--r-pill,999px);border:1px solid var(--border);background:var(--surface);color:var(--text-2);cursor:pointer}
+.agba-k .dim{font-variant-numeric:tabular-nums}
+.agba-k.on{border-color:color-mix(in srgb,var(--accent) 55%,var(--border));background:color-mix(in srgb,var(--accent) 10%,var(--surface));color:var(--text);font-weight:600}
+.agba-k:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.agba-vers{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.agba-vers>li{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:8px 0;border-bottom:1px solid var(--border);font-size:var(--fs-sm)}
+.agba-what{color:var(--text);overflow-wrap:anywhere}
+.agba-vers .agf-ba{flex-basis:100%;margin-top:0}
+.agf-ba{margin-top:8px;font-size:var(--fs-sm);color:var(--text-2)}
+.agf-ba>summary{cursor:pointer;width:fit-content;max-width:100%}
+.agf-ba>summary:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);border-radius:4px}
+.agf-ba.isw>summary .agba-t{color:var(--warn);font-weight:600}
+.agba-n{display:block;margin:6px 0 4px;font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums}
+.agba{width:100%;max-width:640px;border-collapse:collapse;font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
+.agba th,.agba td{text-align:left;padding:5px 10px 5px 0;border-bottom:1px solid var(--border);vertical-align:top}
+.agba thead th{font-size:var(--fs-xs);font-weight:600;color:var(--text-2)}
+.agba tbody th{font-weight:500;color:var(--text)}
+.agba td{color:var(--text)}
+.agba tr.isw td,.agba tr.isw th{color:var(--warn)}
+.agba-w{font-size:var(--fs-xs);padding:0 6px;border-radius:var(--r-pill,999px);background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn);font-weight:600}
+.agba-why{margin:4px 0 0;max-width:65ch;line-height:1.5}
+.agba-back{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}
+.agf-gone{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+
+/* ---- F4 · P13: curador (Memória e ficha) ---- */
+.curwrap{margin:0 0 14px;display:flex;flex-direction:column;gap:8px}
+.cursec{border:1px solid var(--border);border-radius:var(--r,10px);background:var(--surface)}
+.cursec>summary{cursor:pointer;padding:10px 14px;display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline}
+.cursec>summary:focus-visible{outline:2px solid transparent;box-shadow:var(--ring);border-radius:var(--r,10px)}
+.curtitle{font-weight:650;color:var(--text);font-size:var(--fs-base)}
+.cursum{font-size:var(--fs-sm);color:var(--text-2)}
+.curlead{margin:0 14px 8px;font-size:var(--fs-sm);max-width:70ch}
+.curlist{list-style:none;margin:0;padding:0 14px 12px;display:flex;flex-direction:column;gap:8px}
+.curcard{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-2,var(--surface));padding:10px 12px}
+.cursent{margin:0;font-size:var(--fs-base);line-height:1.5;color:var(--text);max-width:75ch;text-wrap:pretty}
+.curbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.curdet{margin-top:8px;font-size:var(--fs-sm);color:var(--text-2)}
+.curdet>summary{cursor:pointer;width:max-content}
+.curdet p{margin:6px 0 0;max-width:75ch;line-height:1.5}
+.curgone{font-size:var(--fs-sm);color:var(--text-2)}
+.curgone>summary{cursor:pointer;width:max-content}
+.curgone ul{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.curgone li{line-height:1.6}
+
 @container meutime (max-width:560px){
   .aggrid2{grid-template-columns:1fr}
   .agf-h{align-items:flex-start}
   #agOverlay .av.big{width:44px;height:44px;border-radius:13px}
   .agf-hr{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t c" "s s" "f f"}
   .agf-hst{justify-self:start}
+  .agba th,.agba td{padding-right:6px}
+  .agba thead th:first-child{width:30%}
 }
 @media (prefers-reduced-motion:reduce){ .agcard-b{transition:none} }
 #agOverlay [data-wshare][hidden]{display:none!important} /* F5: compartilhar volta com a política da org */

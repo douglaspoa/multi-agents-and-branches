@@ -14,7 +14,7 @@ const html = rd('index.html');
 const cut = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b, i); assert.ok(i >= 0 && j > i, a); return s.slice(i, j); };
 
 const P = new Function(cut(mt, '// @meutime-puro-inicio', '// @meutime-puro-fim') +
-  '\nreturn { agStatsView, agHelpedText, agLineDiff, agTeamRoles, agTeamWarnings, agTeamStages, agAvgByRole, agTeamCost, agDoes, agFirstTry, AG_SAME_REVIEWER };')();
+  '\nreturn { agStatsView, agBeforeAfter, agLineDiff, agTeamRoles, agTeamWarnings, agTeamStages, agAvgByRole, agTeamCost, agDoes, agFirstTry, AG_SAME_REVIEWER };')();
 
 const row = (i, o = {}) => ({ agentId: 'nyx', taskId: 't' + i, title: 'T' + i, status: 'merged', createdAt: i, role: 'reviewer', usd: 0.3, reworks: 0, muda: 0, rounds: 1, ...o });
 
@@ -65,10 +65,9 @@ test('linha repetida da mesma tarefa conta uma vez; custo médio por tarefa', ()
   assert.equal(v.tasks, 2); assert.ok(Math.abs(v.avgUsd - 0.3) < 1e-9);
 });
 
-test('"isso ajudou?" na F3 só conta (antes/depois é a F4) e nunca diz "melhorou"', () => {
-  assert.equal(P.agHelpedText(0), 'ainda medindo (0 de 10)');
-  assert.equal(P.agHelpedText(4), 'ainda medindo (4 de 10)');
-  assert.ok(!/ajudou|piorou|melhor/.test(P.agHelpedText(12)));
+test('"isso ajudou?" sem amostra é "ainda medindo (k de 10)" (a conta inteira da F4 está em agentes-f4.test.mjs) e nunca diz "melhorou"', () => {
+  assert.equal(P.agBeforeAfter([], 2).text, 'ainda medindo (0 de 10)');
+  assert.equal(P.agBeforeAfter([], null).text, 'ainda medindo (0 de 10)');
   for (const [f, src] of [['61-meu-time.js', mt], ['37-memoria.js', mem], ['60-ciclo.js', ciclo], ['33-switcher-projetos.js', sw], ['index.html', html]]) assert.ok(!/melhorou/i.test(src), f);
 });
 
@@ -187,7 +186,7 @@ test('ficha: cabeçalho motor · modelo · versão e as 3 abas; cada aba mostra 
   assert.match(a, /desde a v3/);
   assert.match(a, /data-agback="nota" data-key="n1">voltar pro jeito antigo/);
   assert.match(a, /data-agforget="nota" data-key="n1">esquecer/);
-  assert.match(a, /isso ajudou\? ainda medindo \(\d+ de 10\)/);
+  assert.match(a, /isso ajudou\? <span class="agba-t">ainda medindo \(\d+ de 10\)/);
   assert.match(a, /esquecidas \(1\)/);
   // Editar: motor e modelo por papel + versões com diff e restaurar
   R.AGF.tab = 'editar'; R.agFichaRender();

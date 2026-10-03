@@ -296,8 +296,11 @@ async function openMemoria(){
   if(MEM.repo && MEM.repo!==state.repo){ MEM.sel=null; MEM.edit=null; MEM.q=''; MEM.type=''; }
   ovShow(ov);
   // pinta lista + nota em esqueleto na hora (se já havia notas na tela, mantém elas até a leitura nova chegar)
+  // F4 · P13: o curador roda AO ABRIR (no máximo 1×/dia — o resto do dia usa o guardado); falhar não esconde as notas
+  // (o curador não segura as notas: pinta quando chegar, igual ao sync do time)
   await loadInto($id('memBody'), 'nota', async()=>{ await memLoad(state.repo); MEM.hasTeam=await memTeamAvailable(); }, ()=>{
     memRender();
+    if(typeof curLoad==='function'){ const r=state.repo; curLoad(r).then(()=>{ if(memVisible() && MEM.repo===r) memRender(); }).catch(()=>{}); }
     if(MEM.hasTeam) memTeamSync().then(ch=>{ if(ch) memRefresh(); });
   }, { label:'lendo a memória do projeto', ctx:'Não consegui ler a memória', keep:MEM.notes.length>0 && MEM.repo===state.repo });
 }
@@ -344,6 +347,7 @@ function memRender(){
       '</div>'+
     '</div>'+
     memLearnHtml(MEM.learn, LEARN_EDIT)+
+    (typeof curHtml==='function'?curHtml(null):'')+
     '<div class="memgrid'+(MEM.view==='grafo'?' isgraph':'')+'">'+
       '<aside class="memside">'+
         '<input class="in" id="memQ" placeholder="buscar nas notas…" value="'+memEsc(MEM.q)+'" spellcheck="false" aria-label="Buscar nas notas">'+
@@ -402,6 +406,7 @@ function memWire(body){
   const q=body.querySelector('#memQ'); if(q){ q.oninput=()=>{ MEM.q=q.value; const l=$id('memList'); const sel=memSelNote(); const f=memFilter(MEM.notes,MEM.q,MEM.type); if(l){ l.innerHTML=f.length?f.map(n=>memRow(n,sel)).join(''):'<div class="memempty">Nada bate com a busca.</div>'; memWireLinks(l); } }; }
   memWireLinks(body);
   memWireLearn(body);
+  if(typeof curWire==='function') curWire(body, { repo:()=>MEM.repo, after:async()=>{ await memRefresh(); } });
   bindClick('memNew', ()=>memStartEdit(null));
   bindClick('memObs', async()=>{ try{ const how=await invoke('memory_open_obsidian',{ repo:MEM.repo }); if(how==='pasta') toast('Abri a pasta da memória. No Obsidian: "Abrir pasta como cofre" → escolha .cardume/memoria (depois disso este botão abre direto no Obsidian).','warn'); }catch(e){ showErr(memErr(e),'Não consegui abrir no Obsidian'); } });
   bindClick('memSync', async()=>{ MEM.syncMsg='sincronizando…'; memRender(); const r=await memTeamSync(); MEM.syncMsg=r===false&&memLastSyncErr?'não sincronizou':'sincronizado'; await memRefresh(); });

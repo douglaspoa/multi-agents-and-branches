@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 mod agent_edits;
 mod agent_versions;
 mod agent_stats;
+mod curador;
 mod ambiente;
 mod device;
 mod ai_once;
@@ -9740,6 +9741,12 @@ pub fn run() {
             agent_restore_persona,
             agent_stats::agent_stats,
             agent_stats::agent_card,
+            curador::curator_state,
+            curador::curator_inputs,
+            curador::curator_archived,
+            curador::curator_save,
+            curador::curator_archive,
+            curador::curator_restore,
             learn::agent_forget,
             device::device_cli,
             ambiente::env_detect,
