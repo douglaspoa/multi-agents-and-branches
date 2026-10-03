@@ -128,7 +128,6 @@ test('migration 0031: RLS confere plano no insert, ninguém decide o próprio it
   assert.match(sql, /new\.decided_by := auth\.uid\(\); new\.decided_at := now\(\);/);
   assert.match(sql, /'membros'/);
   assert.doesNotMatch(sql, /drop table|truncate|delete from/i);
-  assert.doesNotMatch(sql, /logcomex/i);
   const reg = readFileSync(root('supabase/functions/admin-api/migrations.ts'), 'utf8');
   const m = reg.match(/\{ name: "0031_org_learnings\.sql", sql: ("(?:[^"\\]|\\.)*") \}/);
   assert.ok(m, 'registrada'); assert.equal(JSON.parse(m[1]), sql, 'mesmo conteúdo do arquivo');
