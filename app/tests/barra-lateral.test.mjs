@@ -97,7 +97,7 @@ test('L2: rodapé em português, sem "− N/4 +" (o limite mora em Configuraçõ
 });
 
 test('L6: erro do medidor em duas linhas que quebram — "tentar de novo" sempre visível', () => {
-  assert.match(pm, /<div class="pm-err"[^`]*<span class="pm-errtx">uso do plano indisponível<\/span><button class="pm-retry" data-pm="retry"/);
+  assert.match(pm, /<div class="pm-err"[^`]*<span class="pm-errtx">uso do plano não carregou<\/span><button class="pm-retry" data-pm="retry"/);
   assert.match(css, /\.planmeter \.pm-err\{display:flex;flex-wrap:wrap;/);
   assert.ok(!/\.pm-err[^{]*\{[^}]*white-space:nowrap/.test(css), 'nada de nowrap no erro');
 });
