@@ -34,7 +34,7 @@ impl PtySink for TauriSink {
                 let _ = c.execute("UPDATE task SET status='review' WHERE id=?1 AND status IN ('running','thinking')", params![task_id]);
                 let _ = c.execute(
                     "INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'status', ?3, 1)",
-                    params![task_id, now_ms(), format!("terminal fechado{}", code.map(|c| format!(" (código {c})")).unwrap_or_default())],
+                    params![task_id, now_ms(), exit_note(code)],
                 );
             }
         }
@@ -42,6 +42,10 @@ impl PtySink for TauriSink {
     }
 }
 
+/// Nota de fim do processo em pt-BR (sem o código cru — o detalhe fica no log do terminal).
+pub fn exit_note(code: Option<u32>) -> &'static str {
+    match code { Some(0) => "terminal fechado", Some(_) => "o terminal fechou com erro", None => "terminal fechado pelo app" }
+}
 fn now_ms() -> i64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0) }
 fn open_rw(db: &Path) -> Result<Connection, String> {
     let c = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
@@ -409,8 +413,14 @@ pub fn term_status(state: State<AppState>, task_id: String) -> Result<TermInfo, 
 
 #[cfg(test)]
 mod modo_padrao_tests {
-    use super::{history_for, mode_default, talk_decision, talk_in_terminal, wants_terminal, worktree_gone_after_merge, TaskRow, WT_GONE};
+    use super::{exit_note, history_for, mode_default, talk_decision, talk_in_terminal, wants_terminal, worktree_gone_after_merge, TaskRow, WT_GONE};
     fn row(status: &str, busy: Option<i64>, wt: &str) -> TaskRow { TaskRow { engine: "claude".into(), status: status.into(), worktree: wt.into(), busy_pid: busy, session_id: None, term_sid: None } }
+    #[test]
+    fn nota_de_fim_sem_codigo_cru() {
+        assert_eq!(exit_note(Some(0)), "terminal fechado");
+        assert_eq!(exit_note(Some(143)), "o terminal fechou com erro");
+        assert_eq!(exit_note(None), "terminal fechado pelo app");
+    }
     #[test]
     fn decisao_do_compositor_por_linha_da_tarefa() {
         assert_eq!(talk_decision(&row("review", None, "/"), false, false, "terminal"), Ok(true), "parada: retoma no PTY");

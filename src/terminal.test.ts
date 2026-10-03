@@ -331,3 +331,9 @@ test("term-prep (CLI): worktree removida sem integrar é recriada no MESMO camin
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("fim de sessão do Claude Code vira texto em pt-BR, sem o código do motivo", () => {
+  assert.equal(mapHook("SessionEnd", { reason: "other" }).events[0].text, "terminal: a sessão terminou");
+  assert.equal(mapHook("SessionEnd", { reason: "prompt_input_exit" }).events[0].text, "terminal: você saiu do terminal");
+  assert.equal(mapHook("SessionEnd", {}).events[0].text, "terminal: a sessão terminou");
+});

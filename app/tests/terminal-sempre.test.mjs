@@ -9,7 +9,7 @@ const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8'
 const cut = (src, from, to) => { const a = src.indexOf(from); const b = src.indexOf(to, a + from.length); assert.ok(a >= 0 && b > a, 'trecho não encontrado: ' + from); return src.slice(a, b); };
 const SRC = read('js/60-terminal.js');
 const TH = new Function(cut(SRC, '// @term-hist-puro-inicio', '// @term-hist-puro-fim') +
-  '\nreturn { thClean, thItemLines, thFromEvents, thSysNotes, thRender, thWrap };')();
+  '\nreturn { thClean, thItemLines, thFromEvents, thSysNotes, thRender, thWrap, thSysText };')();
 const plain = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
 
 test('transcript → gramática do mock: > você · ● fala · ⎿ ferramenta · ● Update(arq) +N −M', () => {
@@ -146,4 +146,28 @@ test('histórico quebra POR PALAVRA na largura do xterm (nunca "vo ltaram"); con
   assert.deepEqual(TH.thWrap('curta', 80), ['curta']);
   const two = plain(TH.thRender([{ k: 'say', ts: 1, text: 'primeira linha\nsegunda linha bem comprida que precisa quebrar em mais de uma linha aqui' }], { cols: 40 })).split('\r\n').filter(Boolean);
   assert.ok(two.slice(1).every((l) => l.startsWith('  ') && !l.startsWith('   ')), 'continuação da fala mantém o recuo de 2: ' + JSON.stringify(two));
+});
+
+test('notas de fim do terminal em pt-BR, sem código cru (inclusive as já gravadas)', () => {
+  assert.equal(TH.thSysText('terminal: sessão encerrada (other)'), 'terminal: a sessão terminou');
+  assert.equal(TH.thSysText('terminal: sessão encerrada (prompt_input_exit)'), 'terminal: você saiu do terminal');
+  assert.equal(TH.thSysText('terminal: sessão encerrada (algo_novo)'), 'terminal: a sessão terminou');
+  assert.equal(TH.thSysText('terminal fechado (código 0)'), 'terminal fechado');
+  assert.equal(TH.thSysText('terminal fechado (código 143)'), 'o terminal fechou com erro');
+  assert.equal(TH.thSysText('PR aberto: x'), 'PR aberto: x');
+  assert.equal(TH.thSysText('⏸ esperando você no terminal: Claude is waiting for your input'), '⏸ o Claude está esperando você no terminal');
+  const out = TH.thRender([], { notes: TH.thSysNotes([{ agent: 'Sistema', type: 'status', text: 'terminal: sessão encerrada (other)', ts: 1 }]) });
+  assert.ok(!/other/.test(out) && /a sessão terminou/.test(out));
+});
+
+test('painel baixo do canvas: faixa de etapas vira resumo, barra do histórico na linha de status, compositor em 1 linha', () => {
+  const css = read('css/95-terminal.css');
+  const low = css.slice(css.indexOf('@media (max-height:420px)'));
+  assert.match(low, /\.cicstrip>:not\(\.cicst-sum\)\{display:none\}/);
+  assert.match(low, /\.fwtermbar\{position:absolute;top:0;right:0;height:28px/);
+  assert.match(low, /\.fwinput\.cc \.cc-row\{display:contents\}/);
+  assert.match(low, /\.cc-compmore\{order:3;display:inline-grid/);
+  const ws = read('js/20-workspace-tarefa.js');
+  assert.match(ws, /id="fwCompMore"/, 'o ⋯ do compositor (IA e vira requisito) só existe no terminal');
+  assert.match(read('js/60-terminal-layout.js'), /function tlCompMoreOpen\(t, anchor\)[\s\S]*openModelMenu\(t\.id, anchor\)[\s\S]*req\.checked=!req\.checked/);
 });

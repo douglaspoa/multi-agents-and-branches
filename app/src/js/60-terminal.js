@@ -70,6 +70,17 @@ function thItemLines(it){
     default: return [];
   }
 }
+// nota de sistema com código/motivo cru do CLI ("sessão encerrada (other)", "terminal fechado (código 143)") → pt-BR
+const TH_END_WHY={ clear:'conversa limpa (/clear)', logout:'você saiu da conta do Claude', prompt_input_exit:'você saiu do terminal', other:'a sessão terminou', bypass_permissions_disabled:'o modo sem confirmação foi desligado' };
+function thSysText(tx){
+  const t=String(tx==null?'':tx);
+  let m=t.match(/^terminal: sessão encerrada(?: \(([\w-]+)\))?$/);
+  if(m) return 'terminal: '+(TH_END_WHY[m[1]]||'a sessão terminou');
+  m=t.match(/^terminal fechado(?: \(código (-?\d+)\))?$/);
+  if(m) return m[1]==null ? 'terminal fechado pelo app' : +m[1]===0 ? 'terminal fechado' : 'o terminal fechou com erro';
+  if(/^⏸ esperando você no terminal: Claude is waiting for your input\.?$/.test(t)) return '⏸ o Claude está esperando você no terminal';
+  return t;
+}
 // eventos do state.sqlite (tarefa sem transcript) → os mesmos itens
 function thTs(e){ const v=e&&e.ts; return typeof v==='number'?v:(Date.parse(v||'')||0); }
 function thFromEvents(evs){
@@ -79,7 +90,7 @@ function thFromEvents(evs){
     if(!tx.trim() || e.type==='papel') continue;
     if(e.agent==='Você' && /^Você:\s/.test(tx)){ out.push({ k:'you', ts, text:tx.replace(/^Você:\s*/,'') }); continue; }
     if(/^humano respondeu:/.test(tx)){ out.push({ k:'you', ts, text:tx.replace(/^humano respondeu:\s*/,'') }); continue; }
-    if(e.agent==='Sistema'){ out.push({ k:'note', ts, text:tx }); continue; }
+    if(e.agent==='Sistema'){ out.push({ k:'note', ts, text:thSysText(tx) }); continue; }
     if(e.type==='error'){ out.push({ k:'err', ts, text:tx }); continue; }
     if(e.type==='edit'||e.type==='write'){ out.push({ k:'edit', ts, name:e.type==='write'?'Write':'Update', arg:tx }); continue; }
     if(e.type==='read'){ out.push({ k:'tool', ts, name:'Read', arg:tx }); continue; }
@@ -92,7 +103,7 @@ function thFromEvents(evs){
 // notas do Starfork que entram no meio do transcript (PR aberto, fila, requisito, sessão retomada…)
 function thSysNotes(evs){
   return (evs||[]).filter(e=>{ const tx=String(e.text||''); return tx.trim() && ((e.agent==='Sistema' && (e.type==='note'||e.type==='status')) || /^(PR aberto|PR NÃO aberto|requisito adicionado:|falha ao finalizar)/i.test(tx)); })
-    .map(e=>({ k:'note', ts:thTs(e), text:String(e.text) }));
+    .map(e=>({ k:'note', ts:thTs(e), text:thSysText(e.text) }));
 }
 // quebra POR PALAVRA na largura do xterm (o xterm sozinho corta no meio da palavra). Conta só o visível (sem os
 // códigos de cor); a continuação alinha depois do marcador (●, ⎿, >, ?…). Palavra maior que a linha é partida.

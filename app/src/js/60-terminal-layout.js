@@ -175,7 +175,7 @@ function tlSysNote(t){
     if(e.agent!=='Sistema' && !/^(PR aberto|PR NÃO aberto|requisito adicionado:|falha ao finalizar)/i.test(tx)) continue;
     if(!(e.type==='note'||e.type==='status') || /^terminal: /.test(tx)) continue;
     const ts=(typeof thTs==='function')?thTs(e):0; if(ts && Date.now()-ts>15*60000) return '';
-    return tx.replace(/\s+/g,' ').trim(); }
+    return (typeof thSysText==='function'?thSysText(tx):tx).replace(/\s+/g,' ').trim(); }
   return '';
 }
 // teto de custo aberto: a pergunta não é do agente (não vai pra folha) — cartão em cima do compositor, com as opções
@@ -334,4 +334,25 @@ function tlAskFromComposer(t, text){
   if(a.st.q<a.g.rows.length-1){ a.st.q++; tlAskPaint(t, true); toast('anotei como resposta — falta '+(a.g.rows.length-a.st.q===1?'1 pergunta':(a.g.rows.length-a.st.q)+' perguntas'),'info'); }
   else tlAskSend(t.id);
   return true;
+}
+
+// ---------------------------------------------------------------- painel baixo (canvas em grade/empilhado)
+// O compositor vira UMA linha (anexo · campo · ⋯ · enviar): o seletor de IA e o "vira requisito" continuam sendo os
+// MESMOS controles (escondidos pelo CSS) — este menu só os aciona, nada de segundo estado.
+function tlCompMoreOpen(t, anchor){
+  const old=$id('fwCompPop'); if(old){ old.remove(); anchor.setAttribute('aria-expanded','false'); return; }
+  const pill=$id('fwModel'), req=$id('fwAsReq');
+  const pop=document.createElement('div'); pop.id='fwCompPop'; pop.className='fwmenu'; pop.setAttribute('role','menu');
+  pop.innerHTML=(pill?`<button class="fwmi" role="menuitem" data-cm="ia"><span>IA desta tarefa</span><span class="fwmh">${esc((pill.textContent||'').trim())}</span></button>`:'')+
+    (req?`<button class="fwmi" role="menuitemcheckbox" aria-checked="${req.checked}" data-cm="req"><span>${req.checked?'✓ ':''}vira requisito</span><span class="fwmh">a mensagem entra como requisito com prova</span></button>`:'');
+  document.body.appendChild(pop); anchor.setAttribute('aria-expanded','true');
+  const r=anchor.getBoundingClientRect();
+  pop.style.top=Math.max(8, r.top-pop.offsetHeight-6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.right-pop.offsetWidth))+'px';
+  const close=(back)=>{ pop.remove(); anchor.setAttribute('aria-expanded','false'); document.removeEventListener('mousedown', out, true); if(back) try{ anchor.focus(); }catch(_){ } };
+  const out=e=>{ if(!pop.contains(e.target) && !anchor.contains(e.target)) close(false); };
+  setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
+  pop.onclick=(e)=>{ const b=e.target.closest('[data-cm]'); if(!b) return; close(false);
+    if(b.dataset.cm==='ia' && typeof openModelMenu==='function') openModelMenu(t.id, anchor); // ancora no ⋯ (a pílula está escondida)
+    if(b.dataset.cm==='req' && req){ req.checked=!req.checked; req.dispatchEvent(new Event('change')); anchor.classList.toggle('on', req.checked); const i=$id('fwInput'); if(i) i.focus(); } };
+  if(typeof a11yMenu==='function') a11yMenu(pop, anchor, close); else { const b=pop.querySelector('button'); if(b) b.focus(); }
 }
