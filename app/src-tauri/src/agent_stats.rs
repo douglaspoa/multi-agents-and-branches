@@ -12,6 +12,8 @@ use super::{repo_or, AppState};
 use crate::{agent_versions, learn};
 
 pub const AGENT_STATS_SQL: &str = include_str!("agent_stats.sql");
+/// F4 (P12): o previsto por tarefa — query à parte (a tabela `estimate` pode não existir).
+pub const AGENT_STATS_PREV_SQL: &str = include_str!("agent_stats_prev.sql");
 
 /// As linhas do boletim (todas as do agente, ou de todos com `agent = None`).
 pub fn stats_rows(conn: &Connection, agent: Option<&str>) -> Result<Vec<Value>, String> {
@@ -31,10 +33,24 @@ pub fn stats_rows(conn: &Connection, agent: Option<&str>) -> Result<Vec<Value>, 
                 "rounds": r.get::<_, i64>(9)?,
                 "kind": r.get::<_, Option<String>>(10)?,
                 "prUrl": r.get::<_, Option<String>>(11)?,
+                "papel": r.get::<_, Option<String>>(12)?,
+                "trounds": r.get::<_, i64>(13)?,
+                "tusd": r.get::<_, f64>(14)?,
+                "branchType": r.get::<_, Option<String>>(15)?,
             }))
         })
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+/// Previsto (US$) de cada tarefa. Sem a tabela `estimate` (nenhuma previsão salva ainda) = vazio, nunca erro.
+pub fn prev_map(conn: &Connection) -> std::collections::HashMap<String, f64> {
+    let mut out = std::collections::HashMap::new();
+    let Ok(mut st) = conn.prepare_cached(AGENT_STATS_PREV_SQL) else { return out };
+    if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))) {
+        for (k, v) in rows.flatten() { out.insert(k, v); }
+    }
+    out
 }
 
 /// Banco sem as colunas/tabelas novas (projeto que nunca rodou depois da F0) = boletim vazio, nunca erro na tela.
@@ -44,11 +60,16 @@ pub fn stats_in(repo: &Path, agent: Option<&str>) -> Result<Value, String> {
     let t0 = std::time::Instant::now();
     let conn = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(std::time::Duration::from_millis(3000));
-    let rows = match stats_rows(&conn, agent) {
+    let mut rows = match stats_rows(&conn, agent) {
         Ok(r) => r,
         Err(e) if e.contains("no such column") || e.contains("no such table") => vec![],
         Err(e) => return Err(e),
     };
+    let prev = prev_map(&conn);
+    for r in rows.iter_mut() {
+        let p = r["taskId"].as_str().and_then(|k| prev.get(k)).copied();
+        r["prevUsd"] = p.map(|x| json!(x)).unwrap_or(Value::Null);
+    }
     Ok(json!({ "rows": rows, "ms": t0.elapsed().as_millis() as u64, "lembra": lembra_counts(repo) }))
 }
 
@@ -99,7 +120,8 @@ mod tests {
              CREATE TABLE event (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, agent TEXT NOT NULL, role TEXT, ts INTEGER NOT NULL, type TEXT NOT NULL, text TEXT NOT NULL, ok INTEGER, agent_id TEXT);
              CREATE TABLE cost (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT NOT NULL, agent TEXT NOT NULL, role TEXT, usd REAL NOT NULL, in_tok INTEGER NOT NULL, out_tok INTEGER NOT NULL, created_at INTEGER NOT NULL, ms INTEGER NOT NULL DEFAULT 0, agent_id TEXT);
              CREATE INDEX ev_task ON event(task_id, id); CREATE INDEX cost_task ON cost(task_id);
-             CREATE INDEX cost_agent ON cost(agent_id); CREATE INDEX ev_agent ON event(agent_id, type);",
+             CREATE INDEX cost_agent ON cost(agent_id); CREATE INDEX ev_agent ON event(agent_id, type);
+             CREATE TABLE estimate (task_id TEXT PRIMARY KEY, json TEXT NOT NULL, created_at INTEGER NOT NULL);",
         ).unwrap();
         let tx = c.unchecked_transaction().unwrap();
         for i in 0..n {
@@ -108,13 +130,17 @@ mod tests {
             tx.execute("INSERT INTO task (id,title,objective,status,agent,branch,worktree,base,engine,spec_json,created_at) VALUES (?1,?2,'o',?3,'Íris','b','w','main','claude',?4,?5)",
                 rusqlite::params![id, format!("Tarefa {i}"), st, if i == 7 { "{quebrado".to_string() } else { format!("{{\"taskKind\":\"codigo\"{}}}", if i % 3 == 0 { ",\"prUrl\":\"https://x/pull/1\"" } else { "" }) }, i as i64]).unwrap();
             for (ag, nm, role) in [("vega", "Vega", "planner"), ("iris", "Íris", "builder"), ("nyx", "Nyx", "reviewer")] {
-                tx.execute("INSERT INTO event (task_id,agent,role,ts,type,text,ok,agent_id) VALUES (?1,?2,?3,1,'papel','skills ativas: — · x@v1 · claude',1,?4)", rusqlite::params![id, nm, role, ag]).unwrap();
+                // F4: a versão muda no meio (aceite na tarefa 250); o 2º papel da mesma tarefa (retry) não conta
+                let v = if i < 250 { 1 } else { 2 };
+                tx.execute("INSERT INTO event (task_id,agent,role,ts,type,text,ok,agent_id) VALUES (?1,?2,?3,1,'papel',?5,1,?4)", rusqlite::params![id, nm, role, ag, format!("skills ativas: nenhuma · {ag}@v{v} · claude")]).unwrap();
+                tx.execute("INSERT INTO event (task_id,agent,role,ts,type,text,ok,agent_id) VALUES (?1,?2,?3,1,'papel',?5,1,?4)", rusqlite::params![id, nm, role, ag, format!("skills ativas: nenhuma · {ag}@v9 · claude")]).unwrap();
                 for k in 0..8 { tx.execute("INSERT INTO event (task_id,agent,role,ts,type,text,ok,agent_id) VALUES (?1,?2,?3,?4,'note','trabalhando',1,?5)", rusqlite::params![id, nm, role, k, ag]).unwrap(); }
                 tx.execute("INSERT INTO cost (task_id,agent,role,usd,in_tok,out_tok,created_at,agent_id) VALUES (?1,?2,?3,0.1,1,1,1,?4)", rusqlite::params![id, nm, role, ag]).unwrap();
             }
             if i % 4 == 0 { tx.execute("INSERT INTO event (task_id,agent,role,ts,type,text,ok,agent_id) VALUES (?1,'Nyx','reviewer',2,'veredito','rodada 1: muda',0,'nyx')", rusqlite::params![id]).unwrap(); }
             tx.execute("INSERT INTO event (task_id,agent,role,ts,type,text,ok,agent_id) VALUES (?1,'Nyx','reviewer',3,'veredito','rodada 2: aprova',1,'nyx')", rusqlite::params![id]).unwrap();
             if i % 6 == 0 { tx.execute("INSERT INTO event (task_id,agent,ts,type,text,ok) VALUES (?1,'Íris',4,'note','rework: aplicando ajuste pelo time inteiro — \"x\"',1)", rusqlite::params![id]).unwrap(); }
+            if i % 2 == 0 { tx.execute("INSERT INTO estimate (task_id,json,created_at) VALUES (?1,'{\"v\":1,\"total\":{\"usd\":0.5}}',1)", rusqlite::params![id]).unwrap(); }
             // linha antiga, sem agent_id: não entra em ficha nenhuma
             tx.execute("INSERT INTO cost (task_id,agent,role,usd,in_tok,out_tok,created_at) VALUES (?1,'Íris','builder',9,1,1,1)", rusqlite::params![id]).unwrap();
         }
@@ -144,6 +170,14 @@ mod tests {
         assert_eq!(r0["reworks"], 1);
         assert!((r0["usd"].as_f64().unwrap() - 0.1).abs() < 1e-9, "custo sem agent_id não entra");
         assert_eq!(r0["prUrl"], "https://x/pull/1");
+        assert_eq!(r0["papel"], "skills ativas: nenhuma · nyx@v1 · claude", "o 1º papel do agente na tarefa (versão desde o aceite)");
+        assert_eq!(r0["trounds"], 2);
+        assert!((r0["tusd"].as_f64().unwrap() - 9.3).abs() < 1e-9, "custo total da tarefa (todos os papéis + linha antiga)");
+        assert_eq!(r0["prevUsd"], 0.5);
+        let r1 = rows.iter().find(|r| r["taskId"] == "t1").unwrap();
+        assert!(r1["prevUsd"].is_null(), "sem previsão salva");
+        let r300 = rows.iter().find(|r| r["taskId"] == "t300").unwrap();
+        assert_eq!(r300["papel"], "skills ativas: nenhuma · nyx@v2 · claude");
         let r7 = rows.iter().find(|r| r["taskId"] == "t7").unwrap();
         assert!(r7["kind"].is_null(), "spec quebrado não derruba a query");
         let _ = std::fs::remove_dir_all(&d);
@@ -166,6 +200,10 @@ mod tests {
         c.execute_batch("CREATE TABLE task (id TEXT, title TEXT, status TEXT, created_at INTEGER, spec_json TEXT); CREATE TABLE event (id INTEGER, task_id TEXT, type TEXT, text TEXT, ok INTEGER, role TEXT); CREATE TABLE cost (task_id TEXT, usd REAL, role TEXT);").unwrap();
         drop(c);
         assert_eq!(stats_in(&d, None).unwrap()["rows"], json!([]));
+        // sem a tabela estimate: previsão vazia, nunca erro
+        let c = Connection::open(d.join(".cardume").join("state.sqlite")).unwrap();
+        assert!(prev_map(&c).is_empty());
+        drop(c);
         let _ = std::fs::remove_dir_all(&d);
     }
 }

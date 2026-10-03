@@ -1,6 +1,8 @@
 -- agent_stats (F3 · P8): UMA query agregada — uma linha por (agente, tarefa) em que ele trabalhou.
 -- ?1 = agent_id ou NULL (todos — a grade "Meu time" sai de uma chamada só). Mesmo texto no Rust (include_str!) e no
--- teste de desempenho do node (src/agentes-f3.test.ts): 500 tarefas < 150 ms. Linha antiga sem agent_id = "sem ficha".
+-- teste de desempenho do node (src/agentes-f3.test.ts, src/agentes-f4.test.ts): 500 tarefas < 150 ms. Linha antiga sem
+-- agent_id = "sem ficha". F4 (P12): + o texto do 1º evento `papel` do agente na tarefa ("… · nyx@v4 · codex" = a versão
+-- dele DESDE O ACEITE), as rodadas de revisão da TAREFA e o custo total da tarefa (erro de previsão).
 WITH part AS (
   SELECT agent_id, task_id, MAX(role) AS role FROM (
     SELECT agent_id, task_id, role FROM event
@@ -18,10 +20,20 @@ usd AS (
 tev AS (
   SELECT task_id,
          SUM(CASE WHEN type = 'note' AND text LIKE 'rework: aplicando ajuste%' THEN 1 ELSE 0 END) AS reworks,
-         SUM(CASE WHEN type = 'veredito' AND ok = 0 THEN 1 ELSE 0 END) AS muda
+         SUM(CASE WHEN type = 'veredito' AND ok = 0 THEN 1 ELSE 0 END) AS muda,
+         SUM(CASE WHEN type = 'veredito' THEN 1 ELSE 0 END) AS trounds
     FROM event
    WHERE type IN ('note', 'veredito') AND task_id IN (SELECT task_id FROM part)
    GROUP BY task_id
+),
+pv AS (
+  SELECT e.agent_id, e.task_id, e.text FROM event e
+    JOIN (SELECT agent_id, task_id, MIN(id) AS mid FROM event
+           WHERE type = 'papel' AND agent_id IS NOT NULL AND agent_id <> '' AND (?1 IS NULL OR agent_id = ?1)
+           GROUP BY agent_id, task_id) m ON m.mid = e.id
+),
+tc AS (
+  SELECT task_id, SUM(usd) AS usd FROM cost WHERE task_id IN (SELECT task_id FROM part) GROUP BY task_id
 ),
 rv AS (
   SELECT agent_id, task_id, COUNT(*) AS rounds FROM event
@@ -31,10 +43,14 @@ rv AS (
 SELECT p.agent_id, p.task_id, t.title, t.status, t.created_at, COALESCE(p.role, ''),
        COALESCE(u.usd, 0), COALESCE(e.reworks, 0), COALESCE(e.muda, 0), COALESCE(r.rounds, 0),
        CASE WHEN json_valid(t.spec_json) AND json_type(t.spec_json, '$.taskKind') = 'text' THEN json_extract(t.spec_json, '$.taskKind') END,
-       CASE WHEN json_valid(t.spec_json) AND json_type(t.spec_json, '$.prUrl') = 'text' THEN json_extract(t.spec_json, '$.prUrl') END
+       CASE WHEN json_valid(t.spec_json) AND json_type(t.spec_json, '$.prUrl') = 'text' THEN json_extract(t.spec_json, '$.prUrl') END,
+       v.text, COALESCE(e.trounds, 0), COALESCE(c.usd, 0),
+       CASE WHEN json_valid(t.spec_json) AND json_type(t.spec_json, '$.branchType') = 'text' THEN json_extract(t.spec_json, '$.branchType') END
   FROM part p
   JOIN task t ON t.id = p.task_id
   LEFT JOIN usd u ON u.agent_id = p.agent_id AND u.task_id = p.task_id
   LEFT JOIN tev e ON e.task_id = p.task_id
   LEFT JOIN rv r ON r.agent_id = p.agent_id AND r.task_id = p.task_id
+  LEFT JOIN pv v ON v.agent_id = p.agent_id AND v.task_id = p.task_id
+  LEFT JOIN tc c ON c.task_id = p.task_id
  ORDER BY t.created_at DESC

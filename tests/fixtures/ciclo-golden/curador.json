@@ -1,0 +1,497 @@
+{
+  "about": "F4 · P13 — arquivar/restaurar skill: o MESMO roteiro roda no TS (src/agentes-f4.test.ts) e no Rust (agent_versions::tests::curador_golden_paridade_com_ts). Gerado pelo TS.",
+  "steps": [
+    {
+      "op": "write",
+      "name": "menor-diff",
+      "content": "---\nname: menor-diff\ndescription: menor-diff desc\norigem: aprendida\nagente: nyx\n---\n\nMude o mínimo.\n",
+      "action": "criar",
+      "agente": "nyx",
+      "at": 1000,
+      "result": 1,
+      "expect": {
+        "skill": "---\nname: menor-diff\ndescription: menor-diff desc\norigem: aprendida\nagente: nyx\n---\n\nMude o mínimo.\n",
+        "history": {
+          "name": "menor-diff",
+          "current": 1,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1000,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v1.md"
+        ]
+      }
+    },
+    {
+      "op": "write",
+      "name": "menor-diff",
+      "content": "---\nname: menor-diff\ndescription: menor-diff desc\norigem: aprendida\nagente: nyx\n---\n\nMude o mínimo; um arquivo por vez.\n",
+      "action": "atualizar",
+      "agente": "nyx",
+      "at": 2000,
+      "result": 2,
+      "expect": {
+        "skill": "---\nname: menor-diff\ndescription: menor-diff desc\norigem: aprendida\nagente: nyx\n---\n\nMude o mínimo; um arquivo por vez.\n",
+        "history": {
+          "name": "menor-diff",
+          "current": 2,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1000,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 2,
+              "at": 2000,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v1.md",
+          "v2.md"
+        ]
+      }
+    },
+    {
+      "op": "archive",
+      "name": "menor-diff",
+      "reason": " sem uso há 30 dias ",
+      "agente": "nyx",
+      "at": 3000,
+      "result": {
+        "name": "menor-diff",
+        "action": "arquivada",
+        "to": 3
+      },
+      "expect": {
+        "skill": null,
+        "history": {
+          "name": "menor-diff",
+          "current": 3,
+          "archived": true,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1000,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 2,
+              "at": 2000,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 3,
+              "at": 3000,
+              "action": "arquivar",
+              "reason": "sem uso há 30 dias",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "arquivada-v3.md",
+          "v1.md",
+          "v2.md"
+        ]
+      }
+    },
+    {
+      "op": "restore",
+      "name": "menor-diff",
+      "at": 4000,
+      "result": {
+        "name": "menor-diff",
+        "action": "restaurada",
+        "to": 4,
+        "agente": "nyx"
+      },
+      "expect": {
+        "skill": "---\nname: menor-diff\ndescription: menor-diff desc\norigem: aprendida\nagente: nyx\n---\n\nMude o mínimo; um arquivo por vez.\n",
+        "history": {
+          "name": "menor-diff",
+          "current": 4,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1000,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 2,
+              "at": 2000,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 3,
+              "at": 3000,
+              "action": "arquivar",
+              "reason": "sem uso há 30 dias",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 4,
+              "at": 4000,
+              "action": "restaurar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v1.md",
+          "v2.md",
+          "v4.md"
+        ]
+      }
+    },
+    {
+      "op": "restore",
+      "name": "menor-diff",
+      "at": 4500,
+      "result": {
+        "error": true
+      },
+      "expect": {
+        "skill": "---\nname: menor-diff\ndescription: menor-diff desc\norigem: aprendida\nagente: nyx\n---\n\nMude o mínimo; um arquivo por vez.\n",
+        "history": {
+          "name": "menor-diff",
+          "current": 4,
+          "archived": false,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1000,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 2,
+              "at": 2000,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 3,
+              "at": 3000,
+              "action": "arquivar",
+              "reason": "sem uso há 30 dias",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 4,
+              "at": 4000,
+              "action": "restaurar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v1.md",
+          "v2.md",
+          "v4.md"
+        ]
+      }
+    },
+    {
+      "op": "archive",
+      "name": "menor-diff",
+      "reason": "parecida com outra-skill",
+      "agente": "nyx",
+      "at": 5000,
+      "result": {
+        "name": "menor-diff",
+        "action": "arquivada",
+        "to": 5
+      },
+      "expect": {
+        "skill": null,
+        "history": {
+          "name": "menor-diff",
+          "current": 5,
+          "archived": true,
+          "versions": [
+            {
+              "v": 1,
+              "at": 1000,
+              "action": "criar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 2,
+              "at": 2000,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 3,
+              "at": 3000,
+              "action": "arquivar",
+              "reason": "sem uso há 30 dias",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 4,
+              "at": 4000,
+              "action": "restaurar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 5,
+              "at": 5000,
+              "action": "arquivar",
+              "reason": "parecida com outra-skill",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "arquivada-v5.md",
+          "v1.md",
+          "v2.md",
+          "v4.md"
+        ]
+      }
+    },
+    {
+      "op": "restore",
+      "name": "menor-diff",
+      "at": 6000,
+      "result": {
+        "name": "menor-diff",
+        "action": "restaurada",
+        "to": 6,
+        "agente": "nyx"
+      },
+      "expect": {
+        "skill": "---\nname: menor-diff\ndescription: menor-diff desc\norigem: aprendida\nagente: nyx\n---\n\nMude o mínimo; um arquivo por vez.\n",
+        "history": {
+          "name": "menor-diff",
+          "current": 6,
+          "archived": false,
+          "versions": [
+            {
+              "v": 2,
+              "at": 2000,
+              "action": "atualizar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 3,
+              "at": 3000,
+              "action": "arquivar",
+              "reason": "sem uso há 30 dias",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 4,
+              "at": 4000,
+              "action": "restaurar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 5,
+              "at": 5000,
+              "action": "arquivar",
+              "reason": "parecida com outra-skill",
+              "taskId": "",
+              "agente": "nyx"
+            },
+            {
+              "v": 6,
+              "at": 6000,
+              "action": "restaurar",
+              "reason": "",
+              "taskId": "",
+              "agente": "nyx"
+            }
+          ]
+        },
+        "files": [
+          "v2.md",
+          "v4.md",
+          "v6.md"
+        ]
+      }
+    },
+    {
+      "op": "legacy",
+      "name": "legada",
+      "content": "---\nname: legada\norigem: aprendida\n---\n\nSem histórico.\r\n",
+      "expect": {
+        "skill": "---\nname: legada\norigem: aprendida\n---\n\nSem histórico.\r\n",
+        "history": null,
+        "files": []
+      }
+    },
+    {
+      "op": "archive",
+      "name": "legada",
+      "reason": "",
+      "agente": "",
+      "at": 7000,
+      "result": {
+        "name": "legada",
+        "action": "arquivada",
+        "to": 2
+      },
+      "expect": {
+        "skill": null,
+        "history": {
+          "name": "legada",
+          "current": 2,
+          "archived": true,
+          "versions": [
+            {
+              "v": 1,
+              "at": 7000,
+              "action": "legado",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            },
+            {
+              "v": 2,
+              "at": 7000,
+              "action": "arquivar",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            }
+          ]
+        },
+        "files": [
+          "arquivada-v2.md",
+          "v1.md"
+        ]
+      }
+    },
+    {
+      "op": "legacy",
+      "name": "legada",
+      "content": "recriada com o mesmo nome\n",
+      "expect": {
+        "skill": "recriada com o mesmo nome\n",
+        "history": {
+          "name": "legada",
+          "current": 2,
+          "archived": true,
+          "versions": [
+            {
+              "v": 1,
+              "at": 7000,
+              "action": "legado",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            },
+            {
+              "v": 2,
+              "at": 7000,
+              "action": "arquivar",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            }
+          ]
+        },
+        "files": [
+          "arquivada-v2.md",
+          "v1.md"
+        ]
+      }
+    },
+    {
+      "op": "restore",
+      "name": "legada",
+      "at": 8000,
+      "result": {
+        "error": true
+      },
+      "expect": {
+        "skill": "recriada com o mesmo nome\n",
+        "history": {
+          "name": "legada",
+          "current": 2,
+          "archived": true,
+          "versions": [
+            {
+              "v": 1,
+              "at": 7000,
+              "action": "legado",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            },
+            {
+              "v": 2,
+              "at": 7000,
+              "action": "arquivar",
+              "reason": "",
+              "taskId": "",
+              "agente": ""
+            }
+          ]
+        },
+        "files": [
+          "arquivada-v2.md",
+          "v1.md"
+        ]
+      }
+    }
+  ]
+}

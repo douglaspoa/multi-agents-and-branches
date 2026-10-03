@@ -222,6 +222,55 @@ pub fn archive_skill(cardume: &Path, skills_root: &Path, name: &str, reason: &st
     Ok(json!({ "name": name, "action": "arquivada", "to": to }))
 }
 
+/// "Restaurar" uma skill arquivada (F4 · P13, ≡ `restoreSkill` do TS): o arquivo guardado no histórico volta BYTE A BYTE
+/// pro `SKILL.md` (move de volta — os bytes ficam também em `v<N>.md`) e vira versão nova "restaurar". Devolve
+/// { name, action:"restaurada", to, agente } — o dono é o da última versão que tinha dono (quem chama religa no skills.json).
+pub fn restore_skill(cardume: &Path, skills_root: &Path, name: &str, at: i64) -> Result<Value, String> {
+    let mut h = read_skill_history(cardume, name).ok_or("essa skill não tem histórico pra restaurar")?;
+    if !h["archived"].as_bool().unwrap_or(false) { return Err("essa skill não está arquivada".into()); }
+    let md = skills_root.join(name).join("SKILL.md");
+    if md.exists() { return Err("já existe uma skill ativa com esse nome — arquive ou renomeie ela antes".into()); }
+    let dir = skill_hist_dir(cardume, name);
+    let cur = h["current"].as_i64().unwrap_or(0);
+    let src = [dir.join(format!("arquivada-v{cur}.md")), dir.join("arquivada.md")].into_iter().find(|p| p.is_file())
+        .ok_or("não achei o texto arquivado dessa skill no histórico")?;
+    let bytes = std::fs::read(&src).map_err(|e| e.to_string())?;
+    let to = cur + 1;
+    let agente = h["versions"].as_array().and_then(|a| a.iter().rev().find_map(|x| x["agente"].as_str().filter(|s| !s.is_empty()).map(String::from))).unwrap_or_default();
+    // os bytes vão pro histórico ANTES de mover: se o move falhar, nada some
+    std::fs::write(dir.join(format!("v{to}.md")), &bytes).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(md.parent().unwrap_or(skills_root)).map_err(|e| e.to_string())?;
+    std::fs::rename(&src, &md).map_err(|e| e.to_string())?;
+    h["current"] = json!(to);
+    h["archived"] = json!(false);
+    h["versions"].as_array_mut().ok_or("histórico inválido")?.push(ventry(to, at, "restaurar", "", "", &agente));
+    save_hist(cardume, &h)?;
+    Ok(json!({ "name": name, "action": "restaurada", "to": to, "agente": agente }))
+}
+
+/// Arquivar uma nota do agente (curador, F4): igual ao "esquecer" (não vai mais pro prompt — o motor já pula
+/// `forgottenAt`), marcada `archived` pra aparecer em "arquivados" com "restaurar". Nunca apaga. Devolve o título.
+pub fn archive_agent_note(cardume: &Path, agent_id: &str, note_id: &str, reason: &str, at: i64) -> Result<String, String> {
+    let mut items = read_agent_memory(cardume, agent_id);
+    let it = items.iter_mut().find(|x| x["id"].as_str() == Some(note_id) && x["forgottenAt"].is_null()).ok_or("esse agente não lembra mais disso")?;
+    it["forgottenAt"] = json!(at);
+    it["forgetReason"] = json!(reason.trim());
+    it["archived"] = json!(true);
+    let t = it["title"].as_str().unwrap_or("").to_string();
+    save_agent_memory(cardume, agent_id, items)?;
+    Ok(t)
+}
+/// "Restaurar" uma nota esquecida/arquivada: volta a valer (tira `forgottenAt`), guardando quando voltou. Devolve o título.
+pub fn restore_agent_note(cardume: &Path, agent_id: &str, note_id: &str, at: i64) -> Result<String, String> {
+    let mut items = read_agent_memory(cardume, agent_id);
+    if items.iter().any(|x| x["id"].as_str() == Some(note_id) && x["forgottenAt"].is_null()) { return Err("essa nota já está valendo".into()); }
+    let it = items.iter_mut().rev().find(|x| x["id"].as_str() == Some(note_id)).ok_or("não achei essa nota no histórico do agente")?;
+    if let Some(o) = it.as_object_mut() { o.remove("forgottenAt"); o.remove("forgetReason"); o.remove("archived"); o.insert("restoredAt".into(), json!(at)); }
+    let t = it["title"].as_str().unwrap_or("").to_string();
+    save_agent_memory(cardume, agent_id, items)?;
+    Ok(t)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,6 +327,60 @@ mod tests {
                 assert_eq!(files(&skill_hist_dir(&cd, name)), want, "{op} {name}");
             }
         }
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// F4 · P13: o MESMO roteiro de arquivar/restaurar do TS (`tests/fixtures/ciclo-golden/curador.json`).
+    #[test]
+    fn curador_golden_paridade_com_ts() {
+        let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/ciclo-golden/curador.json");
+        let g: Value = serde_json::from_str(&std::fs::read_to_string(p).expect("fixture")).expect("json");
+        let d = std::env::temp_dir().join(format!("sf-curgold-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let cd = d.join(".cardume");
+        let root = d.join(".claude").join("skills");
+        for st in g["steps"].as_array().unwrap() {
+            let op = st["op"].as_str().unwrap();
+            let name = st["name"].as_str().unwrap_or("");
+            let at = st["at"].as_i64().unwrap_or(0);
+            match op {
+                "write" => { let v = write_skill_version(&cd, &root, name, st["content"].as_str().unwrap().as_bytes(), at, st["action"].as_str().unwrap(), "", "", st["agente"].as_str().unwrap_or("")).unwrap(); assert_eq!(json!(v), st["result"]); }
+                "archive" => { let r = archive_skill(&cd, &root, name, st["reason"].as_str().unwrap_or(""), at, st["agente"].as_str().unwrap_or("")).unwrap(); assert_eq!(r, st["result"], "{op}"); }
+                "restore" => match restore_skill(&cd, &root, name, at) { Ok(r) => assert_eq!(r, st["result"], "{op}"), Err(_) => assert_eq!(st["result"], json!({ "error": true }), "{op}") },
+                "legacy" => { std::fs::create_dir_all(root.join(name)).unwrap(); std::fs::write(root.join(name).join("SKILL.md"), st["content"].as_str().unwrap()).unwrap(); }
+                _ => panic!("op {op}"),
+            }
+            let got = std::fs::read(root.join(name).join("SKILL.md")).ok();
+            match st["expect"]["skill"].as_str() {
+                Some(s) => assert_eq!(got.as_deref(), Some(s.as_bytes()), "byte a byte: {op}"),
+                None => assert!(got.is_none(), "{op}: sem SKILL.md"),
+            }
+            assert_eq!(read_skill_history(&cd, name).unwrap_or(Value::Null), st["expect"]["history"], "{op}");
+            let want: Vec<String> = st["expect"]["files"].as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect();
+            assert_eq!(files(&skill_hist_dir(&cd, name)), want, "{op}");
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn nota_arquivada_volta_com_restaurar() {
+        let d = std::env::temp_dir().join(format!("sf-curnota-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let cd = d.join(".cardume");
+        add_agent_note(&cd, "nyx", json!({ "id": "a", "kind": "nota", "title": "Citar fonte", "body": "b", "at": 1, "v": 2, "taskId": "x" })).unwrap();
+        assert_eq!(archive_agent_note(&cd, "nyx", "a", "sem uso há 30 dias", 5).unwrap(), "Citar fonte");
+        let m = read_agent_memory(&cd, "nyx");
+        assert_eq!(m.len(), 1, "arquivar nunca apaga");
+        assert_eq!(m[0]["archived"], true);
+        assert_eq!(m[0]["forgottenAt"], 5);
+        assert!(archive_agent_note(&cd, "nyx", "a", "", 6).is_err(), "arquivar 2× é erro em palavra");
+        assert_eq!(restore_agent_note(&cd, "nyx", "a", 7).unwrap(), "Citar fonte");
+        let m = read_agent_memory(&cd, "nyx");
+        assert!(m[0]["forgottenAt"].is_null() && m[0]["archived"].is_null());
+        assert_eq!(m[0]["restoredAt"], 7);
+        assert_eq!(m[0]["body"], "b", "o texto volta igual");
+        assert!(restore_agent_note(&cd, "nyx", "a", 8).unwrap_err().contains("já está valendo"));
+        assert!(restore_agent_note(&cd, "nyx", "zz", 8).is_err());
         let _ = std::fs::remove_dir_all(&d);
     }
 
