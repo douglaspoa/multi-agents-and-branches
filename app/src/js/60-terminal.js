@@ -15,7 +15,7 @@ function termModeOf(t){ return !!(t && t.spec && t.spec.termMode === 'terminal')
 function termViewOf(t){
   if(!t) return false;
   if(termModeOf(t)) return true;
-  if((typeof state!=='undefined' && state.remote) || t.status==='draft') return false;
+  if(t.status==='draft') return false; // (state.remote = o repo tem remote no GitHub — não muda nada aqui)
   return typeof aiEngineOf==='function' && aiEngineOf(t.engine)==='claude';
 }
 function termSlotHtml(t){ return `<div class="fwthread fwtermslot" id="fwThread" data-term="${escA(t.id)}"></div>`; }

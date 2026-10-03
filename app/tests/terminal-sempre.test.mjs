@@ -74,7 +74,7 @@ test('sem transcript: os eventos do state.sqlite na mesma gramática', () => {
   assert.match(plain(TH.thRender([], {})), /a sessão ainda não tem nada registrado/);
 });
 
-test('quem ganha a aba Terminal: toda tarefa Claude Code (não rascunho, não nuvem); DeepSeek/gateway/Codex headless ficam na Conversa', () => {
+test('quem ganha a aba Terminal: toda tarefa Claude Code (não rascunho); DeepSeek/gateway/Codex headless ficam na Conversa', () => {
   const body = cut(SRC, 'function termModeOf(t)', 'function termSlotHtml');
   const state = { remote: false };
   const aiEngineOf = (e) => { const n = String(e || '').toLowerCase(); return !n ? 'mock' : n.startsWith('codex') ? 'codex' : n.startsWith('deepseek') ? 'deepseek' : n.startsWith('gateway') ? 'gateway' : 'claude'; };
@@ -87,7 +87,7 @@ test('quem ganha a aba Terminal: toda tarefa Claude Code (não rascunho, não nu
   assert.equal(f({ engine: 'codex', status: 'review', spec: {} }), false, 'Codex headless');
   assert.equal(f({ engine: 'codex', status: 'review', spec: { termMode: 'terminal' } }), true, 'Codex no terminal');
   state.remote = true;
-  assert.equal(f({ engine: 'claude', status: 'review', spec: {} }), false, 'projeto da nuvem não tem PTY local');
+  assert.equal(f({ engine: 'claude', status: 'review', spec: {} }), true, 'repo com remote no GitHub (state.remote) continua com Terminal');
 });
 
 test('a UI usa termViewOf (não o termMode cru) onde a Conversa virava Terminal', () => {
