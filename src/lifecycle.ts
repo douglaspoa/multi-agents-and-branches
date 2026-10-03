@@ -276,6 +276,8 @@ export interface ReportData {
   releases: BudgetRelease[];
   rounds: Pick<ReviewRound, "round" | "verdict" | "items" | "reviewer">[];
   runs: Pick<RoleRun, "role" | "agentId" | "name" | "version" | "engine" | "model">[];
+  /** F5 · P14: as regras da política da organização que valiam na tarefa (ausente = sem política) */
+  orgPolicy?: string[];
 }
 const ROLE_PT: Record<string, string> = { planner: "plano", builder: "construção", reviewer: "revisão", designer: "design", docs: "escrita", tester: "testes", retro: "retro", investigator: "investigação" };
 const md = (s: string) => String(s ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
@@ -295,5 +297,6 @@ export function starforkReport(d: ReportData): string {
   L.push(`**Custo:** ${fmtUsdBr(d.totalUsd)} ${d.capUsd > 0 ? `de ${fmtUsdBr(d.capUsd)} de teto` : "— sem teto (explícito)"}${per ? ` — ${per}` : ""}`, "");
   if (d.releases.length) L.push("**Liberações de teto**", "", ...d.releases.map((r) => `- +${fmtUsdBr(r.usd)} (teto ${fmtUsdBr(r.capBefore)} → ${fmtUsdBr(r.capAfter)}): ${md(r.reason)}`), "");
   if (d.runs.length) L.push(`**Versões:** ${d.runs.map((r) => `${ROLE_PT[r.role] ?? r.role} \`${runTag(r)}\``).join(" · ")}`, "");
+  if (d.orgPolicy?.length) L.push(`**Política da organização:** ${d.orgPolicy.map(md).join(" · ")}`, "");
   return L.join("\n").trimEnd() + "\n";
 }

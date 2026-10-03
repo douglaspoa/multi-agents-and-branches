@@ -148,7 +148,9 @@ async function pilStart(){
   if(!r.ok){ PIL_ERR=r.err; pilRenderForm(); return; }
   PIL_BUSY=true; PIL_ERR=''; pilRenderForm();
   try{
-    const res=await pilCall()('autopilot_start', r.args);
+    // F5 · P14: política da org (Empresa) — portão obrigatório recusa aqui, em palavra; o resto vai pro motor
+    const op=typeof window.orgPolForPilot==='function'?await window.orgPolForPilot():null;
+    const res=await pilCall()('autopilot_start', op?Object.assign({}, r.args, { orgPolicy:op }):r.args);
     const dir=typeof res==='string'?res:(res&&res.dir)||'';
     PIL_BUSY=false; PIL_FORM=Object.assign({}, PILOTO_FORM0); pilRenderForm();
     pilSetDir(dir); pilWaitStart();

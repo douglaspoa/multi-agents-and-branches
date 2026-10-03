@@ -500,7 +500,8 @@ async function ideiaCreate(m, mode){
   try{
     if(mode==='piloto'){
       const capIn=$id('ideiaApCap'); const cap=capIn?parseFloat(String(capIn.value).replace(',','.')):NaN;
-      const res=await invoke('autopilot_start',{ idea:`${m.titulo}${view.mvp.length?' — MVP: '+view.mvp.map(f=>f.titulo).join('; '):''}`.slice(0,600), platform:plan.platform, name:slug, engine:defaultAiEngine(), model:defaultAiModel(), parallel:2, attempts:2, budgetUsd:cap>0?cap:null, plan }); // vazio ou 0 = sem teto
+      const op=typeof window.orgPolForPilot==='function'?await window.orgPolForPilot():null; // F5 · P14
+      const res=await invoke('autopilot_start',{ orgPolicy:op, idea:`${m.titulo}${view.mvp.length?' — MVP: '+view.mvp.map(f=>f.titulo).join('; '):''}`.slice(0,600), platform:plan.platform, name:slug, engine:defaultAiEngine(), model:defaultAiModel(), parallel:2, attempts:2, budgetUsd:cap>0?cap:null, plan }); // vazio ou 0 = sem teto
       const dir=typeof res==='string'?res:(res&&res.dir)||'';
       m.project={ dir, mode:'piloto', at:Date.now(), epic:plan.epic };
       await ideiaSave(m);
