@@ -714,15 +714,23 @@ export class Orchestrator {
    * de config (ex.: "falha ao iniciar claude") que só se repetiria. */
   /** Queda de REDE/socket no meio do turno (API Error: socket closed, ECONNRESET, fetch failed…):
    * o trabalho parcial está na worktree — continuar faz sentido, igual à inatividade. */
-  private static networkDeath(text: string): boolean {
-    return /socket connection was closed|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|fetch failed|network error|other side closed|Connection error|stream disconnected|error sending request/i.test(text || "");
+  static networkDeath(text: string): boolean {
+    // + ENOTFOUND (DNS caiu no meio) e a frase humana do Codex ("Caiu a conexão do Codex…")
+    return /socket connection was closed|socket hang up|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|fetch failed|network error|other side closed|Connection error|stream disconnected|error sending request|caiu a conex[aã]o do codex/i.test(text || "");
   }
   /** `--resume <id>` sem a sessão no disco (Claude guarda por pasta; histórico apagado/outra máquina). */
-  private static sessionMissing(text: string): boolean {
+  static sessionMissing(text: string): boolean {
     // + mensagens do Codex (`codex exec resume <id>` sem a sessão: outra máquina, id de outro motor…)
     return /no conversation found|session (id )?.{0,60}not found|could not find session|no saved session found|thread not found|no rollout found|resume failed/i.test(text || "");
   }
-  private static retriableDeath(text: string): boolean {
+  /** Nota do pipeline parado: diz O MOTIVO (a 1ª parte do erro, já humana) e a saída — antes era só
+   * "não concluiu (timeout/erro)" e quem lia (caso do Roberto, 02/10) não sabia o que fazer. */
+  static stoppedNote(role: string, deathText: string): string {
+    const why = String(deathText || "").split(/\n\s*\n/)[0].trim().slice(0, 500).replace(/[\s.]+$/, "");
+    const next = /rodar de novo|mande (a|uma) mensagem/i.test(why) ? "" : ` Depois de resolver, clique em "rodar de novo" ou mande uma mensagem pra ele seguir de onde parou.`;
+    return `pipeline parado: o papel ${role} não concluiu — ${why || "o agente encerrou com erro sem detalhes (veja o log acima)"}.${next}`;
+  }
+  static retriableDeath(text: string): boolean {
     return Orchestrator.tokenDeath(text) || Orchestrator.idleOrSignalDeath(text) || Orchestrator.networkDeath(text);
   }
 
@@ -855,7 +863,7 @@ export class Orchestrator {
 
   /** O erro é o LIMITE DE USO/RATE da conta (não o contexto)? Esses resetam com o
    * tempo — a saída é ESPERAR e retomar, não recomeçar na hora. */
-  private static usageLimitDeath(text: string): boolean {
+  static usageLimitDeath(text: string): boolean {
     return /session limit|usage limit|hit your .{0,24}limit|rate[ _-]?limit|too many requests|\b429\b|quota|resets? (at|\d)|limit reached|upgrade to increase|please try again later/i.test(text || "");
   }
 
@@ -1064,6 +1072,7 @@ export class Orchestrator {
       const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
+      let lastDeath = ""; // motivo da última morte do papel (vai na nota do "pipeline parado")
 
       // Morte recuperável NÃO mata a tarefa — recomeça uma sessão NOVA continuando
       // da worktree. Token/inatividade: até 2 tentativas na hora. Limite de USO da
@@ -1080,6 +1089,7 @@ export class Orchestrator {
       while (true) {
         roleFailed = false;
         let deathText = "";
+        lastDeath = "";
         const input = {
           cwd: task.worktree,
           spec,
@@ -1159,6 +1169,7 @@ export class Orchestrator {
           sessionId = ""; attemptNo++;
           continue;
         }
+        lastDeath = deathText;
         break;
       }
 
@@ -1175,7 +1186,7 @@ export class Orchestrator {
           taskId,
           r.name,
           "note",
-          `pipeline parado: o papel ${r.role} não concluiu (timeout/erro). Reveja e mande "pedir ajuste"/rework pra continuar.`,
+          Orchestrator.stoppedNote(r.role, lastDeath),
           false,
           r.role,
         );

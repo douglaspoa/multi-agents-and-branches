@@ -285,12 +285,12 @@ test('planMeterReset com leitura em andamento: espera ela e lê de novo; redesen
   assert.equal(focused, 'novo');
 });
 
-test('1ª leitura falha → "não consegui ler o uso — tentar de novo"; tentar de novo relê', async () => {
+test('1ª leitura falha → "uso do plano indisponível" + "tentar de novo" (botão próprio, não corta); tentar de novo relê', async () => {
   let fail = true;
   const P = load({}, { fail: () => fail });
   await P.run('pmLoad()');
-  assert.match(P.el.innerHTML, /não consegui ler o uso — tentar de novo/);
-  assert.match(P.el.innerHTML, /data-pm="retry"/);
+  assert.match(P.el.innerHTML, /<div class="pm-err"[^>]*>.*<span class="pm-errtx">uso do plano indisponível<\/span><button class="pm-retry" data-pm="retry"[^>]*>tentar de novo<\/button><\/div>/);
+  assert.match(P.el.innerHTML, /aria-label="Não consegui ler o uso do plano — tentar de novo"/);
   fail = false;
   click(P, 'retry');
   await P.run('_pmP');

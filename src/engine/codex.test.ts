@@ -58,8 +58,30 @@ test("codexPath: pasta do node em uso e do codex vão pra frente do PATH mínimo
   const { codexPath } = await import("./codex.ts");
   const { dirname, delimiter } = await import("node:path");
   const p = codexPath("/u/.nvm/versions/node/v22/bin/codex", "/opt/homebrew/bin:/usr/bin:/bin").split(delimiter);
-  assert.equal(p[0], dirname(process.execPath));
-  assert.ok(p.includes("/u/.nvm/versions/node/v22/bin"));
+  // a pasta do codex primeiro (o `env node` acha o node com que ele foi instalado), depois a do node em uso
+  assert.equal(p[0], "/u/.nvm/versions/node/v22/bin");
+  assert.equal(p[1], dirname(process.execPath));
   assert.deepEqual(p.slice(-3), ["/opt/homebrew/bin", "/usr/bin", "/bin"]);
   assert.equal(codexPath("codex", "/usr/bin").split(delimiter).filter((d) => d === dirname(process.execPath)).length, 1);
+});
+
+test("file_change do codex 0.1xx (changes em LISTA) mostra os caminhos, não o índice", async () => {
+  const { mapCodexLine } = await import("./codex.ts");
+  const evs = mapCodexLine(JSON.stringify({ type: "item.completed", item: { id: "i1", type: "file_change", changes: [{ path: "/w/math.js", kind: "update" }, { path: "/w/b.js", kind: "add" }] } }));
+  assert.deepEqual(evs, [{ type: "edit", text: "/w/math.js, /w/b.js" }]);
+  const seen = new Set<string>();
+  const st = { id: "i9", type: "file_change", changes: [{ path: "/w/x.js", kind: "update" }] };
+  assert.equal(mapCodexLine(JSON.stringify({ type: "item.started", item: st }), seen).length, 1);
+  assert.equal(mapCodexLine(JSON.stringify({ type: "item.completed", item: st }), seen).length, 0, "started+completed = 1 edição");
+  const old = mapCodexLine(JSON.stringify({ type: "item.completed", item: { type: "patch_apply", changes: { "a.ts": {} } } }));
+  assert.deepEqual(old, [{ type: "edit", text: "a.ts" }]);
+});
+
+test("rework no Codex: o ajuste do humano vai no prompt (antes o Codex achava a tarefa 'já atendida' e ignorava)", async () => {
+  const { buildPrompt } = await import("./codex.ts");
+  const spec = { id: "t", title: "t", objective: "o", requirements: [], scope: { owns: [], offLimits: [] }, autonomy: {}, engine: "codex", roles: [], adjustment: "Renomeie o parâmetro b para c" } as never;
+  const p = buildPrompt({ cwd: "/tmp/nao-existe", spec, role: "builder", agentName: "A" } as never);
+  assert.match(p, /AJUSTE SOLICITADO PELO HUMANO[^\n]*Renomeie o parâmetro b para c/);
+  const sem = buildPrompt({ cwd: "/tmp/nao-existe", spec: { ...(spec as object), adjustment: undefined } as never, role: "builder", agentName: "A" } as never);
+  assert.doesNotMatch(sem, /AJUSTE SOLICITADO/);
 });

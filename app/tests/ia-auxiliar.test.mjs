@@ -139,6 +139,19 @@ test('erros da IA auxiliar: Codex/gateway/nenhum motor NÃO viram "faça login n
   assert.equal(id('O Codex não respondeu a tempo — tente de novo.'), 'codex-timeout');
   assert.equal(id('O Codex está sem cota/limite no momento.\n\n(429 rate limit; invalid api key)'), 'codex-quota');
   assert.equal(id('O Codex não conseguiu falar com a OpenAI — cheque a internet/VPN.\n\n(stream disconnected)'), 'codex-network');
+  // mensagens do MOTOR (src/engine/codex.ts) e a nota do pipeline parado com o motivo (caso Roberto, 02/10)
+  assert.equal(id('O Codex não foi encontrado neste computador — esta tarefa roda no Codex.\n\nProcurei em:\n  • ~/.nvm'), 'codex-missing');
+  assert.equal(id('pipeline parado: o papel builder não concluiu — O Codex não foi encontrado neste computador — instale.'), 'codex-missing');
+  assert.equal(id('pipeline parado: o papel builder não concluiu — O Codex foi encontrado em /u/codex, mas não consegui iniciá-lo.'), 'codex-broken');
+  assert.equal(id('O Codex foi encontrado, mas precisa do Node.js pra rodar e não achei um node junto dele.'), 'codex-broken');
+  assert.equal(id('O Codex não está logado (ou a chave da OpenAI é inválida/expirou).\n\n(401 Unauthorized: not logged in)'), 'codex-login');
+  assert.equal(id('O Codex bateu o limite de uso do seu plano/chave da OpenAI.\n\n(usage limit)'), 'codex-quota');
+  assert.equal(id('Caiu a conexão do Codex com a OpenAI. Confira a internet.\n\n(stream disconnected)'), 'codex-network');
+  assert.equal(id('A sessão anterior do Codex não foi encontrada neste computador.\n\n(thread not found)'), 'codex-session');
+  assert.equal(id('A conversa ficou longa demais pro Codex (limite de contexto).'), 'codex-context');
+  assert.equal(id('O Codex encerrou sem concluir o turno.\n\n(codex saiu com código 1)'), 'codex-exit');
+  for (const m of ['O Codex não está logado', 'O Codex bateu o limite de uso', 'Caiu a conexão do Codex', 'A sessão anterior do Codex não foi encontrada', 'O Codex parou com um erro: boom'])
+    assert.doesNotMatch(P.ctx.humanErr(new Error(m)).msg, /^Algo deu errado/, 'nenhuma classe cai no genérico');
   assert.equal(id('Não consegui falar com o gateway (http://x) — cheque a URL'), 'gateway-unreachable');
   assert.equal(id('a resposta do gateway foi cortada (limite de tokens) — peça algo menor'), 'gateway-truncated');
   assert.equal(id('O gateway devolveu uma resposta vazia — tente de novo.'), 'gateway-empty');

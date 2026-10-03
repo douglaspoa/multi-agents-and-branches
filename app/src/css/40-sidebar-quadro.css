@@ -124,8 +124,6 @@
 .prow2.other .tt{color:var(--text-2)}
 #rail{padding-top:8px}
 .pulse.off{animation:none;box-shadow:none;opacity:.5}
-.sbtn{width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--border);background:var(--surface-3);color:var(--text-2);border-radius:5px;font-size:var(--fs-base);line-height:1;cursor:pointer;padding:0}
-.sbtn:hover{border-color:var(--border-strong);color:var(--text)}
 .pulse{width:9px;height:9px;border-radius:50%;background:var(--pc,var(--good));position:relative}
 /* anel do "ao vivo": ::after que só anima transform+opacity (compositor) — antes animava box-shadow
    (repaint a cada quadro por bolinha: rail, workspace, fwNow) */
@@ -304,3 +302,22 @@
 .rpscope{font-size:var(--fs-xs);line-height:1.4;color:var(--muted);padding:8px 14px 0;margin-top:6px;cursor:pointer;overflow-wrap:anywhere;border-radius:6px}
 .rpscope:hover{color:var(--text-2)}
 .rpscope:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+
+/* ---- mesa da barra lateral (03/10, _bmad-output/party-lateral/decisao.md) ---- */
+/* L4: a linha que espera você ganha peso de texto — sem cor nova, sem animação (a etiqueta já tem a cor do status) */
+.prow2.wait .tt{font-weight:600;color:var(--text)}
+/* L1: projetos sem demanda viva = uma linha só, quieta */
+.prow2.rpempty{padding-left:14px;margin-top:6px}
+.prow2.rpempty .tt{font-size:var(--fs-xs);color:var(--muted)}
+.prow2.rpempty:hover .tt{color:var(--text-2)}
+.prow2.rpempty:focus-visible,.prow2.other.more:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+/* L2: rodapé é frase, não controle */
+.rpfoot{line-height:1.4;overflow-wrap:anywhere;cursor:default}
+/* L6: erro do medidor quebra a linha em vez de cortar; "tentar de novo" sempre visível */
+.planmeter .pm-err{display:flex;flex-wrap:wrap;align-items:center;gap:4px 7px;padding:5px 6px;color:var(--text-2);line-height:1.35}
+.planmeter .pm-err .pm-errtx{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.planmeter .pm-err .pm-retry{width:auto;flex:none;padding:1px 6px;margin-left:auto;border-radius:var(--r-xs);color:var(--text);font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.planmeter .pm-err .pm-retry:hover{background:var(--surface-2)}
+/* L7b: Skills, Agentes & Equipes e Daily no topo do "Mais", separados do resto */
+.moremenu .mmsep{height:1px;margin:4px 6px;background:var(--border)}
+.prow2.emptyrow .tt{font-size:var(--fs-xs)}

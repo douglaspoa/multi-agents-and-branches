@@ -11,6 +11,7 @@ mod agent_edits;
 mod ambiente;
 mod device;
 mod ai_once;
+mod bin_resolve;
 mod autopilot;
 mod epic_context;
 mod gh_contas;
@@ -195,6 +196,11 @@ fn node_cmd() -> Command {
     };
     let mut c = Command::new(bin);
     if flag { c.arg("--experimental-sqlite"); }
+    // o motor (TS) usa o MESMO codex que o Ambiente mostra: o resolvedor é o mesmo dos dois lados, e o caminho já
+    // resolvido aqui vai junto (só o cache — node_cmd roda muito e nunca pode esperar o shell de login)
+    if std::env::var_os("CARDUME_CODEX").is_none() {
+        if let Some(b) = bin_resolve::peek("codex") { c.env("CARDUME_CODEX", b); }
+    }
     c
 }
 /// Como instalar o node certo EM CADA SISTEMA (antes: "brew install node" até no Linux)
@@ -6527,10 +6533,14 @@ fn env_check() -> Vec<EnvCheck> {
         Some(v) => EnvCheck { kind: "opt".into(), name: "Claude Code (opcional)".into(), ok: true, detail: format!("{v} · {cb} — se a 1ª tarefa falhar por login, rode `claude` uma vez"), fix: String::new() },
         None => EnvCheck { kind: "opt".into(), name: "Claude Code (opcional)".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @anthropic-ai/claude-code && claude".into() },
     });
+    // "Codex: <caminho> · versão X (via nvm)" — o MESMO caminho que o motor usa (resolvedor único bin_resolve)
+    let xres = ai_once::codex_resolution();
+    let codex_where = |v: &str| format!("{xb} · versão {}{}", v.trim_start_matches("codex-cli").trim(), if xres.via.is_empty() { String::new() } else { format!(" (achado em: {})", xres.via) });
     out.push(match &codex_v {
-        Some(v) if codex_login => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: true, detail: format!("{v} · {xb}"), fix: String::new() },
-        Some(v) => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("{v} · {xb} — instalado, mas SEM login (nem chave OpenAI em Configurações → Sua IA)"), fix: "codex login".into() },
-        None => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: "não encontrado".into(), fix: "npm install -g @openai/codex && codex login".into() },
+        Some(v) if codex_login => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: true, detail: codex_where(v), fix: String::new() },
+        Some(v) => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("{} — instalado, mas SEM login (nem chave OpenAI em Configurações → Sua IA)", codex_where(v)), fix: "codex login".into() },
+        None if xres.bin.is_some() => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("achado em {xb}, mas `codex --version` não rodou (shim do npm sem node?)"), fix: "npm install -g @openai/codex".into() },
+        None => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("não encontrado — procurei em {} lugares (PATH, nvm, volta, asdf, fnm, npm, Homebrew, app ChatGPT, shell de login)", xres.searched.len()), fix: "npm install -g @openai/codex && codex login".into() },
     });
     out.push(match &gw {
         Some(g) => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: true, detail: format!("{} · modelo {}", g.base, g.model), fix: String::new() },
