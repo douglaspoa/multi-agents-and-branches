@@ -176,6 +176,10 @@ export class Store {
       "ALTER TABLE task ADD COLUMN busy_pid INTEGER",
       "ALTER TABLE task ADD COLUMN busy_since INTEGER",
       "ALTER TABLE cost ADD COLUMN ms INTEGER NOT NULL DEFAULT 0",
+      // P7 (decisão da mesa 03/10): identidade ESTÁVEL do agente. Linha antiga fica NULL = "sem ficha" — não
+      // adivinha pelo nome (renomear o agente não pode mudar a soma dele).
+      "ALTER TABLE cost ADD COLUMN agent_id TEXT",
+      "ALTER TABLE event ADD COLUMN agent_id TEXT",
     ]) {
       try {
         this.db.exec(stmt);
@@ -191,6 +195,9 @@ export class Store {
       "CREATE INDEX IF NOT EXISTS cost_task ON cost(task_id)",
       "CREATE INDEX IF NOT EXISTS claim_task ON claim(task_id)",
       "CREATE INDEX IF NOT EXISTS wq_task ON work_queue(task_id, status)",
+      // agent_stats (F3) agrega por agente numa query só: < 150 ms com 500 tarefas
+      "CREATE INDEX IF NOT EXISTS cost_agent ON cost(agent_id)",
+      "CREATE INDEX IF NOT EXISTS ev_agent ON event(agent_id, type)",
     ]) {
       try {
         this.db.exec(stmt);
@@ -240,6 +247,30 @@ export class Store {
     this.db.prepare(`UPDATE task SET spec_json = ? WHERE id = ?`).run(specJson, taskId);
   }
 
+  /** Funde chaves no spec_json LIDO DO BANCO (não do objeto em memória): o app grava no mesmo spec enquanto a
+   * tarefa roda (teto, liberação, edições de agente) e regravar o spec inteiro apagaria isso. Devolve o spec novo. */
+  patchSpec(taskId: string, patch: Record<string, unknown>): TaskSpec | undefined {
+    return withBusyRetry(() => {
+      this.db.exec("BEGIN IMMEDIATE");
+      try {
+        const row = this.db.prepare(`SELECT spec_json FROM task WHERE id = ?`).get(taskId) as { spec_json: string } | undefined;
+        if (!row) { this.db.exec("ROLLBACK"); return undefined; }
+        let cur: Record<string, unknown> = {};
+        try { cur = JSON.parse(row.spec_json) ?? {}; } catch { /* spec corrompido: recomeça das chaves do patch */ }
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === undefined) delete cur[k];
+          else cur[k] = v;
+        }
+        this.db.prepare(`UPDATE task SET spec_json = ? WHERE id = ?`).run(JSON.stringify(cur), taskId);
+        this.db.exec("COMMIT");
+        return cur as unknown as TaskSpec;
+      } catch (e) {
+        try { this.db.exec("ROLLBACK"); } catch { /* já encerrada */ }
+        throw e;
+      }
+    });
+  }
+
   /** Título/objetivo ficam também em colunas (a lista do app lê daqui) — acompanham a spec editada. */
   setTitleObjective(taskId: string, title: string, objective: string): void {
     this.db.prepare(`UPDATE task SET title = ?, objective = ? WHERE id = ?`).run(title, objective, taskId);
@@ -249,10 +280,10 @@ export class Store {
     this.db.prepare(`UPDATE task SET done_roles = ? WHERE id = ?`).run(n, taskId);
   }
 
-  addEvent(taskId: string, agent: string, type: string, text: string, ok?: boolean, role?: string): number {
+  addEvent(taskId: string, agent: string, type: string, text: string, ok?: boolean, role?: string, agentId?: string): number {
     const res = this.db
-      .prepare(`INSERT INTO event (task_id, agent, role, ts, type, text, ok) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run(taskId, agent, role ?? null, Date.now(), type, text, ok === undefined ? null : ok ? 1 : 0);
+      .prepare(`INSERT INTO event (task_id, agent, role, ts, type, text, ok, agent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(taskId, agent, role ?? null, Date.now(), type, text, ok === undefined ? null : ok ? 1 : 0, agentId || null);
     return Number(res.lastInsertRowid);
   }
 
@@ -544,14 +575,30 @@ export class Store {
   // ---------- custo/tokens por turno de agente ----------
   /** Turno de agente: grava no `cost` do projeto E no livro de uso (aba Uso) com o MESMO `at` — a aba lê o `cost`
    * antigo como histórico e pula o par (task_id, at) que o livro já tem (não conta duas vezes). `engine`/`model` = do papel. */
-  addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number, ms = 0, engine?: string, model?: string, cachedTok = 0): void {
-    const at = Date.now();
-    this.db
-      .prepare(`INSERT INTO cost (task_id, agent, role, usd, in_tok, out_tok, ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(taskId, agent, role ?? null, usd, inTok, outTok, Math.round(ms) || 0, at);
+  addCost(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number, ms = 0, engine?: string, model?: string, cachedTok = 0, agentId?: string): void {
+    const at = this.addCostLocal(taskId, agent, role, usd, inTok, outTok, ms, agentId);
     if (this.repo) {
       recordUsage({ at, source: "tarefa", project: this.repo, taskId, role: agent || role, engine: engine || this.taskEngine(taskId), model, inTok, cachedTok, outTok, usd, ms });
     }
+  }
+  /** Só a linha do `cost` do projeto (sem o livro de uso) — pra quem JÁ gravou no livro (ex.: a retro via aiOnce)
+   * e precisa que o gasto conte no teto e no custo por papel. Devolve o `at` gravado. */
+  addCostLocal(taskId: string, agent: string, role: string | undefined, usd: number, inTok: number, outTok: number, ms = 0, agentId?: string): number {
+    const at = Date.now();
+    this.db
+      .prepare(`INSERT INTO cost (task_id, agent, role, usd, in_tok, out_tok, ms, created_at, agent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(taskId, agent, role ?? null, usd, inTok, outTok, Math.round(ms) || 0, at, agentId || null);
+    return at;
+  }
+  /** Gasto da tarefa até agora (US$) — o teto (P6) compara com isto antes de cada etapa. */
+  taskSpend(taskId: string): number {
+    const r = this.db.prepare(`SELECT COALESCE(SUM(usd), 0) AS u FROM cost WHERE task_id = ?`).get(taskId) as { u: number } | undefined;
+    return Number(r?.u) || 0;
+  }
+  /** Custo por agente (P7): soma pelo agent_id — renomear o agente não muda o número. */
+  costByAgent(agentId: string): number {
+    const r = this.db.prepare(`SELECT COALESCE(SUM(usd), 0) AS u FROM cost WHERE agent_id = ?`).get(agentId) as { u: number } | undefined;
+    return Number(r?.u) || 0;
   }
   /** Custo acumulado (US$ e tokens) por tarefa do projeto — o piloto automático soma pra decidir o teto e pro relatório. */
   costByTask(): { taskId: string; usd: number; inTok: number; outTok: number }[] {

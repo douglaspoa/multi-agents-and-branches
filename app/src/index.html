@@ -29,6 +29,7 @@
 <link rel="stylesheet" href="css/92-canvas.css">
 <link rel="stylesheet" href="css/93-critica.css">
 <link rel="stylesheet" href="css/94-ideia.css">
+<link rel="stylesheet" href="css/95-ciclo.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -501,6 +502,8 @@
       <button class="btn sm fwmore" id="fwMore" aria-label="Mais ações" title="mais ações: progresso, commit &amp; push, custo, preview no celular…"></button>
       <button class="btn sm fwclosebtn" id="fwClose" aria-label="Fechar a aba" title="fechar a aba (esc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
     </div>
+    <!-- o ciclo da tarefa (60-ciclo.js): faixa de etapas + a decisão "precisa de você" — fora do re-render do chat -->
+    <div class="fwciclo" id="fwCiclo" hidden></div>
     <!-- linha: as colunas do workspace + o painel Dispositivo DOCADO à direita (57-dispositivo.js) -->
     <div class="fwrow" id="fwRow">
       <div class="fwcols" id="fwCols">
@@ -755,5 +758,6 @@
 <script src="js/58-ambiente.js"></script>
 <script src="js/58-canvas.js"></script>
 <script src="js/59-ideia.js"></script>
+<script src="js/60-ciclo.js"></script>
 </body>
 </html>

@@ -79,6 +79,7 @@ function fwChatSubText(t){
   if(t.status==='paused') return 'pausada — clique em continuar';
   if(t.status==='draft') return 'rascunho — ainda não começou';
   if(t.status==='plan-review') return 'plano pronto — aprove pra ele começar a construir, ou peça ajustes aqui';
+  if(t.status==='needs-you') return 'precisa de você — veja a decisão no topo da tarefa';
   if(t.status==='queued') return 'na fila — começa quando abrir uma vaga';
   return 'mesma sessão — ele lembra o que fez';
 }
@@ -404,6 +405,7 @@ function taskPhase(t){
   if(['review','delivered','merged','done','conflict'].includes(t.status)) return 4;
   // 'queued' está no ACTIVE_ST: tem que vir ANTES da checagem de execução (senão nunca caía em Despacho)
   if(['queued','plan-review'].includes(t.status)) return 2;
+  if(t.status==='needs-you') return 3;
   // erro/abortada pararam NA execução (antes caíam em "Descoberta", como se nem tivessem começado)
   if(ACTIVE_ST.has(t.status)||['thinking','paused','error','aborted'].includes(t.status)) return 3;
   return 1;
@@ -478,6 +480,7 @@ function fwPrimaryAction(t){
   if(t.status==='conflict') return { id:'fwResolve', html:`${IC.bolt} resolver conflito`, title:'a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra' };
   if(t.status==='paused') return { id:'fwResume', html:`${IC.play} continuar`, title:'retoma a tarefa de onde parou' };
   if(t.status==='plan-review') return { id:'fwApprovePlan', html:`${IC.play} aprovar plano`, title:'o plano está pronto — aprovar deixa o time começar a construir' };
+  if(t.status==='needs-you') return { id:'fwDecide', html:`${IC.hand} decidir`, title:'a tarefa parou numa exceção (teto, rodadas de revisão ou veredito) — a decisão está no topo da tarefa' };
   // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
   if(t.prUrl){ const n=fwPrNum(t);
     return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n}`, title:'abrir o PR no GitHub' }
@@ -697,6 +700,7 @@ function renderWorkspace(){
   // modo que o TIPO esconde (ex.: Código numa investigação, guardado na aba) cai na Entrega
   if(typeof fwModesList==='function' && !fwModesList(t).some(([k])=>k===fwMode)){ fwMode='entrega'; fwRememberTab(); }
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
+  if(typeof cicloPaint==='function') cicloPaint(t); // faixa de etapas + "precisa de você" (60-ciclo), com assinatura própria
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
   fwModesPaint(t);
@@ -734,6 +738,7 @@ function renderWorkspace(){
       // 1 pedido por clique: duplo clique em "continuar" mandava dois resume_task
       bindClick('fwResume', async(e)=>{ e.currentTarget.disabled=true; await resumeTask(t.id); renderWorkspace(); });
       bindClick('fwApprovePlan', async()=>{ await startTask(t.id); renderWorkspace(); });
+      bindClick('fwDecide', ()=>{ if(typeof cicloFocusDecision==='function') cicloFocusDecision(); });
       bindClick('fwStartDraft', async(e)=>{ e.currentTarget.disabled=true; await startTask(t.id); renderWorkspace(); });
       bindClick('fwResolve', (e)=>fwResolveConflict(t.id, e.currentTarget));
       bindClick('fwPrGo', ()=>{ fwMode='pr'; fwRememberTab(); renderWorkspace(); });
@@ -1159,6 +1164,8 @@ function fwThreadHtml(t){
     let tx=e.text||'';
     { const m=tx.match(/^sessão iniciada · ([^\s·]+)/); if(m) ranBy[e.agent]=aiRunLabel('claude', m[1]);
       const ra=tx.match(/^Route AI: rodando na (.+) \(([^)]+)\)$/); if(ra) ranBy[e.agent]=ra[1]+' · '+ra[2]; }
+    // P10: "skills ativas · agente@vN · motor" é medição — fica no "ver detalhes" da faixa, não na conversa
+    if(e.type==='papel') continue;
     if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${fwLinkify(tx)}</div>`); continue; }

@@ -100,14 +100,14 @@ test("skill: cria SKILL.md aprendido + liga no skills.json; atualizar acumula ta
   const cd = join(d, ".cardume");
   const personal = join(d, "home-skills");
   const r1 = applySkill(d, cd, sk(), "t1", personal);
-  assert.deepEqual(r1, { name: "rodar-testes", action: "created" });
+  assert.deepEqual(r1, { name: "rodar-testes", action: "created", version: 1 });
   const md = readFileSync(join(d, ".claude", "skills", "rodar-testes", "SKILL.md"), "utf8");
   const p = parseSkillMd(md);
   assert.equal(p.origem, "aprendida");
   assert.deepEqual(p.tarefas, ["t1"]);
   assert.deepEqual(JSON.parse(readFileSync(join(cd, "skills.json"), "utf8")), [{ name: "rodar-testes", description: "Use ao validar uma mudança antes do review" }]);
   const r2 = applySkill(d, cd, sk({ acao: "atualizar", descricao: "Use sempre ao validar uma mudança", corpo: "## Passo a passo\npnpm test e lint juntos" }), "t2", personal);
-  assert.deepEqual(r2, { name: "rodar-testes", action: "updated" });
+  assert.deepEqual(r2, { name: "rodar-testes", action: "updated", version: 2 });
   const p2 = parseSkillMd(readFileSync(join(d, ".claude", "skills", "rodar-testes", "SKILL.md"), "utf8"));
   assert.deepEqual(p2.tarefas, ["t1", "t2"]);
   assert.match(p2.body, /pnpm test e lint/);
@@ -260,7 +260,7 @@ test("skill: 'criar' com nome de skill APRENDIDA existente vira nome-2 (só 'atu
   const personal = join(d, "home-skills");
   applySkill(d, cd, sk({ corpo: "## Passo a passo\ncorpo original da skill" }), "t1", personal);
   const r = applySkill(d, cd, sk({ acao: "criar", corpo: "## Passo a passo\noutro corpo qualquer" }), "t2", personal);
-  assert.deepEqual(r, { name: "rodar-testes-2", action: "created" });
+  assert.deepEqual(r, { name: "rodar-testes-2", action: "created", version: 1 });
   assert.match(readFileSync(join(d, ".claude", "skills", "rodar-testes", "SKILL.md"), "utf8"), /corpo original/);
 });
 

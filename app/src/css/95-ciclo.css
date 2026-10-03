@@ -1,0 +1,26 @@
+/* Starfork — 95-ciclo: a área do ciclo no topo da tarefa (60-ciclo.js) — faixa de etapas + "precisa de você".
+   Contêiner com container query: num painel estreito (tela dividida) a faixa encolhe pra "etapa atual + n de N". */
+.fwciclo{container-type:inline-size;container-name:ciclo;border-bottom:1px solid var(--border);background:var(--surface-2);padding:8px 15px 9px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.fwciclo[hidden]{display:none}
+
+/* ---- decisão "precisa de você" (seção inline, nunca modal) ---- */
+.cicdec{border:1px solid color-mix(in srgb,var(--st-ask) 38%,transparent);background:color-mix(in srgb,var(--st-ask) 7%,var(--surface));border-radius:var(--r-sm);padding:10px 12px;display:flex;flex-direction:column;gap:6px;transition:box-shadow .3s}
+.cicdec.flash{box-shadow:0 0 0 3px color-mix(in srgb,var(--st-ask) 40%,transparent)}
+.cicdec-h{display:flex;align-items:center;gap:8px;font-size:var(--fs-md);color:var(--text)}
+.cicdec-dot{width:8px;height:8px;border-radius:50%;background:var(--st-ask);flex:none}
+.cicdec-k{font-size:var(--fs-sm);color:color-mix(in srgb,var(--st-ask) 70%,var(--text))}
+.cicdec-t{margin:0;font-size:var(--fs-base);color:var(--text-2);line-height:1.5;max-width:75ch}
+.cicdec-sub{margin:0;font-size:var(--fs-sm);color:var(--text-2)}
+.cicdec-form{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px 10px;margin-top:2px}
+.cicdec-f{display:flex;flex-direction:column;gap:3px;font-size:var(--fs-xs);color:var(--text-2)}
+.cicdec-f .in{height:30px}
+.cicdec-usd .in{width:84px;font-variant-numeric:tabular-nums}
+.cicdec-why{flex:1 1 220px;min-width:0}
+.cicdec-why .in{width:100%}
+.cicdec-acts{display:flex;gap:7px;flex-wrap:wrap}
+.cicdec-err{margin:0;min-height:0;font-size:var(--fs-sm);color:var(--crit)}
+.cicdec-err:empty{display:none}
+@container ciclo (max-width:520px){
+  .cicdec-form{flex-direction:column;align-items:stretch}
+  .cicdec-usd .in{width:100%}
+}

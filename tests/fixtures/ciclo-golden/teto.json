@@ -1,0 +1,24 @@
+{
+  "capCheck": [
+    [0, 2, "ok"], [1.59, 2, "ok"], [1.6, 2, "pausa"], [3, 2, "pausa"], [0.1, 0, "ok"], [4, 0, "pausa"], [4, -1, "pausa"]
+  ],
+  "effectiveCap": [
+    [2, 7, 2], [0, 7, 7], [null, 0, 5], ["abc", null, 5], [-3, 1.5, 1.5]
+  ],
+  "parseRelease": [
+    ["liberar mais 2 dólares porque falta o teste de login", { "ok": true, "usd": 2, "reason": "falta o teste de login" }],
+    ["2,5 — o revisor pediu mais uma rodada", { "ok": true, "usd": 2.5, "reason": "o revisor pediu mais uma rodada" }],
+    ["US$ 1.75 motivo: precisa provar no celular", { "ok": true, "usd": 1.75, "reason": "precisa provar no celular" }],
+    ["liberar 3", { "ok": false }],
+    ["libera mais porque sim", { "ok": false }],
+    ["0 porque não quero gastar nada", { "ok": false }],
+    ["5000 porque é uma tarefa enorme demais", { "ok": false }]
+  ],
+  "releaseCheck": [
+    [2, "falta provar no iPhone", { "ok": true, "usd": 2, "reason": "falta provar no iPhone" }],
+    ["1,5", "o build demorou mais", { "ok": true, "usd": 1.5, "reason": "o build demorou mais" }],
+    ["", "motivo bom aqui", { "ok": false }],
+    [2, "sim", { "ok": false }],
+    [2, "  a  b  c  ", { "ok": false }]
+  ]
+}

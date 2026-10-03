@@ -474,7 +474,7 @@ function epqBucket(st, flag, pr){
   if(st==='error'||st==='conflict') return 'bad';
   if(pr) return 'pr';
   if(st==='review'||st==='delivered') return 'rev';
-  if(st==='asking'||st==='plan-review') return 'ask';
+  if(st==='asking'||st==='plan-review'||st==='needs-you') return 'ask';
   if(['running','thinking','queued','paused'].includes(st)) return 'run';
   return 'queue';
 }

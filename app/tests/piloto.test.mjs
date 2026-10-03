@@ -58,7 +58,7 @@ test('validação: ideia, plataforma, limites e teto viram os argumentos do auto
   assert.match(ctx.pilotoValidate({ idea: 'recriar o jogo Pou', platform: 'web', parallel: 2, attempts: 2, budget: 'muito' }).err, /Teto/);
   const ok = ctx.pilotoValidate({ idea: '  recriar o jogo Pou ', platform: 'mobile', name: '', engine: 'claude', model: '', parallel: '3', attempts: '2', budget: '7,5' });
   assert.deepEqual(JSON.parse(JSON.stringify(ok)), { ok: true, args: { idea: 'recriar o jogo Pou', platform: 'mobile', name: null, engine: 'claude', model: null, parallel: 3, attempts: 2, budgetUsd: 7.5 } });
-  assert.equal(ctx.pilotoValidate({ idea: 'recriar o jogo Pou', platform: 'web', parallel: 1, attempts: 1, budget: '' }).args.budgetUsd, null, 'vazio = sem teto');
+  assert.equal(ctx.pilotoValidate({ idea: 'recriar o jogo Pou', platform: 'web', parallel: 1, attempts: 1, budget: '' }).args.budgetUsd, null, 'vazio = o motor aplica o teto padrão (US$ 20)');
 });
 
 test('formulário: 4 plataformas, IA, botão "Construir sozinho", erro visível e a ideia escapada', () => {

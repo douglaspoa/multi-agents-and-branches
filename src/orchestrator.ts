@@ -15,7 +15,7 @@ import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, m
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, parseRetro, readLearnSettings, readPending, rejectReason, retroPrompt, type PendingItem } from "./learn.ts";
-import { userInfo } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
 import { aiOnce, engineOf, readAiPrefs, type AiTier } from "./ai-once.ts";
@@ -23,6 +23,8 @@ import { DshEngine, isDshLabel } from "./engine/dsh.ts";
 import { CodexEngine } from "./engine/codex.ts";
 import { readAltConfig } from "./engine/altProxy.ts";
 import type { AgentEngine } from "./engine/types.ts";
+import { activeSkills, agentVersion } from "./agent-versions.ts";
+import { agentIdOf, capCheck, capPauseText, effectiveCap, fmtUsdBr, rosterLine, upsertRoleRun, type NeedsYou, type RoleRun } from "./lifecycle.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 
 /**
@@ -81,6 +83,18 @@ export function processStartMs(pid: number): number | null {
   } catch {
     return null;
   }
+}
+
+/** Gerúndio do papel pra frase da pausa ("antes de Nyx revisar"). */
+const ROLE_GERUND: Record<string, string> = { planner: "planejar", builder: "construir", reviewer: "revisar", tester: "testar", designer: "desenhar", docs: "escrever", investigator: "investigar" };
+
+/** Teto padrão de Configurações (`costCap` em ~/.constellation/settings.json, espelhado pelo app). */
+export function readCostCapSetting(): number {
+  try {
+    const raw = JSON.parse(readFileSync(join(homedir(), ".constellation", "settings.json"), "utf8"));
+    const n = Number(raw?.costCap);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  } catch { return 0; }
 }
 
 /** Instruções que AGENTES gravam ao editar a spec de outra tarefa (src/agent-edits.ts) — não são correção do humano. */
@@ -523,11 +537,11 @@ export class Orchestrator {
 
   /** Roda a IA auxiliar (destiladores, retro) na IA padrão do usuário (src/ai-once.ts). Padrão: nível
    * rápido (Haiku no Claude). `claudeModel` só vale no Claude; Codex/gateway usam o nível. "" em qualquer falha. */
-  private async aux(prompt: string, tier: AiTier = "rapido", claudeModel = "claude-haiku-4-5-20251001", timeout = auxTimeoutMs(), taskId?: string): Promise<string> {
+  private async aux(prompt: string, tier: AiTier = "rapido", claudeModel = "claude-haiku-4-5-20251001", timeout = auxTimeoutMs(), taskId?: string, onCost?: (usd: number) => void): Promise<string> {
     try {
       // teto: sem ele uma IA pendurada deixava o processo do motor vivo pra sempre (fire-and-forget)
       // livro de uso: retro e aprendizados do chat contam como "retro"
-      return await aiOnce(prompt, { tier, claudeModel, timeout, usage: { source: "retro", project: this.ws.repo, taskId } });
+      return await aiOnce(prompt, { tier, claudeModel, timeout, usage: { source: "retro", project: this.ws.repo, taskId }, onCost });
     } catch { return ""; }
   }
 
@@ -609,6 +623,15 @@ export class Orchestrator {
         .slice(-25)
         .map((e) => `- ${e.agent}: ${String(e.text).replace(/\s+/g, " ").slice(0, 300)}`);
       if (!events.length && !corrections.length) return;
+      // P6: a retro roda DENTRO do teto — com a tarefa já em 80% dele, é pulada e avisa em palavra
+      if (!spec.autopilot) {
+        const cap = effectiveCap(spec.budgetUsd, readCostCapSetting());
+        const spent = this.store.taskSpend(taskId);
+        if (capCheck(spent, cap) === "pausa") {
+          this.store.addEvent(taskId, "Sistema", "retro", `retro pulada: a tarefa já usou ${fmtUsdBr(spent)} de ${fmtUsdBr(cap)} do teto — nada foi aprendido desta vez`, false);
+          return;
+        }
+      }
       const learned = learnedSkills(this.ws.repo);
       const out = await this.aux(retroPrompt({
         title: spec.title,
@@ -621,8 +644,11 @@ export class Orchestrator {
         brainCatalog: this.brainCatalog(),
         learnedSkills: learned,
         alreadySuggested: readPending(this.ws.dir).filter((p) => p.taskId === taskId).map((p) => p.nota ? `nota: ${p.nota.title}` : `skill: ${p.skill?.nome ?? ""}`),
-      }), "capaz", model, Math.max(auxTimeoutMs(), 180_000), taskId); // retroModel vale só no Claude (Codex/gateway: nível capaz); ~10k chars: teto próprio
-      if (!out) return;
+      }), "capaz", model, Math.max(auxTimeoutMs(), 180_000), taskId, (usd) => {
+        // o gasto da retro conta no teto e no custo por papel (agente "retro"); o livro de uso o aiOnce já gravou
+        if (usd > 0) { try { this.store.addCostLocal(taskId, "retro", "retro", usd, 0, 0, 0, "retro"); } catch { /* sem store */ } }
+      }); // retroModel vale só no Claude (Codex/gateway: nível capaz); ~10k chars: teto próprio
+      if (!out) { this.store.addEvent(taskId, "Sistema", "retro", "retro: a IA não respondeu — nada foi aprendido desta vez", false); return; }
       const { notas, skills } = parseRetro(out);
       const learnedNames = new Set(learned.map((s) => s.name));
       const items: Omit<PendingItem, "id" | "createdAt">[] = [];
@@ -638,17 +664,20 @@ export class Orchestrator {
         else this.learnDropped(taskId, `aprendizado: descartei ${what} da retro — parecia conter instruções pro agente (injeção); nada foi gravado`);
         return false;
       });
-      if (!ok.length) return;
+      if (!ok.length) { this.store.addEvent(taskId, "Sistema", "retro", "retro: nada novo pra aprender desta tarefa", true); return; }
       if (mode === "sugerir") {
         const added = appendPending(this.ws.dir, ok);
+        this.store.addEvent(taskId, "Sistema", "retro", added.length ? `retro: ${added.length} aprendizado${added.length === 1 ? "" : "s"} pra você revisar` : "retro: nada novo pra aprender desta tarefa", true);
         if (added.length) this.learnDropped(taskId, `aprendizado: ${added.length} sugest${added.length === 1 ? "ão" : "ões"} da retro pra revisar na aba Memória`);
         return;
       }
-      // modo automático: aplica direto o que iria pra fila
+      // modo automático: aplica direto o que iria pra fila — MENOS o que tem agente dono (K3: o `auto` nunca muda
+      // agente; esses itens vão pra fila e só entram com o aceite item a item)
+      const held = ok.filter((it) => !!it.agente);
       const brain = this.brain();
       const by = `agente · retro da tarefa "${String(spec.title).slice(0, 60)}" (${taskId})`;
       const done: string[] = [];
-      for (const it of ok) {
+      for (const it of ok.filter((x) => !x.agente)) {
         try {
           if (it.nota) {
             const r = brain.write({ ...it.nota, by, origem: "agente" });
@@ -661,6 +690,11 @@ export class Orchestrator {
         } catch { /* um item ruim não derruba os outros */ }
       }
       if (done.length) this.learnDropped(taskId, `aprendizado automático: ${done.join(", ")}`);
+      if (held.length) {
+        const added = appendPending(this.ws.dir, held);
+        if (added.length) this.learnDropped(taskId, `aprendizado: ${added.length} item(ns) de agente ficaram pra você aceitar (o automático não muda agente)`);
+      }
+      this.store.addEvent(taskId, "Sistema", "retro", `retro: ${done.length + held.length} aprendizado(s)`, true);
     } catch { /* melhor-esforço — nunca quebra a tarefa */ }
   }
 
@@ -1017,6 +1051,53 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * P6 (veto da Carla): o teto vale pra TODA tarefa. Gasto ≥ 80% do teto → a tarefa para em "precisa de você"
+   * ANTES da próxima etapa (budgetHit + needsYou; o processo termina, nada fica congelado). Liberar mais é da
+   * pessoa, com valor e motivo (app: 53-teto-protecao / 60-ciclo) — e retoma daqui (done_roles = i).
+   * Tarefa do piloto automático: quem decide é o piloto (o teto dela já é o que sobra do teto dele).
+   */
+  private capGate(taskId: string, i: number, next: string): boolean {
+    const spec = this.freshSpec(taskId);
+    if (!spec || spec.autopilot) return false;
+    const cap = effectiveCap(spec.budgetUsd, readCostCapSetting());
+    const spent = this.store.taskSpend(taskId);
+    if (capCheck(spent, cap) === "ok") return false;
+    const at = Date.now();
+    const text = capPauseText(spent, cap, next);
+    this.store.patchSpec(taskId, {
+      budgetUsd: cap, // grava o teto que valeu (tarefa sem teto próprio herdou o padrão)
+      budgetHit: { usd: Math.round(spent * 10000) / 10000, cap, at, mode: "etapa" },
+      needsYou: { kind: "teto", text, at, roleIdx: i } satisfies NeedsYou,
+    });
+    this.store.setDoneRoles(taskId, i);
+    this.store.setStatus(taskId, "needs-you");
+    this.store.addEvent(taskId, "Sistema", "note", text, false);
+    notify("Starfork", "Precisa de você — a tarefa chegou a 80% do teto", spec.title);
+    return true;
+  }
+
+  /** Spec como está no BANCO agora (o app pode ter gravado teto/liberação enquanto o turno rodava). */
+  private freshSpec(taskId: string): TaskSpec | undefined {
+    try { return JSON.parse(this.store.getTask(taskId)?.spec_json ?? "") as TaskSpec; } catch { return undefined; }
+  }
+
+  /** P10: grava o evento "skills ativas: … · agente@vN · motor" do papel e guarda em spec.roleRuns (Relatório do PR). */
+  private recordRoleRun(taskId: string, spec: TaskSpec, r: AgentRole): RoleRun {
+    const run: RoleRun = {
+      role: r.role, agentId: agentIdOf(r) || undefined, name: r.name,
+      version: agentVersion(this.ws.dir, agentIdOf(r)), engine: engineKind(r.engine), model: r.model || undefined,
+      skills: activeSkills(this.ws.dir), at: Date.now(),
+    };
+    try {
+      this.store.addEvent(taskId, r.name, "papel", rosterLine(run), true, r.role, r.agentId);
+      const cur = this.freshSpec(taskId) ?? spec;
+      spec.roleRuns = upsertRoleRun(cur.roleRuns, run);
+      this.store.patchSpec(taskId, { roleRuns: spec.roleRuns });
+    } catch { /* medição nunca derruba o papel */ }
+    return run;
+  }
+
   /** Provas mobile (src/mobile.ts): deps injetáveis — os testes trocam home/simctl/adb por falsos. */
   mobileDeps: MobileDeps = realDeps();
 
@@ -1064,12 +1145,17 @@ export class Orchestrator {
 
     for (let i = startIdx; i < roles.length; i++) {
       const r = roles[i];
+      // P6: teto SEMPRE ligado — a 80% para ANTES de começar a etapa (rodadas de revisão passam por aqui também)
+      if (this.capGate(taskId, i, `${r.name} ${ROLE_GERUND[r.role] ?? "trabalhar"}`)) return;
       this.store.setStage(taskId, r.role);
       this.store.setStatus(taskId, this.statusFor(r.role));
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
       this.prepEpic(spec, task.worktree);
       const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+      // P10: UM evento por papel (antes do laço de retry — tentar de novo não duplica) com o que vai rodar:
+      // skills ativas@versão · agente@versão · motor. Alimenta a medição por versão e o Relatório do PR.
+      this.recordRoleRun(taskId, spec, r);
       let sessionId = "";
       let roleFailed = false; // erro/timeout no papel → NÃO avança pro próximo
       let lastDeath = ""; // motivo da última morte do papel (vai na nota do "pipeline parado")
@@ -1113,9 +1199,9 @@ export class Orchestrator {
             }
             if (ev.type === "error") { roleFailed = true; deathText = ev.text; }
             if (ev.type === "done" && ev.ok === false) deathText = ev.text;
-            this.store.addEvent(taskId, r.name, ev.type, ev.text, ev.ok, r.role);
+            this.store.addEvent(taskId, r.name, ev.type, ev.text, ev.ok, r.role, r.agentId);
             if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-              this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, r.engine, r.model, ev.cost.cachedTok ?? 0);
+              this.store.addCost(taskId, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, r.engine, r.model, ev.cost.cachedTok ?? 0, r.agentId);
             }
             if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
           }
@@ -1358,9 +1444,9 @@ export class Orchestrator {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
           if (ev.type === "claim") continue; // sem repo pra reivindicar num review de PR
-          this.store.addEvent(spec.id, r.name, ev.type, ev.text, ev.ok, r.role);
+          this.store.addEvent(spec.id, r.name, ev.type, ev.text, ev.ok, r.role, r.agentId);
           if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-            this.store.addCost(spec.id, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, r.engine, r.model, ev.cost.cachedTok ?? 0);
+            this.store.addCost(spec.id, r.name, r.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, r.engine, r.model, ev.cost.cachedTok ?? 0, r.agentId);
           }
         }
       } catch (err) {
@@ -1392,7 +1478,7 @@ export class Orchestrator {
     taskId: string,
     worktree: string,
     spec: TaskSpec,
-    role: { role: Role; name: string; engine: string; model?: string; persona?: string },
+    role: { role: Role; agentId?: string; name: string; engine: string; model?: string; persona?: string },
     ctx: string,
     sessionId: string
   ): Promise<string> {
@@ -1428,9 +1514,9 @@ export class Orchestrator {
             this.bus.claim(taskId, role.name, ev.path, ev.mode ?? "write");
             continue;
           }
-          this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
+          this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role, role.agentId);
           if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-            this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model, ev.cost.cachedTok ?? 0);
+            this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model, ev.cost.cachedTok ?? 0, role.agentId);
           }
           if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
         }
@@ -1573,9 +1659,9 @@ export class Orchestrator {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
         if (ev.type === "claim") continue;
         if (ev.type === "error") failed = true;
-        this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
+        this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role, role.agentId);
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model, ev.cost.cachedTok ?? 0);
+          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model, ev.cost.cachedTok ?? 0, role.agentId);
         }
       }
     } catch (err) {
@@ -1675,9 +1761,9 @@ export class Orchestrator {
         if (ev.type === "claim") continue;
         if (ev.type === "error") { failed = true; deathText = ev.text; }
         if (ev.type === "done" && ev.ok === false) deathText = ev.text;
-        this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role);
+        this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role, role.agentId);
         if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
-          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model, ev.cost.cachedTok ?? 0);
+          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model, ev.cost.cachedTok ?? 0, role.agentId);
         }
       }
       // sessão não existe mais (histórico do Claude apagado/outra máquina) →

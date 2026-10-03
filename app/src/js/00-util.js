@@ -118,6 +118,8 @@ const STATUS_META={
   backlog:      { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'stQueue' },
   queued:       { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'stQueue' },
   'plan-review':{ pt:'plano pra aprovar', short:'plano',    c:'var(--st-ask)',    ic:'stAsk' },
+  // exceção do ciclo (mesa 03/10): teto a 80%, 3ª rodada de revisão ou veredito ilegível — o motivo vem em spec.needsYou
+  'needs-you':  { pt:'precisa de você',   short:'sua vez',  c:'var(--st-ask)',    ic:'stAsk' },
   running:      { pt:'rodando',           short:'rodando',  c:'var(--st-run)',    ic:'stRun' },
   thinking:     { pt:'rodando',           short:'rodando',  c:'var(--st-run)',    ic:'stRun' },
   asking:       { pt:'aguardando você',   short:'aguardando', c:'var(--st-ask)',    ic:'stAsk' },
@@ -414,7 +416,8 @@ function fmtCostRange(lo, hi){
   return `~US$ ${f(lo)}–${f(hi)} (≈ R$ ${rs})`;
 }
 // teto padrão por tarefa (US$; 0 = sem teto) — Configurações
-function costCapDefault(){ const raw=lsGet('costCap'); const v=parseFloat(raw==null||raw===''?'5':raw); return v>=0?v:5; }
+// teto SEMPRE ligado (veto da Carla, mesa 03/10): 0/vazio/lixo valem o padrão US$ 5 — nunca "sem teto"
+function costCapDefault(){ const raw=lsGet('costCap'); const v=parseFloat(raw==null||raw===''?'5':String(raw).replace(',','.')); return v>0?v:5; }
 // IA PADRÃO do usuário (painel Sua IA → aiDefaults em 29-ia-picker) pra demanda criada SEM motor escolhido
 // (mesa, card do time, celular, orquestrador). Antes esses caminhos gravavam 'claude' fixo — quem só usa Codex
 // ganhava tarefa no Claude. O 'claude' daqui só vale se o seletor ainda não carregou (boot/teste isolado).

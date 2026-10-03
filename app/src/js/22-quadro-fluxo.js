@@ -348,7 +348,7 @@ function flowBucket(t){
     const d=new Date(taskTs(t)); const today=new Date();
     return (d.toDateString()===today.toDateString())?'hoje':'anteriores';
   }
-  if(pendingOf(t.id).length || ['plan-review','error','conflict','aborted'].includes(t.status)) return 'aguardando';
+  if(pendingOf(t.id).length || ['plan-review','needs-you','error','conflict','aborted'].includes(t.status)) return 'aguardando';
   if(t.prUrl && t.status!=='merged') return 'praberto';
   if(['review','delivered'].includes(t.status)) return 'prontas';
   if(['backlog','requested'].includes(t.status)) return 'fila'; // só cartões da nuvem (Time) — local não tem backlog
@@ -468,6 +468,7 @@ function taskPct(t){
   if(t.status==='draft') return 5;
   if(t.status==='queued') return 15;
   if(t.status==='plan-review') return 25;
+  if(t.status==='needs-you') return 50;
   if(['error','conflict','aborted'].includes(t.status)) return 40;
   return Math.round(35+(reqFrac==null?10:reqFrac*40)); // rodando
 }

@@ -11,6 +11,7 @@ export type AgentStatus =
   | "thinking"
   | "review"
   | "conflict"
+  | "needs-you" // parou numa exceção do ciclo (teto a 80%, 3ª rodada de revisão, veredito ilegível): "precisa de você"
   | "done"
   | "error"
   | "merged";
@@ -22,6 +23,8 @@ export type Role = string;
 /** Um agente atribuído a uma tarefa, com o seu papel. */
 export interface AgentRole {
   role: Role;
+  /** P7: identidade ESTÁVEL do agente (id do catálogo, ex.: "nyx"). Renomear não muda. Ausente = tarefa antiga ("sem ficha"). */
+  agentId?: string;
   name: string; // nome do agente (ex.: "Íris")
   engine: string; // "mock" | "claude"
   model?: string;
@@ -188,6 +191,17 @@ export interface TaskSpec {
   agent: string; // agente-líder (exibição / retrocompat)
   /** Equipe da tarefa. Se vazio, sintetiza [{role:"builder", name:agent}]. */
   roles: AgentRole[];
+  // ---- ciclo da tarefa (decisão da mesa 03/10, src/lifecycle.ts) ----
+  /** Tipo de entrega: muda as etapas (FLOW_BY_KIND). Ausente = tarefa antiga (etapas = papéis). */
+  taskKind?: import("./lifecycle.ts").TaskKind;
+  /** Rodadas de revisão com veredito (P3). Zera num ajuste pedido pelo humano. */
+  reviewRounds?: import("./lifecycle.ts").ReviewRound[];
+  /** A tarefa parou numa exceção e espera a pessoa (teto, 3ª rodada, veredito ilegível). Limpo ao decidir. */
+  needsYou?: import("./lifecycle.ts").NeedsYou | null;
+  /** Liberações de teto feitas pela pessoa (valor + motivo) — vão pro Relatório Starfork do PR. */
+  budgetReleases?: import("./lifecycle.ts").BudgetRelease[];
+  /** P10: o que rodou em cada papel (agente@versão · motor · skills) — vai pro Relatório do PR. */
+  roleRuns?: import("./lifecycle.ts").RoleRun[];
 }
 
 /** Uma função descoberta no diff, para o review humano. */
@@ -241,6 +255,7 @@ export interface EventRow {
   id: number;
   task_id: string;
   agent: string;
+  agent_id?: string | null;
   role: string | null;
   ts: number;
   type: string;

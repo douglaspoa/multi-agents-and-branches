@@ -6,7 +6,7 @@ function cfgHide(){ const o=$id('cfgOverlay'); if(o&&o.classList.contains('astab
 function cfgValidate(v){
   const num=x=>String(x==null?'':x).trim()===''?NaN:Number(String(x).replace(',','.'));
   const n={ cap:num(v.cap), cost:num(v.cost), brl:num(v.brl), slots:num(v.slots), retry:num(v.retry) };
-  if(!(n.cap>=0)) return { field:'cfgCap', msg:'O teto por tarefa precisa ser um número maior ou igual a 0 (0 = sem teto).' };
+  if(!(n.cap>0)) return { field:'cfgCap', msg:'O teto por tarefa fica sempre ligado: use um valor maior que 0 (a tarefa pausa a 80% dele e pergunta).' };
   if(!(n.cost>=0)) return { field:'cfgCost', msg:'O aviso de custo precisa ser um número maior ou igual a 0 (0 desliga).' };
   if(!(n.brl>0)) return { field:'cfgBrl', msg:'A cotação do dólar precisa ser maior que zero.' };
   if(!(Number.isInteger(n.slots) && n.slots>=1 && n.slots<=12)) return { field:'cfgSlots', msg:'Tarefas ao mesmo tempo: um número inteiro de 1 a 12.' };
@@ -27,8 +27,8 @@ function openCfg(){
     <div class="seclbl2">Custo <span class="dim cfgsecd">· quanto cada tarefa pode gastar e como o valor aparece</span></div>
     <div class="cfggrid">
       <div class="cfgf"><label for="cfgCap">Teto por tarefa</label>
-        <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCap" type="number" min="0" step="1" value="${escA(String(costCapDefault()))}"><span class="dim" id="cfgCapBrl"></span></div>
-        <p class="cfghint">Ao chegar nele a tarefa pausa e pergunta se continua. 0 = sem teto. Dá pra mudar por tarefa ao criar.</p></div>
+        <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCap" type="number" min="0.5" step="0.5" value="${escA(String(costCapDefault()))}"><span class="dim" id="cfgCapBrl"></span></div>
+        <p class="cfghint">Fica sempre ligado. A 80% dele a tarefa para e pergunta; liberar mais pede o valor e o motivo (o motivo vai pro PR). Dá pra mudar por tarefa ao criar.</p></div>
       <div class="cfgf"><label for="cfgCost">Aviso de custo</label>
         <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}"></div>
         <p class="cfghint">Só avisa quando uma tarefa passa desse valor — não pausa. 0 desliga.</p></div>
@@ -104,6 +104,7 @@ function openCfg(){
     btn.disabled=true; btn.textContent='salvando…';
     const w=async(key, value, nome)=>{ try{ await invoke('write_setting',{ key, value }); }catch(e){ fails.push({ nome, e }); } };
     await w('limitRetryMin', String(N(v.retry)), 'retomar depois do limite da IA');
+    await w('costCap', String(N(v.cap)), 'teto por tarefa'); // o motor lê daqui o teto de quem não tem teto próprio
     if(bv) await w('browserVisible', bv.checked?'1':'0', 'mostrar a janela do navegador');
     { const es=$id('cfgEstimate'); if(es){ await w('estimateEnabled', es.checked?'1':'0', 'previsão de tempo e tokens'); if(typeof estSetEnabled==='function') estSetEnabled(es.checked); } }
     { const lm=$id('cfgLearnMode'), rm=$id('cfgRetroModel'); if(lm) await w('learnMode', lm.value, 'modo do aprendizado contínuo'); if(rm) await w('retroModel', rm.value, 'modelo da retro'); }

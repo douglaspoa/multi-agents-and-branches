@@ -407,6 +407,7 @@ function detectNotifs(snap){
         // parada pelo humano (■ parar) ou pelo teto de custo NÃO é "pronta" — era notificação falsa
         if(t.status==='review'){ if(!(typeof budgetQuiet!=='undefined' && budgetQuiet.delete(t.id))) pushNotif('Pronta para review ✓', t.title, t.id); }
         else if(t.status==='plan-review') pushNotif('Plano pronto pra aprovar', t.title, t.id);
+        else if(t.status==='needs-you') pushNotif('Precisa de você', t.title, t.id);
         else if(t.status==='error') pushNotif('Tarefa falhou — veja o log', t.title, t.id);
         else if(t.status==='merged') pushNotif('Mergeada na base ✓', t.title, t.id);
       } else if(prev===undefined && (t.status==='running'||t.status==='queued'||t.status==='thinking')){

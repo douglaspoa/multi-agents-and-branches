@@ -27,6 +27,9 @@ export class MockEngine implements AgentEngine {
     } else {
       yield* this.build(input);
     }
+    // custo por PAPEL (testes do teto/ciclo): CARDUME_MOCK_ROLE_COST_USD vale pra todo papel, inclusive revisão
+    const per = Number(process.env.CARDUME_MOCK_ROLE_COST_USD);
+    if (per > 0) yield { type: "note", text: `custo do turno (mock, ${input.role})`, cost: { usd: per, inTok: 500, outTok: 50 } };
   }
 
   private async *plan(input: RunInput): AsyncIterable<AgentEvent> {

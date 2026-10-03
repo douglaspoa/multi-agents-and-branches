@@ -32,7 +32,7 @@ function flowDemandCard(t){
   const asking=pendingOf(t.id);
   const done=taskIsDone(t);
   const ph=taskPhase(t), pct=taskPct(t);
-  const dot= asking.length||t.status==='plan-review'?'var(--warn)' : ['error','conflict'].includes(t.status)?'var(--crit)' : (ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)' : ['review','delivered'].includes(t.status)?'var(--warn)' : done?'var(--info)':'var(--muted)';
+  const dot= asking.length||t.status==='plan-review'||t.status==='needs-you'?'var(--warn)' : ['error','conflict'].includes(t.status)?'var(--crit)' : (ACTIVE_ST.has(t.status)||t.status==='thinking')?'var(--good)' : ['review','delivered'].includes(t.status)?'var(--warn)' : done?'var(--info)':'var(--muted)';
   const ev=lastEventOf(t.id);
   const prN=prNumOf(t);
   const proj=t.proj||pathBase(state.repo);
@@ -43,6 +43,7 @@ function flowDemandCard(t){
   const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?IC.ok:r.st==='blk'?IC.stErr:''}</i><span class="dc-rt">${esc(r.text)}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
   const msg= asking.length ? `<b>${esc(asking[0].agent||t.agent)} perguntou</b> — ${esc((asking[0].prompt||'').slice(0,90))}`
     : t.status==='plan-review' ? 'plano pronto — aprove pra continuar'
+    : t.status==='needs-you' ? 'precisa de você — abra pra decidir'
     : t.status==='draft' ? 'rascunho — clique pra editar'
     : done ? (prN?`PR #${prN} integrado`:'concluída')
     : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
