@@ -12,7 +12,7 @@
 .rvroot .lnk.sec:hover,.prv .lnk.sec:hover{color:var(--text)}
 .rvsp{flex:1}
 .rvh{margin:16px 14px 6px;font:600 var(--fs-xs) var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.rvwarn{color:var(--warn)}
+.rvwarn,.rvtop b.rvwarn{color:var(--warn)}
 
 /* barra do topo */
 .rvtop{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 16px;border-bottom:1px solid var(--border);background:var(--surface);font-size:var(--fs-sm);color:var(--muted)}
