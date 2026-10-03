@@ -57,9 +57,20 @@ $id("newTaskBtn").onclick = async()=>{ if(await gitGate()) openNewTask(); };
 // menu "mais" do topo (redesign: topbar enxuta)
 { const mb=$id('moreBtn'), mm=$id('moreMenu');
   if(mb&&mm){
-    mb.onclick=(e)=>{ e.stopPropagation(); mm.style.display=mm.style.display==='none'?'flex':'none'; };
-    document.addEventListener('click',(e)=>{ if(!e.target.closest('#moreWrap')) mm.style.display='none'; });
-    mm.addEventListener('click',()=>{ setTimeout(()=>{ mm.style.display='none'; },80); });
+    // mesa da barra lateral (03/10): Skills, Agentes & Equipes e Daily moram aqui — o menu precisa de teclado de verdade
+    const mmItems=()=>[...mm.querySelectorAll('button')].filter(b=>b.style.display!=='none');
+    const mmShow=(on, kbd)=>{ mm.style.display=on?'flex':'none'; mb.setAttribute('aria-expanded', on?'true':'false');
+      if(on && kbd){ const f=mmItems()[0]; if(f) f.focus(); } };
+    mb.onclick=(e)=>{ e.stopPropagation(); mmShow(mm.style.display==='none', e.detail===0); };
+    document.addEventListener('click',(e)=>{ if(!e.target.closest('#moreWrap')) mmShow(false); });
+    mm.addEventListener('click',()=>{ setTimeout(()=>mmShow(false),80); });
+    mm.addEventListener('keydown',(e)=>{
+      const it=mmItems(), i=it.indexOf(document.activeElement);
+      if(e.key==='Escape'){ e.preventDefault(); mmShow(false); mb.focus(); return; }
+      const j=e.key==='ArrowDown'?i+1:e.key==='ArrowUp'?i-1:e.key==='Home'?0:e.key==='End'?it.length-1:null;
+      if(j==null || !it.length) return;
+      e.preventDefault(); it[(j+it.length)%it.length].focus();
+    });
     // o aviso de ambiente (envDot) reflete no botão do menu
     setInterval(()=>{ const d=$id('envDot'), md=$id('moreDot'); if(d&&md) md.style.display=(d.style.display==='block'||(window.memLearnN||0)>0)?'block':'none'; }, 3000); // + aprendizados pra revisar (37-memoria)
   } }

@@ -192,66 +192,114 @@ function railHi(){
   try{ const spl=(typeof SPL!=='undefined')?SPL:null;
     return railHiOf(tabById(activeTab), spl&&spl.ids, spl?spl.focus:0, tabById); }catch(_){ return { ids:[], cur:null }; }
 }
+// ---- mesa da barra lateral (03/10, _bmad-output/party-lateral/decisao.md) ----
+// L3 uma contagem, uma regra: o número de cada projeto, o tooltip e o rodapé saem de railCounts — que classifica
+// pela MESMA flowBucket da Central (nada de mine.length num lugar e liveN noutro).
+// L4 "esperando você" primeiro: pergunta aberta › plano › erro/conflito › pra revisar › PR aberto › rodando › fila › rascunho.
+// L1 projeto sem demanda viva vira UMA linha. L2 rodapé em português, sem o "− N/4 +" (o limite mora em Configurações).
+// @rail-mesa-inicio (testado em app/tests/barra-lateral.test.mjs)
+const RAIL_RANK={ asking:0, 'plan-review':1, error:2, conflict:2, aborted:2, review:3, delivered:3, 'pr-open':4, running:5, thinking:5, queued:6, paused:6, waiting:6, draft:7 };
+function railRank(st){ const r=RAIL_RANK[st]; return r==null?6:r; }
+// "esperando você" = as etapas da Central que pedem o humano: aguardando você + prontas pra revisar
+const RAIL_VOCE=new Set(['aguardando','prontas']);
+function railCounts(tasks, bucketOf){
+  const c={ vivas:0, rodando:0, voce:0 };
+  for(const t of (tasks||[])){
+    const b=bucketOf(t); if(b==='hoje'||b==='anteriores') continue;
+    c.vivas++;
+    if(RAIL_VOCE.has(b)) c.voce++;
+    else if(b==='andamento' && (t.status==='running'||t.status==='thinking')) c.rodando++;
+  }
+  return c;
+}
+function railSum(list){ return (list||[]).reduce((a,c)=>({ vivas:a.vivas+c.vivas, rodando:a.rodando+c.rodando, voce:a.voce+c.voce }), { vivas:0, rodando:0, voce:0 }); }
+function railFootText(c, max){
+  const p=[]; if(c.rodando) p.push(c.rodando+' rodando'); if(c.voce) p.push(c.voce+' esperando você');
+  if(!p.length) return 'nada rodando agora';
+  if(max && c.rodando>=max) p.push('limite de '+max+' atingido');
+  return p.join(' · ');
+}
+function railProjTip(c){
+  const p=[c.vivas+(c.vivas===1?' demanda viva':' demandas vivas')];
+  if(c.voce) p.push(c.voce+' esperando você'); if(c.rodando) p.push(c.rodando+' rodando');
+  return p.join(' · ');
+}
+// projetos com demanda viva ficam na lista (veto da Júlia: nada vivo atrás de clique); os vazios viram UMA linha
+function railSplitProjects(list){ const vivos=[], vazios=[]; for(const p of (list||[])) ((p.tasks||[]).length?vivos:vazios).push(p); return { vivos, vazios }; }
+function railEmptyText(n){ return '+'+n+(n===1?' projeto sem demanda':' projetos sem demanda'); }
+// L14: tooltip da linha = título inteiro · estado · branch · projeto (sem hora relativa: a guarda el.__html continua valendo)
+function railRowTip(t, label, proj){ return [t.title, label, t.branch, proj].filter(Boolean).join(' · '); }
+// ↑/↓/Home/End entre as linhas da lista (L13)
+function railNavIdx(i, n, key){
+  if(!n) return -1;
+  if(key==='ArrowDown') return i<0?0:Math.min(n-1, i+1);
+  if(key==='ArrowUp') return i<0?0:Math.max(0, i-1);
+  if(key==='Home') return 0;
+  if(key==='End') return n-1;
+  return -1;
+}
+// @rail-mesa-fim
+const RAIL_NAV_SEL='.prow2[tabindex],.prow2.orqrow,.rpscope';
 function renderRail(){
-  // sidebar por PROJETO (redesign p2/p6): projeto atual com as sessões vivas,
-  // depois os outros repos salvos, e o total no rodapé.
+  // sidebar por PROJETO: projeto atual com as demandas vivas ("esperando você" primeiro), depois os outros
+  // projetos com demanda viva, uma linha pros vazios, o escopo por conta e o rodapé.
   const el = $id("rail");
   const curPath=state.repo||'';
   const curName=pathBase(curPath)||'projeto';
   // etiqueta e ponto = o status EFETIVO (taskSt: pergunta aberta vence, PR aberto = 'pr-open') com o nome curto e
-  // a cor do STATUS_META — antes era um vocabulário próprio (exec/disc/rev/rasc/ampulheta) que juntava erro/conflito/abortada em "erro"
-  const tagOf=(t)=>{ const st=taskSt(t); return [stShort(st), stColor(st), stLabel(st)]; };
-  const dotOf=(t)=> stColor(taskSt(t));
+  // a cor do STATUS_META — veto da Bia: o status é SEMPRE palavra, nunca só a bolinha
+  const tagOf=(st)=>[stShort(st), stColor(st), stLabel(st)];
   // MESMA regra de visibilidade do quadro (bloqueadas e encerradas ficam fora — o quadro tem o chip pra revelar)
   const mine=(state.tasks||[]).filter(t=>t.flag!=='closed'&&t.flag!=='blocked'&&!['merged','done'].includes(t.status));
-  const ord=t=> pendingOf(t.id).length?0 : t.status==='plan-review'?1 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : ['review','delivered'].includes(t.status)?3 : t.status==='draft'?5 : 4;
-  const rows=mine.slice().sort((a,b)=>ord(a)-ord(b)|| taskTs(b)-taskTs(a)).slice(0,12);
+  const rows=mine.map(t=>({ t, st:taskSt(t) })).sort((a,b)=>railRank(a.st)-railRank(b.st) || taskTs(b.t)-taskTs(a.t)).slice(0,12);
   const hi=railHi();
-  const liveN=mine.filter(t=>ACTIVE_ST.has(t.status)||t.status==='thinking'||t.status==='plan-review'||pendingOf(t.id).length).length;
-  // rank de tarefa de OUTRO projeto (sem pendingOf): review/entregue e ativas em cima
-  const rankOther=(t)=> (t.status==='review'||t.status==='delivered')?3 : (ACTIVE_ST.has(t.status)||t.status==='thinking')?2 : t.status==='plan-review'?1 : 0;
+  const cMine=railCounts(mine, flowBucket);
+  const rowHtml=(t, st, proj, other)=>{ const [tg,tc,tl]=tagOf(st); const wait=RAIL_VOCE.has(flowBucket(t));
+    const attrs=other?` data-proj="${escA(other)}"${t.id?` data-id="${escA(t.id)}"`:''}`:` data-id="${t.id}"`;
+    const sel=!other && hi.ids.includes(t.id);
+    return `<div class="prow2${other?' other':''}${sel?' sel':''}${wait?' wait':''}"${attrs} role="button" tabindex="0"${!other&&hi.cur===t.id?' aria-current="page"':''} title="${escA(railRowTip(t, tl, proj))}"><span class="d" style="background:${tc}"></span><span class="tt">${esc(t.title)}</span>${other?'':sbEpDot(t)}<span class="tg" style="color:${tc}">${esc(tg)}</span></div>`; };
 
-  // ---- PROJETO ATUAL (tarefas vivas do state, já priorizadas: pendência → plano → exec → review) ----
+  // ---- PROJETO ATUAL ----
   let html = '';
-  // R7: o número é o TOTAL de demandas vivas (antes era o das linhas mostradas, cortado em 12) e o que não coube
-  // vira uma linha "+N na Central" que abre a Central filtrada neste projeto
-  html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n" title="${escA(nPl(mine.length,'demanda viva','demandas vivas'))}">${mine.length}</span></div>${gitRailTag()}</div>`;
+  html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n" title="${escA(railProjTip(cMine))}">${cMine.vivas}</span></div>${gitRailTag()}</div>`;
   if(window.orqRailRows) html+=window.orqRailRows();
   if(rows.length){
-    html+=rows.map(t=>{ const [tg,tc,tl]=tagOf(t);
-      return `<div class="prow2${hi.ids.includes(t.id)?' sel':''}" data-id="${t.id}" role="button" tabindex="0"${hi.cur===t.id?' aria-current="page"':''}><span class="d" style="background:${dotOf(t)}"></span><span class="tt" title="${escA(t.title)}">${esc(t.title)}</span>${sbEpDot(t)}<span class="tg" style="color:${tc}" title="${escA(tl)}">${esc(tg)}</span></div>`;
-    }).join('');
+    html+=rows.map(r=>rowHtml(r.t, r.st, curName, '')).join('');
     if(mine.length>rows.length) html+=`<div class="prow2 more" data-more="1" role="button" tabindex="0" title="ver todas as demandas deste projeto na Central"><span class="tt dim">+${mine.length-rows.length} na Central</span></div>`;
   } else if(!(window.orqRailRows&&window.orqRailRows())){
-    html+=`<div class="prow2 emptyrow"><span class="tt dim" style="font-size:var(--fs-xs)">${repoHasGit()?'sem demanda ativa':'pasta sem git — crie o repositório'}</span></div>`;
+    html+=`<div class="prow2 emptyrow"><span class="tt dim">${repoHasGit()?'sem demanda ativa':'pasta sem git — crie o repositório'}</span></div>`;
   }
 
-  // ---- TODOS os OUTROS projetos com as últimas demandas (ativos primeiro; exec/review em cima) ----
-  const allOthers=(projOv||[]).filter(p=>p.path!==curPath)
-    .sort((a,b)=> (b.active+b.review)-(a.active+a.review) || String(a.name).localeCompare(String(b.name)));
-  for(const p of allOthers){
-    const act=p.active+p.review;
-    html+=`<div class="rproj"><div class="rph"><b>${esc(p.name)}</b><span class="n">${act}</span></div></div>`;
-    const ptasks=(p.tasks||[]).slice().sort((x,y)=>rankOther(y)-rankOther(x)).slice(0,3);
-    if(ptasks.length){
-      // ponto na cor do STATUS_META (stColor) — antes um vocabulário próprio (review = amarelo "warn", resto cinza)
-      html+=ptasks.map(t=>`<div class="prow2 other" data-proj="${escA(p.path)}"${t.id?` data-id="${escA(t.id)}"`:''} role="button" tabindex="0"><span class="d" style="background:${stColor(t.status)}" title="${escA(stLabel(t.status))}"></span><span class="tt" title="${escA(t.title+' · '+p.name)}">${esc(t.title)}</span></div>`).join('');
-    } else {
-      html+=`<div class="prow2 other emptyrow" data-proj="${escA(p.path)}" role="button" tabindex="0"><span class="tt dim" style="font-size:var(--fs-xs)">abrir projeto</span></div>`;
-    }
+  // ---- OUTROS projetos: só os com demanda viva (esperando você em cima); os vazios viram uma linha ----
+  const others=(projOv||[]).filter(p=>p.path!==curPath);
+  const { vivos, vazios }=railSplitProjects(others);
+  const cOf=new Map(vivos.map(p=>[p, railCounts(p.tasks, flowBucket)]));
+  vivos.sort((a,b)=> cOf.get(b).voce-cOf.get(a).voce || cOf.get(b).vivas-cOf.get(a).vivas || String(a.name).localeCompare(String(b.name)));
+  for(const p of vivos){
+    const c=cOf.get(p);
+    html+=`<div class="rproj"><div class="rph"><b>${esc(p.name)}</b><span class="n" title="${escA(railProjTip(c))}">${c.vivas}</span></div></div>`;
+    const pt=(p.tasks||[]).slice().sort((x,y)=>railRank(x.status)-railRank(y.status));
+    html+=pt.slice(0,3).map(t=>rowHtml(t, t.status, p.name, p.path)).join('');
+    if(pt.length>3) html+=`<div class="prow2 other more" data-proj="${escA(p.path)}" role="button" tabindex="0" title="abrir ${escA(p.name)}"><span class="tt dim">+${pt.length-3} neste projeto</span></div>`;
   }
+  if(vazios.length) html+=`<div class="prow2 rpempty" data-allproj="1" role="button" tabindex="0" title="${escA(vazios.map(p=>p.name).join(', ')+' — abrir Projetos')}"><span class="tt dim">${esc(railEmptyText(vazios.length))}</span></div>`;
 
   // de quem são os projetos listados (lista POR CONTA — 40-conta-escopo) e quantos de outras contas ficaram ocultos
   if(typeof projScopeHtml==='function') html+=projScopeHtml();
-  const totalS=liveN+allOthers.reduce((s,p)=>s+p.active+p.review,0);
-  const nProj=1+allOthers.length;
-  html+=`<div class="rpfoot">${totalS} sess${totalS===1?'ão atual':'ões atuais'} · em ${nProj} projeto${nProj===1?'':'s'}
-    <span style="float:right"><button class="sbtn" data-slot="-" title="menos slots">−</button> ${liveN}/${slotMax} <button class="sbtn" data-slot="+" title="mais slots">+</button></span></div>`;
+  const cAll=railSum([cMine, ...vivos.map(p=>cOf.get(p))]);
+  html+=`<div class="rpfoot" title="${escA('Até '+slotMax+' demandas rodando ao mesmo tempo — muda em Configurações › Tarefas ao mesmo tempo')}">${esc(railFootText(cAll, slotMax))}</div>`;
   if(el.__html===html && el.firstChild) return; // nada visível mudou: mantém o DOM (e os handlers) — sem piscar
+  // a ordem mudou com o mouse ou o foco na lista: espera sair (senão a linha pula e o clique cai na demanda errada)
+  const order=rows.map(r=>r.t.id).join(',')+'|'+vivos.map(p=>p.path).join(',');
+  const busy=el.__order!=null && el.__order!==order && ((el.matches&&el.matches(':hover')) || el.contains(document.activeElement));
+  if(busy){ el.__defer=true; return; }
+  el.__defer=false; el.__order=order;
+  const fa=document.activeElement, keep=el.contains(fa)&&fa.dataset ? (fa.dataset.id||fa.dataset.proj||(fa.dataset.allproj&&'*')||'') : '';
   el.__html=html; el.innerHTML = html;
   if(window.orqWireOpeners) window.orqWireOpeners(el);
   el.querySelectorAll('.prow2:not(.orqrow)').forEach(r=>r.onclick=()=>{
-    if(r.dataset.more){ flowJump({ status:'all', proj:state.repo }); return; }
+    if(r.dataset.more && !r.dataset.proj){ flowJump({ status:'all', proj:state.repo }); return; }
+    if(r.dataset.allproj){ if(window.openTab) window.openTab('projetos'); return; }
     if(r.classList.contains('other')){ // demanda de outro projeto: ABRE a tarefa (não é "selecionar projeto")
       if(r.dataset.id) switchToProjectTask(r.dataset.proj, r.dataset.id);
       else switchProject(r.dataset.proj);
@@ -259,12 +307,21 @@ function renderRail(){
     }
     if(r.dataset.id) openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
   });
-  // R7: linhas da barra lateral pelo teclado (Tab chega, Enter/Espaço abre) — vale pras linhas de plano (orqrow) também
+  // linhas pelo teclado: Tab chega, Enter/Espaço abre, ↑/↓/Home/End andam (vale pras linhas de plano também)
   el.querySelectorAll('.prow2[tabindex],.prow2.orqrow').forEach(r=>{ if(!r.hasAttribute('tabindex')) r.tabIndex=0;
     r.onkeydown=(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); r.click(); } }; });
   el.querySelectorAll('.rpscope').forEach(r=>{ r.onclick=()=>{ if(window.openTab) window.openTab('projetos'); };
     r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); r.click(); } }; });
-  el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
+  if(keep){ const f=[...el.querySelectorAll(RAIL_NAV_SEL)].find(x=>(x.dataset.id||x.dataset.proj||(x.dataset.allproj&&'*')||'')===keep); if(f) f.focus(); }
+  if(!el.__wired){ el.__wired=true;
+    el.addEventListener('keydown', (e)=>{
+      const it=[...el.querySelectorAll(RAIL_NAV_SEL)]; const j=railNavIdx(it.indexOf(document.activeElement), it.length, e.key);
+      if(j<0 || !it.includes(e.target)) return; e.preventDefault(); it[j].focus();
+    });
+    const flush=()=>{ if(el.__defer) requestAnimationFrame(renderRail); };
+    el.addEventListener('mouseleave', flush);
+    el.addEventListener('focusout', (e)=>{ if(!el.contains(e.relatedTarget)) flush(); });
+  }
 }
 
 // R5-7: tarefa de épico na barra lateral = ◆ pequeno na cor do épico (nome no tooltip) — a linha é estreita demais pro selo inteiro
