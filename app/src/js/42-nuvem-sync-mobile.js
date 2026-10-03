@@ -9,12 +9,17 @@
 function setView(v){ const b=document.querySelector('#viewSeg button[data-v="'+v+'"]'); if(b) b.click(); }
 // tmap/feedPos: JSON do localStorage parseado UMA vez por mudança (antes: JSON.parse a cada chamada,
 // inclusive dentro de .find por tarefa). Quem altera sempre grava de volta (tmapSet/feedPosSet).
+// @tmap-inicio
+// `key` pode ser função: as chaves da nuvem são POR USUÁRIO (40-conta-escopo: userKey) — trocar de conta troca o mapa.
 function lsJsonMemo(key){
-  let raw=null, obj={};
-  return ()=>{ const r=lsGet(key)||'{}'; if(r!==raw){ raw=r; try{ obj=JSON.parse(r)||{}; }catch(_){ obj={}; } } return obj; };
+  let raw=null, at=null, obj={};
+  return ()=>{ const k=typeof key==='function'?key():key; const r=lsGet(k)||'{}'; if(r!==raw || k!==at){ raw=r; at=k; try{ obj=JSON.parse(r)||{}; }catch(_){ obj={}; } } return obj; };
 }
-const tmap=lsJsonMemo('sb:tmap');
-function tmapSet(localId, cloudId){ const m={ ...tmap() }; m[localId]=cloudId; lsSet('sb:tmap', JSON.stringify(m)); }
+// mapa tarefa local → cartão da nuvem DA CONTA LOGADA (nunca o de outra conta: o cartão dela recusa por RLS)
+const tmapKey=()=>userKey('sb:tmap', cloudUserId());
+const tmap=lsJsonMemo(tmapKey);
+function tmapSet(localId, cloudId){ const m={ ...tmap() }; m[localId]=cloudId; lsSet(tmapKey(), JSON.stringify(m)); }
+// @tmap-fim
 // ---- ticks da nuvem: UM laço por tick, sem sobreposição ----
 // setInterval empilhava voltas quando a rede demorava (volta de 30s num intervalo de 7s = 4–5 voltas
 // concorrentes → posts e pushes duplicados). Aqui a próxima volta só é agendada quando a atual termina;
@@ -141,7 +146,9 @@ async function cloudPublishSelf(localId, payload){
 // backfill: publica no time as tarefas locais criadas ANTES do modo time
 // (ou com "não compartilhar") — como SUAS (reservadas), com o status real.
 async function cloudBackfill(btn){
-  const list=(state.tasks||[]).filter(t=>!tmap()[t.id] && t.status!=='draft');
+  if(!cloudScopeOk()) return;
+  const fg=tmapForeign(); // cartão de outra conta: não é desta conta publicar
+  const list=(state.tasks||[]).filter(t=>!tmap()[t.id] && !fg.has(t.id) && t.status!=='draft');
   if(!list.length) return;
   if(!await askYes('Publicar/vincular '+list.length+' tarefa(s) local(is) no time?\n\nSobem como SUAS (reservadas), com status, flag e datas reais. Cartão que já existe só é vinculado — nada é sobrescrito.')) return;
   if(btn){ btn.disabled=true; }
@@ -171,8 +178,11 @@ function epicPubFields(ep){ const { epicChecks, epicDoneWhen, ...rest }=(ep||{})
 // continua só nesta máquina; provas continuam opt-in). Uma por tick.
 const autoPubFails={}, autoPubLast={};
 async function cloudAutoPublish(){
+  if(!cloudScopeOk()) return;
+  // tarefa com cartão de OUTRA conta nunca é republicada com esta (era o "row-level security" do log)
+  const fg=tmapForeign();
   // falha não desiste pra sempre: backoff de 2min e tenta de novo
-  const t=(state.tasks||[]).find(x=>!tmap()[x.id] && x.status!=='draft' && ((autoPubFails[x.id]||0)<3 || Date.now()-(autoPubLast[x.id]||0)>120000));
+  const t=(state.tasks||[]).find(x=>!tmap()[x.id] && !fg.has(x.id) && x.status!=='draft' && ((autoPubFails[x.id]||0)<3 || Date.now()-(autoPubLast[x.id]||0)>120000));
   if(!t) return;
   autoPubLast[t.id]=Date.now();
   try{
@@ -193,7 +203,7 @@ async function cloudAutoPublish(){
 // avançaram sem publicar) → zera pra republicar o histórico. 1x por sessão.
 let feedRepaired=false;
 async function cloudFeedRepair(){
-  if(feedRepaired || !SB.sess() || !cloudTeamId()) return;
+  if(feedRepaired || !SB.sess() || !cloudTeamId() || !cloudScopeOk()) return;
   if(!(state.events||[]).length || !(state.tasks||[]).length) return; // snapshot ainda não chegou — NÃO marca reparado
   feedRepaired=true;
   const m=tmap(); const pos=feedPos();
@@ -204,7 +214,7 @@ async function cloudFeedRepair(){
     try{
       const rows=await sbGet('task_feed?select=id&task_id=eq.'+m[lid]+'&limit=3');
       const evn=(state.events||[]).filter(e=>(e.taskId||e.task_id)===lid && FEED_KINDS.has(e.type||e.kind)).length;
-      if(rows.length<3 && evn>=3){ const p=feedPos(); delete p[lid]; lsSet('sb:feedpos', JSON.stringify(p)); invoke('web_log',{line:'[feed] cursor reparado: '+lid+' ('+evn+' eventos locais, '+rows.length+' na nuvem)'}).catch(()=>{}); }
+      if(rows.length<3 && evn>=3){ const p={ ...feedPos() }; delete p[lid]; lsSet(feedPosKey(), JSON.stringify(p)); invoke('web_log',{line:'[feed] cursor reparado: '+lid+' ('+evn+' eventos locais, '+rows.length+' na nuvem)'}).catch(()=>{}); }
     }catch(_){ }
   }
 }
@@ -215,7 +225,7 @@ const autoTunneled={};       // último pedido atendido por tarefa
 const tunnelUp={};           // túneis vivos DESTA sessão: lid → url pública
 let tunnelSweepDone=false;
 async function cloudAutoTunnelTick(){
-  if(!SB.sess() || !cloudTeamId()) return;
+  if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return; // só a conta da vez, com o mapa dela
   const m=tmap(); const ids=Object.values(m); if(!ids.length) return;
   // boot: túneis morreram com o app anterior — limpa previewUrl órfão dos cartões (as 40 mapeadas mais recentes)
   if(!tunnelSweepDone){
@@ -268,7 +278,7 @@ const cloudSyncSigs={}, prProbed=new Set();
 const intentBusy={};
 const prPubAt={};
 async function cloudIntentTick(){
-  if(!SB.sess() || !cloudTeamId()) return;
+  if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return; // só a conta da vez, com o mapa dela
   const m=tmap(); const live=cloudTaskIds(m, 40, true); if(!live.length) return;
   let rows=[];
   try{ rows=await sbGet('tasks?select=id,spec,pr_url&id=in.'+pgIn(live.map(l=>m[l]))+'&spec-%3E%3Eintent=not.is.null&limit=6'); }catch(_){ return; }
@@ -331,7 +341,7 @@ async function cloudIntentTick(){
 // publica na nuvem o que a tela Entrega/PR do celular mostra: stat do diff,
 // commits e o PR (corpo+comentários truncados) — sem isso o mobile ficaria cego
 async function cloudPrStatTick(){
-  if(!SB.sess() || !cloudTeamId()) return;
+  if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return; // só a conta da vez, com o mapa dela
   const m=tmap();
   const live=(state.tasks||[]).filter(t=>m[t.id] && t.flag!=='closed' && !['merged','done','draft'].includes(t.status)).slice(0,8);
   for(const t of live){
@@ -367,7 +377,7 @@ async function cloudPrStatTick(){
 tickLoop('cloudIntentTick', cloudIntentTick, 6000);
 tickLoop('cloudPrStatTick', cloudPrStatTick, 30000);
 async function cloudSyncTick(){
-  if(!SB.sess() || !cloudTeamId()) return;
+  if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return; // só a conta da vez, com o mapa dela
   await cloudAutoPublish().catch(()=>{});
   const m=tmap(); const ids=Object.keys(m); if(!ids.length) return;
   // descobre o PR de UMA tarefa por tick (gh) — persiste no spec e o sync leva pro cartão
@@ -442,6 +452,7 @@ async function apnsNotify(title, body, extra){
 // entrega ficou PRONTA → push (transição de status observada no snapshot local)
 const pushedReady=new Set();
 async function pushReadyTick(){
+  if(!cloudScopeOk()) return;
   const m=tmap();
   for(const t of (state.tasks||[])){
     if(!['review','delivered'].includes(t.status) || t.flag==='closed' || pushedReady.has(t.id)) continue;
@@ -456,7 +467,7 @@ const bootAt=Date.now();
 setInterval(()=>{ pushReadyTick().catch(e=>tickErr('pushReadyTick',e)); }, 6000);
 const qNotified=new Set(); // push de pergunta: UMA vez por pergunta, mesmo que o upsert se repita
 async function cloudQuestionsTick(){
-  if(!SB.sess() || !cloudTeamId()) return;
+  if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return; // só a conta da vez, com o mapa dela
   const m=tmap(); const pendAll=state.pending||[];
   // 1) publica perguntas abertas (upsert por task+pending_id)
   for(const p of pendAll){
@@ -513,7 +524,7 @@ tickLoop('cloudQuestionsTick', cloudQuestionsTick, 7000);
 // 1) tarefa pedida do celular (status='requested', minha) → cria e RODA aqui
 const remoteStartFails={};
 async function cloudRemoteStartTick(){
-  if(!SB.sess() || !cloudTeamId()) return;
+  if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return; // só a conta da vez, com o mapa dela
   const me=cloudUserId();
   const rows=await sbGet('tasks?select=*,projects(repo_remote)&status=eq.requested&assignee=eq.'+me+'&limit=3').catch(()=>[]);
   if(!rows.length) return;
@@ -546,11 +557,14 @@ async function cloudRemoteStartTick(){
 tickLoop('cloudRemoteStartTick', cloudRemoteStartTick, 6000);
 
 // 2) feed condensado ao vivo: eventos novos das MINHAS tarefas mapeadas → task_feed
-const feedPos=lsJsonMemo('sb:feedpos');
-function feedPosSet(lid, id){ const m={ ...feedPos() }; m[lid]=id; lsSet('sb:feedpos', JSON.stringify(m)); }
+// @feedpos-inicio
+const feedPosKey=()=>userKey('sb:feedpos', cloudUserId());
+const feedPos=lsJsonMemo(feedPosKey);
+function feedPosSet(lid, id){ const m={ ...feedPos() }; m[lid]=id; lsSet(feedPosKey(), JSON.stringify(m)); }
 const FEED_KINDS=new Set(['think','note','bash','error','done','edit','write']);
+// @feedpos-fim
 async function cloudFeedTick(){
-  if(!SB.sess() || !cloudTeamId()) return;
+  if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return; // só a conta da vez, com o mapa dela
   await cloudFeedRepair();
   const m=tmap(); const pos=feedPos();
   // eventos novos agrupados por tarefa numa passada só (antes: filtro dos 1200 eventos × cada tarefa do tmap)
@@ -581,7 +595,7 @@ tickLoop('cloudFeedTick', cloudFeedTick, 4000);
 // 3) chat do celular → entrega ao agente (fila do motor cuida do turno ocupado)
 const msgDelivering=new Set();
 async function cloudMsgTick(){
-  if(!SB.sess() || !cloudTeamId()) return;
+  if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return; // só a conta da vez, com o mapa dela
   // tarefas do projeto aberto (mais novas primeiro, até 60) — antes a URL levava TODOS os ids do tmap
   const m=tmap(); const lids=cloudTaskIds(m, 60, false); if(!lids.length) return;
   const rows=await sbGet('task_messages?select=id,task_id,body,author&delivered_at=is.null&task_id=in.'+pgIn(lids.map(l=>m[l]))+'&order=id&limit=5').catch(()=>[]);

@@ -4,7 +4,9 @@ let projects = [];
 let projErr = "";
 function clearProjectCaches(){ for(const k in commitsCache) delete commitsCache[k]; }
 async function loadProjects(){
-  try{ projects = await invoke("list_projects"); }catch(e){ projects = []; }
+  try{ projects = await invoke("list_projects", { user:(typeof cloudUserId==='function'?cloudUserId():undefined) }); }catch(e){ projects = []; }
+  // "N de outras contas ocultos" da barra lateral (abrir existente traz um projeto pra conta → o número muda)
+  if(typeof projScope!=='undefined'){ try{ projScope=(await invokeQuiet('projects_scope'))||projScope; }catch(_){ } }
   renderProjName();
   if(projMenuOpen()) renderProjMenu();
 }

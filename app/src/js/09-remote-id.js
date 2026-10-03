@@ -58,7 +58,7 @@ function localRemoteIdsList(){
   localRemoteP=(async()=>{
     const out=[]; const push=ids=>{ if(ids && ids.remote && !out.some(x=>x.remote===ids.remote)) out.push(ids); };
     try{ push(await repoRemoteIds()); }catch(_){ }
-    try{ const locals=(await invokeQuiet('list_projects'))||[]; for(const p of locals){ if(p&&p.path){ try{ push(await repoRemoteIds(p.path)); }catch(_){ } } } }catch(_){ }
+    try{ const locals=(await invokeQuiet('list_projects', { user:(typeof cloudUserId==='function'?cloudUserId():undefined) }))||[]; for(const p of locals){ if(p&&p.path){ try{ push(await repoRemoteIds(p.path)); }catch(_){ } } } }catch(_){ }
     localRemoteList=out; localRemoteAt=Date.now(); return out;
   })().finally(()=>{ localRemoteP=null; });
   return localRemoteP;

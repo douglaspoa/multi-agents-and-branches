@@ -353,7 +353,7 @@ async function trkLoadProjects(){
   if(cur) add('', cur, 'aberto', trkRemoteIds&&trkRemoteIds.legacy);
   if(trkCloudOn()){ try{ await cloudEnsureProject(); (await sbGet('projects?select=name,repo_remote&team_id=eq.'+cloudTeamId()+'&order=name')).forEach(p=>add(p.name,p.repo_remote,'time')); }catch(_){ } }
   // todos os projetos desta máquina (não só o aberto)
-  try{ const locals=await invoke('list_projects')||[]; for(const p of locals){ try{ const ids=await repoRemoteIds(p.path); add(p.name, ids.remote, 'local', ids.legacy); }catch(_){ } } }catch(_){ }
+  try{ const locals=await invoke('list_projects', { user:(typeof cloudUserId==='function'?cloudUserId():undefined) })||[]; for(const p of locals){ try{ const ids=await repoRemoteIds(p.path); add(p.name, ids.remote, 'local', ids.legacy); }catch(_){ } } }catch(_){ }
   // os que já estavam conectados (por outra pessoa do time, ou adicionados à mão)
   ((trk&&trk.projects)||[]).forEach(r=>add('', r, 'manual'));
   trkProjects=list; if(trkView==='rules') issRender();
@@ -669,7 +669,7 @@ function trkNIRestore(){
 }
 // projetos DESTA máquina (a pesquisa precisa da pasta) — conectados ao painel primeiro
 async function trkNIProjects(){
-  const out=[]; try{ const locals=await invoke('list_projects')||[];
+  const out=[]; try{ const locals=await invoke('list_projects', { user:(typeof cloudUserId==='function'?cloudUserId():undefined) })||[];
     for(const p of locals){ const ids=await repoRemoteIds(p.path), remote=ids.remote;
       out.push({ name:p.name, path:p.path, remote, active:!!p.active, on:!!(trk.allProjects||(trk.projects||[]).some(r=>remoteSame(r, ids))) }); } }catch(_){ }
   trkNI.projects=out.sort((a,b)=>(b.on-a.on)||(b.active-a.active));

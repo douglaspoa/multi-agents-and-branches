@@ -253,6 +253,8 @@ pub(crate) fn autopilot_start(state: State<AppState>, idea: String, platform: St
     let pf = plan.as_ref().map(|_| plan_path(&dir));
     let args = autopilot_cli_args(&cli, &dir, &idea, &platform, &label, engine.as_deref().unwrap_or("claude"), model.as_deref().unwrap_or(""), parallel, attempts, budget_usd, pf.as_deref());
     mark_starting(&dir)?;
+    // o projeto do piloto já entra na lista como da conta logada (o registerProject do CLI mantém o dono)
+    super::register_opened_project(&dir.display().to_string());
     if let (Some(p), Some(f)) = (&plan, &pf) { std::fs::write(f, p.to_string()).map_err(|e| format!("não consegui gravar o plano do piloto: {e}"))?; }
     let exited = spawn_cli(&dir, args)?;
     let warning = wait_state(&dir, 20_000, &|| exited.load(Ordering::SeqCst))?;

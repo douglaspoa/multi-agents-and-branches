@@ -378,7 +378,7 @@ test("relatório: link da evidência não duplica .cardume/artifacts", async () 
   assert.equal(evidenceRel("sub/x.mp4"), "sub/x.mp4");
 });
 
-test("registerProject põe o projeto no topo da lista do app sem duplicar", async () => {
+test("registerProject põe o projeto no topo da lista do app sem duplicar (formato antigo vira v2)", async () => {
   const { registerProject } = await import("./autopilot.ts");
   const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
@@ -386,7 +386,31 @@ test("registerProject põe o projeto no topo da lista do app sem duplicar", asyn
   const home = mkdtempSync(join(tmpdir(), "ap-home-"));
   mkdirSync(join(home, ".cardume"));
   writeFileSync(join(home, ".cardume", "projects.json"), JSON.stringify(["/a", "/pou"]));
-  registerProject("/pou", home);
-  assert.deepEqual(JSON.parse(readFileSync(join(home, ".cardume", "projects.json"), "utf8")), ["/pou", "/a"]);
+  registerProject("/pou", home, null);
+  assert.deepEqual(JSON.parse(readFileSync(join(home, ".cardume", "projects.json"), "utf8")),
+    { v: 2, pending: true, items: [{ path: "/pou", owner: null }, { path: "/a", owner: null }] });
+  rmSync(home, { recursive: true, force: true });
+});
+
+test("registerProject mantém o dono do projeto (lista por conta) e só carimba quando pedem", async () => {
+  const { registerProject, parseProjectList } = await import("./autopilot.ts");
+  const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const home = mkdtempSync(join(tmpdir(), "ap-home-"));
+  mkdirSync(join(home, ".cardume"));
+  const f = join(home, ".cardume", "projects.json");
+  writeFileSync(f, JSON.stringify({ v: 2, pending: false, items: [{ path: "/work", owner: "u-work" }, { path: "/pou", owner: "u-gmail" }] }));
+  registerProject("/pou", home, null);
+  let l = parseProjectList(readFileSync(f, "utf8"));
+  assert.deepEqual(l.items, [{ path: "/pou", owner: "u-gmail" }, { path: "/work", owner: "u-work" }], "o dono não se perde");
+  assert.equal(l.pending, false);
+  registerProject("/novo", home, "u-gmail");
+  l = parseProjectList(readFileSync(f, "utf8"));
+  assert.deepEqual(l.items[0], { path: "/novo", owner: "u-gmail" });
+  registerProject("/livre", home, null);
+  assert.deepEqual(parseProjectList(readFileSync(f, "utf8")).items[0], { path: "/livre", owner: null });
+  assert.deepEqual(parseProjectList("lixo"), { pending: false, items: [] });
+  assert.deepEqual(parseProjectList('["/a","/a",""]'), { pending: true, items: [{ path: "/a", owner: null }] });
   rmSync(home, { recursive: true, force: true });
 });

@@ -137,7 +137,7 @@ function renderTeamBoard(){
   all.forEach(t=>{ if(t.pr_url && (((t.spec||{}).kind==='review')||/^review (do |de )?pr/i.test(t.title||''))) tsRevBy[t.pr_url]=t.assignee||t.created_by; });
   const tsRevChip=(u)=>u?`<span class="tstag" style="color:var(--good);border:1px solid currentColor" title="review já feito por ${escA(tmName(u))} — parecer no cartão dele">✓ revisado · ${esc(tmName(u).slice(0,14))}</span>`:'';
   const prs=all.filter(t=>t.pr_url && t.status!=='merged' && (t.spec||{}).kind!=='review');
-  const unsynced=(state.tasks||[]).filter(t=>!tmap()[t.id] && t.status!=='draft').length;
+  const fgn=tmapForeign(); const unsynced=(state.tasks||[]).filter(t=>!tmap()[t.id] && !fgn.has(t.id) && t.status!=='draft').length; // cartão de outra conta não conta
   // ---------- sidebar ----------
   const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['prs','PRs pra revisar',prs.length?String(prs.length):''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
@@ -393,11 +393,12 @@ $id('newTaskBtn').addEventListener('click', ()=>{ ntShareSync(); });
 /* ---- F3: notificações do time — SÓ o que me envolve (regra única: ctNotifKind, 42 @exec) ----
    Poll leve a cada 30s; "já visto" persiste em localStorage pra não re-notificar. O "visto" é marcado pra
    TODO cartão (mesmo os que não notificam): um cartão alheio que depois vira meu não dispara aviso atrasado. */
-function seenSet(k){ try{ return new Set(JSON.parse(lsGet(k)||'[]')); }catch(_){ return new Set(); } }
-function seenAdd(k,id){ const s=seenSet(k); s.add(id); lsSet(k, JSON.stringify([...s].slice(-500))); }
+// "já visto" é POR CONTA (userKey): a conta que entra não herda nem apaga os avisos da outra
+function seenSet(k){ try{ return new Set(JSON.parse(lsGet(userKey(k, cloudUserId()))||'[]')); }catch(_){ return new Set(); } }
+function seenAdd(k,id){ const s=seenSet(k); s.add(id); lsSet(userKey(k, cloudUserId()), JSON.stringify([...s].slice(-500))); }
 let teamNotifReady=false;
 async function teamNotifTick(){
-  if(!SB.sess() || !cloudTeamId()) return;
+  if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return;
   await teamFetch(); if(!teamTasks) return;
   const me=cloudUserId(), prs=seenSet('sb:seenpr'), cards=seenSet('sb:seencard'), revs=seenSet('sb:seenrev');
   for(const t of teamTasks){

@@ -241,6 +241,8 @@ function renderRail(){
     }
   }
 
+  // de quem são os projetos listados (lista POR CONTA — 40-conta-escopo) e quantos de outras contas ficaram ocultos
+  if(typeof projScopeHtml==='function') html+=projScopeHtml();
   const totalS=liveN+allOthers.reduce((s,p)=>s+p.active+p.review,0);
   const nProj=1+allOthers.length;
   html+=`<div class="rpfoot">${totalS} sess${totalS===1?'ão atual':'ões atuais'} · em ${nProj} projeto${nProj===1?'':'s'}
@@ -260,6 +262,8 @@ function renderRail(){
   // R7: linhas da barra lateral pelo teclado (Tab chega, Enter/Espaço abre) — vale pras linhas de plano (orqrow) também
   el.querySelectorAll('.prow2[tabindex],.prow2.orqrow').forEach(r=>{ if(!r.hasAttribute('tabindex')) r.tabIndex=0;
     r.onkeydown=(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); r.click(); } }; });
+  el.querySelectorAll('.rpscope').forEach(r=>{ r.onclick=()=>{ if(window.openTab) window.openTab('projetos'); };
+    r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); r.click(); } }; });
   el.querySelectorAll("[data-slot]").forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); setSlotMax(slotMax+(b.dataset.slot==='+'?1:-1)); });
 }
 
