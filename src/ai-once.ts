@@ -4,7 +4,8 @@ import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { run } from "./util/run.ts";
 import { claudeEnv, claudeErrText, resolveClaude } from "./engine/claude.ts";
-import { loadLlmEnv, resolveCodex } from "./engine/codex.ts";
+import { codexPath, codexSpawnError, loadLlmEnv, resolveCodex } from "./engine/codex.ts";
+import { codexResolution } from "./engine/bin-resolve.ts";
 import {
   DSH_ERR_KEY, DSH_ERR_NET, DSH_ERR_QUOTA, DSH_KEY_MSG, DSH_MIN_VERSION, DSH_MISSING_MSG, DSH_TIMEOUT_MSG, dshArgs, dshBinExists, dshEnv, dshKey,
   dshModelFor, dshNodeOk, dshNodeMsg, dshSpawnSpec, dshVersion, dshVersionOk, isDshLabel,
@@ -399,14 +400,14 @@ async function codexExec(bin: string, prompt: string, cwd: string | undefined, m
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const k of Object.keys(llm)) delete env[k]; // chaves da conta que o processo herdou ficam de fora…
   if (llm.OPENAI_API_KEY) env.OPENAI_API_KEY = llm.OPENAI_API_KEY; // …menos a da OpenAI
-  // codex do npm é `#!/usr/bin/env node` — PATH com a pasta dele e a do node em uso
-  const dirs = [dirname(process.execPath), ...(bin.includes("/") || bin.includes("\\") ? [dirname(bin)] : [])];
-  const cur = (env.PATH || "").split(delimiter).filter(Boolean);
-  env.PATH = [...dirs.filter((d) => !cur.includes(d)), ...cur].join(delimiter);
+  // codex do npm é `#!/usr/bin/env node` — PATH com a pasta dele e a de um node (resolvedor único)
+  env.PATH = codexPath(bin, env.PATH);
   const r = await runStdin(bin, codexArgs(model, low), prompt, { cwd: cwd || tmpdir(), env, ms: left });
   if (r.spawnErr) {
-    if (r.spawnErr.code === "ENOENT") throw new CodexFail(r.spawnErr.message, CODEX_MISSING_MSG);
-    throw new CodexFail(r.spawnErr.message, `Não consegui rodar o Codex: ${r.spawnErr.message}`);
+    const res = codexResolution();
+    // ENOENT com o resolvedor sem achar nada = "não encontrado, procurei em…"; achou = diz onde e o que faltou
+    if (r.spawnErr.code === "ENOENT" && (!res.bin || !existsSync(bin))) throw new CodexFail(r.spawnErr.message, `${CODEX_MISSING_MSG}\n\nProcurei em:\n${res.searched.slice(0, 40).map((s) => `  • ${s}`).join("\n")}`);
+    throw new CodexFail(r.spawnErr.message, codexSpawnError(r.spawnErr, bin, res).replace(/ e clique em "rodar de novo"/, " e tente de novo"));
   }
   if (r.timedOut) throw new CodexFail("timeout", CODEX_TIMEOUT_MSG);
   if (acc) { const t = jsonlTokens(r.stdout, false); acc.inTok += t.inTok; acc.cachedTok += t.cachedTok; acc.outTok += t.outTok; acc.model = model; }

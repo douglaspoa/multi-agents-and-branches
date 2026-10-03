@@ -229,13 +229,18 @@ const ERR_CATALOG=[
     msg:'O DeepSeek está sem saldo/limite no momento — confira a conta na DeepSeek e tente de novo.' },
   { id:'dsh-network', re:/o deepseek n[aã]o conseguiu falar com a api/i,
     msg:'O DeepSeek não conseguiu falar com a API — cheque a internet/VPN e tente de novo.' },
-  { id:'codex-missing', re:/o codex n[aã]o est[aá] instalado|n[aã]o consegui rodar o codex|spawn codex ENOENT/i,
-    msg:'O Codex não está instalado neste computador.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
+  // o motor só diz "não foi encontrado" quando o resolvedor único (bin-resolve.ts ≡ resolve_tool) não achou em LUGAR
+  // NENHUM — a mensagem dele traz a lista de onde procurou (ver detalhes)
+  { id:'codex-missing', re:/o codex n[aã]o est[aá] instalado|o codex n[aã]o foi encontrado neste computador|n[aã]o consegui rodar o codex|spawn codex ENOENT/i,
+    msg:'O Codex não foi encontrado neste computador (procurei no PATH, nvm, volta, asdf, fnm, npm, Homebrew e no app do ChatGPT).', act:'env', label:'ver como instalar (Mais › Ambiente)' },
+  // achou o binário mas ele não iniciou (shim do npm sem node, sem permissão…)
+  { id:'codex-broken', re:/o codex foi encontrado[^\n]{0,300}(mas|precisa do node)|n[aã]o consegui iniciar o codex/i,
+    msg:'O Codex está instalado, mas não consegui iniciá-lo — reinstale com npm i -g @openai/codex e rode de novo.', act:'env', label:'abrir Ambiente' },
   { id:'codex-timeout', re:/o codex n[aã]o respondeu a tempo/i,
     msg:'O Codex não respondeu a tempo — tente de novo.' },
-  { id:'codex-quota', re:/o codex est[aá] sem cota/i,
+  { id:'codex-quota', re:/o codex est[aá] sem cota|o codex bateu o limite de uso/i,
     msg:'O Codex está sem cota/limite no momento — espere um pouco e tente de novo.' },
-  { id:'codex-network', re:/o codex n[aã]o conseguiu falar com a openai/i,
+  { id:'codex-network', re:/o codex n[aã]o conseguiu falar com a openai|caiu a conex[aã]o do codex/i,
     msg:'O Codex não conseguiu falar com a OpenAI — cheque a internet/VPN e tente de novo.' },
   // chats fora do Claude (ai_once::chat_turn): a sessão sumiu e não deu pra seguir com o histórico (o normal é o
   // aiCallResumeSafe resolver sozinho — isto só aparece se nem o histórico existir)
@@ -243,6 +248,12 @@ const ERR_CATALOG=[
     msg:'A conversa anterior não pode ser retomada nesta IA — envie de novo (o app continua com o histórico) ou toque em "+ novo".' },
   { id:'codex-empty', re:/o codex terminou sem resposta/i,
     msg:'O Codex terminou sem resposta — tente de novo.' },
+  { id:'codex-session', re:/a sess[aã]o anterior do codex n[aã]o foi encontrada/i,
+    msg:'A sessão anterior do Codex não existe mais neste computador — mande a mensagem de novo: ele recomeça um turno novo a partir do que já está na worktree.' },
+  { id:'codex-context', re:/a conversa ficou longa demais pro codex/i,
+    msg:'A conversa ficou longa demais pro Codex — rode de novo (ele recomeça com o que já está na worktree) ou divida o pedido.' },
+  { id:'codex-exit', re:/o codex parou com um erro|o codex encerrou sem concluir o turno/i,
+    msg:'O Codex parou no meio do turno — mande uma mensagem pra ele seguir de onde parou, ou rode de novo.' },
   { id:'dsh-empty', re:/o deepseek terminou sem resposta/i,
     msg:'O DeepSeek terminou sem resposta — tente de novo.' },
   { id:'gateway-unreachable', re:/n[aã]o consegui falar com o gateway/i,
@@ -252,7 +263,7 @@ const ERR_CATALOG=[
   { id:'gateway-empty', re:/o gateway devolveu uma resposta vazia|o gateway n[aã]o respondeu|sem resposta do gateway/i,
     msg:'O gateway não devolveu resposta — tente de novo; se continuar, confira o modelo em Configurações → Gateway próprio.', act:'env', label:'abrir Ambiente' },
   // só a falha REAL de autenticação do Codex (a mensagem que o ai_once monta), não qualquer menção a "codex login"
-  { id:'codex-login', re:/o codex est[aá] sem login\/chave/i,
+  { id:'codex-login', re:/o codex est[aá] sem login\/chave|o codex n[aã]o est[aá] logado/i,
     msg:'O Codex está sem login/chave — rode `codex login` num terminal ou configure a chave OpenAI em Configurações → Sua IA.', act:'suaia', label:'abrir Sua IA' },
   { id:'gateway-key', re:/o gateway recusou a chave/i,
     msg:'O gateway da sua empresa recusou a chave — confira URL, chave e modelo em Configurações → Gateway próprio.', act:'env', label:'abrir Ambiente' },

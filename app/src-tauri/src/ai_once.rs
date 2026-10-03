@@ -135,33 +135,33 @@ pub(crate) fn bin_exists(bin: &str) -> bool {
 /// (nvm/fnm/volta/asdf/mise instalam o codex junto) → homebrew → /usr/local/bin → PATH.
 pub(crate) fn codex_bin() -> String { node_tool_bin("CARDUME_CODEX", "codex") }
 
-/// Mesma busca pra qualquer CLI instalada com `npm i -g` (codex, dsh): <ENV> (se existir) → ao lado do node
-/// configurado/escolhido → pastas dos gerenciadores de node → homebrew → /usr/local/bin → nome solto (PATH).
-pub(crate) fn node_tool_bin(env_var: &str, name: &str) -> String {
-    if let Ok(c) = std::env::var(env_var) {
-        if !c.is_empty() && Path::new(&c).is_file() { return c; }
+/// Mesma busca pra qualquer CLI instalada com `npm i -g` (codex, dsh): o RESOLVEDOR ÚNICO (bin_resolve.rs ≡
+/// src/engine/bin-resolve.ts) — <ENV> → PATH → ao lado do node escolhido → nvm/fnm/volta/asdf/mise → npm global →
+/// Homebrew/~/.local/bin/pnpm/bun → app ChatGPT/Codex → shell de login. Não achou → nome solto (o spawn dá
+/// NotFound e a mensagem lista onde procurou, via `codex_resolution`).
+pub(crate) fn node_tool_bin(_env_var: &str, name: &str) -> String {
+    crate::bin_resolve::resolve_cached(name, || Some(node_bin()).filter(|n| n != "node")).bin.unwrap_or_else(|| name.to_string())
+}
+/// Onde o codex foi achado (ou onde procurou) — pra mensagem de "não encontrado".
+pub(crate) fn codex_resolution() -> crate::bin_resolve::Resolution {
+    crate::bin_resolve::resolve_cached("codex", || Some(node_bin()).filter(|n| n != "node"))
+}
+/// "Não encontrado" do Codex com a lista de onde procurou (só quando o resolvedor NÃO achou nada).
+pub(crate) fn codex_missing_msg() -> String {
+    let r = codex_resolution();
+    if r.bin.is_some() { return CODEX_MISSING_MSG.to_string(); }
+    format!("{CODEX_MISSING_MSG}\n\nProcurei em:\n{}", crate::bin_resolve::searched_list(&r))
+}
+/// Falha ao INICIAR o codex → frase humana: NotFound só vira "não instalado" quando o resolvedor não achou nada.
+pub(crate) fn codex_spawn_error(bin: &str, e: &std::io::Error) -> String {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        if !Path::new(bin).is_file() || codex_resolution().bin.is_none() { return codex_missing_msg(); }
+        return format!("O Codex foi encontrado em {bin}, mas não consegui iniciá-lo: o arquivo sumiu ou o interpretador dele (node) não existe mais. Reinstale com npm i -g @openai/codex e tente de novo.\n\n({e})");
     }
-    let exe = format!("{name}.exe");
-    let cmd = format!("{name}.cmd");
-    let names: Vec<&str> = if cfg!(windows) { vec![exe.as_str(), cmd.as_str()] } else { vec![name] };
-    let beside = |node: &str| -> Option<String> {
-        let dir = Path::new(node).parent()?;
-        names.iter().map(|n| dir.join(n)).find(|c| c.is_file()).map(|c| c.display().to_string())
-    };
-    if let Ok(node) = std::env::var("CARDUME_NODE") {
-        if let Some(c) = beside(&node) { return c; }
+    if e.kind() == std::io::ErrorKind::PermissionDenied {
+        return format!("O Codex foi encontrado em {bin}, mas sem permissão de execução — rode `chmod +x {bin}` (ou reinstale com npm i -g @openai/codex) e tente de novo.\n\n({e})");
     }
-    // ao lado do node que o app RESOLVEU (com nvm, `npm i -g @openai/codex` instala ali)
-    if let Some(c) = beside(&node_bin()) { return c; }
-    let mut cands = node_candidates();
-    cands.sort();
-    for n in cands.iter().rev() {
-        if let Some(c) = beside(n) { return c; }
-    }
-    for p in [format!("/opt/homebrew/bin/{name}"), format!("/usr/local/bin/{name}")] {
-        if Path::new(&p).is_file() { return p; }
-    }
-    name.to_string()
+    format!("Não consegui rodar o Codex ({bin}): {e}")
 }
 
 /// Configuração do gateway OpenAI-compatível (mesmas chaves/padrões do route_ai_ping e do altProxy.ts).
@@ -201,7 +201,7 @@ pub(crate) fn engine_avail(e: AiEngine) -> bool {
     v
 }
 /// Zera o cache de disponibilidade (testes, e o app ao salvar/remover uma chave em Conta → Chaves de modelo).
-pub(crate) fn clear_avail_cache() { *AVAIL_CACHE.lock().unwrap_or_else(|x| x.into_inner()) = None; }
+pub(crate) fn clear_avail_cache() { *AVAIL_CACHE.lock().unwrap_or_else(|x| x.into_inner()) = None; crate::bin_resolve::clear_cache(); }
 
 pub(crate) fn availability() -> Avail {
     Avail { claude: engine_avail(AiEngine::Claude), codex: engine_avail(AiEngine::Codex), gateway: engine_avail(AiEngine::Gateway), deepseek: engine_avail(AiEngine::Deepseek) }
@@ -329,6 +329,10 @@ pub(crate) fn codex_friendly_error(msg: &str) -> String {
     if l.contains("429") || l.contains("rate limit") || l.contains("quota") || l.contains("usage limit") {
         return format!("O Codex está sem cota/limite no momento — espere um pouco e tente de novo.\n\n({short})");
     }
+    // shim do npm (`#!/usr/bin/env node`) sem node no PATH — mesma frase do motor TS (codexFriendlyError)
+    if l.contains("env: node") || l.contains("env: 'node'") || l.contains("node: no such file") || l.contains("command not found: node") {
+        return format!("O Codex foi encontrado, mas precisa do Node.js pra rodar e não achei um node junto dele — instale o Node (brew install node) ou reinstale o Codex com npm i -g @openai/codex e tente de novo.\n\n({short})");
+    }
     if l.contains("stream disconnected") || l.contains("network") || l.contains("timed out") || l.contains("connection") {
         return format!("O Codex não conseguiu falar com a OpenAI — cheque a internet/VPN e tente de novo.\n\n({short})");
     }
@@ -415,8 +419,7 @@ pub(crate) fn codex_exec(bin: &str, prompt: &str, cwd: Option<&Path>, model: Opt
     cmd.args(codex_args(model, low));
     let (out, timed) = match output_stdin(cmd, prompt, left) {
         Ok(x) => x,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(fail(&e.to_string(), CODEX_MISSING_MSG.into())),
-        Err(e) => return Err(fail(&e.to_string(), format!("Não consegui rodar o Codex: {e}"))),
+        Err(e) => return Err(fail(&e.to_string(), codex_spawn_error(bin, &e))),
     };
     if timed { return Err(fail("timeout", CODEX_TIMEOUT_MSG.into())); }
     let stdout = String::from_utf8_lossy(&out.stdout);
@@ -1259,8 +1262,7 @@ fn codex_turn_once(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Option<&s
         Err(ProcErr::Stopped) => return Err(fail("", h.stop_marker.to_string())),
         Err(ProcErr::Timeout) => return Err(fail("timeout", CODEX_TIMEOUT_MSG.into())),
         Err(ProcErr::Crash) => return Err(fail("crash", CODEX_CRASH_MSG.into())),
-        Err(ProcErr::Spawn(e)) if e.kind() == std::io::ErrorKind::NotFound => return Err(fail(&e.to_string(), CODEX_MISSING_MSG.into())),
-        Err(ProcErr::Spawn(e)) => return Err(fail(&e.to_string(), format!("Não consegui rodar o Codex: {e}"))),
+        Err(ProcErr::Spawn(e)) => return Err(fail(&e.to_string(), codex_spawn_error(bin, &e))),
     };
     match codex_outcome(&out.stdout) {
         (Some(text), _) => {
@@ -1592,7 +1594,7 @@ pub(crate) fn ai_test_run(engine: &str, model: Option<&str>) -> Result<AiTestOut
     if !engine_avail(eng) {
         return Err(match eng {
             AiEngine::Claude => CLAUDE_MISSING_MSG.to_string(),
-            AiEngine::Codex => CODEX_MISSING_MSG.to_string(),
+            AiEngine::Codex => codex_missing_msg(),
             AiEngine::Gateway => GATEWAY_CFG_MSG.to_string(),
             AiEngine::Deepseek => dsh_status().err().unwrap_or_else(|| DSH_MISSING_MSG.to_string()),
         });
@@ -1791,9 +1793,19 @@ echo '{{"type":"item.completed","item":{{"id":"i","type":"agent_message","text":
     }
 
     #[test]
+    fn codex_erro_sem_node_e_spawn_humanos() {
+        assert!(codex_friendly_error("env: node: No such file or directory").starts_with("O Codex foi encontrado, mas precisa do Node.js"));
+        let e = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        let tmp = std::env::temp_dir().join(format!("sf-codex-perm-{}", std::process::id()));
+        std::fs::write(&tmp, "x").unwrap();
+        assert!(codex_spawn_error(&tmp.display().to_string(), &e).contains("permissão de execução"));
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    #[test]
     fn ai_once_codex_ausente_e_mensagem_humana() {
         let e = codex_run("/nao/existe/codex", None, &req("x", Tier::Rapido, None), None).unwrap_err();
-        assert_eq!(e, CODEX_MISSING_MSG);
+        assert!(e.starts_with(CODEX_MISSING_MSG), "{e}");
     }
 
     /// os testes de gateway contam/criam arquivos temporários — um de cada vez
@@ -2072,10 +2084,12 @@ echo '{{"type":"final","text":" resposta do deepseek "}}'
     /// dsh REAL apontado pra um servidor OpenAI-compatível FALSO local (sem custo). Pula se o dsh não estiver instalado.
     #[test]
     fn ai_once_dsh_real_servidor_falso() {
-        let bin = node_tool_bin("CARDUME_DSH", "dsh");
-        if !bin_exists(&bin) || !node_version(&node_bin()).is_some_and(dsh_node_ok_v) { eprintln!("dsh não instalado — pulando"); return; }
+        // resolve DEPOIS do lock: outro teste pode estar com CARDUME_DSH/HOME apontando pra um dsh falso
         let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _gw = GW_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::bin_resolve::clear_cache();
+        let bin = node_tool_bin("CARDUME_DSH", "dsh");
+        if !bin_exists(&bin) || !node_version(&node_bin()).is_some_and(dsh_node_ok_v) { eprintln!("dsh não instalado — pulando"); return; }
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         let srv = std::thread::spawn(move || {
@@ -2575,10 +2589,12 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
     /// histórico da sessão vai junto pro modelo). Pula se o dsh não estiver instalado.
     #[test]
     fn chat_dsh_real_servidor_falso_retoma_sessao() {
-        let bin = node_tool_bin("CARDUME_DSH", "dsh");
-        if !bin_exists(&bin) || !node_version(&node_bin()).is_some_and(dsh_node_ok_v) { eprintln!("dsh não instalado — pulando"); return; }
+        // resolve DEPOIS do lock: outro teste pode estar com CARDUME_DSH/HOME apontando pra um dsh falso
         let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _gw = GW_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::bin_resolve::clear_cache();
+        let bin = node_tool_bin("CARDUME_DSH", "dsh");
+        if !bin_exists(&bin) || !node_version(&node_bin()).is_some_and(dsh_node_ok_v) { eprintln!("dsh não instalado — pulando"); return; }
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = l.local_addr().unwrap().port();
         let srv = std::thread::spawn(move || {
@@ -2692,6 +2708,60 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         assert!(ia.ok && ia.detail.contains("Codex"));
         assert!(env.iter().any(|c| c.name.starts_with("Claude Code") && !c.ok && c.kind == "opt"));
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// E2E REAL do Codex com o ambiente do FINDER (PATH mínimo, sem CARDUME_CODEX/CARDUME_NODE), HOME = `E2E_HOME`
+    /// (uma pasta com `.codex` → o ~/.codex real e, opcional, `.nvm`), repo descartável `E2E_REPO`:
+    /// resolve o codex, Ambiente, resumo de commit + corpo de PR (ai_once), uma opinião da mesa, uma da Ideia e um
+    /// turno do planner (chat_turn) — tudo no Codex de verdade.
+    /// `E2E_HOME=… E2E_REPO=… cargo test --lib e2e_codex_finder -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn e2e_codex_finder() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = std::env::var("E2E_HOME").expect("E2E_HOME");
+        let repo = PathBuf::from(std::env::var("E2E_REPO").expect("E2E_REPO"));
+        std::fs::create_dir_all(format!("{home}/.constellation")).unwrap();
+        std::fs::write(format!("{home}/.constellation/settings.json"), r#"{"aiEngine":"codex","aiModel":""}"#).unwrap();
+        let _env = EnvGuard::set(&[("HOME", home.as_str()), ("PATH", "/usr/bin:/bin:/usr/sbin:/sbin"), ("CARDUME_CODEX", ""), ("CARDUME_NODE", ""), ("CARDUME_CLAUDE", "/nao/existe/claude"), ("SHELL", "/bin/zsh")]);
+        clear_avail_cache();
+        let r = codex_resolution();
+        eprintln!("codex resolvido: {:?} via {}", r.bin, r.via);
+        assert!(r.bin.is_some(), "não achou o codex com PATH mínimo: {:?}", r.searched);
+        let env = crate::env_check();
+        let cx = env.iter().find(|c| c.name.starts_with("Codex")).unwrap();
+        eprintln!("Ambiente: {} ok={} · {}", cx.name, cx.ok, cx.detail);
+        assert!(cx.ok && cx.detail.contains(r.bin.as_deref().unwrap()) && cx.detail.contains("versão"), "{}", cx.detail);
+        assert_eq!(chat_engine(), Ok(AiEngine::Codex));
+        let git = |a: &[&str]| String::from_utf8_lossy(&Command::new("/usr/bin/git").arg("-C").arg(&repo).args(a).output().unwrap().stdout).to_string();
+        let diff = git(&["log", "-p", "-3", "--no-color", "--format=%s", "--all"]);
+        // (e) resumo do commit (Capaz) e corpo do PR (Rápido) — os prompts das telas, encurtados
+        let t0 = Instant::now();
+        let sum = ai_once_as("commit-pr", Some(&repo), AiOnce { prompt: &format!("Em 2 frases, explique de forma técnica O QUE este commit fez e POR QUÊ. Responda em português.\n\nDiff:\n{}", diff.chars().take(3000).collect::<String>()), tier: Tier::Capaz, claude_model: None, claude_extra: &[], cwd: Some(&repo), secs: 120 });
+        eprintln!("(e) resumo do commit ({:?}): {sum:?}", t0.elapsed());
+        assert!(sum.as_ref().is_ok_and(|s| s.len() > 20), "{sum:?}");
+        let t0 = Instant::now();
+        let body = ai_once_as("commit-pr", Some(&repo), AiOnce { prompt: &format!("Escreva o corpo de um Pull Request em MARKDOWN pt-BR, só o markdown. Seções exatas: ## O quê (1 frase), ## Como testar (2 passos).\n\nDiff:\n{}", diff.chars().take(2000).collect::<String>()), tier: Tier::Rapido, claude_model: Some("claude-haiku-4-5-20251001"), claude_extra: &[], cwd: None, secs: 75 });
+        eprintln!("(e) corpo do PR ({:?}): {body:?}", t0.elapsed());
+        assert!(body.as_ref().is_ok_and(|b| b.contains("## ")), "{body:?}");
+        // (g) mesa (persona one-shot), ideia (one-shot) e planner (chat_turn)
+        let t0 = Instant::now();
+        let mesa = crate::mesa::ask_other(AiEngine::Codex, "e2e-mesa", "Você é a persona QA da mesa. Responda em 1 frase curta.", "Qual o maior risco de uma função subtrai(a,c)?", &repo);
+        eprintln!("(g) mesa ({:?}): {mesa:?}", t0.elapsed());
+        assert!(mesa.is_ok(), "{mesa:?}");
+        let t0 = Instant::now();
+        let ideia = crate::mesa::ask_other_as("ideia", AiEngine::Codex, "e2e-ideia", "Você ajuda a lapidar ideias de produto. Responda em 1 frase.", "Ideia: calculadora de bolso para feirantes. Qual o público?", &repo);
+        eprintln!("(g) ideia ({:?}): {ideia:?}", t0.elapsed());
+        assert!(ideia.is_ok(), "{ideia:?}");
+        let nop = |_: i32| {};
+        let no = |_: i32| false;
+        let never = || false;
+        let act = |_: String| {};
+        let h = ChatHooks { activity: &act, on_start: &nop, on_end: &nop, stopped: &no, cancelled: &never, stop_marker: "X" };
+        let t0 = Instant::now();
+        let plan = chat_turn(AiEngine::Codex, &ChatTurn { sys: "Você é o PLANNER. Responda SOMENTE com um bloco ```json {\"say\":\"\",\"done\":false}```.", prompt: "Quero testes para math.js. Diga em 1 frase o que testar.", session_id: None, cwd: &repo, secs: 180, web: false }, &h);
+        eprintln!("(g) planner ({:?}): {plan:?}", t0.elapsed());
+        assert!(plan.as_ref().is_ok_and(|o| o.session_id.starts_with("codex:")), "{plan:?}");
     }
 
     /// Caso do Paulo (01/10): app aberto pelo Finder (PATH mínimo) + codex do npm com `#!/usr/bin/env node`

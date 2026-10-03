@@ -1,0 +1,28 @@
+{
+  "_doc": "Fixture COMPARTILHADO do resolvedor de CLIs (src/engine/bin-resolve.ts ≡ app/src-tauri/src/bin_resolve.rs). Cada caso monta uma árvore fake: '~/' = HOME fake, '/' = raiz fake (Homebrew, /Applications, /usr/bin). 'shell': null | {'print': [linhas]} | 'hang'. 'expect' null = não achou. 'searched' = trechos que a lista de lugares procurados PRECISA conter.",
+  "cases": [
+    { "name": "PATH atual ganha (aberto pelo terminal)", "files": ["/usr/local/bin/codex", "~/.nvm/versions/node/v22.3.0/bin/codex"], "path": ["/usr/local/bin", "/usr/bin"], "expect": "/usr/local/bin/codex" },
+    { "name": "Finder: PATH mínimo, codex no nvm de OUTRA versão do node (caso Roberto)", "files": ["~/.nvm/versions/node/v23.2.0/bin/codex", "~/.nvm/versions/node/v22.14.0/bin/node"], "path": ["/usr/bin", "/bin", "/usr/sbin", "/sbin"], "node": "~/.nvm/versions/node/v22.14.0/bin", "expect": "~/.nvm/versions/node/v23.2.0/bin/codex" },
+    { "name": "nvm: versão mais nova primeiro (v22 > v9 por número, não texto)", "files": ["~/.nvm/versions/node/v9.0.0/bin/codex", "~/.nvm/versions/node/v20.1.0/bin/codex", "~/.nvm/versions/node/v22.3.0/bin/codex", "~/.nvm/versions/node/v18.20.0/bin/codex"], "path": ["/usr/bin"], "expect": "~/.nvm/versions/node/v22.3.0/bin/codex" },
+    { "name": "ao lado do node em uso antes do nvm mais novo", "files": ["~/.nvm/versions/node/v20.1.0/bin/codex", "~/.nvm/versions/node/v22.3.0/bin/codex"], "path": ["/usr/bin"], "node": "~/.nvm/versions/node/v20.1.0/bin", "expect": "~/.nvm/versions/node/v20.1.0/bin/codex" },
+    { "name": "volta", "files": ["~/.volta/bin/codex"], "path": ["/usr/bin"], "expect": "~/.volta/bin/codex" },
+    { "name": "asdf shims", "files": ["~/.asdf/shims/codex"], "path": ["/usr/bin"], "expect": "~/.asdf/shims/codex" },
+    { "name": "fnm", "files": ["~/.local/share/fnm/node-versions/v22.1.0/installation/bin/codex"], "path": ["/usr/bin"], "expect": "~/.local/share/fnm/node-versions/v22.1.0/installation/bin/codex" },
+    { "name": "mise", "files": ["~/.local/share/mise/installs/node/22.9.0/bin/codex"], "path": ["/usr/bin"], "expect": "~/.local/share/mise/installs/node/22.9.0/bin/codex" },
+    { "name": "prefixo do npm no ~/.npmrc", "files": ["~/custom-npm/bin/codex"], "contents": { "~/.npmrc": "registry=https://registry.npmjs.org/\nprefix=~/custom-npm\n" }, "path": ["/usr/bin"], "expect": "~/custom-npm/bin/codex" },
+    { "name": "~/.npm-global", "files": ["~/.npm-global/bin/codex"], "path": ["/usr/bin"], "expect": "~/.npm-global/bin/codex" },
+    { "name": "nvm antes do Homebrew", "files": ["/opt/homebrew/bin/codex", "~/.nvm/versions/node/v22.3.0/bin/codex"], "path": ["/usr/bin"], "expect": "~/.nvm/versions/node/v22.3.0/bin/codex" },
+    { "name": "Homebrew (Apple Silicon)", "files": ["/opt/homebrew/bin/codex"], "path": ["/usr/bin"], "expect": "/opt/homebrew/bin/codex" },
+    { "name": "~/.local/bin", "files": ["~/.local/bin/codex"], "path": ["/usr/bin"], "expect": "~/.local/bin/codex" },
+    { "name": "pnpm", "files": ["~/Library/pnpm/codex"], "path": ["/usr/bin"], "expect": "~/Library/pnpm/codex" },
+    { "name": "bun", "files": ["~/.bun/bin/codex"], "path": ["/usr/bin"], "expect": "~/.bun/bin/codex" },
+    { "name": "CLI dentro do app ChatGPT", "files": ["/Applications/ChatGPT.app/Contents/Resources/codex"], "path": ["/usr/bin"], "expect": "/Applications/ChatGPT.app/Contents/Resources/codex" },
+    { "name": "Codex.app antes do ChatGPT.app", "files": ["/Applications/ChatGPT.app/Contents/Resources/codex", "/Applications/Codex.app/Contents/Resources/codex"], "path": ["/usr/bin"], "expect": "/Applications/Codex.app/Contents/Resources/codex" },
+    { "name": "npm/Homebrew antes do app ChatGPT", "files": ["/Applications/ChatGPT.app/Contents/Resources/codex", "/usr/local/bin/codex"], "path": ["/usr/bin"], "expect": "/usr/local/bin/codex" },
+    { "name": "CARDUME_CODEX manda quando existe", "files": ["~/weird/codex", "/opt/homebrew/bin/codex"], "path": ["/usr/bin"], "override": "~/weird/codex", "expect": "~/weird/codex" },
+    { "name": "CARDUME_CODEX apontando pra nada não trava a busca", "files": ["/opt/homebrew/bin/codex"], "path": ["/usr/bin"], "override": "~/sumiu/codex", "expect": "/opt/homebrew/bin/codex" },
+    { "name": "shell de login acha o que nenhuma pasta conhecida tem", "files": ["~/.custom/tools/codex"], "path": ["/usr/bin"], "shell": { "print": ["Welcome to zsh! (lixo do .zshrc)", "alias codex=whatever", "~/.custom/tools/codex"] }, "expect": "~/.custom/tools/codex", "searched": ["shell de login"] },
+    { "name": "shell de login que trava não trava o app (timeout)", "files": [], "path": ["/usr/bin"], "shell": "hang", "expect": null, "searched": ["shell de login", ".volta/bin", "opt/homebrew/bin", "ChatGPT.app"] },
+    { "name": "nada instalado: lista onde procurou", "files": [], "path": ["/usr/bin", "/bin"], "expect": null, "searched": ["/usr/bin", ".volta/bin", ".asdf/shims", ".npm-global/bin", "opt/homebrew/bin", "/usr/local/bin", ".local/bin", "Library/pnpm", ".bun/bin", "Codex.app", "ChatGPT.app"] }
+  ]
+}

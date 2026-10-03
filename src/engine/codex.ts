@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
-import { exitGraceMs, killProcess } from "./claude.ts";
+import { join } from "node:path";
+import { codexResolution, notFoundMsg, toolPath, type Resolution } from "./bin-resolve.ts";
+import { adjustRuleOf, exitGraceMs, killProcess } from "./claude.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { mobileRule } from "../mobile.ts";
 
@@ -25,25 +26,35 @@ export interface CodexProvider {
   envKey: string; // variável com a chave (vem do llm.env da CONTA)
 }
 
+/** Caminho do codex pelo RESOLVEDOR ÚNICO (bin-resolve.ts ≡ Rust resolve_tool); não achou → "codex" solto. */
 export function resolveCodex(): string {
-  const envBin = process.env.CARDUME_CODEX;
-  if (envBin && existsSync(envBin)) return envBin;
-  // ao lado do node que roda o motor (nvm incluso — mesmo padrão do claude)
-  const beside = join(dirname(process.execPath), "codex");
-  if (existsSync(beside)) return beside;
-  for (const p of ["/opt/homebrew/bin/codex", "/usr/local/bin/codex"]) if (existsSync(p)) return p;
-  return "codex";
+  return codexResolution().bin ?? "codex";
 }
 
-/** Chaves de modelo da CONTA (sincronizadas pelo app) → env do processo filho.
- * homedir(), não $HOME: no Windows não existe HOME (é USERPROFILE) e a chave do gateway nunca chegava. */
-/** PATH pro processo do codex: a pasta do node em uso e a do codex NA FRENTE. O codex do npm é
- * `#!/usr/bin/env node`; com o app aberto pelo Finder/Dock o PATH herdado é mínimo e o node do nvm/fnm/volta
- * não está nele — a tarefa morria com "env: node: No such file or directory" (caso do Paulo, 01/10). */
+/** PATH pro processo do codex: a pasta dele e a de um node NA FRENTE (o codex do npm é `#!/usr/bin/env node`;
+ * aberto pelo Finder o PATH é mínimo — "env: node: No such file or directory", caso do Paulo, 01/10). */
 export function codexPath(bin: string, cur: string | undefined): string {
-  const dirs = [dirname(process.execPath), ...(bin.includes("/") || bin.includes("\\") ? [dirname(bin)] : [])];
-  const have = (cur || "").split(delimiter).filter(Boolean);
-  return [...dirs.filter((d) => !have.includes(d)), ...have].join(delimiter);
+  return toolPath(bin, cur);
+}
+
+const isFile = (p: string) => { try { return statSync(p).isFile(); } catch { return false; } };
+
+export const CODEX_INSTALL = "npm i -g @openai/codex";
+
+/**
+ * Falha ao INICIAR o codex → frase humana. ENOENT só vira "não encontrado" quando o resolvedor de fato não achou
+ * nada (e aí lista onde procurou); achou e mesmo assim não iniciou = diz ONDE achou e o que faltou.
+ */
+export function codexSpawnError(err: NodeJS.ErrnoException, bin: string, r: Resolution): string {
+  const tail = `\n\n(falha ao iniciar codex: ${err.message})`;
+  if (!r.bin || !isFile(bin)) {
+    return notFoundMsg("O Codex", CODEX_INSTALL, r, " — esta tarefa roda no Codex e o Starfork não troca de IA sozinho.") + tail;
+  }
+  if (err.code === "ENOENT")
+    return `O Codex foi encontrado em ${bin}, mas não consegui iniciá-lo: o arquivo sumiu ou o interpretador dele (node) não existe mais. Reinstale com ${CODEX_INSTALL} e clique em "rodar de novo".` + tail;
+  if (err.code === "EACCES")
+    return `O Codex foi encontrado em ${bin}, mas sem permissão de execução. Rode \`chmod +x ${bin}\` (ou reinstale com ${CODEX_INSTALL}) e clique em "rodar de novo".` + tail;
+  return `Não consegui iniciar o Codex (${bin}): ${err.message}. Confira em Mais › Ambiente e clique em "rodar de novo".` + tail;
 }
 
 export function loadLlmEnv(): Record<string, string> {
@@ -70,7 +81,7 @@ const ROLE_INSTR: Record<string, string> = {
   builder: "Seu papel é BUILDER: implemente a tarefa descrita.",
 };
 
-function buildPrompt(input: RunInput): string {
+export function buildPrompt(input: RunInput): string {
   const roleInstr = ROLE_INSTR[input.role] ?? ROLE_INSTR.builder;
   const arts = input.spec.artifacts ?? [];
   const artifactRule = arts.length && input.role !== "planner"
@@ -88,7 +99,7 @@ function buildPrompt(input: RunInput): string {
     " Este motor NÃO tem canal de pergunta ao humano: se algo ESSENCIAL estiver ambíguo ou impossível, registre a dúvida em .cardume/artifacts/QUESTIONS.md, marque o requisito como blocked no requirements.json e finalize honestamente — NUNCA invente nem entregue silenciosamente sem um requisito.";
   const groundRule =
     " EXECUTE ANTES DE AFIRMAR: rode o projeto/testes de verdade nesta worktree (envs semeadas — veja .cardume/AMBIENTE.md) antes de qualquer conclusão; leitura de código não é verificação. Scripts descartáveis em .cardume/tmp/ (fora do diff).";
-  const base = `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${artifactRule}${reqRule}${askRule}${groundRule}`;
+  const base = `${adjustRuleOf(input.spec)}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${artifactRule}${reqRule}${askRule}${groundRule}`;
   const sys = input.systemContext ? `\n\nCONTEXTO DO BARRAMENTO:\n${input.systemContext}` : "";
   const mob = mobileRule({ cwd: input.cwd, role: input.role, spec: input.spec }); // PROVAS MOBILE (mesmo roteiro dos 3 motores)
   return (input.resume ? input.resume.instruction + groundRule + mob : (input.promptOverride ? input.promptOverride + groundRule + mob : base + mob + sys));
@@ -110,6 +121,8 @@ export function codexFriendlyError(raw: string): string {
     return "A sessão anterior do Codex não foi encontrada neste computador." + tail;
   if (/context (window|length)|maximum context|too long|out of tokens/.test(l))
     return "A conversa ficou longa demais pro Codex (limite de contexto)." + tail;
+  if (/env: .?node.?: no such file|node: (command )?not found|command not found: node/.test(l))
+    return "O Codex foi encontrado, mas precisa do Node.js pra rodar e não achei um node junto dele. Instale o Node (brew install node) ou reinstale o Codex com npm i -g @openai/codex e mande a mensagem de novo — a tarefa continua no Codex." + tail;
   if (/stream disconnected|reconnecting|error sending request|connection (reset|refused|closed|error)|network|timed? ?out|econnreset|enotfound|eai_again|dns/.test(l))
     return "Caiu a conexão do Codex com a OpenAI. Confira a internet e mande a mensagem de novo — a tarefa continua no Codex." + tail;
   return m ? `O Codex parou com um erro: ${m.slice(0, 400)}` : "O Codex parou com um erro sem detalhes.";
@@ -181,8 +194,16 @@ export function mapCodexLine(line: string, seen: Set<string> = new Set()): Agent
     if (shown && show && !/end|completed|output/i.test(itemType)) evs.push({ type: "bash", text: shown.slice(0, 300) });
   } else if (/patch|file_change|apply/i.test(itemType)) {
     const changes = (item as { changes?: unknown }).changes;
-    const paths = changes && typeof changes === "object" ? Object.keys(changes as object).join(", ") : text;
-    evs.push({ type: "edit", text: (paths || "editando arquivos").slice(0, 300) });
+    // `changes` vem como LISTA [{path, kind}] no codex 0.1xx (antes era objeto {caminho: …}) — com Object.keys a
+    // tela mostrava "editando 0"
+    const paths = Array.isArray(changes)
+      ? changes.map((c) => String((c as { path?: unknown })?.path ?? "")).filter(Boolean).join(", ")
+      : changes && typeof changes === "object" ? Object.keys(changes as object).join(", ") : text;
+    // started + completed do MESMO item: mostra uma vez só (mesma regra dos comandos)
+    const id = typeof (item as { id?: unknown }).id === "string" ? `edit:${String((item as { id?: unknown }).id)}` : "";
+    const show = id ? !seen.has(id) : true;
+    if (id) seen.add(id);
+    if (show) evs.push({ type: "edit", text: (paths || "editando arquivos").slice(0, 300) });
   } else if (/reasoning|thinking/i.test(itemType)) {
     if (text) evs.push({ type: "think", text: text.slice(0, 400) });
   } else if (/agent_message|assistant/i.test(itemType)) {
@@ -237,7 +258,8 @@ export class CodexEngine implements AgentEngine {
     args.push(prompt);
 
     const env: NodeJS.ProcessEnv = { ...process.env, ...loadLlmEnv() };
-    const bin = resolveCodex();
+    const res = codexResolution();
+    const bin = res.bin ?? "codex";
     env.PATH = codexPath(bin, env.PATH);
     const child = spawn(bin, args, { cwd: input.cwd, stdio: ["ignore", "pipe", "pipe"], env });
     const rl = createInterface({ input: child.stdout });
@@ -304,7 +326,8 @@ export class CodexEngine implements AgentEngine {
     });
     child.stderr.on("data", (d) => {
       resetIdle();
-      const s = String(d).trim();
+      // "Reading additional input from stdin..." é aviso do próprio codex exec (stdin fechado) — não é erro nem progresso
+      const s = String(d).split("\n").filter((l) => !/^Reading (additional )?(input|prompt) from stdin/i.test(l.trim())).join("\n").trim();
       if (s) {
         stderrTail = (stderrTail + "\n" + s).slice(-600);
         queue.push({ type: "note", text: `stderr: ${s.slice(0, 200)}` });
@@ -339,13 +362,7 @@ export class CodexEngine implements AgentEngine {
     });
     child.on("error", (err) => {
       exited = true;
-      queue.push({
-        type: "error",
-        text:
-          `O Codex não foi encontrado neste computador — esta tarefa roda no Codex e o Starfork não troca de IA sozinho. ` +
-          `Instale com: npm i -g @openai/codex (depois confira em Mais › Ambiente) e mande a mensagem de novo.\n\n(falha ao iniciar codex: ${err.message})`,
-        status: "error",
-      });
+      queue.push({ type: "error", text: codexSpawnError(err as NodeJS.ErrnoException, bin, res), status: "error" });
       finish();
     });
 

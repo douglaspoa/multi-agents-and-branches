@@ -161,7 +161,7 @@ test("codex: turn.failed vira mensagem humana; modelo recusado → sem -m e lemb
       assert.equal(readFileSync(join(dir2, "calls.log"), "utf8").trim().split("\n").length, 3, "2ª chamada já sem -m");
     });
     await assert.rejects(withEnv({ HOME: H.home }, () => aiOnce("x", { tier: "rapido", timeout: 10_000 }, deps("/nao/existe/codex"))),
-      (e: Error) => e.message === CODEX_MISSING_MSG);
+      (e: Error) => e.message.startsWith(CODEX_MISSING_MSG));
   } finally { H.cleanup(); }
 });
 

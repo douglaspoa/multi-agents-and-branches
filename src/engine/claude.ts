@@ -101,6 +101,14 @@ function hasOpenAsk(dbFile: string, taskId: string): boolean {
   }
 }
 
+/** Ajuste pedido pelo humano no rework ("pedir ajuste") — a MESMA regra nos 3 motores. O TASK.yaml não leva o
+ * ajuste: sem isto no prompt o Codex/dsh refaziam o turno, achavam a tarefa "já atendida" e ignoravam o pedido (e2e 03/10). */
+export function adjustRuleOf(spec: { adjustment?: string }): string {
+  return spec.adjustment
+    ? `ATENÇÃO — AJUSTE SOLICITADO PELO HUMANO (prioridade máxima): ${spec.adjustment} — JÁ EXISTE trabalho feito nesta worktree; INCORPORE o ajuste sobre o que já existe (não recomece do zero). No seu papel: planner atualiza o .cardume/PLAN.md com o ajuste; builder aplica no código; reviewer confere o ajuste; docs atualiza a doc. `
+    : "";
+}
+
 export function resolveClaude(): string {
   if (process.env.CARDUME_CLAUDE) return process.env.CARDUME_CLAUDE;
   // Windows: o binário é `claude.exe` (instalador nativo em %USERPROFILE%\.local\bin). O shim do npm
@@ -240,9 +248,7 @@ export class ClaudeEngine implements AgentEngine {
       input.role === "builder" || input.role === "tester"
         ? " Se existir .cardume/PLAN.md, leia e SIGA o plano (o humano pode tê-lo revisado/ajustado)."
         : "";
-    const adjustRule = input.spec.adjustment
-      ? `ATENÇÃO — AJUSTE SOLICITADO PELO HUMANO (prioridade máxima): ${input.spec.adjustment} — JÁ EXISTE trabalho feito nesta worktree; INCORPORE o ajuste sobre o que já existe (não recomece do zero). No seu papel: planner atualiza o .cardume/PLAN.md com o ajuste; builder aplica no código; reviewer confere o ajuste; docs atualiza a doc. `
-      : "";
+    const adjustRule = adjustRuleOf(input.spec);
     // REVIEW DE PR: não há repositório pra editar — o diff completo está em DIFF.patch.
     const prRule = input.spec.kind === "review" && input.spec.prUrl
       ? ` Este é um REVIEW DE PULL REQUEST (${input.spec.prUrl}). NÃO há repositório pra editar; leia o arquivo DIFF.patch nesta pasta (o diff completo do PR) e faça um review CRÍTICO: bugs e correção, riscos/segurança, cobertura de testes, legibilidade e sugestões concretas por arquivo/trecho. Aponte também o que está bom. Escreva o parecer no chat (texto), com severidade por achado. NÃO tente implementar nem rodar o código.`
