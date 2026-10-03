@@ -13,6 +13,7 @@ mod device;
 mod ai_once;
 mod autopilot;
 mod epic_context;
+mod gh_contas;
 mod learn;
 mod media_proto;
 mod navegador;
@@ -1751,7 +1752,7 @@ fn repo_has_remote_cached(path: &str) -> bool {
 /// E4: publica o projeto ATIVO (repositório só local) no GitHub — `gh repo create --source --push`,
 /// o mesmo caminho do "novo projeto". O nome do repositório é o da pasta.
 #[tauri::command(async)]
-fn publish_github(state: State<AppState>, private: bool, owner: String) -> Result<String, String> {
+fn publish_github(state: State<AppState>, private: bool, owner: String, account: Option<String>) -> Result<String, String> {
     let repo = repo_of(&state)?;
     let rs = repo.display().to_string();
     if !repo_is_git(&rs) {
@@ -1764,7 +1765,7 @@ fn publish_github(state: State<AppState>, private: bool, owner: String) -> Resul
     let slug = project_slug(repo.file_name().and_then(|n| n.to_str()).unwrap_or("projeto"));
     let slug = if slug.is_empty() { "projeto".to_string() } else { slug };
     let full = if owner.trim().is_empty() { slug } else { format!("{}/{}", owner.trim(), slug) };
-    let mut c = Command::new(gh_bin());
+    let mut c = gh_create_cmd(&repo, &owner, account.as_deref());
     c.args(["repo", "create", &full, if private { "--private" } else { "--public" }, "--source", &rs, "--remote", "origin", "--push"]);
     c.current_dir(&repo);
     let out = output_timeout(c, 180)?;
@@ -1775,6 +1776,20 @@ fn publish_github(state: State<AppState>, private: bool, owner: String) -> Resul
     }
     let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
     Ok(if url.is_empty() { format!("publicado como {full}") } else { url })
+}
+
+/// gh do `gh repo create` agindo como a conta dona de `owner` (ou a pedida) — sem trocar a ativa —
+/// e o repositório local já fica com a credencial dessa conta: o push do create e todos os
+/// seguintes (app, motor, terminal) usam ela, qualquer que seja a ativa do gh.
+fn gh_create_cmd(repo: &std::path::Path, owner: &str, account: Option<&str>) -> Command {
+    let gh = gh_bin();
+    match gh_contas::account_for(&gh, owner, account) {
+        Some(acc) => {
+            let _ = gh_contas::set_repo_account(repo, &gh, &acc);
+            gh_contas::gh_as(&gh, &acc)
+        }
+        None => Command::new(gh),
+    }
 }
 
 /// A pasta é um repositório git? (pasta simples abre, mas sem branch/PR/worktree)
@@ -1872,7 +1887,7 @@ fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
 
 /// Cria um projeto DO ZERO: pasta nova dentro de `parent`, `git init` na main,
 /// README + .gitignore + 1º commit e, se pedido, o repositório no GitHub via
-/// `gh repo create` (na conta ativa do gh — trocável em Configurações → GitHub).
+/// `gh repo create` com a conta dona do `owner` escolhido (qualquer conta logada; a ativa não muda).
 #[tauri::command(async)]
 fn create_project(
     state: State<AppState>,
@@ -1881,8 +1896,9 @@ fn create_project(
     github: bool,
     private: bool,
     owner: String,
+    account: Option<String>,
 ) -> Result<String, String> {
-    create_project_in(&state, parent, name, github, private, owner)
+    create_project_in(&state, parent, name, github, private, owner, account)
 }
 
 /// Pasta padrão dos projetos criados pelo "Começar" da tela vazia: ~/Documents/Starfork
@@ -1958,7 +1974,7 @@ fn quick_create_project(state: State<AppState>, name: String) -> Result<String, 
     let dir = starfork_projects_dir();
     std::fs::create_dir_all(&dir).map_err(|e| format!("não consegui criar a pasta {}: {e}", dir.display()))?;
     let free = unique_child(&dir, &slug);
-    create_project_in(&state, dir.display().to_string(), free, false, true, String::new())
+    create_project_in(&state, dir.display().to_string(), free, false, true, String::new(), None)
 }
 
 fn create_project_in(
@@ -1968,6 +1984,7 @@ fn create_project_in(
     github: bool,
     private: bool,
     owner: String,
+    account: Option<String>,
 ) -> Result<String, String> {
     // BUG-22: acentos viram a letra base ("Painel Finanças" → painel-financas, não painel-finan-as)
     let slug = project_slug(&name);
@@ -2018,7 +2035,7 @@ fn create_project_in(
     let has_origin = run(&["remote", "get-url", "origin"]).is_ok();
     if github && !has_origin {
         let full = if owner.trim().is_empty() { slug.clone() } else { format!("{}/{}", owner.trim(), slug) };
-        let mut c = Command::new(gh_bin());
+        let mut c = gh_create_cmd(&repo, &owner, account.as_deref());
         c.args(["repo", "create", &full, if private { "--private" } else { "--public" }, "--source", &repo.display().to_string(), "--remote", "origin", "--push"]);
         c.current_dir(&repo);
         let fail = match output_timeout(c, 120) {
@@ -2051,7 +2068,11 @@ struct GhAccount {
 /// Contas logadas no `gh` (pode haver várias; a ATIVA é a que abre PR e faz push).
 #[tauri::command(async)]
 fn gh_accounts() -> Result<Vec<GhAccount>, String> {
-    let mut c = Command::new(gh_bin());
+    gh_accounts_with(&gh_bin())
+}
+/// `gh` = binário (nos testes, um gh falso).
+fn gh_accounts_with(gh: &str) -> Result<Vec<GhAccount>, String> {
+    let mut c = Command::new(gh);
     c.args(["auth", "status"]);
     // gh NÃO instalado = nenhuma conta (a tela já oferece instalar) — antes virava erro no painel (30/09)
     let out = match output_timeout(c, 10) {
@@ -2185,25 +2206,11 @@ fn gh_login_status() -> GhLoginStatus {
     }
 }
 
-/// Donos possíveis pro repositório novo: o usuário ativo + organizações dele.
+/// Donos possíveis pro repositório novo: usuário + organizações de TODAS as contas logadas no gh
+/// (cada conta consultada com o próprio token — a ativa não importa). A ativa vem primeiro.
 #[tauri::command(async)]
-fn gh_owners() -> Vec<String> {
-    let mut out: Vec<String> = vec![];
-    let mut c = Command::new(gh_bin());
-    c.args(["api", "user", "--jq", ".login"]);
-    if let Ok(o) = output_timeout(c, 15) {
-        let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
-        if !u.is_empty() { out.push(u); }
-    }
-    let mut c2 = Command::new(gh_bin());
-    c2.args(["api", "user/orgs", "--paginate", "--jq", ".[].login"]);
-    if let Ok(o) = output_timeout(c2, 20) {
-        for l in String::from_utf8_lossy(&o.stdout).lines() {
-            let l = l.trim();
-            if !l.is_empty() && !out.contains(&l.to_string()) { out.push(l.to_string()); }
-        }
-    }
-    out
+fn gh_owners() -> Vec<gh_contas::GhOwner> {
+    gh_contas::list_owners_with(&gh_bin())
 }
 
 /// Troca o projeto ativo para um já existente na lista.
@@ -6202,7 +6209,7 @@ fn pr_head(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), 
     }
     let ra = gh_repo_args(&repo);
     for c in &cands {
-        let mut v = Command::new(gh_bin());
+        let mut v = gh_contas::gh_in(&repo);
         v.args(["pr", "view", c, "--json", "number"]).args(&ra).current_dir(&repo);
         if let Ok(o) = output_timeout(v, 10) {
             if o.status.success() {
@@ -6218,7 +6225,7 @@ fn repo_slug(repo: &PathBuf) -> Result<String, String> {
     if let Ok((slug, true)) = github_slug_of(repo) {
         return Ok(slug);
     }
-    let mut cmd = Command::new(gh_bin());
+    let mut cmd = gh_contas::gh_in(repo);
     cmd.args(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"]).current_dir(repo);
     let out = output_timeout(cmd, 10)?;
     if !out.status.success() {
@@ -6517,11 +6524,13 @@ fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> 
     }
     let br = Command::new("git").arg("-C").arg(&wt).args(["rev-parse", "--abbrev-ref", "HEAD"]).output().map_err(|e| e.to_string())?;
     let branch = String::from_utf8_lossy(&br.stdout).trim().to_string();
-    let p = Command::new("git").arg("-C").arg(&wt).args(["push", "-u", "origin", &branch]).output().map_err(|e| e.to_string())?;
+    // recusado por credencial (conta errada) → acha a conta logada que enxerga o repo, grava no repo e tenta de novo
+    let (p, switched) = gh_contas::git_push_any_account(&wt, &["push", "-u", "origin", &branch])?;
     if !p.status.success() {
         return Err(format!("push falhou: {}", String::from_utf8_lossy(&p.stderr)));
     }
-    Ok(format!("{}push da {} feito ✓", if committed { "commit + " } else { "" }, branch))
+    let note = switched.map(|a| format!(" · {}", gh_contas::push_note(&a))).unwrap_or_default();
+    Ok(format!("{}push da {} feito ✓{note}", if committed { "commit + " } else { "" }, branch))
 }
 
 /// Abre um artefato da tarefa no app padrão do sistema (ex.: mockup.html no navegador).
@@ -6638,7 +6647,7 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     // já existe PR (na branch atual OU no nome antigo pós-rename)? devolve ele
     let ra = gh_repo_args(&repo);
     if let Ok((r2, head)) = pr_head(&state, &task_id) {
-        let mut v = Command::new(gh_bin());
+        let mut v = gh_contas::gh_in(&r2);
         v.args(["pr", "view", &head, "--json", "url", "-q", ".url"]).args(&ra).current_dir(&r2);
         if let Ok(o) = output_timeout(v, 10) {
             if o.status.success() {
@@ -6649,15 +6658,11 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
             }
         }
     }
-    let push = Command::new("git")
-        .arg("-C").arg(&repo)
-        .args(["push", "-u", "origin", &branch])
-        .output()
-        .map_err(|e| e.to_string())?;
+    let (push, _) = gh_contas::git_push_any_account(&repo, &["push", "-u", "origin", &branch])?;
     if !push.status.success() {
         return Err(format!("git push falhou: {}", String::from_utf8_lossy(&push.stderr)));
     }
-    let out = Command::new(gh_bin())
+    let out = gh_contas::gh_in(&repo)
         .args(["pr", "create", "--head", &branch, "--base", &base, "--title", &title, "--body", &body])
         .args(&ra)
         .current_dir(&repo)
@@ -6666,7 +6671,7 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         if err.contains("already exists") {
-            let u = Command::new(gh_bin()).args(["pr", "view", &branch, "--json", "url", "-q", ".url"]).args(&ra).current_dir(&repo).output().map_err(|e| e.to_string())?;
+            let u = gh_contas::gh_in(&repo).args(["pr", "view", &branch, "--json", "url", "-q", ".url"]).args(&ra).current_dir(&repo).output().map_err(|e| e.to_string())?;
             if u.status.success() {
                 return Ok(String::from_utf8_lossy(&u.stdout).trim().to_string());
             }
@@ -6958,21 +6963,22 @@ fn pr_parse_review_threads(v: &serde_json::Value, me: &str) -> Vec<PrComment> {
     out
 }
 
-/// Login da conta do gh (cache de 10 min — a conta pode ser trocada no app).
+/// Login da conta do gh que fala com ESTE repo (a gravada nele ou a ativa) — cache de 10 min por conta.
 fn gh_user_login(repo: &PathBuf) -> String {
-    static CACHE: Mutex<Option<(String, std::time::Instant)>> = Mutex::new(None);
-    if let Some((u, at)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        if at.elapsed() < std::time::Duration::from_secs(600) {
+    static CACHE: Mutex<Option<(String, String, std::time::Instant)>> = Mutex::new(None);
+    let key = gh_contas::repo_account(repo).unwrap_or_default();
+    if let Some((k, u, at)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if *k == key && at.elapsed() < std::time::Duration::from_secs(600) {
             return u.clone();
         }
     }
-    let mut c = Command::new(gh_bin());
+    let mut c = gh_contas::gh_in(repo);
     c.args(["api", "user", "-q", ".login"]).current_dir(repo);
     match output_timeout(c, 10) {
         Ok(o) if o.status.success() => {
             let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
             if !u.is_empty() {
-                *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((u.clone(), std::time::Instant::now()));
+                *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((key, u.clone(), std::time::Instant::now()));
             }
             u
         }
@@ -6991,7 +6997,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         comments: vec![], reviews: vec![], is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
         checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(),
     };
-    let mut vcmd = Command::new(gh_bin());
+    let mut vcmd = gh_contas::gh_in(&repo);
     vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName"]).args(gh_repo_args(&repo)).current_dir(&repo);
     let view = output_timeout(vcmd, 12).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
     if !view.status.success() {
@@ -7015,7 +7021,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     if let Some(slug) = slug.as_ref() {
         if let Some((owner, name)) = slug.split_once('/') {
             let q = "query($owner:String!,$name:String!,$num:Int!){viewer{login} repository(owner:$owner,name:$name){pullRequest(number:$num){reviewThreads(first:100){nodes{id isResolved isOutdated comments(first:50){nodes{databaseId author{login} body path line originalLine createdAt url}}}}}}}";
-            let mut gcmd = Command::new(gh_bin());
+            let mut gcmd = gh_contas::gh_in(&repo);
             gcmd.args(["api", "graphql", "-f", &format!("query={q}"), "-f", &format!("owner={owner}"), "-f", &format!("name={name}"), "-F", &format!("num={number}")]).current_dir(&repo);
             if let Ok(o) = output_timeout(gcmd, 15) {
                 if o.status.success() {
@@ -7062,7 +7068,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     // fallback: GraphQL falhou → REST antigo (sem resolvido/desatualizado; "respondido" = tem resposta)
     if !got_threads && number > 0 {
         if let Some(slug) = slug.as_ref() {
-            let mut acmd = Command::new(gh_bin());
+            let mut acmd = gh_contas::gh_in(&repo);
             acmd.args(["api", &format!("repos/{}/pulls/{}/comments", slug, number), "--paginate"]).current_dir(&repo);
             if let Ok(o) = output_timeout(acmd, 15) {
                 if o.status.success() {
@@ -8150,7 +8156,7 @@ fn pr_merge_landed(gh_ok: bool, state_after: Option<&str>) -> bool {
 fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<String, String> {
     let (repo, branch) = pr_head(&state, &task_id)?;
     let m = match method.as_str() { "squash" => "--squash", "rebase" => "--rebase", _ => "--merge" };
-    let mut c = Command::new(gh_bin());
+    let mut c = gh_contas::gh_in(&repo);
     c.args(["pr", "merge", &branch, m, "--delete-branch"]).args(gh_repo_args(&repo)).current_dir(&repo);
     // teto: sem ele uma rede pendurada deixava o botão "mergeando…" pra sempre
     let res = output_timeout(c, 120);
@@ -8159,7 +8165,7 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
     if !gh_ok {
         // o `--delete-branch` tenta apagar a branch LOCAL — presa na worktree da tarefa, o gh falha DEPOIS
         // de mergear no GitHub; e um teto estourado pode ter chegado ao GitHub também. Confere o estado real.
-        let mut v = Command::new(gh_bin());
+        let mut v = gh_contas::gh_in(&repo);
         v.args(["pr", "view", &branch, "--json", "state", "--jq", ".state"]).args(gh_repo_args(&repo)).current_dir(&repo);
         let state_after = output_timeout(v, 20).ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).to_string());
         if !pr_merge_landed(false, state_after.as_deref()) {
@@ -8275,7 +8281,7 @@ fn pr_resolve_thread(state: State<AppState>, thread_id: String) -> Result<(), St
     }
     let repo = repo_of(&state)?;
     let q = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{id isResolved}}}";
-    let mut c = Command::new(gh_bin());
+    let mut c = gh_contas::gh_in(&repo);
     c.args(["api", "graphql", "-f", &format!("query={q}"), "-f", &format!("id={tid}")]).current_dir(&repo);
     let o = output_timeout(c, 15).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
     if !o.status.success() {
