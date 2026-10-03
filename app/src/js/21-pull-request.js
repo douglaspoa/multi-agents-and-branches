@@ -555,8 +555,11 @@ async function reworkFromPr(taskId, btnEl){
 }
 // merge SEMPRE squash (mesmo método em todas as telas do desktop)
 async function mergePr(taskId){
-  const why=prMergeBlock(prCache[taskId]); if(prCache[taskId] && why){ toast('Não dá pra mergear agora: '+why,'warn'); return false; }
-  if(!await askYes('Mergear o PR no GitHub (squash + apaga a branch remota)?')) return false;
+  // portões da aba PR (63-revisao-pr: prova, seu aceite por requisito, revisor, checagens, conflito) — mesma régua do botão
+  const t=(state.tasks||[]).find(x=>x.id===taskId);
+  const why=(typeof prvMergeWhy==='function' && t) ? prvMergeWhy(t, prCache[taskId]) : prMergeBlock(prCache[taskId]);
+  if(prCache[taskId] && why){ toast('Não dá pra integrar agora. '+capFirst(why),'warn'); return false; }
+  if(!await askYes('Integrar o PR na base pelo GitHub (squash + apaga a branch remota)?')) return false;
   try{ await invoke('merge_pr',{ taskId, method:'squash' }); prCache[taskId]=undefined; lastSig=''; await refresh(); toast('PR mergeado','ok'); return true; }
   catch(e){ showErr(e, 'Merge do PR falhou'); return false; }
 }

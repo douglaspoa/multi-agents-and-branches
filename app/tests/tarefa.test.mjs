@@ -158,14 +158,7 @@ test('caminho no cabeçalho: pasta separada do nome (o nome nunca é o que corta
   assert.match(c.fwPathHtml('README.md'), /^<span class="fwmpath mono" title="README.md"><span class="fwmname">README\.md<\/span><\/span>$/);
 });
 
-test('PR bloqueado oferece a saída: conflito → resolver com IA; checagens → pedir correção', () => {
-  const c = ctxWith();
-  vm.runInContext(fn('fwPrUnblockHtml') + '\nthis.f=fwPrUnblockHtml;', c);
-  assert.match(c.f({ state: 'OPEN', mergeable: 'CONFLICTING' }), /id="prPgResolve"/);
-  assert.match(c.f({ state: 'OPEN', mergeable: 'MERGEABLE', checksFail: 2 }), /id="prPgFixChecks"/);
-  assert.equal(c.f({ state: 'OPEN', mergeable: 'MERGEABLE' }), '');
-  assert.equal(c.f({ state: 'MERGED', mergeable: 'CONFLICTING' }), '');
-});
+// (o "PR bloqueado oferece a saída" mudou pra app/tests/revisao-pr.test.mjs: cada portão vermelho tem a sua)
 
 test('nota de sistema com link vira link clicável (e escapa o resto)', () => {
   const c = ctxWith();
