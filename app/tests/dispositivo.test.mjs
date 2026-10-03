@@ -58,9 +58,11 @@ test('painel Android: Voltar existe, girar habilitado; agente com a trava → S�
 
 test('desligado: ligar; ligando: espera; sem AXe no iOS: só visualização com a correção; marcação aberta: campo da instrução', () => {
   const off = F.dvPanelHtml({ plat: 'ios', info: INFO, up: false, caps: {} });
-  assert.match(off, /Simulador iOS desta tarefa desligado[\s\S]*id="dvPowerOn">ligar/);
+  assert.match(off, /Simulador iOS desta tarefa desligado[\s\S]*id="dvPowerOn">[^<]*<svg[\s\S]*Ligar simulador iOS<\/button>/);
+  assert.ok(!/dvFps|FPS/.test(off), 'desligado: sem "FPS 0" — só mostra FPS com a tela transmitindo');
+  assert.match(F.dvPanelHtml({ plat: 'android', info: INFO, up: false, caps: {} }), /Ligar emulador Android/);
   assert.match(off, /id="dvShot"[^>]*disabled/);
-  assert.match(F.dvPanelHtml({ plat: 'ios', info: INFO, up: false, starting: true, caps: {} }), /ligando… \(o 1º boot leva ~30 s\)/);
+  assert.match(F.dvPanelHtml({ plat: 'ios', info: INFO, up: false, starting: true, caps: {} }), /ligando o simulador iOS… \(o 1º boot leva ~30 s\)/);
   const noAxe = F.dvPanelHtml({ plat: 'ios', info: { ...INFO, ios: { ...INFO.ios, touch: false, touchFix: 'pra tocar, instale o AXe: brew install cameroncooke/axe/axe' } }, up: true, caps: { touch: false } });
   assert.match(noAxe, /só visualização — pra tocar, instale o AXe: brew install cameroncooke\/axe\/axe/);
   const mark = F.dvPanelHtml({ plat: 'ios', info: INFO, up: true, caps: { touch: true }, mark: { rect: { x: 0.1, y: 0.1, w: 0.3, h: 0.1 } } });
