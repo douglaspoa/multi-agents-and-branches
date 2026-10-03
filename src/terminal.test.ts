@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./store.ts";
 import { Orchestrator } from "./orchestrator.ts";
-import { applyHook, envToRemove, hookTarget, hookArgv, CODEX_ENV_TASK, excludeFromGit, mapHook, mergeClaudeSettings, recordStatuslineCost, termMessage, termModeOf, terminalCapable, HOOK_MARK, CLAUDE_HOOK_EVENTS, lastAssistantText } from "./terminal.ts";
+import { applyHook, askHookCli, auqCollect, auqHookOutput, auqRows, AUQ_IN_TERMINAL, AUQ_TOOL, AUQ_TIMEOUT_S, envToRemove, hookTarget, hookArgv, CODEX_ENV_TASK, excludeFromGit, mapHook, mergeClaudeSettings, recordStatuslineCost, termMessage, termModeOf, terminalCapable, HOOK_MARK, CLAUDE_HOOK_EVENTS, lastAssistantText } from "./terminal.ts";
 import type { TaskSpec } from "./types.ts";
 
 const BASE = ["/usr/bin/node", "/app/cli.mjs"];
@@ -42,7 +42,7 @@ test("settings.local.json: funde sem apagar hooks/statusLine da pessoa e é idem
   assert.ok(String(a.settings.statusLine?.command).includes(HOOK_MARK));
   for (const ev of CLAUDE_HOOK_EVENTS) {
     const cmds = (a.settings.hooks![ev] ?? []).flatMap((g) => (g.hooks ?? []).map((h) => String(h.command)));
-    assert.equal(cmds.filter((c) => c.includes(HOOK_MARK)).length, 1, `um hook nosso em ${ev}`);
+    assert.equal(cmds.filter((c) => c.includes(HOOK_MARK)).length, ev === "PreToolUse" ? 2 : 1, `hooks nossos em ${ev} (PreToolUse: feed + pergunta)`);
     assert.ok(cmds.some((c) => c.includes(`hook' '${ev}'`) || c.includes(`hook ${ev}`)), `comando do evento ${ev}: ${cmds}`);
   }
   assert.ok(a.settings.hooks!.Stop.some((g) => g.hooks!.some((h) => h.command === "say pronto")), "hook da pessoa fica");
@@ -223,4 +223,78 @@ test("hook do Codex é o MESMO comando em toda tarefa (confiança única) e acha
   assert.deepEqual(hookArgv(BASE, "Stop", CODEX_ENV_TASK, ""), [...BASE, "hook", "Stop", HOOK_MARK, "env"]);
   assert.deepEqual(hookTarget("env", "", { CARDUME_TASK: "t9", CARDUME_DB: "/r/.cardume/state.sqlite" }), { taskId: "t9", repo: "/r", db: "/r/.cardume/state.sqlite" });
   assert.deepEqual(hookTarget("t1", "/repo", {}), { taskId: "t1", repo: "/repo", db: "/repo/.cardume/state.sqlite" });
+});
+
+// ======================= pergunta do agente (AskUserQuestion) — layout A =======================
+const AUQ_INPUT = { questions: [
+  { question: "Se a aula estiver cheia?", header: "aula cheia", multiSelect: false, options: [{ label: "Lista de espera", description: "avisa quando abrir vaga" }, { label: "Só horários livres", description: "mais simples" }] },
+  { question: "Quais avisos?", header: "avisos", multiSelect: true, options: [{ label: "e-mail" }, { label: "push" }] },
+] };
+
+test("pergunta do agente: hook SÍNCRONO só pro AskUserQuestion, com prazo longo, idempotente", () => {
+  const a = mergeClaudeSettings(null, BASE, "t1", "/repo");
+  const g = a.settings.hooks!.PreToolUse.find((x) => x.matcher === AUQ_TOOL)!;
+  assert.ok(g, "grupo do AskUserQuestion");
+  assert.equal(g.hooks![0].async, undefined, "segura a ferramenta até a resposta");
+  assert.equal(g.hooks![0].timeout, AUQ_TIMEOUT_S);
+  assert.ok(String(g.hooks![0].command).includes(AUQ_TOOL) && String(g.hooks![0].command).includes(HOOK_MARK));
+  const b = mergeClaudeSettings(a.settings, BASE, "t1", "/repo");
+  assert.equal(b.settings.hooks!.PreToolUse.filter((x) => x.matcher === AUQ_TOOL).length, 1, "não duplica ao retomar");
+});
+
+test("pergunta do agente: tool_input → linhas de pending (rótulos + meta) e respostas → answers", () => {
+  const rows = auqRows(AUQ_INPUT, "toolu_1");
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0].options, ["Lista de espera", "Só horários livres"]);
+  assert.deepEqual(rows[0].meta, { src: "auq", group: "toolu_1", idx: 0, n: 2, header: "aula cheia", desc: ["avisa quando abrir vaga", "mais simples"], multi: false });
+  assert.equal(rows[1].meta.multi, true);
+  assert.deepEqual(auqRows({ questions: [{ question: "  " }, null] }, "g"), [], "pergunta vazia/lixo some");
+  assert.deepEqual(auqRows(null, "g"), []);
+  assert.equal(auqRows({ questions: [{ question: " Qual? " }] }, "g")[0].key, " Qual? ", "a chave do answers é o texto exato");
+  const qs = rows.map((r) => r.prompt);
+  assert.equal(auqCollect(qs, ["Lista de espera", null]), null, "falta uma: espera");
+  assert.equal(auqCollect(qs, ["Lista de espera"]), null);
+  assert.equal(auqCollect(qs, ["x", AUQ_IN_TERMINAL]), "terminal", "responder no terminal");
+  assert.deepEqual(auqCollect(qs, ["Lista de espera", "e-mail, push"]), { answers: { "Se a aula estiver cheia?": "Lista de espera", "Quais avisos?": "e-mail, push" } });
+  assert.deepEqual(auqCollect(qs, ["", "outra coisa"]), { answers: { "Quais avisos?": "outra coisa" } }, "pulada fica de fora");
+  assert.deepEqual(auqCollect(qs, ["(sem resposta — o turno terminou)", "push"]), { answers: { "Quais avisos?": "push" } }, "fechada pelo app = pulada");
+  const out = JSON.parse(auqHookOutput(AUQ_INPUT, { "Quais avisos?": "push" }));
+  assert.equal(out.hookSpecificOutput.hookEventName, "PreToolUse");
+  assert.equal(out.hookSpecificOutput.permissionDecision, "allow");
+  assert.deepEqual(out.hookSpecificOutput.updatedInput.questions, AUQ_INPUT.questions, "input original preservado");
+  assert.deepEqual(out.hookSpecificOutput.updatedInput.answers, { "Quais avisos?": "push" });
+});
+
+test("pergunta do agente: o hook de verdade grava as perguntas, espera a resposta e devolve allow + answers", async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "starfork-auq-")));
+  try {
+    mkdirSync(join(dir, ".cardume"), { recursive: true });
+    const db = join(dir, ".cardume", "state.sqlite");
+    const s0 = new Store(db); s0.createTask(spec("ta"), "b", dir, "main"); s0.close();
+    const { spawn } = await import("node:child_process");
+    const cli = join(process.cwd(), "src", "cli.ts");
+    const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", cli, "hook", AUQ_TOOL, HOOK_MARK, "ta", "--repo", dir], { env: { ...process.env, CARDUME_NOTIFY: "0", CARDUME_DB: db }, stdio: ["pipe", "pipe", "pipe"] });
+    let out = ""; let err = ""; child.stdout.on("data", (d) => { out += d; }); child.stderr.on("data", (d) => { err += d; });
+    child.stdin.end(JSON.stringify({ hook_event_name: "PreToolUse", tool_name: AUQ_TOOL, tool_use_id: "toolu_x", tool_input: AUQ_INPUT }));
+    const s = new Store(db);
+    try {
+      let open: { id: number; prompt: string; meta: string }[] = [];
+      for (let i = 0; i < 100 && open.length < 2; i++) { await new Promise((r) => setTimeout(r, 100)); open = s.db.prepare("SELECT id, prompt, meta FROM pending WHERE task_id='ta' AND status='open' ORDER BY id").all() as never; }
+      assert.equal(open.length, 2, `2 perguntas abertas (stderr: ${err})`);
+      assert.equal(JSON.parse(open[0].meta).group, "toolu_x");
+      s.answerPending(open[0].id, "Só horários livres");
+      await new Promise((r) => setTimeout(r, 600));
+      assert.equal(out, "", "ainda esperando a 2ª");
+      s.answerPending(open[1].id, "push");
+      const code = await new Promise<number>((r) => child.on("close", (c) => r(c ?? -1)));
+      assert.equal(code, 0);
+      const j = JSON.parse(out.trim());
+      assert.equal(j.hookSpecificOutput.permissionDecision, "allow");
+      assert.deepEqual(j.hookSpecificOutput.updatedInput.answers, { "Se a aula estiver cheia?": "Só horários livres", "Quais avisos?": "push" });
+      // turno novo fecha sobra de pergunta do terminal (hook morto)
+      s.addPending("ta", "Vega", "question", "sobra", ["a"], { src: "auq", group: "g2", idx: 0, n: 1 });
+      applyHook(s, "ta", mapHook("UserPromptSubmit", { prompt: "oi" }));
+      assert.equal((s.db.prepare("SELECT COUNT(*) AS n FROM pending WHERE task_id='ta' AND status='open'").get() as { n: number }).n, 0);
+    } finally { s.close(); child.kill(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

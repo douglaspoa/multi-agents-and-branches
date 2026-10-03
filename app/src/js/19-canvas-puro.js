@@ -85,8 +85,52 @@ function cvSplitValid(raw, taskIds){
   if(panes.length<2) return null;
   const out={ v:CV_VER, group:true, panes, focus:Math.min(panes.length-1, Math.max(0, +l.focus|0)) };
   if(Array.isArray(l.w) && l.w.length===panes.length){ const w=l.w.map(Number); if(w.every(x=>x>=0.12 && x<=0.88) && Math.abs(w.reduce((a,b)=>a+b,0)-1)<0.02) out.w=w.map(x=>Math.round(x*1000)/1000); }
+  // layout A (03/10): layout do grupo + tamanhos POR layout (lado a lado usa `w`, empilhado `h`, grade [coluna, linha])
+  if(CV_LAYS.includes(l.lay)) out.lay=l.lay;
+  if(Array.isArray(l.h) && l.h.length===panes.length){ const h=l.h.map(Number); if(h.every(x=>x>=0.12 && x<=0.88) && Math.abs(h.reduce((a,b)=>a+b,0)-1)<0.02) out.h=h.map(x=>Math.round(x*1000)/1000); }
+  if(Array.isArray(l.g) && l.g.length===2){ const g=l.g.map(Number); if(g.every(x=>x>=0.25 && x<=0.75)) out.g=g.map(x=>Math.round(x*1000)/1000); }
   return out;
 }
+// ---------- layout do grupo: lado a lado · empilhado · grade (foco grande à esquerda + 2 empilhadas) ----------
+const CV_LAYS=['side','stack','grid'];
+const CV_GUTTER=6; // px da divisória arrastável (trilho da grade)
+// layout efetivo: grade só existe com 3; com 2 a grade vira lado a lado
+function cvLayEff(n, lay){ return lay==='stack'?'stack':(lay==='grid' && n>=3)?'grid':'side'; }
+// fração por painel (lista salva válida ou partes iguais)
+function cvFracs(n, l){ return (Array.isArray(l) && l.length===n) ? l.slice() : Array.from({ length:n }, ()=>1/n); }
+/**
+ * Monta a GRADE CSS do grupo (sem mover os iframes no DOM — mover um iframe recarrega a demanda):
+ * { cols, rows, panes:[gridArea por índice], splits:[{ area, dir:'v'|'h', k }] }. dir 'v' arrasta na horizontal.
+ * Grade: o painel em FOCO vai pro lugar grande; os outros dois empilham à direita, na ordem do grupo.
+ */
+function cvLayout(n, lay, focus, sz){
+  sz=sz||{}; const L=cvLayEff(n, lay), G=CV_GUTTER+'px';
+  if(n<2) return { lay:L, cols:'minmax(0,1fr)', rows:'minmax(0,1fr)', panes:['1 / 1 / 2 / 2'], splits:[] };
+  const tracks=(f)=>f.map(x=>'minmax(0,'+(+x).toFixed(3)+'fr)').join(' '+G+' ');
+  if(L==='grid'){
+    const c=(sz.g&&sz.g[0])||0.56, r=(sz.g&&sz.g[1])||0.5; const f=Math.max(0, Math.min(n-1, focus|0));
+    const rest=[]; for(let i=0;i<n;i++) if(i!==f) rest.push(i);
+    const panes=[]; panes[f]='1 / 1 / 4 / 2'; panes[rest[0]]='1 / 3 / 2 / 4'; panes[rest[1]]='3 / 3 / 4 / 4';
+    return { lay:L, cols:tracks([c,1-c]), rows:tracks([r,1-r]), panes, splits:[{ area:'1 / 2 / 4 / 3', dir:'v', k:0 }, { area:'2 / 3 / 3 / 4', dir:'h', k:1 }] };
+  }
+  const f=cvFracs(n, L==='stack'?sz.h:sz.w);
+  const panes=[], splits=[];
+  for(let i=0;i<n;i++){ panes.push(L==='stack'?`${2*i+1} / 1 / ${2*i+2} / 2`:`1 / ${2*i+1} / 2 / ${2*i+2}`); if(i) splits.push({ area:L==='stack'?`${2*i} / 1 / ${2*i+1} / 2`:`1 / ${2*i} / 2 / ${2*i+1}`, dir:L==='stack'?'h':'v', k:i-1 }); }
+  return L==='stack' ? { lay:L, cols:'minmax(0,1fr)', rows:tracks(f), panes, splits } : { lay:L, cols:tracks(f), rows:'minmax(0,1fr)', panes, splits };
+}
+/**
+ * Arrastar a divisória `k` (puro): sizes = medidas atuais (px) dos painéis no eixo; d = deslocamento em px.
+ * Devolve as frações novas (soma 1), nenhum painel menor que `min` px.
+ */
+function cvDragFracs(sizes, k, d, min){
+  const s=sizes.slice(); const tot=s.reduce((a,b)=>a+b,0)||1;
+  // mínimo: o pedido, mas nunca abaixo do que o grupo salvo aceita (12%) nem acima do que cabe nos dois painéis
+  const m=Math.min(Math.max(min||200, tot*0.12), (s[k]+s[k+1])/2);
+  const a=Math.max(m, Math.min(s[k]+s[k+1]-m, s[k]+d)); const b=s[k]+s[k+1]-a; s[k]=a; s[k+1]=b;
+  return s.map(x=>Math.round(x/tot*1000)/1000);
+}
+// grade: posição do ponteiro → fração (25%–75%)
+function cvGridFrac(pos, start, len){ return Math.round(Math.max(0.25, Math.min(0.75, (pos-start)/(len||1)))*1000)/1000; }
 // junta a aba `id` à divisão `ids` (lista de ids de aba), do lado pedido. null = não cabe (já são 3)
 function cvSplitAdd(ids, baseId, id, side){
   let list=Array.isArray(ids)&&ids.length?ids.slice():[baseId];

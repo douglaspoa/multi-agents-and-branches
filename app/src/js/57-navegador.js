@@ -295,7 +295,25 @@ async function nvSend(taskId){
   if(st.picks.some(p=>p.shotSt==='tirando')){ toast('espere os prints terminarem','info'); return; }
   const note=nvQ(st, 'note'); if(note) st.note=note.value;
   const atts=nvAttsOf(st.picks);
-  const text=nvPayload(st.note, st.picks, { url:st.addr, vpLabel:(NV_VP[st.vp]||NV_VP.desktop).label })+attPromptBlock(atts);
+  const ctx={ url:st.addr, vpLabel:(NV_VP[st.vp]||NV_VP.desktop).label };
+  // MODO TERMINAL (layout A): print + elemento entram como ANEXOS no compositor da tarefa (com o seu texto) e você
+  // manda pro terminal de lá — Enter na fila, ⌘Enter interrompe
+  { const t=(typeof state!=='undefined' && state.tasks||[]).find(x=>x.id===taskId);
+    if(t && typeof termModeOf==='function' && termModeOf(t) && typeof fwTask!=='undefined' && fwTask===taskId && typeof fwPend!=='undefined'){
+      const full=nvPayload('', st.picks, ctx); const block=full.slice(full.indexOf('['+NV_BLOCK+']'));
+      const first=(st.picks[0]&&st.picks[0].item)||{};
+      const el={ name:st.picks.length===1?String(first.selector||first.tag||'elemento').slice(0,48)+' · estilos':st.picks.length+' elementos da prévia', kind:'text', size:block.length, rel:'(prévia da tarefa)', text:block };
+      (fwPend[taskId]=fwPend[taskId]||[]).push(...atts, el);
+      const note=String(st.note||'').trim();
+      if(note){ const ci=document.getElementById('fwInput'); const base=String((ci&&ci.dataset.tk===taskId)?ci.value:(fwDraft[taskId]||'')); fwDraft[taskId]=(base.trim()?base+'\n':'')+note; if(ci&&ci.dataset.tk===taskId) ci.value=fwDraft[taskId]; } // o re-render copia o campo pro rascunho: o campo já leva a nota
+      st.picks=[]; st.note=''; const n0=nvQ(st, 'note'); if(n0) n0.value=''; st.picking=false; nvPost(st, { cmd:'clear' }); nvPost(st, { cmd:'pick', on:false });
+      nvPaint(taskId);
+      if(typeof fwSetMode==='function') await fwSetMode('conversa');
+      setTimeout(()=>{ const i=document.getElementById('fwInput'); if(i){ i.focus(); try{ i.setSelectionRange(i.value.length, i.value.length); }catch(_){ } } }, 60);
+      toast('print e elemento no compositor — escreva o pedido e mande pro terminal','ok');
+      return;
+    } }
+  const text=nvPayload(st.note, st.picks, ctx)+attPromptBlock(atts);
   st.sending=true; nvPaint(taskId);
   let ok=false; try{ ok=await fwSendText(taskId, text); }finally{ st.sending=false; }
   if(ok){ st.picks=[]; st.note=''; const n2=nvQ(st, 'note'); if(n2) n2.value=''; st.picking=false; nvPost(st, { cmd:'clear' }); nvPost(st, { cmd:'pick', on:false }); toast('mandei pra tarefa — veja na conversa','ok'); }

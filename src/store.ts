@@ -189,6 +189,9 @@ export class Store {
       // adivinha pelo nome (renomear o agente não pode mudar a soma dele).
       "ALTER TABLE cost ADD COLUMN agent_id TEXT",
       "ALTER TABLE event ADD COLUMN agent_id TEXT",
+      // modo terminal (layout A): pergunta do AskUserQuestion do Claude Code = 1 linha por pergunta, agrupadas
+      // (meta JSON: { src:"auq", group, idx, n, header, desc[], multi }). ask_human segue sem meta.
+      "ALTER TABLE pending ADD COLUMN meta TEXT",
     ]) {
       try {
         this.db.exec(stmt);
@@ -415,11 +418,24 @@ export class Store {
   }
 
   // ---------- pending (perguntas do agente para o humano) ----------
-  addPending(taskId: string, agent: string, kind: string, prompt: string, options?: string[]): number {
-    const res = this.db
-      .prepare(`INSERT INTO pending (task_id, agent, kind, prompt, options, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)`)
-      .run(taskId, agent, kind, prompt, options ? JSON.stringify(options) : null, Date.now());
+  addPending(taskId: string, agent: string, kind: string, prompt: string, options?: string[], meta?: Record<string, unknown>): number {
+    const res = meta
+      ? this.db
+          .prepare(`INSERT INTO pending (task_id, agent, kind, prompt, options, status, created_at, meta) VALUES (?, ?, ?, ?, ?, 'open', ?, ?)`)
+          .run(taskId, agent, kind, prompt, options ? JSON.stringify(options) : null, Date.now(), JSON.stringify(meta))
+      : this.db
+          .prepare(`INSERT INTO pending (task_id, agent, kind, prompt, options, status, created_at) VALUES (?, ?, ?, ?, ?, 'open', ?)`)
+          .run(taskId, agent, kind, prompt, options ? JSON.stringify(options) : null, Date.now());
     return Number(res.lastInsertRowid);
+  }
+
+  /** Fecha as perguntas do AskUserQuestion (terminal) ainda abertas da tarefa — o hook que esperava morreu
+   * (Esc no terminal, sessão fechada) ou o turno seguiu. Devolve quantas. */
+  closeAuqQuestions(taskId: string, answer = "(sem resposta — a pergunta foi fechada no terminal)"): number {
+    const r = this.db
+      .prepare(`UPDATE pending SET status = 'answered', answer = ?, resolved_at = ? WHERE task_id = ? AND status = 'open' AND json_extract(meta, '$.src') = 'auq'`)
+      .run(answer, Date.now(), taskId);
+    return Number(r.changes || 0);
   }
 
   getPending(id: number): { id: number; status: string; answer: string | null } | undefined {

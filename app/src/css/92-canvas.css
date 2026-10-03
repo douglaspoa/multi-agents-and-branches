@@ -43,10 +43,8 @@ button.lnk{border:0;background:none;font:inherit;padding:0}
 
 /* ---------- CANVAS NO TOPO (pivot): abas Navegador/Simulador/Documento e a TELA DIVIDIDA ---------- */
 .overlay.cvsplit.astab{display:flex!important;flex-direction:column}
-.cvrow{flex:1;display:flex;min-height:0;min-width:0;background:var(--bg)}
-.cvpane{flex:1 1 0;min-width:260px;min-height:0;display:flex;flex-direction:column;background:var(--surface);position:relative}
-.cvpane.split{border-left:1px solid var(--border)}
-.cvpane.split:first-child{border-left:0}
+.cvrow{flex:1;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);min-height:0;min-width:0;background:var(--bg)}
+.cvpane{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--surface);position:relative}
 .cvpane.split.focus>.cvph{box-shadow:inset 0 -2px 0 var(--accent-line)}
 .cvph{display:flex;align-items:center;gap:7px;padding:0 6px 0 11px;min-height:30px;font-size:var(--fs-xs);color:var(--muted);border-bottom:1px solid var(--border);background:var(--surface-2);flex:none;min-width:0}
 .cvph:empty{display:none}
@@ -57,8 +55,13 @@ button.lnk{border:0;background:none;font:inherit;padding:0}
 .cvpb{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;position:relative;overflow:hidden;container-type:inline-size}
 .cvpb>*{flex:1;min-height:0;min-width:0}
 .cvrealm{flex:1;width:100%;height:100%;border:0;background:var(--bg);display:block}
-.cvsplitter{flex:none;width:5px;margin:0 -3px;cursor:col-resize;z-index:3;position:relative}
-.cvsplitter:hover,.cvsplitter:active{background:var(--accent-line)}
+.cvsplitter{cursor:col-resize;z-index:3;position:relative;background:var(--bg);touch-action:none}
+.cvsplitter::before{content:"";position:absolute;top:0;bottom:0;left:50%;width:1px;transform:translateX(-50%);background:var(--border-strong)}
+.cvsplitter.h{cursor:row-resize}
+.cvsplitter.h::before{top:50%;bottom:auto;left:0;right:0;width:auto;height:1px;transform:translateY(-50%)}
+.cvsplitter:hover::before,.cvsplitter:active::before{background:var(--accent);width:2px}
+.cvsplitter.h:hover::before,.cvsplitter.h:active::before{width:auto;height:2px}
+.cvsplitter[hidden]{display:none}
 .cvdot,.cvtdot{flex:none;width:8px;height:8px;border-radius:50%;display:inline-block}
 /* grupo de abas (tela dividida) na barra de cima — como os grupos do Chrome: UMA aba com um segmento por membro,
    "|" fino entre eles, × em cada um; contorno e sublinhado calmos na cor da 1ª demanda (--tg). Sem degradê, sem brilho. */
@@ -222,3 +225,18 @@ html.sfpane #cloudOverlay,html.sfpane #authOverlay,html.sfpane #obOverlay,html.s
 .cvrurl{font-size:var(--fs-sm);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .cvnthint{width:min(460px,100%);margin:0;color:var(--muted);font-size:var(--fs-base);line-height:1.55;text-align:center}
 .cvnthint b{color:var(--text);font-weight:600}
+
+/* ---------- layout do grupo (lado a lado · empilhado · grade) — 58-canvas cvApplyLayout; a divisória é o .cvsplitter ---------- */
+.cvrow[data-lay] .cvpane.split.focus>.cvph{box-shadow:inset 0 2px 0 var(--accent)}
+.cvpane.asking{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--st-ask) 70%,transparent)}
+.cvpane.asking>.cvph{color:var(--st-ask)}
+.cvpane.asking{animation:cvask 1.6s cubic-bezier(.16,1,.3,1) 2}
+@keyframes cvask{0%,100%{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--st-ask) 70%,transparent)}50%{box-shadow:inset 0 0 0 3px var(--st-ask)}}
+@media (prefers-reduced-motion:reduce){ .cvpane.asking{animation:none} }
+.cvlay{display:inline-flex;align-items:center;gap:2px;margin:0 2px 0 4px;align-self:center;flex:none;border:1px solid var(--border);border-radius:7px;padding:2px;background:var(--surface-2)}
+.cvlayb{width:24px;height:20px;border:0;border-radius:5px;background:transparent;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer}
+.cvlayb svg{width:14px;height:14px}
+.cvlayb:hover{color:var(--text);background:var(--surface-3)}
+.cvlayb.on{background:var(--surface-3);color:var(--text)}
+.cvlayb:disabled{opacity:.35;cursor:not-allowed}
+.cvlayb:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}

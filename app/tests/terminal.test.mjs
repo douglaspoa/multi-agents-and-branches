@@ -112,8 +112,10 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   const ws = src('20-workspace-tarefa.js');
   assert.match(ws, /function fwPaintThread\(t\)\{ const th=\$id\('fwThread'\); if\(!th\|\|!t\|\|th\.dataset\.term\) return;/);
   assert.match(ws, /if\(th && !th\.dataset\.term\)/);
-  assert.match(ws, /termModeOf\(t\)\?termSlotHtml\(t\)/);
-  assert.match(ws, /if\(termModeOf\(t\)\) termMount\(t\); else termSweep\(\);/);
+  // layout A (60-terminal-layout): a coluna inteira vira terminal + painel; o slot do terminal mora no tlChatHtml
+  assert.match(ws, /chat\.innerHTML=isTerm \? tlChatHtml\(t, composer\)/);
+  assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t, sheetGrab\);[^\n]*\} else termSweep\(\);/);
+  assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}\$\{composer\}/);
   assert.match(src('34-orquestrador.js'), /termMode:'auto', start:startNow/);
   assert.match(src('59-ideia.js'), /payload\.termMode='auto'/);
   assert.match(src('43-espaco-times.js'), /if\(opts\.auto\) payload\.termMode='auto'/);

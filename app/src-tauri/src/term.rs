@@ -82,10 +82,22 @@ fn spec_of(db: &Path, task_id: &str) -> Option<serde_json::Value> {
 pub fn is_terminal(state: &State<AppState>, task_id: &str) -> bool {
     db_of(state).ok().and_then(|db| spec_of(&db, task_id)).map(|s| s.get("termMode").and_then(|v| v.as_str()) == Some("terminal")).unwrap_or(false)
 }
-/// Modo padrão das tarefas novas (Configurações → "modo das tarefas"): automático até o layout do terminal
-/// ser escolhido e validado no app instalado (03/10); terminal só quando a pessoa liga (beta).
-pub fn default_mode() -> &'static str {
-    if setting_get("taskMode").as_deref() == Some("terminal") { "terminal" } else { "auto" }
+/// Modo padrão das tarefas novas (Configurações → "modo das tarefas"). Layout A aprovado (03/10): o TERMINAL é o
+/// padrão pro Claude Code. `taskModeSet=2` = a pessoa escolheu na tela nova (vale o que ela escolheu); sem isso, um
+/// "auto" gravado é da tela antiga (onde "Automático" era só o padrão salvo junto) e não conta como escolha.
+pub fn default_mode() -> &'static str { mode_default(setting_get("taskMode").as_deref(), setting_get("taskModeSet").as_deref()) }
+pub fn mode_default(task_mode: Option<&str>, set: Option<&str>) -> &'static str {
+    if set == Some("2") && task_mode == Some("auto") { "auto" } else { "terminal" }
+}
+/// A tarefa nova roda no terminal? Pedido explícito (terminal|auto) vence; sem pedido, o padrão. Terminal exige CLI
+/// interativo oficial: Claude Code sempre; Codex só quando a pessoa ESCOLHEU terminal (o padrão novo é do Claude);
+/// DeepSeek/gateway seguem no automático.
+pub fn wants_terminal(explicit: Option<&str>, default: &str, chosen: bool, engine: &str) -> bool {
+    let e = engine.to_lowercase();
+    let mode = explicit.filter(|m| *m == "terminal" || *m == "auto").unwrap_or(default);
+    if mode != "terminal" { return false; }
+    if e.contains("claude") { return true; }
+    e == "codex" && (explicit == Some("terminal") || chosen)
 }
 /// Livre? (hook Stop gravou busy=0). None = sem linha (sessão ainda subindo).
 fn idle_probe(db: PathBuf, task_id: String) -> Arc<dyn Fn() -> Option<bool> + Send + Sync> {
@@ -266,3 +278,23 @@ pub fn term_interrupt(state: State<AppState>, task_id: String) -> Result<(), Str
 pub fn term_kill(task_id: String) -> Result<(), String> { kill_task(&task_id); Ok(()) }
 #[tauri::command(async)]
 pub fn term_status(state: State<AppState>, task_id: String) -> Result<TermInfo, String> { Ok(info(&state, &task_id, String::new())) }
+
+#[cfg(test)]
+mod modo_padrao_tests {
+    use super::{mode_default, wants_terminal};
+    #[test]
+    fn terminal_e_o_padrao_do_claude() {
+        assert_eq!(mode_default(None, None), "terminal", "sem setting = terminal");
+        assert_eq!(mode_default(Some("auto"), None), "terminal", "auto da tela antiga não é escolha");
+        assert_eq!(mode_default(Some("auto"), Some("2")), "auto", "escolheu automático na tela nova");
+        assert_eq!(mode_default(Some("terminal"), Some("2")), "terminal");
+        assert!(wants_terminal(None, "terminal", false, "claude"));
+        assert!(!wants_terminal(None, "terminal", false, "codex"), "codex só se escolher terminal");
+        assert!(wants_terminal(None, "terminal", true, "codex"));
+        assert!(wants_terminal(Some("terminal"), "auto", false, "codex"));
+        assert!(!wants_terminal(None, "terminal", false, "deepseek"), "sem CLI interativo = automático");
+        assert!(!wants_terminal(Some("terminal"), "terminal", true, "gateway"));
+        assert!(!wants_terminal(Some("auto"), "terminal", false, "claude"), "pedido explícito vence");
+        assert!(!wants_terminal(None, "auto", false, "claude"));
+    }
+}

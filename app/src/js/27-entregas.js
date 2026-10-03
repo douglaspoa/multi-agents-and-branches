@@ -124,7 +124,8 @@ function fwModesNonCode(t){
   return fwModesNonCodeOf({ prUrl:t.prUrl, type:(typeof taskType==='function')?taskType(t):'', kind:String(t.kind||'').toLowerCase(), branch:t.branch||'',
     diffFiles:d?diffFiles(d):0, nonCode:entregaNonCode(t) });
 }
-function fwModesList(t){ return fwModesListOf(fwModesNonCode(t), !!(t&&t.prUrl)); } // Prévia: 57-navegador
+// modo terminal (layout A): a aba da conversa É o terminal — mesmo modo ('conversa'), nome "Terminal"
+function fwModesList(t){ const l=fwModesListOf(fwModesNonCode(t), !!(t&&t.prUrl)); return (typeof termModeOf==='function' && termModeOf(t)) ? l.map(([k,n])=>[k, k==='conversa'?'Terminal':n]) : l; } // Prévia: 57-navegador
 function fwModesHtml(t){
   return fwModesList(t).map(([k,l])=>`<button class="fwmode${fwMode===k?' on':''}" data-fwmode="${k}">${l}</button>`).join('');
 }
