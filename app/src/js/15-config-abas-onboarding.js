@@ -241,13 +241,15 @@ const VIEW_META={
   uso:{title:'Uso',icon:'<path d="M2.5 13.5h11"/><rect x="3.5" y="8" width="2.2" height="4" rx=".5"/><rect x="6.9" y="5" width="2.2" height="7" rx=".5"/><rect x="10.3" y="2.5" width="2.2" height="9.5" rx=".5"/>'},
   piloto:{title:'Piloto automático',icon:'<path d="M8 2.2l1.6 3.4 3.7.5-2.7 2.6.7 3.7L8 10.6l-3.3 1.8.7-3.7-2.7-2.6 3.7-.5z" stroke-linejoin="round"/>'},
   pilotorun:{title:'Progresso do piloto',icon:'<path d="M2.5 13.5h11"/><path d="M3.5 10.5l3-3 2.4 2 3.6-4.5" stroke-linecap="round" stroke-linejoin="round"/>'},
+  // "Começar por uma ideia" (59-ideia): conversa com a mesa + pesquisa + decisão → projeto — funciona sem projeto
+  ideia:{title:'Ideia',icon:'<path d="M8 1.9a4.3 4.3 0 0 0-2.6 7.7c.5.4.8.9.8 1.5v.4h3.6v-.4c0-.6.3-1.1.8-1.5A4.3 4.3 0 0 0 8 1.9z" stroke-linejoin="round"/><path d="M6.3 13.2h3.4M6.9 14.6h2.2" stroke-linecap="round"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ memoria:'memOverlay', mesa:'mesaOverlay', orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', web:'cvSplit', device:'cvSplit', doc:'cvSplit', cttask:'ctPageOverlay', epic:'epicOverlay', uso:'usoOverlay', piloto:'pilotoOverlay', pilotorun:'pilotoRunOverlay' };
+const VIEW_OVERLAY={ memoria:'memOverlay', mesa:'mesaOverlay', orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', web:'cvSplit', device:'cvSplit', doc:'cvSplit', cttask:'ctPageOverlay', epic:'epicOverlay', uso:'usoOverlay', piloto:'pilotoOverlay', pilotorun:'pilotoRunOverlay', ideia:'ideiaOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // Views de INSTÂNCIA MÚLTIPLA: cada aba guarda o próprio estado (nova, planner, form, orq)
 // e o restaura ao voltar — dá pra ter duas "Montar conversando" abertas sem uma pisar na outra.
-const MULTI_KINDS=new Set(['nova','planner','form','orq','piloto']);
+const MULTI_KINDS=new Set(['nova','planner','form','orq','piloto','ideia']);
 // views únicas que guardam trabalho em andamento na própria tela: voltar pela ABA só mostra (não reabre —
 // reabrir zerava a seleção de Issues e as edições não salvas de Agentes/Configurações); o menu/openTab recarrega
 // (a aba Uso fica de fora: voltar pra ela chama openUso, que só relê se os dados tiverem mais de 1 min)
@@ -263,7 +265,7 @@ function viewOpen(kind, tab){
             projetos:()=>openProjetos(), nova:()=>openNovaStart(),
             planner:()=>{ if(fresh||!window.plShow) openPlanner(); else window.plShow(); },
             form:()=>{ if(fresh||!window.ntShow) openNewTask(); else window.ntShow(); },
-            skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), memoria:()=>window.openMemoria&&window.openMemoria(), mesa:()=>window.openMesa&&window.openMesa(), uso:()=>window.openUso&&window.openUso(), piloto:()=>window.openPiloto&&window.openPiloto(), pilotorun:()=>window.openPilotoRun&&window.openPilotoRun(), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
+            skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), memoria:()=>window.openMemoria&&window.openMemoria(), mesa:()=>window.openMesa&&window.openMesa(), uso:()=>window.openUso&&window.openUso(), piloto:()=>window.openPiloto&&window.openPiloto(), pilotorun:()=>window.openPilotoRun&&window.openPilotoRun(), ideia:()=>window.openIdeia&&window.openIdeia(fresh), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
             web:()=>{ if(window.cvShowView) window.cvShowView(tab); }, device:()=>{ if(window.cvShowView) window.cvShowView(tab); }, doc:()=>{ if(window.cvShowView) window.cvShowView(tab); },
             task:()=>{ if(tabTaskId==null) return; const path=(tab&&tab.path)||null;

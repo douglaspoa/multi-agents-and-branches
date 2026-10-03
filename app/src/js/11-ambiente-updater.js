@@ -73,8 +73,9 @@ function renderEnv(){
     <div class="as-head"><div><h1 class="as-h1">Ambiente</h1><p class="as-sub">O que as tarefas precisam pra rodar nesta máquina.</p></div>
       <div class="as-actions"><span class="as-note" title="${envCheckedAt?escA(new Date(envCheckedAt).toLocaleString('pt-BR')):''}">${envChecking?'verificando de novo…':'última checagem: '+envAgo()}</span><button class="as-btn" id="envRecheck2">verificar de novo</button></div></div>
     ${banner}
-    <div class="as-grid" style="grid-template-columns:repeat(auto-fill,minmax(min(400px,100%),1fr))">${cards}</div>
+    <div class="as-grid" style="grid-template-columns:repeat(auto-fill,minmax(min(400px,100%),1fr))">${cards}${typeof reachEnvHtml==='function'?reachEnvHtml():''}</div>
   </div>`;
+  { const rh=el.querySelector('#reachHost'); if(rh && typeof reachEnvWire==='function') reachEnvWire(rh); } // pesquisa ampliada (59-ideia)
   el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>envCopy(b); });
   { const b=el.querySelector('#envRecheck2'); if(b) b.onclick=async()=>{ envChecks=null; renderEnv(); await tabBusy('env', runEnvCheck(), { label:'verificando o ambiente' }); renderEnv(); }; }
 }

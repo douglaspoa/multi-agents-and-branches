@@ -32,6 +32,8 @@ const ND_METHODS=[
   { k:'orq', tab:'orq', name:'Dividir', tip:'um agente coordenador divide o problema em etapas e abre uma tarefa por etapa' },
   // app do zero, sem ninguém conduzir: cria o projeto local e constrói sozinho (56-piloto, src/autopilot.ts)
   { k:'auto', tab:'piloto', name:'Piloto automático', tip:'app do zero: dê a ideia e o Starfork cria o projeto e constrói sozinho, sem perguntar' },
+  // começar por uma ideia (59-ideia): conversa com a mesa, pesquisa se vale a pena e cria o projeto
+  { k:'ideia', tab:'ideia', name:'Ideia', tip:'começar por uma ideia: converse com a mesa de personas, pesquise na web se vale a pena agora e crie o projeto' },
 ];
 // cur: 'chat'|'form'|'orq'|'auto' · ids: { chat:'idDoBotão' } quando a tela já tem um handler próprio pra aquele botão
 function ndMethodSeg(cur, ids){

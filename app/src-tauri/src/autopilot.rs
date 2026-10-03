@@ -26,7 +26,7 @@ const LOG_TAIL_BYTES: u64 = 16 * 1024;
 
 /// Argumentos do `cardume autopilot` (sem o node). PURA — testada abaixo. `idea` vazia = retomada.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn autopilot_cli_args(cli: &str, dir: &Path, idea: &str, platform: &str, name: &str, engine: &str, model: &str, parallel: Option<u32>, attempts: Option<u32>, budget_usd: Option<f64>) -> Vec<String> {
+pub(crate) fn autopilot_cli_args(cli: &str, dir: &Path, idea: &str, platform: &str, name: &str, engine: &str, model: &str, parallel: Option<u32>, attempts: Option<u32>, budget_usd: Option<f64>, plan: Option<&Path>) -> Vec<String> {
     let mut a: Vec<String> = vec!["--disable-warning=ExperimentalWarning".into(), cli.into(), "autopilot".into(), "--dir".into(), dir.display().to_string()];
     let mut opt = |k: &str, v: &str| { if !v.trim().is_empty() { a.push(k.into()); a.push(v.trim().into()); } };
     opt("--idea", idea);
@@ -37,8 +37,12 @@ pub(crate) fn autopilot_cli_args(cli: &str, dir: &Path, idea: &str, platform: &s
     if let Some(p) = parallel.filter(|p| *p > 0) { opt("--parallel", &p.min(AP_MAX_PARALLEL).to_string()); }
     if let Some(n) = attempts.filter(|n| *n > 0) { opt("--attempts", &n.min(AP_MAX_ATTEMPTS).to_string()); }
     if let Some(b) = budget_usd.filter(|b| b.is_finite() && *b >= 0.0) { opt("--budget-usd", &format!("{b}")); }
+    if let Some(p) = plan { opt("--plan", &p.display().to_string()); }
     a
 }
+/// Plano pronto (a aba Ideia manda o épico decidido com a mesa): gravado em `.cardume/autopilot/plan-ideia.json`
+/// (fora do que o git vê — o `.cardume/` é ignorado e o piloto aceita a pasta só com ele).
+pub(crate) fn plan_path(dir: &Path) -> PathBuf { ap_dir(dir).join("plan-ideia.json") }
 
 fn ap_dir(dir: &Path) -> PathBuf { dir.join(".cardume").join("autopilot") }
 pub(crate) fn state_path(dir: &Path) -> PathBuf { ap_dir(dir).join("state.json") }
@@ -232,7 +236,7 @@ impl Drop for StartGuard { fn drop(&mut self) { STARTING.store(false, Ordering::
 /// `{dir, warning?}` (o front abre o projeto e a aba de progresso).
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn autopilot_start(state: State<AppState>, idea: String, platform: String, name: Option<String>, parent: Option<String>, engine: Option<String>, model: Option<String>, parallel: Option<u32>, attempts: Option<u32>, budget_usd: Option<f64>) -> Result<serde_json::Value, String> {
+pub(crate) fn autopilot_start(state: State<AppState>, idea: String, platform: String, name: Option<String>, parent: Option<String>, engine: Option<String>, model: Option<String>, parallel: Option<u32>, attempts: Option<u32>, budget_usd: Option<f64>, plan: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
     let idea = idea.trim().to_string();
     if idea.is_empty() { return Err("escreva a ideia do app".into()); }
     if !PLATFORMS.contains(&platform.as_str()) { return Err(format!("plataforma inválida: {platform}")); }
@@ -245,8 +249,11 @@ pub(crate) fn autopilot_start(state: State<AppState>, idea: String, platform: St
     std::fs::create_dir_all(&parent).map_err(|e| format!("não consegui criar a pasta {}: {e}", parent.display()))?;
     let dir = parent.join(unique_child(&parent, &slug));
     let cli = engine_cli(&state)?;
-    let args = autopilot_cli_args(&cli, &dir, &idea, &platform, &label, engine.as_deref().unwrap_or("claude"), model.as_deref().unwrap_or(""), parallel, attempts, budget_usd);
+    let plan = plan.filter(|p| p.is_object());
+    let pf = plan.as_ref().map(|_| plan_path(&dir));
+    let args = autopilot_cli_args(&cli, &dir, &idea, &platform, &label, engine.as_deref().unwrap_or("claude"), model.as_deref().unwrap_or(""), parallel, attempts, budget_usd, pf.as_deref());
     mark_starting(&dir)?;
+    if let (Some(p), Some(f)) = (&plan, &pf) { std::fs::write(f, p.to_string()).map_err(|e| format!("não consegui gravar o plano do piloto: {e}"))?; }
     let exited = spawn_cli(&dir, args)?;
     let warning = wait_state(&dir, 20_000, &|| exited.load(Ordering::SeqCst))?;
     Ok(serde_json::json!({ "dir": dir.display().to_string(), "warning": warning }))
@@ -273,7 +280,7 @@ pub(crate) fn autopilot_resume(state: State<AppState>, dir: String, budget_usd: 
     let d = PathBuf::from(&dir);
     resume_check(&d, budget_usd)?;
     let cli = engine_cli(&state)?;
-    let args = autopilot_cli_args(&cli, &d, "", "", "", "", "", None, None, budget_usd);
+    let args = autopilot_cli_args(&cli, &d, "", "", "", "", "", None, None, budget_usd, None);
     mark_starting(&d)?;
     spawn_cli(&d, args).map(|_| ())
 }
@@ -293,13 +300,18 @@ mod tests {
     #[test]
     fn args_do_cli_novos_e_retomada() {
         let d = PathBuf::from("/tmp/x/pou");
-        let a = autopilot_cli_args("/e/cli.mjs", &d, " recriar o Pou ", "mobile", "Pou", "claude", "", Some(3), Some(2), Some(5.5));
+        let a = autopilot_cli_args("/e/cli.mjs", &d, " recriar o Pou ", "mobile", "Pou", "claude", "", Some(3), Some(2), Some(5.5), None);
         assert_eq!(a, ["--disable-warning=ExperimentalWarning", "/e/cli.mjs", "autopilot", "--dir", "/tmp/x/pou", "--idea", "recriar o Pou", "--platform", "mobile", "--name", "Pou", "--engine", "claude", "--parallel", "3", "--attempts", "2", "--budget-usd", "5.5"]);
         // retomada: só a pasta (e o teto, se mudou); plataforma inválida não vai
-        let r = autopilot_cli_args("/e/cli.mjs", &d, "", "desktop", "", "", "", None, Some(0), None);
+        let r = autopilot_cli_args("/e/cli.mjs", &d, "", "desktop", "", "", "", None, Some(0), None, None);
         assert_eq!(r, ["--disable-warning=ExperimentalWarning", "/e/cli.mjs", "autopilot", "--dir", "/tmp/x/pou"]);
-        assert!(autopilot_cli_args("c", &d, "x", "web", "", "", "", Some(99), None, None).windows(2).any(|w| w[0] == "--parallel" && w[1] == "4"));
-        assert!(autopilot_cli_args("c", &d, "x", "web", "", "", "", None, Some(99), None).windows(2).any(|w| w[0] == "--attempts" && w[1] == "5"));
+        assert!(autopilot_cli_args("c", &d, "x", "web", "", "", "", Some(99), None, None, None).windows(2).any(|w| w[0] == "--parallel" && w[1] == "4"));
+        assert!(autopilot_cli_args("c", &d, "x", "web", "", "", "", None, Some(99), None, None).windows(2).any(|w| w[0] == "--attempts" && w[1] == "5"));
+        // plano pronto (aba Ideia): --plan aponta pro arquivo dentro de .cardume/autopilot
+        let pf = plan_path(&d);
+        assert_eq!(pf, PathBuf::from("/tmp/x/pou/.cardume/autopilot/plan-ideia.json"));
+        let p = autopilot_cli_args("c", &d, "skincare", "mobile", "", "claude", "", None, None, None, Some(&pf));
+        assert!(p.windows(2).any(|w| w[0] == "--plan" && w[1] == "/tmp/x/pou/.cardume/autopilot/plan-ideia.json"));
     }
 
     #[test]
