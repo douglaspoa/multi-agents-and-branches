@@ -77,7 +77,9 @@ test('destaque da barra lateral = a aba ativa e TODAS as demandas da tela dividi
   assert.deepEqual(R.railHiOf(of('task:t1'), ['task:t2', 'web:x'], 0, of), { ids: ['t1'], cur: 't1' }, 'aba fora da divisão: só ela');
   assert.deepEqual(R.railHiOf(of('device:t3'), null, 0, of), { ids: ['t3'], cur: 't3' }, 'simulador de uma demanda aponta pra ela');
   // fiação: a linha usa o destaque derivado (não o `selected` antigo) e repinta na troca de aba e de foco
-  assert.match(gr, /<div class="prow2\$\{hi\.ids\.includes\(t\.id\)\?' sel':''\}" data-id="\$\{t\.id\}" role="button" tabindex="0"\$\{hi\.cur===t\.id\?' aria-current="page"':''\}>/);
+  // (mesa da barra lateral 03/10: a linha virou rowHtml — o destaque continua vindo de hi.ids/hi.cur)
+  assert.match(gr, /const sel=!other && hi\.ids\.includes\(t\.id\);/);
+  assert.match(gr, /\$\{sel\?' sel':''\}[^`]*role="button" tabindex="0"\$\{!other&&hi\.cur===t\.id\?' aria-current="page"':''\}/);
   assert.ok(!/prow2\$\{t\.id===selected/.test(gr));
   assert.match(cut(abas, 'function activateTab(id){', '// canvas: stream'), /if\(at && at\.taskId\) selected=at\.taskId;[\s\S]*renderRail\(\)/);
   assert.match(cut(cv, 'function cvPaneFocus(tabId){', '// aria-current'), /renderRail\(\)/);
