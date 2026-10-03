@@ -4,7 +4,6 @@
    ao layout de antes, com árvore e conversa). Vence os `notree` do 50 e do responsivo (83). */
 .fwcols.m-revisao.rv-req,.fwcols.m-revisao.rv-req.notree,.fwcols.m-pr,.fwcols.m-pr.notree{grid-template-columns:minmax(0,1fr)}
 .fwcols.m-revisao.rv-req .fwtree,.fwcols.m-revisao.rv-req .fwchat,.fwcols.m-pr .fwtree,.fwcols.m-pr .fwchat{display:none}
-@media (max-width:1180px){ .fwcols.m-revisao.rv-req,.fwcols.m-revisao.rv-req.notree,.fwcols.m-pr,.fwcols.m-pr.notree{grid-template-columns:minmax(0,1fr)} }
 
 .rvroot,.prv{--rv-gap:14px;flex:1;min-height:0;display:flex;flex-direction:column;min-width:0}
 .rvroot ::selection,.prv ::selection{background:color-mix(in srgb,var(--accent) 28%,transparent);color:var(--text)}

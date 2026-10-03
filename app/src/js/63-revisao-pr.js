@@ -19,7 +19,7 @@ function rvParseRange(v){
 }
 // caminho citado → o arquivo alterado que ele nomeia (exato; senão o ÚNICO que termina com ele). Ambíguo → null.
 function rvResolvePath(cited, paths){
-  const c=String(cited||'').trim().replace(/^(\.\/)+/,'').replace(/^\/+/,''); if(!c) return null;
+  const c=String(cited||'').trim().replace(/\\/g,'/').replace(/^(\.\/)+/,'').replace(/^\/+/,''); if(!c) return null;
   if(paths.includes(c)) return c;
   const m=paths.filter(p=>p.endsWith('/'+c)); return m.length===1?m[0]:null;
 }
@@ -41,8 +41,10 @@ function rvCites(text){
 // files: [{ path, hunks:[diffHunks().hunks…] }] → refs [{ path, hi, key, a, b, add, del }]
 function rvRefsOf(files){
   const out=[];
-  for(const f of files||[]) (f.hunks||[]).forEach((h,hi)=>{ const r=rvHunkRange(h);
-    out.push({ path:f.path, hi, key:rvHunkKey(f.path,h), a:r.a, b:r.b, add:h.rows.filter(x=>x.t==='add').length, del:h.rows.filter(x=>x.t==='del').length }); });
+  for(const f of files||[]){ const seen={};
+    (f.hunks||[]).forEach((h,hi)=>{ const r=rvHunkRange(h); let key=rvHunkKey(f.path,h);
+      seen[key]=(seen[key]||0)+1; if(seen[key]>1) key+='~'+seen[key]; // o MESMO trecho em 2 lugares do arquivo não vira um só
+      out.push({ path:f.path, hi, key, a:r.a, b:r.b, add:h.rows.filter(x=>x.t==='add').length, del:h.rows.filter(x=>x.t==='del').length }); }); }
   return out;
 }
 const rvOverlap=(r, a, b, pad)=>r.a<=b+(pad||0) && r.b>=a-(pad||0);
@@ -93,12 +95,13 @@ function rvGatesOf(x){
   const G=[];
   const p=x.proof||{};
   G.push(p.st==='none'||!p.n ? { id:'prova', label:'Requisitos com prova', st:'na', val:'tarefa sem requisitos' }
-    : p.st==='loading' ? { id:'prova', label:'Requisitos com prova', st:'run', val:'conferindo as provas…' }
+    : p.st==='loading' ? { id:'prova', label:'Requisitos com prova', st:'wn', val:'conferindo as provas…', why:'conferir as provas' }
     : p.st==='proven' ? { id:'prova', label:'Requisitos com prova', st:'ok', val:`${p.n}/${p.n} com prova` }
     : p.st==='override' ? { id:'prova', label:'Requisitos com prova', st:'ok', val:`${p.n-p.missing}/${p.n} · liberado com motivo` }
     : { id:'prova', label:'Requisitos com prova', st:'bad', val:`${p.n-p.missing}/${p.n} com prova`, why:`prova de ${p.missing===1?'1 requisito':p.missing+' requisitos'}` });
   const a=x.acc||{};
-  G.push(!a.n ? { id:'aceite', label:'Você aceitou', st:'na', val:'nada a aceitar' }
+  G.push(a.loading ? { id:'aceite', label:'Você aceitou', st:'wn', val:'carregando suas decisões…', why:'carregar suas decisões' }
+    : !a.n ? { id:'aceite', label:'Você aceitou', st:'na', val:'nada a aceitar' }
     : a.done>=a.n ? { id:'aceite', label:'Você aceitou', st:'ok', val:`${a.n} de ${a.n}` }
     : { id:'aceite', label:'Você aceitou', st:'wn', val:`${a.done} de ${a.n}`+(a.stale?` · ${a.stale} mudou depois`:''), why:`você aceitar ${a.n-a.done===1?(a.first||'1 requisito'):(a.n-a.done)+' requisitos'}` });
   const r=x.rev||{}, last=(r.rounds||[]).slice(-1)[0];
@@ -130,7 +133,7 @@ function prvGateExit(g, first){
   if(g.st!=='bad' && g.st!=='wn') return '';
   if(g.id==='prova') return `<button type="button" class="lnk" data-prvx="prova">pedir a prova ao agente</button><button type="button" class="lnk sec" data-prvx="semprova">aprovar sem prova…</button>`;
   if(g.id==='aceite') return `<button type="button" class="lnk" data-prvx="aceite">revisar ${esc(first?'R'+(first.i+1):'')}</button>`;
-  if(g.id==='revisor') return `<button type="button" class="lnk" data-prvx="revisor">ver o que ele pediu</button>`;
+  if(g.id==='revisor') return g.st==='bad'?`<button type="button" class="lnk" data-prvx="revisor">ver o que ele pediu</button>`:'';
   if(g.id==='checks') return `<button type="button" class="lnk" data-prvx="checks">pedir correção ao agente</button>`;
   if(g.id==='conflito') return `<button type="button" class="lnk" data-prvx="conflito">resolver com IA</button>`;
   return '';
@@ -156,11 +159,15 @@ function rvStEnsure(taskId){
 }
 async function rvStSave(taskId){
   const s=rvSt[taskId]; if(!s) return false;
+  // a leitura falhou: gravar agora apagaria as decisões que estão no banco — recarrega antes
+  if(s.err){ toast('suas decisões desta tarefa não carregaram — tentando de novo; faça a decisão outra vez em seguida','warn'); delete rvSt[taskId]; rvStEnsure(taskId); return false; }
   try{ await invoke('review_state_set',{ taskId, json:JSON.stringify({ acc:s.acc, out:s.out }) }); return true; }
   catch(e){ showErr(e, 'Não consegui guardar a sua decisão da revisão'); return false; }
 }
 // arquivos de CÓDIGO da tarefa (sem anexos/artefatos do Starfork)
-function rvCodeFiles(){ return (fwFiles||[]).filter(f=>!f.doc && !/^\.cardume\//.test(f.path)).slice(0,150); }
+const RV_MAX_FILES=400;
+function rvCodeFilesAll(){ return (fwFiles||[]).filter(f=>!f.doc && !/^\.cardume\//.test(f.path)); }
+function rvCodeFiles(){ return rvCodeFilesAll().slice(0,RV_MAX_FILES); }
 // diffs de todos os arquivos (mesmo cache do Código/diff completo: 1 busca por versão do arquivo), 4 em voo
 function rvDiffsEnsure(t){
   const want=rvCodeFiles().filter(f=>fwDiffCache[fwDiffKey(t, f.path)]===undefined);
@@ -171,13 +178,16 @@ function rvDiffsEnsure(t){
   Promise.all([next(),next(),next(),next()]).finally(()=>{ delete rvLoading[t.id]; rvRerender(t.id); });
 }
 // → { files:[{path,hunks}], errs:[path], ready }
+// → { files:[{path,hunks}], errs:[path], bin:[path] (mudou mas sem trecho de texto), cut:n (além do limite), ready }
+// ready=false enquanto falta diff OU algum falhou OU a lista de arquivos falhou: o aceite não grava assinatura incompleta
 function rvDiffsOf(t){
-  const files=[], errs=[]; let ready=!fwFilesLoading;
+  const files=[], errs=[], bin=[]; let ready=!fwFilesLoading && !fwFilesErr;
   for(const f of rvCodeFiles()){ const d=fwDiffCache[fwDiffKey(t, f.path)];
     if(d==null){ ready=false; continue; }
-    if(typeof d==='object'){ errs.push(f.path); continue; }
-    if(d.trim()) files.push({ path:f.path, hunks:diffHunks(d).hunks }); }
-  return { files, errs, ready };
+    if(typeof d==='object'){ errs.push(f.path); ready=false; continue; }
+    if(!d.trim()) continue;
+    const hs=diffHunks(d).hunks; if(hs.length) files.push({ path:f.path, hunks:hs }); else bin.push(f.path); }
+  return { files, errs, bin, cut:Math.max(0, rvCodeFilesAll().length-RV_MAX_FILES), ready };
 }
 // tudo o que as duas abas precisam, num lugar só
 function rvModel(t){
@@ -200,6 +210,7 @@ function rvKeyOf(t, m){ let k=rvSel[t.id]; const ok=k==='out'?m.map.out.length:k
   return k; }
 function rvStatusOf(r){ return r.acc==='acc'?'acc':r.st==='ok'&&r.evidence.length?'ok':'no'; }
 function rvSmallOf(r){
+  if(r.status==='deferred') return 'adiado por decisão sua';
   if(r.acc==='acc') return r.accEntry&&r.accEntry.noProof?'você aceitou sem prova':'você aceitou';
   if(r.acc==='stale') return 'mudou depois do seu aceite';
   if(r.st==='ok'&&r.evidence.length) return 'com prova · falta você aceitar';
@@ -241,6 +252,7 @@ function rvProofHtml(t, r){
 }
 function rvDetailHtml(t, m, sel){
   const ui=rvUiOf(t.id);
+  if(!m.rows.length && !m.map.out.length && !m.map.unc.length) return `<div class="rvr"><p class="rvwhy dim">${m.df.ready?'Nada pra revisar aqui: esta tarefa não tem requisitos nem mudanças de código.':'Lendo as mudanças da tarefa…'}</p></div>`;
   if(sel==='out'||sel==='unc'){
     const list=sel==='out'?m.map.out:m.map.unc;
     const nFiles=new Set(list.map(x=>x.path)).size;
@@ -272,7 +284,7 @@ function rvDetailHtml(t, m, sel){
   return `<div class="rvr">${meta}<h3>R${r.i+1} ${esc(r.text)}</h3><p class="rvwhy"><b>O que o agente diz que fez:</b> ${did?esc(did):'<span class="dim">o agente não descreveu</span>'}</p>${rvProofHtml(t, r)}${noRefs}${r.refs.map(x=>rvHunkCard(t, x, m)).join('')}</div>${askBox}${npBox}${foot}`;
 }
 function rvTopHtml(t, m){
-  const n=m.rows.length, acc=m.rows.filter(r=>r.acc==='acc').length;
+  const live=m.rows.filter(r=>r.status!=='deferred'), n=live.length, acc=live.filter(r=>r.acc==='acc').length;
   const last=rvRounds(t).slice(-1)[0];
   const revTx=last ? (last.verdict==='aprova'?`aprovou (rodada ${last.round})`:last.verdict==='muda'?`pediu ${nPl(last.items.length,'mudança','mudanças')} (rodada ${last.round})`:`veredito ilegível (rodada ${last.round})`)
     : rvHasReviewer(t)?'ainda não revisou':'';
@@ -282,7 +294,10 @@ function rvTopHtml(t, m){
   if(m.map.out.length) parts.push(`<span><b class="rvwarn">${nPl(m.map.out.length,'trecho')}</b> fora dos requisitos</span>`);
   if(m.map.unc.length) parts.push(`<span><b class="rvwarn">${nPl(m.map.unc.length,'trecho')}</b> sem ligação</span>`);
   if(revTx) parts.push(`<span>Revisor: ${last&&last.verdict==='muda'?`<button type="button" class="lnk rvloose" data-rvloose aria-expanded="${rvUiOf(t.id).loose}"><b>${esc(revTx)}</b></button>`:`<b>${esc(revTx)}</b>`}</span>`);
-  if(m.df.errs.length) parts.push(`<span class="rvwarn" title="${escA(m.df.errs.join('\n'))}">não consegui ler ${nPl(m.df.errs.length,'arquivo')}</span>`);
+  if(m.df.errs.length) parts.push(`<span class="rvwarn" title="${escA(m.df.errs.join('\n'))}">não consegui ler ${nPl(m.df.errs.length,'arquivo')} <button type="button" class="lnk" data-rvretry>tentar de novo</button></span>`);
+  if(fwFilesErr) parts.push(`<span class="rvwarn" title="${escA(fwFilesErr)}">não consegui listar os arquivos da tarefa</span>`);
+  if(m.df.bin.length) parts.push(`<span class="rvwarn" title="${escA(m.df.bin.join('\n'))}">${nPl(m.df.bin.length,'arquivo')} sem trecho de texto (binário ou renomeado) — veja no diff completo</span>`);
+  if(m.df.cut) parts.push(`<span class="rvwarn">${nPl(m.df.cut,'arquivo')} além de ${RV_MAX_FILES} ficaram fora desta tela — veja no diff completo</span>`);
   if(m.st.err) parts.push(`<span class="rvwarn" title="${escA(m.st.err)}">suas decisões não carregaram</span>`);
   const looseBox=rvUiOf(t.id).loose && last && last.verdict==='muda'
     ? `<div class="rvlooselist"><b>O que o revisor pediu na rodada ${last.round}</b><ul>${(last.items||[]).map((it,j)=>`<li><span>${esc(it)}</span><button type="button" class="lnk" data-rvitem="${j}">mandar pro agente</button></li>`).join('')}</ul>${loose.length<(last.items||[]).length?'<small class="dim">Os que citam arquivo:linha também aparecem presos ao trecho.</small>':''}</div>` : '';
@@ -292,7 +307,7 @@ function rvRender(t, main){
   const m=rvModel(t);
   if(!m.loaded && !m.rows.length){ ldPaint(main, skeletonHtml('lista',{ head:true, n:5, inline:true, label:'carregando a revisão' })); return; }
   const sel=rvKeyOf(t, m);
-  const html=`<div class="rvroot" data-tk="${escA(t.id)}">${rvTopHtml(t, m)}<div class="rv"><nav class="rvl" aria-label="requisitos">${rvListHtml(t, m, sel)}</nav><section class="rvc" aria-live="polite">${rvDetailHtml(t, m, sel)}</section></div></div>`;
+  const html=`<div class="rvroot" data-tk="${escA(t.id)}">${rvTopHtml(t, m)}<div class="rv"><nav class="rvl" aria-label="requisitos">${rvListHtml(t, m, sel)}</nav><section class="rvc" aria-label="requisito selecionado">${rvDetailHtml(t, m, sel)}</section></div></div>`;
   if(main.__rvHtml===html && main.querySelector('.rvroot')) return; // o tick do poll não recria (rolagem, foco, rascunho)
   const ae=document.activeElement, hadFocus=ae&&ae.id&&main.contains(ae)?ae.id:'';
   main.innerHTML=html; main.__rvHtml=html;
@@ -312,6 +327,7 @@ async function rvClick(taskId, e){
   if(d.rvsel!=null){ if(rvSel[taskId]!==d.rvsel){ rvSel[taskId]=d.rvsel; ui.ask=''; ui.noProof=''; ui.draft=''; } renderWorkspace(); const r=document.querySelector('#fwMain .rvr'); if(r) r.scrollTop=0; const nb=document.querySelector(`#fwMain [data-rvsel="${d.rvsel}"]`); if(nb) nb.focus(); return; }
   if(d.rvfull!=null){ rvViewM[taskId]='diff'; fwRememberTab(); renderWorkspace(); return; }
   if(d.rvloose!=null){ ui.loose=!ui.loose; renderWorkspace(); return; }
+  if(d.rvretry!=null){ for(const f of rvCodeFiles()){ const k=fwDiffKey(t, f.path); if(fwDiffCache[k] && typeof fwDiffCache[k]==='object') fwDiffCache[k]=undefined; } renderWorkspace(); return; }
   const m=rvModel(t), sel=rvKeyOf(t, m), r=sel[0]==='r'?m.rows[+sel.slice(1)]:null;
   if(d.rvproof!=null && r){ const ev=(r.evidence||[]).map(String), imgs=ev.filter(x=>RV_IMG.test(x));
     if(imgs.length) lbOpen(t.id, imgs, 0); else if(ev[0]) openArtifact(t.id, ev[0]); return; }
@@ -338,14 +354,15 @@ async function rvClick(taskId, e){
       b.disabled=true; b.textContent='enviando…';
       const ok=await fwSendText(t.id, `Estes trechos não pertencem a nenhum requisito da tarefa e eu NÃO quero que fiquem — desfaça (volte ao que estava na base), rode os testes e atualize o requirements.json:\n${list.map(x=>'- '+rvRefsTx([x])).join('\n')}`);
       if(!ok){ b.disabled=false; b.textContent='pedir pra desfazer'; return; }
-      list.forEach(x=>{ st.out[x.key]='undo'; }); await rvStSave(taskId); toast('pedido enviado ao agente','ok');
-    } else { list.forEach(x=>{ st.out[x.key]='keep'; }); if(await rvStSave(taskId)) toast(nPl(list.length,'trecho')+' mantido'+(list.length>1?'s':''),'ok'); }
+      const prev={ ...st.out }; list.forEach(x=>{ st.out[x.key]='undo'; });
+      if(await rvStSave(taskId)) toast('pedido enviado ao agente','ok'); else st.out=prev;
+    } else { const prev={ ...st.out }; list.forEach(x=>{ st.out[x.key]='keep'; }); if(await rvStSave(taskId)) toast(nPl(list.length,'trecho')+' mantido'+(list.length>1?'s':''),'ok'); else st.out=prev; }
     rvRerender(taskId); return; }
   if(!r) return;
   if(d.rvacc!=null){ const st=rvSt[taskId]; if(!st||!m.df.ready){ toast(st?'ainda lendo os trechos deste requisito — tente de novo em instantes':'suas decisões ainda estão carregando — tente de novo em instantes','warn'); return; }
     const k=rvNorm(r.text);
     if(r.acc==='acc') delete st.acc[k]; else st.acc[k]={ at:Date.now(), sig:r.sig };
-    if(!await rvStSave(taskId)){ if(r.acc==='acc') st.acc[k]=r.accEntry; else delete st.acc[k]; }
+    if(!await rvStSave(taskId)){ if(r.accEntry) st.acc[k]=r.accEntry; else delete st.acc[k]; }
     else if(r.acc!=='acc'){ const nx=m.rows.find(x=>x.i>r.i && x.acc!=='acc'); if(nx) rvSel[taskId]='r'+nx.i; }
     rvRerender(taskId); return; }
   if(d.rvproofask!=null){ b.disabled=true;
@@ -358,24 +375,25 @@ async function rvClick(taskId, e){
     b.disabled=true; b.textContent='enviando…';
     const ok=await fwSendText(t.id, `Mudança pedida no requisito "${r.text}":\n${tx}`+(r.refs.length?`\nTrechos deste requisito: ${rvRefsTx(r.refs)}`:'')+'\nDepois rode os testes e atualize a prova e o requirements.json (did/code/tests).');
     if(!ok){ b.disabled=false; b.textContent='mandar pro agente'; return; }
-    ui.ask=''; ui.draft=''; const st=rvSt[taskId]; if(st && st.acc[rvNorm(r.text)]){ delete st.acc[rvNorm(r.text)]; rvStSave(taskId); }
+    ui.ask=''; ui.draft=''; const st=rvSt[taskId], k=rvNorm(r.text); if(st && st.acc[k]){ const old=st.acc[k]; delete st.acc[k]; if(!await rvStSave(taskId)) st.acc[k]=old; }
     toast('pedido enviado ao agente','ok'); rvRerender(taskId); return; }
   if(d.rvnpsend!=null){ const why=String(ui.draft||'').trim(); const words=why.split(/\s+/).filter(w=>/[\p{L}\p{N}]{2,}/u.test(w));
     if(words.length<3){ const el=$id('rvNpTx'); if(el) el.focus(); toast('escreva o motivo em uma frase (pelo menos 3 palavras)','warn'); return; }
     const st=rvSt[taskId]; if(!st||!m.df.ready){ toast('ainda carregando — tente de novo em instantes','warn'); return; }
     st.acc[rvNorm(r.text)]={ at:Date.now(), sig:r.sig, noProof:why.slice(0,400) };
-    if(await rvStSave(taskId)){ ui.noProof=''; ui.draft=''; toast('aceito sem prova — o motivo fica registrado','ok'); } else delete st.acc[rvNorm(r.text)];
+    if(await rvStSave(taskId)){ ui.noProof=''; ui.draft=''; toast('aceito sem prova — o motivo fica registrado. No PR, o portão de prova ainda pede "aprovar sem prova…" (vai na descrição)','ok'); } else { if(r.accEntry) st.acc[rvNorm(r.text)]=r.accEntry; else delete st.acc[rvNorm(r.text)]; }
     rvRerender(taskId); return; }
 }
 
 // ---------- PR: pronto pra integrar? ----------
 function prvGates(t, info){
   const m=rvModel(t), pg=proofGate(t);
-  const n=m.rows.length, done=m.rows.filter(r=>r.acc==='acc').length, stale=m.rows.filter(r=>r.acc==='stale').length;
-  const first=m.rows.find(r=>r.acc!=='acc');
+  const live=m.rows.filter(r=>r.status!=='deferred'); // adiado por decisão sua (ask_human) não pede aceite
+  const n=live.length, done=live.filter(r=>r.acc==='acc').length, stale=live.filter(r=>r.acc==='stale').length;
+  const first=live.find(r=>r.acc!=='acc');
   const gates=rvGatesOf({
     proof:{ st:pg.st, n, missing:(pg.missing||[]).length },
-    acc:{ n, done, stale, first:first?'R'+(first.i+1):'' },
+    acc:{ n, done, stale, first:first?'R'+(first.i+1):'', loading:rvSt[t.id]==null },
     rev:{ has:rvHasReviewer(t), rounds:rvRounds(t), override:!!((t.spec||{}).reviewOverride&&(t.spec||{}).reviewOverride.reason) },
     pr:{ checksTotal:info.checksTotal, checksFail:info.checksFail, checksPending:info.checksPending, failing:info.failingChecks||[], mergeable:info.mergeable, base:info.baseRefName||'main' },
   });
@@ -405,11 +423,11 @@ function prvTimeline(t, info){
       cm:{ body:x.r.body, open, acts:open?`<button type="button" class="lnk" data-prfixrev="${escA(x.key)}" data-prtask="${escA(t.id)}">corrigir com o agente</button><button type="button" class="lnk sec" data-prign="${escA(x.key)}">ignorar</button>${x.r.url?`<button type="button" class="lnk sec" data-prgh="${escA(x.r.url)}">responder no GitHub</button>`:''}`:'' } }); }
   for(const c of prRoots(info)){ const done=prCmtDone(c, ign); if(done){ doneN++; if(!showDone) continue; }
     E.push({ at:Date.parse(c.createdAt||'')||3, dot:done?'':'cm', title:`${c.author} comentou no GitHub${c.path?` · ${c.path}${c.line?':'+c.line:''}`:''}`, sub:[prvAgo(c.createdAt), c.resolved?'resolvido':c.answered?'respondido':c.outdated?'desatualizado':done?'ignorado':''].filter(Boolean).join(' · '),
-      cm:{ body:c.body, open:!done, acts:!done?`<button type="button" class="lnk" data-prfix="${escA(prCmtKey(c))}">corrigir com o agente</button><button type="button" class="lnk sec" data-prign="${escA(prCmtKey(c))}">ignorar</button>${c.url?`<button type="button" class="lnk sec" data-prgh="${escA(c.url)}">responder no GitHub</button>`:''}`:'' } }); }
+      cm:{ body:c.body, open:!done, acts:!done?`<button type="button" class="lnk" data-prfix="${escA(prCmtKey(c))}">corrigir com o agente</button>${c.threadId?`<button type="button" class="lnk sec" data-prresolve="${escA(c.threadId)}" data-prtask="${escA(t.id)}">resolver</button>`:''}<button type="button" class="lnk sec" data-prign="${escA(prCmtKey(c))}">ignorar</button>${c.url?`<button type="button" class="lnk sec" data-prgh="${escA(c.url)}">responder no GitHub</button>`:''}`:'' } }); }
   const tot=info.checksTotal||0, fail=info.checksFail||0, pend=info.checksPending||0;
   if(tot) E.push({ at:Number.MAX_SAFE_INTEGER, dot:fail?'bad':pend?'wn':'ok', title:'Checagens do GitHub', sub:fail?`${fail} falhou${(info.failingChecks||[]).length?': '+info.failingChecks.join(', '):''}`:pend?`${pend} rodando`:`${tot} de ${tot} passaram` });
   E.sort((a,b)=>a.at-b.at);
-  const html=E.map(e=>`<li><span class="prvd ${e.dot}" aria-hidden="true"></span><div><b>${esc(e.title)}</b>${e.sub?`<small>${esc(e.sub)}</small>`:''}${e.cm?`<div class="prvcm${e.cm.open?'':' done'}"><div class="prcmt-b clamp">${chatMd(String(e.cm.body||'').slice(0,4000))}</div>${e.cm.acts?`<div class="prvacts">${e.cm.acts}</div>`:''}</div>`:''}</div></li>`).join('');
+  const html=E.map(e=>`<li><span class="prvd ${e.dot}" aria-hidden="true"></span><div><b>${esc(e.title)}</b>${e.sub?`<small>${esc(e.sub)}</small>`:''}${e.cm?`<div class="prvcm${e.cm.open?'':' done'}">${String(e.cm.body||'').length>600?`<div class="prcmt-b clamp">${chatMd(String(e.cm.body||'').slice(0,4000))}</div><button type="button" class="lnk sec" data-prmore>ver mais</button>`:`<div class="prcmt-b">${chatMd(String(e.cm.body||''))}</div>`}${e.cm.acts?`<div class="prvacts">${e.cm.acts}</div>`:''}</div>`:''}</div></li>`).join('');
   const toggle=doneN?`<button type="button" class="lnk" data-prshowdone data-prtask="${escA(t.id)}">${showDone?'ocultar resolvidos':`mostrar resolvidos (${doneN})`}</button>`:'';
   return { html, toggle };
 }
@@ -418,7 +436,8 @@ function prvRender(t, main, info){
   const open=info.state==='OPEN';
   const extra=open?prvExtraBlock(info):'';
   const why=open?rvMissingText(gates, extra):'';
-  const fixable=gates.some(g=>g.st==='bad' && ['prova','revisor','checks','conflito'].includes(g.id));
+  const openCm=prvOpenComments(t, info).length;
+  const fixable=openCm>0 || gates.some(g=>g.st==='bad' && ['prova','revisor','checks','conflito'].includes(g.id));
   const gHtml=gates.map(g=>`<div class="prvg ${g.st}"><span class="prvst">${g.st==='ok'?'ok':g.st==='bad'?'falhou':g.st==='wn'?'falta':g.st==='run'?'andando':'não se aplica'}</span><b>${esc(g.label)}</b><small>${esc(g.val)}</small>${prvGateExit(g, first)}</div>`).join('');
   const head=info.state==='MERGED'?'Integrado na '+esc(info.baseRefName||'main'):info.state==='CLOSED'?'PR fechado sem integrar':'Pronto pra integrar?';
   const bar=open?`<div class="prvbar"><button type="button" class="btn primary prvmerge" id="prvMerge"${why?` disabled aria-describedby="prvWhy"`:''}>${IC.merge} Integrar na ${esc(info.baseRefName||'main')}</button>${why?`<span class="prvwhy" id="prvWhy">${esc(why)}</span>${fixable?'<button type="button" class="btn" id="prvFixAll">'+IC.ai+' corrigir tudo com o agente</button>':''}`:'<span class="prvwhy">Integra com squash e apaga a branch remota.</span>'}<span class="rvsp"></span><button type="button" class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button type="button" class="btn sm" id="prPgCopy">copiar link</button><button type="button" class="btn sm" id="prPgRefresh">atualizar</button></div>`
@@ -432,20 +451,25 @@ function prvRender(t, main, info){
   const outLine=m.map.out.length?`<p class="prvout">${nPl(m.map.out.length,'trecho')} fora dos requisitos${kept?` · ${kept} mantido${kept>1?'s':''} por você`:' · você ainda não decidiu'} <button type="button" class="lnk" data-prvx="fora">ver</button></p>`:'';
   const rep=(typeof cicloReportFor==='function')?cicloReportFor(t).trim():'';
   const tl=prvTimeline(t, info);
-  main.innerHTML=`<div class="prv">
+  const html=`<div class="prv" data-tk="${escA(t.id)}">
     <div class="prvready">
-      <div class="prvtop"><span class="prvnum mono">#${info.number}</span><h3>${head}</h3><span class="prvbr mono">${esc(t.branch)} → ${esc(info.baseRefName||'main')}</span>${prStateBadge(info)}<span class="rvsp"></span><span class="dim prvage" id="prAge">${prAgoTx(info._at)}${info.staleErr?' · <span class="rvwarn">sem conexão com o GitHub agora</span>':''}</span></div>
+      <div class="prvtop"><span class="prvnum mono">#${info.number}</span><h3>${head}</h3><span class="prvbr mono">${esc(t.branch)} → ${esc(info.baseRefName||'main')}</span>${prStateBadge(info)}<span class="rvsp"></span><span class="dim prvage" id="prAge"></span>${info.staleErr?'<span class="rvwarn prvage">sem conexão com o GitHub agora</span>':''}</div>
       ${open?`<div class="prvgates">${gHtml}</div>`:''}
       ${bar}
     </div>
     <div class="prvcols">
       <div><h5 class="rvh">O que entra</h5>${facts}${rlist}${outLine}
         ${rep?`<h5 class="rvh">Relatório Starfork <span class="dim">(vai no corpo do PR)</span></h5><div class="prvrep">${mdToHtml(rep.replace(/^## Relatório Starfork\s*/,''))}</div>`:''}
-        ${info.body?`<details class="prvbody"><summary>descrição do PR no GitHub</summary><div class="prbody">${chatMd(info.body)}</div></details>`:''}
+        ${info.body?`<details class="prvbody"${prvBodyOpen[t.id]?' open':''}><summary>descrição do PR no GitHub</summary><div class="prbody">${chatMd(info.body)}</div></details>`:''}
       </div>
       <div><div class="prvtlh"><h5 class="rvh">Linha do tempo</h5>${tl.toggle}</div><ol class="prvtl">${tl.html}</ol></div>
     </div>
   </div>`;
+  // o poll repinta a cada poucos segundos: com o mesmo HTML não recria (rolagem, foco, descrição aberta ficam)
+  const age=()=>{ const a=$id('prAge'); if(a) a.textContent=prAgoTx(info._at); };
+  if(main.__prvHtml===html && main.querySelector('.prv')){ age(); return; }
+  main.innerHTML=html; main.__prvHtml=html; age();
+  { const dt=main.querySelector('.prvbody'); if(dt) dt.ontoggle=()=>{ prvBodyOpen[t.id]=dt.open; }; }
   bindClick('prPgOpen', ()=>openExternal(info.url));
   bindClick('prPgCopy', (e)=>copyLink(info.url, e.currentTarget));
   bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='atualizando…'; await loadPr(t.id,true); renderWorkspace(); });
@@ -461,6 +485,13 @@ function prvRender(t, main, info){
   root.querySelectorAll('[data-prfix]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='enviando…'; let ok=false; try{ ok=await prFixOne(t.id, b.dataset.prfix); }finally{ if(ok) toast('pedido enviado ao agente','ok'); renderWorkspace(); } });
   root.querySelectorAll('[data-prign]').forEach(b=>b.onclick=()=>{ prIgnAdd(t.id,b.dataset.prign); renderWorkspace(); });
 }
+const prvBodyOpen={}; // taskId → descrição do PR aberta
+// comentários/reviews do GitHub ainda em aberto (mesma régua da linha do tempo)
+function prvOpenComments(t, info){
+  const ign=prIgnSet(t.id);
+  return [...prRevList(info).filter(x=>prRevOpen(info,x,ign)).map(x=>({ who:x.r.author, where:'review', body:x.r.body })),
+    ...prRoots(info).filter(c=>!prCmtDone(c,ign)).map(c=>({ who:c.author, where:c.path?`${c.path}${c.line?':'+c.line:''}`:'conversa do PR', body:c.body }))];
+}
 function prvChecksMsg(info){
   const failing=Array.isArray(info.failingChecks)?info.failingChecks.filter(Boolean):[];
   return `As checagens do PR #${info.number} estão falhando no GitHub${failing.length?` (${failing.join(', ')})`:''}. Veja o log de cada uma (gh pr checks ${info.number} / gh run view --log-failed), corrija a causa na branch, rode os testes localmente e faça commit + push.`;
@@ -475,6 +506,8 @@ async function prvFixAll(t, info, btn){
   if(gates.find(g=>g.id==='revisor'&&g.st==='bad') && last) parts.push(`O revisor pediu na rodada ${last.round}:\n${(last.items||[]).map(x=>'- '+x).join('\n')}`);
   if(gates.find(g=>g.id==='checks'&&g.st==='bad')) parts.push(prvChecksMsg(info));
   if(gates.find(g=>g.id==='conflito'&&g.st==='bad')) parts.push(`A branch conflita com a ${info.baseRefName||'main'}: traga a base (git fetch + merge de origin/${info.baseRefName||'main'}), resolva os conflitos mantendo o que cada lado quis, rode os testes e faça commit + push.`);
+  const cms=prvOpenComments(t, info);
+  if(cms.length) parts.push(`Comentários em aberto no PR #${info.number} (responda cada um no GitHub começando com "✔" e dizendo o que mudou):\n${cms.map(c=>`- ${c.who} (${c.where}): ${String(c.body||'').replace(/\s+/g,' ').slice(0,400)}`).join('\n')}`);
   if(!parts.length){ toast('nada aqui que o agente consiga corrigir sozinho — o que falta é com você','info'); return; }
   if(btn){ btn.disabled=true; btn.textContent='enviando…'; }
   const ok=await fwSendText(t.id, 'Pra integrar o PR, resolva tudo isto, em ordem, e me avise:\n\n'+parts.map((p,i)=>`${i+1}) ${p}`).join('\n\n'));

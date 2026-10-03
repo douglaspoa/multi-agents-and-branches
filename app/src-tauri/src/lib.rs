@@ -5981,9 +5981,9 @@ fn get_estimate(state: State<AppState>, task_id: String) -> Result<Option<String
 // Tabela própria (não o spec_json): o orquestrador regrava o spec inteiro em alguns pontos e apagaria o aceite.
 const REVIEW_STATE_SQL: &str = "CREATE TABLE IF NOT EXISTS task_review_state (task_id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL)";
 fn review_state_write(conn: &Connection, task_id: &str, json: &str) -> Result<(), String> {
+    if json.len() > 512 * 1024 { return Err("estado da revisão grande demais".into()); }
     let v: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("estado da revisão inválido: {e}"))?;
     if !v.is_object() { return Err("estado da revisão inválido: esperado um objeto".into()); }
-    if json.len() > 512 * 1024 { return Err("estado da revisão grande demais".into()); }
     let _ = conn.execute(REVIEW_STATE_SQL, []);
     conn.execute(
         "INSERT INTO task_review_state(task_id,json,updated_at) VALUES(?1,?2,?3) ON CONFLICT(task_id) DO UPDATE SET json=?2, updated_at=?3",

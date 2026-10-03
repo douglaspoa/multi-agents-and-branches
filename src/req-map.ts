@@ -8,7 +8,7 @@ export interface ReqCode { file: string; lines?: string }
 export interface ReqTest { name: string; status: "pass" | "fail" | "missing" }
 export interface ReqEntry { req: string; status?: string; evidence?: string[]; note?: string; did?: string; code?: ReqCode[]; tests?: ReqTest[]; [k: string]: unknown }
 
-const norm = (s: unknown) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+export const norm = (s: unknown) => String(s ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, " ").trim();
 
 /** "12-30" | "12" | "12–30" | [12, 30] → "12-30" (vazio = o arquivo inteiro). Lixo → null. */
 export function normLines(v: unknown): string | null {
@@ -48,7 +48,7 @@ export function cleanTests(list: unknown): ReqTest[] {
  * listado entra com status "pending" (sem prova). Status/evidência existentes NÃO mudam aqui — prova é outra coisa.
  */
 export function mergeReqMap(list: unknown, m: { req: string; did?: string; code?: unknown; tests?: unknown }): { list: ReqEntry[]; entry: ReqEntry } {
-  const arr: ReqEntry[] = Array.isArray(list) ? (list as ReqEntry[]).filter((x) => x && typeof x === "object") : [];
+  const arr: ReqEntry[] = (Array.isArray(list) ? list as ReqEntry[] : []).filter((x) => x && typeof x === "object");
   const key = norm(m.req);
   let e = arr.find((x) => norm(x.req) === key);
   if (!e) { e = { req: String(m.req).trim(), status: "pending", evidence: [] }; arr.push(e); }

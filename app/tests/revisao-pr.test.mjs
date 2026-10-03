@@ -142,8 +142,57 @@ test('fiação: script e css no index, despacho da Revisão, merge passa pelos p
   assert.match(ws, /rvViewOf\(t\.id\)!=='diff'\) rvRender\(t, main\); else fwRenderDiff\(t, main\)/, '"ver diff completo" mantém o diff de antes');
   assert.match(ws, /prvRender\(t, main, info\)/);
   const pr = rd('../src/js/21-pull-request.js');
-  assert.match(pr, /async function mergePr\(taskId\)\{[\s\S]{0,400}prvMergeWhy\(t, prCache\[taskId\]\)/);
+  assert.match(pr, /async function mergePr\(taskId\)\{[\s\S]{0,900}prvMergeWhy\(t, prCache\[taskId\]\)/);
   assert.doesNotMatch(src, /window\.confirm|[^.\w]confirm\(/);
   assert.match(rd('../src-tauri/src/lib.rs'), /#\[tauri::command\(async\)\]\nfn review_state_set/);
   assert.match(rd('../src-tauri/src/lib.rs'), /#\[tauri::command\(async\)\]\nfn review_state_get/);
+});
+
+// ---- a régua do merge de verdade (prvGates → prvMergeWhy), com o modelo da tarefa simulado ----
+function mergeCtx({ rows, rvStLoaded = true, proof, rounds = [], reviewer = true }) {
+  const c = ctx();
+  Object.assign(c, {
+    rvSt: { t1: rvStLoaded ? { acc: {}, out: {} } : null },
+    rvModel: () => ({ rows, map: { out: [], unc: [] }, st: { acc: {}, out: {} } }),
+    proofGate: () => proof,
+    rvRounds: () => rounds, rvHasReviewer: () => reviewer,
+    prMergeBlock: (info) => (!info || info.state !== 'OPEN' ? 'o PR não está aberto' : ''),
+  });
+  vm.runInContext(cut(src, '// ---------- PR: pronto pra integrar? ----------', 'function prvAgoMs('), c);
+  return c;
+}
+const T1 = { id: 't1', spec: {}, roles: [] };
+const PR = (o = {}) => ({ state: 'OPEN', isDraft: false, mergeable: 'MERGEABLE', checksTotal: 2, checksFail: 0, checksPending: 0, failingChecks: [], baseRefName: 'main', ...o });
+const row = (i, acc, extra = {}) => ({ i, text: 'R' + i, st: 'ok', evidence: ['p.png'], acc, ...extra });
+
+test('prvMergeWhy: tudo verde libera; rascunho, aceite faltando, aceite desatualizado, revisor "muda" e carregando bloqueiam', () => {
+  const ok = { st: 'proven', missing: [] };
+  const green = mergeCtx({ rows: [row(0, 'acc'), row(1, 'acc')], proof: ok, rounds: [{ round: 1, verdict: 'aprova', items: [] }] });
+  assert.equal(green.prvMergeWhy(T1, PR()), '');
+  assert.equal(green.prvMergeWhy(T1, PR({ isDraft: true })), 'Falta: tirar o PR do rascunho no GitHub.');
+  assert.equal(green.prvMergeWhy(T1, PR({ state: 'MERGED' })), 'o PR não está aberto');
+  assert.match(mergeCtx({ rows: [row(0, 'acc'), row(1, '')], proof: ok, rounds: [{ round: 1, verdict: 'aprova', items: [] }] }).prvMergeWhy(T1, PR()), /você aceitar R2/);
+  assert.match(mergeCtx({ rows: [row(0, 'stale')], proof: ok, rounds: [{ round: 1, verdict: 'aprova', items: [] }] }).prvMergeWhy(T1, PR()), /você aceitar R1/, 'aceite desatualizado não conta');
+  assert.match(mergeCtx({ rows: [row(0, 'acc')], proof: ok, rounds: [{ round: 1, verdict: 'muda', items: ['x'] }] }).prvMergeWhy(T1, PR()), /o revisor aprovar/);
+  assert.match(mergeCtx({ rows: [row(0, 'acc')], proof: ok, rvStLoaded: false, rounds: [{ round: 1, verdict: 'aprova', items: [] }] }).prvMergeWhy(T1, PR()), /carregar suas decisões/);
+  assert.match(mergeCtx({ rows: [row(0, 'acc')], proof: { st: 'loading', missing: [] }, rounds: [{ round: 1, verdict: 'aprova', items: [] }] }).prvMergeWhy(T1, PR()), /conferir as provas/);
+  assert.match(green.prvMergeWhy(T1, PR({ mergeable: 'CONFLICTING' })), /resolver o conflito/);
+  // requisito adiado por decisão sua não pede aceite
+  assert.equal(mergeCtx({ rows: [row(0, 'acc'), row(1, '', { status: 'deferred' })], proof: ok, rounds: [{ round: 1, verdict: 'aprova', items: [] }] }).prvMergeWhy(T1, PR()), '');
+});
+
+test('reqRows leva did/code/tests/status do requirements.json; "pending" (mapeado, sem prova) não vira "travado"', () => {
+  const c = ctx();
+  const ka = rd('../src/js/23-kanban-artefatos-editor.js'), en = rd('../src/js/27-entregas.js');
+  c.reqProofCache = { t1: { list: [
+    { req: 'Botão remarcar', status: 'done', evidence: ['p.png'], did: 'pus o botão', code: [{ file: 'a.tsx', lines: '1-3' }], tests: [{ name: 'x', status: 'pass' }] },
+    { req: 'Aviso', status: 'pending', evidence: [], code: [{ file: 'api.ts' }] },
+    { req: 'Modo escuro', status: 'deferred', evidence: [] },
+  ] } };
+  vm.runInContext(cut(ka, 'function reqNorm(x){', 'function artCategory('), c);
+  vm.runInContext(cut(en, 'function reqRows(t){', '// nome AMIGÁVEL'), c);
+  const r = run(c, `reqRows({ id:'t1', requirements:['Botão remarcar','Aviso','Modo escuro'] })`);
+  assert.equal(r[0].st, 'ok'); assert.equal(r[0].did, 'pus o botão'); assert.deepEqual(r[0].code, [{ file: 'a.tsx', lines: '1-3' }]); assert.deepEqual(r[0].tests, [{ name: 'x', status: 'pass' }]);
+  assert.equal(r[1].st, 'na'); assert.deepEqual(r[1].code, [{ file: 'api.ts' }]);
+  assert.equal(r[2].status, 'deferred'); assert.equal(r[2].code, null, 'sem mapa = null (não [])');
 });

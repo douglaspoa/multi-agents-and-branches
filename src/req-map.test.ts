@@ -36,3 +36,65 @@ test("mergeReqMap casa pelo texto e não mexe na prova", () => {
   // arquivo lixo vira lista vazia, não quebra
   assert.deepEqual(mergeReqMap("lixo", { req: "x", code: [{ file: "a" }] }).list.length, 1);
 });
+
+// ---- a tool MCP de verdade (servidor do agente): grava o mapa SEM apagar as provas dos outros requisitos ----
+import { spawn } from "node:child_process";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Store } from "./store.ts";
+import type { TaskSpec } from "./types.ts";
+
+async function mcpCalls(db: string, calls: [string, unknown][]) {
+  const srv = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", fileURLToPath(new URL("./mcp/server.ts", import.meta.url))], {
+    env: { ...process.env, CARDUME_DB: db, CARDUME_TASK: "t1", CARDUME_AGENT: "Íris", CARDUME_ROLE: "builder" }, stdio: ["pipe", "pipe", "inherit"],
+  });
+  let buf = ""; const replies: Record<number, any> = {};
+  srv.stdout.on("data", (d) => { buf += d; let i; while ((i = buf.indexOf("\n")) >= 0) { const l = buf.slice(0, i); buf = buf.slice(i + 1); try { const o = JSON.parse(l); replies[o.id] = o; } catch { /* */ } } });
+  const out: any[] = []; let id = 0;
+  for (const [method, params] of calls) {
+    const my = ++id; srv.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: my, method, params }) + "\n");
+    for (let k = 0; k < 100 && !replies[my]; k++) await new Promise((r) => setTimeout(r, 50));
+    out.push(replies[my]);
+  }
+  srv.stdin.end(); await new Promise((r) => srv.on("close", r));
+  return out;
+}
+
+test("MCP map_requirement: preserva status/evidência, recusa requisito que não existe e JSON quebrado, aceita a forma {list}", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "starfork-reqmap-"));
+  try {
+    const dir = join(repo, ".cardume"); mkdirSync(dir, { recursive: true });
+    const store = new Store(join(dir, "state.sqlite"));
+    const wt = join(dir, "worktrees", "t1"); mkdirSync(join(wt, ".cardume", "artifacts"), { recursive: true });
+    store.createTask({ id: "t1", title: "T", objective: "o", agent: "Íris", roles: [], engine: "mock", deliverables: [], requirements: ["Botão remarcar", "Aviso por e-mail"], scope: { owns: [], offLimits: [] }, autonomy: { clarifications: "ask", commit: "at-end", runTests: true, approval: "auto" } } as unknown as TaskSpec, "feat/t1", wt, "main");
+    store.close();
+    const file = join(wt, ".cardume", "artifacts", "requirements.json");
+    writeFileSync(file, JSON.stringify([{ req: "Botão remarcar", status: "done", evidence: ["p.png"] }, { req: "Aviso por e-mail", status: "done", evidence: ["e.png"] }]));
+    const db = join(dir, "state.sqlite");
+    const [list, ok, bad] = await mcpCalls(db, [
+      ["tools/list", {}],
+      ["tools/call", { name: "map_requirement", arguments: { req: "botão REMARCAR", did: "pus o botão", code: [{ file: "src/A.tsx", lines: "84-88" }], tests: [{ name: "a › b", status: "pass" }] } }],
+      ["tools/call", { name: "map_requirement", arguments: { req: "Requisito inventado", code: [] } }],
+    ]);
+    assert.ok(list.result.tools.some((t: { name: string }) => t.name === "map_requirement"));
+    assert.equal(ok.result.isError, false, JSON.stringify(ok));
+    assert.equal(bad.result.isError, true, "requisito que não existe é recusado");
+    const after = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(after.length, 2, "não criou entrada pro requisito inventado");
+    assert.deepEqual(after[0], { req: "Botão remarcar", status: "done", evidence: ["p.png"], did: "pus o botão", code: [{ file: "src/A.tsx", lines: "84-88" }], tests: [{ name: "a › b", status: "pass" }] });
+    assert.deepEqual(after[1], { req: "Aviso por e-mail", status: "done", evidence: ["e.png"] }, "a prova do outro requisito ficou intacta");
+    // JSON quebrado: não sobrescreve
+    writeFileSync(file, "{ quebrado");
+    const [broken] = await mcpCalls(db, [["tools/call", { name: "map_requirement", arguments: { req: "Aviso por e-mail", code: [] } }]]);
+    assert.equal(broken.result.isError, true);
+    assert.equal(readFileSync(file, "utf8"), "{ quebrado");
+    // forma { list: [...] } (o orquestrador também lê assim): mantém a forma
+    writeFileSync(file, JSON.stringify({ list: [{ req: "Aviso por e-mail", status: "blocked", evidence: [] }] }));
+    const [wrapped] = await mcpCalls(db, [["tools/call", { name: "map_requirement", arguments: { req: "Aviso por e-mail", code: [{ file: "src/api.ts" }] } }]]);
+    assert.equal(wrapped.result.isError, false, JSON.stringify(wrapped));
+    const w = JSON.parse(readFileSync(file, "utf8"));
+    assert.equal(w.list[0].status, "blocked"); assert.deepEqual(w.list[0].code, [{ file: "src/api.ts" }]);
+  } finally { rmSync(repo, { recursive: true, force: true }); }
+});

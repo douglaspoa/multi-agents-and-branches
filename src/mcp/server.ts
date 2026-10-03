@@ -270,18 +270,24 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
     const task = store.getTask(TASK);
     if (!task) return { text: "tarefa não encontrada", isError: true };
     try {
-      const { mergeReqMap } = await import("../req-map.ts");
+      const { mergeReqMap, norm } = await import("../req-map.ts");
       const { readFile, writeFile, mkdir } = await import("node:fs/promises");
       const { join } = await import("node:path");
       const dir = join(task.worktree, ".cardume", "artifacts"), file = join(dir, "requirements.json");
-      let cur: unknown = [];
-      try { cur = JSON.parse(await readFile(file, "utf8")); } catch { /* ainda não existe: começa vazio */ }
       const known = (() => { try { return ((JSON.parse(task.spec_json) as TaskSpec).requirements ?? []).map(String); } catch { return []; } })();
-      const { list, entry } = mergeReqMap(cur, { req, did: args?.did, code: args.code, tests: args?.tests });
+      // requisito que não existe NÃO entra no arquivo (viraria um "pending" eterno no portão das provas)
+      if (known.length && !known.some((k) => norm(k) === norm(req))) return { text: `"${req.slice(0, 80)}" não é um requisito desta tarefa. Copie o texto exato de um destes: ${known.map((k) => `"${k}"`).join("; ")}`, isError: true };
+      let raw: string | null = null;
+      try { raw = await readFile(file, "utf8"); } catch { /* ainda não existe: começa vazio */ }
+      let cur: unknown = [];
+      if (raw != null && raw.trim()) {
+        try { cur = JSON.parse(raw); } catch { return { text: "o .cardume/artifacts/requirements.json está com JSON inválido — corrija o arquivo antes (não sobrescrevi pra não apagar as provas)", isError: true }; }
+      }
+      const wrapped = !Array.isArray(cur) && cur && typeof cur === "object" && Array.isArray((cur as { list?: unknown }).list);
+      const { list, entry } = mergeReqMap(wrapped ? (cur as { list: unknown }).list : cur, { req, did: args?.did, code: args.code, tests: args?.tests });
       await mkdir(dir, { recursive: true });
-      await writeFile(file, JSON.stringify(list, null, 2), "utf8");
-      const warn = known.length && !known.some((k) => k.trim().toLowerCase() === req.toLowerCase()) ? " ATENÇÃO: esse texto não bate com nenhum requisito do TASK.yaml — copie o texto exato." : "";
-      return { text: `mapa registrado: ${entry.code?.length ?? 0} trecho(s), ${entry.tests?.length ?? 0} teste(s) para "${req.slice(0, 80)}".${warn}` };
+      await writeFile(file, JSON.stringify(wrapped ? { ...(cur as object), list } : list, null, 2), "utf8");
+      return { text: `mapa registrado: ${entry.code?.length ?? 0} trecho(s), ${entry.tests?.length ?? 0} teste(s) para "${req.slice(0, 80)}".` };
     } catch (e) {
       return { text: `falha registrando o mapa: ${(e as Error).message}`, isError: true };
     }
