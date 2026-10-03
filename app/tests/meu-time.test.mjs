@@ -111,10 +111,12 @@ test('faixa da equipe: papéis + Provar + Entregar (cadeado 2) + Retro; cadeado 
   assert.equal(P.agTeamCost(roles, {}), null);
 });
 
-test('a faixa das equipes é a MESMA da tarefa (stageStripHtml) com rodapé próprio; compartilhar fica escondido (F5)', () => {
+test('a faixa das equipes é a MESMA da tarefa (stageStripHtml) com rodapé próprio; compartilhar só volta pela política (F5)', () => {
   assert.match(mt, /return stageStripHtml\(st, /);
   assert.match(ciclo, /o\.foot!=null\?/);
-  assert.match(sw, /data-wshare="\$\{i\}" hidden /);
+  // F5: escondido por padrão; só aparece pra admin de org com nuvem paga e passa pela política antes de publicar
+  assert.match(sw, /data-wshare="\$\{i\}"\$\{typeof orgCanShareTeams==='function'&&orgCanShareTeams\(\)\?'':' hidden'\}/);
+  assert.match(sw, /orgTeamShareBlock\(agTeamRoles\(/);
   assert.match(rd('css/96-meu-time.css'), /\[data-wshare\]\[hidden\]\{display:none!important\}/);
   for (const k of ['Feature com revisão', 'Página simples', 'Relatório conferido']) assert.ok(ciclo.includes(k), k);
   assert.match(mt, /const AG_READY_KINDS=\['codigo','pagina','documento'\]/);

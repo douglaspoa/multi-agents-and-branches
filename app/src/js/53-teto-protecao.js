@@ -119,6 +119,9 @@ async function budgetRelease(t, usd, reason){
   const r=releaseCheck(usd, reason); if(!r.ok) throw new Error(r.why);
   const sp=t.spec||{}, hit=sp.budgetHit||null, cap=budgetOf(t), spent=taskCost(t.id).usd;
   const capAfter=+(cap+r.usd).toFixed(2);
+  // F5 · P14: o teto máximo da política da organização vale também pra liberação (em palavra, com o valor)
+  { const max=sp.orgPolicy&&+sp.orgPolicy.tetoMaxUsd>0?+sp.orgPolicy.tetoMaxUsd:null;
+    if(max!=null && capAfter>max+1e-9) throw new Error('a política da organização limita o teto a '+fmtCost(max,{usdOnly:true})+' por tarefa — dá pra liberar no máximo '+fmtCost(Math.max(0,+(max-cap).toFixed(2)),{usdOnly:true})); }
   if(capCheck(spent, capAfter)!=='ok'){ const min=Math.max(0.01, Math.ceil((spent/CAP_PAUSE_AT-cap)*100+1)/100); throw new Error(`com ${fmtCost(r.usd,{usdOnly:true})} a tarefa ainda fica acima de 80% do teto — libere pelo menos ${fmtCost(min,{usdOnly:true})}`); }
   const rel={ usd:r.usd, reason:r.reason, at:Date.now(), capBefore:cap, capAfter };
   budgetBusy.add(t.id);
@@ -142,7 +145,9 @@ function budgetFieldWire(id){
   el.oninput=()=>{ const raw=parseFloat(el.value); const v=raw>0?raw:costCapDefault(); ntBudgetPending=v; const s=document.querySelector(`[data-brl="${id}"]`); if(s) s.textContent='≈ R$ '+fmtNumBR(v*usdBrlRate(),true)+' · para a 80%'; };
 }
 async function budgetApply(taskId){
-  const v=ntBudgetPending>0?ntBudgetPending:costCapDefault(); ntBudgetPending=null;
+  let v=ntBudgetPending>0?ntBudgetPending:costCapDefault(); ntBudgetPending=null;
+  // F5 · P14: o motor já nasceu a tarefa no teto da política da org — gravar o escolhido nunca passa dele
+  if(typeof orgPolMaxUsd==='function'){ const max=orgPolMaxUsd(); if(max!=null && !(v>0 && v<=max)) v=max; }
   if(!taskId) return; // grava SEMPRE (inclusive igual ao padrão): o motor lê o teto do spec antes de cada etapa
   try{ await invoke('patch_task_spec',{ taskId:String(taskId), patch:{ budgetUsd:v } }); }catch(e){ console.error('teto da tarefa', e); }
 }

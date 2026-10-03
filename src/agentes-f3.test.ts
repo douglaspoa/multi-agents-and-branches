@@ -75,7 +75,7 @@ test("retroPrompt: mostra a equipe, pede o dono de cada item e proíbe persona/m
   assert.match(p, /NUNCA proponha mudar a persona, o modelo ou o motor/);
 });
 
-test("parseRetro lê o dono; persona/modelo propostos são ignorados (v1)", () => {
+test("parseRetro lê o dono; persona fora de \"personas\" e modelo são ignorados (F5 reabriu só a lista \"personas\", com trava)", () => {
   const out = parseRetro(JSON.stringify({
     notas: [{ title: "Citar fonte sempre", type: "regra", body: "Toda afirmação com link e data.", agente: "Lumen" }],
     skills: [{ acao: "criar", nome: "conferir-numeros", descricao: "Use ao revisar um relatório com números", corpo: "## Passo a passo\nconfira cada número na fonte", agente: "nyx", porque: "x" }],
@@ -83,7 +83,8 @@ test("parseRetro lê o dono; persona/modelo propostos são ignorados (v1)", () =
   }));
   assert.equal(out.notas[0].dono, "Lumen");
   assert.equal(out.skills[0].dono, "nyx");
-  assert.deepEqual(Object.keys(out), ["notas", "skills"]);
+  assert.deepEqual(Object.keys(out), ["notas", "skills", "personas"]);
+  assert.deepEqual(out.personas, [], "o campo solto \"persona\" e o \"modelo\" não viram proposta");
 });
 
 test("retroOwner: id ou nome (sem acento/caixa) da equipe; 'projeto' e quem não está na equipe = sem dono", () => {

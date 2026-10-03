@@ -1,0 +1,1382 @@
+{
+  "policy": [
+    {
+      "raw": null,
+      "expected": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "rules": [
+        "aprendizado compartilhado com o time é aprovado por um admin da organização"
+      ]
+    },
+    {
+      "raw": "lixo",
+      "expected": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "rules": [
+        "aprendizado compartilhado com o time é aprovado por um admin da organização"
+      ]
+    },
+    {
+      "raw": {},
+      "expected": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "rules": [
+        "aprendizado compartilhado com o time é aprovado por um admin da organização"
+      ]
+    },
+    {
+      "raw": {
+        "agentes": {
+          "portao": true,
+          "tetoMaxUsd": 5,
+          "revisor": true,
+          "revisorDiferente": true,
+          "aprovaAprendizado": "membros"
+        }
+      },
+      "expected": {
+        "portao": true,
+        "tetoMaxUsd": 5,
+        "revisor": true,
+        "revisorDiferente": true,
+        "aprovaAprendizado": "membros"
+      },
+      "rules": [
+        "toda tarefa passa pelo portão — nenhum PR abre sozinho e a prova é obrigatória",
+        "teto de no máximo US$ 5,00 por tarefa",
+        "toda equipe tem um revisor",
+        "o revisor roda em motor ou modelo diferente de quem constrói",
+        "aprendizado compartilhado com o time é aprovado por outra pessoa da organização"
+      ]
+    },
+    {
+      "raw": {
+        "portao": "true",
+        "tetoMaxUsd": "3.333",
+        "revisor": 1,
+        "aprovaAprendizado": "todos"
+      },
+      "expected": {
+        "portao": false,
+        "tetoMaxUsd": 3.33,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "rules": [
+        "teto de no máximo US$ 3,33 por tarefa",
+        "aprendizado compartilhado com o time é aprovado por um admin da organização"
+      ]
+    },
+    {
+      "raw": {
+        "agentes": {
+          "tetoMaxUsd": -2
+        }
+      },
+      "expected": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "rules": [
+        "aprendizado compartilhado com o time é aprovado por um admin da organização"
+      ]
+    },
+    {
+      "raw": {
+        "agentes": {
+          "tetoMaxUsd": 0
+        }
+      },
+      "expected": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "rules": [
+        "aprendizado compartilhado com o time é aprovado por um admin da organização"
+      ]
+    },
+    {
+      "raw": {
+        "agentes": {
+          "tetoMaxUsd": 2.005
+        }
+      },
+      "expected": {
+        "portao": false,
+        "tetoMaxUsd": 2.01,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "rules": [
+        "teto de no máximo US$ 2,01 por tarefa",
+        "aprendizado compartilhado com o time é aprovado por um admin da organização"
+      ]
+    },
+    {
+      "raw": {
+        "minRequirements": 2,
+        "agentes": {
+          "revisor": true
+        }
+      },
+      "expected": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": true,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "rules": [
+        "toda equipe tem um revisor",
+        "aprendizado compartilhado com o time é aprovado por um admin da organização"
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "planner",
+          "name": "Vega",
+          "engine": "claude"
+        },
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "codex"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "Codex"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "docs",
+          "name": "Lumen",
+          "engine": "claude",
+          "model": "Sonnet "
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "planner",
+          "name": "Vega",
+          "engine": "claude"
+        },
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "codex"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "Codex"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "docs",
+          "name": "Lumen",
+          "engine": "claude",
+          "model": "Sonnet "
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "planner",
+          "name": "Vega",
+          "engine": "claude"
+        },
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "codex"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "Codex"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "docs",
+          "name": "Lumen",
+          "engine": "claude",
+          "model": "Sonnet "
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": true,
+        "tetoMaxUsd": 5,
+        "revisor": true,
+        "revisorDiferente": true,
+        "aprovaAprendizado": "membros"
+      },
+      "roles": [
+        {
+          "role": "planner",
+          "name": "Vega",
+          "engine": "claude"
+        },
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": [
+        {
+          "rule": "revisor",
+          "text": "a política da organização exige um revisor nesta equipe"
+        }
+      ]
+    },
+    {
+      "policy": {
+        "portao": true,
+        "tetoMaxUsd": 5,
+        "revisor": true,
+        "revisorDiferente": true,
+        "aprovaAprendizado": "membros"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": [
+        {
+          "rule": "revisorDiferente",
+          "text": "a política da organização exige o revisor em motor ou modelo diferente de quem constrói (Nyx e Íris estão no mesmo)"
+        }
+      ]
+    },
+    {
+      "policy": {
+        "portao": true,
+        "tetoMaxUsd": 5,
+        "revisor": true,
+        "revisorDiferente": true,
+        "aprovaAprendizado": "membros"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "codex"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "Codex"
+        }
+      ],
+      "expected": [
+        {
+          "rule": "revisorDiferente",
+          "text": "a política da organização exige o revisor em motor ou modelo diferente de quem constrói (Nyx e Íris estão no mesmo)"
+        }
+      ]
+    },
+    {
+      "policy": {
+        "portao": true,
+        "tetoMaxUsd": 5,
+        "revisor": true,
+        "revisorDiferente": true,
+        "aprovaAprendizado": "membros"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": true,
+        "tetoMaxUsd": 5,
+        "revisor": true,
+        "revisorDiferente": true,
+        "aprovaAprendizado": "membros"
+      },
+      "roles": [
+        {
+          "role": "docs",
+          "name": "Lumen",
+          "engine": "claude",
+          "model": "Sonnet "
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": [
+        {
+          "rule": "revisorDiferente",
+          "text": "a política da organização exige o revisor em motor ou modelo diferente de quem constrói (Nyx e Lumen estão no mesmo)"
+        }
+      ]
+    },
+    {
+      "policy": {
+        "portao": true,
+        "tetoMaxUsd": 5,
+        "revisor": true,
+        "revisorDiferente": true,
+        "aprovaAprendizado": "membros"
+      },
+      "roles": [
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 3.33,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "planner",
+          "name": "Vega",
+          "engine": "claude"
+        },
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 3.33,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 3.33,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "codex"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "Codex"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 3.33,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 3.33,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "docs",
+          "name": "Lumen",
+          "engine": "claude",
+          "model": "Sonnet "
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 3.33,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "planner",
+          "name": "Vega",
+          "engine": "claude"
+        },
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "codex"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "Codex"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "docs",
+          "name": "Lumen",
+          "engine": "claude",
+          "model": "Sonnet "
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "planner",
+          "name": "Vega",
+          "engine": "claude"
+        },
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "codex"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "Codex"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "docs",
+          "name": "Lumen",
+          "engine": "claude",
+          "model": "Sonnet "
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 2.01,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "planner",
+          "name": "Vega",
+          "engine": "claude"
+        },
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 2.01,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 2.01,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "codex"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "Codex"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 2.01,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 2.01,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "docs",
+          "name": "Lumen",
+          "engine": "claude",
+          "model": "Sonnet "
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": 2.01,
+        "revisor": false,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": true,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "planner",
+          "name": "Vega",
+          "engine": "claude"
+        },
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": [
+        {
+          "rule": "revisor",
+          "text": "a política da organização exige um revisor nesta equipe"
+        }
+      ]
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": true,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude",
+          "model": "opus"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "opus"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": true,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "codex"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "Codex"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": true,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "builder",
+          "name": "Íris",
+          "engine": "claude"
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": true,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "docs",
+          "name": "Lumen",
+          "engine": "claude",
+          "model": "Sonnet "
+        },
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude",
+          "model": "sonnet"
+        }
+      ],
+      "expected": []
+    },
+    {
+      "policy": {
+        "portao": false,
+        "tetoMaxUsd": null,
+        "revisor": true,
+        "revisorDiferente": false,
+        "aprovaAprendizado": "admins"
+      },
+      "roles": [
+        {
+          "role": "reviewer",
+          "name": "Nyx",
+          "engine": "claude"
+        }
+      ],
+      "expected": []
+    }
+  ]
+}
