@@ -164,7 +164,8 @@ html.sfpane .fw:has(.fwchat.tl) .fwciclo{max-height:34vh;overflow:auto}
   html.sfpane .fwchat.tl .fwinput.cc .cc-row{display:contents}
   html.sfpane .fwchat.tl .fwinput.cc .cc-model,html.sfpane .fwchat.tl .fwinput.cc .fwreqtoggle,html.sfpane .fwchat.tl .fwinput.cc .cc-sp,html.sfpane .fwchat.tl .fwinput.cc .chathint{display:none}
   html.sfpane .fwchat.tl .fwinput.cc .cc-clip{order:1}
-  html.sfpane .fwchat.tl .fwinput.cc .cc-ta{order:2;flex:1 1 0;min-width:0;height:32px!important;min-height:32px!important;max-height:32px!important;padding-top:6px;padding-bottom:6px;overflow:hidden}
+  html.sfpane .fwchat.tl .fwinput.cc .cc-ta{order:2;flex:1 1 0;min-width:0;height:32px!important;min-height:32px!important;max-height:32px!important;padding-top:6px;padding-bottom:6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  html.sfpane .fwchat.tl .fwinput.cc .cc-ta::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   html.sfpane .fwchat.tl .fwinput.cc .cc-compmore{order:3;display:inline-grid;place-items:center}
   html.sfpane .fwchat.tl .fwinput.cc .cc-compmore.on{color:var(--accent);border-color:var(--accent-line)}
   html.sfpane .fwchat.tl .fwinput.cc .cc-compmore svg{width:14px;height:14px}
