@@ -116,7 +116,7 @@ function tlSheetHtml(g, st){
     `<div class="tlq" id="tlQ">${esc(r.prompt)}${r.multi?' <span class="tlmulti">escolha uma ou mais</span>':''}</div>`+
     (n?`<div class="tlopts" role="${r.multi?'group':'radiogroup'}" aria-labelledby="tlQ">${opts}</div>`:'')+
     `<div class="tlother"><input class="in" data-tl="other" placeholder="${n?'outra resposta…':'sua resposta…'}" aria-label="${n?'outra resposta':'sua resposta'}" value="${escA(other)}"></div>`+
-    `<div class="tlsf">${n?`<span class="kbd">↑↓</span>escolher<span class="kbd">1–${Math.min(9,n)}</span>atalho`:''}${many?'<span class="kbd">←→</span>pergunta':''}<span class="kbd">Enter</span>${last?'envia':'próxima'}`+
+    `<div class="tlsf"><span class="tlkeys">${n?`<span class="kbd">↑↓</span> escolher <span class="kbd">1–${Math.min(9,n)}</span> atalho `:''}${many?'<span class="kbd">←→</span> pergunta ':''}<span class="kbd">Enter</span> ${last?'envia':'próxima'}</span>`+
     `<span class="sp"></span>${g.auq?'<button type="button" class="lnk" data-tl="askterm" title="o Claude mostra a pergunta no próprio terminal">responder no terminal</button>':''}<button type="button" class="btn sm" data-tl="askskip">pular</button><button type="button" class="btn sm primary" data-tl="asknext"${st.sending?' disabled':''}>${st.sending?'enviando…':last?(many?'enviar respostas':'enviar'):'próxima'}</button></div></div>`;
 }
 // @tl-puro-fim
@@ -187,7 +187,8 @@ function tlSidePaint(t, force){
 }
 // largura da coluna: abaixo de TL_NARROW o painel vira faixa (canvas com 2–3 tarefas, janela estreita)
 function tlWatchWidth(taskId, wrap){
-  const apply=()=>{ const w=wrap.getBoundingClientRect().width; if(!w) return; const n=w<TL_NARROW; if(!!TL.narrow[taskId]!==n){ TL.narrow[taskId]=n; if(!n) TL.peek[taskId]=false; const t=(state.tasks||[]).find(x=>x.id===taskId); if(t) tlSidePaint(t, true); } };
+  const apply=()=>{ const w=wrap.getBoundingClientRect().width; if(!w) return;
+    { const h=TL.sheets[taskId], col=wrap.querySelector('.tlcol'); if(h && col && h.parentNode===col) tlSheetPlace(col, h); } const n=w<TL_NARROW; if(!!TL.narrow[taskId]!==n){ TL.narrow[taskId]=n; if(!n) TL.peek[taskId]=false; const t=(state.tasks||[]).find(x=>x.id===taskId); if(t) tlSidePaint(t, true); } };
   if(TL.ro) TL.ro.disconnect();
   TL.ro=new ResizeObserver(()=>{ clearTimeout(TL.rt); TL.rt=setTimeout(apply, 80); });
   TL.ro.observe(wrap); TL.roFor=taskId;
@@ -205,7 +206,7 @@ function tlLivePaint(t){
 function tlAskOf(t){ const g=tlAskGroup(pendingOf(t.id)); if(!g) return null; let st=TL.ask[g.key]; if(!st || st.sel.length!==g.rows.length) st=TL.ask[g.key]=tlAskNew(g); return { g, st }; }
 function tlSheetEl(taskId){ let el=TL.sheets[taskId]; if(!el){ el=document.createElement('div'); el.className='tlsheethost'; TL.sheets[taskId]=el; tlSheetWire(taskId, el); } return el; }
 function tlAskPaint(t, focus){
-  const slot=document.querySelector(`#fwThread[data-term="${CSS.escape(t.id)}"]`);
+  const slot=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"] .tlcol`);
   const a=tlAskOf(t);
   const host=TL.sheets[t.id];
   // o "pergunta aberta" do agente sem folha (escondida) → pílula pra reabrir
@@ -215,12 +216,20 @@ function tlAskPaint(t, focus){
   const caret=inOther?document.activeElement.selectionStart:null;
   const fresh=el.parentNode!==slot;
   if(fresh) slot.appendChild(el);
+  tlSheetPlace(slot, el);
   const html=a.st.min ? `<button type="button" class="tlpill" data-tl="askmax"><span class="tldot" style="--c:var(--st-ask)"></span>${esc(a.g.agent||'O agente')} está esperando sua resposta · <b>responder</b></button>` : tlSheetHtml(a.g, a.st);
   if(el.__html!==html){ el.__html=html; el.innerHTML=html; }
   el.classList.toggle('min', !!a.st.min);
   // foco: quem estava na folha continua nela; pergunta NOVA só pega o foco se você não estava digitando noutro lugar
   const ae=document.activeElement; const idle=!ae || ae===document.body || (TERM[t.id] && TERM[t.id].host.contains(ae));
   if(hadFocus || focus || (fresh && idle && !a.st.min)) tlAskFocus(el, inOther, caret);
+}
+// a folha sobe do topo do compositor; sem espaço (pane pequeno do canvas) ela cobre o compositor também
+function tlSheetPlace(col, el){
+  const comp=col.querySelector(':scope > .fwinput'); const ch=comp?comp.offsetHeight:0; const H=col.clientHeight;
+  const room=H-ch; const tight=room<320;
+  el.style.bottom=(tight?8:ch+12)+'px';
+  el.classList.toggle('tight', H<300 || room<200);
 }
 function tlAskFocus(el, inOther, caret){
   requestAnimationFrame(()=>{

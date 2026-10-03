@@ -1383,7 +1383,7 @@ async function fwSendMsg(queueOnly){
   if(!v && atts.length) v='Anexei estes arquivos — leia e considere.';
   if(!v) return;
   // modo terminal com pergunta aberta: o texto vira a resposta da pergunta da vez (a folha manda pro hook)
-  if(termModeOf(t) && !atts.length && typeof tlAskFromComposer==='function' && pendingOf(t.id).some(p=>!fwIsBudgetAsk(p)) && tlAskFromComposer(t, v)){ inp.value=''; fwDraft[t.id]=''; return; }
+  if(typeof termModeOf==='function' && termModeOf(t) && !atts.length && typeof tlAskFromComposer==='function' && pendingOf(t.id).some(p=>!fwIsBudgetAsk(p)) && tlAskFromComposer(t, v)){ inp.value=''; fwDraft[t.id]=''; return; }
   const sel=fwSelRange();
   // só amarra ao arquivo quando o usuário SELECIONOU linhas — mensagem sem seleção vai pura
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';

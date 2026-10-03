@@ -177,7 +177,7 @@ test('salvo: o grupo volta depois de reiniciar; layout antigo (v1, antes do grup
   assert.equal(P.cvSplitValid({ v: 3, panes: [{ kind: 'task', taskId: 'A' }, { kind: 'task', taskId: 'B' }] }, ids), null, 'versão do futuro: sem grupo');
   const a = app(['flow', 'task:A', 'task:B'], null, 'task:A');
   a.cvSplitWith('task:A', 'task:B', 'right');
-  assert.deepEqual(saved(a), { v: 2, group: true, panes: [{ kind: 'task', taskId: 'A' }, { kind: 'task', taskId: 'B' }], focus: 1 });
+  assert.deepEqual(saved(a), { v: 2, group: true, panes: [{ kind: 'task', taskId: 'A' }, { kind: 'task', taskId: 'B' }], focus: 1, lay: 'side' }); // layout A: o layout do grupo vai junto
   assert.match(cut(canvas, 'function cvRestoreSplit', '// ---------- mostrar'), /SPL\.focus=s\.focus\|0; cvGroupContigTabs\(\);/, 'restaurado: membros colados de novo');
 });
 

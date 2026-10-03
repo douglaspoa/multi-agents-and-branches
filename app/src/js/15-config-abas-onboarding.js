@@ -65,7 +65,7 @@ function openCfg(){
     <div class="cfggrid">
       <div class="cfgf"><label for="cfgTaskMode">Modo</label>
         <select class="in" id="cfgTaskMode"><option value="terminal">Terminal (padrão) — o Claude Code oficial num terminal dentro da tarefa</option><option value="auto">Automático — o agente roda em segundo plano e conversa pelo chat</option></select>
-        <p class="cfghint">Motores sem terminal (DeepSeek, gateway) rodam no automático. O Codex abre no terminal só se você escolher Terminal aqui. Piloto automático, ondas e épicos que iniciam sozinhos sempre usam o automático.</p></div>
+        <p class="cfghint">Motores sem terminal (DeepSeek, gateway) rodam no automático. O Codex abre no terminal só se você escolher Terminal aqui. Piloto automático, ondas e épicos que iniciam sozinhos sempre usam o automático. Pra rodar sem ninguém olhando, o caminho mais seguro é uma chave de API.</p></div>
     </div>
     <div class="seclbl2" style="margin-top:20px">Aprendizado contínuo <span class="dim cfgsecd">· no fim de cada tarefa uma retro relê o que aconteceu (suas correções, retrabalho) e propõe notas pro cérebro e skills do projeto</span></div>
     <div class="cfggrid">
