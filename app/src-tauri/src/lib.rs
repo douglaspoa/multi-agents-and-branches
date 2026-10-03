@@ -742,6 +742,44 @@ mod artifact_tests {
         assert_eq!(artifact_norm_name("t1/x.md", "t1"), "x.md");
         assert_eq!(artifact_norm_name("entregaveis/r.pdf", "t1"), "entregaveis/r.pdf");
         assert_eq!(artifact_norm_name("t10/x.md", "t1"), "t10/x.md");
+        // caminho inteiro da worktree / do repo citado como evidência
+        assert_eq!(artifact_norm_name("/Users/a/pou/.cardume/worktrees/t1/.cardume/artifacts/mobile-ios-1.png", "t1"), "mobile-ios-1.png");
+        assert_eq!(artifact_norm_name("/Users/a/pou/.cardume/artifacts/t1/mobile-ios-1.png", "t1"), "mobile-ios-1.png");
+        assert_eq!(artifact_norm_name("././x.png", "t1"), "x.png");
+        // escapar pela evidência continua barrado
+        assert!(!artifact_name_ok(&artifact_norm_name("/x/.cardume/artifacts/../../etc/passwd", "t1")));
+    }
+    /// Miniatura da prova (sfart://) com o layout REAL do Pou (cópia coletada em .cardume/artifacts/<tarefa>/,
+    /// worktree já removida): cada forma de citar a evidência chega no arquivo; arquivo ausente = 404 (o front mostra
+    /// "arquivo da prova não encontrado").
+    #[test]
+    fn miniatura_da_prova_pelo_sfart_com_caminhos_reais() {
+        let repo = std::env::temp_dir().join(format!("sf-sfart-real-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        let task = "salvar-o-progresso-do-pou-e-retomar-ao-reabrir";
+        let col = repo.join(".cardume").join("artifacts").join(task);
+        std::fs::create_dir_all(col.join(task)).unwrap();
+        let png = b"\x89PNG\r\n\x1a\nfake";
+        std::fs::write(col.join("mobile-ios-1.png"), png).unwrap();
+        std::fs::write(col.join(task).join("aninhado.png"), png).unwrap();
+        let get = |cited: &str| {
+            // o front manda "<tarefa>/<nome normalizado>" (artRelName ≡ artifact_norm_name), codificado
+            let rel = format!("{task}/{}", artifact_norm_name(cited, task));
+            let url = format!("/{}", rel.replace('/', "%2F"));
+            media_proto::serve(&url, None, |t, n| {
+                let f = artifact_in_repo(&repo, t, &artifact_norm_name(n, t))?;
+                Some((f, vec![repo.join(".cardume").join("artifacts").join(t)]))
+            })
+        };
+        for cited in ["mobile-ios-1.png", ".cardume/artifacts/mobile-ios-1.png", &format!(".cardume/artifacts/{task}/mobile-ios-1.png"),
+            &format!("/Users/x/pou/.cardume/worktrees/{task}/.cardume/artifacts/mobile-ios-1.png"), "aninhado.png"] {
+            let (st, h, body) = get(cited);
+            assert_eq!(st, 200, "{cited}");
+            assert_eq!(body, png.to_vec(), "{cited}");
+            assert!(h.iter().any(|(k, v)| *k == "Content-Type" && v == "image/png"), "{cited}");
+        }
+        assert_eq!(get("nao-existe.png").0, 404);
+        let _ = std::fs::remove_dir_all(&repo);
     }
     #[test]
     fn nome_com_subpasta_vale_mas_escape_nao() {
@@ -4818,8 +4856,11 @@ fn llm_env_get(key: &str) -> Option<String> {
 /// Nome como o AGENTE cita (evidência do requirements.json, link no chat): "./.cardume/artifacts/x.png",
 /// ".cardume/artifacts/<task>/x.png" → "x.png". Era a origem do "artefato não encontrado" ao clicar na prova.
 fn artifact_norm_name(name: &str, task_id: &str) -> String {
-    let mut n = name.trim().trim_start_matches("./");
-    n = n.strip_prefix(".cardume/artifacts/").unwrap_or(n);
+    let mut n = name.trim();
+    // caminho ABSOLUTO (ou relativo) que passa por .cardume/artifacts/ — o agente às vezes cita o caminho inteiro da
+    // worktree ("/…/worktrees/<t>/.cardume/artifacts/x.png"): vale o que vem depois da ÚLTIMA ocorrência
+    if let Some(i) = n.rfind(".cardume/artifacts/") { n = &n[i + ".cardume/artifacts/".len()..]; }
+    while let Some(r) = n.strip_prefix("./") { n = r; }
     if !task_id.is_empty() {
         if let Some(rest) = n.strip_prefix(task_id).and_then(|r| r.strip_prefix('/')) { n = rest; }
     }
@@ -4849,13 +4890,14 @@ fn artifact_path(state: &State<AppState>, task_id: &str, name: &str) -> Result<P
         }
     }
     let repo = repo_of(state)?;
+    artifact_in_repo(&repo, task_id, name).ok_or_else(|| format!("artefato não encontrado: {cited} (ainda não foi gerado ou já foi removido)"))
+}
+
+/// Cópia coletada no repo: `.cardume/artifacts/<task>/<nome>` ou `<task>/<task>/<nome>` (o agente escreveu em
+/// .cardume/artifacts/<task>/ na worktree e o coletor copiou a subpasta inteira — a lista achata, aqui resolve).
+fn artifact_in_repo(repo: &Path, task_id: &str, name: &str) -> Option<PathBuf> {
     let col = repo.join(".cardume").join("artifacts").join(task_id);
-    // <task>/<task>/x: o agente escreveu em .cardume/artifacts/<task>/ na worktree
-    // e o coletor copiou a subpasta inteira — a lista achata, aqui resolve.
-    for p in [col.join(name), col.join(task_id).join(name)] {
-        if p.is_file() { return Ok(p); }
-    }
-    Err(format!("artefato não encontrado: {cited} (ainda não foi gerado ou já foi removido)"))
+    [col.join(name), col.join(task_id).join(name)].into_iter().find(|p| p.is_file())
 }
 
 /// Envia um artefato pro Slack (files.getUploadURLExternal → PUT → completeUploadExternal).

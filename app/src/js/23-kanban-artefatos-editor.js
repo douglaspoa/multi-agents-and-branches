@@ -361,13 +361,23 @@ function pvKind(name){ const n=String(name||'').toLowerCase();
     : /\.html?$/.test(n)?'html' : /\.(txt|log|json|ya?ml|xml|js|ts|py|sql|sh|toml|ini)$/.test(n)?'text' : 'other'; }
 // VÍDEO das provas (mobile): toca DIRETO do disco pelo protocolo sfart:// (lib.rs → media_proto.rs) — nada de
 // base64; o WebKit pede em pedaços (Range), então um mp4 grande não trava a UI. Escopo: só as pastas de artefatos.
+// nome citado pelo agente → nome do artefato (MESMA regra do Rust artifact_norm_name): "./x.png",
+// ".cardume/artifacts/<tarefa>/x.png" e caminho ABSOLUTO da worktree/repo (".../.cardume/artifacts/x.png") → "x.png"
+function artRelName(taskId, name){
+  let n=String(name||'').trim();
+  const k=n.lastIndexOf('.cardume/artifacts/'); if(k>=0) n=n.slice(k+19);
+  n=n.replace(/^(\.\/)+/,'');
+  if(taskId && n.startsWith(taskId+'/')) n=n.slice(String(taskId).length+1);
+  return n;
+}
 function artMediaUrl(taskId, name){
-  const rel=String(taskId||'')+'/'+String(name||'').replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,'');
+  const rel=String(taskId||'')+'/'+artRelName(taskId, name);
   const cv=window.__TAURI__&&window.__TAURI__.core&&window.__TAURI__.core.convertFileSrc;
   return cv ? cv(rel, 'sfart') : 'sfart://localhost/'+encodeURIComponent(rel);
 }
 function artVideoHtml(taskId, name, cls){
-  return `<video class="${cls||'pvvid'}" controls preload="metadata" playsinline src="${escA(artMediaUrl(taskId, name))}" aria-label="${escA('vídeo: '+name)}"></video>`;
+  // data-sfthumb: arquivo sumiu (404 no sfart://) → 27-entregas troca por "arquivo da prova não encontrado"
+  return `<video class="${cls||'pvvid'}" controls preload="metadata" playsinline src="${escA(artMediaUrl(taskId, name))}" data-sfthumb="${escA(taskId+'|'+name)}" aria-label="${escA('vídeo: '+name)}"></video>`;
 }
 // conteúdo já lido (read_artifact) → HTML da prévia
 function artPreviewHtml(name, c, taskId){

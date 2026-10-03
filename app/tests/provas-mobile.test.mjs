@@ -42,14 +42,24 @@ test('entrega: cada requisito mostra a miniatura do print e o player do vídeo D
   assert.match(h, /<button class="en-evi" data-lb="0" title="mobile-ios-1-login\.png"><img src="data:image\/png;base64,TH-mobile-ios-1-login\.png"/, 'print abre no lightbox');
   assert.equal((h.match(/<video /g) || []).length, 1, 'mesmo vídeo citado 2x aparece 1x');
   assert.match(h, /class="en-evvid" controls preload="metadata"/);
-  assert.ok(!/notas\.md|sumiu/.test(h), 'doc e evidência inexistente não viram mídia');
+  assert.ok(!/notas\.md/.test(h), 'doc não vira mídia');
+  // print citado que não existe: aviso legível, nunca caixa vazia
+  assert.match(h, /<div class="en-evi en-evmiss" title="sumiu\.png"><span class="en-miss" role="img" aria-label="arquivo da prova não encontrado: sumiu\.png"/);
   assert.equal(F.enEvMediaHtml({ id: 't1' }, [], arts, imgs), '');
   assert.equal(F.enEvName('t1', 't1/sub/x.mp4'), 'sub/x.mp4');
   // nome do arquivo como último recurso SÓ quando um artefato bate (ambíguo → nada, não chuta)
   const two = [{ name: 'ios/a.png', kind: 'image' }, { name: 'android/a.png', kind: 'image' }, { name: 'sub/v.mp4', kind: 'video' }];
   assert.equal(F.enEvResolve('t1', 'a.png', two), null);
   assert.equal(F.enEvResolve('t1', 'v.mp4', two), 'sub/v.mp4');
-  assert.equal(F.enEvMediaHtml({ id: 't1' }, ['a.png'], two, []), '');
+  assert.match(F.enEvMediaHtml({ id: 't1' }, ['a.png'], two, []), /arquivo da prova não encontrado/, 'ambíguo: não chuta, avisa');
+  // caminhos reais de evidência (Pou): relativo, com a pasta da tarefa e absoluto da worktree → o MESMO artefato
+  const pou = [{ name: 'mobile-ios-1.png', kind: 'image' }];
+  for (const e of ['mobile-ios-1.png', '.cardume/artifacts/mobile-ios-1.png', '.cardume/artifacts/t1/mobile-ios-1.png', '/Users/x/pou/.cardume/worktrees/t1/.cardume/artifacts/mobile-ios-1.png']) {
+    assert.equal(F.enEvResolve('t1', e, pou), 'mobile-ios-1.png', e);
+    assert.equal(F.artMediaUrl('t1', e), 'sfart://localhost/' + encodeURIComponent('t1/mobile-ios-1.png'), e);
+  }
+  // a miniatura leva a chave pro aviso em caso de 404
+  assert.match(F.enEvMediaHtml({ id: 't1' }, ['mobile-ios-1.png'], pou, pou), /data-sfthumb="t1\|mobile-ios-1\.png"/);
   assert.equal(F.enVideoPlaying({ querySelectorAll: () => [{ paused: false, ended: false }] }), true);
   assert.equal(F.enVideoPlaying({ querySelectorAll: () => [{ paused: true, ended: false }] }), false);
 });
@@ -82,4 +92,18 @@ test('Ambiente: itens mobile com texto de gente (o Rust manda os nomes do doctor
   assert.match(envWhat({ name: 'Emulador Android (SDK + AVD)' }), /Android[\s\S]*revezam/);
   assert.match(envWhat({ name: 'Maestro (fluxos de toque)' }), /Fluxos de toque/);
   assert.equal(envKind({ kind: 'opt', name: 'Maestro (fluxos de toque)' }), 'opt', 'opcional: não acende pendência');
+});
+
+test('miniatura que falha ao carregar (404 no sfart://) vira "arquivo da prova não encontrado" e fica lembrada', () => {
+  const window = { __TAURI__: { core: { convertFileSrc: (p, proto) => `${proto}://localhost/${encodeURIComponent(p)}` } } };
+  const code = slice(kan, 'function pvKind', '// BUG-23') + '\n' + slice(ent, 'function enEvName', '// ---- lightbox das provas');
+  const F = new Function('window', 'esc', 'escA', 'IC', 'artThumb', code + '\nreturn { enThumbHtml, enMediaErr, artMissing };')(
+    window, esc, escA, { play: '▶', image: '🖼' }, (t, n) => 'sfart://localhost/' + encodeURIComponent(t + '/' + n));
+  assert.match(F.enThumbHtml('t1', 'cores-1.png', 'print'), /<img src="sfart:[^"]+" alt="print" data-sfthumb="t1\|cores-1\.png"/);
+  const el = { dataset: { sfthumb: 't1|cores-1.png' }, outerHTML: '' };
+  F.enMediaErr({ target: el });
+  assert.match(el.outerHTML, /arquivo da prova não encontrado/);
+  assert.ok(F.artMissing.has('t1|cores-1.png'));
+  assert.match(F.enThumbHtml('t1', 'cores-1.png', 'print'), /en-miss/, 'próximo redesenho já vem com o aviso');
+  F.enMediaErr({ target: { dataset: {} } }); // outra imagem qualquer: ignora
 });

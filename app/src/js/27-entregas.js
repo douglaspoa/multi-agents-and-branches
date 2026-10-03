@@ -91,7 +91,9 @@ function artThumb(taskId, name){
   const k=taskId+'|'+name;
   if(artThumbCache[k]!==undefined) return artThumbCache[k];
   artThumbCache[k]=null;
-  invoke('read_artifact',{ taskId, name }).then(c=>{ artThumbCache[k]=(c&&c.kind==='image'&&c.dataUrl)||null; if(fwTask===taskId&&fwMode==='entrega') renderWorkspace(); }).catch(()=>{});
+  const again=()=>{ if(typeof fwTask!=='undefined' && fwTask===taskId && fwMode==='entrega' && typeof renderWorkspace==='function') renderWorkspace(); };
+  invoke('read_artifact',{ taskId, name }).then(c=>{ const u=(c&&c.kind==='image'&&c.dataUrl)||null; artThumbCache[k]=u; if(!u) artMissing.add(k); again(); })
+    .catch(()=>{ artMissing.add(k); again(); });
   return null;
 }
 // modos escondidos PELO TIPO (dono, 02/10: "esconder pelo tipo" — modo simples global vetado): entrega que não é
@@ -450,7 +452,7 @@ function fwRenderEntrega(t, main){
   const c=commitsCache[t.id]||[];
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence));
   const evNorm=new Set([...evidenceNames].map(e=>enEvResolve(t.id, e, arts)).filter(Boolean)); // MESMA regra das mídias por requisito
-  const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${escA(th)}" alt="" loading="lazy" decoding="async">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
+  const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${enThumbHtml(t.id, a.name, '')}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
   const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
   const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(n)]||'ARQ');
   const listed=nonCode?arts:docs;
@@ -514,7 +516,27 @@ function fwRenderEntrega(t, main){
 }
 // ---- provas DENTRO de cada requisito: miniaturas dos prints e o player dos vídeos citados como evidência ----
 // nome citado no requirements.json ("./.cardume/artifacts/mobile-ios-1.png", "<tarefa>/x.mp4") → nome do artefato
-function enEvName(taskId, e){ let n=String(e||'').trim().replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,''); if(taskId && n.startsWith(taskId+'/')) n=n.slice(taskId.length+1); return n; }
+function enEvName(taskId, e){ return artRelName(taskId, e); }
+// ---- prova cujo arquivo não abre: era uma caixa vazia (img quebrada com o alt cortado) ----
+// taskId|nome → o arquivo da prova não abriu (404 no sfart://, read_artifact falhou, ou a evidência citada não existe)
+const artMissing=new Set();
+const EN_MISS_TXT='arquivo da prova não encontrado';
+function enMissHtml(name){ return `<span class="en-miss" role="img" aria-label="${escA(EN_MISS_TXT+': '+name)}" title="${escA(EN_MISS_TXT+': '+name)}">${IC.image}<span>${EN_MISS_TXT}</span></span>`; }
+// miniatura de um print: a imagem real, o "carregando" (fora do Tauri, lendo) ou o aviso de arquivo que não existe
+function enThumbHtml(taskId, name, alt){
+  const k=taskId+'|'+name;
+  if(artMissing.has(k)) return enMissHtml(name);
+  const th=artThumb(taskId, name);
+  if(artMissing.has(k)) return enMissHtml(name);
+  return th?`<img src="${escA(th)}" alt="${escA(alt||'')}" data-sfthumb="${escA(k)}" loading="lazy" decoding="async">`:`<span class="en-ph" role="img" aria-label="carregando a prova">${IC.image}</span>`;
+}
+// erro de carga (não sobe na árvore: escuta na CAPTURA) de uma miniatura/vídeo de prova → aviso no lugar
+function enMediaErr(ev){
+  const el=ev && ev.target; if(!el || !el.dataset || !el.dataset.sfthumb) return;
+  const k=el.dataset.sfthumb; artMissing.add(k);
+  el.outerHTML=enMissHtml(k.slice(k.indexOf('|')+1));
+}
+if(typeof document!=='undefined' && document.addEventListener) document.addEventListener('error', enMediaErr, true);
 // evidência citada → nome do artefato: igual normalizado; senão pelo nome do arquivo SÓ se UM artefato bater (ambíguo = nada)
 function enEvResolve(taskId, e, arts){
   const n=enEvName(taskId, e); const list=arts||[];
@@ -526,10 +548,13 @@ function enVideoPlaying(root){ try{ return [...root.querySelectorAll('video')].s
 function enEvMediaHtml(t, evidence, arts, imgs){
   const seen=new Set(); const items=[];
   for(const e of (evidence||[])){
-    const n=enEvResolve(t.id, e, arts); if(!n || seen.has(n)) continue; seen.add(n);
+    const n=enEvResolve(t.id, e, arts);
+    // citada como prova mas o arquivo não existe (nem na worktree nem na cópia coletada): diz isso, não some
+    if(!n){ const c=enEvName(t.id, e); const ck=pvKind(c); if((ck==='image'||ck==='video') && !seen.has('?'+c)){ seen.add('?'+c); items.push(`<div class="en-evi en-evmiss" title="${escA(c)}">${enMissHtml(c)}</div>`); } continue; }
+    if(seen.has(n)) continue; seen.add(n);
     const k=pvKind(n);
     if(k==='video') items.push(`<div class="en-evv">${artVideoHtml(t.id, n, 'en-evvid')}<span class="en-evn">${IC.play} ${esc(n)}</span></div>`);
-    else if(k==='image'){ const i=(imgs||[]).findIndex(a=>a.name===n); const th=artThumb(t.id, n); items.push(`<button class="en-evi" ${i>=0?`data-lb="${i}"`:`data-art="${escA(n)}"`} title="${escA(n)}">${th?`<img src="${escA(th)}" alt="${escA('print: '+n)}" loading="lazy" decoding="async">`:`<span class="en-ph">${IC.image}</span>`}</button>`); }
+    else if(k==='image'){ const i=(imgs||[]).findIndex(a=>a.name===n); items.push(`<button class="en-evi" ${i>=0?`data-lb="${i}"`:`data-art="${escA(n)}"`} title="${escA(n)}">${enThumbHtml(t.id, n, 'print: '+n)}</button>`); }
   }
   return items.length?`<div class="en-evm">${items.join('')}</div>`:'';
 }
