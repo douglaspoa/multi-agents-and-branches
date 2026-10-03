@@ -353,7 +353,8 @@ function closeTab(id){
   const kind=TABS[i].kind;
   // Agentes & Equipes com edição não salva: o X da aba passa pelo mesmo "descartar?" do cancelar (33 cancelAgents)
   if(kind==='agents' && typeof agDirty==='function' && agDirty() && typeof cancelAgents==='function'){ cancelAgents(); return; }
-  if(typeof cvOnTabClosed==='function') cvOnTabClosed(TABS[i]); // tela dividida: a aba sai da divisão junto
+  // grupo de abas (58-canvas): a aba sai do grupo junto; se o grupo estava na tela, devolve quem fica (os painéis se rearranjam)
+  const grpNext=(typeof cvOnTabClosed==='function') ? cvOnTabClosed(TABS[i]) : null;
   if(kind==='task' && typeof nvOnTaskTabClose==='function') nvOnTaskTabClose(TABS[i].taskId); // Prévia: o proxy da tarefa morre com a aba
   if(kind==='task' && typeof envOnTaskTabClose==='function') envOnTaskTabClose(TABS[i].taskId); // "Subir ambiente": o site da demanda morre com a aba
   TABS.splice(i,1);
@@ -362,6 +363,7 @@ function closeTab(id){
   { const ov=VIEW_OVERLAY[kind]; if(!TABS.some(t=>VIEW_OVERLAY[t.kind]===ov) && !(ov==='cvSplit' && typeof cvSplitShowing==='function' && cvSplitShowing())){ const o=$id(ov); if(o){ o.classList.remove('astab'); o.style.display='none'; } } }
   // fechou uma aba de FUNDO: a ativa continua como está (showActiveView restaurava nela o estado velho
   // guardado ao sair — ex.: o "Montar conversando" ativo perdia as mensagens mais recentes)
+  if(grpNext && tabById(grpNext)){ activeTab=null; activateTab(grpNext); return; } // membro fechado: o resto do grupo continua na tela (sobrou 1 → aba normal)
   if(activeTab!==id){ renderTabs(); return; }
   activeTab=(TABS[i-1]||TABS[0]).id;
   renderTabs(); showActiveView(); if(typeof cvOnViewChange==='function') cvOnViewChange();
@@ -427,14 +429,15 @@ function renderTabs(){
   // o botão "atualizar" mora DENTRO da barra: tira ele antes do innerHTML e devolve depois (guardado em
   // _updBtnNode — antes o 2º render destruía o botão e o aviso de versão nova nunca aparecia).
   { const u=$id('updBtn'); if(u) _updBtnNode=u; if(_updBtnNode && bar.contains(_updBtnNode)) _updBtnNode.remove(); }
-  bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+'<span class="tablist" role="tablist" aria-label="abas abertas">'+TABS.map(t=>{
-    const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
+  bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+'<span class="tablist" role="tablist" aria-label="abas abertas">'+((typeof cvStripItems==='function')?cvStripItems(TABS.map(t=>t.id), (typeof SPL!=='undefined')?SPL.ids:null):TABS.map(t=>({ id:t.id }))).map(it=>{
+    // tela dividida = UMA aba-grupo com um segmento por membro (58-canvas, estilo grupo de abas do Chrome)
+    if(it.group) return cvGroupTabHtml(it.group);
+    const t=tabById(it.id); const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
     const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
     // R7: aba pelo teclado (role=tab, Tab chega, Enter abre, ←/→ passa, Delete/Backspace fecha), título inteiro no
     // tooltip (o texto corta em 28) e arrastável pra reordenar (a Central fica fixa na frente). O X é só pro mouse
     // (aria-hidden: controle dentro de role=tab não é permitido) — pelo teclado fecha com Delete.
-    const sp=(typeof cvInSplit==='function' && cvInSplit(t.id)) ? ' insplit' : '';
-    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}${sp}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true" aria-keyshortcuts="Delete"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" aria-hidden="true" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
+    return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true" aria-keyshortcuts="Delete"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" aria-hidden="true" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
   }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" role="button" tabindex="0" aria-haspopup="menu" aria-label="abrir: nova demanda, demanda, navegador, simulador ou documento" aria-keyshortcuts="Meta+N Control+N" title="abrir — nova demanda (⌘N), outra demanda, navegador, simulador ou documento&#10;arraste uma aba pra metade da tela pra dividir (⌘\\)&#10;? ou ⌘/ abre o painel de atalhos&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
   bar.querySelectorAll('[data-tk]').forEach(el=>{
     el.onclick=async e=>{ if(e.target.closest('[data-xk]')) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); };
@@ -447,7 +450,7 @@ function renderTabs(){
     el.onkeydown=e=>{
       if(e.key==='Enter'||e.key===' '){ e.preventDefault(); el.click(); }
       else if(e.key==='Delete'||e.key==='Backspace'){ e.preventDefault(); tabCloseGuarded(el.dataset.tk).then(ok=>{ if(ok){ const n=bar.querySelector('.tab.on'); if(n) n.focus(); } }); }
-      else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){ e.preventDefault(); const l=[...bar.querySelectorAll('[data-tk]')], i=l.indexOf(el); const n=l[(i+(e.key==='ArrowRight'?1:-1)+l.length)%l.length]; if(n) n.focus(); }
+      else if(e.key==='ArrowRight'||e.key==='ArrowLeft'){ e.preventDefault(); const l=[...bar.querySelectorAll('[data-tk],[data-tg]')], i=l.indexOf(el); const n=l[(i+(e.key==='ArrowRight'?1:-1)+l.length)%l.length]; if(n) n.focus(); }
     };
     if(el.getAttribute('draggable')==='true'){
       el.addEventListener('dragstart', e=>{ tabDragId=el.dataset.tk; el.classList.add('dragging'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', tabDragId); }catch(_){ } if(typeof cvTabDragStart==='function') cvTabDragStart(tabDragId); });
@@ -456,8 +459,12 @@ function renderTabs(){
     // marca o lado certo: arrastando pra direita (ou sobre a fixa) entra DEPOIS do alvo
     el.addEventListener('dragover', e=>{ if(!tabDragId || tabDragId===el.dataset.tk) return; e.preventDefault(); const after=tabDropAfter(tabDragId, el.dataset.tk); el.classList.toggle('dropafter', after); el.classList.toggle('dropto', !after); });
     el.addEventListener('dragleave', ()=>el.classList.remove('dropto','dropafter'));
-    el.addEventListener('drop', e=>{ if(!tabDragId) return; e.preventDefault(); const from=tabDragId; tabDragId=null; if(tabMove(from, el.dataset.tk)) renderTabs(); });
+    el.addEventListener('drop', e=>{ if(!tabDragId) return; e.preventDefault(); const from=tabDragId; tabDragId=null;
+      // segmento do grupo solto numa aba da barra: sai do grupo e fica ali (58-canvas)
+      if(typeof cvGroupDrop==='function' && cvGroupDrop(SPL.ids, from, false)==='eject'){ if(typeof cvTabDragEnd==='function') cvTabDragEnd(); cvGroupEject(from, el.dataset.tk); return; }
+      if(tabMove(from, el.dataset.tk)) renderTabs(); });
   });
+  { const g=bar.querySelector('[data-tg]'); if(g && typeof cvWireGroup==='function') cvWireGroup(g, bar); }
   // E6 (bug #9): o X da aba perguntava nada e jogava fora a edição não salva do arquivo (só ⌘W e o botão fechar perguntavam)
   bar.querySelectorAll('[data-xk]').forEach(el=>el.onclick=e=>{ e.stopPropagation(); tabCloseGuarded(el.dataset.xk); });
   // "+" do topo: menu simples (Nova demanda · Abrir demanda · Navegador · Simulador · Documento) — 58-canvas; ⌘N segue direto
@@ -673,7 +680,7 @@ document.addEventListener('keydown', async e=>{
   if(k==='j' && !e.shiftKey){ e.preventDefault(); openTab('chat'); }
   else if(k===',' && !e.shiftKey){ e.preventDefault(); openTab('cfg'); }
   else if(k==='b' && !e.shiftKey){ e.preventDefault(); setRailCollapsed(!railIsCol()); }
-  else if(k==='w' && !e.shiftKey){ e.preventDefault(); const t=tabById(activeTab); if(!t || t.pin) return;
+  else if(k==='w' && !e.shiftKey){ e.preventDefault(); const t=tabById((typeof cvGroupMember==='function' && cvGroupMember()) || activeTab); if(!t || t.pin) return; // grupo na tela: fecha o membro em foco
     // aba de tarefa com o editor aberto: pergunta antes de descartar o que não foi salvo (igual ao "fechar")
     if(t.kind==='task' && typeof fwLeaveEditor==='function' && !await fwLeaveEditor()) return;
     if(tabById(t.id)) closeTab(t.id); }
