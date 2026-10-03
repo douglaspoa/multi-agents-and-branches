@@ -265,7 +265,7 @@ test('o menu dos modos: botão com o modo ATUAL, lista com TODOS (o ativo marcad
 test('Navegador: site externo num webview nativo à parte, posicionado sobre o painel (ResizeObserver + resize), sem polling', () => {
   const nat = cut(canvas, '// ---------- Navegador de verdade', '// fallback (fora do app de verdade');
   assert.match(nat, /invoke\('web_open',\{ label:v\.label, url:v\.cur, rect:\{ x:r\.left, y:r\.top, w:r\.width, h:r\.height \} \}\)/);
-  assert.match(nat, /new ResizeObserver\(\(\)=>cvNatSync\(\)\)/); assert.match(nat, /window\.addEventListener\('resize', \(\)=>cvNatSync\(\)\)/);
+  assert.match(nat, /new ResizeObserver\(\(\)=>cvNatSync\(\)\)/); assert.match(nat, /window\.addEventListener\('resize', \(\)=>\{ cvNatSync\(\);/);
   assert.match(nat, /new MutationObserver/, 'menus/janelas do app: evento, não laço'); assert.ok(!/setInterval/.test(nat));
   assert.match(nat, /requestAnimationFrame/, 'uma sincronia por quadro, no máximo');
   assert.match(nat, /if\(key!==v\.rect\)\{ v\.rect=key; invoke\('web_bounds'/, 'só manda o retângulo quando muda');

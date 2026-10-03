@@ -151,9 +151,15 @@ function cvShowView(tab){
 function cvSplitter(i){ const k='__split'+i; let el=SPL.panes[k]; if(!el){ el=document.createElement('div'); el.className='cvsplitter'; el.dataset.split=i; el.setAttribute('role','separator'); SPL.panes[k]=el; } return el; }
 // layout do grupo na GRADE CSS: só muda grid-area/trilhos (o DOM fica parado — iframe que muda de lugar recarrega).
 // Grade: o painel em FOCO ocupa o lugar grande. Painel estreito → a própria demanda vira faixa/menu (60-terminal-layout).
+// área da linha de painéis (px) — a base da troca automática de layout (cvLayEff com box)
+function cvRowBox(row){ row=row||($id('cvSplit')&&$id('cvSplit').querySelector('.cvrow')); if(!row) return null; const r=row.getBoundingClientRect(); return (r.width>0&&r.height>0)?{ w:r.width, h:r.height }:null; }
+// layout que está NA TELA agora (a escolha da pessoa, ou o automático quando ela não cabe)
+function cvLayNow(n){ n=n||(SPL.ids||[]).length; return cvLayEff(n, SPL.lay, cvRowBox()); }
 function cvApplyLayout(row, ids){
-  const n=ids.length, L=cvLayout(n, SPL.lay, SPL.focus|0, { w:SPL.w, h:SPL.h, g:SPL.g });
-  row.dataset.lay=n>1?L.lay:'one';
+  const n=ids.length, eff=cvLayEff(n, SPL.lay, cvRowBox(row));
+  const L=cvLayout(n, eff, SPL.focus|0, { w:SPL.w, h:SPL.h, g:SPL.g });
+  row.dataset.lay=n>1?L.lay:'one'; row.dataset.auto=(n>1 && eff!==cvLayEff(n, SPL.lay))?'1':'';
+  if(n>1 && SPL.eff!==eff){ const had=SPL.eff!=null; SPL.eff=eff; if(had && typeof renderTabs==='function') renderTabs(); }
   row.style.gridTemplateColumns=L.cols; row.style.gridTemplateRows=L.rows;
   ids.forEach((id,i)=>{ const el=SPL.panes[id]; if(el) el.style.gridArea=L.panes[i]||''; });
   for(let i=0;i<Math.max(0,n-1);i++){ const sp=SPL.panes['__split'+i]; if(!sp) continue; const d=L.splits[i];
@@ -162,10 +168,14 @@ function cvApplyLayout(row, ids){
     sp.setAttribute('aria-label', d.dir==='h'?'arrastar pra mudar a altura dos painéis':'arrastar pra mudar a largura dos painéis'); }
 }
 function cvSetLay(lay){
-  if(!SPL.ids || !CV_LAYS.includes(lay) || SPL.lay===lay) return;
+  if(!SPL.ids || !CV_LAYS.includes(lay)) return;
+  const n=SPL.ids.length, box=cvRowBox();
+  if(SPL.lay===lay && cvLayEff(n, lay, box)===cvLayEff(n, lay)) return;
   SPL.lay=lay; cvSplitSave();
   const ov=$id('cvSplit'), row=ov&&ov.querySelector('.cvrow'); if(row && cvSplitShowing()) cvApplyLayout(row, SPL.ids);
   if(typeof renderTabs==='function') renderTabs();
+  // a escolha fica salva; se não cabe nesta largura, a tela usa o automático e volta sozinha quando alargar
+  if(!cvLayFits(n, cvLayEff(n, lay), box)){ toast(({ side:'lado a lado', stack:'empilhado', grid:'a grade' })[lay]+' não cabe nesta largura — fica '+(cvLayEff(n, lay, box)==='grid'?'em grade':'empilhado')+' e volta sozinho quando a janela alargar', 'info'); return; }
   const lb={ side:'lado a lado', stack:'empilhado', grid:'grade — a tarefa em foco fica grande; ⌘1–3 trocam' }[lay]; toast('grupo: '+lb, 'info');
 }
 // quem está esperando você acende a borda (mesmo pequeno na grade)
@@ -215,7 +225,7 @@ function cvRealmRender(tab, body){
   if(body.querySelector('iframe.cvrealm')) return;
   body.__html=''; body.innerHTML='';
   const f=document.createElement('iframe');
-  f.className='cvrealm'; f.dataset.tabid=tab.id; f.title='demanda: '+cvTitleOf(tab);
+  f.className='cvrealm'; f.dataset.tabid=tab.id; f.setAttribute('aria-label', 'demanda: '+cvTitleOf(tab)); // aria-label, não title: o title do iframe vira tooltip nativo preso no canto do painel
   f.src='index.html?sfpane='+encodeURIComponent('task:'+tab.taskId);
   body.appendChild(f);
 }
@@ -237,7 +247,7 @@ function sfPaneBoot(){
 // a demanda do painel pediu pra fechar (× da tela da demanda, Esc): sai da divisão — a aba continua aberta
 function cvPaneRequestClose(tabId){ if(tabId && cvInSplit(tabId)) cvUnsplit(tabId); }
 function cvPaneFocus(tabId){ if(!SPL.ids) return; const i=SPL.ids.indexOf(tabId); if(i<0 || i===(SPL.focus|0)) return; SPL.focus=i; cvSplitSave(); const ov=$id('cvSplit'); if(ov) ov.querySelectorAll('.cvpane').forEach(p=>p.classList.toggle('focus', p.dataset.tabid===tabId));
-  { const row=ov&&ov.querySelector('.cvrow'); if(row && cvLayEff(SPL.ids.length, SPL.lay)==='grid') cvApplyLayout(row, SPL.ids); } // grade: o foco vai pro painel grande
+  { const row=ov&&ov.querySelector('.cvrow'); if(row && cvLayNow()==='grid') cvApplyLayout(row, SPL.ids); } // grade: o foco vai pro painel grande
   cvGroupPaintFocus(); // o segmento do painel em foco acende na aba-grupo (sem refazer a barra)
   if(typeof renderRail==='function') renderRail(); } // aria-current da barra lateral segue o painel em foco
 
@@ -333,7 +343,10 @@ try{ window.__TAURI__.event.listen('web-nav', (ev)=>{ const p=ev&&ev.payload; if
   const el=SPL.panes[v.tab]; const inp=el&&el.querySelector('[data-cvn="addr"]'); if(inp && document.activeElement!==inp && inp.value!==v.cur) inp.value=v.cur;
   if(p.title){ const tab=cvTabOf(v.tab); if(tab){ const tt=String(p.title).slice(0,28); if(tab.title!==tt){ tab.title=tt; if(typeof renderTabs==='function') renderTabs(); } } } }); }catch(_){ }
 // gatilhos (sem polling): janela mudou de tamanho, ficou visível/escondida, menus/janelas do app abriram/fecharam
-window.addEventListener('resize', ()=>cvNatSync());
+window.addEventListener('resize', ()=>{ cvNatSync(); cvRelayout(); });
+// a área dos painéis mudou (janela, barra lateral recolhida): o layout automático reavalia (só grid-area — nada recarrega)
+let cvRelayQ=0;
+function cvRelayout(){ if(cvRelayQ) return; cvRelayQ=requestAnimationFrame(()=>{ cvRelayQ=0; if(!cvSplitShowing()) return; const row=$id('cvSplit').querySelector('.cvrow'); if(row) cvApplyLayout(row, SPL.ids); }); }
 document.addEventListener('visibilitychange', ()=>cvNatSync());
 { try{ const mo=new MutationObserver(()=>{ if(Object.keys(NAT.views).length) cvNatSync(); });
     mo.observe(document.body, { childList:true });
@@ -537,8 +550,8 @@ function cvGroupTabHtml(ids){
 // botão de layout do grupo (▥ lado a lado · ▤ empilhado · grade com o foco grande) — logo depois da aba-grupo
 const CV_LAY_IC={ side:'<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M8 3v10"/>', stack:'<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M2 8h12"/>', grid:'<rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M8.5 3v10M8.5 8H14"/>' };
 function cvLayHtml(n, lay){
-  const cur=cvLayEff(n, lay); const L=[['side','lado a lado'],['stack','empilhado'],['grid','grade: a tarefa em foco grande à esquerda']];
-  return `<span class="cvlay" role="radiogroup" aria-label="layout do grupo">`+L.map(([k,l])=>{ const dis=k==='grid'&&n<3; return `<button type="button" role="radio" class="cvlayb${k===cur?' on':''}" data-cvlay="${k}" aria-checked="${k===cur}" title="${escA(dis?'grade precisa de 3 tarefas no grupo':l)}" aria-label="${escA(l)}"${dis?' disabled':''}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">${CV_LAY_IC[k]}</svg></button>`; }).join('')+`</span>`;
+  const e0=SPL.eff, cur=(e0 && (e0!=='grid'||n>=3))?e0:cvLayEff(n, lay), auto=cur!==cvLayEff(n, lay); const L=[['side','lado a lado'],['stack','empilhado'],['grid','grade: a tarefa em foco grande à esquerda']];
+  return `<span class="cvlay" role="radiogroup" aria-label="layout do grupo">`+L.map(([k,l])=>{ const dis=k==='grid'&&n<3; return `<button type="button" role="radio" class="cvlayb${k===cur?' on':''}" data-cvlay="${k}" aria-checked="${k===cur}" title="${escA(dis?'grade precisa de 3 tarefas no grupo':(auto&&k===cur)?l+' — automático: a janela está estreita pro layout escolhido':l)}" aria-label="${escA(l)}"${dis?' disabled':''}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">${CV_LAY_IC[k]}</svg></button>`; }).join('')+`</span>`;
 }
 document.addEventListener('click', (e)=>{ const b=e.target.closest&&e.target.closest('[data-cvlay]'); if(!b) return; e.stopPropagation(); if(!b.disabled) cvSetLay(b.dataset.cvlay); }, true); // captura: a barra de abas não vê o clique
 // o painel em foco mudou: só acende o segmento certo (refazer a barra tiraria o foco do teclado)
@@ -616,12 +629,13 @@ function cvTabDragEnd(){ SPL.dragId=null; const z=$id('cvDropZone'); if(z){ z.hi
   } }
 // ---------- fiação da linha de painéis (uma vez) ----------
 function cvWireRow(row){
+  if(typeof ResizeObserver==='function') new ResizeObserver(()=>cvRelayout()).observe(row);
   row.addEventListener('click', (e)=>{ const x=e.target.closest('[data-cvunsplit]'); if(x){ e.stopPropagation(); cvUnsplit(x.dataset.cvunsplit); } });
   row.addEventListener('pointerdown', (e)=>{ const p=e.target.closest('.cvpane'); if(p) cvPaneFocus(p.dataset.tabid);
     const sp=e.target.closest('.cvsplitter'); if(!sp || !SPL.ids) return;
     e.preventDefault(); sp.setPointerCapture(e.pointerId); document.documentElement.classList.add('cvdragging');
     const ids=SPL.ids.slice(), panes=ids.map(id=>SPL.panes[id]), h=sp.dataset.dir==='h', k=+sp.dataset.k||0;
-    const L=cvLayEff(ids.length, SPL.lay); const rr=row.getBoundingClientRect();
+    const L=cvLayEff(ids.length, SPL.lay, cvRowBox(row)); const rr=row.getBoundingClientRect();
     const sizes=panes.map(p=>{ const r=p.getBoundingClientRect(); return h?r.height:r.width; }); const p0=h?e.clientY:e.clientX;
     const mv=(ev)=>{ const pos=h?ev.clientY:ev.clientX;
       if(L==='grid'){ const g=(SPL.g||[0.56,0.5]).slice(); if(h) g[1]=cvGridFrac(pos, rr.top, rr.height); else g[0]=cvGridFrac(pos, rr.left, rr.width); SPL.g=g; }

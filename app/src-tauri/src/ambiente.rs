@@ -163,8 +163,10 @@ pub fn env_detect(state: State<AppState>, task_id: String) -> Result<Value, Stri
 }
 
 /// Sobe o ambiente (ou devolve o que já está subindo/no ar). O progresso chega pelo evento `env-progress`.
+/// `main: true` = "abrir a prévia da main": a tarefa já foi integrada e a pasta dela não existe mais — liga o projeto
+/// na PASTA DO PROJETO (o que está na main agora), com o mesmo supervisor/porta própria/limpeza.
 #[tauri::command(async)]
-pub fn env_up(app: AppHandle, state: State<AppState>, task_id: String) -> Result<Value, String> {
+pub fn env_up(app: AppHandle, state: State<AppState>, task_id: String, main: Option<bool>) -> Result<Value, String> {
     {
         let mut m = envs().lock().unwrap_or_else(|e| e.into_inner());
         if let Some(cur) = m.get_mut(&task_id) {
@@ -172,7 +174,7 @@ pub fn env_up(app: AppHandle, state: State<AppState>, task_id: String) -> Result
             m.remove(&task_id); // terminou: sobe de novo
         }
     }
-    let wt = wt_of(&state, &task_id)?;
+    let wt = if main == Some(true) { repo_of(&state)? } else { wt_of(&state, &task_id)? };
     let mut c = node_cmd();
     c.arg("--disable-warning=ExperimentalWarning").arg(cli_for(&state, &wt))
         .args(["env", "up", "--wt", &wt.display().to_string(), "--task", &task_id])

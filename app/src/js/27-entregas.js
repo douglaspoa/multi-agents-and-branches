@@ -454,6 +454,8 @@ function fwRenderEntrega(t, main){
   const done=taskIsDone(t);
   fwReqProofsEnsure(t.id); fwArtsEnsure(t); // 1 leitura em voo por tarefa (antes: uma nova a cada render)
   if(commitsCache[t.id]===undefined) loadCommits(t.id).then(()=>{ if(fwTask===t.id) renderWorkspace(); });
+  // integrada com PR: o tamanho certo vem do PR (diffOf) — busca uma vez
+  if(done && t.prUrl && prCache[t.id]===undefined && typeof loadPr==='function') loadPr(t.id).then(()=>{ if(fwTask===t.id && fwMode==='entrega') renderWorkspace(); }).catch(()=>{});
   if(!enDefDir) invoke('deliverables_default_dir').then(d=>{ if(d&&!enDefDir){ enDefDir=d; if(fwTask===t.id&&fwMode==='entrega') renderWorkspace(); } }).catch(()=>{});
   const arts=entregaArts(t);
   const nonCode=entregaNonCode(t);

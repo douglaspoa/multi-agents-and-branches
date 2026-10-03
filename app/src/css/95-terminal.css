@@ -117,7 +117,7 @@
 .tlsheethost.tight .tlot small,.tlsheethost.tight .tlkeys{display:none}
 .tlsheethost.tight .tlq{padding:8px 12px 2px;font-size:var(--fs-base)}
 .tlsheethost.tight .tlopt{padding:5px 8px}
-.tlsheethost.tight .tlother{padding:0 12px 6px}
+.tlsheethost.tight .tlother{display:none} /* pane pequeno: "outra resposta" sai da folha — o compositor embaixo responde a pergunta da vez */
 .tlsheethost.tight .tlsf{padding:6px 10px}
 .tlsheethost.tight .tlsh{padding:6px 8px 6px 12px}
 /* a linha do ciclo (etapas + decisões) não engole o terminal num pane pequeno */

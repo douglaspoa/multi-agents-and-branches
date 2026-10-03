@@ -109,7 +109,7 @@ body{
 .cbub.err{border-color:color-mix(in srgb,var(--crit) 45%,var(--border));color:var(--crit)}
 /* markdown dentro das bolhas — nada de ** cru */
 .cbub p{margin:0 0 7px} .cbub p:last-child{margin:0}
-.cbub h1,.cbub h2,.cbub h3,.cbub h4{font-size:var(--fs-sm);margin:4px 0 6px;font-weight:700;letter-spacing:0}
+.cbub h1,.cbub h2,.cbub h3,.cbub h4{font-size:1em;margin:4px 0 6px;font-weight:700;letter-spacing:0} /* título do agente nunca menor que o texto (era 12,5 px num balão de 14) */
 .cbub ul,.cbub ol{margin:4px 0 7px;padding-left:18px} .cbub li{margin-bottom:3px}
 .cbub code{font-family:var(--mono);font-size:var(--fs-xs);background:rgba(255,255,255,.08);border-radius:4px;padding:0 4px}
 .cmsg.you .cbub code{background:rgba(0,0,0,.22)}
