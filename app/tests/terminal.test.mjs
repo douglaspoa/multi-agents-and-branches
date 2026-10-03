@@ -114,7 +114,7 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   assert.match(ws, /if\(th && !th\.dataset\.term\)/);
   // layout A (60-terminal-layout): a coluna inteira vira terminal + painel; o slot do terminal mora no tlChatHtml
   assert.match(ws, /chat\.innerHTML=isTerm \? tlChatHtml\(t, composer\)/);
-  assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t\);[^\n]*\} else termSweep\(\);/);
+  assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t, sheetGrab\);[^\n]*\} else termSweep\(\);/);
   assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}\$\{composer\}/);
   assert.match(src('34-orquestrador.js'), /termMode:'auto', start:startNow/);
   assert.match(src('59-ideia.js'), /payload\.termMode='auto'/);

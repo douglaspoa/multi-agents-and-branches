@@ -3540,7 +3540,8 @@ fn new_task(
     if hitl { args.push("--hitl".to_string()); }
     // MODO DA TAREFA: terminal só pra motor com CLI interativo oficial (claude/codex); o resto segue automático
     let ek = args.iter().position(|a| a == "--engine").and_then(|i| args.get(i + 1)).map(|e| e.to_lowercase()).unwrap_or_default();
-    let chosen = setting_get("taskModeSet").as_deref() == Some("2") && setting_get("taskMode").as_deref() == Some("terminal");
+    // Codex no terminal = a pessoa ESCOLHEU terminal (beta antiga ou a tela nova) — o padrão novo é só do Claude
+    let chosen = setting_get("taskMode").as_deref() == Some("terminal");
     let terminal = term::wants_terminal(term_mode.as_deref(), term::default_mode(), chosen, &ek);
     args.push("--term-mode".to_string());
     args.push(if terminal { "terminal" } else { "auto" }.to_string());

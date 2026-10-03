@@ -540,7 +540,7 @@ function cvLayHtml(n, lay){
   const cur=cvLayEff(n, lay); const L=[['side','lado a lado'],['stack','empilhado'],['grid','grade: a tarefa em foco grande à esquerda']];
   return `<span class="cvlay" role="radiogroup" aria-label="layout do grupo">`+L.map(([k,l])=>{ const dis=k==='grid'&&n<3; return `<button type="button" role="radio" class="cvlayb${k===cur?' on':''}" data-cvlay="${k}" aria-checked="${k===cur}" title="${escA(dis?'grade precisa de 3 tarefas no grupo':l)}" aria-label="${escA(l)}"${dis?' disabled':''}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">${CV_LAY_IC[k]}</svg></button>`; }).join('')+`</span>`;
 }
-document.addEventListener('click', (e)=>{ const b=e.target.closest&&e.target.closest('[data-cvlay]'); if(!b || b.disabled) return; e.stopPropagation(); cvSetLay(b.dataset.cvlay); });
+document.addEventListener('click', (e)=>{ const b=e.target.closest&&e.target.closest('[data-cvlay]'); if(!b) return; e.stopPropagation(); if(!b.disabled) cvSetLay(b.dataset.cvlay); }, true); // captura: a barra de abas não vê o clique
 // o painel em foco mudou: só acende o segmento certo (refazer a barra tiraria o foco do teclado)
 function cvGroupPaintFocus(){
   const g=document.querySelector('#tabBar [data-tg]'); if(!g || !SPL.ids) return; const f=SPL.focus|0;

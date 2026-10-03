@@ -45,8 +45,6 @@ button.lnk{border:0;background:none;font:inherit;padding:0}
 .overlay.cvsplit.astab{display:flex!important;flex-direction:column}
 .cvrow{flex:1;display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr);min-height:0;min-width:0;background:var(--bg)}
 .cvpane{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--surface);position:relative}
-.cvpane.split{border-left:1px solid var(--border)}
-.cvpane.split:first-child{border-left:0}
 .cvpane.split.focus>.cvph{box-shadow:inset 0 -2px 0 var(--accent-line)}
 .cvph{display:flex;align-items:center;gap:7px;padding:0 6px 0 11px;min-height:30px;font-size:var(--fs-xs);color:var(--muted);border-bottom:1px solid var(--border);background:var(--surface-2);flex:none;min-width:0}
 .cvph:empty{display:none}
@@ -228,8 +226,7 @@ html.sfpane #cloudOverlay,html.sfpane #authOverlay,html.sfpane #obOverlay,html.s
 .cvnthint{width:min(460px,100%);margin:0;color:var(--muted);font-size:var(--fs-base);line-height:1.55;text-align:center}
 .cvnthint b{color:var(--text);font-weight:600}
 
-/* ---------- layout do grupo (lado a lado · empilhado · grade) — 58-canvas cvApplyLayout ---------- */
-.cvpane.split{border-left:0}
+/* ---------- layout do grupo (lado a lado · empilhado · grade) — 58-canvas cvApplyLayout; a divisória é o .cvsplitter ---------- */
 .cvrow[data-lay] .cvpane.split.focus>.cvph{box-shadow:inset 0 2px 0 var(--accent)}
 .cvpane.asking{box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--st-ask) 70%,transparent)}
 .cvpane.asking>.cvph{color:var(--st-ask)}

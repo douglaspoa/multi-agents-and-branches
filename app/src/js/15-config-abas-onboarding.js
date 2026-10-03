@@ -4,6 +4,8 @@
 // modo das tarefas na tela — espelha term.rs mode_default: terminal é o padrão; "auto" só vale se escolhido na tela nova
 // (taskModeSet=2). Na tela antiga "Automático (padrão)" era gravado junto com o resto, sem ser escolha.
 function cfgTaskModeOf(o){ return (o && String(o.taskModeSet)==='2' && o.taskMode==='auto') ? 'auto' : 'terminal'; }
+// grava quando mudou, ou quando você salva com Terminal e ele ainda não estava gravado (é o que liga o Codex no terminal)
+function cfgTaskModeShouldSave(val, loaded, stored){ if(loaded===undefined) return false; return val!==loaded || (val==='terminal' && stored!=='terminal'); }
 function cfgHide(){ const o=$id('cfgOverlay'); if(o&&o.classList.contains('astab')) closeTabOfKind('cfg'); else if(o) o.style.display='none'; }
 // @puro-inicio cfgValidate — valores do formulário (texto dos inputs) → null (ok) ou { field, msg } do 1º problema
 function cfgValidate(v){
@@ -65,7 +67,7 @@ function openCfg(){
     <div class="cfggrid">
       <div class="cfgf"><label for="cfgTaskMode">Modo</label>
         <select class="in" id="cfgTaskMode"><option value="terminal">Terminal (padrão) — o Claude Code oficial num terminal dentro da tarefa</option><option value="auto">Automático — o agente roda em segundo plano e conversa pelo chat</option></select>
-        <p class="cfghint">Motores sem terminal (DeepSeek, gateway) rodam no automático. O Codex abre no terminal só se você escolher Terminal aqui. Piloto automático, ondas e épicos que iniciam sozinhos sempre usam o automático. Pra rodar sem ninguém olhando, o caminho mais seguro é uma chave de API.</p></div>
+        <p class="cfghint">Motores sem terminal (DeepSeek, gateway) rodam no automático. O Codex abre no terminal quando você salva Terminal aqui. Piloto automático, ondas e épicos que iniciam sozinhos sempre usam o automático. Pra rodar sem ninguém olhando, o caminho mais seguro é uma chave de API.</p></div>
     </div>
     <div class="seclbl2" style="margin-top:20px">Aprendizado contínuo <span class="dim cfgsecd">· no fim de cada tarefa uma retro relê o que aconteceu (suas correções, retrabalho) e propõe notas pro cérebro e skills do projeto</span></div>
     <div class="cfggrid">
@@ -90,7 +92,7 @@ function openCfg(){
     </div>
     <div class="cfgsavebar"><span class="dim" id="cfgDirty"></span><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
   // carrega o intervalo de retomada salvo (settings.json via Rust)
-  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false'); const lm=$id('cfgLearnMode'); if(lm && ['sugerir','auto','desligado'].includes(o.learnMode)) lm.value=o.learnMode; const rm=$id('cfgRetroModel'); if(rm) retroModelSelect(rm, o.retroModel); const tm=$id('cfgTaskMode'); if(tm){ tm.value=cfgTaskModeOf(o); tm.dataset.loaded=tm.value; } }catch(_){} }).catch(()=>{});
+  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false'); const lm=$id('cfgLearnMode'); if(lm && ['sugerir','auto','desligado'].includes(o.learnMode)) lm.value=o.learnMode; const rm=$id('cfgRetroModel'); if(rm) retroModelSelect(rm, o.retroModel); const tm=$id('cfgTaskMode'); if(tm){ tm.value=cfgTaskModeOf(o); tm.dataset.loaded=tm.value; tm.dataset.stored=o.taskMode||''; } }catch(_){} }).catch(()=>{});
   { const cap=$id('cfgCap'), brl=$id('cfgBrl'), out=$id('cfgCapBrl');
     const upd=()=>{ const v=Math.max(0, parseFloat(cap.value)||0), r=parseFloat(brl.value)||usdBrlRate(); out.textContent=v>0?'≈ R$ '+fmtNumBR(v*r,true):'sem teto'; };
     cap.oninput=upd; brl.oninput=upd; upd(); }
@@ -117,7 +119,8 @@ function openCfg(){
     if(bv) await w('browserVisible', bv.checked?'1':'0', 'mostrar a janela do navegador');
     { const es=$id('cfgEstimate'); if(es){ await w('estimateEnabled', es.checked?'1':'0', 'previsão de tempo e tokens'); if(typeof estSetEnabled==='function') estSetEnabled(es.checked); } }
     // só grava o modo quando a pessoa MUDOU (gravar "auto" junto com o resto foi o que prendeu gente no modo antigo)
-    { const tm=$id('cfgTaskMode'); if(tm && tm.value!==tm.dataset.loaded){ await w('taskMode', tm.value==='auto'?'auto':'terminal', 'modo das tarefas'); await w('taskModeSet', '2', 'modo das tarefas'); tm.dataset.loaded=tm.value; } }
+    // (antes de ler as configurações não grava nada — salvar cedo marcava uma escolha que ninguém fez)
+    { const tm=$id('cfgTaskMode'); if(tm && cfgTaskModeShouldSave(tm.value, tm.dataset.loaded, tm.dataset.stored)){ const n0=fails.length; await w('taskMode', tm.value==='auto'?'auto':'terminal', 'modo das tarefas'); await w('taskModeSet', '2', 'modo das tarefas'); if(fails.length===n0){ tm.dataset.loaded=tm.value; tm.dataset.stored=tm.value; } } }
     { const lm=$id('cfgLearnMode'), rm=$id('cfgRetroModel'); if(lm) await w('learnMode', lm.value, 'modo do aprendizado contínuo'); if(rm) await w('retroModel', rm.value, 'modelo da retro'); }
     btn.disabled=false; btn.textContent='salvar';
     if(fails.length){ const d=$id('cfgDirty'); if(d) d.textContent='não salvou: '+fails.map(f=>f.nome).join(' e ');

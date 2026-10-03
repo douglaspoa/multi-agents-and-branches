@@ -55,7 +55,7 @@
 .tlgr{display:flex;justify-content:space-between;gap:8px;font-size:var(--fs-sm)}
 .tlgr span{color:var(--text-2);font-variant-numeric:tabular-nums}
 .tlbar{height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden}
-.tlbar i{display:block;height:100%;border-radius:3px;background:var(--accent);transition:width .4s cubic-bezier(.2,.8,.2,1)}
+.tlbar i{display:block;width:100%;height:100%;border-radius:3px;background:var(--accent);transform-origin:left center;transition:transform .4s cubic-bezier(.2,.8,.2,1)}
 .tlgate .btn{justify-content:center}
 .tlgh{color:var(--muted);font-size:var(--fs-xs)}
 
@@ -92,7 +92,7 @@
 .tlmulti{font-size:var(--fs-xs);font-weight:500;color:var(--muted);margin-left:4px}
 .tlopts{display:flex;flex-direction:column;padding:2px 8px 8px;overflow:auto;min-height:0}
 .tlopt{display:grid;grid-template-columns:22px minmax(0,1fr);gap:9px;align-items:start;padding:8px;border-radius:var(--r-sm);border:1px solid transparent;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.tlopt:hover{background:var(--surface-2)}
+.tlopt:hover,.tlopt.cur{background:var(--surface-2)}
 .tlopt .k{font-family:var(--mono);font-size:var(--fs-xs);color:var(--muted);border:1px solid var(--border-strong);border-radius:5px;text-align:center;line-height:18px;font-variant-numeric:tabular-nums}
 .tlot{min-width:0}
 .tlot b{display:block;font-size:var(--fs-base);font-weight:600;color:var(--text)}

@@ -150,3 +150,39 @@ test('grupo salvo: layout e tamanhos por layout voltam; lixo é ignorado sem der
   const bad = CV.cvSplitValid({ v: 2, panes, lay: 'mosaico', g: [0.9, 0.1], h: [1, 0, 0] }, ['a', 'b', 'c']);
   assert.equal(bad.lay, undefined); assert.equal(bad.g, undefined); assert.equal(bad.h, undefined); assert.equal(bad.panes.length, 3);
 });
+
+// ---------------- correções da revisão (4 lentes) ----------------
+test('grupo pela metade (snapshot no meio da gravação) não abre a folha; multi: ↑↓ andam pelo cursor', () => {
+  assert.equal(TL.tlAskGroup([AUQ[1]]), null, '1 de 2 perguntas: espera');
+  const m = { key: 'g:x', auq: true, rows: [{ id: 1, prompt: 'avisos?', options: ['e-mail', 'push', 'sms'], desc: [], multi: true }] };
+  let r = TL.tlAskKey(m, TL.tlAskNew(m), 'ArrowDown', false); assert.equal(r.st.cursor, 0);
+  r = TL.tlAskKey(m, r.st, 'ArrowDown', false); assert.equal(r.st.cursor, 1, 'sem nada marcado, desce mesmo assim');
+  r = TL.tlAskKey(m, r.st, ' ', false); assert.deepEqual(TL.tlAskAnswers(m, r.st), ['push']);
+});
+test('painel de tarefa encerrada não oferece aprovar', () => {
+  const view = TL.tlReqView(ROWS, false);
+  const h = TL.tlPanelHtml({ view, gate: { st: 'unproven', missing: [1] }, phase: 'closed' });
+  assert.ok(!/data-tl="(approve|askproof|noproof)"/.test(h)); assert.ok(!/aprovar exige/.test(h));
+});
+test('divisória em painéis estreitos: nunca negativo nem abaixo dos 12% que o grupo salvo aceita', () => {
+  const f = CV.cvDragFracs([150, 150, 150], 0, -500, 200);
+  assert.ok(f.every((x) => x > 0)); assert.ok(f[0] >= 0.12, String(f));
+  assert.ok(Math.abs(f.reduce((a, b) => a + b, 0) - 1) < 0.002);
+});
+// Configurações ↔ term.rs: o MESMO quadro de casos do teste Rust (modo_padrao_tests)
+test('tela de Configurações mostra o mesmo modo que o term.rs usa (TS≡Rust) e só grava o que foi escolhido', () => {
+  const cfg = read('js/15-config-abas-onboarding.js');
+  const F = new Function(cut(cfg, 'function cfgTaskModeOf', 'function cfgHide') + '\nreturn { cfgTaskModeOf, cfgTaskModeShouldSave };')();
+  // mode_default(None,None)=terminal · (auto,None)=terminal · (auto,"2")=auto · (terminal,"2")=terminal
+  assert.equal(F.cfgTaskModeOf({}), 'terminal');
+  assert.equal(F.cfgTaskModeOf({ taskMode: 'auto' }), 'terminal', 'auto da tela antiga não é escolha');
+  assert.equal(F.cfgTaskModeOf({ taskMode: 'auto', taskModeSet: '2' }), 'auto');
+  assert.equal(F.cfgTaskModeOf({ taskMode: 'terminal', taskModeSet: '2' }), 'terminal');
+  assert.equal(F.cfgTaskModeShouldSave('terminal', undefined, ''), false, 'antes de ler: não grava');
+  assert.equal(F.cfgTaskModeShouldSave('auto', 'auto', 'auto'), false, 'nada mudou');
+  assert.equal(F.cfgTaskModeShouldSave('auto', 'terminal', ''), true);
+  assert.equal(F.cfgTaskModeShouldSave('terminal', 'terminal', ''), true, 'salvar com Terminal na tela vira escolha (Codex)');
+  assert.equal(F.cfgTaskModeShouldSave('terminal', 'terminal', 'terminal'), false);
+  const rs = read('../src-tauri/src/term.rs');
+  for (const c of ['mode_default(None, None), "terminal"', 'mode_default(Some("auto"), None), "terminal"', 'mode_default(Some("auto"), Some("2")), "auto"', 'mode_default(Some("terminal"), Some("2")), "terminal"']) assert.ok(rs.includes(c), 'caso espelhado no Rust: ' + c);
+});

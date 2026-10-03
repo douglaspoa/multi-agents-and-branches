@@ -123,7 +123,9 @@ function cvLayout(n, lay, focus, sz){
  * Devolve as frações novas (soma 1), nenhum painel menor que `min` px.
  */
 function cvDragFracs(sizes, k, d, min){
-  const s=sizes.slice(); const tot=s.reduce((a,b)=>a+b,0)||1; const m=min||200;
+  const s=sizes.slice(); const tot=s.reduce((a,b)=>a+b,0)||1;
+  // mínimo: o pedido, mas nunca abaixo do que o grupo salvo aceita (12%) nem acima do que cabe nos dois painéis
+  const m=Math.min(Math.max(min||200, tot*0.12), (s[k]+s[k+1])/2);
   const a=Math.max(m, Math.min(s[k]+s[k+1]-m, s[k]+d)); const b=s[k]+s[k+1]-a; s[k]=a; s[k+1]=b;
   return s.map(x=>Math.round(x/tot*1000)/1000);
 }

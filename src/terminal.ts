@@ -277,7 +277,7 @@ export function applyHook(store: Store, taskId: string, eff: HookEffect): void {
 
 // ======================= pergunta do agente (AskUserQuestion) — PURO, testado em terminal.test.ts =======================
 export interface AuqQuestion { question: string; header?: string; options?: { label?: string; description?: string }[]; multiSelect?: boolean }
-export interface AuqRow { prompt: string; options: string[]; meta: { src: "auq"; group: string; idx: number; n: number; header: string; desc: string[]; multi: boolean } }
+export interface AuqRow { key: string; prompt: string; options: string[]; meta: { src: "auq"; group: string; idx: number; n: number; header: string; desc: string[]; multi: boolean } }
 /** tool_input do AskUserQuestion → uma linha de `pending` por pergunta (opções = rótulos: celular e quadro já entendem). */
 export function auqRows(input: unknown, group: string): AuqRow[] {
   const qs = Array.isArray((input as { questions?: unknown })?.questions) ? ((input as { questions: AuqQuestion[] }).questions) : [];
@@ -285,6 +285,7 @@ export function auqRows(input: unknown, group: string): AuqRow[] {
   return valid.map((q, idx) => {
     const opts = (Array.isArray(q.options) ? q.options : []).filter((o) => o && typeof o.label === "string" && o.label.trim());
     return {
+      key: q.question, // a chave do `answers` é o texto EXATO da pergunta (o Claude casa por ele)
       prompt: q.question.trim(),
       options: opts.map((o) => String(o.label).trim()),
       meta: { src: "auq", group, idx, n: valid.length, header: clip(q.header ?? "", 40), desc: opts.map((o) => clip(o.description ?? "", 200)), multi: !!q.multiSelect },
@@ -332,12 +333,18 @@ export async function askHookCli(taskArg: string, repoArg: string): Promise<numb
     if (!task) return 0;
     let agent = task.agent;
     try { const sp = JSON.parse(task.spec_json) as TaskSpec; agent = (sp.roles?.find((r) => r.role === "builder") ?? sp.roles?.[0])?.name || agent; } catch { /* spec ilegível */ }
-    ids = rows.map((r) => store!.addPending(taskId, agent, "question", r.prompt, r.options, r.meta));
+    // todas as perguntas de uma vez (transação): a folha nunca vê um grupo pela metade
+    store.db.exec("BEGIN IMMEDIATE");
+    try { ids = rows.map((r) => store!.addPending(taskId, agent, "question", r.prompt, r.options, r.meta)); store.db.exec("COMMIT"); }
+    catch (e) { try { store.db.exec("ROLLBACK"); } catch { /* já encerrada */ } throw e; }
     store.addEvent(taskId, agent, "note", `perguntou ao humano: ${rows.map((r) => r.prompt).join(" · ")}`, undefined);
     if (process.env.CARDUME_NOTIFY !== "0") { try { const { notify } = await import("./util/notify.ts"); notify("Starfork", rows[0].prompt, `${agent} precisa de você`); } catch { /* sem notificação */ } }
     for (;;) {
-      const got = ids.map((id) => { const r = store!.getPending(id); return r && r.status === "answered" ? (r.answer ?? "") : null; });
-      const res = auqCollect(rows.map((r) => r.prompt), got);
+      const cur = ids.map((id) => store!.getPending(id));
+      // tarefa apagada/linhas removidas: ninguém vai responder — solta o CLI (o picker dele aparece no TTY)
+      if (cur.some((r) => !r)) return 0;
+      const got = cur.map((r) => (r!.status === "answered" ? (r!.answer ?? "") : null));
+      const res = auqCollect(rows.map((r) => r.key), got);
       if (res === "terminal") { store.addEvent(taskId, "Sistema", "note", "pergunta: você escolheu responder no terminal", true); return 0; }
       if (res) {
         const txt = Object.entries(res.answers).map(([q, a]) => `${q} → ${a}`).join(" · ") || "(todas puladas)";

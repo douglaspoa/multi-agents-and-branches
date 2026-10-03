@@ -250,6 +250,7 @@ test("pergunta do agente: tool_input → linhas de pending (rótulos + meta) e r
   assert.equal(rows[1].meta.multi, true);
   assert.deepEqual(auqRows({ questions: [{ question: "  " }, null] }, "g"), [], "pergunta vazia/lixo some");
   assert.deepEqual(auqRows(null, "g"), []);
+  assert.equal(auqRows({ questions: [{ question: " Qual? " }] }, "g")[0].key, " Qual? ", "a chave do answers é o texto exato");
   const qs = rows.map((r) => r.prompt);
   assert.equal(auqCollect(qs, ["Lista de espera", null]), null, "falta uma: espera");
   assert.equal(auqCollect(qs, ["Lista de espera"]), null);

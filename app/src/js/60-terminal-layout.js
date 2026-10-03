@@ -55,9 +55,10 @@ function tlPanelHtml(o){
     else if(o.phase==='review') acts=(o.gate&&o.gate.st==='unproven')
       ? `<button type="button" class="btn sm primary" data-tl="askproof">pedir a prova ao agente</button><button type="button" class="btn sm" data-tl="noproof" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar sem prova…</button>`
       : `<button type="button" class="btn sm primary" data-tl="approve">aprovar e abrir PR</button>`;
+    else if(o.phase==='closed') acts='';
     else acts='<span class="tlgh">aprovar exige a prova de cada requisito ou um motivo</span>';
   }
-  const gate=m?`<div class="tlgate"><div class="tlgr"><b>Portão de provas</b><span>${n}/${m} com prova</span></div><div class="tlbar" role="progressbar" aria-valuemin="0" aria-valuemax="${m}" aria-valuenow="${n}" aria-label="requisitos com prova"><i style="width:${pct}%"></i></div>${acts}</div>`:'';
+  const gate=m?`<div class="tlgate"><div class="tlgr"><b>Portão de provas</b><span>${n}/${m} com prova</span></div><div class="tlbar" role="progressbar" aria-valuemin="0" aria-valuemax="${m}" aria-valuenow="${n}" aria-label="requisitos com prova"><i style="transform:scaleX(${(pct/100).toFixed(3)})"></i></div>${acts}</div>`:'';
   return `<aside class="tlpanel${o.overlay?' overlay':''}" aria-label="Requisitos e provas"><div class="tlph"><span>Requisitos e provas</span><button type="button" class="tltog" data-tl="fold" title="${o.overlay?'fechar':'recolher (fica uma faixa com o progresso)'}" aria-label="${o.overlay?'fechar requisitos e provas':'recolher requisitos e provas'}">${TL_IC.fold}</button></div><div class="tlpb">${items}${gate}</div></aside>`;
 }
 
@@ -69,13 +70,15 @@ function tlAskGroup(pend){
   const meta=(p)=>(p.meta && typeof p.meta==='object')?p.meta:null;
   const first=qs[0], m0=meta(first);
   const key=m0&&m0.group?'g:'+m0.group:'p:'+first.id;
-  const rows=(m0&&m0.group?qs.filter(p=>{ const m=meta(p); return m&&m.group===m0.group; }):[first])
+  const mine=m0&&m0.group?qs.filter(p=>{ const m=meta(p); return m&&m.group===m0.group; }):[first];
+  if(m0 && m0.n>mine.length) return null; // grupo ainda chegando (o snapshot pegou no meio): espera ele inteiro
+  const rows=mine
     .slice().sort((a,b)=>((meta(a)||{}).idx|0)-((meta(b)||{}).idx|0))
     .map(p=>{ const m=meta(p)||{}; const opts=Array.isArray(p.options)?p.options.map(String):[];
       return { id:p.id, ck:p.id+'|'+(p.createdAt||''), prompt:String(p.prompt||''), header:String(m.header||''), options:opts, desc:opts.map((_,i)=>String((m.desc||[])[i]||'')), multi:!!m.multi }; });
   return { key, auq:!!(m0&&m0.src==='auq'), agent:first.agent||'', rows };
 }
-function tlAskNew(g){ return { q:0, sel:g.rows.map(r=>r.options.length?(r.multi?[]:[0]):[]), other:g.rows.map(()=> ''), skip:g.rows.map(()=>false), sending:false, min:false }; }
+function tlAskNew(g){ return { sent:{}, q:0, sel:g.rows.map(r=>r.options.length?(r.multi?[]:[0]):[]), other:g.rows.map(()=> ''), skip:g.rows.map(()=>false), sending:false, min:false }; }
 // a resposta de cada pergunta (texto que vai pro pending): outra resposta > opções escolhidas; pulada = ''
 function tlAskAnswers(g, st){
   return g.rows.map((r,i)=>{
@@ -93,7 +96,7 @@ function tlAskKey(g, st, key, inInput){
   if(key==='Escape') return { st:s, act:'close' };
   if(key==='Enter'){ if(last) return { st:s, act:'send' }; s.q++; s.cursor=null; return { st:s, act:null }; }
   if(inInput) return { st:s, act:null, pass:true };
-  const cur=(s.sel[s.q]||[]); const at=cur.length?cur[cur.length-1]:-1;
+  const cur=(s.sel[s.q]||[]); const at=s.cursor!=null?s.cursor:(cur.length?cur[cur.length-1]:-1);
   const pick=(k)=>{ if(!n) return; s.other[s.q]=''; s.skip[s.q]=false; if(r.multi){ const i=cur.indexOf(k); s.sel[s.q]=i>=0?cur.filter(x=>x!==k):cur.concat(k); } else s.sel[s.q]=[k]; };
   if(key==='ArrowDown'){ if(n){ s.other[s.q]=''; s.skip[s.q]=false; s.sel[s.q]=r.multi?cur:[(at+1+n)%n]; s.cursor=(at+1+n)%n; } return { st:s, act:null }; }
   if(key==='ArrowUp'){ if(n){ s.other[s.q]=''; s.skip[s.q]=false; s.sel[s.q]=r.multi?cur:[(at-1+n)%n]; s.cursor=(at-1+n)%n; } return { st:s, act:null }; }
@@ -127,6 +130,7 @@ function tlFolded(taskId){ return lsGet('tlFold:'+taskId)==='1'; }
 function tlSetFolded(taskId, on){ lsSet('tlFold:'+taskId, on?'1':'0'); }
 function tlPhase(t){
   if(t.prUrl) return 'pr';
+  if(['merged','aborted','cancelled','done','closed'].includes(t.status) || t.flag==='closed') return 'closed';
   const working=(ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !pendingOf(t.id).length;
   if(working) return 'working';
   return ['review','delivered'].includes(t.status)?'review':'idle';
@@ -161,11 +165,11 @@ function tlChatHtml(t, composer){
   return `<div class="tlwrap" data-tlwrap="${escA(t.id)}"><div class="tlcol"><div class="tltermbar" id="tlBar">${tlBarHtml(t)}</div>${termSlotHtml(t)}${composer}</div><div class="tlside" id="tlSide">${tlSideHtml(t)}</div></div>`;
 }
 /** Depois do innerHTML: liga o painel, mede a largura e põe a folha (se houver pergunta). */
-function tlWire(t){
+function tlWire(t, grab){
   const wrap=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"]`); if(!wrap) return;
   const side=$id('tlSide'); if(side){ side.__html=side.innerHTML; side.onclick=(e)=>tlSideClick(t.id, e); side.onkeydown=(e)=>{ if((e.key==='Enter'||e.key===' ') && e.target.closest('[data-tl="unfold"]')){ e.preventDefault(); tlSideAct(t.id, 'unfold'); } }; }
   tlWatchWidth(t.id, wrap);
-  tlAskPaint(t);
+  tlAskPaint(t, false, grab);
 }
 function tlSideClick(taskId, e){
   const lb=e.target.closest('[data-tllb]'); if(lb){ try{ const [names, i]=JSON.parse(lb.dataset.tllb); if(typeof lbOpen==='function') lbOpen(taskId, names, i); }catch(_){ } return; }
@@ -205,15 +209,17 @@ function tlLivePaint(t){
 // ---------------------------------------------------------------- folha de pergunta
 function tlAskOf(t){ const g=tlAskGroup(pendingOf(t.id)); if(!g) return null; let st=TL.ask[g.key]; if(!st || st.sel.length!==g.rows.length) st=TL.ask[g.key]=tlAskNew(g); return { g, st }; }
 function tlSheetEl(taskId){ let el=TL.sheets[taskId]; if(!el){ el=document.createElement('div'); el.className='tlsheethost'; TL.sheets[taskId]=el; tlSheetWire(taskId, el); } return el; }
-function tlAskPaint(t, focus){
+/** Antes de o renderWorkspace refazer a coluna: onde estava o foco da folha (o host sai do DOM e perde o foco). */
+function tlSheetFocusGrab(taskId){ const el=TL.sheets[taskId]; const ae=document.activeElement; if(!el || !ae || !el.contains(ae)) return null; return { other:ae.matches('[data-tl="other"]'), caret:ae.selectionStart!=null?ae.selectionStart:null }; }
+function tlAskPaint(t, focus, grab){
   const slot=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"] .tlcol`);
   const a=tlAskOf(t);
   const host=TL.sheets[t.id];
   // o "pergunta aberta" do agente sem folha (escondida) → pílula pra reabrir
   if(!a || !slot){ if(host){ host.remove(); host.__html=''; } return; }
   const el=tlSheetEl(t.id);
-  const hadFocus=el.contains(document.activeElement); const inOther=hadFocus && document.activeElement.matches('[data-tl="other"]');
-  const caret=inOther?document.activeElement.selectionStart:null;
+  const hadFocus=!!grab || el.contains(document.activeElement); const inOther=grab?grab.other:(hadFocus && document.activeElement.matches('[data-tl="other"]'));
+  const caret=grab?grab.caret:(inOther?document.activeElement.selectionStart:null);
   const fresh=el.parentNode!==slot;
   if(fresh) slot.appendChild(el);
   tlSheetPlace(slot, el);
@@ -262,6 +268,7 @@ function tlSheetWire(taskId, el){
     const inInput=!!e.target.closest('[data-tl="other"]');
     // Enter num botão (pular, responder no terminal…) é o clique dele
     if(e.key==='Enter' && e.target.closest('button[data-tl]')) return;
+    { const fo=e.target.closest('[data-tlopt]'); if(fo) c.st.cursor=+fo.dataset.tlopt; } // Espaço/setas partem da opção com foco
     const r=tlAskKey(c.g, c.st, e.key, inInput);
     if(r.pass) return;
     e.preventDefault(); e.stopPropagation();
@@ -279,7 +286,8 @@ async function tlAskSend(taskId, inTerminal){
   const answers=inTerminal ? a.g.rows.map(()=>TL_IN_TERMINAL) : tlAskAnswers(a.g, a.st);
   a.st.sending=true; tlAskPaint(t);
   try{
-    for(let i=0;i<a.g.rows.length;i++){ const r=a.g.rows[i]; if(typeof fwAskSent!=='undefined') fwAskSent[r.ck]=answers[i]; await invoke('resolve_pending', { id:r.id, answer:answers[i] }); }
+    // uma por pergunta; se cair no meio, a nova tentativa manda só as que faltam (o estado da folha fica)
+    for(let i=0;i<a.g.rows.length;i++){ const r=a.g.rows[i]; if(a.st.sent[r.id]) continue; if(typeof fwAskSent!=='undefined') fwAskSent[r.ck]=answers[i]; await invoke('resolve_pending', { id:r.id, answer:answers[i] }); a.st.sent[r.id]=1; }
     // some na hora (o snapshot confirma depois): o terminal volta a ser o que você vê
     state.pending=(state.pending||[]).filter(p=>!a.g.rows.some(r=>r.id===p.id));
     delete TL.ask[a.g.key];

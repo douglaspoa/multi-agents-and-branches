@@ -914,6 +914,7 @@ function renderWorkspace(){
       <div class="fwhint chathint" id="fwHint">${sr.hint}</div></div>`;
   // foco no terminal (xterm) sobrevive ao re-render: o host é movido pro slot novo e o foco volta pra ele
   const termHadFocus=isTerm && typeof TERM!=='undefined' && TERM[t.id] && TERM[t.id].host.contains(document.activeElement);
+  const sheetGrab=isTerm && typeof tlSheetFocusGrab==='function' ? tlSheetFocusGrab(t.id) : null; // digitando na "outra resposta"
   chat.classList.toggle('tl', isTerm);
   chat.innerHTML=isTerm ? tlChatHtml(t, composer) : `
     <div class="fwchath">${fwMode==='conversa'?fwTreeOpenBtn():''}<span class="fwav" aria-hidden="true" style="background:${agentColor(fwAgentSel||t.agent)}">${agentBadge(fwAgentSel||t.agent)}</span><div style="min-width:0;flex:1"><div class="fwchatt">${esc(fwAgentSel||t.agent)}</div><div class="fwchatd" id="fwChatSub">${esc(fwChatSubText(t))}</div></div></div>
@@ -921,7 +922,7 @@ function renderWorkspace(){
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>${composer}`;
   chat.dataset.tk=t.id;
   // MODO TERMINAL (60-terminal.js + layout A em 60-terminal-layout.js): terminal, painel de requisitos e folha de pergunta
-  if(isTerm){ termMount(t); tlWire(t); if(termHadFocus && !chat.querySelector('.tlsheet:focus-within')) setTimeout(()=>tlFocusTerm(t.id), 0); } else termSweep();
+  if(isTerm){ termMount(t); tlWire(t, sheetGrab); if(termHadFocus && !chat.querySelector('.tlsheet:focus-within')) setTimeout(()=>tlFocusTerm(t.id), 0); } else termSweep();
   bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
@@ -1383,7 +1384,8 @@ async function fwSendMsg(queueOnly){
   if(!v && atts.length) v='Anexei estes arquivos — leia e considere.';
   if(!v) return;
   // modo terminal com pergunta aberta: o texto vira a resposta da pergunta da vez (a folha manda pro hook)
-  if(typeof termModeOf==='function' && termModeOf(t) && !atts.length && typeof tlAskFromComposer==='function' && pendingOf(t.id).some(p=>!fwIsBudgetAsk(p)) && tlAskFromComposer(t, v)){ inp.value=''; fwDraft[t.id]=''; return; }
+  // (anexo não cabe numa resposta: volta pro compositor e vai depois, quando a pergunta fechar)
+  if(typeof termModeOf==='function' && termModeOf(t) && typeof tlAskFromComposer==='function' && typed.trim() && pendingOf(t.id).some(p=>!fwIsBudgetAsk(p)) && tlAskFromComposer(t, typed.trim())){ inp.value=''; fwDraft[t.id]=''; if(atts.length){ (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts); toast('os anexos ficaram no compositor — mande depois que a pergunta fechar','info'); renderWorkspace(); } return; }
   const sel=fwSelRange();
   // só amarra ao arquivo quando o usuário SELECIONOU linhas — mensagem sem seleção vai pura
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';

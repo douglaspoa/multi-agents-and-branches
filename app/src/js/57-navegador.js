@@ -304,7 +304,8 @@ async function nvSend(taskId){
       const first=(st.picks[0]&&st.picks[0].item)||{};
       const el={ name:st.picks.length===1?String(first.selector||first.tag||'elemento').slice(0,48)+' · estilos':st.picks.length+' elementos da prévia', kind:'text', size:block.length, rel:'(prévia da tarefa)', text:block };
       (fwPend[taskId]=fwPend[taskId]||[]).push(...atts, el);
-      const note=String(st.note||'').trim(); if(note) fwDraft[taskId]=(String(fwDraft[taskId]||'').trim()?fwDraft[taskId]+'\n':'')+note;
+      const note=String(st.note||'').trim();
+      if(note){ const ci=document.getElementById('fwInput'); const base=String((ci&&ci.dataset.tk===taskId)?ci.value:(fwDraft[taskId]||'')); fwDraft[taskId]=(base.trim()?base+'\n':'')+note; if(ci&&ci.dataset.tk===taskId) ci.value=fwDraft[taskId]; } // o re-render copia o campo pro rascunho: o campo já leva a nota
       st.picks=[]; st.note=''; const n0=nvQ(st, 'note'); if(n0) n0.value=''; st.picking=false; nvPost(st, { cmd:'clear' }); nvPost(st, { cmd:'pick', on:false });
       nvPaint(taskId);
       if(typeof fwSetMode==='function') await fwSetMode('conversa');

@@ -433,7 +433,7 @@ export class Store {
    * (Esc no terminal, sessão fechada) ou o turno seguiu. Devolve quantas. */
   closeAuqQuestions(taskId: string, answer = "(sem resposta — a pergunta foi fechada no terminal)"): number {
     const r = this.db
-      .prepare(`UPDATE pending SET status = 'answered', answer = ?, resolved_at = ? WHERE task_id = ? AND status = 'open' AND meta LIKE '%"src":"auq"%'`)
+      .prepare(`UPDATE pending SET status = 'answered', answer = ?, resolved_at = ? WHERE task_id = ? AND status = 'open' AND json_extract(meta, '$.src') = 'auq'`)
       .run(answer, Date.now(), taskId);
     return Number(r.changes || 0);
   }
