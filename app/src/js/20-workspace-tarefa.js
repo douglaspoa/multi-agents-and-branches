@@ -618,7 +618,7 @@ async function fwPushTask(){
   try{ const msg=await invoke('push_task',{ taskId:t.id }); prCache[t.id]=undefined; commitsCache[t.id]=undefined; lastSig=''; toast(msg,'ok'); }
   catch(e){ showErr(e, 'Commit & push falhou'); } // recusa por histórico divergente (non-fast-forward/fetch first) → mensagem 'conflict' do ERR_CATALOG
 }
-const FW_SCROLLERS=['#fwCode','.fwdiff','.prleft','.prright','.fwwhyt'];
+const FW_SCROLLERS=['#fwCode','.fwdiff','.prleft','.prright','.fwwhyt','.rvl','.rvr','.prv'];
 function fwGrabScroll(root){ const o={ _:root.scrollTop }; FW_SCROLLERS.forEach(s=>{ const el=root.querySelector(s); if(el) o[s]=[el.scrollTop, el.scrollLeft]; }); return o; }
 function fwPutScroll(root, o){ if(!o) return; root.scrollTop=o._||0; FW_SCROLLERS.forEach(s=>{ const el=root.querySelector(s); if(el&&o[s]){ el.scrollTop=o[s][0]; el.scrollLeft=o[s][1]; } }); }
 function fwHasDraft(){ return !!(fwTask && (String(fwDraft[fwTask]||'').trim() || (fwPend[fwTask]||[]).length)); }
@@ -706,7 +706,7 @@ function renderWorkspace(){
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
   if(typeof cicloPaint==='function') cicloPaint(t); // faixa de etapas + "precisa de você" (60-ciclo), com assinatura própria
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
-  { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); } }
+  { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); cols.classList.toggle('rv-req', fwMode==='revisao' && (typeof rvViewOf!=='function' || rvViewOf(t.id)!=='diff')); } }
   fwModesPaint(t);
   { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
   // painel Dispositivo (57-dispositivo.js): barato — só o botão/visibilidade; o painel tem guarda própria
@@ -814,7 +814,7 @@ function renderWorkspace(){
   // R8: arquivo ALTERADO abre em "só mudanças" (diff); editar exige o arquivo inteiro
   const fChanged=!!(fwPath && fwFiles.some(x=>x.path===fwPath && !x.doc));
   const codeView=(fwEditing||!fChanged)?'full':fwCodeView;
-  const mk=t.id+'|'+fwMode+'|'+(fwPath||'')+'|'+codeView;
+  const mk=t.id+'|'+fwMode+'|'+(fwPath||'')+'|'+codeView+(fwMode==='revisao'&&typeof rvViewOf==='function'?'|'+rvViewOf(t.id):'');
   const mainMem = (!keepEditor && main.dataset.mk===mk) ? fwGrabScroll(main) : null; // mesma tela → mantém a rolagem
   const added=new Set(fwAdded); const sel=fwSelRange();
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};
@@ -834,7 +834,7 @@ function renderWorkspace(){
   else if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
   else if(fwMode==='previa'){ fwRenderPrevia(t, main); } // 57-navegador: só repinta o que mudou (o iframe não é recriado pelo tick)
-  else if(fwMode==='revisao'){ fwRenderDiff(t, main); }
+  else if(fwMode==='revisao'){ if(typeof rvRender==='function' && rvViewOf(t.id)!=='diff') rvRender(t, main); else fwRenderDiff(t, main); } // 63-revisao-pr: por requisito; "ver diff completo" = o diff de antes
   else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:var(--fs-sm)">código</span></div><div class="empty">${fwFilesLoading?skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' }):fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
   else {
     const loadingFile = fwFileLoading===(t.id+'|'+fwPath);
@@ -983,7 +983,7 @@ function fwRenderDiff(t, main){
   // explicação inteira (antes cortava no meio da palavra: "Movi a soma d") — 2 linhas + "ver mais"
   const revTx=rev?`<b>${esc(rev.summary||'')}</b>${rev.howToTest?`<span class="dim"> · como testar: ${esc(rev.howToTest)}</span>`:''}`:'<b>revisão da entrega</b>';
   const revLong=!!(rev && ((rev.summary||'').length+(rev.howToTest||'').length)>160);
-  const band=`<div class="fwrevband"><div class="fwrevtx${fwRevOpen?' open':''}">${revTx}</div>${revLong?`<button class="lnk fwrevmore" id="fwRevMore">${fwRevOpen?'ver menos':'ver mais'}</button>`:''}<button class="btn sm" id="fwBackConv">← conversa</button></div>`;
+  const band=`<div class="fwrevband"><div class="fwrevtx${fwRevOpen?' open':''}">${revTx}</div>${revLong?`<button class="lnk fwrevmore" id="fwRevMore">${fwRevOpen?'ver menos':'ver mais'}</button>`:''}${typeof rvViewOf==='function'?'<button class="btn sm" id="fwRevByReq">ver por requisito</button>':''}<button class="btn sm" id="fwBackConv">← conversa</button></div>`;
   // perguntar sobre linhas é no modo Código — a dica mora aqui, junto do código (antes ficava no painel de arquivos)
   const askHint=fwPath?`<div class="fwrevask">quer perguntar sobre um trecho? <button class="lnk" id="fwRevToCode">abra em Código</button> e selecione as linhas — a pergunta vai pro agente que escreveu</div>`:'';
   let rows='';
@@ -995,6 +995,7 @@ function fwRenderDiff(t, main){
   else rows=diffViewHtml(diffHunks(diff), { full:fwContentFor===t.id+'|'+fwPath?fwContent.split('\n'):null, keyPre:t.id+'|'+fwPath+'|' });
   main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}${fwPathHtml(fwPath)}<span class="fwmadd">+${f.add} <span style="color:var(--crit)">−${f.del}</span></span><span style="flex:1"></span></div>${band}<div class="fwdiff fwdv" id="fwRevDiff">${rows}</div>${askHint}`;
   bindClick('fwBackConv', ()=>{ fwMode='conversa'; fwRememberTab(); renderWorkspace(); });
+  bindClick('fwRevByReq', ()=>{ rvViewM[t.id]='req'; fwRememberTab(); renderWorkspace(); });
   bindClick('fwRevMore', ()=>{ fwRevOpen=!fwRevOpen; renderWorkspace(); });
   bindClick('fwRevToCode', ()=>{ fwMode='codigo'; fwRememberTab(); fwLoadFile(); renderWorkspace(); });
   bindClick('fwDiffRetry', ()=>{ fwDiffCache[key]=undefined; renderWorkspace(); });
@@ -1002,14 +1003,6 @@ function fwRenderDiff(t, main){
 }
 function fwWireGaps(root){ root.querySelectorAll('[data-dvgap]').forEach(b=>b.onclick=()=>{ const k=b.dataset.dvgap; if(fwDvOpen.has(k)) fwDvOpen.delete(k); else fwDvOpen.add(k); renderWorkspace(); }); }
 // ---- página do PR dentro da execução (redesign p14) ----
-// merge bloqueado: a saída fica AO LADO do motivo (antes só dizia "resolva o conflito" e não havia botão
-// nesta tela — o "resolver conflito" morava no card da Central)
-function fwPrUnblockHtml(info){
-  if(!info || info.state!=='OPEN') return '';
-  if(info.mergeable==='CONFLICTING') return `<button class="btn sm" id="prPgResolve" style="margin-top:8px" title="a IA junta a base na branch e resolve os conflitos na worktree (sem push); você revisa e integra">${IC.bolt} resolver o conflito com IA</button>`;
-  if(info.checksFail) return `<button class="btn sm" id="prPgFixChecks" style="margin-top:8px" title="manda o agente ler o log das checagens que falharam e corrigir">${IC.ai} pedir pro agente corrigir as checagens</button>`;
-  return '';
-}
 function fwRenderPrPage(t, main){
   const info=prCache[t.id];
   if(info===undefined||info===null){
@@ -1031,37 +1024,8 @@ function fwRenderPrPage(t, main){
     bindClick('prPgCreate', ()=>approveGate(t));
     return;
   }
-  const cm=prCommentsHtml(t, info, {});
-  const base=info.baseRefName||lsGet('prBase:'+t.id)||'main';
-  main.innerHTML=`<div class="prpage">
-    <div class="prleft">
-      <div style="display:flex;align-items:baseline;gap:10px"><span class="mono" style="color:var(--accent);font-size:15px">#${info.number}</span><b style="font-size:var(--fs-lg)">${esc(t.title)}</b></div>
-      <div class="prbadges" style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:7px"><span class="mono dim" style="font-size:var(--fs-xs)">${esc(t.branch)} → ${esc(base)}</span>${prStateBadge(info)}${prDecisionBadge(info)}${prChecksBadges(info)}</div>
-      <div class="dim" style="font-size:var(--fs-xs);margin-top:6px"><span id="prAge">${prAgoTx(info._at)}</span>${info.staleErr?' · <span style="color:var(--warn)">não consegui atualizar agora (sem conexão com o GitHub)</span>':''}</div>
-      <div style="margin-top:14px;font-size:var(--fs-base);line-height:1.6" class="prbody">${chatMd(info.body||'_sem descrição_')}</div>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:18px"><button class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button class="btn sm" id="prPgCopy">copiar link</button><button class="btn sm" id="prPgRefresh">atualizar</button></div>
-    </div>
-    <div class="prright">
-      ${info.state==='OPEN'?`<div class="prpgmerge">${prMergeBtnHtml(info,'prPgMerge','primary','font-weight:700')}${prMergeWhyHtml(info)}${fwPrUnblockHtml(info)}</div>`:''}
-      <div class="prcmtsh"><span class="prcmtsn">Comentários · ${cm.countTx}</span>${cm.toggle}</div>
-      <div style="margin-top:8px">${cm.html}</div>
-      ${cm.open>1?`<button class="btn primary sm" id="prPgAll" style="margin-top:6px">${IC.ai} corrigir todos os ${cm.open} em aberto</button>`:''}
-    </div>
-  </div>`;
-  bindClick('prPgOpen', ()=>openExternal(info.url));
-  bindClick('prPgCopy', (e)=>copyLink(info.url, e.currentTarget));
-  bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='atualizando…'; await loadPr(t.id,true); renderWorkspace(); });
-  bindClick('prPgMerge', async()=>{ if(await mergePr(t.id)) renderWorkspace(); });
-  bindClick('prPgResolve', (e)=>fwResolveConflict(t.id, e.currentTarget));
-  bindClick('prPgFixChecks', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='enviando…';
-    const failing=Array.isArray(info.failingChecks)?info.failingChecks.filter(Boolean):[]; // PrInfo.failing_checks (lib.rs)
-    const ok=await fwSendText(t.id, `As checagens do PR #${info.number} estão falhando no GitHub${failing.length?` (${failing.join(', ')})`:''}. Veja o log de cada uma (gh pr checks ${info.number} / gh run view --log-failed), corrija a causa na branch, rode os testes localmente e faça commit + push.`);
-    if(ok){ fwMode='conversa'; fwRememberTab(); } renderWorkspace(); });
-  // só troca pra conversa se o envio deu certo (antes trocava na hora e o erro sumia)
-  bindClick('prPgAll', async(e)=>{ if(await reworkFromPr(t.id, e.currentTarget)){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } });
-  // só vai pra conversa se a correção CHEGOU ao agente (antes trocava de tela até com falha e o erro sumia)
-  main.querySelectorAll('[data-prfix]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='enviando…'; let ok=false; try{ ok=await prFixOne(t.id, b.dataset.prfix); }finally{ if(ok){ fwMode='conversa'; fwRememberTab(); } renderWorkspace(); } });
-  main.querySelectorAll('[data-prign]').forEach(b=>b.onclick=()=>{ prIgnAdd(t.id,b.dataset.prign); renderWorkspace(); });
+  // PR existe: "pronto pra integrar?" (63-revisao-pr) — 5 portões, cada vermelho com a saída; o que entra; linha do tempo
+  prvRender(t, main, info);
 }
 // markdown leve nas bolhas (bold, `code`, títulos, listas) — sem ** cru na tela
 // bloco [ELEMENTOS DA PÁGINA] (modo design da Prévia, 57-navegador) vira um resumo curto — o agente recebe o bloco inteiro

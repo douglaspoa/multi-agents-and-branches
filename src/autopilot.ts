@@ -19,6 +19,8 @@ import { renderEpicMd, writeEpicContext, type EpicContext, type EpicTaskItem } f
 import { run } from "./util/run.ts";
 import { notify } from "./util/notify.ts";
 import { slugify, type TaskSpec } from "./types.ts";
+import { applyOrgPolicy, orgAgentPolicy, policyActive, type OrgAgentPolicy } from "./org-policy.ts";
+import { loadConfig } from "./config.ts";
 
 export type ApPlatform = "web" | "ios" | "android" | "mobile";
 export const AP_PLATFORMS: ApPlatform[] = ["web", "ios", "android", "mobile"];
@@ -105,6 +107,8 @@ export interface ApState {
   planCostUsd?: number;
   tasks: ApTaskState[];
   events: ApEvent[];
+  /** F5 · P14: a política da organização (Empresa) que o app mandou — vale em toda tarefa do piloto, inclusive na retomada */
+  orgPolicy?: OrgAgentPolicy;
 }
 export interface AutopilotOptions {
   idea?: string;
@@ -118,8 +122,13 @@ export interface AutopilotOptions {
   budgetUsd?: number;
   /** plano pronto (JSON no formato do planejador) — pula a IA de planejamento */
   planFile?: string;
+  /** F5 · P14: política da organização lida pelo app (JSON) */
+  orgPolicy?: unknown;
   log?: (line: string) => void;
 }
+
+/** Texto da recusa: o piloto aprova e mergeia sozinho — com o portão obrigatório da org ele não pode rodar. */
+export const AP_GATE_POLICY = "a política da organização exige o portão em toda tarefa — o piloto automático aprova e mergeia sozinho, então ele não roda nesta organização";
 export interface AutopilotHooks {
   /** chamado a cada gravação do estado (testes usam pra pedir "parar" num ponto exato) */
   onSave?: (s: ApState) => void;
@@ -629,6 +638,9 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
   const prev = readState(dir);
   const idea = (o.idea ?? prev?.idea ?? "").trim();
   if (!idea) throw new Error('falta a ideia: use --idea "…"');
+  // F5 · P14: com o portão obrigatório da organização o piloto não começa (nada é criado na pasta)
+  const pol = orgAgentPolicy(o.orgPolicy ?? prev?.orgPolicy ?? null);
+  if (pol.portao) throw new Error(AP_GATE_POLICY);
   // pasta com conteúdo que não é de um piloto: recusa ANTES de criar qualquer coisa nela
   if (!prev && !(await canStartIn(dir))) throw new Error(NOT_EMPTY(dir));
   // retomar depois do teto com um teto que já foi gasto só pararia de novo na hora: exige subir (ou 0 = sem teto)
@@ -663,6 +675,7 @@ async function pilot(dir: string, prev: ApState | null, idea: string, o: Autopil
   if (o.parallel && o.parallel > 0) s.parallel = Math.min(AP_MAX_PARALLEL, Math.max(1, Math.floor(o.parallel)));
   if (o.attempts && o.attempts > 0) s.attempts = Math.min(AP_MAX_ATTEMPTS, Math.max(1, Math.floor(o.attempts)));
   if (o.budgetUsd !== undefined && o.budgetUsd >= 0) s.budgetUsd = o.budgetUsd;
+  if (o.orgPolicy !== undefined) { const p = orgAgentPolicy(o.orgPolicy); if (policyActive(p)) s.orgPolicy = p; else delete s.orgPolicy; }
   s.dir = dir;
   s.pid = process.pid;
   s.runStartedAt = now;
@@ -749,7 +762,15 @@ async function pilot(dir: string, prev: ApState | null, idea: string, o: Autopil
     try { writeEpicContext(orch.ws.dir, ctx); writeAtomic(epicMdFile(dir), renderEpicMd(ctx, items)); } catch { /* best-effort */ }
   };
 
+  // F5 · P14: a política da org entra em toda tarefa do piloto (revisor do catálogo, teto máximo); não dá = a tarefa não nasce
   const specFor = (t: ApTaskState, idx: number): TaskSpec => {
+    const spec = specFor0(t, idx);
+    if (!s.orgPolicy || !policyActive(s.orgPolicy)) return spec;
+    const r = applyOrgPolicy(spec, s.orgPolicy, (() => { try { return loadConfig(dir).agents; } catch { return []; } })());
+    if (r.blocked) throw new Error(r.blocked);
+    return r.spec;
+  };
+  const specFor0 = (t: ApTaskState, idx: number): TaskSpec => {
     const p = epic!.tasks.find((x) => x.id === t.id);
     const finalReqs = [...epic!.doneWhen.map((d) => `${d.id}: ${d.text}`), platformProofReq(s.platform)];
     const objective = t.final

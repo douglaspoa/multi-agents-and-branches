@@ -14,7 +14,9 @@ function reqRows(t){
   const reqs=Array.isArray(t.requirements)?t.requirements:[];
   const c=reqProofCache[t.id];
   const m=matchReqProofs(reqs, c&&c.list);
-  return reqs.map((r,i)=>{ const p=m[i]; const st=p?(p.status==='done'?'ok':'blk'):'na'; return { text:r, st, evidence:(p&&Array.isArray(p.evidence))?p.evidence:[], note:(p&&p.note)||'' }; });
+  // did/code/tests: o mapa requisito→trechos que o agente registra (Revisão por requisito, 63-revisao-pr); "pending" = mapeado, ainda sem prova
+  return reqs.map((r,i)=>{ const p=m[i]; const st=p?(p.status==='done'?'ok':p.status==='pending'?'na':'blk'):'na'; return { text:r, st, status:(p&&p.status)||'', evidence:(p&&Array.isArray(p.evidence))?p.evidence:[], note:(p&&p.note)||'',
+    did:(p&&typeof p.did==='string')?p.did:'', code:(p&&Array.isArray(p.code))?p.code:null, tests:(p&&Array.isArray(p.tests))?p.tests:[] }; });
 }
 // nome AMIGÁVEL do modelo pros cards do quadro: "claude-sonnet-4-5" → "Sonnet 4.5"; id que não dá pra
 // traduzir some do card (o id cru continua no cabeçalho da tarefa e no tooltip)
@@ -94,7 +96,7 @@ function artThumb(taskId, name){
   const k=taskId+'|'+name;
   if(artThumbCache[k]!==undefined) return artThumbCache[k];
   artThumbCache[k]=null;
-  const again=()=>{ if(typeof fwTask!=='undefined' && fwTask===taskId && fwMode==='entrega' && typeof renderWorkspace==='function') renderWorkspace(); };
+  const again=()=>{ if(typeof fwTask!=='undefined' && fwTask===taskId && (fwMode==='entrega'||fwMode==='revisao') && typeof renderWorkspace==='function') renderWorkspace(); };
   invoke('read_artifact',{ taskId, name }).then(c=>{ const u=(c&&c.kind==='image'&&c.dataUrl)||null; artThumbCache[k]=u; if(!u) artMissing.add(k); again(); })
     .catch(()=>{ artMissing.add(k); again(); });
   return null;

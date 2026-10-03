@@ -236,7 +236,7 @@ impl Drop for StartGuard { fn drop(&mut self) { STARTING.store(false, Ordering::
 /// `{dir, warning?}` (o front abre o projeto e a aba de progresso).
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn autopilot_start(state: State<AppState>, idea: String, platform: String, name: Option<String>, parent: Option<String>, engine: Option<String>, model: Option<String>, parallel: Option<u32>, attempts: Option<u32>, budget_usd: Option<f64>, plan: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+pub(crate) fn autopilot_start(state: State<AppState>, idea: String, platform: String, name: Option<String>, parent: Option<String>, engine: Option<String>, model: Option<String>, parallel: Option<u32>, attempts: Option<u32>, budget_usd: Option<f64>, plan: Option<serde_json::Value>, org_policy: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
     let idea = idea.trim().to_string();
     if idea.is_empty() { return Err("escreva a ideia do app".into()); }
     if !PLATFORMS.contains(&platform.as_str()) { return Err(format!("plataforma inválida: {platform}")); }
@@ -251,7 +251,9 @@ pub(crate) fn autopilot_start(state: State<AppState>, idea: String, platform: St
     let cli = engine_cli(&state)?;
     let plan = plan.filter(|p| p.is_object());
     let pf = plan.as_ref().map(|_| plan_path(&dir));
-    let args = autopilot_cli_args(&cli, &dir, &idea, &platform, &label, engine.as_deref().unwrap_or("claude"), model.as_deref().unwrap_or(""), parallel, attempts, budget_usd, pf.as_deref());
+    let mut args = autopilot_cli_args(&cli, &dir, &idea, &platform, &label, engine.as_deref().unwrap_or("claude"), model.as_deref().unwrap_or(""), parallel, attempts, budget_usd, pf.as_deref());
+    // F5 · P14: a política da organização (Empresa) que o app leu — o motor aplica em toda tarefa do piloto
+    if let Some(p) = org_policy.as_ref().filter(|p| p.is_object()) { args.push("--org-policy".into()); args.push(p.to_string()); }
     mark_starting(&dir)?;
     // o projeto do piloto já entra na lista como da conta logada (o registerProject do CLI mantém o dono)
     super::register_opened_project(&dir.display().to_string());

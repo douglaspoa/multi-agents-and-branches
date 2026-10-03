@@ -33,6 +33,7 @@
 <link rel="stylesheet" href="css/95-terminal.css">
 <link rel="stylesheet" href="css/95-ciclo.css">
 <link rel="stylesheet" href="css/96-meu-time.css">
+<link rel="stylesheet" href="css/97-revisao-pr.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -562,6 +563,7 @@
         <div class="seclbl2" style="margin-top:22px">Montar minha equipe <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ nova equipe</button></div>
         <p class="imhint">A sequência de agentes que toca a tarefa. Arraste um agente pra dentro, ou escolha no fim da linha; arraste as etapas pra mudar a ordem.</p>
         <div id="wfList"></div>
+        <div id="agPolicy" class="agpol"></div>
       </section>
       <section id="agFicha" hidden aria-live="polite"></section>
     </div>
@@ -777,5 +779,7 @@
 <script src="js/60-ciclo.js"></script>
 <script src="js/61-meu-time.js"></script>
 <script src="js/62-curador.js"></script>
+<script src="js/63-politica-org.js"></script>
+<script src="js/63-revisao-pr.js"></script>
 </body>
 </html>

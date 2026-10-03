@@ -280,6 +280,7 @@ function cicloReport(d){
   L.push(`**Custo:** ${cicUsdBr(d.totalUsd)} ${d.capUsd>0?`de ${cicUsdBr(d.capUsd)} de teto`:'— sem teto (explícito)'}${per?` — ${per}`:''}`,'');
   if(d.releases.length) L.push('**Liberações de teto**','',...d.releases.map(r=>`- +${cicUsdBr(r.usd)} (teto ${cicUsdBr(r.capBefore)} → ${cicUsdBr(r.capAfter)}): ${md(r.reason)}`),'');
   if(d.runs.length) L.push(`**Versões:** ${d.runs.map(r=>`${CIC_ROLE_PT[r.role]||r.role} \`${tag(r)}\``).join(' · ')}`,'');
+  if(d.orgPolicy&&d.orgPolicy.length) L.push(`**Política da organização:** ${d.orgPolicy.map(md).join(' · ')}`,'');
   return L.join('\n').trimEnd()+'\n';
 }
 // @ciclo-relatorio-fim
@@ -296,6 +297,7 @@ function cicloReportFor(t){
       noProofReason:ov&&ov.reason||'', noProofBy:ov&&ov.reason?who:'', reviewOverride:(sp.reviewOverride&&sp.reviewOverride.reason)||'',
       costByRole:Object.values(byRole), totalUsd:taskCost(t.id).usd, capUsd:(sp.autopilot && !(+sp.budgetUsd>0))?0:budgetOf(t),
       releases:Array.isArray(sp.budgetReleases)?sp.budgetReleases:[], rounds:Array.isArray(sp.reviewRounds)?sp.reviewRounds:[], runs:Array.isArray(sp.roleRuns)?sp.roleRuns:[],
+      orgPolicy:sp.orgPolicy&&Array.isArray(sp.orgPolicy.rules)?sp.orgPolicy.rules:undefined,
     });
   }catch(e){ console.error('relatório starfork', e); return ''; }
 }

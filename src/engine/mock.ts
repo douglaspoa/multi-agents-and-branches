@@ -103,7 +103,7 @@ export class MockEngine implements AgentEngine {
         const fails = m ? (m[1] === "sempre" ? true : attempt <= Number(m[1])) : false;
         return fails
           ? { req, status: "blocked", evidence: [], note: `mock: prova falhou na tentativa ${attempt}` }
-          : { req, status: "done", evidence: [ev], note: "mock" };
+          : { req, status: "done", evidence: [ev], note: "mock", did: `mock: criei ${rel}`, code: [{ file: rel }], tests: [] };
       });
       await writeFile(join(art, "requirements.json"), JSON.stringify(list, null, 2), "utf8");
       // suposição registrada como o piloto manda (bus.ts / ask_human automático) — o relatório lê daqui

@@ -647,6 +647,21 @@ export class Store {
     const r = this.db.prepare(`SELECT COALESCE(SUM(usd), 0) AS u FROM cost WHERE task_id = ?`).get(taskId) as { u: number } | undefined;
     return Number(r?.u) || 0;
   }
+  /**
+   * F5 (persona sugerida, trava da Júlia): quantas tarefas QUE CHEGARAM AO PORTÃO rodaram com o agente na versão `v`
+   * (a versão do 1º evento `papel` dele na tarefa — ≡ agReachedGate/agVerOf do app). Uma query; o filtro da versão é
+   * pelo texto "… · <id>@v<N> · …" do rosterLine.
+   */
+  agentVersionGateCount(agentId: string, v: number): number {
+    if (!agentId || !(v > 0)) return 0;
+    const rows = this.db.prepare(`SELECT e.text AS text FROM event e
+      JOIN (SELECT task_id, MIN(id) AS mid FROM event WHERE type = 'papel' AND agent_id = ? GROUP BY task_id) m ON m.mid = e.id
+      JOIN task t ON t.id = e.task_id
+      WHERE t.status IN ('review', 'delivered', 'done', 'merged', 'closed')
+         OR (CASE WHEN json_valid(t.spec_json) THEN json_type(t.spec_json, '$.prUrl') END) = 'text'`).all(agentId) as { text: string }[];
+    const tag = `${agentId}@v${v}`;
+    return rows.filter((r) => { const p = String(r.text ?? "").split(" · "); return p.length >= 2 && /^skills ativas:/.test(p[0]) && p[1].trim() === tag; }).length;
+  }
   /** Custo por agente (P7): soma pelo agent_id — renomear o agente não muda o número. */
   costByAgent(agentId: string): number {
     const r = this.db.prepare(`SELECT COALESCE(SUM(usd), 0) AS u FROM cost WHERE agent_id = ?`).get(agentId) as { u: number } | undefined;

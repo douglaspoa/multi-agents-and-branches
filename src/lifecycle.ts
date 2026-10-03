@@ -246,11 +246,13 @@ export function reviewDecision(round: number, v: Verdict): "segue" | "refaz" | "
 export function verdictInstructions(lens: "codigo" | "documento", round: number): string {
   const what = lens === "codigo"
     ? "LENTE: CÓDIGO — leia o diff (git diff <base>...HEAD), RODE os testes do projeto e confira cada requisito do TASK.yaml contra o que mudou."
+      + " Confira também o \"code\" de cada requisito no .cardume/artifacts/requirements.json (arquivo + faixa de linhas): se apontar trecho errado ou faltar, peça a correção no \"muda\"."
     : "LENTE: DOCUMENTO — confira as FONTES (link e data em cada afirmação), os NÚMEROS (conta e origem), o PORTUGUÊS e se o roteiro do plano foi atendido seção por seção.";
   return `\n\n## SUA REVISÃO TEM VEREDITO (rodada ${round} de ${MAX_REVIEW_ROUNDS})\n${what}\n` +
     `Ao terminar, escreva .cardume/VEREDITO.md começando com UMA destas linhas:\n` +
     `- \`VEREDITO: aprova\` — está pronto pra prova;\n` +
     `- \`VEREDITO: muda\` — seguida de uma lista com "- " de cada mudança concreta que o builder precisa fazer.\n` +
+    (lens === "codigo" ? `Item que aponta código começa com \`caminho:linha — \` (ex.: \`- src/lib/horarios.ts:13 — use o fuso do estúdio\`): o comentário aparece preso ao trecho na Revisão do app.\n` : "") +
     `Sem essa linha a revisão é tratada como ilegível e a tarefa para pra pessoa decidir. Não aprove por educação: "muda" volta pro builder (no máximo ${MAX_REVIEW_ROUNDS} rodadas).`;
 }
 /** Frase da rodada pra faixa e pra conversa: "Revisão 1/2 (Nyx): muda — 2 itens". */
@@ -274,6 +276,8 @@ export interface ReportData {
   releases: BudgetRelease[];
   rounds: Pick<ReviewRound, "round" | "verdict" | "items" | "reviewer">[];
   runs: Pick<RoleRun, "role" | "agentId" | "name" | "version" | "engine" | "model">[];
+  /** F5 · P14: as regras da política da organização que valiam na tarefa (ausente = sem política) */
+  orgPolicy?: string[];
 }
 const ROLE_PT: Record<string, string> = { planner: "plano", builder: "construção", reviewer: "revisão", designer: "design", docs: "escrita", tester: "testes", retro: "retro", investigator: "investigação" };
 const md = (s: string) => String(s ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
@@ -293,5 +297,6 @@ export function starforkReport(d: ReportData): string {
   L.push(`**Custo:** ${fmtUsdBr(d.totalUsd)} ${d.capUsd > 0 ? `de ${fmtUsdBr(d.capUsd)} de teto` : "— sem teto (explícito)"}${per ? ` — ${per}` : ""}`, "");
   if (d.releases.length) L.push("**Liberações de teto**", "", ...d.releases.map((r) => `- +${fmtUsdBr(r.usd)} (teto ${fmtUsdBr(r.capBefore)} → ${fmtUsdBr(r.capAfter)}): ${md(r.reason)}`), "");
   if (d.runs.length) L.push(`**Versões:** ${d.runs.map((r) => `${ROLE_PT[r.role] ?? r.role} \`${runTag(r)}\``).join(" · ")}`, "");
+  if (d.orgPolicy?.length) L.push(`**Política da organização:** ${d.orgPolicy.map(md).join(" · ")}`, "");
   return L.join("\n").trimEnd() + "\n";
 }

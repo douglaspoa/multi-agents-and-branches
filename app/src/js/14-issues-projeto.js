@@ -261,6 +261,9 @@ async function trkSyncTasks(){
 }
 // TODA criação de tarefa passa aqui: regra ligada + projeto conectado + sem issue → cria e vincula
 async function trkBeforeNewTask(payload){
+  // F5 · P14: política da organização (Empresa) entra no payload — e o que o motor não cumpriria é recusado aqui,
+  // em palavra (o erro sobe pra quem chamou o new_task). Sem login/Grátis: não toca na rede, payload intacto.
+  if(typeof window.orgPolBeforeNewTask==='function') payload=await window.orgPolBeforeNewTask(payload);
   try{
     if(!payload||payload.issue||payload.issueUrl||payload.branchType==='integration') return payload;
     await trkLoad(); if(!trkReady()||!trk.rules.createOnTask||!trk.connector.ops.create||!(await trkProjectOn())) return payload;
