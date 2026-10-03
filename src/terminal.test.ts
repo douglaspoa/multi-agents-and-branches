@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./store.ts";
 import { Orchestrator } from "./orchestrator.ts";
-import { applyHook, excludeFromGit, mapHook, mergeClaudeSettings, recordStatuslineCost, termMessage, termModeOf, terminalCapable, HOOK_MARK, CLAUDE_HOOK_EVENTS, lastAssistantText } from "./terminal.ts";
+import { applyHook, envToRemove, excludeFromGit, mapHook, mergeClaudeSettings, recordStatuslineCost, termMessage, termModeOf, terminalCapable, HOOK_MARK, CLAUDE_HOOK_EVENTS, lastAssistantText } from "./terminal.ts";
 import type { TaskSpec } from "./types.ts";
 
 const BASE = ["/usr/bin/node", "/app/cli.mjs"];
@@ -210,4 +210,10 @@ test("pedidos do app viram texto pro terminal com os mesmos efeitos (requisito n
     orch.close();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("env do terminal: tira marcadores de sessão filha e chaves de API, mantém a config da pessoa", () => {
+  const r = envToRemove({ CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_CODE_SESSION_ID: "x", CLAUDECODE: "1", CLAUDE_PID: "9", CLAUDE_CONFIG_DIR: "/c", ANTHROPIC_API_KEY: "k", PATH: "/bin" });
+  for (const k of ["CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CLAUDE_PID", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]) assert.ok(r.includes(k), k);
+  assert.ok(!r.includes("CLAUDE_CONFIG_DIR") && !r.includes("PATH"));
 });

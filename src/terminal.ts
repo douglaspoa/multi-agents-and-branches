@@ -14,7 +14,7 @@
 //
 // Os hooks chamam o motor empacotado: `<node> cli.mjs hook <Evento> --starfork-task <id> --repo <repo>`.
 import { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ClaudeEngine, claudeEnv, mapTool, resolveClaude, adjustRuleOf } from "./engine/claude.ts";
@@ -295,6 +295,15 @@ export function statuslineText(j: Record<string, any>, taskUsd: number): string 
   return `${model} · Starfork: US$ ${taskUsd.toFixed(2)} nesta tarefa`;
 }
 
+/** O transcript da sessão existe em <config>/projects/<pasta>/<id>.jsonl? (é o que o `--resume` precisa) */
+export function claudeTranscriptExists(sessionId: string, configDir = process.env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude")): boolean {
+  if (!/^[\w-]{8,80}$/.test(sessionId)) return false;
+  try {
+    const root = join(configDir, "projects");
+    return readdirSync(root).some((d) => existsSync(join(root, d, `${sessionId}.jsonl`)));
+  } catch { return false; }
+}
+
 // ======================= preparo do terminal (o app spawna o que voltar daqui) =======================
 export interface LaunchSpec {
   program: string;
@@ -306,7 +315,17 @@ export interface LaunchSpec {
   resumed: boolean;
   sessionId: string | null;
 }
-const ENV_REMOVE = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
+/**
+ * Variáveis que NÃO podem chegar ao CLI do terminal: marcadores de "sessão filha" de outro Claude Code (app
+ * aberto de dentro de um terminal com claude rodando — com CLAUDE_CODE_CHILD_SESSION o transcript NÃO é gravado
+ * e o `--resume` falha com "No conversation found") e chaves de API (quem paga é a assinatura, como no -p).
+ * CLAUDE_CONFIG_DIR fica: é a config da pessoa.
+ */
+export function envToRemove(env: NodeJS.ProcessEnv = process.env): string[] {
+  const fixed = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SSE_PORT", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
+  const markers = Object.keys(env).filter((k) => /^(CLAUDE_CODE_|CLAUDE_AGENT_SDK|CLAUDE_PID$|CLAUDE_EFFORT$|CLAUDE_PREVIEW_)/.test(k));
+  return [...new Set([...fixed, ...markers])];
+}
 
 const toml = (v: unknown): string => {
   if (Array.isArray(v)) return `[${v.map(toml).join(",")}]`;
@@ -329,7 +348,15 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
   if (spec.termMode !== "terminal") { spec.termMode = "terminal"; orch.store.updateSpec(taskId, JSON.stringify(spec)); }
   const repo = orch.ws.repo;
   const base = engineBase();
-  const sid = opts.resume ? (task.session_id || orch.store.termGet(taskId)?.session_id || "") : "";
+  let sid = opts.resume ? (task.session_id || orch.store.termGet(taskId)?.session_id || "") : "";
+  let lostSession = false;
+  // sessão sem transcript (apagado, outra máquina, gravação desligada): `claude --resume` sairia na hora com
+  // "No conversation found" — abre sessão NOVA que continua da worktree
+  if (sid && engineKind(role.engine || spec.engine) === "claude" && !claudeTranscriptExists(sid)) {
+    orch.store.addEvent(taskId, "Sistema", "note", "A sessão anterior do terminal não foi encontrada — abrindo uma sessão nova que continua do que está na worktree.", true);
+    sid = "";
+    lostSession = true;
+  }
   const input = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: orch.ws.dbFile, askTimeoutMin: 0 };
   // o MESMO preparo do `claude -p` (prompt + .cardume/mcp.json); o Codex reaproveita o mcp.json escrito aqui
   const claude = new ClaudeEngine({ model: role.model, approval: spec.autonomy?.approval ?? "ask" });
@@ -343,7 +370,8 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
     CARDUME_ROLE: role.role,
     STARFORK_TERMINAL: "1",
   };
-  const first = (opts.message ?? "").trim();
+  const CONTINUE = "A sessão anterior deste terminal se perdeu. O trabalho já feito está NESTA worktree: confira git status, git diff e .cardume/artifacts, releia .cardume/TASK.yaml e continue de onde parou.";
+  const first = [lostSession ? CONTINUE : "", (opts.message ?? "").trim()].filter(Boolean).join("\n\n");
   let program: string, args: string[];
   if (kind === "claude") {
     writeClaudeSettings(task.worktree, base, taskId, repo);
@@ -383,7 +411,7 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
   orch.store.setStage(taskId, role.role);
   orch.store.setStatus(taskId, "running");
   orch.store.addEvent(taskId, "Sistema", "status", sid ? `abrindo o terminal (${kind}) e retomando a sessão` : `abrindo o terminal (${kind})`, true);
-  return { program, args, cwd: task.worktree, env, envRemove: ENV_REMOVE, engine: kind, resumed: !!sid, sessionId: sid || null };
+  return { program, args, cwd: task.worktree, env, envRemove: envToRemove(), engine: kind, resumed: !!sid, sessionId: sid || null };
 }
 
 /**
@@ -438,8 +466,11 @@ export function hookCli(event: string, taskId: string, repo: string, argvPayload
         const t = lastAssistantText(p.transcript_path);
         if (t) eff.events[0].text = clip(t, 2000);
       }
+      const wasBusy = (store.termGet(taskId)?.busy ?? 0) === 1;
       applyHook(store, taskId, eff);
-      if (eff.turnEnd || eff.ended) spawnTurnEnd(taskId, repo);
+      // fim de turno: no Stop/notify sempre; no SessionEnd só se a sessão caiu NO MEIO de um turno (senão o
+      // fim de turno já rodou no Stop e o gate apareceria duas vezes)
+      if (eff.turnEnd || (eff.ended && wasBusy)) spawnTurnEnd(taskId, repo);
     } finally { store.close(); }
   } catch (e) {
     process.stderr.write(`starfork hook ${event}: ${(e as Error)?.message ?? e}\n`);
