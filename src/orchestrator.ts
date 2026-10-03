@@ -14,7 +14,7 @@ import { prepEpicTurn } from "./epic-context.ts";
 import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, mobileTurnRelease, realDeps, UI_FILE_RE, type MobileDeps } from "./mobile.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
-import { appendPending, applySkill, itemText, learnedSkills, parseRetro, readLearnSettings, readPending, rejectReason, retroPrompt, type PendingItem } from "./learn.ts";
+import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
 import { homedir, userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
@@ -23,7 +23,7 @@ import { DshEngine, isDshLabel } from "./engine/dsh.ts";
 import { CodexEngine } from "./engine/codex.ts";
 import { readAltConfig } from "./engine/altProxy.ts";
 import type { AgentEngine } from "./engine/types.ts";
-import { activeSkills, agentVersion } from "./agent-versions.ts";
+import { activeAgentMemory, activeSkills, agentVersion } from "./agent-versions.ts";
 import { agentIdOf, capCheck, capPauseText, effectiveCap, fmtUsdBr, FLOW_BY_KIND, MAX_REVIEW_ROUNDS, parseVerdict, producerIndex, reviewDecision, reviewerIsSame, roundText, rosterLine, SAME_REVIEWER_WARNING, taskKindOf, upsertRoleRun, verdictInstructions, starforkReport, type NeedsYou, type ReportData, type ReviewRound, type RoleRun, type Verdict } from "./lifecycle.ts";
 import { ensureHandoff, handoffRule, hasHandoff, HANDOFF_REL, readHandoff } from "./handoff.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
@@ -408,21 +408,25 @@ export class Orchestrator {
    * aqui a gente DIZ quais usar, pra ele invocá-las (tool Skill / /nome) quando o
    * gatilho da descrição bater — em vez de resolver do próprio jeito.
    */
-  skillsContext(): string {
+  skillsContext(role?: { agentId?: string; name?: string }): string {
+    // P9: skill/nota com DONO vai só pro papel dono (todos os motores recebem este mesmo bloco; o terminal também)
     try {
-      const raw = readFileSync(join(this.ws.dir, "skills.json"), "utf8");
-      const arr = JSON.parse(raw);
-      const list = (Array.isArray(arr) ? arr : []).filter((s: any) => s && s.name);
-      if (!list.length) return "";
-      let out =
-        `\n\n## SKILLS ATIVADAS PRA ESTE PROJETO — o humano LIGOU estas skills; CONSULTE-AS EM TODA TAREFA\n` +
-        `Regra fixa deste projeto: ANTES de começar QUALQUER tarefa — e de novo a cada nova rodada/pedido — releia a lista abaixo e, se a descrição de alguma bater com o que você vai fazer, INVOQUE-A (tool Skill, ou \`/nome\`) ANTES de resolver do seu jeito. Elas carregam o processo/estilo que o time espera; resolver "na mão" ignorando uma skill que se aplica é ERRO. Só siga sem skill quando NENHUMA da lista se aplicar de verdade:\n`;
-      for (const s of list) out += `- **${s.name}**: ${String(s.description || "").replace(/\s+/g, " ").slice(0, 320)}\n`;
-      return out;
+      let list: SkillEntry[] = [];
+      try { const arr = JSON.parse(readFileSync(join(this.ws.dir, "skills.json"), "utf8")); if (Array.isArray(arr)) list = arr; } catch { /* sem skills.json */ }
+      const agentId = agentIdOf(role as AgentRole | undefined);
+      const owned: OwnedSkill[] = [];
+      for (const name of ownedSkillNames(list, agentId)) {
+        try {
+          const s = parseSkillMd(readFileSync(join(skillsDir(this.ws.repo), name, "SKILL.md"), "utf8"));
+          owned.push({ name, description: s.description, body: s.body });
+        } catch { /* skill arquivada/sumiu: fica de fora */ }
+      }
+      return roleLearningContext({ skills: list, owned, notes: activeAgentMemory(this.ws.dir, agentId), agentName: role?.name });
     } catch {
       return "";
     }
   }
+
 
   /**
    * Issue do tracker desta demanda (.cardume/issue.json — config compartilhada por
@@ -634,6 +638,22 @@ export class Orchestrator {
         }
       }
       const learned = learnedSkills(this.ws.repo);
+      // P9: a equipe (com id estável) e o que a revisão devolveu — com quem produziu — pra retro dar DONO a cada item
+      const team: TeamMember[] = [];
+      for (const r of Array.isArray(spec.roles) ? spec.roles : []) {
+        const id = agentIdOf(r);
+        if (id && !team.some((m) => m.agentId === id)) team.push({ agentId: id, name: r.name, role: r.role });
+      }
+      const roles = Array.isArray(spec.roles) ? spec.roles : [];
+      // quem produziu o que ESTA rodada revisou (o revisor da rodada, pelo id ou nome; senão o 1º revisor)
+      const producerOf = (x: ReviewRound) => {
+        let ri = roles.findIndex((r) => r.role === "reviewer" && ((x.agentId && agentIdOf(r) === x.agentId) || r.name === x.reviewer));
+        if (ri < 0) ri = roles.findIndex((r) => r.role === "reviewer");
+        return ri >= 0 ? roles[producerIndex(roles, ri)] : undefined;
+      };
+      const reviewAsks = (Array.isArray(spec.reviewRounds) ? spec.reviewRounds : [])
+        .filter((x) => x.verdict === "muda")
+        .flatMap((x) => { const p = producerOf(x); return (x.items ?? []).map((it) => `${x.reviewer || "o revisor"} pediu a ${p?.name ?? "quem construiu"} (${agentIdOf(p) || "?"}): ${it}`); });
       const out = await this.aux(retroPrompt({
         title: spec.title,
         objective: String(spec.objective ?? ""),
@@ -645,6 +665,8 @@ export class Orchestrator {
         brainCatalog: this.brainCatalog(),
         learnedSkills: learned,
         alreadySuggested: readPending(this.ws.dir).filter((p) => p.taskId === taskId).map((p) => p.nota ? `nota: ${p.nota.title}` : `skill: ${p.skill?.nome ?? ""}`),
+        team,
+        reviewAsks,
       }), "capaz", model, Math.max(auxTimeoutMs(), 180_000), taskId, (usd) => {
         // o gasto da retro conta no teto e no custo por papel (agente "retro"); o livro de uso o aiOnce já gravou
         if (usd > 0) { try { this.store.addCostLocal(taskId, "retro", "retro", usd, 0, 0, 0, "retro"); } catch { /* sem store */ } }
@@ -654,9 +676,14 @@ export class Orchestrator {
       const learnedNames = new Set(learned.map((s) => s.name));
       const items: Omit<PendingItem, "id" | "createdAt">[] = [];
       const base = { taskId, taskTitle: String(spec.title ?? "").slice(0, 140) };
-      for (const n of notas) items.push({ ...base, kind: "nota", nota: n });
+      // P9: dono validado contra a equipe (fora dela = "projeto"); a v1 só tem nota e skill — nada de persona/modelo
+      const owner = (dono: string | undefined) => {
+        const o = retroOwner(dono, team);
+        return o ? { agente: o.agente, papel: o.papel, agenteNome: o.nome } : {};
+      };
+      for (const { dono, ...n } of notas) items.push({ ...base, kind: "nota", nota: n, ...owner(dono) });
       // "atualizar" só vale pra skill APRENDIDA que existe; o resto vira "criar" (colisão → nome-2 ao aplicar)
-      for (const s of skills) items.push({ ...base, kind: "skill", skill: { ...s, acao: s.acao === "atualizar" && learnedNames.has(s.nome) ? "atualizar" : "criar" } });
+      for (const { dono, ...s } of skills) items.push({ ...base, kind: "skill", skill: { ...s, acao: s.acao === "atualizar" && learnedNames.has(s.nome) ? "atualizar" : "criar" }, ...owner(dono) });
       const ok = items.filter((it) => {
         const why = rejectReason(itemText(it));
         if (!why) return true;
@@ -669,7 +696,7 @@ export class Orchestrator {
       if (mode === "sugerir") {
         const added = appendPending(this.ws.dir, ok);
         this.store.addEvent(taskId, "Sistema", "retro", added.length ? `retro: ${added.length} aprendizado${added.length === 1 ? "" : "s"} pra você revisar` : "retro: nada novo pra aprender desta tarefa", true);
-        if (added.length) this.learnDropped(taskId, `aprendizado: ${added.length} sugest${added.length === 1 ? "ão" : "ões"} da retro pra revisar na aba Memória`);
+        if (added.length) this.learnDropped(taskId, `aprendizado: ${added.length} sugest${added.length === 1 ? "ão" : "ões"} da retro pra revisar — na etapa Retro desta tarefa, na ficha do agente (Meu time) ou na Memória`);
         return;
       }
       // modo automático: aplica direto o que iria pra fila — MENOS o que tem agente dono (K3: o `auto` nunca muda
@@ -1106,7 +1133,7 @@ export class Orchestrator {
     const run: RoleRun = {
       role: r.role, agentId: agentIdOf(r) || undefined, name: r.name,
       version: agentVersion(this.ws.dir, agentIdOf(r)), engine: engineKind(r.engine), model: r.model || undefined,
-      skills: activeSkills(this.ws.dir), at: Date.now(),
+      skills: activeSkills(this.ws.dir, agentIdOf(r)), at: Date.now(),
     };
     try {
       this.store.addEvent(taskId, r.name, "papel", rosterLine(run), true, r.role, r.agentId);
@@ -1197,7 +1224,7 @@ export class Orchestrator {
         if (pi >= 0 && reviewerIsSame(roles[pi], r)) this.store.addEvent(taskId, "Sistema", "note", `${SAME_REVIEWER_WARNING} (${r.name} e ${roles[pi].name} no mesmo motor e modelo)`, false);
       }
       // K2: bastão por arquivo — quem chega lê o HANDOFF.md; quem sai escreve o seu
-      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec) + reviewCtx + handoffRule(i > 0 && hasHandoff(task.worktree));
+      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(r) + this.issueContext(spec) + this.epicContext(spec) + reviewCtx + handoffRule(i > 0 && hasHandoff(task.worktree));
       const evStart = this.store.lastEventId(taskId);
       const batonIn = readHandoff(task.worktree); // o bastão que este papel recebe (devolver igual = não escreveu o seu)
       // P10: UM evento por papel (antes do laço de retry — tentar de novo não duplica) com o que vai rodar:
@@ -1551,7 +1578,7 @@ export class Orchestrator {
       this.store.setStatus(spec.id, "running");
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
-      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(r) + this.issueContext(spec) + this.epicContext(spec);
       try {
         for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: r.role, agentName: r.name, dbFile: this.ws.dbFile })) {
           if (ev.type === "session") { this.store.setSession(spec.id, ev.text); continue; }
@@ -1614,7 +1641,7 @@ export class Orchestrator {
           role: role.role,
           agentName: role.name,
           dbFile: this.ws.dbFile,
-          skillsRule: this.skillsContext(), // resume não reenvia system prompt → skills por turno
+          skillsRule: this.skillsContext(role), // resume não reenvia system prompt → skills por turno
           resume: { sessionId, instruction },
         })) {
           if (ev.type === "session") {
@@ -1750,7 +1777,7 @@ export class Orchestrator {
       : "entregáveis (doc + testes + prova)";
     const engine = this.engineFor(role.engine, role.model, "ask");
     this.prepEpic(spec, task.worktree);
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec) + this.epicContext(spec);
     const prev = task.status;
     this.store.setStatus(taskId, "thinking");
     this.store.setStage(taskId, role.role);
@@ -1844,7 +1871,7 @@ export class Orchestrator {
     const switching = !!picked && !!deflt && picked.name !== deflt.name;
     const engine = this.engineFor(role.engine, role.model, "ask");
     this.prepEpic(spec, task.worktree);
-    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec, message) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+    const ctx = (role.persona ? `## Seu perfil (${role.name})\n${role.persona}\n\n` : "") + this.projectMemory(spec, message) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec) + this.epicContext(spec);
     // recriada → ao fim do turno volta pra "pronta pra revisar" (não pro limbo mergeada-sem-worktree)
     const prev: AgentStatus = recreated && ["merged", "done", "aborted", "cancelled", "error"].includes(task.status) ? "review" : task.status;
     const sid = switching ? "" : (task.session_id || "");
@@ -1853,7 +1880,7 @@ export class Orchestrator {
     let failed = false;
     try {
       const chatRule = noAskTool(role.engine) ? Orchestrator.CHAT_RULE_TEXT : Orchestrator.CHAT_RULE_ASK;
-      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext() };
+      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext(role) };
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
         : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${this.historyDigest(taskId)}${chatRule}` };
@@ -2160,7 +2187,7 @@ export class Orchestrator {
     const role = roles.find((r) => r.role === "builder") ?? roles.find((r) => canTalk(r.engine)) ?? roles[0];
     this.prepEpic(spec, task.worktree);
     const persona = role.persona ? `## Seu perfil (${role.name} · ${role.role})\n${role.persona}\n\n` : "";
-    const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+    const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec) + this.epicContext(spec);
     return { task, spec, role, ctx };
   }
 

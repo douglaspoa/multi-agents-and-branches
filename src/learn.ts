@@ -17,7 +17,7 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { extractJson, looksSecret } from "./memory.ts";
-import { bumpAgent, revertSkill, writeSkillVersion, type RevertResult } from "./agent-versions.ts";
+import { agentKey, bumpAgent, revertSkill, writeSkillVersion, type AgentMemoryItem, type RevertResult } from "./agent-versions.ts";
 
 export type LearnMode = "sugerir" | "auto" | "desligado";
 export const RETRO_MODEL_DEFAULT = "claude-sonnet-5";
@@ -28,8 +28,10 @@ export const RETRO_MODELS: { id: string; label: string }[] = [
 export const MAX_NOTAS = 3;
 export const MAX_SKILLS = 2;
 
-export interface RetroNota { title: string; type: string; tags: string[]; body: string }
-export interface RetroSkill { acao: "criar" | "atualizar"; nome: string; descricao: string; corpo: string; porque: string }
+/** `dono`: o que a retro disse sobre quem é o dono (id/nome de alguém da equipe ou "projeto") — só existe na saída do
+ * parseRetro; o orquestrador valida com `retroOwner` e tira do item antes de enfileirar. */
+export interface RetroNota { title: string; type: string; tags: string[]; body: string; dono?: string }
+export interface RetroSkill { acao: "criar" | "atualizar"; nome: string; descricao: string; corpo: string; porque: string; dono?: string }
 export interface PendingItem {
   id: string;
   kind: "nota" | "skill";
@@ -42,6 +44,8 @@ export interface PendingItem {
   agente?: string;
   /** papel do dono (ex.: "reviewer") */
   papel?: string;
+  /** nome do dono quando a retro rodou (a frase "A Lumen vai lembrar: …"; o id é o que vale) */
+  agenteNome?: string;
 }
 export interface LearnedSkill { name: string; description: string; body: string; tarefas: string[] }
 
@@ -116,7 +120,12 @@ export interface RetroCtx {
   brainCatalog: string;    // "- slug: título (tipo)"
   learnedSkills: LearnedSkill[];
   alreadySuggested?: string[]; // propostas desta tarefa ainda na fila (a retro roda de novo a cada rework)
+  /** P9: a equipe da tarefa — cada item proposto ganha um DONO daqui (ou "projeto") */
+  team?: TeamMember[];
+  /** P9: o que a revisão devolveu, com quem produziu (o sinal de "de quem é a lição") */
+  reviewAsks?: string[];
 }
+export interface TeamMember { agentId: string; name: string; role: string }
 
 const clip = (s: string, n: number) => {
   const t = String(s ?? "");
@@ -137,6 +146,8 @@ export function retroPrompt(ctx: RetroCtx): string {
     `\nPedidos de retrabalho: ${ctx.reworks}\n` +
     (ctx.reviewSummary ? `\n## Resumo do review\n${clip(ctx.reviewSummary, 1500)}\n` : "") +
     `\n## O que os agentes relataram (últimos eventos)\n${evs}\n` +
+    (ctx.team?.length ? `\n## Equipe desta tarefa (o DONO de cada aprendizado sai daqui)\n${ctx.team.map((m) => `- ${m.agentId} (${clip(m.name, 40)}) — papel ${m.role}`).join("\n")}\n` : "") +
+    (ctx.reviewAsks?.length ? `\n## O que a revisão devolveu\n${ctx.reviewAsks.slice(0, 12).map((x) => `- ${clip(x, 240)}`).join("\n")}\n` : "") +
     `\n## Notas que já existem no cérebro do projeto (slug: título)\n${ctx.brainCatalog || "(nenhuma)"}\n` +
     (ctx.alreadySuggested?.length ? `\n## Já sugeridos nesta tarefa (esperando revisão) — não repita, nem com outras palavras\n${ctx.alreadySuggested.slice(0, 20).map((x) => `- ${clip(x, 160)}`).join("\n")}\n` : "") +
     `\n## Skills aprendidas que já existem neste repo (só estas podem ser atualizadas)\n${skills}\n\n` +
@@ -146,10 +157,12 @@ export function retroPrompt(ctx: RetroCtx): string {
     `- PREFIRA ATUALIZAR uma skill aprendida existente (acao "atualizar", mesmo nome, corpo COMPLETO revisado) a criar uma nova parecida.\n` +
     `- NÃO capture: falha de ambiente/rede, "ferramenta X quebrada", becos sem saída, relato pontual desta tarefa, nada óbvio.\n` +
     `- NUNCA inclua segredos, chaves, senhas ou valores de .env.\n` +
-    `- Se não há nada que valha, responda {"notas":[],"skills":[]} — é uma resposta válida e comum.\n\n` +
+    `- Se não há nada que valha, responda {"notas":[],"skills":[]} — é uma resposta válida e comum.\n` +
+    `- DONO: em cada nota e skill ponha "agente" com o id de quem da equipe deve lembrar disso (a lição é sobre como ESSE papel trabalha — ex.: o que a revisão devolveu é lição de quem construiu) ou "projeto" quando é um fato do projeto que vale pra todos.\n` +
+    `- NUNCA proponha mudar a persona, o modelo ou o motor de um agente — só notas e skills.\n\n` +
     `Responda SÓ um JSON:\n` +
-    `{"notas":[{"title":"título curto e geral","type":"decisão|regra|gotcha|contexto|glossário","tags":["tema"],"body":"..."}],` +
-    `"skills":[{"acao":"criar|atualizar","nome":"nome-em-kebab-case","descricao":"quando usar (gatilho), 1 frase","corpo":"## Quando usar\\n...\\n## Passo a passo\\n...\\n## Armadilhas\\n...\\n## Verificação\\n...","porque":"o que nesta tarefa mostrou isso"}]}`
+    `{"notas":[{"title":"título curto e geral","type":"decisão|regra|gotcha|contexto|glossário","tags":["tema"],"body":"...","agente":"id da equipe ou projeto"}],` +
+    `"skills":[{"acao":"criar|atualizar","agente":"id da equipe ou projeto","nome":"nome-em-kebab-case","descricao":"quando usar (gatilho), 1 frase","corpo":"## Quando usar\\n...\\n## Passo a passo\\n...\\n## Armadilhas\\n...\\n## Verificação\\n...","porque":"o que nesta tarefa mostrou isso"}]}`
   );
 }
 
@@ -165,7 +178,8 @@ function notaFrom(o: any): RetroNota | null {
   const title = String(o.title ?? "").replace(/\s+/g, " ").trim();
   const body = String(o.body ?? "").trim();
   if (title.length < 4 || title.length > 140 || body.length < 8 || body.length > 2000) return null;
-  return { title, type: String(o.type ?? "contexto").trim() || "contexto", tags: Array.isArray(o.tags) ? o.tags.map(String).slice(0, 6) : [], body };
+  const dono = String(o.agente ?? o.dono ?? "").trim();
+  return { title, type: String(o.type ?? "contexto").trim() || "contexto", tags: Array.isArray(o.tags) ? o.tags.map(String).slice(0, 6) : [], body, ...(dono ? { dono } : {}) };
 }
 
 function skillFrom(o: any): RetroSkill | null {
@@ -175,7 +189,8 @@ function skillFrom(o: any): RetroSkill | null {
   const corpo = String(o.corpo ?? o.body ?? "").trim();
   if (nome.length < 3 || descricao.length < 10 || descricao.length > 600 || corpo.length < 20 || corpo.length > 8000) return null;
   const acao = String(o.acao ?? "").toLowerCase().startsWith("atual") ? "atualizar" : "criar";
-  return { acao, nome, descricao, corpo, porque: String(o.porque ?? "").replace(/\s+/g, " ").trim().slice(0, 400) };
+  const dono = String(o.agente ?? o.dono ?? "").trim();
+  return { acao, nome, descricao, corpo, porque: String(o.porque ?? "").replace(/\s+/g, " ").trim().slice(0, 400), ...(dono ? { dono } : {}) };
 }
 
 /** JSON da resposta. O corpo de uma skill pode ter ``` dentro das strings — tentar o objeto
@@ -189,6 +204,16 @@ function retroJson(txt: string): unknown {
   if (a >= 0 && b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch { /* segue */ } }
   return extractJson(t);
 }
+
+/** P9: o dono que a retro propôs → alguém da equipe (pelo id ou pelo nome, sem acento/caixa) ou null = "projeto".
+ * Dono fora da equipe nunca vira dono (a retro não inventa agente). */
+export function retroOwner(dono: string | undefined, team: TeamMember[] | undefined): { agente: string; papel: string; nome: string } | null {
+  const k = fold(dono);
+  if (!k || k === "projeto" || k === "project") return null;
+  const m = (team ?? []).find((x) => fold(x.agentId) === k || fold(x.name) === k);
+  return m && m.agentId ? { agente: m.agentId, papel: m.role, nome: m.name } : null;
+}
+const fold = (s: string | undefined) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 
 /** Saída da retro → propostas válidas dentro dos limites. Lixo/vazio → listas vazias. */
 export function parseRetro(text: string): { notas: RetroNota[]; skills: RetroSkill[] } {
@@ -218,9 +243,9 @@ export function skillsDir(repo: string): string {
 }
 
 /** Frontmatter simples de SKILL.md: name, description, origem, tarefas + corpo. */
-export function parseSkillMd(text: string): { name: string; description: string; origem: string; tarefas: string[]; body: string } {
+export function parseSkillMd(text: string): { name: string; description: string; origem: string; tarefas: string[]; body: string; agente: string } {
   const src = String(text ?? "").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
-  const out = { name: "", description: "", origem: "", tarefas: [] as string[], body: src };
+  const out = { name: "", description: "", origem: "", tarefas: [] as string[], body: src, agente: "" };
   if (!src.startsWith("---\n")) return out;
   const end = src.indexOf("\n---", 4);
   if (end < 0) return out;
@@ -232,17 +257,20 @@ export function parseSkillMd(text: string): { name: string; description: string;
     if (k === "name") out.name = un(v);
     else if (k === "description") out.description = un(v);
     else if (k === "origem") out.origem = un(v);
+    else if (k === "agente") out.agente = agentKey(un(v));
     else if (k === "tarefas") out.tarefas = v.trim().replace(/^\[|\]$/g, "").split(",").map(un).filter(Boolean);
   }
   out.body = src.slice(end + 4).replace(/^\n+/, "").trimEnd();
   return out;
 }
 
-/** SKILL.md de uma skill aprendida (mesmo formato do Rust `learn::skill_md`). */
-export function skillMd(name: string, description: string, tarefas: string[], body: string): string {
+/** SKILL.md de uma skill aprendida (mesmo formato do Rust `learn::skill_md`). `agente` (P9): o dono — a linha só
+ * existe quando há dono (skill do projeto sai igual a antes; o fixture dourado não muda). */
+export function skillMd(name: string, description: string, tarefas: string[], body: string, agente = ""): string {
   const desc = String(description ?? "").replace(/\s+/g, " ").replace(/["\\]/g, "'").trim();
   const ts = [...new Set(tarefas.map((t) => String(t).replace(/[,\[\]\s]+/g, "")).filter(Boolean))];
-  return `---\nname: ${name}\ndescription: "${desc}"\norigem: aprendida\ntarefas: [${ts.join(", ")}]\n---\n\n${String(body ?? "").trim()}\n`;
+  const ag = agentKey(agente);
+  return `---\nname: ${name}\ndescription: "${desc}"\norigem: aprendida\n${ag ? `agente: ${ag}\n` : ""}tarefas: [${ts.join(", ")}]\n---\n\n${String(body ?? "").trim()}\n`;
 }
 
 /** Skills APRENDIDAS deste repo (as que a retro pode atualizar). */
@@ -331,14 +359,16 @@ export function excludeSkill(repo: string, name: string): void {
 }
 
 /** Liga (ou atualiza a descrição de) uma skill em `.cardume/skills.json`. */
-export function enableSkill(cardumeDir: string, name: string, description: string): void {
+export function enableSkill(cardumeDir: string, name: string, description: string, agente = ""): void {
   const f = join(cardumeDir, "skills.json");
   let arr: any[] = [];
   try { const j = JSON.parse(readFileSync(f, "utf8")); if (Array.isArray(j)) arr = j; } catch { /* sem arquivo */ }
   const desc = String(description ?? "").replace(/\s+/g, " ").trim();
   const hit = arr.find((s) => s && s.name === name);
-  if (hit) hit.description = desc;
-  else arr.push({ name, description: desc });
+  const ag = agentKey(agente);
+  // o dono no skills.json é SEMPRE o do SKILL.md recém-gravado (uma fonte só: sem dono = tira)
+  if (hit) { hit.description = desc; if (ag) hit.agente = ag; else delete hit.agente; }
+  else arr.push(ag ? { name, description: desc, agente: ag } : { name, description: desc });
   atomicWrite(f, JSON.stringify(arr, null, 2));
 }
 
@@ -407,4 +437,61 @@ function atomicWrite(file: string, content: string): void {
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, content, "utf8");
   renameSync(tmp, file);
+}
+
+// ---------------------------------------------------------------------------
+// P9: o que cada PAPEL recebe no prompt — skill/nota com dono vai SÓ pro papel dono
+// ---------------------------------------------------------------------------
+
+export interface SkillEntry { name: string; description?: string; agente?: string }
+export interface OwnedSkill { name: string; description: string; body: string }
+
+/** Lista do skills.json que vale pra um papel: as do projeto (sem dono). As do dono vêm inteiras em `roleLearningContext`. */
+export function projectSkills(list: SkillEntry[]): SkillEntry[] {
+  return (Array.isArray(list) ? list : []).filter((s) => s && s.name && !agentKey(s.agente ?? ""));
+}
+/** Skills cujo dono é este agente (pelo id estável — renomear não muda). */
+export function ownedSkillNames(list: SkillEntry[], agentId: string | undefined): string[] {
+  const k = agentKey(agentId ?? "");
+  if (!k) return [];
+  return (Array.isArray(list) ? list : []).filter((s) => s && s.name && agentKey(s.agente ?? "") === k).map((s) => s.name);
+}
+
+const SKILL_RULE =
+  `\n\n## SKILLS ATIVADAS PRA ESTE PROJETO — o humano LIGOU estas skills; CONSULTE-AS EM TODA TAREFA\n` +
+  `Regra fixa deste projeto: ANTES de começar QUALQUER tarefa — e de novo a cada nova rodada/pedido — releia a lista abaixo e, se a descrição de alguma bater com o que você vai fazer, INVOQUE-A (tool Skill, ou \`/nome\`) ANTES de resolver do seu jeito. Elas carregam o processo/estilo que o time espera; resolver "na mão" ignorando uma skill que se aplica é ERRO. Só siga sem skill quando NENHUMA da lista se aplicar de verdade:\n`;
+
+/**
+ * Bloco de skills + aprendizados de UM papel (puro — testado em src/agentes-f3.test.ts). Mesmo texto pra Claude,
+ * Codex, DeepSeek e terminal (todos recebem o systemContext/skillsRule montado aqui).
+ *  - skills do projeto (sem dono): a lista de sempre;
+ *  - do agente dono: o que ele aprendeu, com o corpo inteiro (o SKILL.md não chega ao worktree, e Codex/DeepSeek
+ *    não invocam skill do Claude) — e NADA do que é de outro agente.
+ */
+export function roleLearningContext(o: { skills: SkillEntry[]; owned: OwnedSkill[]; notes: AgentMemoryItem[]; agentName?: string }): string {
+  const list = projectSkills(o.skills);
+  let out = "";
+  if (list.length) {
+    out += SKILL_RULE;
+    for (const s of list) out += `- **${s.name}**: ${String(s.description || "").replace(/\s+/g, " ").slice(0, 320)}\n`;
+  }
+  const notes = (o.notes ?? []).filter((n) => n && !n.forgottenAt);
+  const owned = o.owned ?? [];
+  if (notes.length || owned.length) {
+    const who = String(o.agentName ?? "").trim() || "este agente";
+    out += `\n\n## O QUE VOCÊ (${who}) APRENDEU NESTE PROJETO — aceito pelo humano item a item; siga\n`;
+    // orçamentos separados (notas não engolem as skills) e as notas MAIS NOVAS primeiro (a recém-aceita sempre entra)
+    let nb = 3000, sb = 4500;
+    for (const n of [...notes].sort((a, b) => (b.at || 0) - (a.at || 0))) {
+      const line = `- ${clip(n.title.replace(/\s+/g, " "), 160)}: ${clip(n.body.replace(/\s+/g, " "), 600)}\n`;
+      if (line.length > nb) continue;
+      out += line; nb -= line.length;
+    }
+    for (const s of owned) {
+      const block = `\n### ${s.name}\n${clip(s.description.replace(/\s+/g, " "), 300)}\n${clip(s.body.trim(), 1500)}\n`;
+      if (block.length > sb) continue;
+      out += block; sb -= block.length;
+    }
+  }
+  return out;
 }

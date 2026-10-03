@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
 mod agent_edits;
 mod agent_versions;
+mod agent_stats;
 mod ambiente;
 mod device;
 mod ai_once;
@@ -3251,6 +3252,32 @@ fn agent_revert_in(repo: &Path, agent_id: &str, reason: &str) -> Result<serde_js
     Ok(serde_json::json!({ "agentId": agent_id, "version": nv, "restored": key }))
 }
 
+/// "Restaurar" uma persona do histórico (Editar · ajustes avançados): põe no catálogo a persona da versão `v` e registra
+/// como versão nova (com a de antes guardada — dá pra voltar de novo). Só versões de persona guardam o texto.
+#[tauri::command(async)]
+fn agent_restore_persona(state: State<AppState>, repo: Option<String>, agent_id: String, v: i64) -> Result<serde_json::Value, String> {
+    let repo = repo_or(&state, repo)?;
+    agent_restore_persona_in(&repo, &agent_id, v)
+}
+fn agent_restore_persona_in(repo: &Path, agent_id: &str, v: i64) -> Result<serde_json::Value, String> {
+    let cd = repo.join(".cardume");
+    let cur = agent_versions::read_agent_versions(&cd, agent_id);
+    let entry = cur["versions"].as_array().and_then(|l| l.iter().find(|x| x["v"].as_i64() == Some(v)).cloned()).ok_or_else(|| format!("essa versão não está mais no histórico (guardamos as últimas {})", agent_versions::KEEP_VERSIONS))?;
+    let persona = entry["persona"].as_str().ok_or("essa versão não mudou a persona — nada pra restaurar")?.to_string();
+    let path = repo.join("cardume.config.json");
+    let mut cfg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    let a = cfg["agents"].as_array_mut().and_then(|l| l.iter_mut().find(|x| x["id"].as_str() == Some(agent_id))).ok_or("agente não está no catálogo do projeto")?;
+    let before = a["persona"].as_str().unwrap_or("").to_string();
+    if before == persona { return Err("a persona atual já é essa".into()); }
+    a["persona"] = serde_json::json!(persona);
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())? + "\n").map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0);
+    let nv = agent_versions::bump_agent(&cd, agent_id, now, "persona", &format!("restaurou a persona da v{v}"), Some(&persona), Some(&before))?;
+    Ok(serde_json::json!({ "agentId": agent_id, "version": nv }))
+}
+
 #[cfg(test)]
 mod agent_version_cfg_tests {
     use super::*;
@@ -3283,6 +3310,34 @@ mod agent_version_cfg_tests {
         let back: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(repo.join("cardume.config.json")).unwrap()).unwrap();
         assert_eq!(back["agents"][0]["persona"], "Você revisa.");
         assert_eq!(agent_versions::agent_version(&repo.join(".cardume"), "nyx"), 6, "v1 → persona → modelo → voltar → persona → voltar");
+        let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn motor_por_papel_vira_versao_e_persona_do_historico_restaura() {
+        let repo = std::env::temp_dir().join(format!("sf-cfgv-p5-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&repo);
+        std::fs::create_dir_all(repo.join(".cardume")).unwrap();
+        let cd = repo.join(".cardume");
+        // P5: trocar o motor do revisor no Editar = versão nova, com o motor de antes guardado
+        let old = serde_json::json!({ "agents": [{ "id": "nyx", "persona": "A", "engine": "claude" }] });
+        let new = serde_json::json!({ "agents": [{ "id": "nyx", "persona": "B", "engine": "codex", "model": "gpt-5" }] });
+        let ch = config_agent_changes(&old, &new);
+        assert_eq!(ch.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(), vec!["persona", "modelo", "motor"]);
+        std::fs::write(repo.join("cardume.config.json"), serde_json::to_string_pretty(&new).unwrap()).unwrap();
+        for c in &ch { agent_versions::bump_agent(&cd, &c.0, 1, &c.1, &c.2, c.3.as_deref(), Some(&c.4)).unwrap(); }
+        assert_eq!(agent_versions::agent_version(&cd, "nyx"), 4);
+        // restaurar a persona da v2 (= "B" é a atual → erro em palavra); muda pra "C" e restaura a v2
+        assert!(agent_restore_persona_in(&repo, "nyx", 2).is_err());
+        let mut c3 = new.clone();
+        c3["agents"][0]["persona"] = serde_json::json!("C");
+        for c in config_agent_changes(&new, &c3) { agent_versions::bump_agent(&cd, &c.0, 2, &c.1, &c.2, c.3.as_deref(), Some(&c.4)).unwrap(); }
+        std::fs::write(repo.join("cardume.config.json"), serde_json::to_string_pretty(&c3).unwrap()).unwrap();
+        let r = agent_restore_persona_in(&repo, "nyx", 2).unwrap();
+        assert_eq!(r["version"], 6);
+        let back: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(repo.join("cardume.config.json")).unwrap()).unwrap();
+        assert_eq!(back["agents"][0]["persona"], "B");
+        assert!(agent_restore_persona_in(&repo, "nyx", 3).is_err(), "versão de modelo não tem persona");
         let _ = std::fs::remove_dir_all(&repo);
     }
 }
@@ -9682,6 +9737,10 @@ pub fn run() {
             learn::learn_revert,
             learn::learn_history,
             agent_revert,
+            agent_restore_persona,
+            agent_stats::agent_stats,
+            agent_stats::agent_card,
+            learn::agent_forget,
             device::device_cli,
             ambiente::env_detect,
             ambiente::env_up,

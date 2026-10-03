@@ -92,18 +92,44 @@ function cicloPaint(t){
   const strip=(typeof cicloStripHtml==='function')?cicloStripHtml(t):'';
   const ui=cicUi[t.id]||{};
   const plan=d?'':((typeof cicloPlanHtml==='function')?cicloPlanHtml(t):'');
-  const sig=t.id+'|'+strip+'|'+JSON.stringify(d)+'|'+plan+'|'+(typeof taskCost==='function'?taskCost(t.id).usd.toFixed(4):'');
+  cicLearnEnsure(t);
+  const learn=cicloLearnHtml(t);
+  const sig=t.id+'|'+strip+'|'+JSON.stringify(d)+'|'+plan+'|'+(typeof taskCost==='function'?taskCost(t.id).usd.toFixed(4):'')+'|'+learn.length+':'+Object.keys(typeof LEARN_EDIT!=='undefined'?LEARN_EDIT:{}).join(',')+':'+((cicLearn[t.id]||{}).sig||'');
   if(host.__sig===sig) return;
   const keep=document.activeElement && host.contains(document.activeElement) ? document.activeElement.id : '';
   host.__sig=sig;
-  host.innerHTML=strip+(d?cicloDecisionHtml(t, d, ui):plan);
+  host.innerHTML=strip+(d?cicloDecisionHtml(t, d, ui):plan)+learn;
   host.hidden=!host.innerHTML;
   ['cicUsd','cicWhy'].forEach(id=>{ const el=$id(id); if(el) el.oninput=()=>{ const u=cicUi[t.id]=cicUi[t.id]||{}; u[id==='cicUsd'?'usd':'why']=el.value; }; });
   const on=(id, k)=>{ const b=$id(id); if(b) b.onclick=()=>cicloAct(t, k); };
   on('cicRelease','release'); on('cicStop','stop'); on('cicGo','go'); on('cicRound','round');
   const why=$id('cicWhy'); if(why) why.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const b=$id('cicRelease')||$id('cicGo'); if(b) b.click(); } };
   if(typeof cicloStripWire==='function') cicloStripWire(host, t);
+  if(learn && typeof learnWire==='function') learnWire(host, { repo:()=>state.repo, items:()=>(cicLearn[t.id]||{}).items||[], repaint:()=>{ host.__sig=''; cicloPaint(t); }, after:async()=>{ delete cicLearn[t.id]; host.__sig=''; cicloPaint(t); } });
   if(keep){ const el=$id(keep); if(el){ el.focus(); try{ el.setSelectionRange(el.value.length, el.value.length); }catch(_){ } } }
+}
+
+// ---------- P9: os aprendizados que a retro DESTA tarefa propôs, em frase, logo abaixo da faixa ----------
+// Lidos quando aparece um evento novo da retro (nada de polling: o snapshot que já chega diz se mudou).
+const cicLearn={}; // taskId → { sig, items }
+function cicLearnEnsure(t){
+  const evs=(typeof eventsOf==='function'?eventsOf(t.id):[]);
+  let r=null; for(let i=evs.length-1;i>=0;i--){ if(evs[i].type==='retro'){ r=evs[i]; break; } }
+  if(!r) return;
+  const sig=String(r.id), c=cicLearn[t.id];
+  if(c && c.sig===sig) return;
+  cicLearn[t.id]={ sig, items:c?c.items:[] };
+  const repo=state.repo;
+  invoke('learn_pending',{ repo }).then(l=>{
+    if(!cicLearn[t.id] || cicLearn[t.id].sig!==sig || state.repo!==repo) return;
+    cicLearn[t.id].items=(l||[]).filter(x=>x.taskId===t.id);
+    const h=$id('fwCiclo'); if(h) h.__sig=''; if(typeof fwTask!=='undefined' && fwTask===t.id) cicloPaint(t);
+  }).catch(()=>{});
+}
+function cicloLearnHtml(t){
+  const it=((cicLearn[t.id]||{}).items)||[]; if(!it.length || typeof memLearnCard!=='function') return '';
+  return `<section class="ciclearn" aria-label="Aprendizados desta tarefa"><p class="ciclearn-h"><b>A retro desta tarefa propôs ${it.length===1?'1 coisa':it.length+' coisas'} pra lembrar</b> — nada entra sem o seu sim, e dá pra voltar depois.</p>`+
+    `<div class="memlgrid">${it.map(x=>memLearnCard(x, { editing:(typeof LEARN_EDIT!=='undefined'?LEARN_EDIT:{})[x.id] })).join('')}</div></section>`;
 }
 
 // =====================================================================================================================
@@ -225,9 +251,11 @@ function stageStripHtml(stages, sum, o){
     return `<li class="cicst s-${s.state}${o.open===i?' open':''}"><button class="cicst-b" data-cicst="${i}"${cur?' aria-current="step"':''} aria-expanded="${o.open===i?'true':'false'}" title="${escA(s.label+(s.who?' · '+s.who:'')+': '+s.word)}">${face}<span class="cicst-tx"><span class="cicst-l">${esc(s.label)}${lock}</span><span class="cicst-w">${esc(s.word)}</span></span>${cost}</button></li>`;
   }).join('<li class="cicst-sep" aria-hidden="true"></li>');
   const capTx=sum.cap>0?` de ${esc(usd(sum.cap))}`:'';
-  return `<div class="cicstrip" role="group" aria-label="Etapas da tarefa">`+
-    `<ol class="cicst-list">${items}</ol>`+
-    `<div class="cicst-sum"><span class="cicst-now">${esc(sum.now)}</span>${sum.next?`<span class="cicst-next">${esc(sum.next)}</span>`:''}<span class="cicst-pos">etapa ${sum.pos} de ${sum.n}</span><span class="cicst-cost">gasto até agora <b>${esc(usd(sum.spent))}</b>${capTx}</span></div>`+
+  // o.foot: rodapé próprio (a prévia da equipe em "Meu time" mostra o custo médio, não o "gasto até agora")
+  const foot=o.foot!=null?`<div class="cicst-sum"><span class="cicst-cost">${o.foot}</span></div>`
+    :`<div class="cicst-sum"><span class="cicst-now">${esc(sum.now)}</span>${sum.next?`<span class="cicst-next">${esc(sum.next)}</span>`:''}<span class="cicst-pos">etapa ${sum.pos} de ${sum.n}</span><span class="cicst-cost">gasto até agora <b>${esc(usd(sum.spent))}</b>${capTx}</span></div>`;
+  return `<div class="cicstrip" role="group" aria-label="${escA(o.label||'Etapas da tarefa')}">`+
+    `<ol class="cicst-list">${items}</ol>`+foot+
   `</div>`;
 }
 // @ciclo-faixa-fim

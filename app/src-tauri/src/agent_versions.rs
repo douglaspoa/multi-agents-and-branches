@@ -77,7 +77,7 @@ pub fn read_skill_history(cardume: &Path, name: &str) -> Option<Value> {
     if !j["versions"].is_array() { return None; }
     Some(json!({ "name": name, "current": j["current"].as_i64().unwrap_or(0), "archived": j["archived"].as_bool().unwrap_or(false), "versions": j["versions"] }))
 }
-#[allow(dead_code)] // usada pela ficha do agente (F3); paridade com `skillVersion` do TS
+#[allow(dead_code)] // paridade com `skillVersion` do TS (a ficha lê o histórico inteiro)
 pub fn skill_version(cardume: &Path, name: &str) -> i64 {
     read_skill_history(cardume, name).and_then(|h| h["current"].as_i64()).filter(|v| *v >= 1).unwrap_or(1)
 }
@@ -161,6 +161,65 @@ pub fn revert_skill(cardume: &Path, skills_root: &Path, name: &str, reason: &str
     h["versions"].as_array_mut().unwrap().push(ventry(to, at, "arquivar", reason, "", &agente));
     save_hist(cardume, &h)?;
     Ok(json!({ "name": name, "action": "arquivada", "from": cur, "to": to, "restored": Value::Null, "agente": agente }))
+}
+
+
+// ---------------------------------------------------------------- P9: memória do agente e arquivar
+
+/// `.cardume/agentes/<id>/lembra.json` = { items:[{ id, kind:"nota", title, body, at, v, taskId, forgottenAt? }] }
+/// (≡ `agentMemoryFile`/`readAgentMemory` do TS). Só o app escreve.
+pub fn agent_memory_file(cardume: &Path, agent_id: &str) -> PathBuf {
+    cardume.join("agentes").join(agent_key(agent_id)).join("lembra.json")
+}
+pub fn read_agent_memory(cardume: &Path, agent_id: &str) -> Vec<Value> {
+    if agent_key(agent_id).is_empty() { return vec![]; }
+    read_json(&agent_memory_file(cardume, agent_id)).and_then(|j| j["items"].as_array().cloned()).unwrap_or_default()
+}
+fn save_agent_memory(cardume: &Path, agent_id: &str, items: Vec<Value>) -> Result<(), String> {
+    let out = json!({ "agentId": agent_key(agent_id), "items": items });
+    atomic(&agent_memory_file(cardume, agent_id), serde_json::to_string_pretty(&out).map_err(|e| e.to_string())?.as_bytes())
+}
+/// Guarda uma nota aceita "pra X". Mesmo id de novo = não duplica (aceitar duas vezes não cria duas lembranças).
+pub fn add_agent_note(cardume: &Path, agent_id: &str, item: Value) -> Result<(), String> {
+    let mut items = read_agent_memory(cardume, agent_id);
+    if items.iter().any(|x| x["id"] == item["id"] && x["forgottenAt"].is_null()) { return Ok(()); }
+    items.push(item);
+    save_agent_memory(cardume, agent_id, items)
+}
+/// "Esquecer" uma nota: marca `forgottenAt` + motivo (nunca apaga). Devolve o título.
+pub fn forget_agent_note(cardume: &Path, agent_id: &str, note_id: &str, reason: &str, at: i64) -> Result<String, String> {
+    let mut items = read_agent_memory(cardume, agent_id);
+    let it = items.iter_mut().find(|x| x["id"].as_str() == Some(note_id) && x["forgottenAt"].is_null()).ok_or("esse agente não lembra mais disso")?;
+    it["forgottenAt"] = json!(at);
+    it["forgetReason"] = json!(reason.trim());
+    let t = it["title"].as_str().unwrap_or("").to_string();
+    save_agent_memory(cardume, agent_id, items)?;
+    Ok(t)
+}
+
+/// Arquiva uma skill (esquecer): o SKILL.md é MOVIDO pro histórico (`arquivada.md`) e vira versão "arquivar".
+/// Sem histórico ainda: os bytes atuais viram a v1 antes (dá pra recuperar).
+pub fn archive_skill(cardume: &Path, skills_root: &Path, name: &str, reason: &str, at: i64, agente: &str) -> Result<Value, String> {
+    let md = skills_root.join(name).join("SKILL.md");
+    if !md.is_file() { return Err("essa skill não está mais ativa".into()); }
+    let dir = skill_hist_dir(cardume, name);
+    let mut h = match read_skill_history(cardume, name) {
+        Some(h) => h,
+        None => {
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            std::fs::write(dir.join("v1.md"), std::fs::read(&md).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+            json!({ "name": name, "current": 1, "archived": false, "versions": [ventry(1, at, "legado", "", "", agente)] })
+        }
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let to = h["current"].as_i64().unwrap_or(0) + 1;
+    // nome por versão: arquivar de novo (skill recriada com o mesmo nome) nunca sobrescreve o arquivo anterior
+    std::fs::rename(&md, dir.join(format!("arquivada-v{to}.md"))).map_err(|e| e.to_string())?;
+    h["current"] = json!(to);
+    h["archived"] = json!(true);
+    h["versions"].as_array_mut().ok_or("histórico inválido")?.push(ventry(to, at, "arquivar", reason.trim(), "", agente));
+    save_hist(cardume, &h)?;
+    Ok(json!({ "name": name, "action": "arquivada", "to": to }))
 }
 
 #[cfg(test)]
