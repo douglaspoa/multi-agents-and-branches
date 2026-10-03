@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Time — pessoas primeiro (cartão por pessoa, expansível com as demandas em
-/// andamento), faixa de números e PRs pra revisar.
+/// Time — números de relance, pessoas (presença + demandas em andamento, expansível),
+/// PRs pra revisar e atividade. Lista nativa inset-grouped.
 struct TeamView: View {
     @EnvironmentObject var supa: Supa
     @State private var tasks: [CloudTask] = []
@@ -28,68 +28,74 @@ struct TeamView: View {
     private var delivered: Int { tasks.filter { ["merged", "done", "review", "delivered"].contains($0.status) }.count }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            T.bg.ignoresSafeArea()
-            Starfield(seed: 13).frame(height: 380).frame(maxHeight: .infinity, alignment: .top)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    PageHeader(kicker: teamName.isEmpty ? "Time" : teamName, title: "Time",
-                               sub: loaded ? "\(members.count) pessoa\(members.count == 1 ? "" : "s") · \(doing.count) agente\(doing.count == 1 ? "" : "s") rodando" : "sincronizando…",
-                               live: true)
-                    if !loaded { BoardSkeleton() } else {
-                        StatRow(items: [
-                            .init(value: "\(doing.count)", label: "em órbita"),
-                            .init(value: "\(delivered)", label: "entregas"),
-                            .init(value: String(format: "$%.0f", tasks.compactMap { $0.costUsd }.reduce(0, +)), label: "custo"),
-                        ])
-                        VStack(spacing: 10) { ForEach(members, id: \.self) { uid in personCard(uid) } }
-                        if !prs.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                kicker("PRs pra revisar", T.info, count: prs.count, dot: true)
-                                ForEach(prs) { t in
-                                    Button { openTaskId = t.id } label: {
-                                        HStack(spacing: 9) {
-                                            if let n = t.spec?.prInfo?.number { Text("#\(n)").font(.mono(11.5, .bold)).foregroundStyle(T.info) }
-                                            Text(t.title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(1)
-                                            Spacer()
-                                            if let who = t.assignee ?? t.createdBy { Av(name: name(who), size: 18) }
-                                            Text(agoPt(t.updatedAt)).font(.mono(10)).foregroundStyle(T.dim2)
-                                        }.card(radius: 14).rail(T.info, radius: 14)
-                                    }.buttonStyle(.plain)
-                                }
-                            }
-                        }
-                        if !activity.isEmpty {
-                            VStack(alignment: .leading, spacing: 8) {
-                                kicker("atividade", T.dim)
-                                ForEach(activity.prefix(12)) { a in
-                                    HStack(spacing: 8) {
-                                        if let u = a.userId { Av(name: name(u), size: 16) }
-                                        Text("\(a.userId.map(name) ?? "") \(kindPt(a.kindK)) \(taskTitle(a.taskId))")
-                                            .font(.system(size: 12)).foregroundStyle(T.text2).lineLimit(1)
-                                        Spacer()
-                                        if let at = a.at { Text(agoPt(at)).font(.mono(9.5)).foregroundStyle(T.dim2) }
-                                    }
-                                }
-                            }
-                        }
-                    }
+        List {
+            if !loaded {
+                Section { ForEach(0..<3, id: \.self) { _ in TaskRowSkeleton().rowStyle() } }
+            } else if members.isEmpty {
+                Section {
+                    EmptyBoard(title: "Ninguém no time ainda", message: "Convide o time pelo Starfork no Mac — as demandas de todo mundo aparecem aqui, num lugar só.", symbol: "person.2")
+                        .listRowBackground(Color.clear)
                 }
-                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 96)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Section {
+                    HStack(spacing: 0) {
+                        stat("\(doing.count)", "rodando")
+                        Divider().overlay(T.line)
+                        stat("\(delivered)", "entregas")
+                        Divider().overlay(T.line)
+                        stat(String(format: "$%.0f", tasks.compactMap { $0.costUsd }.reduce(0, +)), "custo")
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityElement(children: .combine)
+                    .rowStyle()
+                }
+                Section {
+                    ForEach(members, id: \.self) { uid in personRows(uid) }
+                } header: { SectionHead(title: "Pessoas", symbol: "person.2.fill", count: members.count) }
+                if !prs.isEmpty {
+                    Section {
+                        ForEach(prs) { t in
+                            NavigationLink(value: TaskRef(id: t.id)) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 8) {
+                                        IconText(symbol: "arrow.triangle.pull", text: "PR aberto").font(.ui(12, .semibold)).foregroundStyle(T.info)
+                                        Spacer(minLength: 6)
+                                        if let n = t.spec?.prInfo?.number { Text("#\(n)").font(.mono(12, .semibold)).foregroundStyle(T.info) }
+                                    }
+                                    Text(t.title).font(.ui(15, .semibold)).foregroundStyle(T.text).lineLimit(2)
+                                    HStack(spacing: 8) {
+                                        if let who = t.assignee ?? t.createdBy { IconText(symbol: "person.fill", text: name(who)).lineLimit(1) }
+                                        Spacer(minLength: 0)
+                                        Text(agoPt(t.updatedAt))
+                                    }.font(.ui(12)).foregroundStyle(T.dim)
+                                }.padding(.vertical, 3)
+                            }.rowStyle()
+                        }
+                    } header: { SectionHead(title: "PRs pra revisar", symbol: "arrow.triangle.pull", color: T.info, count: prs.count) }
+                }
+                if !activity.isEmpty {
+                    Section {
+                        ForEach(activity.prefix(12)) { a in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("\(a.userId.map(name) ?? "") \(kindPt(a.kindK)) \(taskTitle(a.taskId))")
+                                    .font(.ui(13)).foregroundStyle(T.text2).lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                if let at = a.at { Text(agoPt(at)).font(.ui(12)).foregroundStyle(T.dim2) }
+                            }.rowStyle()
+                        }
+                    } header: { SectionHead(title: "Atividade", symbol: "clock.arrow.circlepath") }
+                }
             }
-            .refreshable { await load() }
         }
-        .overlay(alignment: .bottomTrailing) {
-            Button { showNew = true } label: {
-                Image(systemName: "plus").font(.system(size: 22, weight: .bold)).foregroundStyle(T.onAccent)
-                    .frame(width: 56, height: 56)
-                    .background(LinearGradient(colors: [T.accent, T.accent2], startPoint: .top, endPoint: .bottom))
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-                    .shadow(color: T.accent.opacity(0.45), radius: 18, y: 6)
-            }.padding(.trailing, 20).padding(.bottom, 18)
-        }
+        .appList()
+        .refreshable { await load(); Haptic.select() }
+        .navigationTitle(teamName.isEmpty ? "Time" : teamName)
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { NewTaskToolbarButton { showNew = true } } }
         .sheet(isPresented: $showNew) { NewTaskView { _ in } }
+        .navigationDestination(for: TaskRef.self) { r in
+            TaskDetailView(taskId: r.id, title: tasks.first(where: { $0.id == r.id })?.title ?? "Tarefa")
+        }
         .navigationDestination(item: $openTaskId) { id in
             TaskDetailView(taskId: id, title: tasks.first(where: { $0.id == id })?.title ?? "Tarefa")
         }
@@ -100,61 +106,59 @@ struct TeamView: View {
         }
     }
 
-    private func personCard(_ uid: String) -> some View {
+    private func stat(_ v: String, _ l: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(v).font(.ui(20, .semibold)).monospacedDigit().foregroundStyle(T.text).lineLimit(1).minimumScaleFactor(0.6)
+            Text(l).font(.ui(12)).foregroundStyle(T.dim).lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 6)
+    }
+
+    /// pessoa (linha que expande) + as demandas em andamento dela
+    @ViewBuilder private func personRows(_ uid: String) -> some View {
         let mine = tasks.filter { ($0.assignee ?? $0.createdBy) == uid }
         let active = mine.filter { !["merged", "done"].contains($0.status) && $0.flag != "closed" }
         let done = mine.filter { ["merged", "done", "review", "delivered"].contains($0.status) }.count
         let cost = mine.compactMap { $0.costUsd }.reduce(0, +)
         let online = isOnline(uid)
         let open = expanded.contains(uid)
-        return VStack(alignment: .leading, spacing: 12) {
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) { if open { expanded.remove(uid) } else { expanded.insert(uid) } }
-            } label: {
-                HStack(spacing: 12) {
-                    ZStack {
-                        Circle().stroke(online ? T.accent.opacity(0.5) : T.lineHard, style: StrokeStyle(lineWidth: 1, dash: [3, 3])).frame(width: 44, height: 44)
-                        Av(name: name(uid), size: 34)
+        Button {
+            Haptic.select()
+            withAnimation(.easeOut(duration: 0.2)) { if open { expanded.remove(uid) } else { expanded.insert(uid) } }
+        } label: {
+            HStack(spacing: 12) {
+                Av(name: name(uid), size: 36)
+                    .overlay(alignment: .bottomTrailing) {
+                        Circle().fill(online ? T.accent : T.dim2).frame(width: 11, height: 11)
+                            .overlay(Circle().stroke(T.panel, lineWidth: 2))
                     }
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(name(uid)).font(.system(size: 15, weight: .semibold)).foregroundStyle(T.text).lineLimit(1)
-                        HStack(spacing: 6) {
-                            Text(online ? "online agora" : (profiles[uid]?.lastSeenAt).map { "visto há \(agoPt($0))" } ?? "—")
-                                .font(.mono(10.5)).foregroundStyle(online ? T.accent : T.dim2)
-                            Text("· \(done) entrega\(done == 1 ? "" : "s")").font(.mono(10.5)).foregroundStyle(T.dim2)
-                        }
-                    }
-                    Spacer()
-                    if cost > 0 { Text(String(format: "$%.0f", cost)).font(.system(size: 15, weight: .semibold)).foregroundStyle(T.text) }
-                    Image(systemName: open ? "chevron.up" : "chevron.down").font(.system(size: 11, weight: .bold)).foregroundStyle(T.dim2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(name(uid)).font(.ui(16, .semibold)).foregroundStyle(T.text).lineLimit(1)
+                    Text([online ? "online agora" : (profiles[uid]?.lastSeenAt).map { "visto há \(agoPt($0))" } ?? "offline",
+                          "\(active.count) em andamento", "\(done) entrega\(done == 1 ? "" : "s")"].joined(separator: " · "))
+                        .font(.ui(12)).foregroundStyle(online ? T.accent : T.dim).lineLimit(2)
                 }
-            }.buttonStyle(.plain)
-            if open {
-                if active.isEmpty {
-                    Text("nada em andamento").font(.system(size: 12)).foregroundStyle(T.dim2)
-                }
-                ForEach(active.prefix(4)) { t in
-                    Button { openTaskId = t.id } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(alignment: .top, spacing: 8) {
-                                let b = T.kindBadge(t.kind)
-                                Text(b.0).font(.mono(9, .bold)).kerning(0.6)
-                                    .padding(.horizontal, 6).padding(.vertical, 3)
-                                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(b.1.opacity(0.7)))
-                                    .foregroundStyle(b.1)
-                                Text(t.title).font(.system(size: 13)).foregroundStyle(T.text2).lineLimit(2)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Spacer(minLength: 0)
-                            }
-                            ProgressLine(pct: T.pct(t), color: T.status(t.status, flag: t.flag).1)
-                        }
-                        .padding(.top, 10)
-                        .overlay(Rectangle().fill(T.line).frame(height: 1), alignment: .top)
-                    }.buttonStyle(.plain)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if cost > 0 { Text(String(format: "$%.0f", cost)).font(.mono(14, .semibold)).foregroundStyle(T.text2) }
+                Image(systemName: "chevron.down").font(.ui(12, .semibold)).foregroundStyle(T.dim2)
+                    .rotationEffect(.degrees(open ? 180 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(name(uid)), \(online ? "online" : "offline"), \(active.count) em andamento")
+        .accessibilityHint(open ? "recolher" : "ver as demandas")
+        .rowStyle()
+        if open {
+            if active.isEmpty {
+                Text("Nada em andamento").font(.ui(13)).foregroundStyle(T.dim).padding(.leading, 48).rowStyle()
+            }
+            ForEach(active.prefix(5)) { t in
+                NavigationLink(value: TaskRef(id: t.id)) {
+                    TaskRow(task: t).padding(.leading, 48)
+                }.rowStyle()
             }
         }
-        .card(stroke: online && open ? T.accent.opacity(0.35) : T.line)
     }
 
     private func name(_ uid: String) -> String {

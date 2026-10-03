@@ -39,9 +39,9 @@ func mdText(_ text: String, size: CGFloat = 13.5, color: Color = T.text) -> Text
         failurePolicy: .returnPartiallyParsedIfPossible
     )
     if let attr = try? AttributedString(markdown: softened, options: opts) {
-        return Text(attr).font(.system(size: size)).foregroundStyle(color)
+        return Text(attr).font(.ui(size)).foregroundStyle(color)
     }
-    return Text(softened).font(.system(size: size)).foregroundStyle(color)
+    return Text(softened).font(.ui(size)).foregroundStyle(color)
 }
 
 /// 5.1 — barra de 5 fases: leitura de relance de "em que fase está"
@@ -58,52 +58,6 @@ struct PhaseBar: View {
     }
 }
 
-/// stepper completo do detalhe: círculos + rótulos + provados
-struct PhaseStepper: View {
-    let phase: Int
-    let proved: (done: Int, total: Int)?
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .top, spacing: 0) {
-                ForEach(1...5, id: \.self) { i in
-                    VStack(spacing: 5) {
-                        ZStack {
-                            Circle()
-                                .fill(i < phase ? T.accent.opacity(0.15) : i == phase ? T.accent : Color.clear)
-                                .overlay(Circle().stroke(i <= phase ? T.accent : T.lineHard, lineWidth: 1.2))
-                                .frame(width: 22, height: 22)
-                            if i < phase {
-                                Text("✓").font(.system(size: 11, weight: .bold)).foregroundStyle(T.accent)
-                            } else {
-                                Text("\(i)").font(.system(size: 10, design: .monospaced).bold())
-                                    .foregroundStyle(i == phase ? T.onAccent : T.dim2)
-                            }
-                        }
-                        Text(T.phaseNames[i - 1])
-                            .font(.system(size: 8.5, design: .monospaced))
-                            .foregroundStyle(i == phase ? T.text : T.dim2)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-            }
-            if let p = proved, p.total > 0 {
-                HStack(spacing: 8) {
-                    GeometryReader { g in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Color.white.opacity(0.1))
-                            Capsule().fill(T.accent)
-                                .frame(width: g.size.width * CGFloat(p.done) / CGFloat(max(p.total, 1)))
-                        }
-                    }.frame(height: 4)
-                    Text("\(p.done)/\(p.total) provados")
-                        .font(.system(size: 10.5, design: .monospaced)).foregroundStyle(T.dim)
-                        .fixedSize()
-                }
-            }
-        }
-    }
-}
-
 /// 5.2 — pill de intenção: o celular escreve, o Mac executa
 struct IntentPill: View {
     let label: String
@@ -114,7 +68,7 @@ struct IntentPill: View {
             Circle().fill(T.accent).frame(width: 8, height: 8)
                 .overlay(Circle().stroke(T.accent.opacity(0.5), lineWidth: 2)
                     .scaleEffect(pulse ? 2.0 : 1.0).opacity(pulse ? 0 : 1))
-            Text(label).font(.system(size: 12, design: .monospaced).weight(.medium))
+            Text(label).font(.mono(12).weight(.medium))
                 .foregroundStyle(T.accent)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
@@ -147,39 +101,6 @@ func agentColor(_ name: String) -> Color {
     return palette[h % palette.count]
 }
 
-/// 5.4 — requisito com evidência (substitui o diff no bolso)
-struct ReqRow: View {
-    let text: String
-    let proof: ReqProof?
-    var onProof: ((String) -> Void)? = nil
-    var body: some View {
-        let ok = proof?.status == "done"
-        HStack(alignment: .top, spacing: 9) {
-            Text(ok ? "✓" : "○")
-                .font(.system(size: 13, design: .monospaced).bold())
-                .foregroundStyle(ok ? T.accent : T.dim2)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(text).font(.system(size: 13.5)).foregroundStyle(ok ? T.text : T.text2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let ev = proof?.evidence?.first, ok {
-                    HStack(spacing: 7) {
-                        Text(softBreak(ev)).font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(T.dim).lineLimit(1).truncationMode(.middle)
-                        if let onProof {
-                            Button("ver prova") { onProof(ev) }
-                                .font(.system(size: 10, design: .monospaced).bold())
-                                .foregroundStyle(T.accent)
-                                .fixedSize()
-                        }
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 6)
-    }
-}
-
 /// glifo do feed técnico
 func feedGlyph(_ kind: String) -> (String, Color) {
     switch kind {
@@ -202,7 +123,7 @@ struct BigButton: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 14.5, weight: .bold))
+                .font(.ui(14.5, .bold))
                 .frame(maxWidth: .infinity).frame(height: 48)
                 .background(color).foregroundStyle(fg)
                 .clipShape(RoundedRectangle(cornerRadius: 12))

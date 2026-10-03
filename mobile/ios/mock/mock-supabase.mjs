@@ -342,6 +342,15 @@ const server = createServer(async (req, res) => {
       if (what === 'expire') expireBefore = tokN;
       if (what === 'step') step(u.searchParams.get('what'));
       if (what === 'reset') { seed(); wsDown = false; restDown = false; macOnline = true; }
+      // textos LONGOS (títulos, branch, projeto, feed sem espaço) — prova que nada empurra a tela pro lado
+      if (what === 'long') {
+        const L = 'Refatorar o fluxo completo de checkout com cálculo de frete pelos Correios, cupom, parcelamento e validação do CEP';
+        db.tasks.forEach((t, i) => { t.title = (i % 2 ? 'feat/' : '') + L.slice(0, 60 + i * 9); t.branch = 'feat/FND-12345-refatorar-fluxo-completo-checkout-calculo-frete-correios-' + i; t.cost_usd = 1234.56 + i; });
+        db.projects[0].name = 'loja-web-monorepo-principal-com-nome-enorme'; db.projects[1].name = 'api-pagamentos-e-conciliacao-financeira-v2';
+        db.desktop_presence.forEach((d) => { d.open_project = db.projects[0].name; d.device_name = 'MacBook Pro M4 Max do Douglas Sobreira (escritório)'; });
+        feed(db.tasks[0].id, 'coder', 'edit', 'src/features/checkout/shipping/calculators/correios/CorreiosShippingCalculatorServiceImplementation.ts');
+        feed(db.tasks[0].id, 'coder', 'note', 'Rodei https://github.com/acme/loja-web-monorepo-principal/actions/runs/123456789012345678901234567890 e o hash a3f9c1d7e2b4a6c8d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4 passou sem erro algum no pipeline.');
+      }
       if (what === 'log') return json(res, 200, log.slice(-+(u.searchParams.get('n') || 60)));
       if (what === 'state') return json(res, 200, { sockets: sockets.size, chans: [...sockets].map((s) => [...s.chans.keys()]), macOnline, wsDown, restDown });
       return json(res, 200, { ok: true, what });

@@ -66,66 +66,67 @@ struct TaskDetailView: View {
     private var reach: MacReach { task.map(hub.reach) ?? .unknown }
     private var feedLive: Bool { hub.feedLive[taskId] == true && hub.rt == .live }
 
+    @FocusState private var composerFocused: Bool
+    @Environment(\.dynamicTypeSize) private var dts
+    @State private var showPhotos = false
+
+    /// 0 feed · 1 requisitos/provas · 2 detalhes (demanda de outro membro: sem feed — o chat é do dono)
+    private var shownTab: Int { isMine ? tab : max(tab, 1) }
+
     var body: some View {
         VStack(spacing: 0) {
-            stepperBar
-            if isMine { controlBar }
-            previewBar
-            if let it = intent {
-                IntentPill(label: "o Mac está executando · \(intentLabel(it.kind))")
-                    .padding(.horizontal, 14).padding(.vertical, 6)
-            } else if let r = intentResult {
-                Text("\(r.ok ? "✓" : "✖") \(intentLabel(r.kind)): \(r.msg ?? (r.ok ? "feito" : "falhou"))")
-                    .font(.system(size: 11.5)).foregroundStyle(r.ok ? T.accent : T.bad)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 16).padding(.vertical, 5)
-                    .fixedSize(horizontal: false, vertical: true)
+            // teclado aberto: o cabeçalho recolhe e o chat ganha a tela (iPhone SE inclusive)
+            if !composerFocused {
+                header
+                previewBar
+                tabPicker
             }
-            if isMine {
-                Picker("", selection: $tab) {
-                    Text("Conversa").tag(0)
-                    Text("Entrega").tag(1)
+            Group {
+                switch shownTab {
+                case 0: conversa
+                case 1: provas
+                default: detalhes
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 14).padding(.vertical, 7)
-                // a barra de entrada vive DENTRO da conversa (safeAreaInset):
-                // o teclado empurra a barra, nunca a cobre
-                if tab == 0 { conversa } else { entrega }
-            } else {
-                // demanda de OUTRO membro: acompanhamento — objetivo, entregáveis,
-                // requisitos e provas. Chat e comandos são do dono (é o Mac DELE que executa).
-                entrega
             }
+            .frame(maxHeight: .infinity)
         }
+        // compositor FIXO embaixo: safeAreaInset acompanha o teclado; a barra de abas fica escondida aqui
+        // (antes ela vivia num safeAreaInset do TabView e subia junto com o teclado POR CIMA do compositor)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if isMine { composer }
+        }
+        .animation(.easeOut(duration: 0.22), value: composerFocused)
         .background(T.bg)
-        .navigationTitle(title)
+        .toolbar(.hidden, for: .tabBar)
+        .navigationTitle(task?.title ?? title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     if isMine {
                         if task?.isLive == true {
-                            Button { act("pause") } label: { Label("pausar no Mac", systemImage: "pause") }
-                            Button { confirm = .stop } label: { Label("parar o turno", systemImage: "stop") }
+                            Button { act("pause") } label: { Label("Pausar no Mac", systemImage: "pause") }
+                            Button { confirm = .stop } label: { Label("Parar o turno", systemImage: "stop") }
                         }
-                        if status == "paused" { Button { act("resume") } label: { Label("retomar", systemImage: "play") } }
+                        if status == "paused" { Button { act("resume") } label: { Label("Retomar", systemImage: "play") } }
                         if task?.prUrl == nil && ["review", "delivered"].contains(status) {
-                            Button { approve() } label: { Label("aprovar e abrir PR", systemImage: "arrow.triangle.pull") }
+                            Button { approve() } label: { Label("Aprovar e abrir PR", systemImage: "arrow.triangle.pull") }
                         }
+                        Button { showAdjust = true } label: { Label("Pedir ajuste", systemImage: "square.and.pencil") }
                         if task?.isEnded == false {
-                            Button(role: .destructive) { confirm = .abort } label: { Label("abortar a demanda", systemImage: "xmark.octagon") }
+                            Button(role: .destructive) { confirm = .abort } label: { Label("Abortar a demanda", systemImage: "xmark.octagon") }
                         }
                     }
-                    if let pr = task?.prUrl, let u = URL(string: pr) { Link("abrir PR no GitHub ↗", destination: u) }
-                } label: { Image(systemName: "ellipsis.circle").foregroundStyle(T.dim) }
+                    if let pr = task?.prUrl, let u = URL(string: pr) { Link(destination: u) { Label("Abrir PR no GitHub", systemImage: "arrow.up.right.square") } }
+                } label: { Image(systemName: "ellipsis.circle") }
                 .accessibilityLabel("ações da demanda")
             }
         }
         .confirmationDialog(confirmTitle, isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
-            if confirm == .abort { Button("abortar", role: .destructive) { act("abort") } }
-            if confirm == .stop { Button("parar o turno") { act("stop") } }
-            if confirm == .merge { Button("fazer o merge (squash)") { act("merge") } }
-            Button("cancelar", role: .cancel) {}
+            if confirm == .abort { Button("Abortar", role: .destructive) { Haptic.warning(); act("abort") } }
+            if confirm == .stop { Button("Parar o turno", role: .destructive) { Haptic.warning(); act("stop") } }
+            if confirm == .merge { Button("Fazer o merge (squash)") { Haptic.success(); act("merge") } }
+            Button("Cancelar", role: .cancel) {}
         } message: { Text(confirmMsg) }
         .sheet(item: $viewing) { v in ProofViewer(name: v.name, url: v.url) }
         .sheet(isPresented: $showNoProof) {
@@ -142,6 +143,7 @@ struct TaskDetailView: View {
                 return ok
             }
         }
+        .photosPicker(isPresented: $showPhotos, selection: $pickedPhoto, matching: .images)
         .onChange(of: pickedPhoto) { _, item in
             guard let item else { return }
             Task { await sendImage(item); pickedPhoto = nil }
@@ -151,7 +153,7 @@ struct TaskDetailView: View {
         .onDisappear { hub.leaveFeed(taskId) }
         .task {
             #if DEBUG
-            if ProcessInfo.processInfo.environment["DEMO_DETAIL_TAB"] == "1" { tab = 1 }
+            if let t = ProcessInfo.processInfo.environment["DEMO_DETAIL_TAB"], let n = Int(t) { tab = n }
             #endif
             // empurrão do ao vivo = lê já; sem ele: 2s rodando · 5s parada (o canal ao vivo alivia pra 15s)
             var seen = wake
@@ -167,6 +169,19 @@ struct TaskDetailView: View {
         }
     }
 
+    private var tabPicker: some View {
+        Picker("Seção", selection: Binding(get: { shownTab }, set: { tab = $0; Haptic.select() })) {
+            if isMine { Text("Feed").tag(0) }
+            Text("Requisitos e provas").tag(1)
+            Text("Detalhes").tag(2)
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16).padding(.vertical, 8)
+        .background(T.panel2)
+        .overlay(alignment: .bottom) { Rectangle().fill(T.line).frame(height: 0.5) }
+        .accessibilityIdentifier("secao")
+    }
+
     private var confirmTitle: String {
         switch confirm { case .abort: "Abortar a demanda?"; case .stop: "Parar o turno do agente?"; case .merge: "Fazer o merge do PR?"; case nil: "" }
     }
@@ -179,60 +194,68 @@ struct TaskDetailView: View {
         }
     }
 
-    // ---- topo: stepper de 5 fases + provados ----
-    private var stepperBar: some View {
-        VStack(spacing: 8) {
-            if let t = task {
-                PhaseStepper(phase: t.phase, proved: t.reqsProved)
-            } else {
-                PhaseBar(phase: 1).opacity(0.4)
-            }
-        }
-        .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 4)
-        .background(T.panel2)
-    }
-
-    /// estado + custo + controles do agente À VISTA (antes escondidos no ⋯)
-    @ViewBuilder private var controlBar: some View {
+    // ---- cabeçalho: status em palavra + fase + custo + prova + controles do agente ----
+    @ViewBuilder private var header: some View {
         if let t = task {
-            let st = T.status(t.status, flag: t.flag)
-            VStack(spacing: 6) {
-                HStack(spacing: 8) {
-                    Circle().fill(st.1).frame(width: 7, height: 7)
-                    Text(st.0).font(.mono(11.5, .medium)).foregroundStyle(st.1)
+            // o estado REAL da demanda (a pergunta aberta já tem a faixa própria logo acima do compositor)
+            let st = StatusInfo.of(t, teto: question?.isTeto == true)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    StatusWord(info: st).layoutPriority(1)
+                    Text("· \(T.phaseNames[max(0, min(4, t.phase - 1))])").font(.ui(12)).foregroundStyle(T.dim).lineLimit(1)
+                    Spacer(minLength: 6)
                     if let c = fmtUsd(t.costUsd) {
-                        Text("· \(c)\(t.spec?.budgetUsd.map { String(format: " de $%.0f", $0) } ?? "")").font(.mono(11)).foregroundStyle(T.dim)
-                    }
-                    Spacer()
-                    if intent == nil {
-                        if t.isLive {
-                            ctl("pause", "pausar") { act("pause") }
-                            ctl("stop.fill", "parar", color: T.bad) { confirm = .stop }
-                        } else if t.status == "paused" && question?.isTeto != true {
-                            ctl("play.fill", "retomar", color: T.accent) { act("resume") }
-                        }
+                        Text(c + (t.spec?.budgetUsd.map { String(format: " de $%.0f", $0) } ?? ""))
+                            .font(.mono(12)).monospacedDigit().foregroundStyle(T.text2).lineLimit(1)
                     }
                 }
-                ReachNote(reach: reach)
+                PhaseBar(phase: t.phase)
+                    .accessibilityElement()
+                    .accessibilityLabel("fase \(t.phase) de 5: \(T.phaseNames[max(0, min(4, t.phase - 1))])")
+                // texto grande (acessibilidade): prova numa linha, controles na de baixo — nada espremido
+                let row = dts.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+                row {
+                    ProofBadge(proved: t.reqsProved)
+                    if t.reqsProved == nil { Text("sem requisitos ainda").font(.ui(12)).foregroundStyle(T.dim2) }
+                    if !dts.isAccessibilitySize { Spacer(minLength: 4) }
+                    HStack(spacing: 8) {
+                    if isMine && intent == nil {
+                        if t.isLive {
+                            Button { Haptic.tap(); act("pause") } label: { Label("Pausar", systemImage: "pause.fill") }
+                                .buttonStyle(.bordered).tint(T.warn)
+                                .accessibilityLabel("pausar o agente")
+                            Button { Haptic.warning(); confirm = .stop } label: { Label("Parar", systemImage: "stop.fill") }
+                                .buttonStyle(.bordered).tint(T.bad)
+                                .accessibilityLabel("parar o agente")
+                        } else if t.status == "paused" && question?.isTeto != true {
+                            Button { Haptic.success(); act("resume") } label: { Label("Retomar", systemImage: "play.fill") }
+                                .buttonStyle(.borderedProminent).tint(T.accent).foregroundStyle(T.onAccent)
+                                .accessibilityLabel("retomar o agente")
+                        }
+                    }
+                    }
+                    .lineLimit(1)
+                    .fixedSize()
+                }
+                .font(.ui(13, .semibold))
+                .controlSize(.small)
+                if isMine { ReachNote(reach: reach) }
+                if let it = intent {
+                    IntentPill(label: "o Mac está executando · \(intentLabel(it.kind))")
+                } else if let r = intentResult {
+                    Label("\(intentLabel(r.kind)): \(r.msg ?? (r.ok ? "feito" : "falhou"))", systemImage: r.ok ? "checkmark.circle.fill" : "xmark.octagon.fill")
+                        .font(.ui(12)).foregroundStyle(r.ok ? T.accent : T.bad)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .padding(.horizontal, 14).padding(.vertical, 7)
+            .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(T.panel2)
+        } else {
+            VStack(alignment: .leading, spacing: 10) { Bone(w: 140, h: 12); PhaseBar(phase: 1).opacity(0.4) }
+                .padding(16).frame(maxWidth: .infinity, alignment: .leading).background(T.panel2).shimmer()
         }
     }
-
-    private func ctl(_ icon: String, _ label: String, color: Color = T.text2, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 10, weight: .bold))
-                Text(label).font(.mono(11, .semibold))
-            }
-            .foregroundStyle(color).padding(.horizontal, 10).frame(height: 30)
-            .overlay(Capsule().stroke(color.opacity(0.45)))
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label + " o agente")
-    }
-
     // ---- conversa (tela 02): fala é conteúdo, técnica colapsa ----
     private enum Row: Identifiable {
         case talk(FeedItem)
@@ -278,7 +301,7 @@ struct TaskDetailView: View {
     private var conversa: some View {
         ScrollViewReader { proxy in
             ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: 12) {
                     if feed.isEmpty && !ticked { FeedSkeleton().padding(.top, 12) }
                     else if feed.isEmpty {
                         emptyFeed.padding(.top, 30).frame(maxWidth: .infinity)
@@ -288,18 +311,11 @@ struct TaskDetailView: View {
                     ForEach(outbox.filter { $0.deliveredAt == nil }) { m in pendingBubble(m) }
                     Color.clear.frame(height: 1).id("fim")
                 }
-                .padding(14)
+                .padding(.horizontal, 16).padding(.vertical, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollDismissesKeyboard(.interactively)
-            // barra SEMPRE visível: safeAreaInset acompanha o teclado
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 0) {
-                    if let q = question { questionBar(q) }
-                    inputBar
-                }
-                .background(.bar)
-            }
+            .defaultScrollAnchor(.bottom)
             .onChange(of: feed.count + outbox.count) { _, _ in
                 // rola SÓ quando chega linha realmente nova — sem dançar a cada leitura
                 let last = (rows.last?.id ?? 0) + outbox.count * 1_000_000
@@ -307,9 +323,16 @@ struct TaskDetailView: View {
                 lastScrolled = last
                 withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("fim", anchor: .bottom) }
             }
+            // teclado abriu: leva o chat até a mensagem mais nova (depois da animação do teclado)
+            .onChange(of: composerFocused) { _, f in
+                guard f else { return }
+                Task {
+                    try? await Task.sleep(for: .milliseconds(350))
+                    withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("fim", anchor: .bottom) }
+                }
+            }
         }
     }
-
     @ViewBuilder private var emptyFeed: some View {
         VStack(spacing: 8) {
             Text(status == "requested" ? "esperando o Mac assumir" : "esperando o agente… os passos aparecem aqui ao vivo")
@@ -330,13 +353,13 @@ struct TaskDetailView: View {
         return HStack {
             Spacer(minLength: 40)
             VStack(alignment: .trailing, spacing: 4) {
-                Text(m.shown).font(.system(size: 13.5)).foregroundStyle(T.text)
+                Text(m.shown).font(.ui(13.5)).foregroundStyle(T.text)
                     .padding(.horizontal, 13).padding(.vertical, 9)
                     .background(T.accent2.opacity(0.25))
                     .overlay(RoundedRectangle(cornerRadius: 13).strokeBorder(T.accent.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                     .clipShape(RoundedRectangle(cornerRadius: 13))
                 HStack(spacing: 4) {
-                    Image(systemName: "clock").font(.system(size: 9))
+                    Image(systemName: "clock").font(.ui(9))
                     Text(state).font(.mono(10))
                 }.foregroundStyle(T.dim)
             }
@@ -352,7 +375,7 @@ struct TaskDetailView: View {
                 HStack {
                     Spacer(minLength: 40)
                     Text(f.text.replacingOccurrences(of: "💬 ", with: ""))
-                        .font(.system(size: 13.5)).foregroundStyle(T.onAccent)
+                        .font(.ui(13.5)).foregroundStyle(T.onAccent)
                         .padding(.horizontal, 13).padding(.vertical, 9)
                         .background(T.accent2).clipShape(RoundedRectangle(cornerRadius: 13))
                 }
@@ -363,7 +386,7 @@ struct TaskDetailView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 7) {
                         Av(name: f.agent, size: 18)
-                        Text(f.agent.uppercased()).font(.system(size: 10, design: .monospaced).bold())
+                        Text(f.agent.uppercased()).font(.mono(10).bold())
                             .foregroundStyle(f.kind == "error" ? T.bad : T.dim)
                         Spacer()
                         Text(agoPt(f.at)).font(.mono(9.5)).foregroundStyle(T.dim2)
@@ -376,7 +399,7 @@ struct TaskDetailView: View {
                                 if expanded { expandedMsgs.remove(f.id) } else { expandedMsgs.insert(f.id) }
                             } label: {
                                 Text(expanded ? "ver menos ▲" : "ver mais ▼")
-                                    .font(.system(size: 11, design: .monospaced).bold())
+                                    .font(.mono(11).bold())
                                     .foregroundStyle(T.accent)
                             }
                         }
@@ -395,9 +418,9 @@ struct TaskDetailView: View {
                     if open { techOpen.remove(fs.first?.id ?? 0) } else { techOpen.insert(fs.first?.id ?? 0) }
                 } label: {
                     HStack(spacing: 6) {
-                        Text(open ? "▾" : "▸").font(.system(size: 10, design: .monospaced))
+                        Text(open ? "▾" : "▸").font(.mono(10))
                         Text("\(fs.count) passo\(fs.count == 1 ? "" : "s") técnico\(fs.count == 1 ? "" : "s")")
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(.mono(11))
                         if !open, let l = fs.last { Text("· " + l.text).font(.mono(10.5)).lineLimit(1).truncationMode(.tail) }
                     }.foregroundStyle(T.dim2).frame(minHeight: 28)
                 }
@@ -405,8 +428,8 @@ struct TaskDetailView: View {
                     ForEach(fs) { f in
                         HStack(alignment: .top, spacing: 7) {
                             let g = feedGlyph(f.kind)
-                            Text(g.0).font(.system(size: 11, design: .monospaced)).foregroundStyle(g.1)
-                            Text(f.text).font(.system(size: 11.5, design: .monospaced))
+                            Text(g.0).font(.mono(11)).foregroundStyle(g.1)
+                            Text(f.text).font(.mono(11.5))
                                 .foregroundStyle(T.dim).textSelection(.enabled)
                             Spacer(minLength: 0)
                         }
@@ -424,79 +447,34 @@ struct TaskDetailView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
-    // ---- entrega (telas 03–04): requisitos, provas, PR ----
-    private var entrega: some View {
+    // ---- requisitos e provas (telas 03–04): o diferencial — prova por requisito, galeria, decisão, PR ----
+    private func block<C: View>(_ title: String, _ symbol: String, count: Int? = nil, color: Color = T.text2, @ViewBuilder _ content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHead(title: title, symbol: symbol, color: color == T.text2 ? T.dim : color, count: count)
+            VStack(alignment: .leading, spacing: 10) { content() }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(T.panel, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    private var provas: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 20) {
                 if let t = task {
-                    if !isMine {
-                        HStack(spacing: 7) {
-                            Image(systemName: "eye").font(.system(size: 11)).foregroundStyle(T.dim)
-                            Text("acompanhando a demanda de \(ownerName) — só leitura")
-                                .font(.system(size: 11.5)).foregroundStyle(T.dim)
-                        }
-                    }
-                    if let obj = t.spec?.objective, !obj.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            kicker("OBJETIVO", T.accent)
-                            mdText(obj, size: 13.5, color: T.text2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    if let dels = t.spec?.deliverables, !dels.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            kicker("ENTREGÁVEIS", T.accent, count: dels.count)
-                            ForEach(Array(dels.enumerated()), id: \.offset) { _, d in
-                                HStack(alignment: .top, spacing: 7) {
-                                    Text("◆").font(.system(size: 10)).foregroundStyle(T.accent).padding(.top, 3)
-                                    Text(d).font(.system(size: 13)).foregroundStyle(T.text2)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                            }
-                        }
-                    }
-                    if let rev = t.spec?.review, let s = rev.summary, !s.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            kicker("O QUE FOI FEITO", T.accent)
-                            mdText(s, size: 13.5, color: T.text2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    if let st = t.spec?.stat, (st.files ?? 0) > 0 || (st.add ?? 0) > 0 || (st.commits ?? 0) > 0 {
-                        HStack(spacing: 14) {
-                            if let f = st.files { statV("\(f)", "arquivos") }
-                            if let a = st.add { statV("+\(a)", "linhas").foregroundStyle(T.accent) }
-                            if let d = st.del { statV("−\(d)", "").foregroundStyle(T.bad) }
-                            if let c = st.commits { statV("\(c)", "commits") }
-                            if let c = fmtUsd(t.costUsd) { statV(c, "custo") }
-                            Spacer()
-                        }
-                    }
                     if let reqs = t.spec?.requirements, !reqs.isEmpty {
                         let rws = ProofGate.rows(reqs, t.requirementsProof?.list)
-                        VStack(alignment: .leading, spacing: 2) {
-                            kicker("REQUISITOS COM PROVA", T.accent, count: reqs.count)
-                            ForEach(Array(rws.enumerated()), id: \.offset) { _, r in
+                        block("Requisitos com prova", "checkmark.seal", count: reqs.count) {
+                            ForEach(Array(rws.enumerated()), id: \.offset) { i, r in
+                                if i > 0 { Divider().overlay(T.line) }
                                 ReqGateRow(row: r) { ev in openProof(named: ev) }
                             }
                         }
                     }
-                    if let how = t.spec?.review?.howToTest, !how.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            kicker("COMO TESTAR", T.accent)
-                            Text(softBreak(how)).font(.system(size: 12.5, design: .monospaced)).foregroundStyle(T.text2)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                                .background(T.accent.opacity(0.05))
-                                .overlay(Rectangle().fill(T.accent.opacity(0.5)).frame(width: 2), alignment: .leading)
-                        }
-                    }
                     if !proofs.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            kicker("GALERIA DE PROVAS", T.accent, count: proofs.count)
-                            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 9) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            SectionHead(title: "Galeria de provas", symbol: "photo.on.rectangle", count: proofs.count)
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 128), spacing: 10)], spacing: 10) {
                                 ForEach(proofs) { a in
                                     Button { openProof(a) } label: { ProofThumb(a: a, url: thumbs[a.storagePath]) }.buttonStyle(.plain)
                                         .accessibilityLabel((a.isVideo ? "vídeo " : a.isImage ? "imagem " : "arquivo ") + a.name)
@@ -504,52 +482,133 @@ struct TaskDetailView: View {
                             }
                         }
                     }
-                    if let pr = t.spec?.prInfo, t.prUrl != nil { prSection(t, pr) }
                     if ["review", "delivered"].contains(t.status), t.prUrl == nil, isMine { decision(t) }
-                    let nothing = (t.spec?.requirements?.isEmpty ?? true) && proofs.isEmpty && (t.spec?.review?.summary?.isEmpty ?? true)
+                    if let pr = t.spec?.prInfo, t.prUrl != nil { prSection(t, pr) }
+                    let nothing = (t.spec?.requirements?.isEmpty ?? true) && proofs.isEmpty
                     if nothing {
-                        VStack(spacing: 8) {
-                            Image(systemName: "hourglass").font(.title2).foregroundStyle(T.dim)
+                        ContentUnavailableView {
+                            Label(["review", "delivered", "merged", "done"].contains(t.status) ? "Sem provas publicadas" : "Provas a caminho",
+                                  systemImage: "checkmark.seal")
+                        } description: {
                             Text(["review", "delivered", "merged", "done"].contains(t.status)
-                                 ? "sem provas publicadas ainda"
-                                 : "em execução — requisitos e provas aparecem conforme o agente avança")
-                                .font(.footnote).foregroundStyle(T.dim)
-                                .multilineTextAlignment(.center)
+                                 ? "O agente não publicou provas desta entrega."
+                                 : "Requisitos e provas aparecem aqui conforme o agente avança.")
                         }
-                        .frame(maxWidth: .infinity).padding(.top, 40)
+                        .foregroundStyle(T.dim)
+                        .padding(.top, 20)
                     }
                 } else { BoardSkeleton() }
             }
-            .padding(16).padding(.bottom, 40)
+            .padding(16).padding(.bottom, 24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
+    // ---- detalhes: objetivo, entregáveis, o que foi feito, números, como testar, branch ----
+    private var detalhes: some View {
+        ScrollView(.vertical) {
+            VStack(alignment: .leading, spacing: 20) {
+                if let t = task {
+                    if !isMine {
+                        Label("Acompanhando a demanda de \(ownerName) — só leitura", systemImage: "eye")
+                            .font(.ui(13)).foregroundStyle(T.dim)
+                    }
+                    if let obj = t.spec?.objective, !obj.isEmpty {
+                        block("Objetivo", "scope") {
+                            mdText(obj, size: 15, color: T.text)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if let dels = t.spec?.deliverables, !dels.isEmpty {
+                        block("Entregáveis", "shippingbox", count: dels.count) {
+                            ForEach(Array(dels.enumerated()), id: \.offset) { _, d in
+                                Label { Text(d).font(.ui(14)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true) }
+                                    icon: { Image(systemName: "diamond.fill").font(.ui(10)).foregroundStyle(T.accent) }
+                            }
+                        }
+                    }
+                    if let rev = t.spec?.review, let s = rev.summary, !s.isEmpty {
+                        block("O que foi feito", "text.badge.checkmark") {
+                            mdText(s, size: 15, color: T.text)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    if let st = t.spec?.stat, (st.files ?? 0) > 0 || (st.add ?? 0) > 0 || (st.commits ?? 0) > 0 {
+                        block("Números", "chart.bar") {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), alignment: .leading)], alignment: .leading, spacing: 12) {
+                                if let f = st.files { statV("\(f)", "arquivos") }
+                                if let a = st.add { statV("+\(a)", "linhas").foregroundStyle(T.accent) }
+                                if let d = st.del { statV("−\(d)", "removidas").foregroundStyle(T.bad) }
+                                if let c = st.commits { statV("\(c)", "commits") }
+                                if let c = fmtUsd(t.costUsd) { statV(c, "custo") }
+                            }
+                        }
+                    }
+                    if let how = t.spec?.review?.howToTest, !how.isEmpty {
+                        block("Como testar", "checklist") {
+                            Text(softBreak(how)).font(.mono(13)).foregroundStyle(T.text2)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    block("Demanda", "info.circle") {
+                        if let b = t.branch, !b.isEmpty { infoRow("Branch", softBreak(b), mono: true) }
+                        if let p = hub.project(t.projectId)?.name { infoRow("Projeto", p) }
+                        infoRow("Estado", StatusInfo.of(t).word)
+                        infoRow("Atualizada", agoPt(t.updatedAt))
+                        if let m = t.spec?.model, !m.isEmpty { infoRow("IA", AIModel.named(m)) }
+                    }
+                } else { BoardSkeleton() }
+            }
+            .padding(16).padding(.bottom, 24)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .scrollDismissesKeyboard(.interactively)
+    }
+
+    private func infoRow(_ k: String, _ v: String, mono: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(k).font(.ui(12)).foregroundStyle(T.dim)
+            Text(v).font(mono ? .mono(13) : .ui(14)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+    }
     /// rodapé de decisão (fase 4) com o PORTÃO DE PROVA — mesma regra do desktop (PR #100)
     @ViewBuilder private func decision(_ t: CloudTask) -> some View {
         let gate = ProofGate.gate(t)
         let nonCode = ["design", "invest"].contains(t.kind)
-        VStack(spacing: 9) {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHead(title: "Sua decisão", symbol: "hand.raised.fill", color: T.warn)
             if let it = intent, ["openPr", "askProof"].contains(it.kind) { IntentPill(label: "o Mac está executando · \(intentLabel(it.kind))") }
             else if nonCode {
-                Text("esta demanda entrega documentos, não código — o fim é salvar os entregáveis no Mac")
-                    .font(.system(size: 12)).foregroundStyle(T.dim).multilineTextAlignment(.center)
+                Text("Esta demanda entrega documentos, não código — o fim é salvar os entregáveis no Mac.")
+                    .font(.ui(13)).foregroundStyle(T.dim)
             } else if case .unproven(let miss) = gate {
-                Text("\(miss.count) requisito\(miss.count == 1 ? "" : "s") sem prova — prova antes de promessa")
-                    .font(.system(size: 12.5, weight: .medium)).foregroundStyle(T.warn)
-                BigButton(label: "pedir a prova ao agente") { act("askProof") }
-                OutlineButton(label: "aprovar sem prova…", full: true, color: T.warn, stroke: T.warn.opacity(0.45)) { showNoProof = true }
+                Label("\(miss.count) requisito\(miss.count == 1 ? "" : "s") sem prova — prova antes de promessa", systemImage: "exclamationmark.circle.fill")
+                    .font(.ui(13, .medium)).foregroundStyle(T.warn)
+                Button { Haptic.tap(); act("askProof") } label: {
+                    Label("Pedir a prova ao agente", systemImage: "checkmark.seal").font(.ui(16, .semibold)).frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent).tint(T.accent).foregroundStyle(T.onAccent)
+                Button { Haptic.warning(); showNoProof = true } label: {
+                    Text("Aprovar sem prova…").font(.ui(15, .semibold)).frame(maxWidth: .infinity).padding(.vertical, 4)
+                }
+                .buttonStyle(.bordered).tint(T.warn)
             } else {
-                BigButton(label: "aprovar e abrir PR") { act("openPr") }
+                Button { Haptic.success(); act("openPr") } label: {
+                    Label("Aprovar e abrir PR", systemImage: "arrow.triangle.pull").font(.ui(16, .semibold)).frame(maxWidth: .infinity).padding(.vertical, 6)
+                }
+                .buttonStyle(.borderedProminent).tint(T.accent).foregroundStyle(T.onAccent)
             }
             Button { showAdjust = true } label: {
-                Text("pedir ajuste").font(.system(size: 13.5, weight: .semibold))
-                    .frame(maxWidth: .infinity).frame(height: 46)
-                    .background(T.panel).foregroundStyle(T.text)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(T.lineHard))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                Label("Pedir ajuste", systemImage: "square.and.pencil").font(.ui(15, .semibold)).frame(maxWidth: .infinity).padding(.vertical, 4)
             }
-        }.padding(.top, 4)
+            .buttonStyle(.bordered).tint(T.text2)
+        }
+        .buttonBorderShape(.roundedRectangle(radius: 12))
     }
 
     private func approve() {
@@ -559,16 +618,16 @@ struct TaskDetailView: View {
 
     private func statV(_ v: String, _ l: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(v).font(.system(size: 15, design: .monospaced).bold())
-            if !l.isEmpty { Text(l).font(.system(size: 9, design: .monospaced)).foregroundStyle(T.dim) }
+            Text(v).font(.mono(15).bold())
+            if !l.isEmpty { Text(l).font(.mono(9)).foregroundStyle(T.dim) }
         }
     }
 
     @ViewBuilder private func prSection(_ t: CloudTask, _ pr: TaskSpec.PrInfo) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            kicker("PR \(pr.number.map { "#\($0)" } ?? "")", T.info)
+            SectionHead(title: "Pull request \(pr.number.map { "#\($0)" } ?? "")", symbol: "arrow.triangle.pull", color: T.info)
             if let b = pr.body, !b.isEmpty {
-                Text(b).font(.system(size: 12.5)).foregroundStyle(T.text2).lineLimit(14)
+                Text(b).font(.ui(12.5)).foregroundStyle(T.text2).lineLimit(14)
                     .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
             }
             ForEach(pr.comments ?? []) { c in
@@ -576,26 +635,26 @@ struct TaskDetailView: View {
                 let skipped = ignoredComments.contains(c.listId)
                 VStack(alignment: .leading, spacing: 7) {
                     HStack(spacing: 7) {
-                        Text(c.author ?? "").font(.system(size: 11, design: .monospaced).bold()).foregroundStyle(T.text)
-                        if c.isBot == true { Text("bot").font(.system(size: 8.5, design: .monospaced)).padding(.horizontal, 4).background(T.info.opacity(0.2)).foregroundStyle(T.info).clipShape(Capsule()) }
-                        if let p = c.path { Text(softBreak("\(p)\(c.line.map { ":\($0)" } ?? "")")).font(.system(size: 9.5, design: .monospaced)).foregroundStyle(T.dim).lineLimit(1).truncationMode(.middle) }
+                        Text(c.author ?? "").font(.mono(11).bold()).foregroundStyle(T.text)
+                        if c.isBot == true { Text("bot").font(.mono(8.5)).padding(.horizontal, 4).background(T.info.opacity(0.2)).foregroundStyle(T.info).clipShape(Capsule()) }
+                        if let p = c.path { Text(softBreak("\(p)\(c.line.map { ":\($0)" } ?? "")")).font(.mono(9.5)).foregroundStyle(T.dim).lineLimit(1).truncationMode(.middle) }
                         Spacer()
-                        if done { Text("✔ respondido").font(.system(size: 9.5, design: .monospaced)).foregroundStyle(T.accent) }
-                        else if skipped { Text("ignorado").font(.system(size: 9.5, design: .monospaced)).foregroundStyle(T.dim2) }
+                        if done { Text("✔ respondido").font(.mono(9.5)).foregroundStyle(T.accent) }
+                        else if skipped { Text("ignorado").font(.mono(9.5)).foregroundStyle(T.dim2) }
                     }
-                    Text(c.body ?? "").font(.system(size: 12.5)).foregroundStyle(done || skipped ? T.dim : T.text2)
+                    Text(c.body ?? "").font(.ui(12.5)).foregroundStyle(done || skipped ? T.dim : T.text2)
                         .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                     if !done && !skipped && isMine {
                         if intent?.kind == "fixComment" { IntentPill(label: "o Mac está executando · aplicar correção") }
                         else {
                             HStack(spacing: 8) {
                                 Button { act("fixComment", extra: ["commentId": c.id ?? 0]) } label: {
-                                    Text("aplicar correção").font(.system(size: 12, weight: .bold))
+                                    Text("Aplicar correção").font(.ui(13, .semibold))
                                         .padding(.horizontal, 13).frame(height: 38)
                                         .background(T.accent).foregroundStyle(T.onAccent).clipShape(Capsule())
                                 }
                                 Button { ignoredComments.insert(c.listId) } label: {
-                                    Text("ignorar").font(.system(size: 12))
+                                    Text("Ignorar").font(.ui(13))
                                         .padding(.horizontal, 13).frame(height: 38)
                                         .overlay(Capsule().stroke(T.lineHard)).foregroundStyle(T.dim)
                                 }
@@ -607,7 +666,12 @@ struct TaskDetailView: View {
             }
             if isMine && !["merged", "done"].contains(t.status) {
                 if intent?.kind == "merge" { IntentPill(label: "o Mac está executando · merge") }
-                else { BigButton(label: "⌥ Merge PR") { confirm = .merge } }
+                else {
+                    Button { Haptic.tap(); confirm = .merge } label: {
+                        Label("Fazer o merge do PR", systemImage: "arrow.triangle.merge").font(.ui(16, .semibold)).frame(maxWidth: .infinity).padding(.vertical, 6)
+                    }
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.roundedRectangle(radius: 12)).tint(T.accent).foregroundStyle(T.onAccent)
+                }
             }
         }
     }
@@ -710,7 +774,7 @@ struct TaskDetailView: View {
         Task { try? await Task.sleep(for: .seconds(45)); requestingTunnel = false }
     }
 
-    // ---- pergunta inline (e o TETO de custo) + input ----
+    // ---- pergunta inline (e o TETO de custo) + compositor ----
     @State private var qExpanded = false
     @State private var answeringQ = false
     @ViewBuilder private func questionBar(_ q: Question) -> some View {
@@ -718,38 +782,125 @@ struct TaskDetailView: View {
         let color = teto ? T.bad : T.warn
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(teto ? "⏸ teto de custo atingido" : "❓ \(q.agent.isEmpty ? "agente" : q.agent) pergunta").font(.caption.bold()).foregroundStyle(color)
+                Label(teto ? "Teto de custo atingido" : "\(q.agent.isEmpty ? "Agente" : q.agent) pergunta",
+                      systemImage: teto ? "gauge.with.dots.needle.100percent" : "questionmark.bubble.fill")
+                    .font(.ui(13, .semibold)).foregroundStyle(color)
                 Spacer()
-                if q.prompt.count > 160 {
-                    Button { qExpanded.toggle() } label: {
-                        Text(qExpanded ? "recolher ▲" : "ler tudo ▼").font(.system(size: 10.5, design: .monospaced).bold()).foregroundStyle(color)
-                    }
+                if q.prompt.count > 140 && !composerFocused {
+                    Button(qExpanded ? "Recolher" : "Ler tudo") { qExpanded.toggle() }
+                        .font(.ui(12, .semibold)).tint(color).buttonStyle(.borderless)
                 }
             }
-            // prompt cresce até um teto e ROLA — nunca toma a tela inteira
-            ScrollView(.vertical) {
-                mdText(q.prompt, size: 13, color: T.text)
+            if composerFocused {
+                // digitando: a pergunta encolhe pra 2 linhas e o chat continua visível
+                mdText(q.prompt, size: 13, color: T.text2).lineLimit(2)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxHeight: qExpanded ? 320 : 96)
-            if answeringQ { IntentPill(label: "enviando a resposta…") }
-            else if !q.options.isEmpty {
-                ForEach(q.options, id: \.self) { opt in
-                    Button { Task { await answerQuestion(q, text: opt) } } label: {
-                        Text(opt).font(.system(size: 13, weight: .semibold))
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).frame(minHeight: 42)
-                            .background(color.opacity(0.12)).foregroundStyle(color)
-                            .clipShape(RoundedRectangle(cornerRadius: 11))
+            } else {
+                // prompt cresce até um teto e ROLA — nunca toma a tela inteira
+                ScrollView(.vertical) {
+                    mdText(q.prompt, size: 14, color: T.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxHeight: qExpanded ? 260 : 72)
+                if answeringQ { IntentPill(label: "enviando a resposta…") }
+                else if !q.options.isEmpty {
+                    ForEach(q.options, id: \.self) { opt in
+                        Button { Haptic.success(); Task { await answerQuestion(q, text: opt) } } label: {
+                            Text(opt).font(.ui(14, .semibold)).multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 11))
+                        .tint(teto && opt.hasPrefix("Parar") ? T.bad : color)
                     }
                 }
             }
-            if !teto { Text("ou responda no campo abaixo ↓").font(.caption2).foregroundStyle(T.dim) }
         }
-        .padding(12)
-        .background(color.opacity(0.07))
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(color.opacity(0.08))
     }
 
+    private var composer: some View {
+        VStack(spacing: 0) {
+            if let q = question { questionBar(q) }
+            if !skillMatches.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(skillMatches, id: \.0) { s in
+                        Button {
+                            msg = ""
+                            Haptic.tap()
+                            Task { if await hub.message(taskId, s.2) { await loadOutbox() } }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("/" + s.0).font(.mono(13, .semibold)).foregroundStyle(T.accent)
+                                Text(s.1).font(.ui(12)).foregroundStyle(T.dim).lineLimit(2)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                        }
+                        Divider().overlay(T.line)
+                    }
+                }
+                .background(T.panel)
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                Menu {
+                    Section("Skills do agente") {
+                        ForEach(Self.skills, id: \.0) { s in
+                            Button {
+                                Haptic.tap()
+                                Task { if await hub.message(taskId, s.2) { await loadOutbox() } }
+                            } label: { Text("/" + s.0); Text(s.1) }
+                        }
+                    }
+                    Button { showPhotos = true } label: { Label("Anexar imagem", systemImage: "photo") }
+                } label: {
+                    Group {
+                        if uploadingImg { ProgressView().tint(T.accent) }
+                        else { Image(systemName: "plus").font(.ui(17, .semibold)).foregroundStyle(T.accent) }
+                    }
+                    .frame(width: 40, height: 40)
+                    .background(T.panel3, in: Circle())
+                }
+                .disabled(uploadingImg)
+                .accessibilityLabel("skills e anexar imagem")
+                TextField(question != nil ? (question?.isTeto == true ? "ou escreva: continuar / parar" : "Responda a pergunta…") : "Peça um ajuste ao agente…",
+                          text: $msg, axis: .vertical)
+                    .focused($composerFocused)
+                    .accessibilityIdentifier("composer")
+                    .font(.ui(16))
+                    .foregroundStyle(T.text)
+                    .lineLimit(1...5)
+                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    .frame(minHeight: 40)
+                    .background(T.panel3, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(composerFocused ? T.accent.opacity(0.5) : T.line))
+                if msg.isEmpty { MicButton(text: $msg) }
+                let empty = msg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                Button { Task { await send() } } label: {
+                    Group {
+                        if sending { ProgressView().tint(T.onAccent) }
+                        else { Image(systemName: "arrow.up").font(.ui(16, .bold)) }
+                    }
+                    .frame(width: 40, height: 40)
+                    .background(empty ? T.panel3 : T.accent, in: Circle())
+                    .foregroundStyle(empty ? T.dim2 : T.onAccent)
+                }
+                .disabled(sending || empty || msg.hasPrefix("/"))
+                .accessibilityLabel("enviar")
+            }
+            .padding(.horizontal, 12).padding(.top, 8).padding(.bottom, 8)
+            if !msg.trimmingCharacters(in: .whitespaces).isEmpty && question == nil {
+                Toggle(isOn: $asReq) {
+                    Label("Virar requisito da demanda", systemImage: "checkmark.seal").font(.ui(13)).foregroundStyle(T.text2)
+                }
+                .tint(T.accent)
+                .padding(.horizontal, 16).padding(.bottom, 8)
+            }
+        }
+        .background(.bar)
+        .overlay(alignment: .top) { Rectangle().fill(T.line).frame(height: 0.5) }
+    }
     static let designPrompt = """
     MODO DESIGN — refine o VISUAL desta entrega comigo, agindo como um designer sênior de produto:
     1) Suba o ambiente (siga o .cardume/RUNBOOK.md) e ANUNCIE "🌐 preview: <url da tela em questão>" pra eu acompanhar ao vivo (também vejo do celular).
@@ -773,86 +924,6 @@ struct TaskDetailView: View {
         guard msg.hasPrefix("/"), !msg.contains(" ") else { return [] }
         let q = msg.dropFirst().folding(options: .diacriticInsensitive, locale: .init(identifier: "pt")).lowercased()
         return Self.skills.filter { q.isEmpty || $0.0.folding(options: .diacriticInsensitive, locale: .init(identifier: "pt")).lowercased().hasPrefix(q) }
-    }
-
-    private var inputBar: some View {
-        VStack(spacing: 0) {
-            if !skillMatches.isEmpty {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(skillMatches, id: \.0) { s in
-                        Button {
-                            msg = ""
-                            Task { if await hub.message(taskId, s.2) { await loadOutbox() } }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("/" + s.0).font(.system(.footnote, design: .monospaced).bold()).foregroundStyle(T.accent)
-                                Text(s.1).font(.caption2).foregroundStyle(T.dim)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 12).padding(.vertical, 8)
-                        }
-                        Divider().overlay(T.line)
-                    }
-                }
-                .background(T.panel)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
-                .padding(.horizontal, 10).padding(.bottom, 6)
-            }
-            HStack(alignment: .bottom, spacing: 8) {
-                Button { msg = msg.hasPrefix("/") ? "" : "/" } label: {
-                    Text("/").font(.system(.body, design: .monospaced).bold())
-                        .frame(width: 36, height: 36)
-                        .background(msg.hasPrefix("/") ? T.accent : T.panel)
-                        .foregroundStyle(msg.hasPrefix("/") ? .black : T.accent)
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                }.accessibilityLabel("skills")
-                PhotosPicker(selection: $pickedPhoto, matching: .images) {
-                    Group {
-                        if uploadingImg { ProgressView().tint(T.accent) }
-                        else { Image(systemName: "photo").font(.body).foregroundStyle(T.accent) }
-                    }
-                    .frame(width: 36, height: 36)
-                    .background(T.panel)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                .disabled(uploadingImg)
-                .accessibilityLabel("anexar imagem")
-                TextField(question != nil ? (question?.isTeto == true ? "ou escreva: continuar / parar" : "responda a pergunta…") : "peça um ajuste… ( / skills )", text: $msg, axis: .vertical)
-                    .font(.footnote)
-                    .lineLimit(1...4)
-                    .padding(10)
-                    .background(T.panel)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                MicButton(text: $msg)
-                Button { Task { await send() } } label: {
-                    Group {
-                        if sending { ProgressView().tint(.black) }
-                        else { Image(systemName: "paperplane.fill").font(.body) }
-                    }
-                    .frame(width: 40, height: 36)
-                    .background(msg.trimmingCharacters(in: .whitespaces).isEmpty ? T.panel : T.accent)
-                    .foregroundStyle(msg.trimmingCharacters(in: .whitespaces).isEmpty ? T.dim : .black)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                }
-                .disabled(sending || msg.trimmingCharacters(in: .whitespaces).isEmpty || msg.hasPrefix("/"))
-                .accessibilityLabel("enviar")
-            }
-            .padding(.horizontal, 12).padding(.top, 10)
-            if !msg.trimmingCharacters(in: .whitespaces).isEmpty && question == nil {
-                Toggle(isOn: $asReq) {
-                    Text("virar requisito da tarefa").font(.caption2).foregroundStyle(T.dim)
-                }
-                .toggleStyle(.switch).tint(T.accent).controlSize(.mini)
-                .padding(.horizontal, 14).padding(.top, 6)
-            }
-        }
-        .padding(.bottom, 6)
-        .background(T.bg)
-        .overlay(Rectangle().fill(T.line).frame(height: 0.5), alignment: .top)
     }
 
     // ---- dados (cursor por id: sem duplicar, sem perder) ----
@@ -944,19 +1015,19 @@ struct ReqGateRow: View {
             return ("○", T.dim2, nil)
         }()
         HStack(alignment: .top, spacing: 9) {
-            Text(glyph).font(.system(size: 13, design: .monospaced).bold()).foregroundStyle(color)
+            Text(glyph).font(.mono(13).bold()).foregroundStyle(color)
             VStack(alignment: .leading, spacing: 3) {
-                Text(row.text).font(.system(size: 13.5)).foregroundStyle(proved ? T.text : T.text2)
+                Text(row.text).font(.ui(13.5)).foregroundStyle(proved ? T.text : T.text2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
-                if let note { Text(note).font(.system(size: 11)).foregroundStyle(color) }
+                if let note { Text(note).font(.ui(11)).foregroundStyle(color) }
                 if proved, let ev = row.evidence.first {
                     HStack(spacing: 7) {
-                        Text(softBreak(ev)).font(.system(size: 10.5, design: .monospaced))
+                        Text(softBreak(ev)).font(.mono(10.5))
                             .foregroundStyle(T.dim).lineLimit(1).truncationMode(.middle)
                         if let onProof {
                             Button("ver prova") { onProof(ev) }
-                                .font(.system(size: 10, design: .monospaced).bold())
+                                .font(.mono(10).bold())
                                 .foregroundStyle(T.accent)
                                 .fixedSize()
                         }

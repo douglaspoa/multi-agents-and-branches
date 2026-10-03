@@ -26,117 +26,97 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            T.bg.ignoresSafeArea()
-            Starfield(seed: 21).frame(height: 360).frame(maxHeight: .infinity, alignment: .top)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    PageHeader(kicker: "Companion", title: "Conta", sub: "mesma conta do Mac — tudo sincronizado")
-                    // identidade
-                    HStack(spacing: 12) {
-                        ZStack {
-                            Circle().stroke(T.pink.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [3, 3])).frame(width: 48, height: 48)
-                            Av(name: supa.session?.email ?? "?", size: 38)
-                        }
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(supa.session?.email ?? "").font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(1).minimumScaleFactor(0.8)
-                            Text([teamLine, planLabel, "sincronizado com o Mac"].filter { !$0.isEmpty }.joined(separator: " · "))
-                                .font(.system(size: 11.5)).foregroundStyle(T.dim).lineLimit(2)
-                        }
-                    }.card()
-
-                    // pushes
-                    VStack(alignment: .leading, spacing: 10) {
-                        kicker("quais pushes chegam", T.dim)
-                        VStack(spacing: 0) {
-                            if notifDenied {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text("⚠ notificações desligadas nos Ajustes do iPhone").font(.system(size: 13, weight: .semibold)).foregroundStyle(T.warn)
-                                    Text("sem isso nenhum push chega — nem a pergunta do agente").font(.system(size: 11.5)).foregroundStyle(T.dim)
-                                    Button("abrir Ajustes e ligar") {
-                                        if let u = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(u) }
-                                    }.font(.system(size: 12.5, weight: .semibold)).foregroundStyle(T.accent)
-                                }
-                                .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(T.warn.opacity(0.08))
-                                Rectangle().fill(T.line).frame(height: 1)
-                            }
-                            toggleRow("agente precisa de você", "pergunta do agente e teto de custo", $pushQuestions)
-                            Rectangle().fill(T.line).frame(height: 1)
-                            toggleRow("entrega pronta pra revisar", "o agente terminou · PR aberto", $pushReady)
-                            Rectangle().fill(T.line).frame(height: 1)
-                            toggleRow("agente travou", "erro, conflito ou o Mac não conseguiu executar", $pushErrors)
-                            Rectangle().fill(T.line).frame(height: 1)
-                            toggleRow("PR integrado", "merge feito", $pushPr)
-                        }
-                        .background(T.panel).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.line)).clipShape(RoundedRectangle(cornerRadius: 16))
+        Form {
+            // identidade
+            Section {
+                HStack(spacing: 12) {
+                    Av(name: supa.session?.email ?? "?", size: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(supa.session?.email ?? "").font(.ui(16, .semibold)).foregroundStyle(T.text).lineLimit(1).truncationMode(.middle)
+                        Text([teamLine, planLabel].filter { !$0.isEmpty }.joined(separator: " · ").ifEmpty("mesma conta do Mac"))
+                            .font(.ui(13)).foregroundStyle(T.dim).lineLimit(2)
                     }
-
-                    // IA padrão (mesma escolha do Mac: Configurações → IA padrão)
-                    VStack(alignment: .leading, spacing: 10) {
-                        kicker("IA padrão das novas demandas", T.dim)
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(defaultModel.isEmpty ? "Usando o padrão da assinatura. Escolha um modelo pra ele já vir marcado ao criar demandas." : "Novas demandas nascem com \(AIModel.named(defaultModel)).")
-                                .font(.system(size: 12.5)).foregroundStyle(T.dim).fixedSize(horizontal: false, vertical: true)
-                            FlowChips(items: [("", "padrão")] + AIModel.all.map { ($0.id, $0.name) }, selected: $defaultModel)
-                        }.card()
-                    }
-
-                    // sincronia — o estado REAL (antes: "conectado à nuvem" fixo)
-                    VStack(alignment: .leading, spacing: 10) {
-                        kicker("conexão com o Mac", T.dim)
-                        ConnBanner()
-                        VStack(alignment: .leading, spacing: 8) {
-                            diag("ao vivo", { switch hub.rt { case .live: "conectado (websocket)"; case .connecting: "conectando…"; case .retrying(let n, _): "reconectando · tentativa \(n + 1)"; case .unavailable: "indisponível — atualizando a cada 5s"; case .idle: "pausado" } }())
-                            diag("Mac", { switch hub.macStatus { case .online(let n, let p, let r): "\(n) online" + (p.map { " · \($0) aberto" } ?? "") + (r > 0 ? " · \(r) rodando" : ""); case .offline(let d): "offline" + (d.map { " · visto \(agoPtDate($0))" } ?? ""); case .unknown: "sem notícia ainda" } }())
-                            diag("presença", hub.presenceFromTable ? "batimento do app (a cada 45s)" : "último acesso do perfil (migration 0030 pendente)")
-                            diag("última leitura", hub.lastOk.map { agoPtDate($0) } ?? "—")
-                            Text("Nada aqui depende de ação manual: este app escreve intenções, o Mac executa e publica sozinho. Sem rede, tudo fica na fila e segue quando voltar.")
-                                .font(.system(size: 12)).foregroundStyle(T.dim).fixedSize(horizontal: false, vertical: true)
-                        }.card()
-                    }
-
-                    // senha
-                    VStack(alignment: .leading, spacing: 10) {
-                        kicker("segurança", T.dim)
-                        VStack(alignment: .leading, spacing: 10) {
-                            Button { withAnimation { showPass.toggle() } } label: {
-                                HStack {
-                                    Text("Trocar senha").font(.system(size: 14, weight: .semibold)).foregroundStyle(T.text)
-                                    Spacer()
-                                    Image(systemName: showPass ? "chevron.up" : "chevron.right").font(.system(size: 11, weight: .bold)).foregroundStyle(T.dim2)
-                                }
-                            }.buttonStyle(.plain)
-                            if showPass {
-                                Field(label: "Nova senha", placeholder: "mínimo 8 caracteres", text: $newPass, secure: true, content: .newPassword)
-                                Field(label: "Repita", placeholder: "de novo", text: $newPass2, secure: true, content: .newPassword)
-                                if !passMsg.isEmpty { Text(passMsg).font(.system(size: 12.5)).foregroundStyle(passMsg.hasPrefix("✓") ? T.accent : T.warn) }
-                                Button {
-                                    Task {
-                                        busy = true; passMsg = ""
-                                        do { try await supa.updatePassword(newPass); passMsg = "✓ senha trocada"; newPass = ""; newPass2 = "" }
-                                        catch { passMsg = error.localizedDescription }
-                                        busy = false
-                                    }
-                                } label: {
-                                    Text(busy ? "salvando…" : "Salvar nova senha").font(.system(size: 14, weight: .semibold))
-                                        .frame(maxWidth: .infinity).frame(height: 44)
-                                        .background(newPass.count >= 8 && newPass == newPass2 ? T.accent : T.panel2)
-                                        .foregroundStyle(newPass.count >= 8 && newPass == newPass2 ? T.onAccent : T.dim2)
-                                        .clipShape(RoundedRectangle(cornerRadius: 11))
-                                }.buttonStyle(.plain).disabled(busy || newPass.count < 8 || newPass != newPass2)
-                            }
-                        }.card()
-                    }
-
-                    OutlineButton(label: "Sair da conta", height: 48, full: true, color: T.bad, stroke: T.bad.opacity(0.4), fill: T.bad.opacity(0.08)) { supa.signOut() }
-                    Text("Starfork Mobile \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") — companion do orquestrador de agentes")
-                        .font(.system(size: 11.5)).foregroundStyle(T.dim2)
                 }
-                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 40)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
+                .rowStyle()
             }
-            .scrollDismissesKeyboard(.interactively)
+
+            // conexão — o estado REAL (antes: "conectado à nuvem" fixo)
+            Section {
+                ConnStatusRow().rowStyle()
+                LabeledContent("Ao vivo", value: { switch hub.rt { case .live: "conectado"; case .connecting: "conectando…"; case .retrying(let n, _): "reconectando · tentativa \(n + 1)"; case .unavailable: "a cada 5s"; case .idle: "pausado" } }()).rowStyle()
+                LabeledContent("Mac", value: { switch hub.macStatus { case .online(let n, let p, let r): "\(n) online" + (p.map { " · \($0)" } ?? "") + (r > 0 ? " · \(r) rodando" : ""); case .offline(let d): "offline" + (d.map { " · visto \(agoPtDate($0))" } ?? ""); case .unknown: "sem notícia ainda" } }()).rowStyle()
+                LabeledContent("Presença", value: hub.presenceFromTable ? "batimento a cada 45s" : "último acesso do perfil").rowStyle()
+                LabeledContent("Última leitura", value: hub.lastOk.map { agoPtDate($0) } ?? "—").rowStyle()
+            } header: { SectionHead(title: "Conexão com o Mac", symbol: "desktopcomputer") } footer: {
+                Text("Nada aqui depende de ação manual: este app escreve intenções, o Mac executa e publica sozinho. Sem rede, tudo fica na fila e segue quando voltar.")
+            }
+
+            // pushes
+            Section {
+                if notifDenied {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Notificações desligadas nos Ajustes", systemImage: "bell.slash.fill").font(.ui(14, .semibold)).foregroundStyle(T.warn)
+                        Text("Sem isso nenhum push chega — nem a pergunta do agente.").font(.ui(13)).foregroundStyle(T.dim)
+                        Button("Abrir Ajustes") {
+                            if let u = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(u) }
+                        }.font(.ui(14, .semibold)).tint(T.accent)
+                    }.rowStyle()
+                }
+                toggleRow("Agente precisa de você", "pergunta do agente e teto de custo", $pushQuestions)
+                toggleRow("Entrega pronta pra revisar", "o agente terminou · PR aberto", $pushReady)
+                toggleRow("Agente travou", "erro, conflito ou o Mac não conseguiu executar", $pushErrors)
+                toggleRow("PR integrado", "merge feito", $pushPr)
+            } header: { SectionHead(title: "Notificações", symbol: "bell.badge") }
+
+            // IA padrão (mesma escolha do Mac: Configurações → IA padrão)
+            Section {
+                Picker("IA padrão", selection: $defaultModel) {
+                    Text("Padrão da assinatura").tag("")
+                    ForEach(AIModel.all) { m in Text(m.name).tag(m.id) }
+                }
+                .pickerStyle(.navigationLink)
+                .rowStyle()
+            } header: { SectionHead(title: "Novas demandas", symbol: "cpu") } footer: {
+                Text(defaultModel.isEmpty ? "Usando o padrão da assinatura. Escolha um modelo pra ele já vir marcado ao criar demandas." : "Novas demandas nascem com \(AIModel.named(defaultModel)).")
+            }
+
+            // senha
+            Section {
+                DisclosureGroup(isExpanded: $showPass) {
+                    SecureField("Nova senha (mínimo 8)", text: $newPass).textContentType(.newPassword)
+                    SecureField("Repita a nova senha", text: $newPass2).textContentType(.newPassword)
+                    if !passMsg.isEmpty { Text(passMsg).font(.ui(13)).foregroundStyle(passMsg.hasPrefix("✓") ? T.accent : T.warn) }
+                    Button(busy ? "Salvando…" : "Salvar nova senha") {
+                        Task {
+                            busy = true; passMsg = ""
+                            do { try await supa.updatePassword(newPass); passMsg = "✓ senha trocada"; newPass = ""; newPass2 = ""; Haptic.success() }
+                            catch { passMsg = error.localizedDescription; Haptic.error() }
+                            busy = false
+                        }
+                    }
+                    .disabled(busy || newPass.count < 8 || newPass != newPass2)
+                    .tint(T.accent)
+                } label: { Label("Trocar senha", systemImage: "key.fill").foregroundStyle(T.text) }
+                .tint(T.dim)
+                .rowStyle()
+            } header: { SectionHead(title: "Segurança", symbol: "lock") }
+
+            Section {
+                Button(role: .destructive) { Haptic.warning(); supa.signOut() } label: {
+                    Label("Sair da conta", systemImage: "rectangle.portrait.and.arrow.right").frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .tint(T.bad)
+                .rowStyle()
+            } footer: {
+                Text("Starfork Mobile \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") — companion do orquestrador de agentes")
+            }
         }
+        .scrollContentBackground(.hidden)
+        .background(T.bg)
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle("Conta")
+        .navigationBarTitleDisplayMode(.large)
         .task {
             let st = await UNUserNotificationCenter.current().notificationSettings()
             await MainActor.run { notifDenied = st.authorizationStatus == .denied }
@@ -148,42 +128,17 @@ struct SettingsView: View {
         }
     }
 
-    private func diag(_ k: String, _ v: String) -> some View {
-        HStack(alignment: .top) {
-            Text(k).font(.mono(11)).foregroundStyle(T.dim).frame(width: 96, alignment: .leading)
-            Text(v).font(.system(size: 12.5)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-    }
-
-    private func toggleRow(_ t: String, _ s: String, _ on: Binding<Bool>) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(t).font(.system(size: 14.5, weight: .medium)).foregroundStyle(T.text)
-                Text(s).font(.system(size: 11.5)).foregroundStyle(T.dim)
+    private func toggleRow(_ t: String, _ sub: String, _ on: Binding<Bool>) -> some View {
+        Toggle(isOn: on) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(t).font(.ui(16)).foregroundStyle(T.text)
+                Text(sub).font(.ui(12)).foregroundStyle(T.dim)
             }
-            Spacer()
-            Toggle("", isOn: on).labelsHidden().tint(T.accent)
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
+        .tint(T.accent)
+        .onChange(of: on.wrappedValue) { _, _ in Haptic.select() }
+        .rowStyle()
     }
 }
 
-/// chips que quebram linha (modelos de IA)
-struct FlowChips: View {
-    let items: [(String, String)]
-    @Binding var selected: String
-    var body: some View {
-        let rows = stride(from: 0, to: items.count, by: 3).map { Array(items[$0..<min($0 + 3, items.count)]) }
-        VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 8) {
-                    ForEach(row, id: \.0) { it in
-                        Button { selected = it.0 } label: { Chip(label: it.1, on: selected == it.0) }.buttonStyle(.plain)
-                    }
-                    Spacer(minLength: 0)
-                }
-            }
-        }
-    }
-}
+extension String { func ifEmpty(_ s: String) -> String { isEmpty ? s : self } }

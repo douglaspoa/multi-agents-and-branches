@@ -12,16 +12,17 @@ enum T {
         #endif
     }()
     // superfícies
-    static let bg       = Color(hex: 0x0b0d10)
-    static let panel    = Color(hex: 0x141718)          // cartão / campo (≈ branco 7%)
-    static let panel2   = Color(hex: 0x0f1214)          // barras
+    static let bg       = Color(hex: 0x0a0f0d)
+    static let panel    = Color(hex: 0x131b18)          // linha de lista / cartão / campo (verde-escuro)
+    static let panel2   = Color(hex: 0x0f1613)          // barras / cabeçalho do detalhe
+    static let panel3   = Color(hex: 0x1a2420)          // controle sobre cartão (campo, botão secundário)
     static let line     = Color.white.opacity(0.09)
     static let lineHard = Color.white.opacity(0.14)
     // texto
     static let text   = Color(hex: 0xeaf2ee)
-    static let text2  = Color.white.opacity(0.62)
-    static let dim    = Color.white.opacity(0.42)
-    static let dim2   = Color.white.opacity(0.34)
+    static let text2  = Color.white.opacity(0.72)
+    static let dim    = Color.white.opacity(0.58)   // ≥ 4.5:1 sobre panel
+    static let dim2   = Color.white.opacity(0.50)   // ≥ 4.5:1 sobre bg (só rótulo secundário)
     // semântica — amarelo = te esperando · verde = pronto/sua ação
     static let accent   = Color(hex: 0x3fdd8a)
     static let accent2  = Color(hex: 0x34c07b)
@@ -95,9 +96,29 @@ extension Color {
 // MARK: - tipografia
 
 extension Font {
-    /// rótulo mono maiúsculo (eyebrow) — 10px, tracking largo
+    /// tamanho de desenho (pt) → estilo do Dynamic Type mais próximo. Nada fica com fonte fixa:
+    /// tudo cresce com o "Tamanho do Texto" do iPhone, e nada fica menor que o caption2 (11pt).
+    static func textStyle(_ size: CGFloat) -> Font.TextStyle {
+        switch size {
+        case ..<11.5: return .caption2
+        case ..<12.5: return .caption
+        case ..<14: return .footnote
+        case ..<15.5: return .subheadline
+        case ..<16.5: return .callout
+        case ..<19: return .body
+        case ..<21: return .title3
+        case ..<25: return .title2
+        case ..<31: return .title
+        default: return .largeTitle
+        }
+    }
+    /// rótulo mono (eyebrow, custo, ids) — escala com o Dynamic Type
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        .system(textStyle(size), design: .monospaced, weight: weight)
+    }
+    /// texto de interface — escala com o Dynamic Type
+    static func ui(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(textStyle(size), design: .default, weight: weight)
     }
 }
 
@@ -116,19 +137,6 @@ extension View {
                 .fill(color.opacity(0.85)).frame(width: 3)
         }
     }
-    /// kicker de seção: 10px mono maiúsculo + contagem + régua
-    func kicker(_ label: String, _ color: Color, count: Int? = nil, dot: Bool = false) -> some View {
-        HStack(spacing: 9) {
-            if dot { Circle().fill(color).frame(width: 6, height: 6) }
-            Text(label.uppercased()).font(.mono(10, .medium)).kerning(1.6).foregroundStyle(color)
-            if let n = count, n > 0 {
-                Text("\(n)").font(.mono(9, .bold))
-                    .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(color.opacity(0.16)).foregroundStyle(color).clipShape(Capsule())
-            }
-            Rectangle().fill(T.line).frame(height: 1)
-        }
-    }
     /// rótulo de campo (NOME, E-MAIL…)
     func fieldLabel(_ label: String) -> some View {
         Text(label.uppercased()).font(.mono(10, .medium)).kerning(1.6).foregroundStyle(T.dim)
@@ -136,89 +144,6 @@ extension View {
 }
 
 // MARK: - peças do redesign
-
-/// Cabeçalho de página: eyebrow + régua (+ AO VIVO) · título 30px · subtítulo
-struct PageHeader: View {
-    let kicker: String
-    let title: String
-    let sub: String
-    var live = false
-    var accentKicker = true
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Text(kicker.uppercased()).font(.mono(10, .medium)).kerning(1.6)
-                    .foregroundStyle(accentKicker ? T.accent.opacity(0.75) : T.dim)
-                    .lineLimit(1)
-                Rectangle().fill(T.line).frame(height: 1)
-                if live { LiveTag() }   // honesto: AO VIVO · RECONECTANDO · OFFLINE (antes era fixo)
-            }
-            Text(title).font(.system(size: 30, weight: .semibold)).kerning(-0.75).foregroundStyle(T.text)
-            Text(sub).font(.system(size: 13)).foregroundStyle(T.dim)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// Faixa de 3 números (EM ÓRBITA · ESPERAM VOCÊ · CUSTO)
-struct StatRow: View {
-    struct Item { let value: String; let label: String; var color: Color = T.text }
-    let items: [Item]
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(items.enumerated()), id: \.offset) { i, it in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(it.value).font(.system(size: 22, weight: .semibold)).kerning(-0.4).foregroundStyle(it.color)
-                        .lineLimit(1).minimumScaleFactor(0.7)
-                    Text(it.label.uppercased()).font(.mono(9.5)).kerning(0.95).foregroundStyle(T.dim2)
-                        .lineLimit(1).minimumScaleFactor(0.8)
-                }
-                .padding(.horizontal, 14).padding(.vertical, 13)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                if i < items.count - 1 { Rectangle().fill(T.line).frame(width: 1) }
-            }
-        }
-        .background(T.panel)
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(T.line))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
-}
-
-/// barra fina de progresso (2px) — % da tarefa
-struct ProgressLine: View {
-    let pct: Int
-    var color: Color = T.accent
-    var body: some View {
-        GeometryReader { g in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.08))
-                Capsule().fill(color).frame(width: g.size.width * CGFloat(min(max(pct, 0), 100)) / 100)
-            }
-        }.frame(height: 3)
-    }
-}
-
-/// chip de filtro (Minhas): ativo = verde cheio, inativo = cartão
-struct Chip: View {
-    let label: String
-    var count: Int? = nil
-    var on = false
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(label).font(.system(size: 13.5, weight: on ? .semibold : .medium))
-            if let n = count {
-                Text("\(n)").font(.mono(10.5, .medium))
-                    .foregroundStyle(on ? T.onAccent.opacity(0.7) : T.dim2)
-            }
-        }
-        .foregroundStyle(on ? T.onAccent : T.text2)
-        .padding(.horizontal, 14).frame(height: 36)
-        .background(on ? T.accent : T.panel)
-        .overlay(Capsule().stroke(on ? .clear : T.line))
-        .clipShape(Capsule())
-    }
-}
 
 /// botão secundário (contorno) — "ver", "Já tenho conta"
 struct OutlineButton: View {
@@ -231,7 +156,7 @@ struct OutlineButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            Text(label).font(.system(size: 14, weight: .semibold))
+            Text(label).font(.ui(14, .semibold))
                 .foregroundStyle(color)
                 .padding(.horizontal, 16)
                 .frame(maxWidth: full ? .infinity : nil).frame(height: height)
@@ -267,7 +192,7 @@ struct Field: View {
                         TextField("", text: $text, prompt: Text(placeholder).foregroundStyle(T.dim2).font(.mono(14)))
                     }
                 }
-                .font(.system(size: 15))
+                .font(.ui(15))
                 .foregroundStyle(T.text)
                 .keyboardType(keyboard)
                 .textContentType(content)
@@ -275,7 +200,7 @@ struct Field: View {
                 .autocorrectionDisabled()
                 if secure {
                     Button { reveal.toggle() } label: {
-                        Image(systemName: reveal ? "eye.slash" : "eye").font(.system(size: 13)).foregroundStyle(T.dim2)
+                        Image(systemName: reveal ? "eye.slash" : "eye").font(.ui(13)).foregroundStyle(T.dim2)
                     }
                 }
             }
