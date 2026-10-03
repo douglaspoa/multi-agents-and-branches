@@ -181,7 +181,7 @@ function projetosRender(ov){
   body.innerHTML=`<div class="appscreen">${head}${projNewOpen?projNewHtml():''}${list}</div>`;
   { const b=body.querySelector('#projEmptyNew'); if(b) b.onclick=()=>{ const nb=body.querySelector('#projNewBtn'); if(nb) nb.click(); }; }
   { const b=body.querySelector('#projAddBtn2'); if(b) b.onclick=()=>{ if(window.pickFolder) window.pickFolder(); }; }
-  { const b=body.querySelector('#projNewBtn'); if(b) b.onclick=()=>{ projNewOpen=!projNewOpen; projetosRender(ov); if(projNewOpen){ projNewWire(ov); const i=$id('pnName'); if(i) i.focus(); } }; }
+  { const b=body.querySelector('#projNewBtn'); if(b) b.onclick=()=>{ projNewOpen=!projNewOpen; projetosRender(ov); if(projNewOpen){ projNewWire(ov); ghOwnersReload(); const i=$id('pnName'); if(i) i.focus(); } }; } // toda abertura relê os donos (o cache aparece na hora)
   if(projNewOpen) projNewWire(ov);
   body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; projFilter=p; lsSet('projFilter',p); if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('flow'); });
   body.querySelectorAll('[data-pjsk]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjsk; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('skills'); });
@@ -200,11 +200,47 @@ function projetosRender(ov){
     if(wasActive){ selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches(); await refresh(); }
     if(window.loadProjects) await window.loadProjects(); openProjetos(); });
 }
+// ---- donos do GitHub de TODAS as contas logadas (gh_owners) ----
+// @puro-ghdonos-inicio
+// item: { owner, account, kind:'user'|'org', active } — o gh antigo devolvia só strings (conta ativa)
+function ghOwnersNorm(list){ return (list||[]).map(o=>typeof o==='string'?{ owner:o, account:'', kind:'user', active:true }:o).filter(o=>o&&o.owner); }
+function ghOwnerLabel(o){ return o.kind==='org' ? `${o.owner} · via ${o.account||'conta ativa'}` : (o.active ? `${o.owner} (você)` : o.owner); }
+// agrupa por conta, a ATIVA primeiro (mantém a ordem do backend dentro de cada conta)
+function ghOwnerGroups(list){
+  const groups=[];
+  ghOwnersNorm(list).forEach(o=>{ let g=groups.find(x=>x.account===o.account); if(!g){ g={ account:o.account, active:!!o.active, items:[] }; groups.push(g); } g.items.push(o); });
+  return groups.sort((a,b)=>(b.active?1:0)-(a.active?1:0));
+}
+// padrão: o usuário da conta ativa
+function ghOwnerDefault(list){ const l=ghOwnersNorm(list); const o=l.find(x=>x.active&&x.kind==='user')||l.find(x=>x.kind==='user')||l[0]; return o?o.owner:''; }
+function ghOwnerFind(list, owner){ return ghOwnersNorm(list).find(o=>o.owner===owner)||null; }
+// lista em cache aparece na hora; load(true) relê do gh (toda abertura do formulário / depois de login)
+// e avisa onChange só quando a lista mudou. Uma leitura por vez.
+function ghOwnersLoader(invokeFn, onChange){
+  const st={ list:null, busy:null, sig:'' };
+  st.load=(force)=>{
+    if(st.busy) return st.busy;
+    if(st.list!==null && !force) return Promise.resolve(st.list);
+    st.busy=Promise.resolve().then(()=>invokeFn('gh_owners')).then(r=>ghOwnersNorm(r), ()=>(st.list||[]))
+      .then(l=>{ st.busy=null; const sig=JSON.stringify(l); const changed=sig!==st.sig||st.list===null; st.list=l; st.sig=sig; if(changed&&onChange) onChange(l); return l; });
+    return st.busy;
+  };
+  return st;
+}
+// @puro-ghdonos-fim
+// conta logada nova (Configurações → GitHub): a próxima vez que o formulário aparecer relê os donos
+let ghOwnersDirty=false;
+function ghOwnersStale(){ ghOwnersDirty=true; if(typeof projNewOpen!=='undefined'&&projNewOpen) ghOwnersReload(); }
+const ghOwnersSt=ghOwnersLoader((c)=>invoke(c), (l)=>{ ghOwnersCache=l; if(!projNew.ghTouched) projNew.github=l.length>0;
+  if(projNew.owner && !ghOwnerFind(l, projNew.owner)) projNew.owner='';
+  if(projNewOpen && $id('projNewCard')){ const ov=projOvLast; projetosRender(ov); projNewWire(ov); } });
+function ghOwnersReload(){ ghOwnersDirty=false; return ghOwnersSt.load(true); }
+let projOvLast=[];
 // ---- novo projeto do zero: pasta + git init + (opcional) repositório no GitHub ----
 let projNewOpen=false, projNew={ name:'', parent:lsGet('projParent')||'', github:false, ghTouched:false, private:true, owner:'' }, ghOwnersCache=null, projNewBusy=false, projNewMsg='', projNewGhFail=''; // projNewGhFail: pasta criada cujo GitHub falhou (BUG-10)
 function projNewHtml(){
-  const owners=ghOwnersCache||[];
-  const ownerSel=owners.length?`<select class="in" id="pnOwner" style="width:auto;min-width:160px">${owners.map(o=>`<option value="${escA(o)}"${(projNew.owner||owners[0])===o?' selected':''}>${esc(o)}</option>`).join('')}</select>`:`<span class="dim" style="font-size:var(--fs-sm)">${ghOwnersCache===null?'lendo contas do gh…':'gh sem login — adicione uma conta em Configurações → GitHub'}</span>`;
+  const owners=ghOwnersCache||[], cur=projNew.owner||ghOwnerDefault(owners);
+  const ownerSel=owners.length?`<select class="in" id="pnOwner" style="width:auto;min-width:200px" title="dono do repositório — cada conta logada no gh entra com o próprio acesso; a conta ativa não muda">${ghOwnerGroups(owners).map(g=>`<optgroup label="${escA((g.account||'conta ativa')+(g.active?' · conta ativa':''))}">${g.items.map(o=>`<option value="${escA(o.owner)}"${cur===o.owner?' selected':''}>${esc(ghOwnerLabel(o))}</option>`).join('')}</optgroup>`).join('')}</select>`:`<span class="dim" style="font-size:var(--fs-sm)">${ghOwnersCache===null?'lendo contas do gh…':'gh sem login — adicione uma conta em Configurações → GitHub'}</span>`;
   return `<div class="as-card" id="projNewCard" style="margin-bottom:18px">
     <div class="seclbl2" style="margin:0 0 12px">novo projeto <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· cria a pasta, já pronta pros agentes trabalharem — e, se quiser, guarda uma cópia no GitHub</span></div>
     <div style="display:grid;grid-template-columns:1fr 1.4fr;gap:12px">
@@ -226,8 +262,8 @@ function projNewHtml(){
 }
 function projNewWire(ov){
   // E11c: "criar no GitHub" só vem marcado quando o gh está logado (antes vinha marcado sempre e o create falhava)
-  const ghSettle=(o)=>{ ghOwnersCache=o||[]; if(!projNew.ghTouched) projNew.github=ghOwnersCache.length>0; if(projNewOpen){ projetosRender(ov); projNewWire(ov); } };
-  if(ghOwnersCache===null){ invoke('gh_owners').then(ghSettle).catch(()=>ghSettle([])); }
+  projOvLast=ov;
+  if(ghOwnersCache===null || ghOwnersDirty) ghOwnersReload();
   bindClick('pnGhEnv', ()=>{ if(window.openTab) window.openTab('env'); });
   const nm=$id('pnName'); if(nm) nm.oninput=()=>{ projNew.name=nm.value; };
   bindClick('pnPick', async()=>{ try{ const d=await invoke('pick_folder'); if(d){ projNew.parent=d; lsSet('projParent',d); $id('pnParent').value=d; } }catch(_){} });
@@ -246,10 +282,11 @@ function projNewWire(ov){
     projNew.name=($id('pnName')||{}).value||projNew.name;
     if(!projNew.name.trim()){ projNewMsg='dê um nome ao projeto.'; projetosRender(ov); projNewWire(ov); return; }
     if(!projNew.parent){ projNewMsg='escolha a pasta onde o projeto vai morar.'; projetosRender(ov); projNewWire(ov); return; }
-    const owner=($id('pnOwner')||{}).value||projNew.owner||'';
+    const owner=($id('pnOwner')||{}).value||projNew.owner||ghOwnerDefault(ghOwnersCache);
+    const account=(ghOwnerFind(ghOwnersCache, owner)||{}).account||null; // a conta dona cria o repo e fica gravada pro push
     projNewBusy=true; projNewMsg=''; projNewGhFail=''; projetosRender(ov); projNewWire(ov);
     try{
-      const path=await invoke('create_project',{ parent:projNew.parent, name:projNew.name.trim(), github:!!projNew.github, private:!!projNew.private, owner });
+      const path=await invoke('create_project',{ parent:projNew.parent, name:projNew.name.trim(), github:!!projNew.github, private:!!projNew.private, owner, account });
       projNewBusy=false; projNewOpen=false; projNew.name='';
       selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
       await refresh(); if(window.loadProjects) await window.loadProjects();
