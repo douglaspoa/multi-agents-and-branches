@@ -423,3 +423,11 @@ test('"ver uso detalhado": o link aparece na lista expandida e o clique (pmWire)
   assert.deepEqual(opened, ['uso']);
   assert.ok(!P.calls.some((c) => c[0] === 'suaIaOpenCfg'), 'não cai no "abrir Sua IA"');
 });
+
+test('texto longo (gasto do mês) vai numa linha própria; curto continua ao lado do nome', () => {
+  const P = load();
+  const h = P.ctx.pmHtml(U({ claude: { ...GOLDEN.claude, ...NO_SL } }), false, 'claude', NOW);
+  assert.match(h, /<div class="pm-line">uso deste mês: US\$ 3,20 · 14 tarefas<\/div>/);
+  const b = P.ctx.pmHtml(C({ state: 'blocked', window: 'five_hour', resetsAt: null, fiveHour: null, sevenDay: null, updatedAt: null }), false, 'claude', NOW);
+  assert.match(b, /<span class="pm-txt">limite atingido<\/span>/);
+});

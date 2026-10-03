@@ -287,6 +287,7 @@
 .planmeter .pm-bar.pm-idle .pm-fill{background:var(--muted)}
 .planmeter .pm-minbar{margin:0 6px 4px;height:3px;flex:none}
 .planmeter .pm-sub{font-size:var(--fs-xs);color:var(--muted)}
+.planmeter .pm-line{font-size:var(--fs-xs);line-height:1.4;color:var(--text-2);margin-top:2px}
 .planmeter .pm-hint{font-size:var(--fs-xs);color:var(--muted)}
 .planmeter button.pm-hint{width:auto;text-decoration:underline;text-underline-offset:3px}
 .planmeter button.pm-hint:hover{color:var(--text-2)}

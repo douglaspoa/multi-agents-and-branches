@@ -60,3 +60,8 @@ test('varredura: duração desconhecida não vira "0 min"; arquivo sumido na pr�
   assert.match(P('x.png', { err: 'artefato não encontrado: x.png (ainda não foi gerado ou já foi removido)' }, 't1'), /arquivo não encontrado — ainda não foi gerado/);
   assert.match(P('x.md', { err: 'permission denied' }, 't1'), /Não consegui ler o arquivo: permission denied/);
 });
+
+test('varredura: card "pronta pra revisar" não mostra "0 arquivos" (sem diff = sem número)', () => {
+  assert.ok(!/pronta pra revisar · \$\{nPl\(diffFiles/.test(ent));
+  assert.match(ent, /pronta pra revisar\$\{\(n=>n>0\?' · '\+nPl\(n,'arquivo'\):''\)/);
+});

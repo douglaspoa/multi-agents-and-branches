@@ -208,13 +208,16 @@ function pmBarHtml(name, b, cls){
   const v=Math.round(b.pct);
   return `<span class="${cls||'pm-bar'} pm-${b.level}" role="progressbar" aria-label="${escA(name+' '+b.label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${v}" aria-valuetext="${escA(v+' % — '+(PM_LVL_TXT[b.level]||b.level))}"><span class="pm-fill" style="width:${b.pct}%"></span></span>`;
 }
+const pmLong=r=>String(r.text||'').length>22;
 function pmIaHtml(r, open){
   const did='pmDet-'+r.id;
   const bars=r.bars.map(b=>`<div class="pm-win"><span class="pm-wl">${esc(b.label)}</span>${pmBarHtml(r.name, b)}<span class="pm-wn pm-${b.level}">${esc(pmPct(b.pct))}</span></div>`).join('');
   return `<div class="pm-ia pm-${r.level}" data-pm-ia="${escA(r.id)}">`
     +`<div class="pm-ia-head"><button class="pm-name" data-pm="cfg" data-pm-id="${escA(r.id)}" title="${escA(r.tip+'\nClique: abrir Sua IA')}">${esc(r.name)}</button>`
-    +(r.text?`<span class="pm-txt">${esc(r.text)}</span>`:'<span class="pm-txt"></span>')
+    // texto curto ("limite atingido") na linha do nome; longo (gasto do mês) numa linha própria — não espreme
+    +(r.text && !pmLong(r)?`<span class="pm-txt">${esc(r.text)}</span>`:'<span class="pm-txt"></span>')
     +`<button class="pm-more" data-pm="det" data-pm-id="${escA(r.id)}" aria-expanded="${open}" aria-controls="${did}" aria-label="${escA((open?'Esconder':'Mostrar')+' detalhes do '+r.name)}" title="detalhes">${PM_CHEV}</button></div>`
+    +(r.text && pmLong(r)?`<div class="pm-line">${esc(r.text)}</div>`:'')
     +bars
     +(r.sub?`<div class="pm-sub">${esc(r.sub)}</div>`:'')
     +(r.foot?`<div class="pm-sub pm-month">${esc(r.foot)}</div>`:'')
