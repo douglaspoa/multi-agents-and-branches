@@ -350,7 +350,8 @@ try{ window.__TAURI__.event.listen('web-nav', (ev)=>{ const p=ev&&ev.payload; if
 window.addEventListener('resize', ()=>{ cvNatSync(); cvRelayout(); });
 // a área dos painéis mudou (janela, barra lateral recolhida): o layout automático reavalia (só grid-area — nada recarrega)
 let cvRelayQ=0;
-function cvRelayout(){ if(cvRelayQ) return; cvRelayQ=requestAnimationFrame(()=>{ cvRelayQ=0; if(!SPL.ids || SPL.ids.length<2) return; const ov=$id('cvSplit'), row=ov&&ov.querySelector('.cvrow'); if(row && cvRowBox(row) && SPL.ids.every(id=>SPL.panes[id] && row.contains(SPL.panes[id]))) cvApplyLayout(row, SPL.ids); }); }
+// timer, não rAF: com a janela coberta/escondida o rAF para e o grupo ficava com a medida da 1ª passada (área 0)
+function cvRelayout(){ if(cvRelayQ) return; cvRelayQ=setTimeout(()=>{ cvRelayQ=0; if(!SPL.ids || SPL.ids.length<2) return; const ov=$id('cvSplit'), row=ov&&ov.querySelector('.cvrow'); if(row && cvRowBox(row) && SPL.ids.every(id=>SPL.panes[id] && row.contains(SPL.panes[id]))) cvApplyLayout(row, SPL.ids); }, 16); }
 document.addEventListener('visibilitychange', ()=>cvNatSync());
 { try{ const mo=new MutationObserver(()=>{ if(Object.keys(NAT.views).length) cvNatSync(); });
     mo.observe(document.body, { childList:true });
