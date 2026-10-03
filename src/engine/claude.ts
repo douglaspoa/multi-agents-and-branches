@@ -200,7 +200,11 @@ export class ClaudeEngine implements AgentEngine {
     this.approval = opts.approval ?? "ask";
   }
 
-  async *run(input: RunInput): AsyncIterable<AgentEvent> {
+  /**
+   * Prompt do turno + .cardume/mcp.json (servidor MCP do Starfork e, em tarefa web, o navegador) — o MESMO
+   * preparo pro modo automático (`claude -p`, run abaixo) e pro modo TERMINAL (src/terminal.ts).
+   */
+  prepareTurn(input: RunInput): { prompt: string; mcpConfigPath: string; protectOn: boolean } {
     const ROLE_INSTR: Record<string, string> = {
       planner: "Seu papel é PLANNER: leia o TASK.yaml e escreva .cardume/PLAN.md com o plano em passos. Não implemente.",
       reviewer: "Seu papel é REVIEWER: leia o diff da branch (git diff) e resuma o que foi feito, funções criadas e para que servem, e como testar.",
@@ -362,6 +366,11 @@ export class ClaudeEngine implements AgentEngine {
       "utf8"
     );
 
+    return { prompt, mcpConfigPath, protectOn };
+  }
+
+  async *run(input: RunInput): AsyncIterable<AgentEvent> {
+    const { prompt, mcpConfigPath, protectOn } = this.prepareTurn(input);
     // ROUTE AI: usar a IA alternativa neste turno? (fallback após limite do Claude,
     // ou modo "usar sempre" ligado na config). Se sim, o agente fala com o shim
     // local que traduz Anthropic→OpenAI pro gateway configurado.
