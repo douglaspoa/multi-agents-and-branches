@@ -8,8 +8,9 @@ struct SettingsView: View {
     @AppStorage("push.questions") private var pushQuestions = true
     @AppStorage("push.ready") private var pushReady = true
     @AppStorage("push.pr") private var pushPr = true
+    @AppStorage("push.errors") private var pushErrors = true
+    @EnvironmentObject var hub: SyncHub
     @AppStorage("defaultModel") private var defaultModel = ""
-    @State private var lastSync: String? = nil
     @State private var notifDenied = false
     @State private var teamLine = ""
     @State private var showPass = false
@@ -59,11 +60,13 @@ struct SettingsView: View {
                                 .padding(14).frame(maxWidth: .infinity, alignment: .leading).background(T.warn.opacity(0.08))
                                 Rectangle().fill(T.line).frame(height: 1)
                             }
-                            toggleRow("agente precisa de você", "aprovação bloqueando a execução", $pushQuestions)
+                            toggleRow("agente precisa de você", "pergunta do agente e teto de custo", $pushQuestions)
                             Rectangle().fill(T.line).frame(height: 1)
-                            toggleRow("entrega pronta pra revisar", "todos os requisitos provados", $pushReady)
+                            toggleRow("entrega pronta pra revisar", "o agente terminou · PR aberto", $pushReady)
                             Rectangle().fill(T.line).frame(height: 1)
-                            toggleRow("comentário novo no PR", "alguém respondeu no GitHub", $pushPr)
+                            toggleRow("agente travou", "erro, conflito ou o Mac não conseguiu executar", $pushErrors)
+                            Rectangle().fill(T.line).frame(height: 1)
+                            toggleRow("PR integrado", "merge feito", $pushPr)
                         }
                         .background(T.panel).overlay(RoundedRectangle(cornerRadius: 16).stroke(T.line)).clipShape(RoundedRectangle(cornerRadius: 16))
                     }
@@ -78,17 +81,18 @@ struct SettingsView: View {
                         }.card()
                     }
 
-                    // sincronia
+                    // sincronia — o estado REAL (antes: "conectado à nuvem" fixo)
                     VStack(alignment: .leading, spacing: 10) {
-                        kicker("sincronia", T.dim)
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack(spacing: 7) {
-                                BlinkDot()
-                                Text(lastSync.map { "última tarefa atualizada \($0)" } ?? "conectado à nuvem").font(.system(size: 14, weight: .semibold)).foregroundStyle(T.text)
-                            }
-                            Text("Nada aqui depende de ação manual: este app escreve intenções, o Mac executa e publica sozinho.")
-                                .font(.system(size: 12.5)).foregroundStyle(T.dim).fixedSize(horizontal: false, vertical: true)
-                        }.card(stroke: T.accent.opacity(0.25), fill: T.accent.opacity(0.05))
+                        kicker("conexão com o Mac", T.dim)
+                        ConnBanner()
+                        VStack(alignment: .leading, spacing: 8) {
+                            diag("ao vivo", { switch hub.rt { case .live: "conectado (websocket)"; case .connecting: "conectando…"; case .retrying(let n, _): "reconectando · tentativa \(n + 1)"; case .unavailable: "indisponível — atualizando a cada 5s"; case .idle: "pausado" } }())
+                            diag("Mac", { switch hub.macStatus { case .online(let n, let p, let r): "\(n) online" + (p.map { " · \($0) aberto" } ?? "") + (r > 0 ? " · \(r) rodando" : ""); case .offline(let d): "offline" + (d.map { " · visto \(agoPtDate($0))" } ?? ""); case .unknown: "sem notícia ainda" } }())
+                            diag("presença", hub.presenceFromTable ? "batimento do app (a cada 45s)" : "último acesso do perfil (migration 0030 pendente)")
+                            diag("última leitura", hub.lastOk.map { agoPtDate($0) } ?? "—")
+                            Text("Nada aqui depende de ação manual: este app escreve intenções, o Mac executa e publica sozinho. Sem rede, tudo fica na fila e segue quando voltar.")
+                                .font(.system(size: 12)).foregroundStyle(T.dim).fixedSize(horizontal: false, vertical: true)
+                        }.card()
                     }
 
                     // senha
@@ -125,7 +129,7 @@ struct SettingsView: View {
                     }
 
                     OutlineButton(label: "Sair da conta", height: 48, full: true, color: T.bad, stroke: T.bad.opacity(0.4), fill: T.bad.opacity(0.08)) { supa.signOut() }
-                    Text("Starfork Mobile 0.3 — companion do orquestrador de agentes")
+                    Text("Starfork Mobile \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") — companion do orquestrador de agentes")
                         .font(.system(size: 11.5)).foregroundStyle(T.dim2)
                 }
                 .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 40)
@@ -136,16 +140,19 @@ struct SettingsView: View {
         .task {
             let st = await UNUserNotificationCenter.current().notificationSettings()
             await MainActor.run { notifDenied = st.authorizationStatus == .denied }
-            if let d = try? await supa.rest("tasks?select=updated_at&order=updated_at.desc&limit=1"),
-               let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]],
-               let at = arr.first?["updated_at"] as? String {
-                await MainActor.run { lastSync = agoPt(at) }
-            }
             if let td = try? await supa.rest("teams?select=name&order=name&limit=1"),
                let arr = try? JSONSerialization.jsonObject(with: td) as? [[String: Any]], let n = arr.first?["name"] as? String {
                 await MainActor.run { teamLine = n }
             }
             if supa.billing == nil { await supa.checkBilling() }
+        }
+    }
+
+    private func diag(_ k: String, _ v: String) -> some View {
+        HStack(alignment: .top) {
+            Text(k).font(.mono(11)).foregroundStyle(T.dim).frame(width: 96, alignment: .leading)
+            Text(v).font(.system(size: 12.5)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
     }
 

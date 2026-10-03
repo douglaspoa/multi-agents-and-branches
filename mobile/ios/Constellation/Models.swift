@@ -14,8 +14,11 @@ struct TaskSpec: Decodable {
     let review: Review?
     let modelRaw: String?
     let engine: String?
+    var budgetRaw: LenientDouble? = nil
+    /// teto de custo da demanda (53-teto-protecao) — pode vir número, texto ou vazio
+    var budgetUsd: Double? { budgetRaw?.value }
 
-    enum CodingKeys: String, CodingKey { case objective, deliverables, requirements, kind, previewUrl, intent, intentResult, stat, prInfo, review, engine; case modelRaw = "model" }
+    enum CodingKeys: String, CodingKey { case objective, deliverables, requirements, kind, previewUrl, intent, intentResult, stat, prInfo, review, engine; case modelRaw = "model"; case budgetRaw = "budgetUsd" }
 
     struct Intent: Decodable { let kind: String; let at: String? }
     struct IntentResult: Decodable { let kind: String; let ok: Bool; let msg: String?; let at: String? }
@@ -43,6 +46,18 @@ struct TaskSpec: Decodable {
     var reqFraction: Double? { nil }
 }
 
+/// número que às vezes chega como texto ("5") ou vazio — nunca derruba a decodificação do spec inteiro
+struct LenientDouble: Decodable, Equatable {
+    let value: Double?
+    init(_ v: Double?) { value = v }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let d = try? c.decode(Double.self) { value = d }
+        else if let s = try? c.decode(String.self) { value = Double(s.replacingOccurrences(of: ",", with: ".")) }
+        else { value = nil }
+    }
+}
+
 struct CloudTask: Identifiable, Decodable {
     let id: String
     let title: String
@@ -56,9 +71,11 @@ struct CloudTask: Identifiable, Decodable {
     let updatedAt: String
     let spec: TaskSpec?
     let requirementsProof: ReqProofWrap?
+    var projectId: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, flag, branch, assignee, spec
+        case projectId = "project_id"
         case prUrl = "pr_url"
         case costUsd = "cost_usd"
         case createdBy = "created_by"
@@ -73,28 +90,30 @@ struct CloudTask: Identifiable, Decodable {
         if let r = s.range(of: #"[A-Z]{2,10}-\d+"#, options: .regularExpression) { return String(s[r]) }
         return nil
     }
-    /// requisitos provados: casa a lista da spec com o requirements_proof publicado
-    var reqsProved: (done: Int, total: Int)? {
-        guard let reqs = spec?.requirements, !reqs.isEmpty else { return nil }
-        let list = requirementsProof?.items ?? []
-        let done = list.filter { $0.status == "done" }.count
-        return (min(done, reqs.count), reqs.count)
-    }
+    /// requisitos COM PROVA (feito + arquivo de evidência) — mesma régua do portão de prova do desktop
+    var reqsProved: (done: Int, total: Int)? { ProofGate.proved(self) }
+    var isLive: Bool { flag != "closed" && StatusMeta.running.contains(status) }
+    var isEnded: Bool { flag == "closed" || StatusMeta.ended.contains(status) }
 }
 
 /// requirements_proof chega como lista OU como {list:[...]} — aceita os dois
 struct ReqProofWrap: Decodable {
     let items: [ReqProof]
+    /// nil = o Mac ainda não publicou o requirements.json (o desktop trata igual: tudo "sem prova")
+    let list: [ReqProof]?
+    init(items: [ReqProof]?) { self.items = items ?? []; self.list = items }
     init(from decoder: Decoder) throws {
-        if let arr = try? [ReqProof](from: decoder) { items = arr; return }
+        if let arr = try? [ReqProof](from: decoder) { items = arr; list = arr; return }
         struct W: Decodable { let list: [ReqProof]? }
-        items = (try? W(from: decoder).list) ?? []
+        let l = try? W(from: decoder).list
+        items = l ?? []; list = l
     }
 }
-struct ReqProof: Decodable {
+struct ReqProof: Decodable, Equatable {
     let req: String?
     let status: String?
     let evidence: [String]?
+    var note: String? = nil
 }
 
 struct FeedItem: Identifiable, Decodable {
@@ -112,6 +131,16 @@ struct ArtifactMeta: Identifiable, Decodable {
     let storagePath: String
     var id: String { storagePath }
     enum CodingKeys: String, CodingKey { case name, kind, storagePath = "storage_path" }
+    var isVideo: Bool { kind == "video" || [".mp4", ".mov", ".m4v", ".webm"].contains { name.lowercased().hasSuffix($0) } }
+    var isImage: Bool { !isVideo && (kind == "image" || [".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic"].contains { name.lowercased().hasSuffix($0) }) }
+}
+
+struct Project: Identifiable, Decodable, Equatable {
+    let id: String
+    let name: String
+    let teamId: String?
+    let repoRemote: String?
+    enum CodingKeys: String, CodingKey { case id, name, teamId = "team_id", repoRemote = "repo_remote" }
 }
 
 struct Activity: Identifiable, Decodable {
@@ -128,7 +157,7 @@ struct Epic: Identifiable, Decodable {
     let name: String
 }
 
-struct Question: Identifiable, Decodable {
+struct Question: Identifiable, Decodable, Equatable {
     let id: String
     let taskId: String?
     let agent: String
@@ -137,7 +166,7 @@ struct Question: Identifiable, Decodable {
     let createdAt: String
     let task: EmbeddedTask?
 
-    struct EmbeddedTask: Decodable {
+    struct EmbeddedTask: Decodable, Equatable {
         let title: String
         let assignee: String?
         let createdBy: String?
@@ -150,6 +179,7 @@ struct Question: Identifiable, Decodable {
         case createdAt = "created_at"
         case task = "tasks"
     }
+    var isTeto: Bool { Teto.isTeto(agent: agent, options: options) }
 }
 
 extension String: @retroactive Identifiable { public var id: String { self } }

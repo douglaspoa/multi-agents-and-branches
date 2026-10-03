@@ -8,6 +8,8 @@ targets:
     type: application
     platform: iOS
     sources: [Constellation]
+    scheme:
+      testTargets: [ConstellationTests, ConstellationUITests]
     entitlements:
       path: Constellation/Constellation.entitlements
       properties:
@@ -16,9 +18,13 @@ targets:
       path: Constellation/Info.plist
       properties:
         CFBundleDisplayName: Starfork
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UIUserInterfaceStyle: Dark
         ITSAppUsesNonExemptEncryption: false
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true   # DEBUG: nuvem falsa em 127.0.0.1 (mock-supabase.mjs); não abre nada da internet
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [dev.constellation.refresh]
         NSMicrophoneUsageDescription: "Responder aos agentes por voz — sua fala vira texto no campo de resposta."
@@ -26,8 +32,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.constellation.mobile
-        MARKETING_VERSION: "0.3"
-        CURRENT_PROJECT_VERSION: "3"
+        MARKETING_VERSION: "0.4"
+        CURRENT_PROJECT_VERSION: "4"
         SWIFT_VERSION: "5.9"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
@@ -35,3 +41,39 @@ targets:
         # pessoal do Apple ID logado no Xcode (grátis, perfil de 7 dias)
         CODE_SIGN_STYLE: Automatic
         DEVELOPMENT_TEAM: SUB6889LA9   # Personal Team do Douglas (grátis, perfil 7 dias)
+
+  # regras puras (portão de prova ≡ desktop por fixture dourado, presença, backoff, avisos) — xcodebuild test
+  ConstellationTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - ConstellationTests
+      # fontes do DESKTOP copiadas pro bundle (o simulador não pode ler ~/Documents — o macOS pede permissão e trava)
+      - path: ../../tests/fixtures/proof-gate-golden.json
+        buildPhase: resources
+      - path: ../../app/src/js/00-util.js
+        buildPhase: resources
+    dependencies:
+      - target: Constellation
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.constellation.mobile.tests
+        SWIFT_VERSION: "5.9"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: SUB6889LA9
+  # fluxos de ponta a ponta contra a nuvem FALSA (mock/mock-supabase.mjs) — prints em SHOTS_DIR
+  ConstellationUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [ConstellationUITests]
+    dependencies:
+      - target: Constellation
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: dev.constellation.mobile.uitests
+        SWIFT_VERSION: "5.9"
+        TEST_TARGET_NAME: Constellation
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: SUB6889LA9

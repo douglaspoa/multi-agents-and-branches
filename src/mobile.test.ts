@@ -370,6 +370,7 @@ test("varredura: estado de tarefa que acabou é limpo; simulador Starfork órfã
   const sims = [
     { udid: "PESSOA", name: "iPhone 17", state: "Booted" }, { udid: "VIVO", name: simName(safeId("viva")), state: "Booted" },
     { udid: "MORTO", name: simName(safeId("morta")), state: "Booted" }, { udid: "ORFAO", name: "Starfork-sumiu-abc123", state: "Shutdown" },
+    { udid: "BATIZADO", name: "Starfork-mobile-dev", state: "Booted" }, // nome dado pela pessoa: não é do Starfork
   ];
   const gone = new Set<string>();
   const f = fakeDeps(home, (cmd, args) => {
@@ -382,7 +383,7 @@ test("varredura: estado de tarefa que acabou é limpo; simulador Starfork órfã
   const done = await mobileSweep(f.deps);
   assert.ok(f.calls.includes("xcrun simctl delete MORTO"), "tarefa sem worktree: apaga");
   assert.ok(f.calls.includes("xcrun simctl delete ORFAO"), "órfão sem dono: apaga");
-  assert.ok(!f.calls.some((x) => /delete (VIVO|PESSOA)/.test(x)), "tarefa viva e simulador da pessoa ficam");
+  assert.ok(!f.calls.some((x) => /delete (VIVO|PESSOA|BATIZADO)/.test(x)), "tarefa viva e simulador da pessoa (mesmo com 'Starfork-' no nome) ficam");
   assert.ok(!existsSync(join(home, `.constellation/mobile/tasks/${safeId("morta")}.json`)));
   assert.equal(done.length, 2);
 });

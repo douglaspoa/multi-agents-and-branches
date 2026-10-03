@@ -9,15 +9,22 @@
 /* Begin PBXBuildFile section */
 		0444AAF8100278E68229CB88 /* CentralView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C676F8EF1536EC2AA4735422 /* CentralView.swift */; };
 		0F40468E0017FE99509F558F /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54FEA05F261C25A7749DFF00 /* SettingsView.swift */; };
+		110A2849A912B17287D47F56 /* LiveViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F86A1B17C4E6FDC92C397AD3 /* LiveViews.swift */; };
+		1111C58BF97970177AF41F56 /* proof-gate-golden.json in Resources */ = {isa = PBXBuildFile; fileRef = 49FC84A2FB9FD6AD07D8E63C /* proof-gate-golden.json */; };
+		1C3D9DDCA762CBAD00DED32A /* FlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0AF5DEE73294ED2B4F12AC2 /* FlowTests.swift */; };
 		2A162FBF5119DEE9ED6A94A8 /* TaskDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */; };
 		2EF14D8005488AB7157C4276 /* ConstellationApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDA0728D17FC058100F378C6 /* ConstellationApp.swift */; };
 		3B24267411CD08C3A61F1312 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24E3911EDDDC2995CFB26A47 /* Components.swift */; };
+		5156F36885CA2C8BBFEB4F15 /* LogicTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 609A30E9E4057C71D2A870A9 /* LogicTests.swift */; };
 		5334AF074F3E4E2B88BB9A05 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */; };
+		5CB411DB3ECA6327F76891BB /* Logic.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B0F622175E7CE49CFDDEC23 /* Logic.swift */; };
 		5DF9EBD5B461AB97C56C851C /* NewTaskView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */; };
+		6B4BFCC838F18D50A7000596 /* Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9641337023750DFBE52FA35B /* Sync.swift */; };
 		806AAE9A14135509032F8A97 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7812C9C5511C7D9F8842315 /* OnboardingView.swift */; };
 		82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */; };
 		B6F6997F1728F5A214E436DA /* Speech.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9A1E6F93A2CF05DA5CCB65 /* Speech.swift */; };
 		C179EC5E709344409D7B782F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 387991461E9C1C80C2CB9F32 /* Theme.swift */; };
+		C73430DC945A4CE56D725829 /* 00-util.js in Resources */ = {isa = PBXBuildFile; fileRef = 32A92CF2125FCD43C94A39F5 /* 00-util.js */; };
 		CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15609A2FE9DB55DA327F7617 /* PushManager.swift */; };
 		D012A516A9B7287637A747EA /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6D1939927FD6490D5CD700 /* TeamView.swift */; };
 		D3C533444B71C46AA35E4976 /* Supa.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192B4419693C35BD2702929E /* Supa.swift */; };
@@ -25,39 +32,94 @@
 		EFCA55ED8B91B4462E50EC04 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DEC089E05D5B5941A779A6FC /* Assets.xcassets */; };
 		F56813BE6263E24BE93B4D69 /* Skeleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */; };
 		FACF0E792D6A88F6DE4C4821 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4394FB044411B6D91726BA1E /* TasksView.swift */; };
+		FE49C197EB663DE97E8BFE2D /* Realtime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79C583A61E2361184B64A40A /* Realtime.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2A9A5166373D29F87A22C185 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EC57D79E5D7731A28D7917E3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0FF7E273784683E0EAE68CFA;
+			remoteInfo = Constellation;
+		};
+		EAA423003D0A8CDB17AFA9C6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = EC57D79E5D7731A28D7917E3 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 0FF7E273784683E0EAE68CFA;
+			remoteInfo = Constellation;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		15609A2FE9DB55DA327F7617 /* PushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushManager.swift; sourceTree = "<group>"; };
 		192B4419693C35BD2702929E /* Supa.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supa.swift; sourceTree = "<group>"; };
+		1B0F622175E7CE49CFDDEC23 /* Logic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logic.swift; sourceTree = "<group>"; };
 		24E3911EDDDC2995CFB26A47 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		2E1276112CC733394FAC4521 /* ConstellationTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ConstellationTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		2F9A1E6F93A2CF05DA5CCB65 /* Speech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Speech.swift; sourceTree = "<group>"; };
+		32A92CF2125FCD43C94A39F5 /* 00-util.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = "00-util.js"; sourceTree = "<group>"; };
 		33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewTaskView.swift; sourceTree = "<group>"; };
 		342ABDAB30C51C6523955582 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		35F8F6081FFC033EA789D55E /* QuestionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuestionsView.swift; sourceTree = "<group>"; };
 		387991461E9C1C80C2CB9F32 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		4394FB044411B6D91726BA1E /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
+		49FC84A2FB9FD6AD07D8E63C /* proof-gate-golden.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "proof-gate-golden.json"; sourceTree = "<group>"; };
 		4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
 		54FEA05F261C25A7749DFF00 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		55D4471DFA4C96C34D2F3800 /* Constellation.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Constellation.entitlements; sourceTree = "<group>"; };
 		5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		609A30E9E4057C71D2A870A9 /* LogicTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LogicTests.swift; sourceTree = "<group>"; };
+		79C583A61E2361184B64A40A /* Realtime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Realtime.swift; sourceTree = "<group>"; };
 		7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		7F06584523C9DFF7B3567892 /* Constellation.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Constellation.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		9641337023750DFBE52FA35B /* Sync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sync.swift; sourceTree = "<group>"; };
 		A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Skeleton.swift; sourceTree = "<group>"; };
+		B0AF5DEE73294ED2B4F12AC2 /* FlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlowTests.swift; sourceTree = "<group>"; };
 		BDA0728D17FC058100F378C6 /* ConstellationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstellationApp.swift; sourceTree = "<group>"; };
 		C676F8EF1536EC2AA4735422 /* CentralView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CentralView.swift; sourceTree = "<group>"; };
 		DEC089E05D5B5941A779A6FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F7812C9C5511C7D9F8842315 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		F7C12F62FF8501CAFF1121A3 /* ConstellationUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ConstellationUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F86A1B17C4E6FDC92C397AD3 /* LiveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViews.swift; sourceTree = "<group>"; };
 		FA6D1939927FD6490D5CD700 /* TeamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
+		15C05ADB94972AEF5E63259F /* ConstellationTests */ = {
+			isa = PBXGroup;
+			children = (
+				609A30E9E4057C71D2A870A9 /* LogicTests.swift */,
+			);
+			path = ConstellationTests;
+			sourceTree = "<group>";
+		};
 		2AAF1D11B2EEA3B86DACCEB7 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				7F06584523C9DFF7B3567892 /* Constellation.app */,
+				2E1276112CC733394FAC4521 /* ConstellationTests.xctest */,
+				F7C12F62FF8501CAFF1121A3 /* ConstellationUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		3AA2852D1F2DE5EED2D7AA54 /* ConstellationUITests */ = {
+			isa = PBXGroup;
+			children = (
+				B0AF5DEE73294ED2B4F12AC2 /* FlowTests.swift */,
+			);
+			path = ConstellationUITests;
+			sourceTree = "<group>";
+		};
+		61BD8C68D426842440BCD7BF /* js */ = {
+			isa = PBXGroup;
+			children = (
+				32A92CF2125FCD43C94A39F5 /* 00-util.js */,
+			);
+			name = js;
+			path = ../../app/src/js;
 			sourceTree = "<group>";
 		};
 		7874AFC0717C55E1950504D7 /* Constellation */ = {
@@ -69,16 +131,20 @@
 				55D4471DFA4C96C34D2F3800 /* Constellation.entitlements */,
 				BDA0728D17FC058100F378C6 /* ConstellationApp.swift */,
 				342ABDAB30C51C6523955582 /* Info.plist */,
+				F86A1B17C4E6FDC92C397AD3 /* LiveViews.swift */,
+				1B0F622175E7CE49CFDDEC23 /* Logic.swift */,
 				5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */,
 				33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */,
 				F7812C9C5511C7D9F8842315 /* OnboardingView.swift */,
 				15609A2FE9DB55DA327F7617 /* PushManager.swift */,
 				35F8F6081FFC033EA789D55E /* QuestionsView.swift */,
+				79C583A61E2361184B64A40A /* Realtime.swift */,
 				7B6BEFE6FD457F6DFFD94D85 /* RootView.swift */,
 				54FEA05F261C25A7749DFF00 /* SettingsView.swift */,
 				A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */,
 				2F9A1E6F93A2CF05DA5CCB65 /* Speech.swift */,
 				192B4419693C35BD2702929E /* Supa.swift */,
+				9641337023750DFBE52FA35B /* Sync.swift */,
 				4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */,
 				4394FB044411B6D91726BA1E /* TasksView.swift */,
 				FA6D1939927FD6490D5CD700 /* TeamView.swift */,
@@ -91,8 +157,21 @@
 			isa = PBXGroup;
 			children = (
 				7874AFC0717C55E1950504D7 /* Constellation */,
+				15C05ADB94972AEF5E63259F /* ConstellationTests */,
+				3AA2852D1F2DE5EED2D7AA54 /* ConstellationUITests */,
+				CB101B0A33A065535BF0775A /* fixtures */,
+				61BD8C68D426842440BCD7BF /* js */,
 				2AAF1D11B2EEA3B86DACCEB7 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		CB101B0A33A065535BF0775A /* fixtures */ = {
+			isa = PBXGroup;
+			children = (
+				49FC84A2FB9FD6AD07D8E63C /* proof-gate-golden.json */,
+			);
+			name = fixtures;
+			path = ../../tests/fixtures;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -116,6 +195,43 @@
 			productReference = 7F06584523C9DFF7B3567892 /* Constellation.app */;
 			productType = "com.apple.product-type.application";
 		};
+		2D43FAAE790E1872311AC93A /* ConstellationUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8FFAB82498DE55FF27B2E6F2 /* Build configuration list for PBXNativeTarget "ConstellationUITests" */;
+			buildPhases = (
+				0F594D3CE0F3222F417F428A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				C9A474FDC7104483AAA0C5EB /* PBXTargetDependency */,
+			);
+			name = ConstellationUITests;
+			packageProductDependencies = (
+			);
+			productName = ConstellationUITests;
+			productReference = F7C12F62FF8501CAFF1121A3 /* ConstellationUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		5CA9197ED438CB25DF9A5BDD /* ConstellationTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D89B7CF1C6A04C790E6E0B18 /* Build configuration list for PBXNativeTarget "ConstellationTests" */;
+			buildPhases = (
+				2D4FFF0EBCDF9A4049B808D4 /* Sources */,
+				246808048C3C1F212E11CC6E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A96CE76CD35812532EBE6B25 /* PBXTargetDependency */,
+			);
+			name = ConstellationTests;
+			packageProductDependencies = (
+			);
+			productName = ConstellationTests;
+			productReference = 2E1276112CC733394FAC4521 /* ConstellationTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -126,6 +242,15 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					0FF7E273784683E0EAE68CFA = {
+						DevelopmentTeam = SUB6889LA9;
+						ProvisioningStyle = Automatic;
+					};
+					2D43FAAE790E1872311AC93A = {
+						DevelopmentTeam = SUB6889LA9;
+						ProvisioningStyle = Automatic;
+						TestTargetID = 0FF7E273784683E0EAE68CFA;
+					};
+					5CA9197ED438CB25DF9A5BDD = {
 						DevelopmentTeam = SUB6889LA9;
 						ProvisioningStyle = Automatic;
 					};
@@ -146,11 +271,22 @@
 			projectRoot = "";
 			targets = (
 				0FF7E273784683E0EAE68CFA /* Constellation */,
+				5CA9197ED438CB25DF9A5BDD /* ConstellationTests */,
+				2D43FAAE790E1872311AC93A /* ConstellationUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		246808048C3C1F212E11CC6E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C73430DC945A4CE56D725829 /* 00-util.js in Resources */,
+				1111C58BF97970177AF41F56 /* proof-gate-golden.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8093789CAD0313E409354215 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -162,6 +298,22 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		0F594D3CE0F3222F417F428A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1C3D9DDCA762CBAD00DED32A /* FlowTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2D4FFF0EBCDF9A4049B808D4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5156F36885CA2C8BBFEB4F15 /* LogicTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8664A6A685F3FD20BCAEB8D5 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -169,16 +321,20 @@
 				0444AAF8100278E68229CB88 /* CentralView.swift in Sources */,
 				3B24267411CD08C3A61F1312 /* Components.swift in Sources */,
 				2EF14D8005488AB7157C4276 /* ConstellationApp.swift in Sources */,
+				110A2849A912B17287D47F56 /* LiveViews.swift in Sources */,
+				5CB411DB3ECA6327F76891BB /* Logic.swift in Sources */,
 				82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */,
 				5DF9EBD5B461AB97C56C851C /* NewTaskView.swift in Sources */,
 				806AAE9A14135509032F8A97 /* OnboardingView.swift in Sources */,
 				CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */,
 				E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */,
+				FE49C197EB663DE97E8BFE2D /* Realtime.swift in Sources */,
 				5334AF074F3E4E2B88BB9A05 /* RootView.swift in Sources */,
 				0F40468E0017FE99509F558F /* SettingsView.swift in Sources */,
 				F56813BE6263E24BE93B4D69 /* Skeleton.swift in Sources */,
 				B6F6997F1728F5A214E436DA /* Speech.swift in Sources */,
 				D3C533444B71C46AA35E4976 /* Supa.swift in Sources */,
+				6B4BFCC838F18D50A7000596 /* Sync.swift in Sources */,
 				2A162FBF5119DEE9ED6A94A8 /* TaskDetailView.swift in Sources */,
 				FACF0E792D6A88F6DE4C4821 /* TasksView.swift in Sources */,
 				D012A516A9B7287637A747EA /* TeamView.swift in Sources */,
@@ -188,6 +344,19 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		A96CE76CD35812532EBE6B25 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0FF7E273784683E0EAE68CFA /* Constellation */;
+			targetProxy = EAA423003D0A8CDB17AFA9C6 /* PBXContainerItemProxy */;
+		};
+		C9A474FDC7104483AAA0C5EB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 0FF7E273784683E0EAE68CFA /* Constellation */;
+			targetProxy = 2A9A5166373D29F87A22C185 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
 		07F537C1087ED07A49B97D0A /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -196,14 +365,14 @@
 				CODE_SIGN_ENTITLEMENTS = Constellation/Constellation.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = SUB6889LA9;
 				INFOPLIST_FILE = Constellation/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.3;
+				MARKETING_VERSION = 0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -274,6 +443,46 @@
 			};
 			name = Debug;
 		};
+		7986CB1C9EF8FC82F8CEEB10 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = SUB6889LA9;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile.uitests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Constellation;
+			};
+			name = Debug;
+		};
+		8561CCD1F6F43602B0CA12D4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = SUB6889LA9;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile.uitests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Constellation;
+			};
+			name = Release;
+		};
 		9A7E3B19177C5EC5C8C7B0CC /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -281,18 +490,38 @@
 				CODE_SIGN_ENTITLEMENTS = Constellation/Constellation.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_TEAM = SUB6889LA9;
 				INFOPLIST_FILE = Constellation/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.3;
+				MARKETING_VERSION = 0.4;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		9D5D8048A9585ED2901D22BE /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = SUB6889LA9;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Constellation.app/Constellation";
 			};
 			name = Release;
 		};
@@ -352,6 +581,26 @@
 			};
 			name = Release;
 		};
+		FF8118EE91B322F39973EC22 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = SUB6889LA9;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile.tests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 5.9;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Constellation.app/Constellation";
+			};
+			name = Debug;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -369,6 +618,24 @@
 			buildConfigurations = (
 				07F537C1087ED07A49B97D0A /* Debug */,
 				9A7E3B19177C5EC5C8C7B0CC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		8FFAB82498DE55FF27B2E6F2 /* Build configuration list for PBXNativeTarget "ConstellationUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7986CB1C9EF8FC82F8CEEB10 /* Debug */,
+				8561CCD1F6F43602B0CA12D4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		D89B7CF1C6A04C790E6E0B18 /* Build configuration list for PBXNativeTarget "ConstellationTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FF8118EE91B322F39973EC22 /* Debug */,
+				9D5D8048A9585ED2901D22BE /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;

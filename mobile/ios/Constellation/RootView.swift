@@ -1,11 +1,14 @@
 import SwiftUI
+import UserNotifications
 
 /// Abas do redesign: Central · Minhas · Time · Conta — barra própria (pílula
 /// verde na aba ativa, badge de perguntas abertas na Central).
 struct RootView: View {
     @EnvironmentObject var supa: Supa
     @EnvironmentObject var router: PushRouter
-    @State private var openCount = 0
+    @EnvironmentObject var hub: SyncHub
+    /// perguntas abertas de demandas MINHAS (antes contava as do time inteiro)
+    private var openCount: Int { hub.myQuestions.count }
     @State private var tab: Int = {
         #if DEBUG
         switch ProcessInfo.processInfo.environment["DEMO_TAB"] {
@@ -43,16 +46,9 @@ struct RootView: View {
         .onChange(of: router.openTaskId) { _, id in
             if id != nil { tab = 0 } // Central abre o detalhe
         }
-        .task {
-            while !Task.isCancelled {
-                if let d = try? await supa.rest("questions?select=id&status=eq.open&limit=50"),
-                   let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]] {
-                    await MainActor.run { openCount = arr.count }
-                }
-                await PushManager.checkQuestionsAndNotify()
-                try? await Task.sleep(for: .seconds(7))
-            }
-        }
+        .toastHost()
+        .onAppear { PushManager.requestAuthorization() }   // já logado: a permissão vem com contexto
+        .onChange(of: openCount) { _, n in UNUserNotificationCenter.current().setBadgeCount(n) }
     }
 
     private var tabBar: some View {

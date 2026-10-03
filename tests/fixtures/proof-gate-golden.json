@@ -1,0 +1,279 @@
+[
+  {
+    "name": "tudo provado",
+    "reqs": [
+      "frete no carrinho",
+      "cupom inválido"
+    ],
+    "list": [
+      {
+        "req": "frete no carrinho",
+        "status": "done",
+        "evidence": [
+          "a.png"
+        ]
+      },
+      {
+        "req": "cupom inválido",
+        "status": "done",
+        "evidence": [
+          "b.png"
+        ]
+      }
+    ],
+    "norm": [
+      "frete no carrinho",
+      "cupom invalido"
+    ],
+    "rows": [
+      {
+        "text": "frete no carrinho",
+        "st": "ok",
+        "evidence": [
+          "a.png"
+        ],
+        "note": ""
+      },
+      {
+        "text": "cupom inválido",
+        "st": "ok",
+        "evidence": [
+          "b.png"
+        ],
+        "note": ""
+      }
+    ],
+    "gate": "proven",
+    "missing": []
+  },
+  {
+    "name": "feito sem arquivo",
+    "reqs": [
+      "a",
+      "b"
+    ],
+    "list": [
+      {
+        "req": "a",
+        "status": "done",
+        "evidence": [
+          "a.png"
+        ]
+      },
+      {
+        "req": "b",
+        "status": "done",
+        "evidence": []
+      }
+    ],
+    "norm": [
+      "a",
+      "b"
+    ],
+    "rows": [
+      {
+        "text": "a",
+        "st": "ok",
+        "evidence": [
+          "a.png"
+        ],
+        "note": ""
+      },
+      {
+        "text": "b",
+        "st": "ok",
+        "evidence": [],
+        "note": ""
+      }
+    ],
+    "gate": "unproven",
+    "missing": [
+      "b"
+    ]
+  },
+  {
+    "name": "sem requirements.json",
+    "reqs": [
+      "a",
+      "b"
+    ],
+    "list": null,
+    "norm": [
+      "a",
+      "b"
+    ],
+    "rows": [
+      {
+        "text": "a",
+        "st": "na",
+        "evidence": [],
+        "note": ""
+      },
+      {
+        "text": "b",
+        "st": "na",
+        "evidence": [],
+        "note": ""
+      }
+    ],
+    "gate": "unproven",
+    "missing": [
+      "a",
+      "b"
+    ]
+  },
+  {
+    "name": "casa por índice (mesmo tamanho)",
+    "reqs": [
+      "Botão de login",
+      "Sessão criada"
+    ],
+    "list": [
+      {
+        "req": "login com Apple",
+        "status": "done",
+        "evidence": [
+          "x.png"
+        ]
+      },
+      {
+        "req": "token salvo",
+        "status": "blocked",
+        "evidence": [],
+        "note": "sem conta"
+      }
+    ],
+    "norm": [
+      "botao de login",
+      "sessao criada"
+    ],
+    "rows": [
+      {
+        "text": "Botão de login",
+        "st": "ok",
+        "evidence": [
+          "x.png"
+        ],
+        "note": ""
+      },
+      {
+        "text": "Sessão criada",
+        "st": "blk",
+        "evidence": [],
+        "note": "sem conta"
+      }
+    ],
+    "gate": "unproven",
+    "missing": [
+      "Sessão criada"
+    ]
+  },
+  {
+    "name": "casa por \"contém\" sem acento/caixa",
+    "reqs": [
+      "Cupom INVÁLIDO mostra erro",
+      "testes passando"
+    ],
+    "list": [
+      {
+        "req": "cupom invalido mostra erro em pt-BR",
+        "status": "done",
+        "evidence": [
+          "c.png"
+        ]
+      }
+    ],
+    "norm": [
+      "cupom invalido mostra erro",
+      "testes passando"
+    ],
+    "rows": [
+      {
+        "text": "Cupom INVÁLIDO mostra erro",
+        "st": "ok",
+        "evidence": [
+          "c.png"
+        ],
+        "note": ""
+      },
+      {
+        "text": "testes passando",
+        "st": "na",
+        "evidence": [],
+        "note": ""
+      }
+    ],
+    "gate": "unproven",
+    "missing": [
+      "testes passando"
+    ]
+  },
+  {
+    "name": "bloqueado com nota",
+    "reqs": [
+      "modo escuro"
+    ],
+    "list": [
+      {
+        "req": "modo escuro",
+        "status": "blocked",
+        "evidence": [],
+        "note": "falta o tema"
+      }
+    ],
+    "norm": [
+      "modo escuro"
+    ],
+    "rows": [
+      {
+        "text": "modo escuro",
+        "st": "blk",
+        "evidence": [],
+        "note": "falta o tema"
+      }
+    ],
+    "gate": "unproven",
+    "missing": [
+      "modo escuro"
+    ]
+  },
+  {
+    "name": "sem requisitos",
+    "reqs": [],
+    "list": [],
+    "norm": [],
+    "rows": [],
+    "gate": "none",
+    "missing": []
+  },
+  {
+    "name": "pontuação e espaços",
+    "reqs": [
+      "  API — retorna 200!  "
+    ],
+    "list": [
+      {
+        "req": "api retorna 200",
+        "status": "done",
+        "evidence": [
+          "t.md"
+        ]
+      }
+    ],
+    "norm": [
+      "api retorna 200"
+    ],
+    "rows": [
+      {
+        "text": "  API — retorna 200!  ",
+        "st": "ok",
+        "evidence": [
+          "t.md"
+        ],
+        "note": ""
+      }
+    ],
+    "gate": "proven",
+    "missing": []
+  }
+]

@@ -5,20 +5,21 @@ import SwiftUI
 struct TasksView: View {
     @EnvironmentObject var supa: Supa
     @EnvironmentObject var router: PushRouter
+    @EnvironmentObject var hub: SyncHub
     var mine = false
-    @State private var tasks: [CloudTask] = []
     @State private var profiles: [String: Profile] = [:]
-    @State private var loaded = false
-    @State private var error = ""
     @State private var showNew = false
     @State private var openTaskId: String? = nil
-    @State private var openQ: Set<String> = []
     @State private var filter = 0   // 0 rodando · 1 review · 2 backlog · 3 feitas
 
+    /// da sincronia única (antes: laço próprio de 6s, o terceiro igual no app)
+    private var tasks: [CloudTask] { mine ? hub.visible.filter { hub.isMine($0) } : hub.visible }
+    private var loaded: Bool { hub.loaded }
+    private var openQ: Set<String> { Set(hub.myQuestions.compactMap(\.taskId)) }
     private var waiting: [CloudTask] { tasks.filter { openQ.contains($0.id) && $0.flag != "closed" } }
-    private var doing: [CloudTask] { tasks.filter { !openQ.contains($0.id) && $0.flag != "closed" && ["running", "thinking", "queued", "plan-review", "requested", "error", "conflict"].contains($0.status) } }
+    private var doing: [CloudTask] { tasks.filter { !openQ.contains($0.id) && $0.flag != "closed" && ["running", "thinking", "queued", "plan-review", "requested", "error", "conflict", "paused"].contains($0.status) } }
     private var review: [CloudTask] { tasks.filter { $0.flag != "closed" && (["review", "delivered"].contains($0.status) || ($0.prUrl != nil && !["merged", "done"].contains($0.status))) } }
-    private var done: [CloudTask] { tasks.filter { $0.flag == "closed" || ["merged", "done"].contains($0.status) } }
+    private var done: [CloudTask] { tasks.filter { $0.isEnded } }
     private var backlog: [CloudTask] { tasks.filter { $0.flag != "closed" && ["backlog", "draft"].contains($0.status) } }
     private var lists: [[CloudTask]] { [waiting + doing, review, backlog, done] }
     private let names = ["rodando", "review", "backlog", "feitas"]
@@ -31,8 +32,9 @@ struct TasksView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     PageHeader(kicker: mine ? "Sua órbita" : "Quadro", title: mine ? "Minhas" : "Quadro",
                                sub: loaded ? "\(tasks.count) tarefa\(tasks.count == 1 ? "" : "s") · \(lists[0].count) rodando agora" : "sincronizando…")
+                    ConnBanner(compact: true)
+                    ProjectChips()
                     if !loaded { BoardSkeleton() } else {
-                        if !error.isEmpty { Text(error).font(.footnote).foregroundStyle(T.warn) }
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(0..<4, id: \.self) { i in
@@ -53,7 +55,7 @@ struct TasksView: View {
                 .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 96)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .refreshable { await load() }
+            .refreshable { await hub.refresh() }
         }
         .overlay(alignment: .bottomTrailing) {
             Button { showNew = true } label: {
@@ -73,13 +75,9 @@ struct TasksView: View {
         .onChange(of: router.openTaskId) { _, id in
             if mine, let id { openTaskId = id; router.openTaskId = nil }
         }
-        .task {
-            await load()
+        .task(id: tasks.count) {
             if mine, let id = router.openTaskId { openTaskId = id; router.openTaskId = nil }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(6))
-                await load()
-            }
+            if !mine { await loadProfiles() }
         }
     }
 
@@ -90,7 +88,9 @@ struct TasksView: View {
         Button { openTaskId = t.id } label: {
             VStack(alignment: .leading, spacing: 9) {
                 if isWaiting {
-                    Text("⏳ o agente fez uma pergunta — toque pra responder").font(.mono(10.5, .bold)).foregroundStyle(T.warn)
+                    let teto = hub.myQuestions.contains { $0.taskId == t.id && $0.isTeto }
+                    Text(teto ? "⏸ parou no teto de custo — continuar ou parar?" : "⏳ o agente fez uma pergunta — toque pra responder")
+                        .font(.mono(10.5, .bold)).foregroundStyle(teto ? T.bad : T.warn)
                 }
                 Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -118,29 +118,14 @@ struct TasksView: View {
         .buttonStyle(.plain)
     }
 
-    private func load() async {
-        do {
-            let me = supa.session?.userId ?? ""
-            let filter = mine ? "&or=(assignee.eq.\(me),created_by.eq.\(me))" : ""
-            if let qd = try? await supa.rest("questions?select=task_id&status=eq.open&limit=50"),
-               let qs = try? JSONSerialization.jsonObject(with: qd) as? [[String: Any]] {
-                let ids = Set(qs.compactMap { $0["task_id"] as? String })
-                await MainActor.run { openQ = ids }
-            }
-            let data = try await supa.rest("tasks?select=id,title,status,flag,branch,pr_url,cost_usd,assignee,created_by,updated_at,spec,requirements_proof\(filter)&order=updated_at.desc&limit=150")
-            let ts = try JSONDecoder().decode([CloudTask].self, from: data)
-            var profs = profiles
-            let missing = Set(ts.compactMap { $0.assignee ?? $0.createdBy }).subtracting(profs.keys)
-            if !mine, !missing.isEmpty {
-                let list = missing.map { "\"\($0)\"" }.joined(separator: ",")
-                if let pd = try? await supa.rest("profiles?select=user_id,name,email&user_id=in.(\(list))"),
-                   let ps = try? JSONDecoder().decode([Profile].self, from: pd) {
-                    for p in ps { profs[p.userId] = p }
-                }
-            }
-            await MainActor.run { self.tasks = ts; self.profiles = profs; self.loaded = true; self.error = "" }
-        } catch {
-            await MainActor.run { if self.loaded { self.error = error.localizedDescription }; self.loaded = true }
+    /// nomes de quem é cada cartão (só no quadro do time)
+    private func loadProfiles() async {
+        let missing = Set(tasks.compactMap { $0.assignee ?? $0.createdBy }).subtracting(profiles.keys)
+        guard !missing.isEmpty else { return }
+        let list = missing.map { "\"\($0)\"" }.joined(separator: ",")
+        if let pd = try? await supa.rest("profiles?select=user_id,name,email&user_id=in.(\(list))"),
+           let ps = try? JSONDecoder().decode([Profile].self, from: pd) {
+            for p in ps { profiles[p.userId] = p }
         }
     }
 }

@@ -300,6 +300,9 @@ export const safeId = (id: string) => {
 };
 /** Nome do simulador da tarefa (recebe o id SEGURO). */
 export const simName = (safe: string) => `Starfork-${safe}`;
+/** É um simulador que o Starfork CRIOU? Só o formato exato `Starfork-<texto>-<hash de 6>` (safeId). Antes qualquer
+ *  "Starfork-*" contava — um simulador que a pessoa batizou "Starfork-mobile-dev" sumia na varredura do boot. */
+export const isOurSimName = (name: string) => /^Starfork-[A-Za-z0-9_-]{1,40}-[0-9a-f]{6}$/.test(String(name ?? ""));
 const mobileDir = (d: Pick<MobileDeps, "home">) => join(d.home, ".constellation", "mobile");
 const tasksDir = (d: Pick<MobileDeps, "home">) => join(mobileDir(d), "tasks");
 const taskStateFile = (d: Pick<MobileDeps, "home">, safe: string) => join(tasksDir(d), safe + ".json");
@@ -1018,7 +1021,7 @@ export async function mobileSweep(deps: MobileDeps): Promise<string[]> {
     const r = await deps.exec("xcrun", ["simctl", "list", "-j", "devices"], { env: xcodeEnv(deps), timeoutMs: 15_000 });
     if (r.code === 0) {
       for (const s of listSims(r.stdout)) {
-        if (!/^Starfork-/.test(s.name) || claimed.has(s.udid) || claimed.has(s.name)) continue;
+        if (!isOurSimName(s.name) || claimed.has(s.udid) || claimed.has(s.name)) continue;
         await deps.exec("xcrun", ["simctl", "shutdown", s.udid], { env: xcodeEnv(deps), timeoutMs: 60_000 });
         const del = await deps.exec("xcrun", ["simctl", "delete", s.udid], { env: xcodeEnv(deps), timeoutMs: 60_000 });
         if (del.code === 0) done.push(`simulador órfão ${s.name} apagado`);

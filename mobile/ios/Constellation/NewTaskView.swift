@@ -5,6 +5,7 @@ import SwiftUI
 /// Grava status='requested' na nuvem — o Mac do dono assume e roda.
 struct NewTaskView: View {
     @EnvironmentObject var supa: Supa
+    @EnvironmentObject var hub: SyncHub
     @Environment(\.dismiss) var dismiss
     var onCreated: (String) -> Void
 
@@ -12,7 +13,8 @@ struct NewTaskView: View {
         let id: String
         let name: String
         let teamId: String
-        enum CodingKeys: String, CodingKey { case id, name, teamId = "team_id" }
+        let repoRemote: String?
+        enum CodingKeys: String, CodingKey { case id, name, teamId = "team_id", repoRemote = "repo_remote" }
     }
 
     enum Mode: String, CaseIterable, Identifiable {
@@ -128,6 +130,8 @@ struct NewTaskView: View {
                             Text(m.name + (m.recommended ? " — recomendado" : "") + (m.id == AIModel.userDefault ? " (seu padrão)" : "")).tag(m.id)
                         }
                     }
+                    // o Mac vai conseguir assumir? (só atende o projeto ABERTO nele — 42: cloudRemoteStartTick)
+                    if !projectId.isEmpty { ReachNote(reach: hub.reach(projectId: projectId)).listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)) }
                     if AIModel.userDefault.isEmpty {
                         Text("Sem IA padrão ainda — defina em Conta → IA padrão pra já vir marcada.").font(.caption2).foregroundStyle(T.dim)
                     }
@@ -149,7 +153,7 @@ struct NewTaskView: View {
                     .listRowBackground(T.accent.opacity(objective.isEmpty ? 0.3 : 1))
                     .foregroundStyle(.black)
                 } footer: {
-                    Text("O Starfork aberto no seu Mac assume em ~6s, cria a branch \(mode.branchType)/\(issue.isEmpty ? "" : issue.uppercased() + "-")… e roda o agente. Acompanhe ao vivo aqui.")
+                    Text(footer)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -161,6 +165,17 @@ struct NewTaskView: View {
         .preferredColorScheme(.dark)
     }
 
+    private var footer: String {
+        let branch = "\(mode.branchType)/\(issue.isEmpty ? "" : issue.uppercased() + "-")…"
+        switch projectId.isEmpty ? MacReach.unknown : hub.reach(projectId: projectId) {
+        case .here: return "Seu Mac está online com este projeto aberto: assume em segundos, cria a branch \(branch) e roda o agente. Acompanhe ao vivo aqui."
+        case .offline: return "Seu Mac está offline: a demanda fica na fila e começa sozinha quando ele voltar (Starfork aberto com este projeto)."
+        case .otherProject(let p): return "Seu Mac está com \(p) aberto: a demanda começa quando você abrir este projeto no Starfork."
+        case .notOnMac: return "Nenhum Mac seu tem este projeto clonado: a demanda fica na fila até um Mac com ele abrir o Starfork."
+        case .unknown: return "O Starfork aberto no seu Mac assume em ~6s, cria a branch \(branch) e roda o agente. Acompanhe ao vivo aqui."
+        }
+    }
+
     private func addReq() {
         let r = newReq.trimmingCharacters(in: .whitespaces)
         guard !r.isEmpty else { return }
@@ -168,7 +183,7 @@ struct NewTaskView: View {
     }
 
     private func loadProjects() async {
-        if let d = try? await supa.rest("projects?select=id,name,team_id&order=name"),
+        if let d = try? await supa.rest("projects?select=id,name,team_id,repo_remote&order=name"),
            let ps = try? JSONDecoder().decode([Proj].self, from: d) {
             await MainActor.run {
                 projects = ps
@@ -205,6 +220,8 @@ struct NewTaskView: View {
                 "title": t, "status": "requested", "spec": spec,
             ])
             UserDefaults.standard.set(proj.id, forKey: "lastProject")
+            hub.toast = .init(text: hub.reachNote(hub.reach(projectId: proj.id), done: "demanda enviada — o Mac assume em segundos"), bad: false)
+            hub.wake()
             if let arr = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]], let id = arr.first?["id"] as? String {
                 dismiss(); onCreated(id)
             } else { dismiss(); onCreated("") }

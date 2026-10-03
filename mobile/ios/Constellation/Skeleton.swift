@@ -19,6 +19,7 @@ struct Shimmer: ViewModifier {
             )
             .clipped()
             .onAppear {
+                guard !T.still else { return }
                 withAnimation(.linear(duration: 1.15).repeatForever(autoreverses: false)) {
                     phase = 1.5
                 }
