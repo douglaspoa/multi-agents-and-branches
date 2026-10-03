@@ -384,7 +384,10 @@ function artPreviewHtml(name, c, taskId){
   const k=pvKind(name);
   if(k==='video' && taskId) return `<div class="pvvideo">${artVideoHtml(taskId, name)}</div>`; // não precisa ler o arquivo
   if(!c) return skeletonHtml('lista',{ n:6, compact:true, inline:true, label:'carregando a prévia' });
-  if(c.err) return `<div class="en-empty" style="color:var(--warn)">não consegui ler o arquivo: ${esc(c.err)}</div>`;
+  // erro em texto de gente (humanErr: catálogo de erros) — arquivo que sumiu diz isso, não a mensagem crua
+  if(c.err) return /não encontrado|not found|No such file/i.test(String(c.err))
+    ? `<div class="en-empty">arquivo não encontrado — ainda não foi gerado ou já foi removido</div>`
+    : `<div class="en-empty" style="color:var(--warn)">${esc(typeof humanErr==='function'?humanErr(c.err,'Não consegui ler o arquivo').msg:'não consegui ler o arquivo: '+c.err)}</div>`;
   if(k==='image' && c.dataUrl) return `<div class="pvimg"><img src="${c.dataUrl}" alt="${escA(name)}"></div>`;
   if(k==='pdf' && c.dataUrl) return `<iframe class="pvpdf" src="${c.dataUrl}#zoom=page-width" title="${escA(name)}"></iframe>`;
   const tx=c.text==null?null:String(c.text);

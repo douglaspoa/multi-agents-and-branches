@@ -5,6 +5,8 @@ const TASK_DONE_ST=['merged','done'];
 function taskIsDone(t){ return !!t && (t.flag==='closed' || TASK_DONE_ST.includes(t.status)); }
 function prNumOf(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
 function agoShort(ms){ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
+// duração desconhecida (sem eventos) = '' — nunca "0 min" como se a tarefa não tivesse levado tempo
+function fmtDurKnown(ms){ return ms>0?fmtDurMs(ms):''; }
 function fmtDurMs(ms){ ms=Math.max(0,ms||0); const m=Math.round(ms/60000); if(m<60) return m+' min'; const h=Math.floor(m/60); return h<48?`${h}h${String(m%60).padStart(2,'0')}`:Math.round(h/24)+' dias'; }
 function taskDurationMs(t){ const evs=eventsOf(t.id); const last=evs.length?+new Date(evs[evs.length-1].ts):0; const a=taskTs(t); return last&&a?last-a:0; }
 // ---- requisitos com estado de prova (mesma regra do resumo/lateral) ----
@@ -66,7 +68,7 @@ function flowDemandCard(t){
     : (done ? `<button class="btn sm" data-dcopen="${escA(t.id)}">ver entrega</button>` : '');
   const segs=[1,2,3,4,5].map(i=>`<i class="${i<=ph?((asking.length&&i===ph)?'on warn':'on'):''}"></i>`).join('');
   const foot = done
-    ? `<span class="dc-meta">${prN?`<span class="dc-pr" data-lk="${escA(t.prUrl)}">PR #${prN} ${IC.extlink?icEm(IC.extlink):''}</span>`:''}${nImg?`<span>${nImg} prova${nImg===1?'':'s'}</span>`:''}${nDoc?`<span>${nDoc} doc${nDoc===1?'':'s'}</span>`:''}${rows.length?`<span>${okN}/${rows.length} requisitos provados</span>`:''}<span>${esc(fmtDurMs(taskDurationMs(t)))}</span></span>`
+    ? `<span class="dc-meta">${prN?`<span class="dc-pr" data-lk="${escA(t.prUrl)}">PR #${prN} ${IC.extlink?icEm(IC.extlink):''}</span>`:''}${nImg?`<span>${nImg} prova${nImg===1?'':'s'}</span>`:''}${nDoc?`<span>${nDoc} doc${nDoc===1?'':'s'}</span>`:''}${rows.length?`<span>${okN}/${rows.length} requisitos provados</span>`:''}${(d=>d?`<span>${esc(d)}</span>`:'')(fmtDurKnown(taskDurationMs(t)))}</span>`
     : `<span class="seg5">${segs}</span><span class="dc-pct" data-sum="${escA(t.id)}" title="resumo do que já foi feito">${pct}%</span><span class="dc-msg">${msg}</span>`;
   // F2/F3: tarefa de épico mantém a identidade depois de começar — selo "◆ nome · onda N" + borda na cor do épico
   const epId=(t.epic&&t.epic.epicId)||'';
@@ -467,7 +469,7 @@ function fwRenderEntrega(t, main){
   const docsHtml = listed.length ? listed.map(a=>`<div class="en-doc${a.name===pvSel?' on':''}"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-pvsel="${escA(a.name)}" title="mostra na prévia abaixo">ver</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
   const dels=(t.deliverables||[]).filter(Boolean);
   const timeline=stageStepper(t).replace('<div class="seclbl" style="margin-top:13px">Etapas</div>','');
-  const dur=fmtDurMs(taskDurationMs(t));
+  const dur=fmtDurKnown(taskDurationMs(t));
   // sem requisitos: "0/0 requisitos provados" parecia reprovação — vira "—"
   const reqKpi = rows.length ? `<div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>` : `<div class="en-kpi" title="esta demanda não tem critérios de aceite"><b>—</b><span>sem requisitos</span></div>`;
   const kpis = nonCode
@@ -597,7 +599,7 @@ async function entregaFacts(t){
     `PR: ${t.prUrl?`#${prNumOf(t)} ${t.prUrl} · ${pr&&pr.state?pr.state:(taskIsDone(t)?'MERGED':'aberto')}${pr&&pr.body?'\nDESCRIÇÃO DO PR:\n'+String(pr.body).slice(0,2500):''}`:'sem PR'}`,
     `REVISÃO INTERNA: ${rev?(rev.summary||'')+(rev.howToTest?'\nCOMO TESTAR: '+rev.howToTest:''):'—'}`,
     `DIÁRIO DO AGENTE:\n${notas.join('\n')||'—'}`,
-    `AGENTES: ${roles||t.agent||'—'}`, `DURAÇÃO: ${fmtDurMs(taskDurationMs(t))}`,
+    `AGENTES: ${roles||t.agent||'—'}`, `DURAÇÃO: ${fmtDurKnown(taskDurationMs(t))||'—'}`,
   ].join('\n\n');
 }
 async function entregaGenReport(t){

@@ -48,3 +48,15 @@ test('commits: à frente da base; alterações não commitadas ditas com todas a
   assert.match(pr, /invoke\("task_commit_info",\{taskId\}\)/, 'o front usa o comando que conta pela worktree');
   for (const f of ['21-pull-request.js', '22-quadro-fluxo.js', '27-entregas.js']) assert.ok(!/nPl\(c\.length,'commit'\)/.test(read(f)), f);
 });
+
+test('varredura: duração desconhecida não vira "0 min"; arquivo sumido na prévia é dito em texto de gente', () => {
+  const kan = read('23-kanban-artefatos-editor.js');
+  const D = new Function(cut(ent, '// duração desconhecida', 'function taskDurationMs') + '\nreturn { fmtDurKnown, fmtDurMs };')();
+  assert.equal(D.fmtDurKnown(0), '');
+  assert.equal(D.fmtDurKnown(NaN), '');
+  assert.equal(D.fmtDurKnown(3600000), '1h00');
+  assert.ok(!/fmtDurMs\(taskDurationMs/.test(ent), 'toda duração de tarefa passa por fmtDurKnown');
+  const P = new Function('esc', 'skeletonHtml', 'humanErr', cut(kan, 'function pvKind', '// BUG-23') + '\nreturn artPreviewHtml;')(esc, () => 'S', (e, c) => ({ msg: c + ': ' + e }));
+  assert.match(P('x.png', { err: 'artefato não encontrado: x.png (ainda não foi gerado ou já foi removido)' }, 't1'), /arquivo não encontrado — ainda não foi gerado/);
+  assert.match(P('x.md', { err: 'permission denied' }, 't1'), /Não consegui ler o arquivo: permission denied/);
+});
