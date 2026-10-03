@@ -9,13 +9,14 @@
 // Desempenho: um xterm por tarefa, criado na 1ª vez que aparece e REAPROVEITADO (o DOM é movido pro slot a cada
 // render); só recebe eventos enquanto está visível (term_attach/term_detach); o histórico só é relido quando o
 // arquivo muda (carimbo tamanho:mtime) e o PTY só é redimensionado quando o tamanho muda (ResizeObserver).
-const TERM = {}; // taskId → { term, fit, host, attached, alive, mode:'live'|'hist', hinfo, hstamp, ro, lastSize, opening }
+const TERM = {};
+const TERM_WT_GONE='a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste'; // = WT_GONE (term.rs) // taskId → { term, fit, host, attached, alive, mode:'live'|'hist', hinfo, hstamp, ro, lastSize, opening }
 function termModeOf(t){ return !!(t && t.spec && t.spec.termMode === 'terminal'); }
 /** A tarefa mostra a aba Terminal (e não a Conversa)? Modo terminal sempre; senão toda tarefa Claude Code que já rodou. */
 function termViewOf(t){
   if(!t) return false;
   if(termModeOf(t)) return true;
-  if(t.status==='draft') return false; // (state.remote = o repo tem remote no GitHub — não muda nada aqui)
+  if(t.status==='draft') return false;
   return typeof aiEngineOf==='function' && aiEngineOf(t.engine)==='claude';
 }
 function termSlotHtml(t){ return `<div class="fwthread fwtermslot" id="fwThread" data-term="${escA(t.id)}"></div>`; }
@@ -155,6 +156,7 @@ async function termAttach(taskId){
     }
     st.pend=null;
     const was=st.mode; st.mode='hist'; st.alive=false;
+    if(was!=='hist'){ st.hitems=undefined; st.hraw=undefined; }
     await termHistLoad(taskId, was!=='hist');
   }catch(e){ st.attached=false; st.pend=null; console.error('term_attach', e); }
 }
@@ -166,32 +168,39 @@ function termEvents(taskId){ return (typeof fwTask!=='undefined' && fwTask===tas
 /** Histórico da sessão (tarefa sem terminal vivo). force: repinta mesmo sem mudança (voltou do vivo, abriu agora). */
 async function termHistLoad(taskId, force){
   const st=TERM[taskId]; if(!st||!st.term||st.mode!=='hist') return;
-  if(st.hloading){ st.hagain=st.hagain||!!force; return; }
+  if(st.hloading){ st.hagain=st.hagain||(force?2:1); return; }
   st.hloading=true; st.hat=Date.now();
+  let next=null; // continuação DEPOIS de soltar a trava (nunca uma chamada aninhada com a trava aberta)
   try{
-    const h=await invokeQuiet('term_history',{ taskId, since:force?null:(st.hstamp||null) });
+    // sem o conteúdo guardado (1ª vez, ou voltou do vivo) não vale pedir "só se mudou"
+    const have=st.hitems!==undefined || st.hraw!==undefined;
+    const h=await invokeQuiet('term_history',{ taskId, since:(force||!have)?null:(st.hstamp||null) });
     if(st.mode!=='hist') return;
-    if(h && h.alive){ st.attached=false; st.hloading=false; termAttach(taskId); return; } // o PTY nasceu (retomada)
+    if(h && h.alive){ next=()=>{ st.attached=false; termAttach(taskId); }; return; } // o PTY nasceu (retomada)
     const evs=termEvents(taskId);
     const sysSig=evs.length+':'+(evs.length?evs[evs.length-1].id:0);
     st.hinfo=h;
     if(!force && h.unchanged && sysSig===st.hsys){ termSetAlive(taskId, false); return; }
-    st.hsys=sysSig; if(!h.unchanged) st.hstamp=h.stamp||'';
-    if(h.unchanged && st.hitems===undefined){ st.hstamp=''; st.hloading=false; return termHistLoad(taskId, true); }
-    if(!h.unchanged) st.hitems=h.source==='transcript'?h.items:null;
+    st.hsys=sysSig;
+    if(!h.unchanged){ st.hstamp=h.stamp||''; st.hitems=h.source==='transcript'?h.items:null; st.hraw=h.source==='log'?String(h.raw||''):undefined; }
     const t=(state.tasks||[]).find(x=>x.id===taskId);
     const wt=String(h.worktree||(t&&t.worktree)||'').split('/').filter(Boolean).pop()||'';
     const eng=(t&&typeof aiEngineOf==='function')?aiEngineOf(t.engine):'claude';
-    const head=`${eng} · ${h.sessionId?'sessão '+String(h.sessionId).slice(0,8):'sem sessão gravada'}${wt?' · worktree '+wt:''} · histórico${h.source==='transcript'?'':h.source==='log'?' (log do terminal)':' (eventos da tarefa)'}`;
-    const foot=termGone(h)?'a worktree foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste':termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':'fim do histórico · mande uma mensagem pelo compositor pra retomar esta sessão no terminal';
-    let out;
-    if(h.source==='log') out=String(h.raw||'')+'\x1b[0m\r\n\r\n'+thC('2','╰─ '+foot)+'\r\n';
-    else out=thRender(st.hitems||thFromEvents(evs), { head, foot, notes:st.hitems?thSysNotes(evs):[] });
-    const b=st.term.buffer&&st.term.buffer.active; const atEnd=!b || force || b.viewportY>=b.baseY-1;
-    st.term.reset(); st.term.write(out, ()=>{ if(atEnd) try{ st.term.scrollToBottom(); }catch(_){ } });
+    const head=`${eng} · ${h.sessionId?'sessão '+String(h.sessionId).slice(0,8):'sem sessão gravada'}${wt?' · worktree '+wt:''} · histórico${h.source==='transcript'?(h.clipped?' (só o fim — a sessão é longa)':''):h.source==='log'?' (log do terminal)':' (eventos da tarefa)'}`;
+    const foot=termGone(h)?TERM_WT_GONE:termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · mande uma mensagem pelo compositor pra retomar esta sessão no terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Configurações → modo das tarefas)';
+    // log cru do PTY: sai da tela alternativa/colagem antes do rodapé (o TUI pode ter deixado ligado)
+    const out=st.hraw!==undefined ? st.hraw+'\x1b[?1049l\x1b[?2004l\x1b[?25h\x1b[0m\r\n\r\n'+thC('2','╰─ '+foot)+'\r\n'
+      : thRender(st.hitems||thFromEvents(evs), { head, foot, notes:st.hitems?thSysNotes(evs):[] });
+    // quem rolou pra cima continua onde estava (poll da tarefa rodando em segundo plano)
+    const b=st.term.buffer&&st.term.buffer.active; const atEnd=!b || force || b.viewportY>=b.baseY-1; const y=b?b.viewportY:0;
+    st.term.reset(); st.term.write(out, ()=>{ try{ if(atEnd) st.term.scrollToBottom(); else st.term.scrollToLine(y); }catch(_){ } });
     termSetAlive(taskId, false);
   }catch(e){ console.error('term_history', e); try{ st.term.write('\r\n'+thC('31','não consegui ler o histórico desta sessão: '+thClean(typeof errShort==='function'?errShort(e):String(e)))+'\r\n'); }catch(_){ } }
-  finally{ st.hloading=false; if(st.hagain){ const f=st.hagain; st.hagain=false; termHistLoad(taskId, f); } }
+  finally{
+    st.hloading=false;
+    if(next) next();
+    else if(st.hagain){ const f=st.hagain===2; st.hagain=0; termHistLoad(taskId, f); }
+  }
 }
 /** Poll do workspace (fwLiveUpdate): no histórico de uma tarefa rodando em segundo plano, relê quando o arquivo muda. */
 function termHistTick(t){
@@ -207,17 +216,20 @@ function termWtGone(taskId){ const st=TERM[taskId]; return !!(st && st.mode==='h
 /** Uma linha no próprio terminal (aviso do app, não do agente). */
 function termSayLine(taskId, text, code){ const st=TERM[taskId]; if(st&&st.term) try{ st.term.write('\r\n'+thC(code||'33','! '+thClean(text))+'\r\n'); st.term.scrollToBottom(); }catch(_){ } }
 /** Depois de mandar pelo compositor: se o PTY nasceu (retomada), o xterm passa a ser o vivo. */
-function termGoLive(taskId){ const st=TERM[taskId]; if(!st||st.mode==='live') return; st.attached=false; if(st.host.isConnected) termAttach(taskId); }
+async function termGoLive(taskId){
+  // o talk_task volta com o PTY já criado; ainda assim tenta mais um pouco (máquina lenta) antes de desistir
+  for(let i=0;i<6;i++){ const st=TERM[taskId]; if(!st||st.mode==='live'||!st.host.isConnected) return; st.attached=false; await termAttach(taskId); if(st.mode==='live') return; await new Promise(r=>setTimeout(r, 700)); }
+}
 function termSetAlive(taskId, alive){
   const st=TERM[taskId]; if(!st) return; st.alive=alive;
   if(alive){ st.mode='live'; st.bar.style.display='none'; st.bar.innerHTML=''; st.bar.__html=''; return; }
   const t=(state.tasks||[]).find(x=>x.id===taskId); const h=st.hinfo||{};
   const fresh=t && (t.status==='draft' || t.status==='queued') && (!h.source || h.source==='none');
   let html;
-  if(termGone(h)) html=`<span>integrada · a worktree foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste</span><span class="cc-sp"></span><button class="btn sm primary" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
+  if(termGone(h)) html=`<span>integrada · ${esc(TERM_WT_GONE.replace(/^a worktree desta tarefa/,'a worktree'))}</span><span class="cc-sp"></span><button class="btn sm primary" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
   else if(termHeadless(t)) html=`<span><span class="pulse" style="--pc:var(--good)"></span> rodando em segundo plano (modo automático) · o histórico se atualiza sozinho</span><span class="cc-sp"></span>`;
   else if(fresh) html=`<span>o terminal desta tarefa ainda não foi aberto</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}">abrir terminal</button>`;
-  else html=`<span>histórico da sessão · mande uma mensagem pelo compositor pra retomar no terminal</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
+  else html=`<span>histórico da sessão${h.resumes===false?' · o compositor manda no modo automático':' · mande uma mensagem pelo compositor pra retomar no terminal'}</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
   st.bar.style.display='flex';
   if(st.bar.__html!==html){ st.bar.__html=html; st.bar.innerHTML=html; }
 }
@@ -245,10 +257,10 @@ function termMount(t){
 function termSweep(){ for(const id in TERM){ if(!TERM[id].host.isConnected) termDetach(id); } }
 
 try{
-  window.__TAURI__.event.listen('term-data', ev=>{ const p=ev&&ev.payload; const st=p&&TERM[p.taskId]; if(!st||!st.attached||!st.term||st.mode==='hist') return; if(st.pend) st.pend.push(p.data); else st.term.write(p.data); });
+  window.__TAURI__.event.listen('term-data', ev=>{ const p=ev&&ev.payload; const st=p&&TERM[p.taskId]; if(!st||!st.attached||!st.term) return; if(st.pend){ st.pend.push(p.data); return; } if(st.mode==='hist') return; st.term.write(p.data); }); // retrato em voo (inclusive hist→vivo): guarda
   // terminal fechou: o xterm vira o histórico da sessão (o transcript já tem o último turno)
   window.__TAURI__.event.listen('term-exit', ev=>{ const p=ev&&ev.payload; if(!p) return; const st=TERM[p.taskId];
-    if(st){ st.alive=false; st.mode='hist'; st.hstamp=''; if(st.attached) termHistLoad(p.taskId, true); }
+    if(st){ st.alive=false; st.mode='hist'; st.hstamp=''; st.hitems=undefined; st.hraw=undefined; termSetAlive(p.taskId, false); if(st.attached) termHistLoad(p.taskId, true); }
     lastSig=''; refresh().catch(()=>{}); });
 }catch(_){ }
 document.addEventListener('visibilitychange', ()=>{ for(const id in TERM){ if(document.hidden) termDetach(id); else if(TERM[id].host.isConnected) termFit(id); } });

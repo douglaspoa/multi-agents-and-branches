@@ -111,3 +111,19 @@ test('Ideia: compositor único em cartão, na mesma coluna do texto', () => {
   assert.match(ic, /\.ideiastart\{--ideia-measure:72ch/);
   assert.ok(!/\.ideiahero p\{[^}]*max-width/.test(ic), 'o parágrafo não tem medida própria (senão o compositor fica mais largo)');
 });
+
+test('teto de custo: cartão com uma opção por botão (trava enquanto envia); sem teto, nada', () => {
+  const src = read('js/60-terminal-layout.js');
+  const body = cut(src, 'function tlBudgetHtml(t){', '/** O HTML da coluna');
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  let pend = [];
+  const TL = { budSending: {} };
+  const f = new Function('pendingOf', 'fwIsBudgetAsk', 'esc', 'escA', 'TL', body + '\nreturn tlBudgetHtml;')(() => pend, (p) => !!p && (p.kind === 'budget' || +p.id < 0), esc, esc, TL);
+  assert.equal(f({ id: 't1' }), '');
+  pend = [{ id: 7, kind: 'question', prompt: 'qual cor?' }, { id: -1, kind: 'budget', prompt: 'Chegou a US$ 2,00', options: ['liberar US$ 1', 'parar aqui'] }];
+  const h = f({ id: 't1' });
+  assert.equal((h.match(/data-tlbud=/g) || []).length, 2);
+  assert.match(h, /Teto de custo<\/b> · Chegou a US\$ 2,00/);
+  TL.budSending.t1 = 1;
+  assert.equal((f({ id: 't1' }).match(/ disabled/g) || []).length, 2, 'enviando: o poll repinta desabilitado');
+});

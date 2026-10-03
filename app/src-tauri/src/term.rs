@@ -210,9 +210,15 @@ fn remember_size(task_id: &str, cols: u16, rows: u16) {
 /// - padrão "Automático" escolhido na tela nova, ou motor sem CLI interativo → não.
 pub fn talk_in_terminal(is_term: bool, engine: &str, default: &str, headless_busy: bool) -> bool {
     if is_term { return true; }
-    default == "terminal" && !headless_busy && engine.trim().to_lowercase().starts_with("claude")
+    default == "terminal" && !headless_busy && claude_engine(engine)
 }
-struct TaskRow { engine: String, status: String, worktree: String, busy_pid: Option<i64>, session_id: Option<String>, term_sid: Option<String> }
+/// O motor da tarefa é o Claude Code? Mesma regra do front (aiEngineOf): rótulo vazio = mock; codex/deepseek/dsh/
+/// gateway/logcomex são outros; qualquer outro rótulo ("claude", "Claude · Opus", "opus") é Claude.
+pub fn claude_engine(engine: &str) -> bool {
+    let e = engine.trim().to_lowercase();
+    !(e.is_empty() || e == "mock" || ["codex", "deepseek", "dsh", "gateway", "logcomex"].iter().any(|p| e.starts_with(p)))
+}
+pub struct TaskRow { pub engine: String, pub status: String, pub worktree: String, pub busy_pid: Option<i64>, pub session_id: Option<String>, pub term_sid: Option<String> }
 fn task_row(db: &Path, task_id: &str) -> Option<TaskRow> {
     let c = open_rw(db).ok()?;
     let mut r = c.query_row("SELECT engine, status, worktree, busy_pid, session_id FROM task WHERE id=?1", params![task_id], |r| Ok(TaskRow {
@@ -222,22 +228,30 @@ fn task_row(db: &Path, task_id: &str) -> Option<TaskRow> {
     r.term_sid = c.query_row("SELECT session_id FROM term_session WHERE task_id=?1", params![task_id], |r| r.get::<_, Option<String>>(0)).ok().flatten();
     Some(r)
 }
+/// Um turno headless (claude -p) é dono da sessão agora? Processo registrado OU estado de turno em curso/na fila —
+/// nos dois casos abrir `claude --resume` em paralelo poria dois escritores no mesmo transcript.
+fn headless_busy(t: &TaskRow) -> bool { t.busy_pid.is_some() || ["running", "thinking", "queued"].contains(&t.status.as_str()) }
+/// PURA: o compositor desta tarefa (sem terminal aberto) retoma a sessão no PTY? Err = não dá pra mandar.
+pub fn talk_decision(t: &TaskRow, is_term: bool, live: bool, default: &str) -> Result<bool, String> {
+    if is_term || live { return Ok(true); }
+    if !talk_in_terminal(false, &t.engine, default, headless_busy(t)) { return Ok(false); }
+    if worktree_gone_after_merge(&t.status, &t.worktree) { return Err(WT_GONE.to_string()); }
+    Ok(true)
+}
 /// Mensagem do compositor numa tarefa Claude parada: vai pro terminal (retomando a sessão)? Erro = não dá pra mandar.
 pub fn should_talk_in_terminal(state: &State<AppState>, task_id: &str) -> Result<bool, String> {
     let is_term = is_terminal(state, task_id);
-    if is_term || mgr().and_then(|m| m.live(task_id)).is_some() { return Ok(true); }
+    let live = mgr().and_then(|m| m.live(task_id)).is_some();
+    if is_term || live { return Ok(true); }
     let db = db_of(state)?;
     let Some(t) = task_row(&db, task_id) else { return Ok(false) };
-    let busy = t.busy_pid.is_some() && ["running", "thinking", "queued"].contains(&t.status.as_str());
-    if !talk_in_terminal(false, &t.engine, default_mode(), busy) { return Ok(false); }
-    if worktree_gone_after_merge(&t.status, &t.worktree) { return Err(WT_GONE.to_string()); }
-    Ok(true)
+    talk_decision(&t, false, false, default_mode())
 }
 /// A worktree foi apagada ao integrar: não há onde retomar — o caminho é uma tarefa nova de ajuste.
 pub const WT_GONE: &str = "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste";
 fn worktree_gone_after_merge(status: &str, worktree: &str) -> bool { status == "merged" && (worktree.is_empty() || !Path::new(worktree).is_dir()) }
 
-#[derive(Serialize, Default)]
+#[derive(Serialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct HistInfo {
     /// transcript | log | none
@@ -250,6 +264,10 @@ pub struct HistInfo {
     worktree_exists: bool,
     merged: bool,
     alive: bool,
+    /// mandar pelo compositor RETOMA a sessão no terminal (a mesma decisão do talk_task — o front mostra a dica certa)
+    resumes: bool,
+    /// o transcript passou do teto e só a parte final foi lida
+    clipped: bool,
     /// carimbo do arquivo lido ("tamanho:mtime") — igual ao `since` pedido = nada mudou (items vazio)
     stamp: String,
     unchanged: bool,
@@ -257,35 +275,59 @@ pub struct HistInfo {
 fn stamp_of(p: &Path) -> String {
     std::fs::metadata(p).map(|m| format!("{}:{}", m.len(), m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis()).unwrap_or(0))).unwrap_or_default()
 }
-/// Histórico da sessão pra tarefa SEM terminal vivo: transcript do Claude Code → log do PTY → nada (o front cai
-/// nos eventos do state.sqlite). `since` = carimbo da última leitura: arquivo igual não é relido (poll barato).
-#[tauri::command(async)]
-pub fn term_history(state: State<AppState>, task_id: String, since: Option<String>) -> Result<HistInfo, String> {
-    let db = db_of(&state)?;
-    let t = task_row(&db, &task_id).ok_or("tarefa não encontrada")?;
-    let mut h = HistInfo { worktree_exists: !t.worktree.is_empty() && Path::new(&t.worktree).is_dir(), merged: t.status == "merged", worktree: t.worktree.clone(), alive: mgr().and_then(|m| m.live(&task_id)).is_some(), ..Default::default() };
-    let sid = t.term_sid.clone().filter(|s| !s.is_empty()).or(t.session_id.clone().filter(|s| !s.is_empty()));
+/// Teto de leitura do transcript (prints em base64 inflam o arquivo): lê só o FIM e descarta a 1ª linha partida.
+pub const HIST_READ_CAP: u64 = 24 * 1024 * 1024;
+fn read_tail(p: &Path, cap: u64) -> Result<(String, bool), String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(p).map_err(|e| format!("não consegui ler o histórico da sessão: {e}"))?;
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let clipped = len > cap;
+    if clipped { f.seek(SeekFrom::Start(len - cap)).map_err(|e| e.to_string())?; }
+    let mut b = Vec::new();
+    f.read_to_end(&mut b).map_err(|e| format!("não consegui ler o histórico da sessão: {e}"))?;
+    let mut s = String::from_utf8_lossy(&b).into_owned();
+    if clipped { if let Some(i) = s.find('\n') { s.drain(..=i); } }
+    Ok((s, clipped))
+}
+/// O histórico de uma tarefa (testável: banco, repo e config do Claude entram por parâmetro).
+pub fn history_for(db: &Path, repo: &Path, cfg: Option<&Path>, task_id: &str, since: Option<&str>, live: bool, default: &str) -> Result<HistInfo, String> {
+    let t = task_row(db, task_id).ok_or("tarefa não encontrada")?;
+    let is_term = spec_of(db, task_id).map(|s| s.get("termMode").and_then(|v| v.as_str()) == Some("terminal")).unwrap_or(false);
+    let mut h = HistInfo { worktree_exists: !t.worktree.is_empty() && Path::new(&t.worktree).is_dir(), merged: t.status == "merged", worktree: t.worktree.clone(), alive: live,
+        resumes: talk_decision(&t, is_term, live, default) == Ok(true), ..Default::default() };
+    // mesma precedência do term-prep (src/terminal.ts): a sessão da tarefa, depois a do terminal
+    let sid = t.session_id.clone().filter(|s| !s.is_empty()).or(t.term_sid.clone().filter(|s| !s.is_empty()));
     h.session_id = sid.clone();
-    let tr = sid.as_deref().and_then(|s| crate::term_hist::claude_config_dir().and_then(|d| crate::term_hist::find_transcript(&d, &t.worktree, s)));
+    let tr = sid.as_deref().and_then(|s| cfg.and_then(|d| crate::term_hist::find_transcript(d, &t.worktree, s)));
     if let Some(p) = tr {
         h.source = "transcript".into();
         h.stamp = stamp_of(&p);
-        if since.as_deref() == Some(h.stamp.as_str()) { h.unchanged = true; return Ok(h); }
-        let text = std::fs::read(&p).map(|b| String::from_utf8_lossy(&b).into_owned()).map_err(|e| format!("não consegui ler o histórico da sessão: {e}"))?;
+        if since == Some(h.stamp.as_str()) { h.unchanged = true; return Ok(h); }
+        let (text, clipped) = read_tail(&p, HIST_READ_CAP)?;
+        h.clipped = clipped;
         h.items = crate::term_hist::parse_transcript(&text, &t.worktree);
         return Ok(h);
     }
-    let repo = repo_of(&state)?;
-    let lp = log_path(&repo, &task_id);
+    let lp = log_path(repo, task_id);
     if lp.is_file() {
         h.source = "log".into();
         h.stamp = stamp_of(&lp);
-        if since.as_deref() == Some(h.stamp.as_str()) { h.unchanged = true; return Ok(h); }
+        if since == Some(h.stamp.as_str()) { h.unchanged = true; return Ok(h); }
         h.raw = pty::read_log(&lp);
         return Ok(h);
     }
     h.source = "none".into();
     Ok(h)
+}
+/// Histórico da sessão pra tarefa SEM terminal vivo: transcript do Claude Code → log do PTY → nada (o front cai
+/// nos eventos do state.sqlite). `since` = carimbo da última leitura: arquivo igual não é relido (poll barato).
+#[tauri::command(async)]
+pub fn term_history(state: State<AppState>, task_id: String, since: Option<String>) -> Result<HistInfo, String> {
+    let db = db_of(&state)?;
+    let repo = repo_of(&state)?;
+    let cfg = crate::term_hist::claude_config_dir();
+    let live = mgr().and_then(|m| m.live(&task_id)).is_some();
+    history_for(&db, &repo, cfg.as_deref(), &task_id, since.as_deref(), live, default_mode())
 }
 
 // ============================ comandos Tauri ============================
@@ -367,7 +409,50 @@ pub fn term_status(state: State<AppState>, task_id: String) -> Result<TermInfo, 
 
 #[cfg(test)]
 mod modo_padrao_tests {
-    use super::{mode_default, talk_in_terminal, wants_terminal, worktree_gone_after_merge};
+    use super::{history_for, mode_default, talk_decision, talk_in_terminal, wants_terminal, worktree_gone_after_merge, TaskRow, WT_GONE};
+    fn row(status: &str, busy: Option<i64>, wt: &str) -> TaskRow { TaskRow { engine: "claude".into(), status: status.into(), worktree: wt.into(), busy_pid: busy, session_id: None, term_sid: None } }
+    #[test]
+    fn decisao_do_compositor_por_linha_da_tarefa() {
+        assert_eq!(talk_decision(&row("review", None, "/"), false, false, "terminal"), Ok(true), "parada: retoma no PTY");
+        assert_eq!(talk_decision(&row("running", Some(9), "/"), false, false, "terminal"), Ok(false), "headless rodando: fila dele");
+        assert_eq!(talk_decision(&row("running", None, "/"), false, false, "terminal"), Ok(false), "turno em curso sem pid registrado ainda");
+        assert_eq!(talk_decision(&row("queued", None, "/"), false, false, "terminal"), Ok(false), "na fila do headless");
+        assert_eq!(talk_decision(&row("paused", Some(9), "/"), false, false, "terminal"), Ok(false), "pausada = processo congelado vivo");
+        assert_eq!(talk_decision(&row("review", None, "/"), false, false, "auto"), Ok(false), "Automático escolhido");
+        assert_eq!(talk_decision(&row("merged", None, "/nao/existe"), false, false, "terminal"), Err(WT_GONE.to_string()));
+        assert_eq!(talk_decision(&row("merged", None, "/nao/existe"), false, true, "terminal"), Ok(true), "PTY vivo vence");
+        assert_eq!(talk_decision(&row("running", Some(9), "/"), true, false, "auto"), Ok(true), "modo terminal sempre");
+    }
+    #[test]
+    fn historico_transcript_carimbo_log_e_nada() {
+        use rusqlite::{params, Connection};
+        let d = std::env::temp_dir().join(format!("sf-histfor-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let (repo, cfg, wt) = (d.join("repo"), d.join("cfg"), d.join("repo").join("wt"));
+        std::fs::create_dir_all(&wt).unwrap();
+        let db = d.join("state.sqlite");
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch("CREATE TABLE task (id TEXT, engine TEXT, status TEXT, worktree TEXT, busy_pid INTEGER, session_id TEXT, spec_json TEXT); CREATE TABLE term_session (task_id TEXT, session_id TEXT);").unwrap();
+        c.execute("INSERT INTO task VALUES ('t1','claude','review',?1,NULL,'sess-a','{}')", params![wt.display().to_string()]).unwrap();
+        c.execute("INSERT INTO term_session VALUES ('t1','sess-b')", []).unwrap();
+        let pd = cfg.join("projects").join(crate::term_hist::encode_cwd(&wt.display().to_string()));
+        std::fs::create_dir_all(&pd).unwrap();
+        std::fs::write(pd.join("sess-a.jsonl"), r#"{"type":"assistant","message":{"content":[{"type":"text","text":"da sessão A"}]}}"#).unwrap();
+        std::fs::write(pd.join("sess-b.jsonl"), r#"{"type":"assistant","message":{"content":[{"type":"text","text":"da sessão B"}]}}"#).unwrap();
+        let h = history_for(&db, &repo, Some(&cfg), "t1", None, false, "terminal").unwrap();
+        assert_eq!((h.source.as_str(), h.items.len(), h.items[0].text.as_str(), h.resumes, h.worktree_exists), ("transcript", 1, "da sessão A", true, true), "mesma sessão que o term-prep retoma");
+        let again = history_for(&db, &repo, Some(&cfg), "t1", Some(&h.stamp), false, "terminal").unwrap();
+        assert!(again.unchanged && again.items.is_empty(), "arquivo igual não é relido");
+        std::fs::remove_file(pd.join("sess-a.jsonl")).unwrap();
+        std::fs::remove_file(pd.join("sess-b.jsonl")).unwrap();
+        std::fs::create_dir_all(repo.join(".cardume").join("term")).unwrap();
+        std::fs::write(repo.join(".cardume").join("term").join("t1.log"), "LOG CRU").unwrap();
+        let l = history_for(&db, &repo, Some(&cfg), "t1", None, false, "auto").unwrap();
+        assert_eq!((l.source.as_str(), l.raw.as_str(), l.resumes), ("log", "LOG CRU", false));
+        std::fs::remove_file(repo.join(".cardume").join("term").join("t1.log")).unwrap();
+        assert_eq!(history_for(&db, &repo, Some(&cfg), "t1", None, false, "terminal").unwrap().source, "none");
+        let _ = std::fs::remove_dir_all(&d);
+    }
     #[test]
     fn compositor_de_tarefa_parada_vai_pro_terminal() {
         assert!(talk_in_terminal(true, "deepseek", "auto", true), "já é terminal");
@@ -375,6 +460,8 @@ mod modo_padrao_tests {
         assert!(talk_in_terminal(false, "Claude · Opus", "terminal", false));
         assert!(!talk_in_terminal(false, "claude", "terminal", true), "turno headless rodando: fila dele");
         assert!(!talk_in_terminal(false, "claude", "auto", false), "Automático escolhido");
+        assert!(talk_in_terminal(false, "opus", "terminal", false), "rótulo só com o modelo = Claude (igual ao aiEngineOf)");
+        assert!(!talk_in_terminal(false, "", "terminal", false), "sem motor = mock");
         assert!(!talk_in_terminal(false, "codex", "terminal", false));
         assert!(!talk_in_terminal(false, "deepseek", "terminal", false));
         assert!(worktree_gone_after_merge("merged", "/nao/existe/mesmo"));

@@ -35,7 +35,7 @@ function makeCtx() {
     document: { documentElement: {}, hidden: false, createElement: (t) => new El(t), querySelector: () => ctx.__slot, addEventListener: (n, f) => { docListeners[n] = f; } },
     window: { Terminal: { Terminal: FakeTerm }, FitAddon: { FitAddon: FakeFit }, __TAURI__: { event: { listen: (n, f) => { listeners[n] = f; } } } },
     state: { tasks: [{ id: 't1', status: 'running', spec: { termMode: 'terminal' } }] },
-    escA: (s) => String(s), lastSig: '', refresh: () => Promise.resolve(), showErr: () => {},
+    escA: (s) => String(s), esc: (s) => String(s), eventsOf: (id) => (ctx.state.events || []).filter((e) => e.taskId === id), lastSig: '', refresh: () => Promise.resolve(), showErr: () => {},
     invoke: (c, a) => { calls.push([c, a]); return Promise.resolve(ctx.__answers[c]); },
     invokeQuiet: (c, a) => { calls.push([c, a]); return ctx.__answers[c] instanceof Function ? ctx.__answers[c]() : Promise.resolve(ctx.__answers[c]); },
     __answers: {}, __slot: null,
@@ -117,6 +117,18 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   await ctx.termHistLoad('t1', false);
   assert.equal(calls.filter(([c]) => c === 'term_history').at(-1)[1].since, '10:1');
   assert.equal(st.term.out.length, n0, 'arquivo igual: não repinta');
+  // padrão "Automático" escolhido: a dica não promete retomar no terminal
+  ctx.__answers.term_history = { source: 'transcript', items: [{ k: 'say', ts: 1, text: 'velho' }], stamp: '10:2', resumes: false, worktreeExists: true };
+  await ctx.termHistLoad('t1', true);
+  assert.match(st.bar.innerHTML, /o compositor manda no modo automático/);
+  // log do PTY sem mudança mas evento novo: repinta com o log GUARDADO (não apaga o histórico)
+  ctx.__answers.term_history = { source: 'log', raw: 'LOG-ANTIGO', stamp: '20:1', resumes: true };
+  await ctx.termHistLoad('t1', true);
+  ctx.__answers.term_history = { source: 'log', unchanged: true, stamp: '20:1' };
+  ctx.state.events = [{ id: 99, taskId: 't1', agent: 'Sistema', type: 'note', text: 'PR aberto', ts: 5 }];
+  await ctx.termHistLoad('t1', false);
+  assert.match(st.term.out.join(''), /LOG-ANTIGO/);
+  assert.match(st.term.out.join(''), /\x1b\[\?1049l/, 'sai da tela alternativa antes do rodapé');
   // integrada e sem worktree: a barra oferece a tarefa de ajuste
   ctx.__answers.term_history = { source: 'transcript', items: [], stamp: '11:1', merged: true, worktreeExists: false };
   await ctx.termHistLoad('t1', true);

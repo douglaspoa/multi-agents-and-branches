@@ -125,7 +125,7 @@ function tlSheetHtml(g, st){
 // @tl-puro-fim
 
 // ---------------------------------------------------------------- estado por tarefa
-const TL={ ask:{}, sheets:{}, peek:{}, ro:null, roFor:'', narrow:{} }; // ask: chave do grupo → estado da folha
+const TL={ ask:{}, sheets:{}, peek:{}, ro:null, roFor:'', narrow:{}, budSending:{} }; // ask: chave do grupo → estado da folha
 function tlFolded(taskId){ return lsGet('tlFold:'+taskId)==='1'; }
 function tlSetFolded(taskId, on){ lsSet('tlFold:'+taskId, on?'1':'0'); }
 function tlPhase(t){
@@ -162,7 +162,7 @@ function tlBarHtml(t){
   const gone=!live && typeof termWtGone==='function' && termWtGone(t.id);
   const hint=live ? 'Enter no compositor entra na fila · ⌘Enter interrompe'
     : gone ? '' : (typeof termHeadless==='function' && termHeadless(t)) ? 'Enter entra na fila · ⌘Enter interrompe e retoma no terminal'
-    : 'Enter no compositor retoma a sessão no terminal';
+    : (ts && ts.hinfo && ts.hinfo.resumes===false) ? 'Enter manda no modo automático' : 'Enter no compositor retoma a sessão no terminal';
   const note=tlSysNote(t);
   return `<span class="tldot" style="--c:${m.c}" aria-hidden="true"></span><span class="tlai">${esc(ai)}</span><span class="tlst" style="color:${m.c}">${esc(m.pt)}</span>`+
     (note?`<span class="tlnote" title="${escA(note)}">${esc(note)}</span>`:'')+'<span class="sp"></span>'+
@@ -172,7 +172,7 @@ function tlBarHtml(t){
 function tlSysNote(t){
   const evs=(typeof termEvents==='function')?termEvents(t.id):[];
   for(let i=evs.length-1, n=0;i>=0 && n<60;i--, n++){ const e=evs[i]; const tx=String(e.text||'');
-    if(e.agent!=='Sistema' && !/^(PR aberto|PR NÃO aberto|requisito adicionado:)/i.test(tx)) continue;
+    if(e.agent!=='Sistema' && !/^(PR aberto|PR NÃO aberto|requisito adicionado:|falha ao finalizar)/i.test(tx)) continue;
     if(!(e.type==='note'||e.type==='status') || /^terminal: /.test(tx)) continue;
     const ts=(typeof thTs==='function')?thTs(e):0; if(ts && Date.now()-ts>15*60000) return '';
     return tx.replace(/\s+/g,' ').trim(); }
@@ -183,7 +183,7 @@ function tlBudgetHtml(t){
   const p=pendingOf(t.id).find(x=>typeof fwIsBudgetAsk==='function' && fwIsBudgetAsk(x)); if(!p) return '';
   const opts=Array.isArray(p.options)?p.options:[];
   return `<div class="tlbudget" role="group" aria-label="teto de custo"><div class="tlbudq"><b>Teto de custo</b> · ${esc(p.prompt||'o agente parou no teto — decida como seguir')}</div>`+
-    (opts.length?`<div class="tlbudo">${opts.map(o=>`<button type="button" class="btn sm" data-tlbud="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:'')+
+    (opts.length?`<div class="tlbudo">${opts.map(o=>`<button type="button" class="btn sm" data-tlbud="${escA(o)}"${TL.budSending[t.id]?' disabled':''}>${esc(o)}</button>`).join('')}</div>`:'')+
     `<div class="tlbudh">ou escreva o valor e o motivo no compositor — o agente fica parado até você decidir</div></div>`;
 }
 /** O HTML da coluna da tarefa em modo terminal (renderWorkspace chama; o composer vem pronto de lá). */
@@ -195,7 +195,9 @@ function tlWire(t, grab){
   const wrap=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"]`); if(!wrap) return;
   const side=$id('tlSide'); if(side){ side.__html=side.innerHTML; side.onclick=(e)=>tlSideClick(t.id, e); side.onkeydown=(e)=>{ if((e.key==='Enter'||e.key===' ') && e.target.closest('[data-tl="unfold"]')){ e.preventDefault(); tlSideAct(t.id, 'unfold'); } }; }
   { const bud=$id('tlBudget'); if(bud) bud.onclick=async(e)=>{ const b=e.target.closest('[data-tlbud]'); if(!b) return; const p=pendingOf(t.id).find(x=>fwIsBudgetAsk(x)); if(!p) return;
-      b.disabled=true; try{ await resolvePending(p.id, b.dataset.tlbud); lastSig=''; refresh().catch(()=>{}); }catch(err){ b.disabled=false; showErr(err, 'Não consegui enviar a resposta'); } }; }
+      if(TL.budSending[t.id]) return; TL.budSending[t.id]=1; b.disabled=true; // o poll repinta o cartão: a trava é da tarefa, não do botão
+      try{ await resolvePending(p.id, b.dataset.tlbud); lastSig=''; refresh().catch(()=>{}); }catch(err){ showErr(err, 'Não consegui enviar a resposta'); }
+      finally{ delete TL.budSending[t.id]; const bd=$id('tlBudget'); if(bd){ bd.__html=''; } } }; }
   tlWatchWidth(t.id, wrap);
   tlAskPaint(t, false, grab);
 }
