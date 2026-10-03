@@ -25,6 +25,7 @@ mod ideia;
 mod plan_usage;
 mod projetos_conta;
 mod pty;
+mod term;
 mod usage_ledger;
 #[cfg(target_os = "macos")]
 mod notif_mac;
@@ -1017,7 +1018,7 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 /// o antes/depois vem por `task_agent_edit`) e as propostas de remoção (agentProposals, curtas).
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
-    for k in ["budgetUsd", "budgetHit", "autopilot"] {
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     if let Some(e) = agent_edits::compact_edits(spec) { m.insert("agentEdits".into(), e); }
@@ -2858,6 +2859,9 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
     }
     // enfileira o feedback como instrução (reutiliza o mesmo mecanismo)
     add_instruction(state.clone(), task_id.clone(), text.clone())?;
+    if term::is_terminal(&state, &task_id) {
+        return term::route(&state, &task_id, "rework", "", false, None); // "pedir ajuste" na mesma sessão
+    }
     let repo = repo_of(&state)?;
     let mut cmd = node_cmd();
     cmd.args([
@@ -2881,6 +2885,7 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
 #[tauri::command(async)]
 fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
+    term::kill_task(&task_id);
     // 1) encerra o processo atual, se houver
     if let Some(p) = live_task_pid(&state, &task_id) {
         signal_group(p, procsig::CONT);
@@ -2903,7 +2908,11 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     for tbl in ["event", "claim", "review", "pending", "cost", "diffstat"] {
         let _ = conn.execute(&format!("DELETE FROM {tbl} WHERE task_id=?1"), params![task_id]);
     }
-    // 5) re-executa o time
+    // 5) re-executa o time (modo terminal: sessão NOVA no terminal)
+    if term::is_terminal(&state, &task_id) {
+        term::open_task(&repo, &path, &task_id, 120, 34, false, None)?;
+        return Ok(());
+    }
     let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
@@ -2926,6 +2935,9 @@ fn rerun_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
     let k = if kind == "tests" || kind == "proof" || kind == "all" { kind } else { "doc".to_string() };
+    if term::is_terminal(&state, &task_id) {
+        return term::route(&state, &task_id, "deliver", "", false, Some(&k)); // "pedir prova/doc/testes"
+    }
     let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
@@ -2951,6 +2963,10 @@ fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: O
     let m = message.trim().to_string();
     if m.is_empty() {
         return Err("mensagem vazia".to_string());
+    }
+    // MODO TERMINAL: conversa, mira/Prévia, "mostrar pro agente" e follow-up do celular vão pra sessão do CLI
+    if term::is_terminal(&state, &task_id) {
+        return term::route(&state, &task_id, "talk", &m, as_req.unwrap_or(false), None);
     }
     let mut cmd = node_cmd();
     cmd.args([
@@ -3106,6 +3122,8 @@ fn new_task(
     risk: Option<String>,
     hitl: Option<serde_json::Value>,
     epic_done_when: Option<serde_json::Value>,
+    // "terminal" | "auto" — ausente = o padrão de Configurações ("modo das tarefas"); piloto/ondas/épico mandam "auto"
+    term_mode: Option<String>,
 ) -> Result<String, String> {
     // tolerante: lista de strings (números viram texto), wave numérica ou "2", hitl true/"true"
     let strs = |v: &Option<serde_json::Value>| -> Vec<String> {
@@ -3236,6 +3254,15 @@ fn new_task(
     if wave > 0 { args.push("--wave".to_string()); args.push(wave.to_string()); }
     push_opt(&mut args, "--risk", &risk);
     if hitl { args.push("--hitl".to_string()); }
+    // MODO DA TAREFA: terminal só pra motor com CLI interativo oficial (claude/codex); o resto segue automático
+    let ek = args.iter().position(|a| a == "--engine").and_then(|i| args.get(i + 1)).map(|e| e.to_lowercase()).unwrap_or_default();
+    let mode = term_mode.filter(|m| m == "terminal" || m == "auto").unwrap_or_else(|| term::default_mode().to_string());
+    let terminal = mode == "terminal" && (ek.contains("claude") || ek == "codex");
+    args.push("--term-mode".to_string());
+    args.push(if terminal { "terminal" } else { "auto" }.to_string());
+    // terminal: o CLI só CRIA (worktree, TASK.yaml); quem abre o terminal é o app, quando a criação termina
+    let open_terminal = terminal && start != Some(false);
+    if open_terminal { args.push("--no-start".to_string()); }
 
     let mut cmd = node_cmd();
     cmd.args(&args).current_dir(&repo);
@@ -3247,7 +3274,22 @@ fn new_task(
         cmd.stdout(Stdio::from(o)).stderr(Stdio::from(e));
     }
     // rastreia só quando a tarefa realmente vai rodar (rascunho não tem processo)
-    if start == Some(false) {
+    if open_terminal {
+        let mut child = cmd.stdin(Stdio::null()).spawn().map_err(|e| format!("falha ao criar a tarefa: {e}"))?;
+        let (repo2, id2) = (repo.clone(), id.clone());
+        let db2 = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            if let Some(db) = db2 {
+                if let Err(e) = term::open_task(&repo2, &db, &id2, 120, 34, false, None) {
+                    web_log(format!("[term] não abri o terminal de {id2}: {e}"));
+                    if let Ok(c) = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+                        let _ = c.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'error', ?3, 0)", params![id2, now_ms(), format!("não consegui abrir o terminal: {e}")]);
+                    }
+                }
+            }
+        });
+    } else if start == Some(false) {
         cmd.stdin(Stdio::null())
             .spawn()
             .map_err(|e| format!("falha ao criar rascunho: {e}"))?;
@@ -3556,6 +3598,12 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
         return Err("essa tarefa já está rodando".into());
     }
     let repo = repo_of(&state)?;
+    // MODO TERMINAL: ▶ abre o CLI oficial num terminal (a tela da tarefa se conecta a ele)
+    if term::is_terminal(&state, &task_id) {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        term::open_task(&repo, &db, &task_id, 120, 34, true, None)?;
+        return Ok(());
+    }
     let mut cmd = node_cmd();
     cmd.args([
         "--disable-warning=ExperimentalWarning",
@@ -3779,6 +3827,11 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// worktree e os registros como estão — aí o humano manda uma nova mensagem.
 #[tauri::command(async)]
 fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    // MODO TERMINAL: "■ parar" = Esc no CLI (interrompe o turno; a sessão segue aberta pra próxima mensagem)
+    if term::is_terminal(&state, &task_id) && term::mgr().and_then(|m| m.live(&task_id)).is_some() {
+        term::interrupt(&state, &task_id)?;
+        return set_task_status(&state, &task_id, "review");
+    }
     // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
     // vivo (setsid) — live_task_pid cai no lock busy_pid do banco.
     let pid = live_task_pid(&state, &task_id);
@@ -3824,6 +3877,7 @@ fn stop_and_wait(p: i32, grace_ms: u64) -> bool {
 /// pra não travar outros agentes. A worktree é preservada pra inspeção.
 #[tauri::command(async)]
 fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    term::kill_task(&task_id); // terminal da tarefa (grupo inteiro)
     let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
         signal_group(p, procsig::CONT); // caso esteja pausado, destrava pra poder morrer
@@ -8115,6 +8169,7 @@ fn remove_worktree_dir(repo: &Path, wt: &Path) -> bool {
 /// Worktree da tarefa → fora. Chamado quando a tarefa vira `merged` por
 /// qualquer caminho (merge pelo app, merge externo detectado, marcação manual).
 fn remove_task_worktree(repo: &Path, conn: &Connection, task_id: &str) {
+    term::kill_task(task_id);
     if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
         if !wt.is_empty() { remove_worktree_dir(repo, &PathBuf::from(wt)); }
     }
@@ -8420,6 +8475,7 @@ fn resolve_conflict(state: State<AppState>, task_id: String) -> Result<(), Strin
 #[tauri::command(async)]
 fn merge_task(state: State<AppState>, task_id: String) -> Result<String, String> {
     let repo = repo_of(&state)?;
+    term::kill_task(&task_id); // fim da tarefa: o terminal (e o que ele subiu) morre
     let out = node_cmd()
         .args([
             "--disable-warning=ExperimentalWarning",
@@ -8700,6 +8756,7 @@ async fn import_agent_files(app: tauri::AppHandle) -> Vec<serde_json::Value> {
 #[tauri::command(async)]
 fn remove_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     let repo = repo_of(&state)?;
+    term::kill_task(&task_id);
     preview_kill(&state.procs, &task_id); // o preview que o app subiu não fica órfão
     node_cmd()
         .args([
@@ -9369,6 +9426,8 @@ pub fn run() {
             std::thread::spawn(ambiente::sweep_boot);
             // depois do ENGINE_RESOURCE: o reparo usa o motor bundlado
             std::thread::spawn(claude_statusline_boot_repair);
+            // MODO TERMINAL: gerenciador dos PTYs + varredura de terminais órfãos de uma execução que caiu
+            term::init(app.handle().clone());
             Ok(())
         })
         .manage(AppState::from_env())
@@ -9631,13 +9690,23 @@ pub fn run() {
             navexterno::web_bounds,
             navexterno::web_show,
             navexterno::web_nav,
-            navexterno::web_close
+            navexterno::web_close,
+            term::term_open,
+            term::term_attach,
+            term::term_detach,
+            term::term_write,
+            term::term_resize,
+            term::term_send,
+            term::term_interrupt,
+            term::term_kill,
+            term::term_status
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o Starfork")
         .run(|_app, event| {
             // app fechando → nenhum túnel fica exposto pra trás
             if let tauri::RunEvent::Exit = event {
+                term::kill_all(); // terminais das tarefas (claude/codex + o que eles subiram)
                 navegador::kill_all(); // proxies da Prévia (spec-navegador-design)
                 ambiente::kill_all(); // "Subir ambiente": supervisor + site de cada demanda (spec-canvas-workspace)
                 mesa::mesa_kill_all(); // personas da mesa rodam em grupo destacado: não sobrevivem ao app
