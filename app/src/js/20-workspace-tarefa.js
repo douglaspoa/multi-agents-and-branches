@@ -369,6 +369,7 @@ async function fwLiveUpdate(){
   { const ag=$id('prAge'); const pi=prCache[t.id]; if(ag&&pi&&pi._at&&typeof prAgoTx==='function') ag.textContent=prAgoTx(pi._at); }
   // Prévia: requisitos por cima do app ("requisito 3 ✓ com print" — 58-canvas; guarda própria)
   if(fwMode==='previa' && typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(t.id);
+  if(typeof termHistTick==='function') termHistTick(t); // aba Terminal sem PTY: o histórico acompanha a sessão em segundo plano
   if(sig===fwLiveSig) return; // nada mudou → não mexe no DOM (digitação fica leve)
   fwLiveSig=sig;
   // o agente anunciou/trocou o preview DEPOIS de a aba abrir: o cabeçalho (fwReviewBar) só era montado
@@ -601,7 +602,7 @@ async function fwMoreDo(t, k, anchor){
 }
 function fwAskFix(){ if(fwMode!=='conversa'){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } // o chat pode estar escondido (Entrega/PR)
   // modo terminal: a pergunta mora na folha por cima do terminal (60-terminal-layout)
-  { const t=fwTaskObj(); if(t && termModeOf(t) && typeof tlAskOf==='function'){ const a=tlAskOf(t); if(a){ a.st.min=false; tlAskPaint(t, true); return; } } }
+  { const t=fwTaskObj(); if(t && termViewOf(t) && typeof tlAskOf==='function'){ const a=tlAskOf(t); if(a){ a.st.min=false; tlAskPaint(t, true); return; } } }
   const i=$id('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } }
 async function fwTunnelOff(t){
   // falhou ao fechar: diz (antes avisava "acesso fechado" com o túnel ainda aberto pro celular)
@@ -904,13 +905,13 @@ function renderWorkspace(){
   const workingW=fwIsWorking(t);
   const sel2=fwSelRange();
   const sr=fwSendRowHtml(t);
-  const isTerm=termModeOf(t);
+  const isTerm=termViewOf(t);
   // compositor de sempre (anexos, "/" skills, IA, "vira requisito"): o MESMO no chat e no modo terminal (layout A)
   const composer=`
     <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">${IC.chevR} ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
       <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
-      <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?(askingW[0].kind==='budget'?'pra seguir: valor e motivo (ex.: liberar 2 porque falta o teste) — ou toque em Parar aqui':'responda a pergunta — o turno continua'):termModeOf(t)?'mande pro terminal…  (Enter = na fila se ele estiver ocupado · ⌘Enter = Esc e manda · / skills · ⌘V print)':'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
-      <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button>${chatModelPillHtml(fwModelPill(t))}<label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
+      <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${isTerm&&document.documentElement.classList.contains('sfpane')&&window.innerHeight<=420&&!askingW.length?'mensagem pro terminal…':askingW.length?(askingW[0].kind==='budget'?'pra seguir: valor e motivo (ex.: liberar 2 porque falta o teste) — ou toque em Parar aqui':'responda a pergunta — o turno continua'):isTerm?((TERM[t.id]&&TERM[t.id].mode==='live')||fwIsWorking(t)?'mande pro terminal…  (Enter = na fila se ele estiver ocupado · ⌘Enter = Esc e manda · / skills · ⌘V print)':(TERM[t.id]&&TERM[t.id].hinfo&&TERM[t.id].hinfo.resumes===false)?'peça um ajuste…  ( / abre as skills · ⌘V cola um print )':'mande uma mensagem — retoma a sessão no terminal  ( / skills · ⌘V print)'):'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
+      <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button>${chatModelPillHtml(fwModelPill(t))}<label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span>${isTerm?`<button type="button" class="btn sm cc-compmore${fwAsReqOn[t.id]?' on':''}" id="fwCompMore" aria-haspopup="menu" aria-expanded="false" title="IA e vira requisito">${IC.more||'⋯'}</button>`:''}<span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
       <div class="fwhint chathint" id="fwHint">${sr.hint}</div></div>`;
   // foco no terminal (xterm) sobrevive ao re-render: o host é movido pro slot novo e o foco volta pra ele
   const termHadFocus=isTerm && typeof TERM!=='undefined' && TERM[t.id] && TERM[t.id].host.contains(document.activeElement);
@@ -926,6 +927,7 @@ function renderWorkspace(){
   bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
+  bindClick('fwCompMore', (e)=>{ e.stopPropagation(); if(typeof tlCompMoreOpen==='function') tlCompMoreOpen(t, e.currentTarget); }); // painel baixo: IA e "vira requisito" num menu
   fwWireSendBtns();
   { const ar=$id('fwAsReq'); if(ar) ar.onchange=()=>{ fwAsReqOn[t.id]=ar.checked; }; }
   attWireComposer({ input:'fwInput', attach:'fwAttach', pend:()=>(fwPend[t.id]=fwPend[t.id]||[]), taskId:()=>t.id, rerender:renderWorkspace });
@@ -1349,7 +1351,10 @@ async function fwSendMsg(queueOnly){
   if(!v) return;
   // modo terminal com pergunta aberta: o texto vira a resposta da pergunta da vez (a folha manda pro hook)
   // (anexo não cabe numa resposta: volta pro compositor e vai depois, quando a pergunta fechar)
-  if(typeof termModeOf==='function' && termModeOf(t) && typeof tlAskFromComposer==='function' && typed.trim() && pendingOf(t.id).some(p=>!fwIsBudgetAsk(p)) && tlAskFromComposer(t, typed.trim())){ inp.value=''; fwDraft[t.id]=''; if(atts.length){ (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts); toast('os anexos ficaram no compositor — mande depois que a pergunta fechar','info'); renderWorkspace(); } return; }
+  if(typeof termViewOf==='function' && termViewOf(t) && typeof tlAskFromComposer==='function' && typed.trim() && pendingOf(t.id).some(p=>!fwIsBudgetAsk(p)) && tlAskFromComposer(t, typed.trim())){ inp.value=''; fwDraft[t.id]=''; if(atts.length){ (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts); toast('os anexos ficaram no compositor — mande depois que a pergunta fechar','info'); renderWorkspace(); } return; }
+  // aba Terminal de tarefa integrada cuja worktree foi apagada: não há sessão pra retomar — diz numa linha e o
+  // botão da barra abre a tarefa nova de ajuste (o texto e os anexos ficam no compositor)
+  if(typeof termWtGone==='function' && termWtGone(t.id) && !pendingOf(t.id).length){ (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts); termSayLine(t.id, TERM_WT_GONE+' (botão na barra acima)'); toast(TERM_WT_GONE,'warn'); if(atts.length) renderWorkspace(); return; }
   const sel=fwSelRange();
   // só amarra ao arquivo quando o usuário SELECIONOU linhas — mensagem sem seleção vai pura
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';
@@ -1386,6 +1391,8 @@ async function fwSendMsg(queueOnly){
       await invoke('talk_task',{ taskId:t.id, message:full, asReq, agent: fwAgentSel }); commitsCache[t.id]=undefined; prCache[t.id]=undefined;
     }
     op.st=(queueOnly && working && !asking)?'fila':'enviada';
+    // aba Terminal: a mensagem pode ter RETOMADO a sessão no PTY (talk_task → term::route) — o xterm vira o vivo
+    if(!answered && typeof termViewOf==='function' && termViewOf(t) && typeof termGoLive==='function') termGoLive(t.id);
     // pergunta sintética (teto de custo, id < 0) não gera o evento "humano respondeu" que apagaria a bolha:
     // sem isto ela ficava 3 min "aguardando o agente"
     if(answered && fwIsBudgetAsk(answered)) fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op);

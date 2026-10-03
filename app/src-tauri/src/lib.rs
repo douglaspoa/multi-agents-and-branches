@@ -31,6 +31,7 @@ mod plan_usage;
 mod projetos_conta;
 mod pty;
 mod term;
+mod term_hist;
 #[cfg(test)]
 mod pty_e2e;
 mod usage_ledger;
@@ -3135,7 +3136,9 @@ fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: O
         return Err("mensagem vazia".to_string());
     }
     // MODO TERMINAL: conversa, mira/Prévia, "mostrar pro agente" e follow-up do celular vão pra sessão do CLI
-    if term::is_terminal(&state, &task_id) {
+    // AUTOMÁTICO→TERMINAL: tarefa Claude parada (inclusive as antigas, headless) retoma a sessão no PTY
+    // (`claude --resume <sessão>`) — a aba Terminal substituiu a Conversa
+    if term::should_talk_in_terminal(&state, &task_id)? {
         return term::route(&state, &task_id, "talk", &m, as_req.unwrap_or(false), None);
     }
     let mut cmd = node_cmd();
@@ -10161,6 +10164,7 @@ pub fn run() {
             navexterno::web_nav,
             navexterno::web_close,
             term::term_open,
+            term::term_history,
             term::term_attach,
             term::term_detach,
             term::term_write,

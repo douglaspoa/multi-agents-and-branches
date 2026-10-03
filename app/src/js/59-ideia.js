@@ -589,7 +589,7 @@ function ideiaStartHtml(){
   const names=ideiaPanel().map(p=>p.nome).join(', ');
   return `<div class="ideiastart"><div class="ideiahero">${IC.ideia}<h1>Começar por uma ideia</h1>`+
     `<p>Conte a ideia como contaria pra um amigo. A mesa responde — ${iEsc(names)} — cada uma do seu jeito. Depois a Pesquisadora busca na web se a ideia teria procura agora (com fontes), a mesa decide o MVP e o Starfork cria o projeto: pra você seguir ou pro piloto automático construir.</p></div>`+
-    chatComposerHtml({ input:'ideiaNewIn', send:'ideiaNewGo', rows:3, value:IDEIA.newDraft, sendHtml:'começar', modelPill:aiChatModelPill('ideiaNewModel'), placeholder:'ex.: um app de rotina de skincare com lembretes — quero saber se faria sucesso agora' })+
+    chatComposerHtml({ input:'ideiaNewIn', send:'ideiaNewGo', rows:3, cls:'card', value:IDEIA.newDraft, sendHtml:'começar', modelPill:aiChatModelPill('ideiaNewModel'), placeholder:'ex.: um app de rotina de skincare com lembretes — quero saber se faria sucesso agora' })+
     (IDEIA.list===null?`<div class="dim ideiahint">lendo as ideias…</div>`:ideiaRecentHtml(8))+`</div>`;
 }
 function ideiaSteps(m){

@@ -298,3 +298,42 @@ test("pergunta do agente: o hook de verdade grava as perguntas, espera a respost
     } finally { s.close(); child.kill(); }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("term-prep (CLI): worktree removida sem integrar é recriada no MESMO caminho; mergeada sem worktree pede tarefa de ajuste", async () => {
+  const { root, repo } = repoFixture();
+  const orch = new Orchestrator(repo);
+  const cli = join(process.cwd(), "src", "cli.ts");
+  const prep = (id: string) => {
+    let out = "";
+    try { out = execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", cli, "term-prep", id, "--resume", "--repo", repo], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CARDUME_NOTIFY: "0" } }); }
+    catch (e) { out = String((e as { stdout?: string }).stdout ?? ""); }
+    return JSON.parse(out.trim().split("\n").filter((l) => l.startsWith("{")).pop() ?? "{}");
+  };
+  try {
+    const a = await orch.createTask(spec("livre", { autoPr: "no" })); // headless antiga: sem termMode
+    const b = await orch.createTask(spec("integrada", { autoPr: "no" }));
+    orch.store.setStatus("livre", "review");
+    orch.store.setStatus("integrada", "merged");
+    orch.close();
+    git(repo, "worktree", "remove", "--force", a.worktree);
+    git(repo, "worktree", "remove", "--force", b.worktree);
+    const ok = prep("livre");
+    assert.equal(ok.error, undefined, JSON.stringify(ok));
+    assert.equal(ok.cwd, a.worktree);
+    assert.ok(existsSync(join(a.worktree, ".git")), "worktree de volta no mesmo caminho");
+    const s = new Store(join(repo, ".cardume", "state.sqlite"));
+    try { assert.equal(JSON.parse(s.getTask("livre")!.spec_json).termMode, "terminal", "a tarefa passa a ser de modo terminal"); } finally { s.close(); }
+    const gone = prep("integrada");
+    assert.match(String(gone.error), /apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste/);
+    assert.ok(!existsSync(b.worktree), "mergeada não é recriada pelo terminal");
+  } finally {
+    try { orch.close(); } catch { /* já fechado */ }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("fim de sessão do Claude Code vira texto em pt-BR, sem o código do motivo", () => {
+  assert.equal(mapHook("SessionEnd", { reason: "other" }).events[0].text, "terminal: a sessão terminou");
+  assert.equal(mapHook("SessionEnd", { reason: "prompt_input_exit" }).events[0].text, "terminal: você saiu do terminal");
+  assert.equal(mapHook("SessionEnd", {}).events[0].text, "terminal: a sessão terminou");
+});

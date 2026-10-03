@@ -111,11 +111,12 @@
 .ideiadone{display:flex;gap:10px;align-items:flex-start;font-size:var(--fs-sm)}
 .ideiadone>svg{width:18px;height:18px;color:var(--accent);flex:none;margin-top:1px}
 /* início e lista */
-.ideiastart{max-width:760px;margin:24px auto 0;width:100%;display:flex;flex-direction:column;gap:14px;overflow:auto;padding-bottom:28px}
+/* uma coluna só, na medida do texto (~72ch): título, parágrafo, compositor e a lista acabam na MESMA borda */
+.ideiastart{--ideia-measure:72ch;font-size:var(--fs-md);max-width:calc(var(--ideia-measure) + 12px);margin:24px auto 0;width:100%;box-sizing:border-box;display:flex;flex-direction:column;gap:14px;overflow:auto;padding:0 6px 28px} /* 6px de respiro: o anel de foco não é cortado pela rolagem */
 .ideiahero{color:var(--accent)}
 .ideiahero>svg{width:28px;height:28px}
 .ideiahero h1{margin:8px 0 6px;font:600 26px/1.15 var(--display,var(--ui));letter-spacing:-.02em;color:var(--text)}
-.ideiahero p{margin:0;color:var(--text-2);font-size:var(--fs-md);line-height:1.55;max-width:68ch}
+.ideiahero p{margin:0;color:var(--text-2);font-size:var(--fs-md);line-height:1.55}
 .ideiarecent h2{font:600 var(--fs-md) var(--ui);margin:10px 0 8px}
 .ideiarecent.compact{margin-top:20px}
 .ideialist{display:flex;flex-direction:column;gap:6px}

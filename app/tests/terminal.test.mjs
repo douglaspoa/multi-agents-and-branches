@@ -35,13 +35,13 @@ function makeCtx() {
     document: { documentElement: {}, hidden: false, createElement: (t) => new El(t), querySelector: () => ctx.__slot, addEventListener: (n, f) => { docListeners[n] = f; } },
     window: { Terminal: { Terminal: FakeTerm }, FitAddon: { FitAddon: FakeFit }, __TAURI__: { event: { listen: (n, f) => { listeners[n] = f; } } } },
     state: { tasks: [{ id: 't1', status: 'running', spec: { termMode: 'terminal' } }] },
-    escA: (s) => String(s), lastSig: '', refresh: () => Promise.resolve(), showErr: () => {},
+    escA: (s) => String(s), esc: (s) => String(s), eventsOf: (id) => (ctx.state.events || []).filter((e) => e.taskId === id), lastSig: '', refresh: () => Promise.resolve(), showErr: () => {},
     invoke: (c, a) => { calls.push([c, a]); return Promise.resolve(ctx.__answers[c]); },
     invokeQuiet: (c, a) => { calls.push([c, a]); return ctx.__answers[c] instanceof Function ? ctx.__answers[c]() : Promise.resolve(ctx.__answers[c]); },
     __answers: {}, __slot: null,
   };
   vm.createContext(ctx);
-  vm.runInContext(src('60-terminal.js') + '\nthis.TERM=TERM; this.termMount=termMount; this.termModeOf=termModeOf; this.termSlotHtml=termSlotHtml; this.termFit=termFit; this.termSweep=termSweep;', ctx);
+  vm.runInContext(src('60-terminal.js') + '\nthis.TERM=TERM; this.termMount=termMount; this.termModeOf=termModeOf; this.termSlotHtml=termSlotHtml; this.termFit=termFit; this.termSweep=termSweep; this.termHistLoad=termHistLoad; this.termWtGone=termWtGone; this.termGoLive=termGoLive;', ctx);
   return { ctx, calls, listeners, docListeners, El, writes, ros };
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -97,15 +97,54 @@ test('escondido não recebe eventos; mesmo tamanho não redimensiona de novo; re
   assert.equal(st.attached, false);
 });
 
-test('terminal fechado mostra "retomar sessão"; saída do processo chega por evento', async () => {
-  const { ctx, listeners, El } = makeCtx();
-  ctx.__answers.term_attach = { alive: false, data: 'velho' };
+test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "retomar sessão"; saída do processo chega por evento', async () => {
+  const { ctx, calls, listeners, El } = makeCtx();
+  ctx.state.tasks[0].status = 'review';
+  ctx.__answers.term_attach = { alive: false, data: '' };
+  ctx.__answers.term_history = { source: 'transcript', items: [{ k: 'say', ts: 1, text: 'velho' }], stamp: '10:1', sessionId: 'e3f63ca1-x', worktree: '/r/wt/t1', worktreeExists: true };
   const slot = new El('div'); slot.connected = true; ctx.__slot = slot;
-  ctx.termMount({ id: 't1' }); await tick(); await tick();
-  assert.match(ctx.TERM.t1.bar.innerHTML, /retomar sessão/);
+  ctx.termMount({ id: 't1' }); await tick(); await tick(); await tick();
+  const st = ctx.TERM.t1;
+  assert.equal(st.mode, 'hist');
+  assert.match(st.bar.innerHTML, /retomar sessão/);
+  assert.match(st.bar.innerHTML, /mande uma mensagem pelo compositor/);
+  const out = st.term.out.join('').replace(/\x1b\[[0-9;]*m/g, '');
+  assert.match(out, /╭─ claude · sessão e3f63ca1 · worktree t1/);
+  assert.match(out, /● velho/);
+  // poll sem mudança: pede com o carimbo e não repinta
+  const n0 = st.term.out.length;
+  ctx.__answers.term_history = { unchanged: true, stamp: '10:1', source: 'transcript' };
+  await ctx.termHistLoad('t1', false);
+  assert.equal(calls.filter(([c]) => c === 'term_history').at(-1)[1].since, '10:1');
+  assert.equal(st.term.out.length, n0, 'arquivo igual: não repinta');
+  // padrão "Automático" escolhido: a dica não promete retomar no terminal
+  ctx.__answers.term_history = { source: 'transcript', items: [{ k: 'say', ts: 1, text: 'velho' }], stamp: '10:2', resumes: false, worktreeExists: true };
+  await ctx.termHistLoad('t1', true);
+  assert.match(st.bar.innerHTML, /o compositor manda no modo automático/);
+  // log do PTY sem mudança mas evento novo: repinta com o log GUARDADO (não apaga o histórico)
+  ctx.__answers.term_history = { source: 'log', raw: 'LOG-ANTIGO', stamp: '20:1', resumes: true };
+  await ctx.termHistLoad('t1', true);
+  ctx.__answers.term_history = { source: 'log', unchanged: true, stamp: '20:1' };
+  ctx.state.events = [{ id: 99, taskId: 't1', agent: 'Sistema', type: 'note', text: 'PR aberto', ts: 5 }];
+  await ctx.termHistLoad('t1', false);
+  assert.match(st.term.out.join(''), /LOG-ANTIGO/);
+  assert.match(st.term.out.join(''), /\x1b\[\?1049l/, 'sai da tela alternativa antes do rodapé');
+  // integrada e sem worktree: a barra oferece a tarefa de ajuste
+  ctx.__answers.term_history = { source: 'transcript', items: [], stamp: '11:1', merged: true, worktreeExists: false };
+  await ctx.termHistLoad('t1', true);
+  assert.match(st.bar.innerHTML, /abrir tarefa de ajuste/);
+  assert.equal(ctx.termWtGone('t1'), true);
+  // a mensagem RETOMOU a sessão: o PTY nasceu → o xterm vira o vivo
+  ctx.__answers.term_attach = { alive: true, data: 'VIVO' };
+  ctx.termGoLive('t1'); await tick(); await tick();
+  assert.equal(st.mode, 'live');
+  assert.deepEqual(st.term.out, ['<reset>', 'VIVO']);
+  // o terminal fechou: volta pro histórico (rascunho sem nada gravado → "abrir terminal")
   ctx.state.tasks[0].status = 'draft';
-  listeners['term-exit']({ payload: { taskId: 't1', code: 0 } });
-  assert.match(ctx.TERM.t1.bar.innerHTML, /abrir terminal/);
+  ctx.__answers.term_history = { source: 'none', items: [], stamp: '' };
+  listeners['term-exit']({ payload: { taskId: 't1', code: 0 } }); await tick(); await tick();
+  assert.equal(st.mode, 'hist');
+  assert.match(st.bar.innerHTML, /abrir terminal/);
 });
 
 test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos sozinhos pedem automático', () => {
@@ -115,7 +154,7 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   // layout A (60-terminal-layout): a coluna inteira vira terminal + painel; o slot do terminal mora no tlChatHtml
   assert.match(ws, /chat\.innerHTML=isTerm \? tlChatHtml\(t, composer\)/);
   assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t, sheetGrab\);[^\n]*\} else termSweep\(\);/);
-  assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}\$\{composer\}/);
+  assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}<div id="tlBudget">\$\{tlBudgetHtml\(t\)\}<\/div>\$\{composer\}/);
   assert.match(src('34-orquestrador.js'), /termMode:'auto', start:startNow/);
   assert.match(src('59-ideia.js'), /payload\.termMode='auto'/);
   assert.match(src('43-espaco-times.js'), /if\(opts\.auto\) payload\.termMode='auto'/);

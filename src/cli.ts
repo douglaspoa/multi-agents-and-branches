@@ -1030,6 +1030,11 @@ async function main() {
       // JSON numa linha no stdout: o app (pty.rs) spawna exatamente isto
       const orch = new Orchestrator(repo);
       try {
+        // worktree removida sem integrar (liberar espaço, cancelada limpa): recria no MESMO caminho — a sessão do
+        // Claude é guardada por pasta, então o `--resume` continua valendo. Mergeada sem worktree o app nem chega aqui
+        // (oferece uma tarefa nova de ajuste).
+        const t0 = orch.store.getTask(a._[1]);
+        if (t0 && t0.status !== "merged" && t0.worktree && !existsSync(t0.worktree)) await orch.ensureTaskWorktree(a._[1]);
         console.log(JSON.stringify(termPrep(orch, a._[1], { resume: !!a.flags.resume, message: a.flags.msg })));
       } catch (e) {
         console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));

@@ -6,7 +6,10 @@
 .fwtermbox{flex:1;min-height:120px;padding:6px 4px 4px 8px}
 .fwtermbox .xterm{height:100%}
 .fwtermbox .xterm-viewport{background:transparent!important}
-.fwtermbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:var(--fs-sm);color:var(--text-2);background:var(--surface)}
+.fwtermbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:var(--fs-sm);color:var(--text-2);background:var(--surface);min-width:0}
+.fwtermbar>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fwtermbar .pulse{margin-right:4px;vertical-align:1px}
+.fwtermbar .btn{flex:none}
 
 /* ---------- layout A: a coluna inteira é a tarefa ---------- */
 .fwchat.tl{background:var(--surface-2)}
@@ -17,12 +20,22 @@
 .tltermbar{flex:none;display:flex;align-items:center;gap:8px;min-width:0;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--surface);font-size:var(--fs-xs);color:var(--muted);white-space:nowrap}
 .tltermbar .sp{flex:1}
 .tldot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--c,var(--accent))}
-.tlai{font-family:var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;min-width:0}
+.tlai{flex:0 1 auto;font-family:var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;min-width:9ch}
 .tlst{font-weight:600}
 .tlq1{color:var(--text-2);font-variant-numeric:tabular-nums}
-.tlhint{color:var(--text-3)}
+.tlhint{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-3)}
+/* última nota do Starfork (PR aberto, fila…): ocupa o espaço livre e corta com reticências */
+.tlnote{flex:0 100 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-2);padding-left:6px}
+/* teto de custo aberto: decisão sua, em cima do compositor */
+.tlbudget{flex:none;margin:8px 12px 0;padding:9px 11px;border-radius:var(--r-sm);background:color-mix(in srgb,var(--warn) 7%,var(--surface));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 38%,transparent);font-size:var(--fs-sm);color:var(--text);display:flex;flex-direction:column;gap:7px}
+.tlbudq b{color:var(--warn)}
+.tlbudo{display:flex;gap:6px;flex-wrap:wrap}
+.tlbudh{font-size:var(--fs-xs);color:var(--text-2)}
 .fwchat.tl{container-type:inline-size}
+/* a barra mede a COLUNA do terminal (não a tela da tarefa com o painel): prioridade IA/estado > dica > nota */
+.tlcol{container-type:inline-size}
 @container (max-width:520px){ .tlhint{display:none} }
+@container (max-width:640px){ .tlnote{display:none} }
 
 /* ---------- painel "Requisitos e provas" ---------- */
 .tlside{flex:none;display:flex;min-height:0;position:relative}
@@ -127,3 +140,34 @@
 /* a linha do ciclo (etapas + decisões) não engole o terminal num pane pequeno */
 html.sfpane .fw:has(.fwchat.tl) .fwciclo{max-height:34vh;overflow:auto}
 @media (prefers-reduced-motion:reduce){ .tlsheet{animation:none} .tlbar i{transition:none} }
+
+/* ---------- painel BAIXO do canvas (grade/empilhado, altura < 420px): o terminal fica com a altura ----------
+   meta: ≥ 8 linhas de terminal num painel de 341×347. Sai a faixa de etapas (fica o resumo de 1 linha), a barra
+   do histórico entra na linha de status (só o botão) e o compositor vira 1 linha (anexo · campo · ⋯ · enviar). */
+.cc-compmore{display:none}
+@media (max-height:420px){
+  html.sfpane .fw:has(.fwchat.tl) .fwciclo{padding:3px 10px;gap:0}
+  html.sfpane .fw:has(.fwchat.tl) .cicstrip>:not(.cicst-sum){display:none}
+  html.sfpane .fw:has(.fwchat.tl) .cicst-sum{margin-left:0;width:100%;font-size:var(--fs-xs);gap:0 10px}
+  html.sfpane .fw:has(.fwchat.tl) .cicst-pos{display:none}
+  html.sfpane .fw:has(.fwchat.tl) .cicst-cost{display:inline}
+  html.sfpane .fwchat.tl .tltermbar{height:28px;box-sizing:border-box;padding-top:0;padding-bottom:0}
+  html.sfpane .fwchat.tl .tltermbar .tlst{min-width:0;overflow:hidden;text-overflow:ellipsis}
+  html.sfpane .fw:has(.fwchat.tl) .cicst-sum{flex-wrap:nowrap}
+  html.sfpane .fw:has(.fwchat.tl) .cicst-cost{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  html.sfpane .fwchat.tl .fwtermslot{position:static}
+  html.sfpane .fwchat.tl .fwtermbar{position:absolute;top:0;right:0;height:28px;box-sizing:border-box;padding:0 8px;border:0;background:transparent;z-index:3}
+  html.sfpane .fwchat.tl .fwtermbar>span:not(:has(.btn)){display:none}
+  html.sfpane .fwchat.tl .fwtermbar .btn{padding:1px 8px;font-size:var(--fs-xs);line-height:1.4}
+  html.sfpane .fwchat.tl .tlcol:has(.fwtermbar:not([style*="none"])) .tltermbar{padding-right:170px}
+  html.sfpane .fwchat.tl .fwinput.cc{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:6px 8px}
+  html.sfpane .fwchat.tl .fwinput.cc .cc-row{display:contents}
+  html.sfpane .fwchat.tl .fwinput.cc .cc-model,html.sfpane .fwchat.tl .fwinput.cc .fwreqtoggle,html.sfpane .fwchat.tl .fwinput.cc .cc-sp,html.sfpane .fwchat.tl .fwinput.cc .chathint{display:none}
+  html.sfpane .fwchat.tl .fwinput.cc .cc-clip{order:1}
+  html.sfpane .fwchat.tl .fwinput.cc .cc-ta{order:2;flex:1 1 0;min-width:0;height:32px!important;min-height:32px!important;max-height:32px!important;padding-top:6px;padding-bottom:6px;overflow:hidden}
+  html.sfpane .fwchat.tl .fwinput.cc .cc-compmore{order:3;display:inline-grid;place-items:center}
+  html.sfpane .fwchat.tl .fwinput.cc .cc-compmore.on{color:var(--accent);border-color:var(--accent-line)}
+  html.sfpane .fwchat.tl .fwinput.cc .cc-compmore svg{width:14px;height:14px}
+  html.sfpane .fwchat.tl .fwinput.cc #fwSendBtns{order:4}
+  html.sfpane .fwchat.tl .fwinput.cc .attrow,html.sfpane .fwchat.tl .fwinput.cc .fwselchip{order:0;flex-basis:100%}
+}

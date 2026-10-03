@@ -183,6 +183,8 @@ const clip = (s: unknown, n: number) => { const t = String(s ?? "").trim(); retu
 /** Bloco de anexos ([ANEXOS]…[/ANEXOS]) não precisa ir inteiro pro feed. */
 const userText = (p: string) => p.replace(/\n*\[ANEXOS\][\s\S]*?\[\/ANEXOS\]/g, (m) => ` [${(m.match(/^\d+\./gm) ?? []).length || 1} anexo(s)]`);
 
+/** Motivo do SessionEnd do Claude Code em pt-BR (o código cru — "other", "prompt_input_exit" — não vai pro feed). */
+export const END_REASON_PT: Record<string, string> = { clear: "conversa limpa (/clear)", logout: "você saiu da conta do Claude", prompt_input_exit: "você saiu do terminal", other: "a sessão terminou", bypass_permissions_disabled: "o modo sem confirmação foi desligado" };
 /** Evento de hook (Claude Code ou Codex — mesmo formato) → o que muda no feed e no estado da tarefa. */
 export function mapHook(event: string, p: Record<string, any>): HookEffect {
   switch (event) {
@@ -220,7 +222,7 @@ export function mapHook(event: string, p: Record<string, any>): HookEffect {
       return { events: [{ type: "done", text: last || "turno concluído", ok: true }], busy: false, turnEnd: true, sessionId: p.session_id || p["thread-id"] || undefined };
     }
     case "SessionEnd":
-      return { events: [{ agent: "Sistema", type: "status", text: `terminal: sessão encerrada${p.reason ? ` (${p.reason})` : ""}`, ok: true }], busy: false, ended: true };
+      return { events: [{ agent: "Sistema", type: "status", text: `terminal: ${END_REASON_PT[String(p.reason ?? "")] ?? "a sessão terminou"}`, ok: true }], busy: false, ended: true };
     default:
       return { events: [] };
   }
@@ -455,7 +457,7 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
   const { task, spec, role, ctx } = orch.terminalContext(taskId);
   const kind = engineKind(role.engine || spec.engine);
   if (kind !== "claude" && kind !== "codex") throw new Error(`o motor "${role.engine || spec.engine}" não tem terminal — use o modo automático`);
-  if (!existsSync(task.worktree)) throw new Error("a worktree desta tarefa não existe mais — mande uma mensagem no modo automático pra recriá-la");
+  if (!existsSync(task.worktree)) throw new Error(task.status === "merged" ? "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste" : "a worktree desta tarefa não existe mais");
   if (spec.termMode !== "terminal") { spec.termMode = "terminal"; orch.store.updateSpec(taskId, JSON.stringify(spec)); }
   const repo = orch.ws.repo;
   const base = engineBase();
