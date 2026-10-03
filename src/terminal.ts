@@ -54,7 +54,17 @@ export function engineBase(): string[] {
   return [process.execPath, ...flags, "--disable-warning=ExperimentalWarning", process.argv[1]];
 }
 export function hookArgv(base: string[], event: string, taskId: string, repo: string): string[] {
-  return [...base, "hook", event, HOOK_MARK, taskId, "--repo", repo];
+  return taskId === CODEX_ENV_TASK ? [...base, "hook", event, HOOK_MARK, CODEX_ENV_TASK] : [...base, "hook", event, HOOK_MARK, taskId, "--repo", repo];
+}
+/** Hook "genérico": a tarefa e o banco vêm do ambiente do CLI (CARDUME_TASK / CARDUME_DB). */
+export const CODEX_ENV_TASK = "env";
+/** Resolve (tarefa, repo) do hook: explícitos, ou do ambiente quando o comando é o genérico. */
+export function hookTarget(taskArg: string, repoArg: string, env: NodeJS.ProcessEnv = process.env): { taskId: string; repo: string; db: string } {
+  if (taskArg === CODEX_ENV_TASK || !taskArg) {
+    const db = env.CARDUME_DB || "";
+    return { taskId: env.CARDUME_TASK || "", repo: db ? dirname(dirname(db)) : repoArg, db };
+  }
+  return { taskId: taskArg, repo: repoArg, db: env.CARDUME_DB || dbOf(repoArg) };
 }
 export const shellCmd = (argv: string[]) => argv.map(shq).join(" ");
 export const isStarforkCmd = (cmd: unknown) => typeof cmd === "string" && cmd.includes(HOOK_MARK);
@@ -177,11 +187,12 @@ export function mapHook(event: string, p: Record<string, any>): HookEffect {
       return { events: prompt ? [{ agent: "Você", type: "note", text: `Você: ${clip(userText(prompt), 4000)}`, ok: true }] : [], busy: true, status: "running", sessionId: p.session_id || undefined };
     }
     case "PreToolUse": {
+      // ferramenta rodando = sessão OCUPADA (corrige um "livre" marcado por engano — ex.: Esc que só fechou um menu)
       const ev = mapTool(String(p.tool_name ?? ""), p.tool_input ?? {});
-      if (ev.type === "claim" && ev.path) return { events: [], claim: { path: ev.path, mode: ev.mode ?? "write" } };
+      if (ev.type === "claim" && ev.path) return { events: [], claim: { path: ev.path, mode: ev.mode ?? "write" }, busy: true };
       // Codex: apply_patch/shell trazem o comando/patch em formatos próprios
-      if (/apply_patch/i.test(String(p.tool_name))) return { events: [{ type: "edit", text: clip(patchFiles(p.tool_input), 300) || "editando arquivos", ok: true }] };
-      return { events: ev.text ? [{ type: ev.type, text: clip(ev.text, 300), ok: ev.ok }] : [] };
+      if (/apply_patch/i.test(String(p.tool_name))) return { events: [{ type: "edit", text: clip(patchFiles(p.tool_input), 300) || "editando arquivos", ok: true }], busy: true };
+      return { events: ev.text ? [{ type: ev.type, text: clip(ev.text, 300), ok: ev.ok }] : [], busy: true };
     }
     case "PostToolUse": {
       const r = p.tool_response;
@@ -397,9 +408,12 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
     if (mcp.command) {
       args.push("-c", `mcp_servers.cardume.command=${toml(mcp.command)}`, "-c", `mcp_servers.cardume.args=${toml(mcp.args ?? [])}`, "-c", `mcp_servers.cardume.env=${toml(mcp.env ?? {})}`);
     }
-    args.push("-c", `notify=${toml(hookArgv(base, "codex-notify", taskId, repo))}`);
+    // comandos IGUAIS em toda tarefa (tarefa/banco vêm do env CARDUME_TASK/CARDUME_DB): o Codex pede pra pessoa
+    // revisar/confiar em hook NOVO ou ALTERADO — com o id da tarefa no comando seria um "Hooks need review" por
+    // tarefa; assim é UMA vez (por instalação do motor)
+    args.push("-c", `notify=${toml(hookArgv(base, "codex-notify", CODEX_ENV_TASK, ""))}`);
     for (const ev of CODEX_HOOK_EVENTS) {
-      args.push("-c", `hooks.${ev}=${toml([{ hooks: [{ type: "command", command: shellCmd(hookArgv(base, ev, taskId, repo)), timeout: 30 }] }])}`);
+      args.push("-c", `hooks.${ev}=${toml([{ hooks: [{ type: "command", command: shellCmd(hookArgv(base, ev, CODEX_ENV_TASK, "")), timeout: 30 }] }])}`);
     }
     if (role.model) args.push("-m", role.model);
     const kick = first || (sid ? "" : codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume): use ask_human para dúvidas e add_requirement para pedidos novos.");
@@ -453,13 +467,15 @@ const readStdin = (): string => { try { return readFileSync(0, "utf8"); } catch 
 const dbOf = (repo: string) => join(repo, ".cardume", "state.sqlite");
 
 /** `hook <Evento> --starfork-task <id> --repo <repo>` — nunca quebra o CLI: erro vai pro stderr, saída 0. */
-export function hookCli(event: string, taskId: string, repo: string, argvPayload?: string): number {
+export function hookCli(event: string, taskArg: string, repoArg: string, argvPayload?: string): number {
   try {
+    const { taskId, repo, db } = hookTarget(taskArg, repoArg);
+    if (!taskId || !db) return 0;
     const raw = event === "codex-notify" ? (argvPayload ?? "") : readStdin();
     let p: Record<string, any> = {};
     try { p = raw ? JSON.parse(raw) : {}; } catch { /* payload não-JSON */ }
     if (event === "codex-notify" && p.type && p.type !== "agent-turn-complete") return 0;
-    const store = new Store(process.env.CARDUME_DB || dbOf(repo));
+    const store = new Store(db);
     try {
       const eff = mapHook(event, p);
       if (event === "Stop" && eff.events[0]?.text === "turno concluído") {

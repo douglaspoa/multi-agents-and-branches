@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./store.ts";
 import { Orchestrator } from "./orchestrator.ts";
-import { applyHook, envToRemove, excludeFromGit, mapHook, mergeClaudeSettings, recordStatuslineCost, termMessage, termModeOf, terminalCapable, HOOK_MARK, CLAUDE_HOOK_EVENTS, lastAssistantText } from "./terminal.ts";
+import { applyHook, envToRemove, hookTarget, hookArgv, CODEX_ENV_TASK, excludeFromGit, mapHook, mergeClaudeSettings, recordStatuslineCost, termMessage, termModeOf, terminalCapable, HOOK_MARK, CLAUDE_HOOK_EVENTS, lastAssistantText } from "./terminal.ts";
 import type { TaskSpec } from "./types.ts";
 
 const BASE = ["/usr/bin/node", "/app/cli.mjs"];
@@ -80,6 +80,7 @@ test("hooks → feed e estado: sessão, ocupado, ferramentas, permissão, fim de
   assert.equal(up.events[0].agent, "Você");
   assert.match(up.events[0].text, /^Você: arruma o botão \[1 anexo\(s\)\]$/, "o app reconhece como fala do humano (evIsUserMsg)");
   assert.deepEqual(mapHook("PreToolUse", { tool_name: "Edit", tool_input: { file_path: "src/a.ts" } }).events, [{ type: "edit", text: "src/a.ts", ok: true }]);
+  assert.equal(mapHook("PreToolUse", { tool_name: "Read", tool_input: {} }).busy, true, "ferramenta rodando = ocupada");
   assert.equal(mapHook("PreToolUse", { tool_name: "Bash", tool_input: { command: "npm test" } }).events[0].type, "bash");
   assert.deepEqual(mapHook("PreToolUse", { tool_name: "mcp__cardume__claim", tool_input: { path: "src/**", mode: "write" } }).claim, { path: "src/**", mode: "write" });
   assert.equal(mapHook("PreToolUse", { tool_name: "apply_patch", tool_input: { input: "*** Begin Patch\n*** Update File: a.ts\n*** Add File: b.ts\n" } }).events[0].text, "a.ts, b.ts", "Codex apply_patch");
@@ -216,4 +217,10 @@ test("env do terminal: tira marcadores de sessão filha e chaves de API, mantém
   const r = envToRemove({ CLAUDE_CODE_CHILD_SESSION: "1", CLAUDE_CODE_SESSION_ID: "x", CLAUDECODE: "1", CLAUDE_PID: "9", CLAUDE_CONFIG_DIR: "/c", ANTHROPIC_API_KEY: "k", PATH: "/bin" });
   for (const k of ["CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SESSION_ID", "CLAUDECODE", "CLAUDE_PID", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]) assert.ok(r.includes(k), k);
   assert.ok(!r.includes("CLAUDE_CONFIG_DIR") && !r.includes("PATH"));
+});
+
+test("hook do Codex é o MESMO comando em toda tarefa (confiança única) e acha a tarefa pelo ambiente", () => {
+  assert.deepEqual(hookArgv(BASE, "Stop", CODEX_ENV_TASK, ""), [...BASE, "hook", "Stop", HOOK_MARK, "env"]);
+  assert.deepEqual(hookTarget("env", "", { CARDUME_TASK: "t9", CARDUME_DB: "/r/.cardume/state.sqlite" }), { taskId: "t9", repo: "/r", db: "/r/.cardume/state.sqlite" });
+  assert.deepEqual(hookTarget("t1", "/repo", {}), { taskId: "t1", repo: "/repo", db: "/repo/.cardume/state.sqlite" });
 });

@@ -113,15 +113,21 @@ fn pty_e2e() {
             "cpu" => { let (a, mx) = cpu_group(s.pid, arg.parse().unwrap_or(10)); eprintln!("[e2e {ts:.1}s] CPU do grupo do CLI: média {a:.2}% · pico {mx:.1}% · eventos de saída até aqui: {} ({} bytes)", sink.n.lock().unwrap(), sink.bytes.lock().unwrap()); }
             "screen" => { let t = strip_ansi(&s.snapshot()); let tail: String = t.chars().rev().take(2500).collect::<Vec<_>>().into_iter().rev().collect(); eprintln!("[e2e {ts:.1}s] ---- tela (fim) ----\n{tail}\n---- fim da tela ----"); }
             "trust" => {
-                // diálogo "confiar nesta pasta" (worktree nova, repo nunca aberto no Claude Code): ↓ + Enter
+                // diálogos de primeira vez: "confiar nesta pasta" (Claude: ↓+Enter; Codex: Enter) e "Hooks need
+                // review" do Codex (2 = confiar em todos). Sai quando a sessão começa a trabalhar.
                 let w = Instant::now();
+                let mut handled = std::collections::HashSet::new();
                 while w.elapsed() < Duration::from_secs(arg.parse().unwrap_or(10)) {
                     let t = strip_ansi(&s.snapshot()).replace(' ', "");
-                    if t.contains("Itrustthisfolder") { s.write_bytes(b"\x1b[B").unwrap(); std::thread::sleep(Duration::from_millis(400)); s.write_bytes(b"\r").unwrap(); eprintln!("[e2e {ts:.1}s] confiou na pasta"); break; }
-                    if busy(&db, &task) == Some(1) && done_count(&db, &task) >= 0 && t.contains("bypass") { break; }
-                    std::thread::sleep(Duration::from_millis(200));
+                    let tail: String = t.chars().rev().take(1500).collect::<Vec<_>>().into_iter().rev().collect();
+                    if tail.contains("Itrustthisfolder") && handled.insert("claude-trust") { s.write_bytes(b"\x1b[B").unwrap(); std::thread::sleep(Duration::from_millis(400)); s.write_bytes(b"\r").unwrap(); eprintln!("[e2e] confiou na pasta (claude)"); }
+                    if tail.contains("Doyoutrustthecontents") && handled.insert("codex-trust") { s.write_bytes(b"\r").unwrap(); eprintln!("[e2e] confiou na pasta (codex)"); }
+                    if tail.contains("Hooksneedreview") && handled.insert("codex-hooks") { s.write_bytes(b"\x1b[B").unwrap(); std::thread::sleep(Duration::from_millis(300)); s.write_bytes(b"\r").unwrap(); eprintln!("[e2e] confiou nos hooks (codex)"); }
+                    if busy(&db, &task) == Some(1) && handled.len() > 0 && w.elapsed() > Duration::from_secs(3) { break; }
+                    std::thread::sleep(Duration::from_millis(250));
                 }
             }
+            "busy" => eprintln!("[e2e {ts:.1}s] busy={:?}", busy(&db, &task)),
             "kill" => { eprintln!("[e2e {ts:.1}s] kill → {}", m.kill(&task)); }
             _ => eprintln!("[e2e] passo desconhecido: {step}"),
         }

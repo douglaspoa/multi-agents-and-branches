@@ -177,11 +177,8 @@ pub fn route(state: &State<AppState>, task_id: &str, kind: &str, msg: &str, as_r
 pub fn interrupt(state: &State<AppState>, task_id: &str) -> Result<(), String> {
     let m = mgr().ok_or("terminal indisponível")?;
     m.interrupt(task_id)?;
-    if let Ok(db) = db_of(state) { if let Ok(c) = open_rw(&db) {
-        let _ = c.execute("UPDATE term_session SET busy=0, updated_at=?2 WHERE task_id=?1", params![task_id, now_ms()]);
-        let _ = c.execute("UPDATE task SET busy_pid=NULL WHERE id=?1", params![task_id]);
-        let _ = c.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', 'turno interrompido (Esc no terminal)', 1)", params![task_id, now_ms()]);
-    } }
+    // o Claude Code não dispara Stop ao interromper: o estado livre é marcado aqui
+    mark_idle(state, task_id, Some("turno interrompido (Esc no terminal)"));
     Ok(())
 }
 
@@ -234,8 +231,19 @@ pub fn term_detach(task_id: String) -> Result<(), String> {
 }
 /// Tecla/colagem digitada DIRETO no terminal (xterm onData).
 #[tauri::command(async)]
-pub fn term_write(task_id: String, data: String) -> Result<(), String> {
-    mgr().and_then(|m| m.live(&task_id)).ok_or("o terminal desta tarefa não está aberto")?.write_bytes(data.as_bytes())
+pub fn term_write(state: State<AppState>, task_id: String, data: String) -> Result<(), String> {
+    mgr().and_then(|m| m.live(&task_id)).ok_or("o terminal desta tarefa não está aberto")?.write_bytes(data.as_bytes())?;
+    // Esc digitado no terminal interrompe o turno e o Claude Code NÃO dispara o Stop: marca livre (o próximo
+    // PreToolUse volta pra ocupado se o Esc só tinha fechado um menu)
+    if data == "\x1b" { mark_idle(&state, &task_id, None); }
+    Ok(())
+}
+fn mark_idle(state: &State<AppState>, task_id: &str, note: Option<&str>) {
+    if let Ok(db) = db_of(state) { if let Ok(c) = open_rw(&db) {
+        let _ = c.execute("UPDATE term_session SET busy=0, updated_at=?2 WHERE task_id=?1", params![task_id, now_ms()]);
+        let _ = c.execute("UPDATE task SET busy_pid=NULL WHERE id=?1", params![task_id]);
+        if let Some(n) = note { let _ = c.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 1)", params![task_id, now_ms(), n]); }
+    } }
 }
 #[tauri::command(async)]
 pub fn term_resize(task_id: String, cols: u16, rows: u16) -> Result<(), String> {
