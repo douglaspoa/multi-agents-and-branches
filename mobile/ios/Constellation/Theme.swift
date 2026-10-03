@@ -3,6 +3,14 @@ import SwiftUI
 /// Tokens do Design System mobile (redesign 09/2026) — mesma paleta do desktop:
 /// fundo #0b0d10, cartões translúcidos, verde #3fdd8a, mono pros rótulos.
 enum T {
+    /// sem animação infinita: UI tests (o XCUITest espera o app ficar ocioso) — DEBUG, env UITEST=1
+    static let still: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["UITEST"] == "1"
+        #else
+        return false
+        #endif
+    }()
     // superfícies
     static let bg       = Color(hex: 0x0b0d10)
     static let panel    = Color(hex: 0x141718)          // cartão / campo (≈ branco 7%)
@@ -25,19 +33,19 @@ enum T {
     static let purple = Color(hex: 0xb47ce0)
     static let pink   = Color(hex: 0xe8788a)
 
+    /// rótulo = o MESMO do desktop (StatusMeta ↔ STATUS_META); a cor é a semântica do mobile
     static func status(_ s: String, flag: String?) -> (String, Color) {
-        if flag == "closed" { return ("encerrada", dim) }
+        if flag == "closed" { return ("concluída", dim) }
+        let c: Color
         switch s {
-        case "running", "thinking": return ("escrevendo código", accent)
-        case "queued": return ("na fila", warn)
-        case "plan-review": return ("plano em revisão", warn)
-        case "review", "delivered": return ("pronta pra review", accent)
-        case "merged", "done": return ("mergeada", cyan)
-        case "error", "conflict": return (s == "error" ? "erro" : "conflito", bad)
-        case "backlog": return ("backlog", dim)
-        case "requested": return ("esperando o Mac", warn)
-        default: return (s, dim)
+        case "running", "thinking": c = accent
+        case "queued", "plan-review", "requested", "asking", "blocked": c = warn
+        case "review", "delivered": c = accent
+        case "merged", "done": c = cyan
+        case "error", "conflict": c = bad
+        default: c = dim
         }
+        return (StatusMeta.label(s), c)
     }
 
     /// fase 1–5 (Descoberta → Despacho → Execução → Revisão → PR)
@@ -143,9 +151,7 @@ struct PageHeader: View {
                     .foregroundStyle(accentKicker ? T.accent.opacity(0.75) : T.dim)
                     .lineLimit(1)
                 Rectangle().fill(T.line).frame(height: 1)
-                if live {
-                    HStack(spacing: 5) { BlinkDot(); Text("AO VIVO").font(.mono(9.5, .bold)).kerning(1).foregroundStyle(T.accent) }
-                }
+                if live { LiveTag() }   // honesto: AO VIVO · RECONECTANDO · OFFLINE (antes era fixo)
             }
             Text(title).font(.system(size: 30, weight: .semibold)).kerning(-0.75).foregroundStyle(T.text)
             Text(sub).font(.system(size: 13)).foregroundStyle(T.dim)

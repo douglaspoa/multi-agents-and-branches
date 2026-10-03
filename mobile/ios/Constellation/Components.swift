@@ -107,6 +107,7 @@ struct PhaseStepper: View {
 /// 5.2 — pill de intenção: o celular escreve, o Mac executa
 struct IntentPill: View {
     let label: String
+    @Environment(\.accessibilityReduceMotion) private var reduce
     @State private var pulse = false
     var body: some View {
         HStack(spacing: 8) {
@@ -121,7 +122,7 @@ struct IntentPill: View {
         .background(T.accent.opacity(0.07))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(T.accent.opacity(0.5), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
         .clipShape(RoundedRectangle(cornerRadius: 12))
-        .onAppear { withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { pulse = true } }
+        .onAppear { if !T.still && !reduce { withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { pulse = true } } }
     }
 }
 
@@ -211,11 +212,12 @@ struct BigButton: View {
 
 /// dot que pisca (● rodando · ao vivo)
 struct BlinkDot: View {
+    @Environment(\.accessibilityReduceMotion) private var reduce
     var color: Color = T.accent
     @State private var on = true
     var body: some View {
         Circle().fill(color).frame(width: 7, height: 7)
             .opacity(on ? 1 : 0.35)
-            .onAppear { withAnimation(.easeInOut(duration: 0.9).repeatForever()) { on.toggle() } }
+            .onAppear { if !T.still && !reduce { withAnimation(.easeInOut(duration: 0.9).repeatForever()) { on.toggle() } } }
     }
 }

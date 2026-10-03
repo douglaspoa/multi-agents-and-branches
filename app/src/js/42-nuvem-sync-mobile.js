@@ -274,7 +274,7 @@ tickLoop('cloudAutoTunnelTick', cloudAutoTunnelTick, 9000);
 const cloudSyncSigs={}, prProbed=new Set();
 // ---- PONTES DE INTENÇÃO do celular (escopo mobile): o app escreve
 // spec.intent={kind,...} → o Mac executa → publica spec.intentResult e limpa.
-// kinds: openPr · merge · pause · abort · fixComment {commentId}
+// kinds: openPr {noProofReason?} · merge · pause · resume · stop · abort · askProof · fixComment {commentId}
 const intentBusy={};
 const prPubAt={};
 async function cloudIntentTick(){
@@ -300,11 +300,24 @@ async function cloudIntentTick(){
     try{
       if(kind==='openPr'){
         if(!t) return finish(false,'tarefa não está neste Mac');
+        // PORTÃO DE PROVA (PR #100) também pra quem aprova do celular: requisito sem prova só passa com motivo
+        // (48: mobileApproveDecide) — o motivo vira o mesmo override do "aprovar sem prova…" do Mac e vai no PR
+        if(typeof proofGate==='function'){
+          if(typeof reqProofCache!=='undefined' && typeof loadReqProofs==='function'){ reqProofCache[lid]=undefined; await loadReqProofs(lid).catch(()=>{}); }
+          const pg=proofGate(t), dec=mobileApproveDecide(pg, it.noProofReason);
+          if(!dec.ok) return finish(false, dec.msg);
+          if(dec.override){
+            lsSet('proofOv:'+lid, JSON.stringify({ sig:proofSigOf(pg.missing), reason:dec.reason+' (pelo celular)', at:Date.now(), missing:pg.missing.map(r=>r.text) }));
+            invoke('checks_override_log',{ taskId:lid, reason:'[sem prova · celular] '+dec.reason, fingerprint:'', failing:pg.missing.map(r=>'sem prova: '+r.text) }).catch(()=>{});
+          }
+        }
         let checks=[]; try{ checks=await invoke('repo_checks',{taskId:lid}); }catch(_){ }
         const bad=checks.filter(c=>!c.ok);
         if(bad.length) return finish(false,'checagem falhou: '+bad.map(c=>c.name).join(', ')+' — abra pelo Mac pra ver o detalhe');
         try{ await invoke('push_task',{taskId:lid}); }catch(e){ return fail(e,'Não consegui enviar o código (push)'); }
         let body; try{ body=await invoke('pr_body_ai',{taskId:lid}); }catch(_){ body=prBodyOf(t); }
+        // mesma seção "## Provas"/"## Verificação" do PR aberto pelo Mac (override do celular incluso)
+        try{ if(typeof chkPrBodyExtra==='function') body=String(body||'')+chkPrBodyExtra(t); }catch(_){ }
         try{
           const url=await invoke('open_pr',{taskId:lid, base:lsGet('prBase:'+lid)||'main', title:t.title, body});
           prCache[lid]=undefined;
@@ -321,6 +334,24 @@ async function cloudIntentTick(){
         catch(e){ return fail(e,'Não consegui fazer o merge'); }
       }
       if(kind==='pause'){ try{ await invoke('pause_task',{taskId:lid}); return finish(true,'pausada'); }catch(e){ return fail(e,'Não consegui pausar'); } }
+      if(kind==='resume'){
+        // pausada pelo TETO não retoma por aqui (seria gastar sem decidir) — responda a pergunta do teto
+        if(t && ((t.spec||{}).budgetHit)) return finish(false,'a tarefa está parada no teto de custo — responda a pergunta do teto (continuar ou parar)');
+        try{ await invoke('resume_task',{taskId:lid}); return finish(true,'retomada'); }catch(e){ return fail(e,'Não consegui retomar'); }
+      }
+      if(kind==='stop'){
+        if(typeof budgetQuiet!=='undefined') budgetQuiet.add(lid); // parar ≠ "pronta pra revisar" (sem aviso falso)
+        try{ await invoke('stop_task',{taskId:lid}); return finish(true,'turno parado — a demanda volta pra você revisar'); }catch(e){ return fail(e,'Não consegui parar'); }
+      }
+      if(kind==='askProof'){
+        if(!t) return finish(false,'tarefa não está neste Mac');
+        if(typeof reqProofCache!=='undefined' && typeof loadReqProofs==='function'){ reqProofCache[lid]=undefined; await loadReqProofs(lid).catch(()=>{}); }
+        const g=(typeof proofGate==='function')?proofGate(t):{ missing:[] };
+        if(!g.missing.length) return finish(true,'todos os requisitos já têm prova');
+        // mesma mensagem e mesmo caminho do botão "pedir a prova ao agente" do Mac (na fila se ele estiver trabalhando)
+        const ok=(typeof fwSendText==='function') ? await fwSendText(lid, proofAskMsg(g.missing)) : false;
+        return ok ? finish(true,'pedido enviado ao agente — '+g.missing.length+' requisito(s) sem prova') : finish(false,'não consegui mandar o pedido ao agente');
+      }
       if(kind==='abort'){ try{ await invoke('abort_task',{taskId:lid}); return finish(true,'abortada'); }catch(e){ return fail(e,'Não consegui cancelar'); } }
       if(kind==='fixComment'){
         try{
@@ -593,33 +624,51 @@ async function cloudFeedTick(){
 tickLoop('cloudFeedTick', cloudFeedTick, 4000);
 
 // 3) chat do celular → entrega ao agente (fila do motor cuida do turno ocupado)
-const msgDelivering=new Set();
+// Regras (48: mobileMsgPlan/mobileMsgRetry): teto de custo aberto SEGURA a mensagem (avisa uma vez no feed);
+// falha na entrega devolve a mensagem pra fila (até 3x) e avisa no feed — antes ela era marcada entregue e sumia.
+const msgDelivering=new Set(), msgFails={}, msgHeld=new Set();
 async function cloudMsgTick(){
   if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return; // só a conta da vez, com o mapa dela
   // tarefas do projeto aberto (mais novas primeiro, até 60) — antes a URL levava TODOS os ids do tmap
   const m=tmap(); const lids=cloudTaskIds(m, 60, false); if(!lids.length) return;
   const rows=await sbGet('task_messages?select=id,task_id,body,author&delivered_at=is.null&task_id=in.'+pgIn(lids.map(l=>m[l]))+'&order=id&limit=5').catch(()=>[]);
   for(const msg of rows){
-    if(msgDelivering.has(msg.id)) continue; msgDelivering.add(msg.id);
+    if(msgDelivering.has(msg.id)) continue;
     const lid=Object.keys(m).find(k=>m[k]===msg.task_id); if(!lid) continue;
+    const budgetOpen=(state.pending||[]).some(p=>p.taskId===lid && (p.kind==='budget'||+p.id<0));
+    const plan=mobileMsgPlan(msg.body, { budgetOpen });
+    if(plan.kind==='hold'){
+      if(!msgHeld.has(msg.id)){ msgHeld.add(msg.id); sbPost('task_feed',{ task_id:msg.task_id, agent:'Sistema', kind:'note', text:'Mensagem do celular na fila: a tarefa está pausada no teto de custo — responda o teto (continuar ou parar) e ela segue pro agente.' }).catch(()=>{}); }
+      continue;
+    }
+    msgDelivering.add(msg.id);
     try{
       await sbFetch('/rest/v1/task_messages?id=eq.'+msg.id, { method:'PATCH', body: JSON.stringify({ delivered_at:new Date().toISOString() }) });
-      // "[img] <path> | legenda" = FOTO do celular: baixa pra .cardume/refs e manda o agente ABRIR
-      const img=String(msg.body||'').match(/^\[img\]\s*(\S+)(?:\s*\|\s*([\s\S]*))?$/);
-      if(img){
-        const local=await invoke('fetch_task_ref',{ taskId: lid, url:SB.url(), anon:SB.key(), token:SB.sess().access_token, path: img[1] });
-        const cap=(img[2]||'').trim();
-        const m2=`[anexo] O humano anexou uma IMAGEM do celular em ${local} — ABRA e analise (tool Read) antes de responder.${cap?`\nLegenda: ${cap}`:''}`;
-        await invoke('talk_task',{ taskId: lid, message: m2, asReq:false, agent:null });
-        sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'Você: imagem anexada'+(cap?': '+cap.slice(0,200):'') }).catch(()=>{});
-        continue;
+      try{
+        if(plan.kind==='img'){
+          // FOTO do celular: baixa pra .cardume/refs e manda o agente ABRIR
+          const local=await invoke('fetch_task_ref',{ taskId: lid, url:SB.url(), anon:SB.key(), token:SB.sess().access_token, path: plan.path });
+          const m2=`[anexo] O humano anexou uma IMAGEM do celular em ${local} — ABRA e analise (tool Read) antes de responder.${plan.caption?`\nLegenda: ${plan.caption}`:''}`;
+          await invoke('talk_task',{ taskId: lid, message: m2, asReq:false, agent:null });
+          sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'Você: imagem anexada'+(plan.caption?': '+plan.caption.slice(0,200):'') }).catch(()=>{});
+        } else if(plan.kind==='talk'){
+          // "[req] ..." vindo do celular = adicionar como REQUISITO da tarefa (checklist)
+          await invoke('talk_task',{ taskId: lid, message: plan.text, asReq:plan.asReq, agent:null });
+          sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'Você: '+plan.text.slice(0,280) }).catch(()=>{});
+        }
+        delete msgFails[msg.id];
+      }catch(e){
+        msgFails[msg.id]=(msgFails[msg.id]||0)+1;
+        if(mobileMsgRetry(msgFails[msg.id])==='retry'){
+          // devolve pra fila: a próxima volta tenta de novo (o celular continua vendo "na fila")
+          await sbFetch('/rest/v1/task_messages?id=eq.'+msg.id, { method:'PATCH', body: JSON.stringify({ delivered_at:null }) }).catch(()=>{});
+        } else {
+          sbPost('task_feed',{ task_id:msg.task_id, agent:'Sistema', kind:'error', text:'A mensagem do celular não chegou ao agente: '+String((e&&e.message)||e).slice(0,160)+' — mande de novo.' }).catch(()=>{});
+        }
+        throw e;
       }
-      // "[req] ..." vindo do celular = adicionar como REQUISITO da tarefa (checklist)
-      const asReq=/^\[req\]\s*/i.test(String(msg.body||''));
-      const body=String(msg.body||'').replace(/^\[req\]\s*/i,'');
-      await invoke('talk_task',{ taskId: lid, message: body, asReq, agent:null });
-      sbPost('task_feed',{ task_id:msg.task_id, agent:'Você', kind:'note', text:'Você: '+body.slice(0,280) }).catch(()=>{});
-    }catch(e){ console.error('msg', e.message); }
+    }catch(e){ console.error('msg', e.message||e); }
+    finally{ msgDelivering.delete(msg.id); }
   }
 }
 tickLoop('cloudMsgTick', cloudMsgTick, 5000);
