@@ -58,6 +58,12 @@ function openCfg(){
     <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgBrowserVisible" style="margin-top:3px"><span>Mostrar a janela do navegador <span class="dim">— por padrão ele roda em segundo plano (tarefas em paralelo não disputam a tela). Ligue quando precisar fazer login ou assumir a navegação; vale pras próximas execuções.</span></span></label>
     <div class="seclbl2" style="margin-top:20px">Previsão</div>
     <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgEstimate" checked style="margin-top:3px"><span>Previsão de tempo e tokens antes de rodar <span class="dim">— no "montar conversando", a IA dimensiona cada requisito e o histórico do repo converte em minutos, tokens e custo. Desligado: nenhuma chamada extra de IA.</span></span></label>
+    <div class="seclbl2" style="margin-top:20px">Modo das tarefas <span class="dim cfgsecd">· como cada tarefa NOVA roda (a tarefa guarda o modo com que começou)</span></div>
+    <div class="cfggrid">
+      <div class="cfgf"><label for="cfgTaskMode">Modo</label>
+        <select class="in" id="cfgTaskMode"><option value="terminal">Terminal (padrão) — o Claude Code / Codex oficial num terminal dentro da tarefa</option><option value="auto">Automático (sem terminal)</option></select>
+        <p class="cfghint">Piloto automático, ondas e épicos que iniciam sozinhos sempre usam o automático. Pra rodar sem ninguém olhando, o caminho mais seguro é uma chave de API.</p></div>
+    </div>
     <div class="seclbl2" style="margin-top:20px">Aprendizado contínuo <span class="dim cfgsecd">· no fim de cada tarefa uma retro relê o que aconteceu (suas correções, retrabalho) e propõe notas pro cérebro e skills do projeto</span></div>
     <div class="cfggrid">
       <div class="cfgf"><label for="cfgLearnMode">Modo</label>
@@ -81,7 +87,7 @@ function openCfg(){
     </div>
     <div class="cfgsavebar"><span class="dim" id="cfgDirty"></span><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
   // carrega o intervalo de retomada salvo (settings.json via Rust)
-  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false'); const lm=$id('cfgLearnMode'); if(lm && ['sugerir','auto','desligado'].includes(o.learnMode)) lm.value=o.learnMode; const rm=$id('cfgRetroModel'); if(rm) retroModelSelect(rm, o.retroModel); }catch(_){} }).catch(()=>{});
+  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false'); const lm=$id('cfgLearnMode'); if(lm && ['sugerir','auto','desligado'].includes(o.learnMode)) lm.value=o.learnMode; const rm=$id('cfgRetroModel'); if(rm) retroModelSelect(rm, o.retroModel); const tm=$id('cfgTaskMode'); if(tm) tm.value=(o.taskMode==='auto'?'auto':'terminal'); }catch(_){} }).catch(()=>{});
   { const cap=$id('cfgCap'), brl=$id('cfgBrl'), out=$id('cfgCapBrl');
     const upd=()=>{ const v=Math.max(0, parseFloat(cap.value)||0), r=parseFloat(brl.value)||usdBrlRate(); out.textContent=v>0?'≈ R$ '+fmtNumBR(v*r,true):'sem teto'; };
     cap.oninput=upd; brl.oninput=upd; upd(); }
@@ -106,6 +112,7 @@ function openCfg(){
     await w('limitRetryMin', String(N(v.retry)), 'retomar depois do limite da IA');
     if(bv) await w('browserVisible', bv.checked?'1':'0', 'mostrar a janela do navegador');
     { const es=$id('cfgEstimate'); if(es){ await w('estimateEnabled', es.checked?'1':'0', 'previsão de tempo e tokens'); if(typeof estSetEnabled==='function') estSetEnabled(es.checked); } }
+    { const tm=$id('cfgTaskMode'); if(tm) await w('taskMode', tm.value==='auto'?'auto':'terminal', 'modo das tarefas'); }
     { const lm=$id('cfgLearnMode'), rm=$id('cfgRetroModel'); if(lm) await w('learnMode', lm.value, 'modo do aprendizado contínuo'); if(rm) await w('retroModel', rm.value, 'modelo da retro'); }
     btn.disabled=false; btn.textContent='salvar';
     if(fails.length){ const d=$id('cfgDirty'); if(d) d.textContent='não salvou: '+fails.map(f=>f.nome).join(' e ');
