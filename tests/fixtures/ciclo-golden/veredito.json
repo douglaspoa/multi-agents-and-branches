@@ -1,0 +1,21 @@
+{
+  "cases": [
+    ["VEREDITO: aprova\n", "aprova", []],
+    ["**Veredito:** aprova — pronto pra prova", "aprova", []],
+    ["Revisei tudo.\n\nVEREDITO: muda\n- cobrir lista vazia\n- renomear `soma`\n\nObrigado", "muda", ["cobrir lista vazia", "renomear `soma`"]],
+    ["veredito: muda: falta teste; mensagem de erro em inglês", "muda", ["falta teste", "mensagem de erro em inglês"]],
+    ["## Veredito: muda\n1. citar a fonte do número de 2025\n2) corrigir concordância", "muda", ["citar a fonte do número de 2025", "corrigir concordância"]],
+    ["{\"veredito\":\"muda\",\"itens\":[\"a\",\"b\"]}", "muda", ["a", "b"]],
+    ["{\"veredito\":\"aprova\"}", "aprova", []],
+    ["VEREDITO: muda\n", "ilegivel", []],
+    ["Parece tudo certo pra mim.", "ilegivel", []],
+    ["VEREDITO: aprova\nVEREDITO: muda\n- x", "ilegivel", []],
+    ["", "ilegivel", []],
+    ["{\"veredito\":\"talvez\"}", "ilegivel", []],
+    ["Aprovo! Não muda nada.", "ilegivel", []]
+  ],
+  "decision": [
+    [1, "aprova", "segue"], [1, "muda", "refaz"], [2, "muda", "precisa-rodadas"], [3, "muda", "precisa-rodadas"],
+    [1, "ilegivel", "precisa-veredito"], [2, "aprova", "segue"], [3, "aprova", "segue"]
+  ]
+}

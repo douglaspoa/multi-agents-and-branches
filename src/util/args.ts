@@ -15,7 +15,7 @@ export const TEXT_FLAGS = new Set([
   "msg", "title", "objective", "requirement", "requirements", "deliverable", "verify", "boundary", "done-when", "cover", "after",
   "ref", "issue", "issue-url", "linked-to", "epic-id", "owns", "off", "id", "agent", "agents", "workflow",
   "model", "models", "base", "pr-base", "branch-type", "auto-pr", "risk", "pr", "kind", "repo", "engine", "approve",
-  "plan-approval", "wave", "out", "roles", "clarifications", "bus-policy",
+  "plan-approval", "wave", "out", "roles", "clarifications", "bus-policy", "task-kind", "budget-usd-task",
   // task edit / epic edit (src/agent-edits.ts)
   "req-add", "req-remove", "deliv-add", "note", "by-agent", "by-task", "description", "outcome", "done-when-add", "done-when-remove",
   "patch", "undo", "edit-id", "reject", "by-role",
@@ -27,7 +27,7 @@ export const TEXT_FLAGS = new Set([
 
 /** Flags SEM valor (booleanas). */
 export const BOOL_FLAGS = new Set([
-  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check",
+  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design",
 ]);
 
 const isKnownFlag = (tok: string) => tok.startsWith("--") && (TEXT_FLAGS.has(tok.slice(2)) || BOOL_FLAGS.has(tok.slice(2)) || tok === "--artifact-doc");

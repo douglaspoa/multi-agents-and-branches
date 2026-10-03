@@ -373,6 +373,12 @@ export class Store {
       .all(taskId, afterId) as unknown as EventRow[];
   }
 
+  /** Último id de evento da tarefa (0 = nenhum) — marca o começo de um papel pra ler só o que ele disse. */
+  lastEventId(taskId: string): number {
+    const r = this.db.prepare(`SELECT COALESCE(MAX(id), 0) AS m FROM event WHERE task_id = ?`).get(taskId) as { m: number } | undefined;
+    return Number(r?.m) || 0;
+  }
+
   recentEvents(limit = 8): EventRow[] {
     return this.db.prepare(`SELECT * FROM event ORDER BY id DESC LIMIT ?`).all(limit) as unknown as EventRow[];
   }

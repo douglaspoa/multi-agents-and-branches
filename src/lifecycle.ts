@@ -111,3 +111,186 @@ export function parseRelease(text: string): ReleaseParse {
   const reason = words.join(" ");
   return releaseCheck(m[1], reason);
 }
+
+// ---------------------------------------------------------------- P2: o ciclo por tipo de entrega
+
+export interface StageDef {
+  id: string;
+  label: string;
+  /** papel que age nesta etapa (sem papel = etapa do app: prova, portão, retro) */
+  role?: string;
+  /** agente padrão do catálogo */
+  agentId?: string;
+  /** cadeado humano: 1 = aprovar o plano; 2 = portão da entrega */
+  lock?: 1 | 2;
+  /** etapa que só entra quando pedida (Design em Código: só se mexe em tela) */
+  optional?: boolean;
+  /** lente do revisor */
+  lens?: "codigo" | "documento";
+}
+const PLANO: StageDef = { id: "plano", label: "Plano", role: "planner", agentId: "vega", lock: 1 };
+const DESIGN: StageDef = { id: "design", label: "Design", role: "designer", agentId: "aria" };
+const CONSTRUIR: StageDef = { id: "construir", label: "Construir", role: "builder", agentId: "iris" };
+const ESCREVER: StageDef = { id: "escrever", label: "Escrever", role: "docs", agentId: "lumen" };
+const REVISAR_COD: StageDef = { id: "revisar", label: "Revisar", role: "reviewer", agentId: "nyx", lens: "codigo" };
+const REVISAR_DOC: StageDef = { id: "revisar", label: "Conferir", role: "reviewer", agentId: "nyx", lens: "documento" };
+const PROVAR: StageDef = { id: "provar", label: "Provar" };
+const ENTREGAR: StageDef = { id: "entregar", label: "Entregar", lock: 2 };
+const RETRO: StageDef = { id: "retro", label: "Retro" };
+
+/** FONTE ÚNICA do ciclo por tipo (a tabela da decisão). Etapa que não vale pro tipo NÃO aparece. ≡ 60-ciclo.js. */
+export const FLOW_BY_KIND: Record<TaskKind, StageDef[]> = {
+  codigo: [PLANO, { ...DESIGN, optional: true }, CONSTRUIR, REVISAR_COD, PROVAR, ENTREGAR, RETRO],
+  pagina: [PLANO, DESIGN, CONSTRUIR, REVISAR_COD, PROVAR, ENTREGAR, RETRO],
+  pesquisa: [PLANO, ESCREVER, REVISAR_DOC, PROVAR, ENTREGAR, RETRO],
+  documento: [PLANO, ESCREVER, REVISAR_DOC, PROVAR, ENTREGAR, RETRO],
+};
+export const KIND_LABEL: Record<TaskKind, string> = { codigo: "Código", pagina: "Página/tela", pesquisa: "Pesquisa", documento: "Documento" };
+/** Nome de equipe pronta pelo tipo (P16 fundida na P2). */
+export const KIND_TEAM: Record<TaskKind, string> = { codigo: "Feature com revisão", pagina: "Página simples", pesquisa: "Pesquisa conferida", documento: "Relatório conferido" };
+
+/** Tipo da tarefa: o gravado; senão deduzido do tipo de branch (design → página, docs → documento, invest → pesquisa). */
+export function taskKindOf(spec: { taskKind?: unknown; branchType?: unknown } | null | undefined): TaskKind {
+  const k = String(spec?.taskKind ?? "");
+  if ((TASK_KINDS as string[]).includes(k)) return k as TaskKind;
+  const b = String(spec?.branchType ?? "").toLowerCase();
+  return b === "design" ? "pagina" : b === "docs" ? "documento" : b === "invest" ? "pesquisa" : "codigo";
+}
+/** Papéis (spec.roles) do tipo, com os agentes do catálogo. `withDesign` liga o Design opcional do Código. */
+export function rolesForKind(kind: TaskKind, catalog: { id: string; name: string; role: string; engine: string; model?: string; persona?: string }[], o: { engine?: string; model?: string; withDesign?: boolean } = {}): AgentRole[] {
+  const out: AgentRole[] = [];
+  for (const st of FLOW_BY_KIND[kind]) {
+    if (!st.role || (st.optional && !o.withDesign)) continue;
+    const a = catalog.find((x) => x.id === st.agentId) ?? catalog.find((x) => x.role === st.role);
+    if (!a) continue;
+    out.push({ role: a.role === st.role ? a.role : st.role, agentId: a.id, name: a.name, engine: o.engine ?? a.engine, model: o.model ?? a.model, persona: a.persona });
+  }
+  return diversifyReviewer(out);
+}
+/** Papel que PRODUZ o que o revisor confere (volta pra ele no "muda"): o último builder/docs/designer antes de `i`. */
+export function producerIndex(roles: { role: string }[], reviewerIdx: number): number {
+  for (let j = reviewerIdx - 1; j >= 0; j--) if (["builder", "docs", "designer"].includes(roles[j].role)) return j;
+  return -1;
+}
+
+// ---------------------------------------------------------------- P5 (parte da P3): revisor independente
+
+const sameModel = (a?: string, b?: string) => String(a ?? "").trim().toLowerCase() === String(b ?? "").trim().toLowerCase();
+/** O revisor roda no MESMO motor e modelo do builder? (revisão menos independente) */
+export function reviewerIsSame(builder: Pick<AgentRole, "engine" | "model"> | undefined, reviewer: Pick<AgentRole, "engine" | "model"> | undefined): boolean {
+  if (!builder || !reviewer) return false;
+  return String(builder.engine).toLowerCase() === String(reviewer.engine).toLowerCase() && sameModel(builder.model, reviewer.model);
+}
+export const SAME_REVIEWER_WARNING = "revisor igual ao builder — revisão menos independente";
+/** Quando dá (Claude: outro modelo), põe o revisor num modelo diferente do builder. Senão mantém (e a UI avisa). */
+export function diversifyReviewer(roles: AgentRole[]): AgentRole[] {
+  const ri = roles.findIndex((r) => r.role === "reviewer");
+  const pi = ri >= 0 ? producerIndex(roles, ri) : -1;
+  if (ri < 0 || pi < 0 || !reviewerIsSame(roles[pi], roles[ri])) return roles;
+  const b = roles[pi];
+  if (String(b.engine).toLowerCase().startsWith("claude")) {
+    const m = String(b.model ?? "").toLowerCase();
+    const alt = m.includes("sonnet") ? "opus" : "sonnet";
+    return roles.map((r, i) => (i === ri ? { ...r, model: alt } : r));
+  }
+  return roles;
+}
+
+// ---------------------------------------------------------------- P3: veredito do revisor
+
+export const MAX_REVIEW_ROUNDS = 2;
+export type Verdict = { kind: "aprova" | "muda" | "ilegivel"; items: string[] };
+const BULLET = /^\s*(?:[-*•]|\d+[.)])\s+(.+?)\s*$/;
+/**
+ * Lê o veredito do revisor. Aceita JSON {"veredito":"aprova"|"muda","itens":[…]} ou uma linha
+ * "VEREDITO: aprova" / "VEREDITO: muda" seguida da lista (ou "muda: a; b"). NUNCA vira "aprova" por omissão:
+ * sem linha, com duas respostas diferentes, ou "muda" sem nenhum item → ilegível.
+ */
+export function parseVerdict(text: string): Verdict {
+  const t = String(text ?? "").replace(/\r\n/g, "\n");
+  const bad: Verdict = { kind: "ilegivel", items: [] };
+  if (!t.trim()) return bad;
+  const j = (() => { const a = t.indexOf("{"), b = t.lastIndexOf("}"); if (a < 0 || b <= a) return null; try { return JSON.parse(t.slice(a, b + 1)); } catch { return null; } })();
+  if (j && typeof j === "object" && typeof j.veredito === "string") {
+    const k = j.veredito.trim().toLowerCase();
+    const items = (Array.isArray(j.itens) ? j.itens : []).map((x: unknown) => String(x ?? "").trim()).filter(Boolean).slice(0, 20);
+    if (k === "aprova") return { kind: "aprova", items: [] };
+    if (k === "muda") return items.length ? { kind: "muda", items } : bad;
+    return bad;
+  }
+  const lines = t.split("\n");
+  const re = /^\s*(?:[#>*_\s]*)veredito(?:[*_\s]*)\s*[:：-]\s*[*_]*\s*(aprova|muda)\b[*_]*\s*[:：-]?\s*(.*)$/i;
+  const hits = lines.map((l, i) => ({ i, m: l.match(re) })).filter((x) => x.m);
+  const kinds = new Set(hits.map((h) => h.m![1].toLowerCase()));
+  if (kinds.size !== 1) return bad;
+  const kind = [...kinds][0] as "aprova" | "muda";
+  if (kind === "aprova") return { kind, items: [] };
+  const h = hits[hits.length - 1];
+  const items: string[] = [];
+  const inline = h.m![2].trim();
+  if (inline) items.push(...inline.split(/\s*;\s*/).map((x) => x.trim()).filter(Boolean));
+  for (let i = h.i + 1; i < lines.length; i++) {
+    const m = lines[i].match(BULLET);
+    if (m) { items.push(m[1]); continue; }
+    if (lines[i].trim() && items.length) break; // a lista acabou
+  }
+  return items.length ? { kind, items: items.slice(0, 20) } : bad;
+}
+/** O que fazer com o veredito da rodada `round` (1-based). */
+export function reviewDecision(round: number, v: Verdict): "segue" | "refaz" | "precisa-rodadas" | "precisa-veredito" {
+  if (v.kind === "aprova") return "segue";
+  if (v.kind === "ilegivel") return "precisa-veredito";
+  return round < MAX_REVIEW_ROUNDS ? "refaz" : "precisa-rodadas";
+}
+/** Instrução do revisor: a lente do tipo + o formato do veredito (vai no contexto do papel). */
+export function verdictInstructions(lens: "codigo" | "documento", round: number): string {
+  const what = lens === "codigo"
+    ? "LENTE: CÓDIGO — leia o diff (git diff <base>...HEAD), RODE os testes do projeto e confira cada requisito do TASK.yaml contra o que mudou."
+    : "LENTE: DOCUMENTO — confira as FONTES (link e data em cada afirmação), os NÚMEROS (conta e origem), o PORTUGUÊS e se o roteiro do plano foi atendido seção por seção.";
+  return `\n\n## SUA REVISÃO TEM VEREDITO (rodada ${round} de ${MAX_REVIEW_ROUNDS})\n${what}\n` +
+    `Ao terminar, escreva .cardume/VEREDITO.md começando com UMA destas linhas:\n` +
+    `- \`VEREDITO: aprova\` — está pronto pra prova;\n` +
+    `- \`VEREDITO: muda\` — seguida de uma lista com "- " de cada mudança concreta que o builder precisa fazer.\n` +
+    `Sem essa linha a revisão é tratada como ilegível e a tarefa para pra pessoa decidir. Não aprove por educação: "muda" volta pro builder (no máximo ${MAX_REVIEW_ROUNDS} rodadas).`;
+}
+/** Frase da rodada pra faixa e pra conversa: "Revisão 1/2 (Nyx): muda — 2 itens". */
+export function roundText(r: Pick<ReviewRound, "round" | "verdict" | "items" | "reviewer">): string {
+  const v = r.verdict === "aprova" ? "aprova" : r.verdict === "muda" ? `muda — ${r.items.length} ${r.items.length === 1 ? "item" : "itens"}` : "veredito ilegível";
+  return `Revisão ${r.round}/${MAX_REVIEW_ROUNDS} (${r.reviewer}): ${v}`;
+}
+
+// ---------------------------------------------------------------- Relatório Starfork (PR)
+
+export interface ReportData {
+  requirements: { text: string; status: "provado" | "sem prova" | "adiado"; evidence: string[] }[];
+  /** "aprovar sem prova" — quem e por quê */
+  noProofReason?: string;
+  noProofBy?: string;
+  /** a pessoa seguiu pra prova sem nova revisão (3ª rodada/veredito ilegível) — o motivo */
+  reviewOverride?: string;
+  costByRole: { role: string; name: string; usd: number }[];
+  totalUsd: number;
+  capUsd: number;
+  releases: BudgetRelease[];
+  rounds: Pick<ReviewRound, "round" | "verdict" | "items" | "reviewer">[];
+  runs: Pick<RoleRun, "role" | "agentId" | "name" | "version" | "engine" | "model">[];
+}
+const ROLE_PT: Record<string, string> = { planner: "plano", builder: "construção", reviewer: "revisão", designer: "design", docs: "escrita", tester: "testes", retro: "retro", investigator: "investigação" };
+const md = (s: string) => String(s ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
+/** O Relatório Starfork que vai no corpo do PR (≡ cicloReport do app; fixture ciclo-golden/relatorio.json). */
+export function starforkReport(d: ReportData): string {
+  const L: string[] = ["## Relatório Starfork", ""];
+  if (d.requirements.length) {
+    L.push("**Requisitos × provas**", "", "| Requisito | Prova |", "|---|---|");
+    for (const r of d.requirements) L.push(`| ${md(r.text)} | ${r.status === "provado" ? `provado — ${r.evidence.map((e) => "`" + md(e) + "`").join(", ") || "evidência no disco"}` : r.status} |`);
+    L.push("");
+  }
+  if (d.noProofReason) L.push(`**Aprovado sem prova**${d.noProofBy ? ` por ${md(d.noProofBy)}` : ""}: ${md(d.noProofReason)}`, "");
+  if (d.reviewOverride) L.push(`**Seguiu sem nova revisão:** ${md(d.reviewOverride)}`, "");
+  if (d.rounds.length) L.push(`**Revisão:** ${d.rounds.map((r) => `rodada ${r.round} (${md(r.reviewer)}) — ${r.verdict === "aprova" ? "aprova" : r.verdict === "muda" ? `muda (${r.items.length})` : "ilegível"}`).join(" · ")}`, "");
+  const per = d.costByRole.filter((c) => c.usd > 0).map((c) => `${ROLE_PT[c.role] ?? c.role} (${md(c.name)}) ${fmtUsdBr(c.usd)}`).join(" · ");
+  L.push(`**Custo:** ${fmtUsdBr(d.totalUsd)} de ${fmtUsdBr(d.capUsd)} de teto${per ? ` — ${per}` : ""}`, "");
+  if (d.releases.length) L.push("**Liberações de teto**", "", ...d.releases.map((r) => `- +${fmtUsdBr(r.usd)} (teto ${fmtUsdBr(r.capBefore)} → ${fmtUsdBr(r.capAfter)}): ${md(r.reason)}`), "");
+  if (d.runs.length) L.push(`**Versões:** ${d.runs.map((r) => `${ROLE_PT[r.role] ?? r.role} \`${runTag(r)}\``).join(" · ")}`, "");
+  return L.join("\n").trimEnd() + "\n";
+}

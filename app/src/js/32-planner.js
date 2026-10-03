@@ -857,6 +857,8 @@ async function submitNewTaskInner(start=true){
     linkedTo: ntLinkedTo,
     light: (($id("ntLight")||{}).checked) || false,
   };
+  // P2 + P6: tipo de entrega (equipe pelo tipo, Cadeado 1) e teto à vista no intake
+  if(typeof ntKindPayload==='function') ntKindPayload(payload);
   // Detecção proativa de sobreposição de escopo (fosso): avisa ANTES de rodar,
   // não no merge. Só ao iniciar de fato e com escopo declarado. Nunca bloqueia por erro.
   if(start && payload.owns && window.Coordenacao){

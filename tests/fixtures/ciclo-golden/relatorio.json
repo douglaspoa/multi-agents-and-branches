@@ -1,0 +1,118 @@
+{
+  "cases": [
+    {
+      "input": {
+        "requirements": [
+          {
+            "text": "lista mostra os itens | com preço",
+            "status": "provado",
+            "evidence": [
+              "proof-1.png",
+              "tests.md"
+            ]
+          },
+          {
+            "text": "exportar CSV",
+            "status": "sem prova",
+            "evidence": []
+          },
+          {
+            "text": "modo escuro",
+            "status": "adiado",
+            "evidence": []
+          }
+        ],
+        "noProofReason": "o CSV fica pra tarefa do relatório",
+        "noProofBy": "Douglas",
+        "reviewOverride": "",
+        "costByRole": [
+          {
+            "role": "planner",
+            "name": "Vega",
+            "usd": 0.1
+          },
+          {
+            "role": "builder",
+            "name": "Íris",
+            "usd": 0.456
+          },
+          {
+            "role": "reviewer",
+            "name": "Nyx",
+            "usd": 0.2
+          },
+          {
+            "role": "retro",
+            "name": "retro",
+            "usd": 0
+          }
+        ],
+        "totalUsd": 0.756,
+        "capUsd": 2,
+        "releases": [
+          {
+            "usd": 1,
+            "reason": "a revisão pediu mais uma rodada",
+            "at": 1,
+            "capBefore": 1,
+            "capAfter": 2
+          }
+        ],
+        "rounds": [
+          {
+            "round": 1,
+            "verdict": "muda",
+            "items": [
+              "a",
+              "b"
+            ],
+            "reviewer": "Nyx"
+          },
+          {
+            "round": 2,
+            "verdict": "aprova",
+            "items": [],
+            "reviewer": "Nyx"
+          }
+        ],
+        "runs": [
+          {
+            "role": "planner",
+            "agentId": "vega",
+            "name": "Vega",
+            "version": 1,
+            "engine": "claude"
+          },
+          {
+            "role": "builder",
+            "agentId": "iris",
+            "name": "Íris",
+            "version": 3,
+            "engine": "claude",
+            "model": "opus"
+          },
+          {
+            "role": "reviewer",
+            "agentId": "nyx",
+            "name": "Nyx",
+            "version": 4,
+            "engine": "codex"
+          }
+        ]
+      },
+      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| lista mostra os itens \\| com preço | provado — `proof-1.png`, `tests.md` |\n| exportar CSV | sem prova |\n| modo escuro | adiado |\n\n**Aprovado sem prova** por Douglas: o CSV fica pra tarefa do relatório\n\n**Revisão:** rodada 1 (Nyx) — muda (2) · rodada 2 (Nyx) — aprova\n\n**Custo:** US$ 0,76 de US$ 2,00 de teto — plano (Vega) US$ 0,10 · construção (Íris) US$ 0,46 · revisão (Nyx) US$ 0,20\n\n**Liberações de teto**\n\n- +US$ 1,00 (teto US$ 1,00 → US$ 2,00): a revisão pediu mais uma rodada\n\n**Versões:** plano `vega@v1 · claude` · construção `iris@v3 · claude · opus` · revisão `nyx@v4 · codex`\n"
+    },
+    {
+      "input": {
+        "requirements": [],
+        "costByRole": [],
+        "totalUsd": 0,
+        "capUsd": 5,
+        "releases": [],
+        "rounds": [],
+        "runs": []
+      },
+      "expected": "## Relatório Starfork\n\n**Custo:** US$ 0,00 de US$ 5,00 de teto\n"
+    }
+  ]
+}

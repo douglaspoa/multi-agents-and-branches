@@ -114,3 +114,123 @@ test('teto sempre ligado no app: budgetOf com 0 vira o padrão; a vigia pausa a 
   assert.match(teto, /if\(!active \|\| capCheck\(spent, cap\)==='ok'\) continue;/, 'a vigia usa o capCheck (80%)');
   assert.doesNotMatch(teto, /BUDGET_STEP_TXT/, 'sem "Continuar com mais US$ X" de um clique');
 });
+
+// ---------------------------------------------------------------- F2: fluxo por tipo, faixa e relatório
+
+function f2ctx(extra = {}) {
+  const c = ctx(extra);
+  run(c, cut(src, '// @ciclo-fluxo-inicio', '// @ciclo-fluxo-fim'));
+  run(c, cut(src, '// @ciclo-faixa-inicio', '// @ciclo-faixa-fim'));
+  run(c, cut(src, '// @ciclo-relatorio-inicio', '// @ciclo-relatorio-fim'));
+  return c;
+}
+const J = (v) => JSON.parse(JSON.stringify(v));
+
+test('golden fluxos.json: FLOW_BY_KIND, rótulos, equipes prontas e taskKindOf iguais ao motor', () => {
+  const c = f2ctx(), g = gold('fluxos.json');
+  assert.deepEqual(J(run(c, 'FLOW_BY_KIND')), g.flows);
+  assert.deepEqual(J(run(c, 'KIND_LABEL')), g.labels);
+  assert.deepEqual(J(run(c, 'KIND_TEAM')), g.teams);
+  for (const [i, e] of g.taskKindOf) assert.equal(run(c, `taskKindOf(${JSON.stringify(i)})`), e);
+  assert.deepEqual(J(run(c, "kindAgentStages('pesquisa').map(s=>s.label)")), ['Plano', 'Escrever', 'Conferir']);
+  assert.equal(run(c, "kindAgentStages('codigo').length"), 3, 'Design do Código só se mexer em tela');
+});
+
+test('golden relatorio.json: cicloReport (PR aberto pelo app) ≡ starforkReport (PR do motor)', () => {
+  const c = f2ctx();
+  for (const k of gold('relatorio.json').cases) assert.equal(run(c, `cicloReport(${JSON.stringify(k.input)})`), k.expected);
+});
+
+const ROLES = [{ role: 'planner', name: 'Vega' }, { role: 'builder', name: 'Íris' }, { role: 'reviewer', name: 'Nyx' }];
+const stages = (c, t, x = {}) => J(run(c, `taskStages(${JSON.stringify(t)}, ${JSON.stringify(x)})`));
+const pick = (s) => s.map((x) => [x.id, x.state, x.word]);
+
+test('faixa (P1): tarefa antiga = a MESMA sequência do fwPlan (papéis na ordem) + prova e portão', () => {
+  const ws = readFileSync(new URL('../src/js/20-workspace-tarefa.js', import.meta.url), 'utf8');
+  const fwPlan = ws.match(/function fwPlan\(t\)\{[\s\S]*?\n\}\n/)[0];
+  const c = f2ctx({ ACTIVE_ST: new Set(['running', 'queued']), IC: { check: '✓' }, ROLE_PT: { planner: 'planejamento', builder: 'construção', reviewer: 'revisão' } });
+  run(c, fwPlan);
+  for (const roles of [ROLES, [{ role: 'builder', name: 'Íris' }], [{ role: 'designer', name: 'Aria' }, { role: 'planner', name: 'Vega' }, { role: 'builder', name: 'Íris' }, { role: 'tester', name: 'Cobalt' }, { role: 'reviewer', name: 'Nyx' }]]) {
+    const t = { id: 't', status: 'running', stage: roles[0].role, roles, spec: {} };
+    const plan = run(c, `fwPlan(${JSON.stringify(t)})`);
+    const fromPlan = [...plan.matchAll(/· ([^<]+)<\/span>/g)].map((m) => m[1]);
+    const st = stages(c, t);
+    assert.deepEqual(st.filter((s) => s.who).map((s) => s.who), fromPlan, 'mesma ordem de agentes');
+    assert.deepEqual(st.filter((s) => !s.who).map((s) => s.id), ['provar', 'entregar'], 'tarefa antiga: sem retro inventada');
+  }
+});
+
+test('faixa (P1): quem age agora, sua vez nos cadeados, precisa de você, prova e entregue', () => {
+  const c = f2ctx();
+  const base = { id: 't', roles: ROLES, spec: { taskKind: 'codigo' } };
+  // construindo, com custo das etapas feitas
+  let s = stages(c, { ...base, status: 'running', stage: 'builder' }, { costs: [{ role: 'planner', agent: 'Vega', usd: 0.1 }, { role: 'builder', agent: 'Íris', usd: 0.25 }] });
+  assert.deepEqual(pick(s), [['plano', 'feito', 'pronto'], ['construir', 'agora', 'construindo'], ['revisar', 'espera', 'depois'], ['provar', 'espera', 'depois'], ['entregar', 'espera', 'depois'], ['retro', 'espera', 'depois']]);
+  assert.equal(s[0].usd, 0.1); assert.equal(s[0].lock, 1); assert.equal(s[4].lock, 2, 'os dois cadeados sempre visíveis');
+  const sum = J(run(c, `stagesSummary(${JSON.stringify(s)}, { spent:0.35, cap:2 })`));
+  assert.equal(sum.now, 'Agora: Íris está construindo');
+  assert.equal(sum.next, 'Depois: Revisar (Nyx)');
+  assert.equal(sum.pos, 2); assert.equal(sum.n, 6);
+  // Cadeado 1
+  s = stages(c, { ...base, status: 'plan-review', stage: 'planner' });
+  assert.deepEqual(pick(s).slice(0, 2), [['plano', 'sua-vez', 'sua vez'], ['construir', 'espera', 'depois']]);
+  assert.equal(J(run(c, `stagesSummary(${JSON.stringify(s)})`)).now, 'Sua vez: aprovar o plano');
+  // revisão 1/2 e "pediu mudança" quando volta pro builder
+  s = stages(c, { ...base, status: 'review', stage: 'reviewer', spec: { taskKind: 'codigo' } });
+  assert.equal(s[2].state, 'feito');
+  s = stages(c, { ...base, status: 'review', stage: 'reviewer', spec: { taskKind: 'codigo', reviewRounds: [{ round: 1, verdict: 'muda', items: ['a'] }] } });
+  assert.equal(s[2].word, 'pediu mudança');
+  s = stages(c, { ...base, status: 'running', stage: 'reviewer', spec: { taskKind: 'codigo', reviewRounds: [{ round: 1, verdict: 'muda', items: ['a'] }] } });
+  assert.equal(s[2].word, 'revisando 2/2');
+  s = stages(c, { ...base, status: 'running', stage: 'reviewer', spec: { taskKind: 'documento' } });
+  assert.equal(s[2].word, 'conferindo 1/2', 'lente documento');
+  // teto: parou ANTES da revisão (roleIdx 2) — a revisão é a etapa que espera você
+  s = stages(c, { ...base, status: 'needs-you', stage: 'builder', spec: { taskKind: 'codigo', needsYou: { kind: 'teto', roleIdx: 2 } } });
+  assert.deepEqual(pick(s).slice(0, 3), [['plano', 'feito', 'pronto'], ['construir', 'feito', 'pronto'], ['revisar', 'sua-vez', 'teto']]);
+  assert.equal(J(run(c, `stagesSummary(${JSON.stringify(s)})`)).now, 'Precisa de você: o teto');
+  // 3ª rodada: a revisão precisa de você
+  s = stages(c, { ...base, status: 'needs-you', stage: 'reviewer', spec: { taskKind: 'codigo', needsYou: { kind: 'rodadas', roleIdx: 3 } } });
+  assert.deepEqual(pick(s)[2], ['revisar', 'precisa', 'precisa de você']);
+  // portão: pronta, prova faltando → "falta prova"; provada → "sua vez" no Entregar
+  s = stages(c, { ...base, status: 'review', stage: 'reviewer' }, { proof: 'unproven' });
+  assert.deepEqual(pick(s).slice(3, 5), [['provar', 'precisa', 'falta prova'], ['entregar', 'sua-vez', 'sua vez']]);
+  s = stages(c, { ...base, status: 'review', stage: 'reviewer' }, { proof: 'proven', retro: 'retro: 1 aprendizado pra você revisar' });
+  assert.deepEqual(pick(s).slice(3), [['provar', 'feito', 'provado'], ['entregar', 'sua-vez', 'sua vez'], ['retro', 'feito', 'pronto']]);
+  assert.equal(J(run(c, `stagesSummary(${JSON.stringify(s)})`)).now, 'Sua vez: aprovar a entrega');
+  // PR aberto: tudo feito
+  s = stages(c, { ...base, status: 'review', stage: 'reviewer', prUrl: 'https://x/pull/1' }, { retro: 'retro pulada: a tarefa já usou US$ 1,90 de US$ 2,00' });
+  assert.ok(s.every((x) => x.state === 'feito'));
+  assert.equal(s.at(-1).word, 'pulada');
+});
+
+test('faixa (P1) larga e estreita: rótulos, palavra, custo ao lado do ✓, cadeados, gasto até agora; no painel estreito só a etapa de agora', () => {
+  const c = f2ctx();
+  const t = { id: 't', status: 'running', stage: 'builder', roles: ROLES, spec: { taskKind: 'codigo' } };
+  const x = { costs: [{ role: 'planner', agent: 'Vega', usd: 0.1 }] };
+  const s = run(c, `taskStages(${JSON.stringify(t)}, ${JSON.stringify(x)})`);
+  const h = run(c, `stageStripHtml(taskStages(${JSON.stringify(t)}, ${JSON.stringify(x)}), stagesSummary(taskStages(${JSON.stringify(t)}, ${JSON.stringify(x)}), { spent:0.1, cap:2 }), {})`);
+  assert.match(h, /^<div class="cicstrip" role="group" aria-label="Etapas da tarefa">/);
+  for (const w of ['Plano', 'Construir', 'Revisar', 'Provar', 'Entregar', 'Retro', 'pronto', 'construindo', 'depois']) assert.match(h, new RegExp(w));
+  assert.match(h, /<li class="cicst s-feito"><button[^>]*>.*Plano.*US\$ 0,10/s, 'custo ao lado do ✓');
+  assert.equal((h.match(/class="cicst-k"/g) || []).length, 2, 'Cadeado 1 e Cadeado 2');
+  assert.equal((h.match(/aria-current="step"/g) || []).length, 1);
+  assert.match(h, /gasto até agora <b>US\$ 0,10<\/b> de US\$ 2,00/);
+  assert.match(h, /<span class="cicst-pos">etapa 2 de 6<\/span>/);
+  assert.equal(s.length, 6);
+  // estreito: container query esconde o texto das etapas que não são a de agora e mostra "etapa n de N"
+  const css = readFileSync(new URL('../src/css/95-ciclo.css', import.meta.url), 'utf8');
+  assert.match(css, /\.fwciclo\{container-type:inline-size;container-name:ciclo/);
+  const narrow = css.slice(css.indexOf('@container ciclo (max-width:620px)'));
+  assert.match(narrow, /\.cicst:not\(\.s-agora\):not\(\.s-sua-vez\):not\(\.s-precisa\) \.cicst-tx/);
+  assert.match(narrow, /\.cicst-pos\{display:inline\}/);
+  assert.doesNotMatch(h + src, /melhorou/i, 'a palavra "melhorou" não aparece nunca');
+});
+
+test('a faixa e a decisão moram FORA do re-render do chat (#fwCiclo com assinatura) — sem polling novo', () => {
+  const html = readFileSync(new URL('../src/index.html', import.meta.url), 'utf8');
+  assert.match(html, /<div class="fwciclo" id="fwCiclo" hidden><\/div>/);
+  assert.match(html, /<script src="js\/60-ciclo\.js"><\/script>/);
+  assert.match(src, /if\(host\.__sig===sig\) return;/);
+  assert.doesNotMatch(src, /setInterval|setTimeout\([^)]*refresh/, 'nada de laço');
+  assert.doesNotMatch(src, /window\.confirm\(|[^a-zA-Z]confirm\(/, 'askYes, nunca confirm');
+});

@@ -52,14 +52,14 @@ function cicloDecisionHtml(t, d, ui){
       <div class="cicdec-form">
         <label class="cicdec-f cicdec-usd"><span>liberar US$</span><input class="in" id="cicUsd" inputmode="decimal" autocomplete="off" value="${escA(ui.usd||'')}" placeholder="2"></label>
         <label class="cicdec-f cicdec-why"><span>motivo</span><input class="in" id="cicWhy" autocomplete="off" value="${escA(ui.why||'')}" placeholder="ex.: falta o teste de login"></label>
-        <div class="cicdec-acts"><button class="btn primary sm" id="cicRelease">liberar e seguir</button><button class="btn sm" id="cicStop">parar aqui</button></div>
+        <div class="cicdec-acts"><button class="btn sm cicdec-go" id="cicRelease">liberar e seguir</button><button class="btn sm" id="cicStop">parar aqui</button></div>
       </div>${err}</section>`;
   }
   // rodadas / veredito (P3): seguir sem mais revisão (com motivo), mais uma rodada (conta no teto) ou parar
   return `<section class="cicdec" id="cicDecide" aria-label="Precisa de você: ${escA(CICLO_DEC_TITLE[d.kind]||'decisão')}">${head}${text}
     <div class="cicdec-form">
       <label class="cicdec-f cicdec-why"><span>motivo (se seguir sem nova revisão)</span><input class="in" id="cicWhy" autocomplete="off" value="${escA(ui.why||'')}" placeholder="ex.: os itens que faltam ficam pra outra tarefa"></label>
-      <div class="cicdec-acts"><button class="btn primary sm" id="cicGo">seguir pra prova</button><button class="btn sm" id="cicRound">mais uma rodada</button><button class="btn sm" id="cicStop">parar aqui</button></div>
+      <div class="cicdec-acts"><button class="btn sm cicdec-go" id="cicGo">seguir pra prova</button><button class="btn sm" id="cicRound">mais uma rodada</button><button class="btn sm" id="cicStop">parar aqui</button></div>
     </div>${err}</section>`;
 }
 // @ciclo-decisao-fim
@@ -91,11 +91,12 @@ function cicloPaint(t){
   const d=cicloDecision(t);
   const strip=(typeof cicloStripHtml==='function')?cicloStripHtml(t):'';
   const ui=cicUi[t.id]||{};
-  const sig=t.id+'|'+strip+'|'+JSON.stringify(d)+'|'+(typeof taskCost==='function'?taskCost(t.id).usd.toFixed(4):'');
+  const plan=d?'':((typeof cicloPlanHtml==='function')?cicloPlanHtml(t):'');
+  const sig=t.id+'|'+strip+'|'+JSON.stringify(d)+'|'+plan+'|'+(typeof taskCost==='function'?taskCost(t.id).usd.toFixed(4):'');
   if(host.__sig===sig) return;
   const keep=document.activeElement && host.contains(document.activeElement) ? document.activeElement.id : '';
   host.__sig=sig;
-  host.innerHTML=strip+cicloDecisionHtml(t, d, ui);
+  host.innerHTML=strip+(d?cicloDecisionHtml(t, d, ui):plan);
   host.hidden=!host.innerHTML;
   ['cicUsd','cicWhy'].forEach(id=>{ const el=$id(id); if(el) el.oninput=()=>{ const u=cicUi[t.id]=cicUi[t.id]||{}; u[id==='cicUsd'?'usd':'why']=el.value; }; });
   const on=(id, k)=>{ const b=$id(id); if(b) b.onclick=()=>cicloAct(t, k); };
@@ -103,4 +104,281 @@ function cicloPaint(t){
   const why=$id('cicWhy'); if(why) why.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const b=$id('cicRelease')||$id('cicGo'); if(b) b.click(); } };
   if(typeof cicloStripWire==='function') cicloStripWire(host, t);
   if(keep){ const el=$id(keep); if(el){ el.focus(); try{ el.setSelectionRange(el.value.length, el.value.length); }catch(_){ } } }
+}
+
+// =====================================================================================================================
+// F2 — o processo de ponta a ponta: FLOW_BY_KIND (P2), a faixa de etapas (P1), as rodadas de revisão (P3),
+// os dois cadeados e o Relatório Starfork no PR. Funções puras ≡ src/lifecycle.ts (fixtures ciclo-golden).
+// @ciclo-fluxo-inicio
+const CIC_PLANO={ id:'plano', label:'Plano', role:'planner', agentId:'vega', lock:1 };
+const CIC_DESIGN={ id:'design', label:'Design', role:'designer', agentId:'aria' };
+const CIC_CONSTRUIR={ id:'construir', label:'Construir', role:'builder', agentId:'iris' };
+const CIC_ESCREVER={ id:'escrever', label:'Escrever', role:'docs', agentId:'lumen' };
+const CIC_REV_COD={ id:'revisar', label:'Revisar', role:'reviewer', agentId:'nyx', lens:'codigo' };
+const CIC_REV_DOC={ id:'revisar', label:'Conferir', role:'reviewer', agentId:'nyx', lens:'documento' };
+const CIC_PROVAR={ id:'provar', label:'Provar' }, CIC_ENTREGAR={ id:'entregar', label:'Entregar', lock:2 }, CIC_RETRO={ id:'retro', label:'Retro' };
+const FLOW_BY_KIND={
+  codigo:[CIC_PLANO, Object.assign({}, CIC_DESIGN, { optional:true }), CIC_CONSTRUIR, CIC_REV_COD, CIC_PROVAR, CIC_ENTREGAR, CIC_RETRO],
+  pagina:[CIC_PLANO, CIC_DESIGN, CIC_CONSTRUIR, CIC_REV_COD, CIC_PROVAR, CIC_ENTREGAR, CIC_RETRO],
+  pesquisa:[CIC_PLANO, CIC_ESCREVER, CIC_REV_DOC, CIC_PROVAR, CIC_ENTREGAR, CIC_RETRO],
+  documento:[CIC_PLANO, CIC_ESCREVER, CIC_REV_DOC, CIC_PROVAR, CIC_ENTREGAR, CIC_RETRO],
+};
+const KIND_LABEL={ codigo:'Código', pagina:'Página/tela', pesquisa:'Pesquisa', documento:'Documento' };
+const KIND_TEAM={ codigo:'Feature com revisão', pagina:'Página simples', pesquisa:'Pesquisa conferida', documento:'Relatório conferido' };
+const TASK_KINDS=['codigo','pagina','pesquisa','documento'];
+const MAX_REVIEW_ROUNDS=2;
+function taskKindOf(spec){
+  const k=String((spec&&spec.taskKind)||'');
+  if(TASK_KINDS.includes(k)) return k;
+  const b=String((spec&&spec.branchType)||'').toLowerCase();
+  return b==='design'?'pagina':b==='docs'?'documento':b==='invest'?'pesquisa':'codigo';
+}
+// etapas com agente do tipo (o que o intake mostra: "3 etapas")
+function kindAgentStages(kind, withDesign){ return (FLOW_BY_KIND[kind]||FLOW_BY_KIND.codigo).filter(s=>s.role && (!s.optional||withDesign)); }
+// @ciclo-fluxo-fim
+
+// ---------- a faixa (P1): pura, testada em app/tests/ciclo.test.mjs ----------
+// x = { costs:[{role,agent,usd}], proof:'none'|'loading'|'proven'|'unproven'|'override', retro:'texto do evento retro'|null,
+//       working:bool, spent, cap }
+// @ciclo-faixa-inicio
+const CIC_DOING={ planner:'planejando', designer:'desenhando', builder:'construindo', docs:'escrevendo', reviewer:'revisando', tester:'testando', investigator:'investigando' };
+const CIC_ROLE_LABEL={ planner:'Plano', designer:'Design', builder:'Construir', docs:'Escrever', reviewer:'Revisar', tester:'Testar', investigator:'Investigar', security:'Segurança' };
+function taskStages(t, x){
+  x=x||{};
+  const sp=t.spec||{}, roles=Array.isArray(t.roles)?t.roles:[];
+  const kind=taskKindOf({ taskKind:sp.taskKind, branchType:t.branchType||sp.branchType });
+  const flow=FLOW_BY_KIND[kind];
+  const legacy=!sp.taskKind;
+  const ny=t.status==='needs-you'?(sp.needsYou||null):null;
+  const fin=!!t.prUrl || ['merged','done','closed'].includes(t.status) || t.flag==='closed';
+  const ready=['review','delivered'].includes(t.status);
+  const afterRoles=ready||fin;
+  const rounds=Array.isArray(sp.reviewRounds)?sp.reviewRounds:[];
+  let cur=roles.findIndex(r=>r.role===t.stage); if(cur<0) cur=0;
+  // parada ENTRE etapas (teto): a próxima é a que espera; rodadas/veredito: a decisão é sobre a revisão
+  let stuck=-1;
+  if(ny && Number.isInteger(ny.roleIdx)) stuck=ny.kind==='teto'?ny.roleIdx:Math.max(0, ny.roleIdx-1);
+  else if(t.status==='needs-you' || (sp.budgetHit && t.status==='paused')) stuck=cur;
+  const usdOf=r=>(x.costs||[]).filter(c=>c.role===r.role && (!c.agent || c.agent===r.name)).reduce((s,c)=>s+(+c.usd||0),0);
+  const out=roles.map((r,i)=>{
+    const def=flow.find(s=>s.role===r.role)||{ id:r.role, label:CIC_ROLE_LABEL[r.role]||r.role };
+    let state, word;
+    if(stuck>=0 && i===stuck){ state=ny&&ny.kind==='teto'?'sua-vez':'precisa'; word=ny&&ny.kind==='teto'?'teto':'precisa de você'; }
+    else if(afterRoles || i<cur || (stuck>=0 && i<stuck)){ state='feito'; word='pronto'; }
+    else if(i===cur && stuck<0){
+      if(t.status==='plan-review' && r.role==='planner'){ state='feito'; word='pronto'; }
+      else if(['error','aborted'].includes(t.status)){ state='precisa'; word='parou'; }
+      else if(t.status==='paused'){ state='espera'; word='pausada'; }
+      else if(['draft','queued'].includes(t.status) && !x.working){ state='espera'; word='na fila'; }
+      else { const n=rounds.length+1; state='agora'; word=r.role==='reviewer'?((def.lens==='documento'?'conferindo':'revisando')+(n<=MAX_REVIEW_ROUNDS?` ${n}/${MAX_REVIEW_ROUNDS}`:' (rodada extra)')):(CIC_DOING[r.role]||'trabalhando'); }
+    }
+    else { state='espera'; word='depois'; }
+    // Cadeado 1: no plano. Fica sempre visível (tarefa antiga só quando pedia aprovação do plano)
+    const lock=(def.lock===1 && (!legacy || sp.planApproval==='review'))?1:0;
+    const st={ id:def.id, label:def.label, role:r.role, who:r.name, state, word, usd:usdOf(r), lock, idx:i };
+    if(lock && t.status==='plan-review' && r.role==='planner'){ st.state='sua-vez'; st.word='sua vez'; }
+    if(r.role==='reviewer' && rounds.length && state==='feito'){ const last=rounds[rounds.length-1]; st.word=last.verdict==='aprova'?'aprovou':last.verdict==='muda'?'pediu mudança':'sem veredito'; }
+    return st;
+  });
+  // etapas do app (sem agente): prova, portão (Cadeado 2) e retro
+  const pv=x.proof||'none';
+  out.push(fin ? { id:'provar', label:'Provar', state:'feito', word:'provado', lock:0 }
+    : !ready ? { id:'provar', label:'Provar', state:'espera', word:'depois', lock:0 }
+    : pv==='proven' ? { id:'provar', label:'Provar', state:'feito', word:'provado', lock:0 }
+    : pv==='override' ? { id:'provar', label:'Provar', state:'feito', word:'sem prova, com motivo', lock:0 }
+    : pv==='unproven' ? { id:'provar', label:'Provar', state:'precisa', word:'falta prova', lock:0 }
+    : pv==='loading' ? { id:'provar', label:'Provar', state:'agora', word:'conferindo', lock:0 }
+    : { id:'provar', label:'Provar', state:'feito', word:'sem requisitos', lock:0 });
+  out.push(fin ? { id:'entregar', label:'Entregar', state:'feito', word:'entregue', lock:2 }
+    : ready ? { id:'entregar', label:'Entregar', state:'sua-vez', word:'sua vez', lock:2 }
+    : { id:'entregar', label:'Entregar', state:'espera', word:'depois', lock:2 });
+  if(!legacy || x.retro){
+    const rt=String(x.retro||'');
+    out.push(rt ? { id:'retro', label:'Retro', state:'feito', word:/pulada|não respondeu/.test(rt)?'pulada':'pronto', lock:0 }
+      : { id:'retro', label:'Retro', state:'espera', word:'depois', lock:0 });
+  }
+  return out;
+}
+function stagesSummary(stages, x){
+  x=x||{};
+  const now=stages.find(s=>s.state==='precisa'||s.state==='sua-vez') || stages.find(s=>s.state==='agora');
+  const next=stages.find(s=>s.state==='espera');
+  let nowTx='';
+  if(now){
+    if(now.state==='sua-vez') nowTx=now.lock===1?'Sua vez: aprovar o plano':now.lock===2?'Sua vez: aprovar a entrega':now.word==='teto'?'Precisa de você: o teto':'Sua vez';
+    else if(now.state==='precisa') nowTx=now.id==='provar'?'Falta prova':now.word==='parou'?((now.who||now.label)+' parou'):'Precisa de você';
+    else nowTx=now.who?`Agora: ${now.who} está ${now.word}`:`Agora: ${now.word}`;
+  } else if(stages.length && stages.every(s=>s.state==='feito')) nowTx='Tudo pronto';
+  return { now:nowTx, next:next?('Depois: '+next.label+(next.who?' ('+next.who+')':'')):'', spent:+x.spent||0, cap:+x.cap||0, n:stages.length, pos:Math.max(1, stages.indexOf(now||next||stages[stages.length-1])+1) };
+}
+const CIC_LOCK='<svg class="cicst-lock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" stroke-linecap="round"/></svg>';
+const CIC_CHECK='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3.5 8.4l2.9 2.8 6-6.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function stageStripHtml(stages, sum, o){
+  o=o||{};
+  const usd=v=>typeof fmtCost==='function'?fmtCost(v,{usdOnly:true}):'US$ '+(+v).toFixed(2).replace('.',',');
+  const items=stages.map((s,i)=>{
+    const face=s.who?`<span class="cicst-av" aria-hidden="true" style="background:${o.color?o.color(s.who):'var(--surface-3)'}">${s.state==='feito'?CIC_CHECK:esc(String(s.who).slice(0,1).toUpperCase())}</span>`
+      :`<span class="cicst-av app" aria-hidden="true">${s.state==='feito'?CIC_CHECK:s.lock?CIC_LOCK:''}</span>`;
+    const cost=s.usd>0?`<span class="cicst-c">${esc(usd(s.usd))}</span>`:'';
+    const lock=s.lock?`<span class="cicst-k" title="${s.lock===1?'Cadeado 1: você aprova o plano':'Cadeado 2: você aprova a entrega (portão)'}">${CIC_LOCK}<span class="sr-only">cadeado ${s.lock}</span></span>`:'';
+    const cur=(s.state==='agora'||s.state==='precisa'||s.state==='sua-vez');
+    return `<li class="cicst s-${s.state}${o.open===i?' open':''}"><button class="cicst-b" data-cicst="${i}"${cur?' aria-current="step"':''} aria-expanded="${o.open===i?'true':'false'}" title="${escA(s.label+(s.who?' · '+s.who:'')+': '+s.word)}">${face}<span class="cicst-tx"><span class="cicst-l">${esc(s.label)}${lock}</span><span class="cicst-w">${esc(s.word)}</span></span>${cost}</button></li>`;
+  }).join('<li class="cicst-sep" aria-hidden="true"></li>');
+  const capTx=sum.cap>0?` de ${esc(usd(sum.cap))}`:'';
+  return `<div class="cicstrip" role="group" aria-label="Etapas da tarefa">`+
+    `<ol class="cicst-list">${items}</ol>`+
+    `<div class="cicst-sum"><span class="cicst-now">${esc(sum.now)}</span>${sum.next?`<span class="cicst-next">${esc(sum.next)}</span>`:''}<span class="cicst-pos">etapa ${sum.pos} de ${sum.n}</span><span class="cicst-cost">gasto até agora <b>${esc(usd(sum.spent))}</b>${capTx}</span></div>`+
+  `</div>`;
+}
+// @ciclo-faixa-fim
+
+// ---------- Relatório Starfork (≡ starforkReport do motor; fixture ciclo-golden/relatorio.json) ----------
+// @ciclo-relatorio-inicio
+const CIC_ROLE_PT={ planner:'plano', builder:'construção', reviewer:'revisão', designer:'design', docs:'escrita', tester:'testes', retro:'retro', investigator:'investigação' };
+function cicUsdBr(n){ const v=Math.round((Number(n)||0)*100)/100; return 'US$ '+v.toFixed(2).replace('.',','); }
+function cicloReport(d){
+  const md=s=>String(s==null?'':s).replace(/\|/g,'\\|').replace(/\s+/g,' ').trim();
+  const tag=r=>`${r.agentId||r.name}@v${r.version} · ${[r.engine, r.model].filter(Boolean).join(' · ')}`;
+  const L=['## Relatório Starfork',''];
+  if(d.requirements.length){
+    L.push('**Requisitos × provas**','','| Requisito | Prova |','|---|---|');
+    for(const r of d.requirements) L.push(`| ${md(r.text)} | ${r.status==='provado'?`provado — ${r.evidence.map(e=>'`'+md(e)+'`').join(', ')||'evidência no disco'}`:r.status} |`);
+    L.push('');
+  }
+  if(d.noProofReason) L.push(`**Aprovado sem prova**${d.noProofBy?` por ${md(d.noProofBy)}`:''}: ${md(d.noProofReason)}`,'');
+  if(d.reviewOverride) L.push(`**Seguiu sem nova revisão:** ${md(d.reviewOverride)}`,'');
+  if(d.rounds.length) L.push(`**Revisão:** ${d.rounds.map(r=>`rodada ${r.round} (${md(r.reviewer)}) — ${r.verdict==='aprova'?'aprova':r.verdict==='muda'?`muda (${r.items.length})`:'ilegível'}`).join(' · ')}`,'');
+  const per=d.costByRole.filter(c=>c.usd>0).map(c=>`${CIC_ROLE_PT[c.role]||c.role} (${md(c.name)}) ${cicUsdBr(c.usd)}`).join(' · ');
+  L.push(`**Custo:** ${cicUsdBr(d.totalUsd)} de ${cicUsdBr(d.capUsd)} de teto${per?` — ${per}`:''}`,'');
+  if(d.releases.length) L.push('**Liberações de teto**','',...d.releases.map(r=>`- +${cicUsdBr(r.usd)} (teto ${cicUsdBr(r.capBefore)} → ${cicUsdBr(r.capAfter)}): ${md(r.reason)}`),'');
+  if(d.runs.length) L.push(`**Versões:** ${d.runs.map(r=>`${CIC_ROLE_PT[r.role]||r.role} \`${tag(r)}\``).join(' · ')}`,'');
+  return L.join('\n').trimEnd()+'\n';
+}
+// @ciclo-relatorio-fim
+// o relatório desta tarefa a partir do que a tela já tem (provas, motivo do "sem prova", custo, spec)
+function cicloReportFor(t){
+  try{
+    const sp=t.spec||{};
+    const rows=(typeof reqRows==='function')?reqRows(t):[];
+    const ov=(typeof proofOvGet==='function')?proofOvGet(t.id):null;
+    const byRole={}; for(const c of (typeof costsOf==='function'?costsOf(t.id):[])){ const k=(c.role||'')+'|'+c.agent; (byRole[k]=byRole[k]||{ role:c.role||'', name:c.agent, usd:0 }).usd+=(+c.usd||0); }
+    const who=(typeof cloudUser==='function'&&cloudUser()&&cloudUser().name)||'';
+    return '\n\n'+cicloReport({
+      requirements:rows.map(r=>({ text:r.text, status:r.st==='ok'&&r.evidence.length?'provado':'sem prova', evidence:r.st==='ok'?r.evidence:[] })),
+      noProofReason:ov&&ov.reason||'', noProofBy:ov&&ov.reason?who:'', reviewOverride:(sp.reviewOverride&&sp.reviewOverride.reason)||'',
+      costByRole:Object.values(byRole), totalUsd:taskCost(t.id).usd, capUsd:budgetOf(t),
+      releases:Array.isArray(sp.budgetReleases)?sp.budgetReleases:[], rounds:Array.isArray(sp.reviewRounds)?sp.reviewRounds:[], runs:Array.isArray(sp.roleRuns)?sp.roleRuns:[],
+    });
+  }catch(e){ console.error('relatório starfork', e); return ''; }
+}
+
+// ---------- a faixa na aba da tarefa ----------
+const cicOpen={}; // taskId → índice da etapa aberta (o que ela entregou)
+function cicloStripX(t){
+  const pg=(typeof proofGate==='function')?proofGate(t):{ st:'none' };
+  const retro=[...(typeof eventsOf==='function'?eventsOf(t.id):[])].reverse().find(e=>e.type==='retro');
+  return { costs:(typeof costsOf==='function'?costsOf(t.id):[]).map(c=>({ role:c.role, agent:c.agent, usd:c.usd })), proof:pg.st, retro:retro?retro.text:null,
+    working:(typeof fwIsWorking==='function')?fwIsWorking(t):false, spent:taskCost(t.id).usd, cap:budgetOf(t) };
+}
+function cicloStripHtml(t){
+  if(!t || t.kind==='review' || !(t.roles||[]).length) return '';
+  const x=cicloStripX(t), st=taskStages(t, x), sum=stagesSummary(st, x);
+  const open=cicOpen[t.id];
+  return stageStripHtml(st, sum, { open, color:(typeof agentColor==='function')?agentColor:null })+(open!=null&&st[open]?cicloStageDetail(t, st[open]):'');
+}
+// o que a etapa entregou, em linguagem normal; o log fica em "ver detalhes"
+function cicloStageDetail(t, s){
+  const evs=(typeof eventsOf==='function'?eventsOf(t.id):[]);
+  const mine=s.who?evs.filter(e=>e.agent===s.who):[];
+  const sp=t.spec||{};
+  let body='';
+  if(s.role==='reviewer'){
+    const rs=Array.isArray(sp.reviewRounds)?sp.reviewRounds:[];
+    body=rs.length?rs.map(r=>`<p><b>Rodada ${r.round}:</b> ${r.verdict==='aprova'?'aprovou':r.verdict==='muda'?'pediu mudanças':'não deu veredito legível'}</p>${r.items&&r.items.length?'<ul>'+r.items.map(i=>`<li>${esc(i)}</li>`).join('')+'</ul>':''}`).join(''):'<p class="dim">ainda sem veredito</p>';
+  } else if(s.id==='provar'){
+    const rows=(typeof reqRows==='function')?reqRows(t):[];
+    body=rows.length?'<ul>'+rows.map(r=>`<li>${esc(r.text)} — <b>${r.st==='ok'&&r.evidence.length?'provado':'falta prova'}</b></li>`).join('')+'</ul>':'<p class="dim">esta tarefa não tem requisitos com prova</p>';
+  } else if(s.id==='entregar'){
+    body=`<p>${s.state==='sua-vez'?'Cadeado 2: confira a Prévia e o que foi provado, e aprove a entrega (sem prova, só com motivo — ele vai pro PR).':s.state==='feito'?'Entregue.':'Abre quando a prova terminar.'}</p>`+(s.state==='sua-vez'?'<button class="btn sm" id="cicGate">aprovar a entrega</button>':'');
+  } else if(s.id==='retro'){
+    const r=[...evs].reverse().find(e=>e.type==='retro'); body=`<p>${esc(r?r.text:'a retro roda quando a tarefa termina, dentro do teto')}</p>`;
+  } else {
+    const done=[...mine].reverse().find(e=>e.type==='done'||(e.type==='note'&&e.text&&!/^custo do turno/.test(e.text)));
+    body=`<p>${esc(done?done.text:'ainda não entregou nada')}</p>`;
+  }
+  const log=mine.filter(e=>['papel','bastao','veredito','error'].includes(e.type)||e.type==='done').slice(-6);
+  const det=log.length?`<details class="cicst-det"><summary>ver detalhes</summary><ul class="mono">${log.map(e=>`<li>${esc(String(e.text||'').slice(0,300))}</li>`).join('')}</ul></details>`:'';
+  return `<div class="cicst-panel" role="region" aria-label="${escA(s.label+': o que entregou')}"><div class="cicst-ph"><b>${esc(s.label)}</b>${s.who?` · ${esc(s.who)}`:''} — ${esc(s.word)}</div>${body}${det}</div>`;
+}
+function cicloStripWire(host, t){
+  host.querySelectorAll('[data-cicst]').forEach(b=>{
+    b.onclick=()=>{ const i=+b.dataset.cicst; cicOpen[t.id]=cicOpen[t.id]===i?undefined:i; host.__sig=''; cicloPaint(t); const nb=host.querySelector(`[data-cicst="${i}"]`); if(nb) nb.focus(); };
+    // ←/→ entre as etapas (padrão de 54-acessibilidade: setas movem o foco, Enter abre)
+    b.onkeydown=e=>{ if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return; e.preventDefault(); const all=[...host.querySelectorAll('[data-cicst]')]; const i=all.indexOf(b); const n=all[(i+(e.key==='ArrowRight'?1:-1)+all.length)%all.length]; if(n) n.focus(); };
+  });
+  const g=host.querySelector('#cicGate'); if(g) g.onclick=()=>{ if(typeof approveGate==='function') approveGate(t); };
+  const pa=host.querySelector('#cicPlanAsk'); if(pa) pa.onclick=()=>{ const i=$id('fwInput'); if(i){ i.focus(); i.placeholder='o que ajustar no plano?'; } };
+}
+
+// ---------- rodadas (P3): a decisão quando a revisão não fecha ----------
+async function cicloReviewDecide(t, kind, why){
+  if(kind==='go'){
+    const r=releaseCheck(1, why); // reaproveita a régua do motivo (≥ 3 palavras)
+    if(!r.ok) throw new Error('pra seguir sem nova revisão, escreva o motivo em uma frase — ele vai pro PR');
+    await invoke('patch_task_spec',{ taskId:t.id, patch:{ needsYou:null, reviewOverride:{ reason:r.reason, at:Date.now(), kind:((t.spec||{}).needsYou||{}).kind||'' } } });
+    await invoke('start_task',{ taskId:t.id });
+    toast('Seguindo pra prova — o motivo vai pro PR','ok');
+  } else {
+    await invoke('patch_task_spec',{ taskId:t.id, patch:{ needsYou:null, reviewExtra:true } });
+    await invoke('start_task',{ taskId:t.id });
+    toast('Mais uma rodada: volta pro builder com o que a revisão pediu (conta no teto)','ok');
+  }
+}
+
+// ---------- Cadeado 1: o plano pra aprovar, com o roteiro e o preço ----------
+const cicPlan={}; // taskId → texto do PLAN.md (lido uma vez quando o plano pede aprovação)
+function cicloPlanHtml(t){
+  if(t.status!=='plan-review') return '';
+  const p=cicPlan[t.id];
+  if(p===undefined){ cicPlan[t.id]=null; invoke('read_file',{ taskId:t.id, path:'.cardume/PLAN.md' }).then(r=>{ cicPlan[t.id]=String((r&&r.content)||''); const h=$id('fwCiclo'); if(h) h.__sig=''; if(typeof fwTask!=='undefined'&&fwTask===t.id) cicloPaint(t); }).catch(()=>{ cicPlan[t.id]=''; }); }
+  const roles=(t.roles||[]).filter(r=>r.role!=='planner');
+  const model=(roles[0]&&roles[0].model)||t.model||'';
+  const [lo,hi]=(typeof roughEstimate==='function')?roughEstimate(Math.max(1, roles.length), /opus|sonnet|haiku/.exec(String(model))?.[0]||''):[0,0];
+  const spent=taskCost(t.id).usd, cap=budgetOf(t);
+  const plan=p?`<pre class="cicplan-tx">${esc(p.slice(0,1800))}${p.length>1800?'\n…':''}</pre>`:p===null?'<p class="dim">lendo o plano…</p>':'<p class="dim">o plano está na conversa (o agente não gravou o .cardume/PLAN.md)</p>';
+  return `<section class="cicdec cicplan" id="cicDecide" aria-label="Cadeado 1: aprovar o plano"><div class="cicdec-h">${CIC_LOCK}<b>Cadeado 1 · aprovar o plano</b><span class="cicdec-k">antes de gastar com a construção</span></div>
+    ${plan}
+    <p class="cicdec-sub">As próximas etapas (${roles.map(r=>esc(r.name)).join(' → ')}) devem custar <b>${esc(typeof fmtCostRange==='function'?fmtCostRange(lo,hi):cicUsdBr(lo)+'–'+cicUsdBr(hi))}</b>. Gasto até agora ${esc(cicUsdBr(spent))} de ${esc(cicUsdBr(cap))} de teto.</p>
+    <div class="cicdec-acts"><button class="btn sm" id="cicPlanAsk">pedir ajuste no plano</button><span class="dim cicdec-hint">aprovar está no topo (“aprovar plano”)</span></div></section>`;
+}
+
+// ---------- intake (Nova demanda): o TIPO de entrega e a estimativa + teto à vista (P2 + P6) ----------
+let ntKind='codigo', ntKindBudgetOpen=false, ntTeamTouched=false;
+function ntKindCardHtml(){
+  const st=kindAgentStages(ntKind);
+  const model=(($id('ntModel')||{}).value)||'';
+  const [lo,hi]=(typeof roughEstimate==='function')?roughEstimate(st.length, model):[0,0];
+  const cap=(typeof ntBudgetPending!=='undefined'&&ntBudgetPending>0)?ntBudgetPending:costCapDefault();
+  return `<div class="ntkind" role="radiogroup" aria-label="Tipo de entrega">${TASK_KINDS.map(k=>`<button type="button" role="radio" class="ntkind-b${k===ntKind?' on':''}" aria-checked="${k===ntKind}" data-ntkind="${k}">${esc(KIND_LABEL[k])}</button>`).join('')}</div>
+    <div class="ntkind-card"><span class="ntkind-team">${esc(KIND_TEAM[ntKind])}: ${st.map(s=>esc(s.label)).join(' → ')}</span>
+    <span class="ntkind-est"><b>${st.length} etapas</b> · ${esc(typeof fmtCostRange==='function'?fmtCostRange(lo,hi):'')} · teto ${esc(cicUsdBr(cap))} <button type="button" class="lnk" id="ntKindCap" aria-expanded="${ntKindBudgetOpen}">mudar</button></span>
+    <span class="dim ntkind-locks">você aprova duas vezes: o plano e a entrega</span>
+    ${ntKindBudgetOpen&&typeof budgetFieldHtml==='function'?`<div class="ntkind-cap">${budgetFieldHtml('ntKindBudget')}</div>`:''}</div>`;
+}
+function ntKindPaint(){
+  const host=$id('ntKindHost'); if(!host) return;
+  host.innerHTML=ntKindCardHtml();
+  { const nm=$id('ntModel'); if(nm && !nm.__cicK){ nm.__cicK=1; nm.addEventListener('change', ()=>ntKindPaint()); } } // modelo muda a faixa de preço
+  host.querySelectorAll('[data-ntkind]').forEach(b=>b.onclick=()=>{ ntKind=b.dataset.ntkind; ntKindPaint(); });
+  host.querySelectorAll('[data-ntkind]').forEach(b=>b.onkeydown=e=>{ if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return; e.preventDefault(); const i=TASK_KINDS.indexOf(ntKind); ntKind=TASK_KINDS[(i+(e.key==='ArrowRight'?1:-1)+4)%4]; ntKindPaint(); const n=host.querySelector('[data-ntkind="'+ntKind+'"]'); if(n) n.focus(); });
+  const c=$id('ntKindCap'); if(c) c.onclick=()=>{ ntKindBudgetOpen=!ntKindBudgetOpen; ntKindPaint(); };
+  if(ntKindBudgetOpen && typeof budgetFieldWire==='function'){ budgetFieldWire('ntKindBudget'); const f=$id('ntKindBudget'); if(f) f.addEventListener('change', ()=>ntKindPaint()); }
+}
+function ntKindReset(){ ntKind='codigo'; ntKindBudgetOpen=false; ntTeamTouched=false; ntKindPaint(); }
+// o que vai no payload do new_task (modo Entrega): tipo + teto; a equipe vem do tipo se a pessoa não escolheu outra
+function ntKindPayload(payload){
+  payload.taskKind=ntKind;
+  payload.budgetUsd=(typeof ntBudgetPending!=='undefined'&&ntBudgetPending>0)?ntBudgetPending:costCapDefault();
+  if(!ntTeamTouched) payload.workflow=null;
+  return payload;
 }

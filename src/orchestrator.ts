@@ -24,7 +24,8 @@ import { CodexEngine } from "./engine/codex.ts";
 import { readAltConfig } from "./engine/altProxy.ts";
 import type { AgentEngine } from "./engine/types.ts";
 import { activeSkills, agentVersion } from "./agent-versions.ts";
-import { agentIdOf, capCheck, capPauseText, effectiveCap, fmtUsdBr, rosterLine, upsertRoleRun, type NeedsYou, type RoleRun } from "./lifecycle.ts";
+import { agentIdOf, capCheck, capPauseText, effectiveCap, fmtUsdBr, FLOW_BY_KIND, MAX_REVIEW_ROUNDS, parseVerdict, producerIndex, reviewDecision, reviewerIsSame, roundText, rosterLine, SAME_REVIEWER_WARNING, taskKindOf, upsertRoleRun, verdictInstructions, starforkReport, type NeedsYou, type ReportData, type ReviewRound, type RoleRun, type Verdict } from "./lifecycle.ts";
+import { ensureHandoff, handoffRule, hasHandoff, HANDOFF_REL, readHandoff } from "./handoff.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 
 /**
@@ -1077,6 +1078,24 @@ export class Orchestrator {
     return true;
   }
 
+  /** Texto do veredito: o .cardume/VEREDITO.md da rodada; sem ele, o que o revisor disse no fim do turno. */
+  private async verdictText(taskId: string, worktree: string, reviewer: string, evStart: number): Promise<string> {
+    try {
+      const f = await readFile(join(worktree, ".cardume", "VEREDITO.md"), "utf8");
+      if (f.trim()) return f;
+    } catch { /* o revisor não escreveu o arquivo */ }
+    return this.store.eventsForTask(taskId, evStart).filter((e) => e.agent === reviewer && (e.type === "done" || e.type === "note" || e.type === "think")).map((e) => e.text).slice(-6).join("\n");
+  }
+
+  /** K2: garante o HANDOFF.md do papel que terminou (o dele, ou um escrito daqui com o que ele relatou) e avisa em palavra. */
+  private baton(taskId: string, worktree: string, seq: number, from: AgentRole, to: AgentRole | undefined, evStart: number, verdict?: Verdict, received?: string | null): void {
+    try {
+      const said = this.store.eventsForTask(taskId, evStart).filter((e) => e.agent === from.name && (e.type === "done" || e.type === "note") && e.text && !/^custo do turno/.test(e.text)).map((e) => e.text);
+      const r = ensureHandoff(worktree, seq, { from, to, did: said.slice(-3).join("\n"), verdict }, received);
+      this.store.addEvent(taskId, "Sistema", "bastao", `bastão: ${from.name} → ${to ? to.name : "fim"} (${HANDOFF_REL}${r.wrote ? ", escrito pelo Starfork com o que o papel relatou" : ""})`, true, from.role, from.agentId);
+    } catch { /* o bastão nunca derruba a tarefa */ }
+  }
+
   /** Spec como está no BANCO agora (o app pode ter gravado teto/liberação enquanto o turno rodava). */
   private freshSpec(taskId: string): TaskSpec | undefined {
     try { return JSON.parse(this.store.getTask(taskId)?.spec_json ?? "") as TaskSpec; } catch { return undefined; }
@@ -1141,7 +1160,22 @@ export class Orchestrator {
     this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     await this.waitForScopeClear(taskId, spec); // sequential-lock: espera o escopo liberar antes de editar
     const roles = spec.roles.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
-    const startIdx = task.done_roles ?? 0; // retoma de onde parou (ex.: após aprovar o plano)
+    let startIdx = task.done_roles ?? 0; // retoma de onde parou (ex.: após aprovar o plano)
+    // P3: a pessoa pediu "mais uma rodada" depois da 3ª rodada/veredito ilegível → volta pro builder com o último "muda"
+    if (spec.reviewExtra) {
+      const ri = roles.findIndex((x) => x.role === "reviewer");
+      const pi = ri >= 0 ? producerIndex(roles, ri) : -1;
+      const last = [...(spec.reviewRounds ?? [])].reverse().find((x) => x.verdict === "muda");
+      if (pi >= 0) {
+        startIdx = pi;
+        if (last) spec.adjustment = `A revisão ${last.round} (${last.reviewer}) pediu — você liberou mais uma rodada:\n${last.items.map((x) => `- ${x}`).join("\n")}`;
+      }
+      spec.reviewExtra = undefined;
+      this.store.patchSpec(taskId, { reviewExtra: undefined, adjustment: spec.adjustment });
+      try { await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8"); } catch { /* worktree pode ter mudado */ }
+    }
+    const kind = taskKindOf(spec);
+    let batonSeq = 0;
 
     for (let i = startIdx; i < roles.length; i++) {
       const r = roles[i];
@@ -1152,7 +1186,20 @@ export class Orchestrator {
       const engine = this.engineFor(r.engine, r.model, spec.autonomy.approval);
       const persona = r.persona ? `## Seu perfil (${r.name} · ${r.role})\n${r.persona}\n\n` : "";
       this.prepEpic(spec, task.worktree);
-      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+      // P3: rodada de revisão com veredito (VEREDITO.md velho sai antes — nunca vale um veredito de outra rodada)
+      const round = r.role === "reviewer" ? (this.freshSpec(taskId)?.reviewRounds?.length ?? 0) + 1 : 0;
+      let reviewCtx = "";
+      if (r.role === "reviewer") {
+        try { await rm(join(task.worktree, ".cardume", "VEREDITO.md"), { force: true }); } catch { /* sem arquivo */ }
+        const lens = FLOW_BY_KIND[kind].find((x) => x.role === "reviewer")?.lens ?? "codigo";
+        reviewCtx = verdictInstructions(lens, round);
+        const pi = producerIndex(roles, i);
+        if (pi >= 0 && reviewerIsSame(roles[pi], r)) this.store.addEvent(taskId, "Sistema", "note", `${SAME_REVIEWER_WARNING} (${r.name} e ${roles[pi].name} no mesmo motor e modelo)`, false);
+      }
+      // K2: bastão por arquivo — quem chega lê o HANDOFF.md; quem sai escreve o seu
+      const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec) + reviewCtx + handoffRule(i > 0 && hasHandoff(task.worktree));
+      const evStart = this.store.lastEventId(taskId);
+      const batonIn = readHandoff(task.worktree); // o bastão que este papel recebe (devolver igual = não escreveu o seu)
       // P10: UM evento por papel (antes do laço de retry — tentar de novo não duplica) com o que vai rodar:
       // skills ativas@versão · agente@versão · motor. Alimenta a medição por versão e o Relatório do PR.
       this.recordRoleRun(taskId, spec, r);
@@ -1314,6 +1361,46 @@ export class Orchestrator {
         }
       }
 
+      // P3: veredito do revisor + rodadas. "muda" volta pro builder (rodada 2, dentro do teto); 3ª rodada ou
+      // veredito ilegível param em "precisa de você" — NUNCA vira "aprova" por omissão.
+      let verdict: Verdict | undefined;
+      if (r.role === "reviewer") {
+        verdict = parseVerdict(await this.verdictText(taskId, task.worktree, r.name, evStart));
+        const rec: ReviewRound = { round, verdict: verdict.kind, items: verdict.items, at: Date.now(), reviewer: r.name, agentId: r.agentId, engine: engineKind(r.engine), model: r.model };
+        const rounds = [...(this.freshSpec(taskId)?.reviewRounds ?? []), rec];
+        spec.reviewRounds = rounds;
+        this.store.patchSpec(taskId, { reviewRounds: rounds });
+        this.store.addEvent(taskId, r.name, "veredito", roundText(rec) + (verdict.items.length ? `\n${verdict.items.map((x) => `- ${x}`).join("\n")}` : ""), verdict.kind === "aprova", r.role, r.agentId);
+        const decision = reviewDecision(round, verdict);
+        const pi = producerIndex(roles, i);
+        if (decision === "refaz" && pi >= 0) {
+          spec.adjustment = `A revisão ${round} (${r.name}) pediu estas mudanças:\n${verdict.items.map((x) => `- ${x}`).join("\n")}`;
+          this.store.patchSpec(taskId, { adjustment: spec.adjustment });
+          try { await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8"); } catch { /* worktree pode ter mudado */ }
+          this.baton(taskId, task.worktree, ++batonSeq, r, roles[pi], evStart, verdict, batonIn);
+          this.store.addEvent(taskId, "Sistema", "note", `${r.name} pediu mudanças — voltando pra ${roles[pi].name} (rodada ${round + 1} de ${MAX_REVIEW_ROUNDS}, conta no teto)`, true);
+          this.store.setDoneRoles(taskId, pi);
+          i = pi - 1; // o laço soma 1: o builder roda de novo
+          continue;
+        }
+        if (decision !== "segue") {
+          const why = decision === "precisa-veredito"
+            ? `${r.name} terminou a revisão ${round} sem um veredito legível (aprova ou muda). Decida: seguir pra prova, mais uma rodada ou parar.`
+            : pi < 0
+              ? `${r.name} pediu mudanças, mas não há builder nesta equipe pra refazer. Decida: seguir pra prova, mais uma rodada ou parar.`
+              : `${r.name} pediu mudanças de novo na rodada ${round} de ${MAX_REVIEW_ROUNDS}. Uma 3ª rodada só com você: seguir pra prova, mais uma rodada ou parar.`;
+          this.baton(taskId, task.worktree, ++batonSeq, r, roles[i + 1], evStart, verdict, batonIn);
+          this.store.patchSpec(taskId, { needsYou: { kind: decision === "precisa-veredito" ? "veredito" : "rodadas", text: why, at: Date.now(), roleIdx: i + 1 } satisfies NeedsYou });
+          this.store.setDoneRoles(taskId, i + 1);
+          this.store.setStatus(taskId, "needs-you");
+          this.store.addEvent(taskId, "Sistema", "note", why, false);
+          notify("Starfork", "Precisa de você — a revisão não fechou", task.title);
+          return;
+        }
+      }
+      // K2: o papel terminou — guarda do bastão (HANDOFF.md existe e não está vazio) antes de passar pro próximo
+      if (i < roles.length - 1) this.baton(taskId, task.worktree, ++batonSeq, r, roles[i + 1], evStart, verdict, batonIn);
+
       this.store.setDoneRoles(taskId, i + 1);
 
       // Se o agente de issues criou uma issue (ex.: FND-853), renomeia a branch
@@ -1371,6 +1458,7 @@ export class Orchestrator {
       const body =
         `## O quê\n${spec.objective || spec.title}\n\n` +
         ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "") +
+        (await this.reportFor(taskId, task)) + "\n" +
         `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._`;
       let url = "";
       try {
@@ -1387,6 +1475,28 @@ export class Orchestrator {
     } catch (err) {
       this.store.addEvent(taskId, spec.agent, "note", `falha ao abrir o PR automaticamente: ${(err as Error).message?.slice(0, 140)}`, false);
     }
+  }
+
+  /** Relatório Starfork do PR (requisitos × provas, motivos, custo por papel, liberações, rodadas e versão por papel). */
+  async reportFor(taskId: string, task?: TaskRow): Promise<string> {
+    const t = task ?? this.store.getTask(taskId);
+    if (!t) return "";
+    const spec = this.freshSpec(taskId) ?? (JSON.parse(t.spec_json) as TaskSpec);
+    const artDir = join(t.worktree, ".cardume", "artifacts");
+    let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
+    for (const p of [join(artDir, "requirements.json"), join(this.ws.repo, ".cardume", "artifacts", taskId, "requirements.json")]) {
+      try { const raw = JSON.parse(await readFile(p, "utf8")); list = Array.isArray(raw) ? raw : Array.isArray(raw?.list) ? raw.list : []; if (list.length) break; } catch { /* sem arquivo */ }
+    }
+    const requirements: ReportData["requirements"] = list.map((r) => {
+      const ev = (Array.isArray(r.evidence) ? r.evidence : []).map(String);
+      const proven = r.status === "done" && ev.some((e) => evidenceExists(artDir, t.worktree, e));
+      return { text: String(r.req ?? "requisito"), status: r.status === "deferred" ? "adiado" : proven ? "provado" : "sem prova", evidence: proven ? ev.filter((e) => evidenceExists(artDir, t.worktree, e)) : [] };
+    });
+    const costByRole = (this.store.db.prepare(`SELECT COALESCE(role, '') AS role, agent AS name, SUM(usd) AS usd FROM cost WHERE task_id = ? GROUP BY role, agent ORDER BY MIN(id)`).all(taskId) as { role: string; name: string; usd: number }[]).map((c) => ({ role: c.role, name: c.name, usd: Number(c.usd) || 0 }));
+    return starforkReport({
+      requirements, costByRole, totalUsd: this.store.taskSpend(taskId), capUsd: effectiveCap(spec.budgetUsd, readCostCapSetting()),
+      reviewOverride: spec.reviewOverride?.reason, releases: spec.budgetReleases ?? [], rounds: spec.reviewRounds ?? [], runs: spec.roleRuns ?? [],
+    });
   }
 
   /**
@@ -1935,6 +2045,8 @@ export class Orchestrator {
     } catch { /* worktree pode ter mudado */ }
 
     this.store.addEvent(taskId, spec.agent, "note", `rework: aplicando ajuste pelo time inteiro — "${adjustment.slice(0, 80)}"`, true);
+    // ajuste pedido pela PESSOA abre um ciclo novo de revisão (as 2 rodadas valem de novo)
+    this.store.patchSpec(taskId, { reviewRounds: [], needsYou: null });
 
     // Re-roda o pipeline do começo: planner re-planeja com o ajuste, builder aplica,
     // reviewer re-revisa, docs re-atualiza. O stepper anda por todas as etapas.

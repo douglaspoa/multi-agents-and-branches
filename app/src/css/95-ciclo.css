@@ -24,3 +24,70 @@
   .cicdec-form{flex-direction:column;align-items:stretch}
   .cicdec-usd .in{width:100%}
 }
+
+/* ---- faixa de etapas (P1): horizontal no topo da tarefa ---- */
+.cicstrip{display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;min-width:0}
+.cicst-list{list-style:none;margin:0;padding:0;display:flex;align-items:center;gap:4px;min-width:0;flex:1 1 auto;overflow-x:auto;scrollbar-width:thin}
+.cicst{flex:none}
+.cicst-sep{width:10px;height:1px;background:var(--border-strong);flex:none}
+.cicst-b{display:flex;align-items:center;gap:7px;border:1px solid transparent;background:none;color:var(--text-2);padding:4px 8px 4px 4px;border-radius:var(--r-pill,999px);font:inherit;cursor:pointer;text-align:left}
+.cicst-b:hover{background:var(--surface-3)}
+.cicst-b:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.cicst.open .cicst-b{background:var(--surface-3);border-color:var(--border-strong)}
+.cicst-av{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;flex:none;color:#0b0d0f;font-size:var(--fs-xs);font-weight:700}
+.cicst-av svg{width:12px;height:12px}
+.cicst-av.app{background:var(--surface-3);color:var(--text-2);border:1px solid var(--border-strong)}
+.cicst-tx{display:flex;flex-direction:column;line-height:1.15;min-width:0}
+.cicst-l{font-size:var(--fs-sm);font-weight:600;color:var(--text);display:flex;align-items:center;gap:4px;white-space:nowrap}
+.cicst-w{font-size:var(--fs-xs);color:var(--muted);white-space:nowrap}
+.cicst-c{font-size:var(--fs-xs);color:var(--text-2);font-variant-numeric:tabular-nums;white-space:nowrap}
+.cicst-lock{width:11px;height:11px;flex:none}
+.cicst-k{display:inline-flex;color:var(--text-2)}
+/* estados: só a etapa de agora ganha destaque; "sua vez"/"precisa" na cor de pergunta; feito discreto */
+.cicst.s-feito .cicst-av:not(.app){filter:saturate(.75)}
+.cicst.s-feito .cicst-w{color:var(--good)}
+.cicst.s-agora .cicst-b{border-color:var(--accent-line);background:var(--accent-soft)}
+.cicst.s-agora .cicst-w{color:var(--text)}
+.cicst.s-sua-vez .cicst-b,.cicst.s-precisa .cicst-b{border-color:color-mix(in srgb,var(--st-ask) 50%,transparent);background:color-mix(in srgb,var(--st-ask) 9%,transparent)}
+.cicst.s-sua-vez .cicst-w,.cicst.s-precisa .cicst-w{color:color-mix(in srgb,var(--st-ask) 75%,var(--text));font-weight:600}
+.cicst.s-espera .cicst-l{color:var(--text-2);font-weight:500}
+.cicst.s-espera .cicst-av:not(.app){opacity:.55}
+.cicst-sum{display:flex;align-items:baseline;gap:4px 14px;flex-wrap:wrap;font-size:var(--fs-sm);color:var(--text-2);margin-left:auto}
+.cicst-now{color:var(--text);font-weight:600}
+.cicst-pos{display:none}
+.cicst-cost b{color:var(--text);font-variant-numeric:tabular-nums;font-weight:600}
+.cicst-panel{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);padding:9px 12px;font-size:var(--fs-base);color:var(--text-2);max-width:80ch}
+.cicst-panel p{margin:4px 0}
+.cicst-panel ul{margin:4px 0;padding-left:18px}
+.cicst-ph{color:var(--text);margin-bottom:4px}
+.cicst-det summary{cursor:pointer;font-size:var(--fs-xs);color:var(--muted);margin-top:6px}
+.cicst-det ul{font-size:var(--fs-xs);color:var(--muted)}
+/* painel estreito (tela dividida): só a etapa de agora com texto; as outras viram o rosto; "etapa n de N" */
+@container ciclo (max-width:620px){
+  .cicst:not(.s-agora):not(.s-sua-vez):not(.s-precisa) .cicst-tx,
+  .cicst:not(.s-agora):not(.s-sua-vez):not(.s-precisa) .cicst-c{display:none}
+  .cicst:not(.s-agora):not(.s-sua-vez):not(.s-precisa) .cicst-b{padding:3px}
+  .cicst-sep{width:5px}
+  .cicst-next{display:none}
+  .cicst-pos{display:inline}
+  .cicst-sum{margin-left:0;width:100%}
+}
+
+/* ---- Cadeado 1: plano + preço ---- */
+.cicplan .cicdec-h svg{width:14px;height:14px;color:color-mix(in srgb,var(--st-ask) 70%,var(--text))}
+.cicplan-tx{margin:0;max-height:220px;overflow:auto;white-space:pre-wrap;font-family:var(--mono);font-size:var(--fs-xs);line-height:1.5;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-xs);padding:8px 10px}
+.cicdec-hint{font-size:var(--fs-xs);align-self:center}
+
+/* ---- intake: tipo de entrega + estimativa + teto ---- */
+.ntkind{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.ntkind-b{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text-2);border-radius:var(--r-pill,999px);padding:5px 12px;font:inherit;font-size:var(--fs-sm);cursor:pointer}
+.ntkind-b:hover{color:var(--text)}
+.ntkind-b.on{border-color:var(--accent-line);background:var(--accent-soft);color:var(--text);font-weight:600}
+.ntkind-b:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.ntkind-card{display:flex;flex-direction:column;gap:3px;margin-top:8px;padding:9px 11px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);font-size:var(--fs-sm);color:var(--text-2)}
+.ntkind-team{color:var(--text)}
+.ntkind-est b{color:var(--text)}
+.ntkind-est .lnk{border:0;background:none;font:inherit;color:var(--accent);padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+.ntkind-locks{font-size:var(--fs-xs)}
+.ntkind-cap{margin-top:4px}
+.cicdec-go{border-color:var(--accent-line);color:var(--text)}

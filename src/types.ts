@@ -200,6 +200,10 @@ export interface TaskSpec {
   needsYou?: import("./lifecycle.ts").NeedsYou | null;
   /** Liberações de teto feitas pela pessoa (valor + motivo) — vão pro Relatório Starfork do PR. */
   budgetReleases?: import("./lifecycle.ts").BudgetRelease[];
+  /** A pessoa liberou "mais uma rodada" de revisão (depois da 3ª rodada/veredito ilegível) — o motor consome. */
+  reviewExtra?: boolean;
+  /** A pessoa seguiu pra prova sem nova revisão (com motivo) — vai pro Relatório do PR. */
+  reviewOverride?: { reason: string; at: number; kind: string } | null;
   /** P10: o que rodou em cada papel (agente@versão · motor · skills) — vai pro Relatório do PR. */
   roleRuns?: import("./lifecycle.ts").RoleRun[];
 }

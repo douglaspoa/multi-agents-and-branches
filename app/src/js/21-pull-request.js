@@ -491,6 +491,7 @@ async function prPrepFinish(t, base){
   try{ prBody=await invoke('pr_body_ai',{ taskId:t.id }); }
   catch(_){ prBody=prBodyOf(t); }
   prBody=String(prBody||prBodyOf(t))+chkPrBodyExtra(t); // verificação real + "Atenção: aprovado com checagem falhando: motivo"
+  if(typeof cicloReportFor==='function') prBody+=cicloReportFor(t); // Relatório Starfork: requisitos × provas, motivos, custo e versão por papel
   prepMark(3,'run','criando o PR no GitHub…');
   try{
     const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBody });

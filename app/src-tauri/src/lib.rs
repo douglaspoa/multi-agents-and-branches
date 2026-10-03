@@ -3215,6 +3215,9 @@ fn new_task(
     risk: Option<String>,
     hitl: Option<serde_json::Value>,
     epic_done_when: Option<serde_json::Value>,
+    // ciclo da tarefa (mesa 03/10): tipo de entrega (codigo|pagina|pesquisa|documento) e teto escolhido no intake
+    task_kind: Option<String>,
+    budget_usd: Option<f64>,
 ) -> Result<String, String> {
     // tolerante: lista de strings (números viram texto), wave numérica ou "2", hitl true/"true"
     let strs = |v: &Option<serde_json::Value>| -> Vec<String> {
@@ -3313,6 +3316,15 @@ fn new_task(
     if start == Some(false) {
         args.push("--no-start".to_string());
     }
+    if let Some(k) = task_kind.as_deref().filter(|k| ["codigo", "pagina", "pesquisa", "documento"].contains(k)) {
+        args.push("--task-kind".to_string());
+        args.push(k.to_string());
+    }
+    if let Some(b) = budget_usd.filter(|b| b.is_finite() && *b > 0.0) {
+        args.push("--budget-usd-task".to_string());
+        args.push(format!("{b}"));
+    }
+    // com tipo de entrega o Cadeado 1 (aprovar o plano) é fixo (K1) — o motor liga sozinho; "auto" não desliga
     if plan_approval.as_deref() == Some("review") {
         args.push("--plan-approval".to_string());
         args.push("review".to_string());

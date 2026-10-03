@@ -344,10 +344,10 @@ function fwNowHtml(t){
     const evsN=fwEvents.length?fwEvents:eventsOf(t.id);
     const lastThink=[...evsN].reverse().find(e=>e.type==='think'&&(e.text||'').trim());
     const narr=lastThink?`<div class="nowsay"><span class="nsav" aria-hidden="true" style="background:${agentColor(lastThink.agent)}">${agentBadge(lastThink.agent)}</span><div class="nowsaytx clamp4">${esc(lastThink.text)}</div></div>`:'';
-    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc(ev.text):'iniciando…'}</div>${fwPlan(t)}${(t.roles||[]).some(r=>aiCanTalk(r.engine))?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
+    return `<div class="fwnowh"><span class="pulse" style="--pc:var(--good)"></span>O que estou fazendo agora <span class="fwnowstep">${esc(ROLE_DOING[t.stage]||'')}</span></div>${narr}<div class="fwnowtx">${ev?esc(ev.text):'iniciando…'}</div>${typeof cicloPaint==='function'?'':fwPlan(t)}${(t.roles||[]).some(r=>aiCanTalk(r.engine))?`<button class="btn sm fwsteer" id="fwSteer">${IC.hand} mudar o rumo</button>`:''}`;
   }
-  // estado final: só as etapas (o status já está na barra de contexto)
-  return fwPlan(t);
+  // estado final: as etapas vivem na FAIXA do topo (60-ciclo, P1) — aqui só sem ela
+  return typeof cicloPaint==='function'?'':fwPlan(t);
 }
 let fwLiveSig='';
 let fwPrimShown=''; // id da ação principal que o topo está mostrando
@@ -474,13 +474,14 @@ function fwPrNum(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[]
 function fwPrimaryAction(t){
   // rascunho: o topo não tinha ação nenhuma — começar é o próximo passo óbvio (mesmo ▶ iniciar da Central)
   if(t.status==='draft') return { id:'fwStartDraft', html:`${IC.play} iniciar`, title:'começa a execução com o que já está no rascunho' };
+  // exceção do ciclo (teto/rodadas/veredito): a decisão está na seção do topo — o verde leva até ela
+  if(t.status==='needs-you') return { id:'fwDecide', html:`${IC.hand} decidir`, title:'a tarefa parou numa exceção (teto, rodadas de revisão ou veredito) — a decisão está no topo da tarefa' };
   if(pendingOf(t.id).length) return { id:'fwAnswer', html:`${IC.hand} responder`, title:'o agente fez uma pergunta — a resposta vai na conversa' };
   if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`${IC.stop} parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
   if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:`${IC.retry} rodar de novo`, title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
   if(t.status==='conflict') return { id:'fwResolve', html:`${IC.bolt} resolver conflito`, title:'a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra' };
   if(t.status==='paused') return { id:'fwResume', html:`${IC.play} continuar`, title:'retoma a tarefa de onde parou' };
   if(t.status==='plan-review') return { id:'fwApprovePlan', html:`${IC.play} aprovar plano`, title:'o plano está pronto — aprovar deixa o time começar a construir' };
-  if(t.status==='needs-you') return { id:'fwDecide', html:`${IC.hand} decidir`, title:'a tarefa parou numa exceção (teto, rodadas de revisão ou veredito) — a decisão está no topo da tarefa' };
   // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
   if(t.prUrl){ const n=fwPrNum(t);
     return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n}`, title:'abrir o PR no GitHub' }
@@ -906,7 +907,7 @@ function renderWorkspace(){
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>
     <div class="fwinput cc"><div class="atmenu" id="fwMenu" style="display:none"></div>${sel2?`<div class="fwselchip">${IC.chevR} ${esc((fwPath||'').split('/').pop())}:${sel2.a}${sel2.b>sel2.a?'–'+sel2.b:''}<button class="fwselx" id="fwSelX">${IC.x}</button></div>`:''}
       <div class="attrow attpend" id="fwPend" style="display:${(fwPend[t.id]||[]).length?'flex':'none'}">${(fwPend[t.id]||[]).map((a,i)=>attChipHtml(a,i,true)).join('')}</div>
-      <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?(askingW[0].kind==='budget'?'continuar ou parar? (ou toque numa opção acima)':'responda a pergunta — o turno continua'):'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
+      <textarea class="in fwta cc-ta" id="fwInput" rows="2" data-tk="${escA(t.id)}" placeholder="${askingW.length?(askingW[0].kind==='budget'?'pra seguir: valor e motivo (ex.: liberar 2 porque falta o teste) — ou toque em Parar aqui':'responda a pergunta — o turno continua'):'peça um ajuste…  ( / abre as skills · ⌘V cola um print )'}"></textarea>
       <div class="fwinrow cc-row"><button class="btn sm cc-clip" id="fwAttach" title="anexar print, PDF ou doc — ou cole (⌘V) / arraste">${CHAT_CLIP_SVG}</button>${chatModelPillHtml(fwModelPill(t))}<label class="fwreqtoggle" style="margin:0"><input type="checkbox" id="fwAsReq" data-tk="${escA(t.id)}"${fwAsReqOn[t.id]?' checked':''}><span>vira <b>requisito</b></span></label><span class="cc-sp"></span><span id="fwSendBtns" data-k="${sr.key}" style="display:flex;gap:7px">${sr.btns}</span></div>
       <div class="fwhint chathint" id="fwHint">${sr.hint}</div></div>`;
   chat.dataset.tk=t.id;
@@ -1199,7 +1200,7 @@ function fwThreadHtml(t){
   return out.join('')
   + (asking.length?`<div class="cmsg bot"><span class="cav" aria-hidden="true" style="background:${agentColor(asking[0].agent||t.agent)}">${agentBadge(asking[0].agent||t.agent)}</span><div style="min-width:0;flex:1"><div class="cwho" style="color:var(--warn)">${asking[0].kind==='budget'?'<b>Teto de custo</b><span class="cwho-m"> · sua decisão</span>':'<b>'+esc((asking[0].agent||t.agent)||'')+'</b><span class="cwho-m"> · pergunta pra você</span>'}</div><div class="cbub asknow">${chatMd(asking[0].prompt||'aguardando sua resposta')}${(()=>{ const sent=fwAskSent[fwAskKey(asking[0])];
       return (Array.isArray(asking[0].options)&&asking[0].options.length?`<div class="askopts${sent!=null?' sent':''}">${asking[0].options.map(o=>`<button data-askopt="${escA(o)}"${sent!=null?` disabled${sent===o?' class="on" aria-pressed="true"':''}`:''}>${esc(o)}</button>`).join('')}</div>`:'')
-        +(sent!=null?'<div class="asknote"><span class="spin"></span> resposta enviada — o agente retoma o turno</div>':`<div class="asknote">${asking[0].kind==='budget'?'escolha uma opção — o agente fica pausado até você decidir':'responda abaixo (ou toque numa opção) — o turno continua'}</div>`); })()}</div></div></div>`:'')
+        +(sent!=null?'<div class="asknote"><span class="spin"></span> resposta enviada — o agente retoma o turno</div>':`<div class="asknote">${asking[0].kind==='budget'?'escreva o valor e o motivo aqui ou na seção do topo — o agente fica parado até você decidir':'responda abaixo (ou toque numa opção) — o turno continua'}</div>`); })()}</div></div></div>`:'')
   + (working?fwLiveHtml(t, evs, Date.now()):'');
 }
 // requisitos com status ao vivo (o "no que ele está trabalhando")

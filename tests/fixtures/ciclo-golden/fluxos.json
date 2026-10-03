@@ -1,0 +1,309 @@
+{
+  "flows": {
+    "codigo": [
+      {
+        "id": "plano",
+        "label": "Plano",
+        "role": "planner",
+        "agentId": "vega",
+        "lock": 1
+      },
+      {
+        "id": "design",
+        "label": "Design",
+        "role": "designer",
+        "agentId": "aria",
+        "optional": true
+      },
+      {
+        "id": "construir",
+        "label": "Construir",
+        "role": "builder",
+        "agentId": "iris"
+      },
+      {
+        "id": "revisar",
+        "label": "Revisar",
+        "role": "reviewer",
+        "agentId": "nyx",
+        "lens": "codigo"
+      },
+      {
+        "id": "provar",
+        "label": "Provar"
+      },
+      {
+        "id": "entregar",
+        "label": "Entregar",
+        "lock": 2
+      },
+      {
+        "id": "retro",
+        "label": "Retro"
+      }
+    ],
+    "pagina": [
+      {
+        "id": "plano",
+        "label": "Plano",
+        "role": "planner",
+        "agentId": "vega",
+        "lock": 1
+      },
+      {
+        "id": "design",
+        "label": "Design",
+        "role": "designer",
+        "agentId": "aria"
+      },
+      {
+        "id": "construir",
+        "label": "Construir",
+        "role": "builder",
+        "agentId": "iris"
+      },
+      {
+        "id": "revisar",
+        "label": "Revisar",
+        "role": "reviewer",
+        "agentId": "nyx",
+        "lens": "codigo"
+      },
+      {
+        "id": "provar",
+        "label": "Provar"
+      },
+      {
+        "id": "entregar",
+        "label": "Entregar",
+        "lock": 2
+      },
+      {
+        "id": "retro",
+        "label": "Retro"
+      }
+    ],
+    "pesquisa": [
+      {
+        "id": "plano",
+        "label": "Plano",
+        "role": "planner",
+        "agentId": "vega",
+        "lock": 1
+      },
+      {
+        "id": "escrever",
+        "label": "Escrever",
+        "role": "docs",
+        "agentId": "lumen"
+      },
+      {
+        "id": "revisar",
+        "label": "Conferir",
+        "role": "reviewer",
+        "agentId": "nyx",
+        "lens": "documento"
+      },
+      {
+        "id": "provar",
+        "label": "Provar"
+      },
+      {
+        "id": "entregar",
+        "label": "Entregar",
+        "lock": 2
+      },
+      {
+        "id": "retro",
+        "label": "Retro"
+      }
+    ],
+    "documento": [
+      {
+        "id": "plano",
+        "label": "Plano",
+        "role": "planner",
+        "agentId": "vega",
+        "lock": 1
+      },
+      {
+        "id": "escrever",
+        "label": "Escrever",
+        "role": "docs",
+        "agentId": "lumen"
+      },
+      {
+        "id": "revisar",
+        "label": "Conferir",
+        "role": "reviewer",
+        "agentId": "nyx",
+        "lens": "documento"
+      },
+      {
+        "id": "provar",
+        "label": "Provar"
+      },
+      {
+        "id": "entregar",
+        "label": "Entregar",
+        "lock": 2
+      },
+      {
+        "id": "retro",
+        "label": "Retro"
+      }
+    ]
+  },
+  "labels": {
+    "codigo": "Código",
+    "pagina": "Página/tela",
+    "pesquisa": "Pesquisa",
+    "documento": "Documento"
+  },
+  "teams": {
+    "codigo": "Feature com revisão",
+    "pagina": "Página simples",
+    "pesquisa": "Pesquisa conferida",
+    "documento": "Relatório conferido"
+  },
+  "rolesForKind": {
+    "codigo": [
+      {
+        "role": "planner",
+        "agentId": "vega",
+        "model": null
+      },
+      {
+        "role": "builder",
+        "agentId": "iris",
+        "model": null
+      },
+      {
+        "role": "reviewer",
+        "agentId": "nyx",
+        "model": "sonnet"
+      }
+    ],
+    "pagina": [
+      {
+        "role": "planner",
+        "agentId": "vega",
+        "model": null
+      },
+      {
+        "role": "designer",
+        "agentId": "aria",
+        "model": null
+      },
+      {
+        "role": "builder",
+        "agentId": "iris",
+        "model": null
+      },
+      {
+        "role": "reviewer",
+        "agentId": "nyx",
+        "model": "sonnet"
+      }
+    ],
+    "pesquisa": [
+      {
+        "role": "planner",
+        "agentId": "vega",
+        "model": null
+      },
+      {
+        "role": "docs",
+        "agentId": "lumen",
+        "model": null
+      },
+      {
+        "role": "reviewer",
+        "agentId": "nyx",
+        "model": "sonnet"
+      }
+    ],
+    "documento": [
+      {
+        "role": "planner",
+        "agentId": "vega",
+        "model": null
+      },
+      {
+        "role": "docs",
+        "agentId": "lumen",
+        "model": null
+      },
+      {
+        "role": "reviewer",
+        "agentId": "nyx",
+        "model": "sonnet"
+      }
+    ],
+    "codigo+design": [
+      {
+        "role": "planner",
+        "agentId": "vega",
+        "model": null
+      },
+      {
+        "role": "designer",
+        "agentId": "aria",
+        "model": null
+      },
+      {
+        "role": "builder",
+        "agentId": "iris",
+        "model": null
+      },
+      {
+        "role": "reviewer",
+        "agentId": "nyx",
+        "model": "sonnet"
+      }
+    ]
+  },
+  "taskKindOf": [
+    [
+      {
+        "taskKind": "pagina"
+      },
+      "pagina"
+    ],
+    [
+      {
+        "branchType": "design"
+      },
+      "pagina"
+    ],
+    [
+      {
+        "branchType": "docs"
+      },
+      "documento"
+    ],
+    [
+      {
+        "branchType": "invest"
+      },
+      "pesquisa"
+    ],
+    [
+      {
+        "branchType": "fix"
+      },
+      "codigo"
+    ],
+    [
+      {},
+      "codigo"
+    ],
+    [
+      {
+        "taskKind": "xyz",
+        "branchType": "docs"
+      },
+      "documento"
+    ]
+  ]
+}

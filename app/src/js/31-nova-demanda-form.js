@@ -306,7 +306,7 @@ function howAgentsRender(){
 $id('howGo').onclick=()=>{
   const pick=document.querySelector('input[name="howflow"]:checked');
   const src=$id(ntMode==='fix'?'ntFixTeam':'ntWorkflow');
-  if(pick && src) src.value=pick.value;
+  if(pick && src){ src.value=pick.value; if(typeof ntTeamTouched!=='undefined') ntTeamTouched=true; }
   const nm=$id('ntModel'); if(nm) nm.value=$id('howModel').value;
   ntModels=[...document.querySelectorAll('[data-agmodel]')].filter(s=>s.value).map(s=>`${s.dataset.agmodel}=${s.value}`).join(',');
   { const hb=$id('howBudget'); if(hb) ntBudgetPending=Math.max(0, parseFloat(hb.value)||0); } // teto DESTA tarefa
@@ -363,6 +363,7 @@ async function openNewTask(){
   }
   setNtMode(ntMode);
   { const bt=$id('ntBranchType'); if(bt && ntDocsPreset) bt.value='docs'; }
+  if(typeof ntKindPaint==='function'){ if(ntDocsPreset) ntKind='documento'; ntKindPaint(); } // tipo de entrega + estimativa + teto
   // o que veio do "Conversar" (seletor de modo): texto → título + objetivo; entregas/requisitos que a conversa já montou
   // entram nas listas. Nada que já está preenchido é apagado.
   { const c=window.ndTakeCarryAll?window.ndTakeCarryAll():{}; if(c.text){
@@ -398,7 +399,7 @@ async function openNewTask(){
       ? "equipe: " + w.steps.map(s=>(byId[s]?byId[s].name+" ("+byId[s].role+")":s)).join("  →  ")
       : "1 agente builder";
   };
-  wfSel.onchange = updatePrev; updatePrev();
+  wfSel.onchange = ()=>{ if(typeof ntTeamTouched!=='undefined') ntTeamTouched=true; updatePrev(); }; updatePrev(); // escolheu a equipe à mão: o tipo não troca
   // revisores: agentes do catálogo (papel reviewer primeiro) + padrão
   const ags = (state.config&&state.config.agents)||[];
   const revFirst = [...ags].sort((a,b)=>((b.role==='reviewer')?1:0)-((a.role==='reviewer')?1:0));
@@ -561,7 +562,7 @@ window.TAB_STATE_form={
     ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
     renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtList('ntFixReqs',ntFixReq); renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtRefs(); renderNtLink(); }
 };
-function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); }
+function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); if(typeof ntKindReset==='function') ntKindReset(); }
 // objetivo / detalhes / contexto / sintoma: colar (⌘V) um print ou arrastar um arquivo pro texto vira ANEXO da
 // demanda (mesma lista do botão "anexar") — igual ao composer dos chats; texto colado continua texto
 [['ntObj',()=>ntRefs,renderNtRefs],['ntFixObj',()=>ntFixRefs,renderFixRefs],['ntDzObj',()=>ntDzRefs,renderDzRefs],['ntInvObj',()=>ntInvRefs,renderInvRefs]].forEach(([id,arr,render])=>attWireRefField(id,arr,render));
