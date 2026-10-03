@@ -1219,6 +1219,8 @@ struct Pending {
     prompt: String,
     options: serde_json::Value,
     created_at: i64,
+    /// pergunta do AskUserQuestion (modo terminal): { src:"auq", group, idx, n, header, desc[], multi } — null no resto
+    meta: serde_json::Value,
 }
 
 #[derive(Serialize, Clone)]
@@ -2902,8 +2904,10 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
         .map_err(|e| e.to_string())?;
 
+    // banco antigo sem a coluna meta (migração é do motor): lê sem ela
     let pending = conn
-        .prepare("SELECT id,task_id,agent,kind,prompt,options,created_at FROM pending WHERE status='open' ORDER BY id")
+        .prepare("SELECT id,task_id,agent,kind,prompt,options,created_at,meta FROM pending WHERE status='open' ORDER BY id")
+        .or_else(|_| conn.prepare("SELECT id,task_id,agent,kind,prompt,options,created_at,NULL FROM pending WHERE status='open' ORDER BY id"))
         .map_err(|e| e.to_string())?
         .query_map([], |r| {
             let opt: Option<String> = r.get(5)?;
@@ -2917,6 +2921,9 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                     .and_then(|s| serde_json::from_str(&s).ok())
                     .unwrap_or(serde_json::Value::Null),
                 created_at: r.get(6)?,
+                meta: r.get::<_, Option<String>>(7).unwrap_or(None)
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .unwrap_or(serde_json::Value::Null),
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -3533,8 +3540,8 @@ fn new_task(
     if hitl { args.push("--hitl".to_string()); }
     // MODO DA TAREFA: terminal só pra motor com CLI interativo oficial (claude/codex); o resto segue automático
     let ek = args.iter().position(|a| a == "--engine").and_then(|i| args.get(i + 1)).map(|e| e.to_lowercase()).unwrap_or_default();
-    let mode = term_mode.filter(|m| m == "terminal" || m == "auto").unwrap_or_else(|| term::default_mode().to_string());
-    let terminal = mode == "terminal" && (ek.contains("claude") || ek == "codex");
+    let chosen = setting_get("taskModeSet").as_deref() == Some("2") && setting_get("taskMode").as_deref() == Some("terminal");
+    let terminal = term::wants_terminal(term_mode.as_deref(), term::default_mode(), chosen, &ek);
     args.push("--term-mode".to_string());
     args.push(if terminal { "terminal" } else { "auto" }.to_string());
     // terminal: o CLI só CRIA (worktree, TASK.yaml); quem abre o terminal é o app, quando a criação termina

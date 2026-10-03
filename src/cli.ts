@@ -16,7 +16,7 @@ import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
 import { mobileCli } from "./mobile.ts";
-import { hookCli, HOOK_MARK, statuslineCli, termMessage, termPrep, turnEndCli } from "./terminal.ts";
+import { askHookCli, AUQ_TOOL, hookCli, HOOK_MARK, statuslineCli, termMessage, termPrep, turnEndCli } from "./terminal.ts";
 import { browserProxyCli } from "./browser-proxy.ts";
 import { envCli } from "./env-up.ts";
 import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
@@ -973,6 +973,8 @@ async function main() {
       break;
     // ---- MODO TERMINAL (src/terminal.ts) — chamados pelos hooks do CLI e pelo app ----
     case "hook":
+      // pergunta do agente (AskUserQuestion): espera a resposta da folha do app e devolve allow + answers
+      if (a._[1] === AUQ_TOOL) { process.exitCode = await askHookCli(a.flags[HOOK_MARK.slice(2)] ?? "", repo); break; }
       // codex-notify: o Codex passa o JSON como ÚLTIMO argumento
       process.exitCode = hookCli(a._[1], a.flags[HOOK_MARK.slice(2)] ?? "", repo, a._[1] === "codex-notify" ? argv[argv.length - 1] : undefined);
       break;

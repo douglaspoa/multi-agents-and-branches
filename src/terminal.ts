@@ -45,6 +45,12 @@ export const CLAUDE_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolU
 export const CODEX_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"] as const;
 /** Hooks que só alimentam o feed rodam em segundo plano (não seguram a ferramenta); os que mudam estado são síncronos. */
 const ASYNC_HOOKS = new Set(["PreToolUse", "PostToolUse", "Notification"]);
+/** Pergunta nativa do Claude Code (várias perguntas, opções com descrição, multiSelect, "outra resposta"). */
+export const AUQ_TOOL = "AskUserQuestion";
+/** O hook espera a pessoa (como o ask_human). Passou disso, o Claude Code cai no picker dele no próprio terminal. */
+export const AUQ_TIMEOUT_S = 24 * 3600;
+/** Resposta especial: "quero responder no terminal" → o hook sai sem decisão e o picker do CLI aparece no TTY. */
+export const AUQ_IN_TERMINAL = "(responder no terminal)";
 export const KICKOFF = "Comece: leia .cardume/TASK.yaml e execute a tarefa seguindo as instruções do Starfork (no seu system prompt).";
 
 const shq = (s: string) => (process.platform === "win32" ? `"${s.replace(/"/g, '\\"')}"` : `'${s.replace(/'/g, `'\\''`)}'`);
@@ -91,6 +97,9 @@ export function mergeClaudeSettings(existing: Settings | null | undefined, base:
     if (ASYNC_HOOKS.has(ev)) h.async = true;
     (hooks[ev] = hooks[ev] ?? []).push(ev === "PreToolUse" || ev === "PostToolUse" ? { matcher: "*", hooks: [h] } : { hooks: [h] });
   }
+  // pergunta do agente (AskUserQuestion): hook SÍNCRONO que segura a ferramenta até a pessoa responder na folha do
+  // app e devolve allow + updatedInput.answers (o Claude Code aceita como resposta do usuário — sem tecla no PTY)
+  hooks.PreToolUse.push({ matcher: AUQ_TOOL, hooks: [{ type: "command", command: shellCmd(hookArgv(base, AUQ_TOOL, taskId, repo)), timeout: AUQ_TIMEOUT_S }] });
   out.hooks = hooks;
   let prev: string | null = null;
   const sl = out.statusLine;
@@ -255,6 +264,8 @@ export function applyHook(store: Store, taskId: string, eff: HookEffect): void {
   const role = spec?.roles?.find((r) => r.role === "builder") ?? spec?.roles?.[0];
   const agent = role?.name || task.agent;
   if (eff.sessionId) store.termSetSession(taskId, eff.sessionId);
+  // turno novo, fim de turno ou sessão fechada: nenhum hook espera mais a pergunta (Esc no TTY mata o hook)
+  if (eff.turnEnd || eff.ended || eff.status === "running") store.closeAuqQuestions(taskId);
   if (eff.busy !== undefined) store.termSetBusy(taskId, eff.busy);
   if (eff.status && !["merged", "aborted"].includes(task.status)) store.setStatus(taskId, eff.status);
   if (eff.status === "running") store.setStage(taskId, role?.role ?? "builder");
@@ -262,6 +273,88 @@ export function applyHook(store: Store, taskId: string, eff: HookEffect): void {
     try { store.addClaim(taskId, agent, eff.claim.path, eff.claim.mode); } catch { /* claim é melhor-esforço */ }
   }
   for (const e of eff.events) store.addEvent(taskId, e.agent ?? agent, e.type, e.text, e.ok, e.agent ? undefined : role?.role, e.agent ? undefined : role?.agentId);
+}
+
+// ======================= pergunta do agente (AskUserQuestion) — PURO, testado em terminal.test.ts =======================
+export interface AuqQuestion { question: string; header?: string; options?: { label?: string; description?: string }[]; multiSelect?: boolean }
+export interface AuqRow { prompt: string; options: string[]; meta: { src: "auq"; group: string; idx: number; n: number; header: string; desc: string[]; multi: boolean } }
+/** tool_input do AskUserQuestion → uma linha de `pending` por pergunta (opções = rótulos: celular e quadro já entendem). */
+export function auqRows(input: unknown, group: string): AuqRow[] {
+  const qs = Array.isArray((input as { questions?: unknown })?.questions) ? ((input as { questions: AuqQuestion[] }).questions) : [];
+  const valid = qs.filter((q) => q && typeof q.question === "string" && q.question.trim());
+  return valid.map((q, idx) => {
+    const opts = (Array.isArray(q.options) ? q.options : []).filter((o) => o && typeof o.label === "string" && o.label.trim());
+    return {
+      prompt: q.question.trim(),
+      options: opts.map((o) => String(o.label).trim()),
+      meta: { src: "auq", group, idx, n: valid.length, header: clip(q.header ?? "", 40), desc: opts.map((o) => clip(o.description ?? "", 200)), multi: !!q.multiSelect },
+    };
+  });
+}
+/**
+ * Respostas gravadas (uma por pergunta, na ordem) → o que o hook devolve ao Claude Code.
+ *  - null: ainda falta alguma; "terminal": a pessoa pediu pra responder no TTY (sai sem decisão);
+ *  - senão { answers }: pergunta → resposta ("" = pulada, fica de fora — o Claude vê "sem resposta").
+ */
+export function auqCollect(questions: string[], answers: (string | null | undefined)[]): null | "terminal" | { answers: Record<string, string> } {
+  if (answers.length < questions.length || answers.some((a) => a === null || a === undefined)) return null;
+  if (answers.some((a) => a === AUQ_IN_TERMINAL)) return "terminal";
+  const out: Record<string, string> = {};
+  // "(sem resposta …)" = fechada pelo app/turno — vale como pulada (não vira texto de resposta)
+  questions.forEach((q, i) => { const a = String(answers[i] ?? "").trim(); if (a && !/^\(sem resposta/.test(a)) out[q] = a; });
+  return { answers: out };
+}
+/** JSON do PreToolUse que responde a pergunta: allow + o MESMO input com `answers` (verificado no Claude Code 2.1). */
+export function auqHookOutput(input: Record<string, unknown>, answers: Record<string, string>): string {
+  return JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", permissionDecisionReason: "respondido no Starfork", updatedInput: { ...input, answers } } });
+}
+
+/**
+ * `hook AskUserQuestion --starfork-task <id>`: grava as perguntas como `pending` (folha do app, celular, "esperando
+ * você" na barra lateral), espera as respostas e devolve allow + answers. Morto no meio (Esc no TTY) → fecha as linhas.
+ */
+export async function askHookCli(taskArg: string, repoArg: string): Promise<number> {
+  let store: Store | null = null;
+  let ids: number[] = [];
+  const closeOpen = () => { try { if (store && ids.length) store.db.prepare(`UPDATE pending SET status='answered', answer=?, resolved_at=? WHERE status='open' AND id IN (${ids.map(() => "?").join(",")})`).run("(sem resposta — a pergunta foi fechada no terminal)", Date.now(), ...ids); } catch { /* banco fechado */ } };
+  const bye = () => { closeOpen(); try { store?.close(); } catch { /* já fechado */ } process.exit(0); };
+  process.once("SIGTERM", bye); process.once("SIGINT", bye); process.once("SIGHUP", bye);
+  try {
+    const { taskId, db } = hookTarget(taskArg, repoArg);
+    if (!taskId || !db) return 0;
+    let p: Record<string, any> = {};
+    try { p = JSON.parse(readStdin() || "{}"); } catch { return 0; }
+    const input = (p.tool_input && typeof p.tool_input === "object" ? p.tool_input : {}) as Record<string, unknown>;
+    const rows = auqRows(input, String(p.tool_use_id || `auq-${Date.now()}`));
+    if (!rows.length) return 0; // nada pra perguntar: o CLI segue o fluxo dele
+    store = new Store(db);
+    const task = store.getTask(taskId);
+    if (!task) return 0;
+    let agent = task.agent;
+    try { const sp = JSON.parse(task.spec_json) as TaskSpec; agent = (sp.roles?.find((r) => r.role === "builder") ?? sp.roles?.[0])?.name || agent; } catch { /* spec ilegível */ }
+    ids = rows.map((r) => store!.addPending(taskId, agent, "question", r.prompt, r.options, r.meta));
+    store.addEvent(taskId, agent, "note", `perguntou ao humano: ${rows.map((r) => r.prompt).join(" · ")}`, undefined);
+    if (process.env.CARDUME_NOTIFY !== "0") { try { const { notify } = await import("./util/notify.ts"); notify("Starfork", rows[0].prompt, `${agent} precisa de você`); } catch { /* sem notificação */ } }
+    for (;;) {
+      const got = ids.map((id) => { const r = store!.getPending(id); return r && r.status === "answered" ? (r.answer ?? "") : null; });
+      const res = auqCollect(rows.map((r) => r.prompt), got);
+      if (res === "terminal") { store.addEvent(taskId, "Sistema", "note", "pergunta: você escolheu responder no terminal", true); return 0; }
+      if (res) {
+        const txt = Object.entries(res.answers).map(([q, a]) => `${q} → ${a}`).join(" · ") || "(todas puladas)";
+        store.addEvent(taskId, "Você", "note", `respondeu: ${clip(txt, 600)}`, true);
+        process.stdout.write(auqHookOutput(input, res.answers) + "\n");
+        return 0;
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  } catch (e) {
+    process.stderr.write(`starfork hook ${AUQ_TOOL}: ${(e as Error)?.message ?? e}\n`);
+    closeOpen();
+    return 0;
+  } finally {
+    try { store?.close(); } catch { /* já fechado */ }
+    store = null;
+  }
 }
 
 // ======================= custo pela statusLine =======================
