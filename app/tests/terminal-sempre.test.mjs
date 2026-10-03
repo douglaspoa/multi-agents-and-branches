@@ -144,4 +144,6 @@ test('histórico quebra POR PALAVRA na largura do xterm (nunca "vo ltaram"); con
   const sgr = TH.thWrap('\x1b[32m● \x1b[0m' + 'palavra '.repeat(12), 40);
   assert.ok(sgr.length > 1 && sgr.every((l) => plain(l).length <= 39), 'cores não contam na largura');
   assert.deepEqual(TH.thWrap('curta', 80), ['curta']);
+  const two = plain(TH.thRender([{ k: 'say', ts: 1, text: 'primeira linha\nsegunda linha bem comprida que precisa quebrar em mais de uma linha aqui' }], { cols: 40 })).split('\r\n').filter(Boolean);
+  assert.ok(two.slice(1).every((l) => l.startsWith('  ') && !l.startsWith('   ')), 'continuação da fala mantém o recuo de 2: ' + JSON.stringify(two));
 });

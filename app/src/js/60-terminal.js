@@ -101,13 +101,14 @@ function thWrap(line, cols){
   const W=(+cols||0)-1; if(W<20) return [line];
   const v=thVis(line); if(v.length<=W) return [line];
   const m=v.match(/^( *)([●⎿>?▸✗✓] )?/); const ind=' '.repeat(Math.min(W>>1, m[1].length+(m[2]?2:0)));
-  const toks=line.split(/( +)/); const out=[]; let cur='', w=0;
+  const lead=(line.match(/^ */)||[''])[0]; // recuo da própria linha (continuação de fala) fica
+  const toks=line.slice(lead.length).split(/( +)/); const out=[]; let cur=lead, w=lead.length;
   const push=()=>{ out.push(cur.replace(/ +$/,'')); cur=ind; w=ind.length; };
   for(const tk of toks){
     if(!tk) continue;
     const tw=thVis(tk).length;
     if(/^ +$/.test(tk)){ if(w && w+tw<=W){ cur+=tk; w+=tw; } continue; }
-    if(w+tw>W && w>ind.length) push();
+    if(w+tw>W && w>Math.max(ind.length, lead.length)) push();
     if(tw>W-ind.length){ // palavra gigante (caminho, URL): parte por caractere visível
       let rest=tk; while(thVis(rest).length>W-w){ let i=0, n=0; while(i<rest.length && n<W-w){ if(rest[i]==='\x1b'){ const e=rest.indexOf('m',i); i=e<0?rest.length:e+1; continue; } i++; n++; } cur+=rest.slice(0,i); rest=rest.slice(i); push(); }
       cur+=rest; w+=thVis(rest).length; continue;
