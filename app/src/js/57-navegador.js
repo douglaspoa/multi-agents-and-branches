@@ -299,7 +299,7 @@ async function nvSend(taskId){
   // MODO TERMINAL (layout A): print + elemento entram como ANEXOS no compositor da tarefa (com o seu texto) e você
   // manda pro terminal de lá — Enter na fila, ⌘Enter interrompe
   { const t=(typeof state!=='undefined' && state.tasks||[]).find(x=>x.id===taskId);
-    if(t && typeof termModeOf==='function' && termModeOf(t) && typeof fwTask!=='undefined' && fwTask===taskId && typeof fwPend!=='undefined'){
+    if(t && typeof termViewOf==='function' && termViewOf(t) && typeof fwTask!=='undefined' && fwTask===taskId && typeof fwPend!=='undefined'){
       const full=nvPayload('', st.picks, ctx); const block=full.slice(full.indexOf('['+NV_BLOCK+']'));
       const first=(st.picks[0]&&st.picks[0].item)||{};
       const el={ name:st.picks.length===1?String(first.selector||first.tag||'elemento').slice(0,48)+' · estilos':st.picks.length+' elementos da prévia', kind:'text', size:block.length, rel:'(prévia da tarefa)', text:block };

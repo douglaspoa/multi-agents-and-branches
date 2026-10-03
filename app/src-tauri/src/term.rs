@@ -203,6 +203,91 @@ fn remember_size(task_id: &str, cols: u16, rows: u16) {
     SIZES.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.to_string(), (cols, rows));
 }
 
+/// O compositor de uma tarefa SEM terminal aberto vai pro terminal? (aba Terminal em toda tarefa Claude Code)
+/// - já é de modo terminal → sim;
+/// - Claude Code, padrão "terminal" e NENHUM turno headless rodando agora → sim (retoma a sessão no PTY);
+/// - turno headless em curso (claude -p) → não: a mensagem entra na fila dele, como antes;
+/// - padrão "Automático" escolhido na tela nova, ou motor sem CLI interativo → não.
+pub fn talk_in_terminal(is_term: bool, engine: &str, default: &str, headless_busy: bool) -> bool {
+    if is_term { return true; }
+    default == "terminal" && !headless_busy && engine.trim().to_lowercase().starts_with("claude")
+}
+struct TaskRow { engine: String, status: String, worktree: String, busy_pid: Option<i64>, session_id: Option<String>, term_sid: Option<String> }
+fn task_row(db: &Path, task_id: &str) -> Option<TaskRow> {
+    let c = open_rw(db).ok()?;
+    let mut r = c.query_row("SELECT engine, status, worktree, busy_pid, session_id FROM task WHERE id=?1", params![task_id], |r| Ok(TaskRow {
+        engine: r.get::<_, Option<String>>(0)?.unwrap_or_default(), status: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+        worktree: r.get::<_, Option<String>>(2)?.unwrap_or_default(), busy_pid: r.get(3)?, session_id: r.get(4)?, term_sid: None,
+    })).ok()?;
+    r.term_sid = c.query_row("SELECT session_id FROM term_session WHERE task_id=?1", params![task_id], |r| r.get::<_, Option<String>>(0)).ok().flatten();
+    Some(r)
+}
+/// Mensagem do compositor numa tarefa Claude parada: vai pro terminal (retomando a sessão)? Erro = não dá pra mandar.
+pub fn should_talk_in_terminal(state: &State<AppState>, task_id: &str) -> Result<bool, String> {
+    let is_term = is_terminal(state, task_id);
+    if is_term || mgr().and_then(|m| m.live(task_id)).is_some() { return Ok(true); }
+    let db = db_of(state)?;
+    let Some(t) = task_row(&db, task_id) else { return Ok(false) };
+    let busy = t.busy_pid.is_some() && ["running", "thinking", "queued"].contains(&t.status.as_str());
+    if !talk_in_terminal(false, &t.engine, default_mode(), busy) { return Ok(false); }
+    if worktree_gone_after_merge(&t.status, &t.worktree) { return Err(WT_GONE.to_string()); }
+    Ok(true)
+}
+/// A worktree foi apagada ao integrar: não há onde retomar — o caminho é uma tarefa nova de ajuste.
+pub const WT_GONE: &str = "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste";
+fn worktree_gone_after_merge(status: &str, worktree: &str) -> bool { status == "merged" && (worktree.is_empty() || !Path::new(worktree).is_dir()) }
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HistInfo {
+    /// transcript | log | none
+    source: String,
+    items: Vec<crate::term_hist::HistItem>,
+    /// bytes crus do terminal (fonte "log": Codex, ou sessão sem transcript)
+    raw: String,
+    session_id: Option<String>,
+    worktree: String,
+    worktree_exists: bool,
+    merged: bool,
+    alive: bool,
+    /// carimbo do arquivo lido ("tamanho:mtime") — igual ao `since` pedido = nada mudou (items vazio)
+    stamp: String,
+    unchanged: bool,
+}
+fn stamp_of(p: &Path) -> String {
+    std::fs::metadata(p).map(|m| format!("{}:{}", m.len(), m.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis()).unwrap_or(0))).unwrap_or_default()
+}
+/// Histórico da sessão pra tarefa SEM terminal vivo: transcript do Claude Code → log do PTY → nada (o front cai
+/// nos eventos do state.sqlite). `since` = carimbo da última leitura: arquivo igual não é relido (poll barato).
+#[tauri::command(async)]
+pub fn term_history(state: State<AppState>, task_id: String, since: Option<String>) -> Result<HistInfo, String> {
+    let db = db_of(&state)?;
+    let t = task_row(&db, &task_id).ok_or("tarefa não encontrada")?;
+    let mut h = HistInfo { worktree_exists: !t.worktree.is_empty() && Path::new(&t.worktree).is_dir(), merged: t.status == "merged", worktree: t.worktree.clone(), alive: mgr().and_then(|m| m.live(&task_id)).is_some(), ..Default::default() };
+    let sid = t.term_sid.clone().filter(|s| !s.is_empty()).or(t.session_id.clone().filter(|s| !s.is_empty()));
+    h.session_id = sid.clone();
+    let tr = sid.as_deref().and_then(|s| crate::term_hist::claude_config_dir().and_then(|d| crate::term_hist::find_transcript(&d, &t.worktree, s)));
+    if let Some(p) = tr {
+        h.source = "transcript".into();
+        h.stamp = stamp_of(&p);
+        if since.as_deref() == Some(h.stamp.as_str()) { h.unchanged = true; return Ok(h); }
+        let text = std::fs::read(&p).map(|b| String::from_utf8_lossy(&b).into_owned()).map_err(|e| format!("não consegui ler o histórico da sessão: {e}"))?;
+        h.items = crate::term_hist::parse_transcript(&text, &t.worktree);
+        return Ok(h);
+    }
+    let repo = repo_of(&state)?;
+    let lp = log_path(&repo, &task_id);
+    if lp.is_file() {
+        h.source = "log".into();
+        h.stamp = stamp_of(&lp);
+        if since.as_deref() == Some(h.stamp.as_str()) { h.unchanged = true; return Ok(h); }
+        h.raw = pty::read_log(&lp);
+        return Ok(h);
+    }
+    h.source = "none".into();
+    Ok(h)
+}
+
 // ============================ comandos Tauri ============================
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -233,7 +318,8 @@ pub fn term_open(state: State<AppState>, task_id: String, cols: u16, rows: u16, 
 pub fn term_attach(state: State<AppState>, task_id: String) -> Result<TermInfo, String> {
     match mgr().and_then(|m| m.get(&task_id)) {
         Some(s) => { let d = s.attach(); Ok(info(&state, &task_id, d)) }
-        None => { let repo = repo_of(&state)?; Ok(info(&state, &task_id, pty::read_log(&log_path(&repo, &task_id)))) }
+        // sem terminal vivo o front pinta o histórico da sessão (term_history) — não relê o log à toa
+        None => Ok(info(&state, &task_id, String::new())),
     }
 }
 /// A aba sumiu da tela: a sessão segue viva, só para de mandar eventos.
@@ -281,7 +367,21 @@ pub fn term_status(state: State<AppState>, task_id: String) -> Result<TermInfo, 
 
 #[cfg(test)]
 mod modo_padrao_tests {
-    use super::{mode_default, wants_terminal};
+    use super::{mode_default, talk_in_terminal, wants_terminal, worktree_gone_after_merge};
+    #[test]
+    fn compositor_de_tarefa_parada_vai_pro_terminal() {
+        assert!(talk_in_terminal(true, "deepseek", "auto", true), "já é terminal");
+        assert!(talk_in_terminal(false, "claude", "terminal", false), "Claude parado retoma no PTY");
+        assert!(talk_in_terminal(false, "Claude · Opus", "terminal", false));
+        assert!(!talk_in_terminal(false, "claude", "terminal", true), "turno headless rodando: fila dele");
+        assert!(!talk_in_terminal(false, "claude", "auto", false), "Automático escolhido");
+        assert!(!talk_in_terminal(false, "codex", "terminal", false));
+        assert!(!talk_in_terminal(false, "deepseek", "terminal", false));
+        assert!(worktree_gone_after_merge("merged", "/nao/existe/mesmo"));
+        assert!(worktree_gone_after_merge("merged", ""));
+        assert!(!worktree_gone_after_merge("review", "/nao/existe/mesmo"), "não mergeada: o motor recria");
+        assert!(!worktree_gone_after_merge("merged", "/"));
+    }
     #[test]
     fn terminal_e_o_padrao_do_claude() {
         assert_eq!(mode_default(None, None), "terminal", "sem setting = terminal");

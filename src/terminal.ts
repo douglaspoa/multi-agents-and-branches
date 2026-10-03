@@ -455,7 +455,7 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
   const { task, spec, role, ctx } = orch.terminalContext(taskId);
   const kind = engineKind(role.engine || spec.engine);
   if (kind !== "claude" && kind !== "codex") throw new Error(`o motor "${role.engine || spec.engine}" não tem terminal — use o modo automático`);
-  if (!existsSync(task.worktree)) throw new Error("a worktree desta tarefa não existe mais — mande uma mensagem no modo automático pra recriá-la");
+  if (!existsSync(task.worktree)) throw new Error(task.status === "merged" ? "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste" : "a worktree desta tarefa não existe mais");
   if (spec.termMode !== "terminal") { spec.termMode = "terminal"; orch.store.updateSpec(taskId, JSON.stringify(spec)); }
   const repo = orch.ws.repo;
   const base = engineBase();

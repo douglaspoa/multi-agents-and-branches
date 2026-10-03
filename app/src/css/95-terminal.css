@@ -6,7 +6,10 @@
 .fwtermbox{flex:1;min-height:120px;padding:6px 4px 4px 8px}
 .fwtermbox .xterm{height:100%}
 .fwtermbox .xterm-viewport{background:transparent!important}
-.fwtermbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:var(--fs-sm);color:var(--text-2);background:var(--surface)}
+.fwtermbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:var(--fs-sm);color:var(--text-2);background:var(--surface);min-width:0}
+.fwtermbar>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fwtermbar .pulse{margin-right:4px;vertical-align:1px}
+.fwtermbar .btn{flex:none}
 
 /* ---------- layout A: a coluna inteira é a tarefa ---------- */
 .fwchat.tl{background:var(--surface-2)}
@@ -21,8 +24,16 @@
 .tlst{font-weight:600}
 .tlq1{color:var(--text-2);font-variant-numeric:tabular-nums}
 .tlhint{color:var(--text-3)}
+/* última nota do Starfork (PR aberto, fila…): ocupa o espaço livre e corta com reticências */
+.tlnote{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-2);padding-left:6px}
+/* teto de custo aberto: decisão sua, em cima do compositor */
+.tlbudget{flex:none;margin:8px 12px 0;padding:9px 11px;border-radius:var(--r-sm);background:color-mix(in srgb,var(--warn) 7%,var(--surface));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 38%,transparent);font-size:var(--fs-sm);color:var(--text);display:flex;flex-direction:column;gap:7px}
+.tlbudq b{color:var(--warn)}
+.tlbudo{display:flex;gap:6px;flex-wrap:wrap}
+.tlbudh{font-size:var(--fs-xs);color:var(--text-2)}
 .fwchat.tl{container-type:inline-size}
 @container (max-width:520px){ .tlhint{display:none} }
+@container (max-width:700px){ .tlnote{display:none} }
 
 /* ---------- painel "Requisitos e provas" ---------- */
 .tlside{flex:none;display:flex;min-height:0;position:relative}

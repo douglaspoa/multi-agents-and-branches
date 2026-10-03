@@ -158,16 +158,44 @@ function tlBarHtml(t){
   const st=taskSt(t), m=stMeta(st);
   const ai=(typeof aiRunLabel==='function')?aiRunLabel(t.engine, t.model):(t.engine||'claude');
   const q=+t.queued||0;
-  return `<span class="tldot" style="--c:${m.c}" aria-hidden="true"></span><span class="tlai">${esc(ai)}</span><span class="tlst" style="color:${m.c}">${esc(m.pt)}</span><span class="sp"></span>${q?`<span class="tlq1" title="mensagens esperando o terminal terminar o turno">${q} na fila</span>`:''}<span class="tlhint">Enter no compositor entra na fila · ⌘Enter interrompe</span>`;
+  const ts=TERM[t.id]; const live=!!(ts && ts.mode==='live' && ts.alive);
+  const gone=!live && typeof termWtGone==='function' && termWtGone(t.id);
+  const hint=live ? 'Enter no compositor entra na fila · ⌘Enter interrompe'
+    : gone ? '' : (typeof termHeadless==='function' && termHeadless(t)) ? 'Enter entra na fila · ⌘Enter interrompe e retoma no terminal'
+    : 'Enter no compositor retoma a sessão no terminal';
+  const note=tlSysNote(t);
+  return `<span class="tldot" style="--c:${m.c}" aria-hidden="true"></span><span class="tlai">${esc(ai)}</span><span class="tlst" style="color:${m.c}">${esc(m.pt)}</span>`+
+    (note?`<span class="tlnote" title="${escA(note)}">${esc(note)}</span>`:'')+'<span class="sp"></span>'+
+    `${q?`<span class="tlq1" title="mensagens esperando o terminal terminar o turno">${q} na fila</span>`:''}${hint?`<span class="tlhint">${esc(hint)}</span>`:''}`;
+}
+// a última nota do Starfork (PR aberto, fila, requisito, sessão retomada…) — no vivo ela não entra no TTY: fica na barra
+function tlSysNote(t){
+  const evs=(typeof termEvents==='function')?termEvents(t.id):[];
+  for(let i=evs.length-1, n=0;i>=0 && n<60;i--, n++){ const e=evs[i]; const tx=String(e.text||'');
+    if(e.agent!=='Sistema' && !/^(PR aberto|PR NÃO aberto|requisito adicionado:)/i.test(tx)) continue;
+    if(!(e.type==='note'||e.type==='status') || /^terminal: /.test(tx)) continue;
+    const ts=(typeof thTs==='function')?thTs(e):0; if(ts && Date.now()-ts>15*60000) return '';
+    return tx.replace(/\s+/g,' ').trim(); }
+  return '';
+}
+// teto de custo aberto: a pergunta não é do agente (não vai pra folha) — cartão em cima do compositor, com as opções
+function tlBudgetHtml(t){
+  const p=pendingOf(t.id).find(x=>typeof fwIsBudgetAsk==='function' && fwIsBudgetAsk(x)); if(!p) return '';
+  const opts=Array.isArray(p.options)?p.options:[];
+  return `<div class="tlbudget" role="group" aria-label="teto de custo"><div class="tlbudq"><b>Teto de custo</b> · ${esc(p.prompt||'o agente parou no teto — decida como seguir')}</div>`+
+    (opts.length?`<div class="tlbudo">${opts.map(o=>`<button type="button" class="btn sm" data-tlbud="${escA(o)}">${esc(o)}</button>`).join('')}</div>`:'')+
+    `<div class="tlbudh">ou escreva o valor e o motivo no compositor — o agente fica parado até você decidir</div></div>`;
 }
 /** O HTML da coluna da tarefa em modo terminal (renderWorkspace chama; o composer vem pronto de lá). */
 function tlChatHtml(t, composer){
-  return `<div class="tlwrap" data-tlwrap="${escA(t.id)}"><div class="tlcol"><div class="tltermbar" id="tlBar">${tlBarHtml(t)}</div>${termSlotHtml(t)}${composer}</div><div class="tlside" id="tlSide">${tlSideHtml(t)}</div></div>`;
+  return `<div class="tlwrap" data-tlwrap="${escA(t.id)}"><div class="tlcol"><div class="tltermbar" id="tlBar">${tlBarHtml(t)}</div>${termSlotHtml(t)}<div id="tlBudget">${tlBudgetHtml(t)}</div>${composer}</div><div class="tlside" id="tlSide">${tlSideHtml(t)}</div></div>`;
 }
 /** Depois do innerHTML: liga o painel, mede a largura e põe a folha (se houver pergunta). */
 function tlWire(t, grab){
   const wrap=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"]`); if(!wrap) return;
   const side=$id('tlSide'); if(side){ side.__html=side.innerHTML; side.onclick=(e)=>tlSideClick(t.id, e); side.onkeydown=(e)=>{ if((e.key==='Enter'||e.key===' ') && e.target.closest('[data-tl="unfold"]')){ e.preventDefault(); tlSideAct(t.id, 'unfold'); } }; }
+  { const bud=$id('tlBudget'); if(bud) bud.onclick=async(e)=>{ const b=e.target.closest('[data-tlbud]'); if(!b) return; const p=pendingOf(t.id).find(x=>fwIsBudgetAsk(x)); if(!p) return;
+      b.disabled=true; try{ await resolvePending(p.id, b.dataset.tlbud); lastSig=''; refresh().catch(()=>{}); }catch(err){ b.disabled=false; showErr(err, 'Não consegui enviar a resposta'); } }; }
   tlWatchWidth(t.id, wrap);
   tlAskPaint(t, false, grab);
 }
@@ -200,7 +228,8 @@ function tlWatchWidth(taskId, wrap){
 }
 /** Poll (fwLiveUpdate): repinta só o que mudou — barra, painel e folha. */
 function tlLivePaint(t){
-  if(!termModeOf(t)) return;
+  if(!termViewOf(t)) return;
+  const bud=$id('tlBudget'); if(bud){ const h=tlBudgetHtml(t); if(bud.__html!==h){ bud.__html=h; bud.innerHTML=h; } }
   const bar=$id('tlBar'); if(bar){ const h=tlBarHtml(t); if(bar.__html!==h){ bar.__html=h; bar.innerHTML=h; } }
   tlSidePaint(t);
   tlAskPaint(t);
