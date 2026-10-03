@@ -10,12 +10,18 @@
 // da IA padrão + rótulo curto — lembrado no localStorage. Nome da IA → painel "Sua IA".
 // Atualização leve: no boot, no fim de um turno de tarefa (10-core detectNotifs) e no máximo a cada 2 min com a
 // janela visível; config da Sua IA mudou → planMeterReset.
-let pmData=null, pmAt=0, pmErr='', _pmP=null, _pmTurnT=0;
+let pmData=null, pmAt=0, pmErr='', _pmP=null, _pmTurnT=0, pmFails=0;
 const pmOpen=new Set(); // IAs com os detalhes abertos (só nesta sessão)
 const pmOrd={ prev:null }; // última ordem (a lista não pula a cada leitura)
 const PM_MIN_KEY='planMeterMin';
 const PM_EVERY=120000;
 const PM_TURN_WAIT=3000;
+// leitura falhou sem nenhum valor ainda: tenta de novo sozinho (15 s) e só mostra o erro (com "tentar de novo")
+// depois de 3 falhas seguidas — uma falha passageira no boot não vira "indisponível" na cara da pessoa
+const PM_FAIL_SHOW=3;
+const PM_RETRY_MS=15000;
+// início do mês local (meia-noite do dia 1) — o Rust soma o livro de uso desde aqui
+function pmMonthSince(now){ const d=new Date(now||Date.now()); return new Date(d.getFullYear(), d.getMonth(), 1).getTime(); }
 // @medidor-puro-inicio
 const PM_ORDER=['claude','codex','deepseek'];
 const PM_NAME={ claude:'Claude', codex:'Codex', deepseek:'DeepSeek' };
@@ -78,17 +84,40 @@ const PM_WAIT_MS=30*60000;
 // a barra só atualiza no Claude Code interativo (as rodadas do Starfork são headless): > 2 h = avisa
 const PM_STALE_MS=2*3600000;
 const PM_NOTE_CLAUDE='Sem a barra de status, a % exata do Claude só aparece perto do limite.';
+// barra de status velha demais (> 12 h): a % não vale mais — mostra o gasto do mês e explica nos detalhes
+const PM_OLD_MS=12*3600000;
+// gasto do mês pelo livro de uso (sempre existe, qualquer IA): null = não deu pra ler (backend antigo / livro com erro)
+function pmMonthOf(u, id){
+  if(!u || !u.month || typeof u.month!=='object' || u.monthError) return null;
+  return u.month[id]||{ usd:0, tasks:0, calls:0 };
+}
+const pmUsd=v=>'US$ '+(Number(v)||0).toLocaleString('pt-BR',{ minimumFractionDigits:2, maximumFractionDigits:2 });
+// "uso deste mês: US$ 3,20 · 14 tarefas" ('' = desconhecido)
+function pmMonthTxt(m){
+  if(!m) return '';
+  if(!(Number(m.calls)>0)) return 'nada usado este mês';
+  const t=Number(m.tasks)||0;
+  return 'uso deste mês: '+pmUsd(m.usd)+(t>0?' · '+t+(t===1?' tarefa':' tarefas'):'');
+}
+function pmMonthShort(m){
+  if(!m) return '';
+  return Number(m.calls)>0?pmUsd(m.usd)+' no mês':'nada este mês';
+}
 // uma IA: { id, name, level, bars:[{key,label,pct,level}], text, sub, hint, details:[], short, top, tip }
-function pmRowClaude(c, now){
+function pmRowClaude(c, now, m){
   const name=PM_NAME.claude;
-  if(!c) return { id:'claude', name, level:'idle', bars:[], text:'sem dados ainda', sub:'', hint:PM_HINT_ON, details:[PM_NOTE_CLAUDE], short:'sem dados', top:null, tip:PM_NOTE_CLAUDE };
+  const mt=pmMonthTxt(m);
+  if(!c) return { id:'claude', name, level:'idle', bars:[], text:mt||'sem dados ainda', sub:'', foot:'', hint:PM_HINT_ON, details:[PM_NOTE_CLAUDE], short:pmMonthShort(m)||'sem dados', top:null, tip:PM_NOTE_CLAUDE };
+  const n=now||Date.now();
+  // barra de status gravada há mais de 12 h: a % é de outra janela — não mostra como se fosse de agora
+  const slOld=!!(c.updatedAt && n-c.updatedAt>PM_OLD_MS);
   const win=PM_WIN[c.window]||c.window||'';
   const blocked=c.state==='blocked';
   const sf=c.starfork||{}; const tok=(Number(sf.inTok)||0)+(Number(sf.outTok)||0);
   const reset=c.resetsAt?pmWhen(c.resetsAt, now):'';
   const bars=[];
   const ws=[['five_hour', c.fiveHour], ['seven_day', c.sevenDay]];
-  for(const [k,w] of ws) if(w && w.pct!=null) bars.push(pmBar(k, PM_WIN[k], w.pct, blocked && c.window===k));
+  if(!slOld) for(const [k,w] of ws) if(w && w.pct!=null) bars.push(pmBar(k, PM_WIN[k], w.pct, blocked && c.window===k));
   const fromSl=bars.length>0;
   // sem a barra de status: a % que o Claude Code mandou perto do limite (uma barra só, da janela do evento)
   if(!fromSl && c.pct!=null) bars.push(pmBar(c.window||'janela', win||'janela', c.pct, blocked));
@@ -97,41 +126,51 @@ function pmRowClaude(c, now){
   let text='', level=bars.reduce((l,b)=>pmMaxLevel(l, b.level), 'idle');
   if(blocked){ text='limite atingido'+(reset?' · volta '+reset:''); level='crit'; }
   else if(c.state==='warn'){ if(!bars.length) text='perto do limite'+(win?' ('+win+')':'')+(reset?' · reinicia '+reset:''); level=pmMaxLevel(level, 'warn'); }
+  // sem %: o gasto do mês (livro de uso) é a linha principal; sem livro, o comportamento antigo
+  else if(!bars.length && mt){ text=mt; if(c.state==='ok') level='ok'; }
   else if(!bars.length && c.state==='ok'){ text='ok'+(reset?' · reinicia '+reset:''); level='ok'; }
-  else if(!bars.length){ text=c.starforkError?'uso do Starfork indisponível':sf.turns>0?'Starfork usou '+pmTok(tok)+' tok em 5h':'sem dados ainda'; }
-  const n=now||Date.now();
+  else if(!bars.length){ text=sf.turns>0?'Starfork usou '+pmTok(tok)+' tok em 5h':'sem dados ainda'; }
   const sub=fromSl && c.updatedAt?'atualizado '+pmAgo(c.updatedAt, n)+(n-c.updatedAt>PM_STALE_MS?' — abra o Claude Code pra atualizar':''):'';
-  const hint=fromSl?'':!c.statusline?PM_HINT_ON:(c.statuslineWaitingSince && n-c.statuslineWaitingSince>PM_WAIT_MS)?PM_HINT_PLAN:PM_HINT_WAIT;
+  // com % na tela, o gasto do mês fica numa linha discreta embaixo
+  const foot=bars.length?mt:'';
+  // dica na tela só quando a pessoa pode agir (ativar a % em Sua IA); esperando dados → só nos detalhes
+  const hint=fromSl||slOld?'':!c.statusline?PM_HINT_ON:'';
   const details=[];
+  if(slOld) details.push('A % do Claude é de '+pmAgo(c.updatedAt, n)+' — abra o Claude Code pra atualizar.');
+  else if(!fromSl && c.statusline) details.push((c.statuslineWaitingSince && n-c.statuslineWaitingSince>PM_WAIT_MS)?PM_HINT_PLAN:PM_HINT_WAIT);
+  if(!bars.length && mt && c.state==='ok' && reset) details.push('Limite ok · reinicia '+reset+'.');
   for(const [k,w] of ws) if(w && w.resetsAt) details.push(PM_WIN[k]+(w.reset?' já reiniciou':' reinicia '+pmWhen(w.resetsAt, now)));
   if(!fromSl && reset) details.push(blocked?'Volta às '+reset:'Janela '+(win||'')+' reinicia às '+reset);
   details.push(c.starforkError?'Uso do Starfork indisponível agora.'
     :'Starfork neste projeto, últimas 5 h: '+(sf.turns>0?pmTok(sf.inTok)+' tok de entrada, '+pmTok(sf.outTok)+' de saída, '+sf.turns+' turno(s)'+(sf.ms?', '+Math.round(sf.ms/60000)+' min':''):'nada registrado'));
   if(!fromSl) details.push(PM_NOTE_CLAUDE);
   const top=pmTop(bars);
-  const short=blocked?'limite atingido':top?top.label+' '+pmPct(top.pct):c.state==='warn'?'perto do limite':c.state==='ok'?'ok':text;
+  const short=blocked?'limite atingido':top?top.label+' '+pmPct(top.pct):c.state==='warn'?'perto do limite':pmMonthShort(m)||(c.state==='ok'?'ok':text);
   // ordem: bloqueado acima de tudo (101); perto do limite sem % conta como 70
   const rank=blocked?101:top?top.pct:level==='crit'?101:level==='warn'?70:-1;
-  return { id:'claude', name, level, bars, text, sub, hint, details, short, top:top?top.pct:null, rank, topBar:top, tip:details.join('\n') };
+  return { id:'claude', name, level, bars, text, sub, foot, hint, details, short, top:top?top.pct:null, rank, topBar:top, tip:details.join('\n') };
 }
-function pmRowCodex(x, now){
+function pmRowCodex(x, now, m){
   const name=PM_NAME.codex;
-  if(!x || !x.hasData) return { id:'codex', name, level:'idle', bars:[], text:'sem dados ainda', sub:'', hint:'', details:['Os limites aparecem depois do 1º turno do Codex.'], short:'sem dados', top:null, tip:'Ainda não há limites nas suas últimas sessões do Codex — aparecem depois do 1º turno.' };
+  const mt=pmMonthTxt(m);
+  if(!x || !x.hasData) return { id:'codex', name, level:'idle', bars:[], text:mt||'sem dados ainda', sub:'', foot:'', hint:'', details:['A % dos limites aparece depois do 1º turno do Codex.'], short:pmMonthShort(m)||'sem dados', top:null, tip:'Ainda não há limites nas suas últimas sessões do Codex — aparecem depois do 1º turno.' };
   const ws=[x.primary, x.secondary].filter(Boolean);
   const bars=ws.map((w,i)=>pmBar(i?'secondary':'primary', pmWinMin(w.windowMinutes), w.usedPercent));
   const details=ws.filter(w=>w.resetsAt).map(w=>pmWinMin(w.windowMinutes)+' reinicia '+pmWhen(w.resetsAt, now)+(w.reset?' (já reiniciou)':''));
   if(x.plan) details.push('plano '+x.plan);
   details.push('Lido da sua última sessão local do Codex.');
   const top=pmTop(bars);
-  return { id:'codex', name, level:bars.reduce((l,b)=>pmMaxLevel(l, b.level), 'idle'), bars, text:'', sub:'', hint:'', details, short:top?top.label+' '+pmPct(top.pct):'sem dados', top:top?top.pct:null, topBar:top, tip:details.join('\n') };
+  return { id:'codex', name, level:bars.reduce((l,b)=>pmMaxLevel(l, b.level), 'idle'), bars, text:'', sub:'', foot:mt, hint:'', details, short:top?top.label+' '+pmPct(top.pct):'sem dados', top:top?top.pct:null, topBar:top, tip:details.join('\n') };
 }
-function pmRowDeepseek(d){
+function pmRowDeepseek(d, m){
   const name=PM_NAME.deepseek;
-  if(!d || !d.ok) return { id:'deepseek', name, level:'idle', bars:[], text:'saldo indisponível', sub:'', hint:'', details:['Não consegui ler o saldo agora (rede ou chave) — tento de novo em 2 min.'], short:'saldo indisponível', top:null, tip:'Não consegui ler o saldo agora (rede ou chave) — tento de novo em 2 min.' };
+  const mt=pmMonthTxt(m);
+  const SALDO_OFF='O saldo da conta não respondeu agora (rede ou chave) — tento de novo em 2 min.';
+  if(!d || !d.ok) return { id:'deepseek', name, level:'idle', bars:[], text:mt||'saldo indisponível', sub:'', foot:'', hint:'', details:[SALDO_OFF], short:pmMonthShort(m)||'saldo indisponível', top:null, tip:SALDO_OFF };
   const money=(d.balances||[]).map(pmMoney).join(' · ')||'—';
   const empty=d.available===false;
   const det=empty?'Saldo insuficiente na conta DeepSeek.':'Saldo da conta DeepSeek (API oficial).';
-  return { id:'deepseek', name, level:empty?'crit':'ok', bars:[], text:empty?'sem saldo · '+money:'saldo '+money, sub:'', hint:'', details:[det], short:empty?'sem saldo':money, top:null, tip:det };
+  return { id:'deepseek', name, level:empty?'crit':'ok', bars:[], text:empty?'sem saldo · '+money:'saldo '+money, sub:'', foot:mt, hint:'', details:[det], short:empty?'sem saldo':money, top:null, tip:det };
 }
 const pmRank=r=>r.rank!=null?r.rank:r.top!=null?r.top:-1;
 // IA padrão primeiro; depois as outras por maior uso (sem % = no fim; empate = ordem do painel).
@@ -155,9 +194,9 @@ function pmRows(u, now, defEng, ord){
   const out=[];
   for(const id of PM_ORDER){
     if(!conf.includes(id)) continue;
-    if(id==='claude') out.push(pmRowClaude(u.claude, now));
-    if(id==='codex') out.push(pmRowCodex(u.codex, now));
-    if(id==='deepseek') out.push(pmRowDeepseek(u.deepseek));
+    if(id==='claude') out.push(pmRowClaude(u.claude, now, pmMonthOf(u, 'claude')));
+    if(id==='codex') out.push(pmRowCodex(u.codex, now, pmMonthOf(u, 'codex')));
+    if(id==='deepseek') out.push(pmRowDeepseek(u.deepseek, pmMonthOf(u, 'deepseek')));
   }
   return pmOrder(out, defEng, ord);
 }
@@ -169,15 +208,19 @@ function pmBarHtml(name, b, cls){
   const v=Math.round(b.pct);
   return `<span class="${cls||'pm-bar'} pm-${b.level}" role="progressbar" aria-label="${escA(name+' '+b.label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${v}" aria-valuetext="${escA(v+' % — '+(PM_LVL_TXT[b.level]||b.level))}"><span class="pm-fill" style="width:${b.pct}%"></span></span>`;
 }
+const pmLong=r=>String(r.text||'').length>22;
 function pmIaHtml(r, open){
   const did='pmDet-'+r.id;
   const bars=r.bars.map(b=>`<div class="pm-win"><span class="pm-wl">${esc(b.label)}</span>${pmBarHtml(r.name, b)}<span class="pm-wn pm-${b.level}">${esc(pmPct(b.pct))}</span></div>`).join('');
   return `<div class="pm-ia pm-${r.level}" data-pm-ia="${escA(r.id)}">`
     +`<div class="pm-ia-head"><button class="pm-name" data-pm="cfg" data-pm-id="${escA(r.id)}" title="${escA(r.tip+'\nClique: abrir Sua IA')}">${esc(r.name)}</button>`
-    +(r.text?`<span class="pm-txt">${esc(r.text)}</span>`:'<span class="pm-txt"></span>')
+    // texto curto ("limite atingido") na linha do nome; longo (gasto do mês) numa linha própria — não espreme
+    +(r.text && !pmLong(r)?`<span class="pm-txt">${esc(r.text)}</span>`:'<span class="pm-txt"></span>')
     +`<button class="pm-more" data-pm="det" data-pm-id="${escA(r.id)}" aria-expanded="${open}" aria-controls="${did}" aria-label="${escA((open?'Esconder':'Mostrar')+' detalhes do '+r.name)}" title="detalhes">${PM_CHEV}</button></div>`
+    +(r.text && pmLong(r)?`<div class="pm-line">${esc(r.text)}</div>`:'')
     +bars
     +(r.sub?`<div class="pm-sub">${esc(r.sub)}</div>`:'')
+    +(r.foot?`<div class="pm-sub pm-month">${esc(r.foot)}</div>`:'')
     +(r.hint===PM_HINT_ON?`<button class="pm-hint" data-pm="cfg" data-pm-id="${escA(r.id)}">${esc(r.hint)}</button>`:r.hint?`<div class="pm-hint">${esc(r.hint)}</div>`:'')
     +`<div class="pm-det" id="${did}"${open?'':' hidden'}>${r.details.map(d=>`<div>${esc(d)}</div>`).join('')}</div>`
     +'</div>';
@@ -186,7 +229,7 @@ function pmHtml(u, min, defEng, now, err, open, ord){
   open=open||[];
   const isOpen=id=>typeof open.has==='function'?open.has(id):open.includes(id);
   // erro (mesa da barra lateral, L6): duas linhas que QUEBRAM em vez de cortar — "tentar de novo" sempre à vista
-  if(!u && err) return `<div class="pm-err" title="${escA('Não consegui ler o uso do plano: '+err)}">${pmDot('idle')}<span class="pm-errtx">uso do plano indisponível</span><button class="pm-retry" data-pm="retry" aria-label="Não consegui ler o uso do plano — tentar de novo">tentar de novo</button></div>`;
+  if(!u && err) return `<div class="pm-err" title="${escA('Não consegui ler o uso do plano: '+err)}">${pmDot('idle')}<span class="pm-errtx">uso do plano não carregou</span><button class="pm-retry" data-pm="retry" aria-label="Não consegui ler o uso do plano — tentar de novo">tentar de novo</button></div>`;
   if(!u) return `<button class="pm-head" data-pm="toggle" aria-expanded="${!min}"><span class="pm-title">Uso do plano</span><span class="pm-sum dim">verificando…</span>${PM_CHEV}</button>`;
   const rows=pmRows(u, now, defEng, ord);
   if(!rows.length) return `<button class="pm-head pm-empty" data-pm="cfg" title="Nenhuma IA pronta — abrir Sua IA">${pmDot('idle')}<span class="pm-title">configure sua IA</span></button>`;
@@ -230,10 +273,20 @@ function pmLoad(){
   if(_pmP) return _pmP;
   pmAt=Date.now(); // marca no INÍCIO: uma leitura lenta não faz o ciclo seguinte pular
   const call=typeof invokeQuiet==='function'?invokeQuiet:invoke;
-  _pmP=Promise.resolve().then(()=>call('plan_usage'))
-    .then(r=>{ if(r && typeof r==='object'){ pmData=r; pmErr=''; } else if(!pmData) pmErr='resposta vazia'; })
-    // falhou: mantém o último valor; sem nenhum ainda → estado de erro com "tentar de novo"
-    .catch(e=>{ pmErr=String((e&&e.message)||e||'erro'); })
+  _pmP=Promise.resolve().then(()=>call('plan_usage', { monthSince:pmMonthSince() }))
+    .then(r=>{
+      if(r && typeof r==='object'){ pmData=r; pmErr=''; pmFails=0; return; }
+      if(!pmData) throw new Error('resposta vazia');
+    })
+    // falhou: mantém o último valor; sem nenhum ainda → tenta de novo sozinho; só depois de 3 seguidas mostra o erro
+    .catch(e=>{
+      if(pmData) return;
+      pmFails++;
+      const msg=String((e&&e.message)||e||'erro');
+      if(typeof console!=='undefined' && console.warn) console.warn('plan_usage:', msg);
+      if(pmFails>=PM_FAIL_SHOW) pmErr=msg;
+      else setTimeout(()=>{ if(!pmData) pmLoad(); }, PM_RETRY_MS);
+    })
     .finally(()=>{ _pmP=null; pmRender(); });
   return _pmP;
 }
@@ -269,7 +322,7 @@ function pmWire(){
       // o redesenho troca o botão: o foco volta pro mesmo "detalhes"
       const f=el.querySelector && el.querySelector(`[data-pm="det"][data-pm-id="${id}"]`); if(f && f.focus) f.focus();
     }
-    else if(b.dataset.pm==='retry'){ pmErr=''; pmRender(); pmLoad(); }
+    else if(b.dataset.pm==='retry'){ pmErr=''; pmFails=0; pmRender(); pmLoad(); }
     else if(b.dataset.pm==='uso'){ if(typeof usoOpenTab==='function') usoOpenTab(); else if(window.usoOpenTab) window.usoOpenTab(); }
     else if(typeof suaIaOpenCfg==='function') suaIaOpenCfg();
   });

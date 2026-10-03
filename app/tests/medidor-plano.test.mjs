@@ -67,6 +67,34 @@ const rows = (P, u, def = 'claude') => P.ctx.pmRows(u, NOW, def);
 const row = (P, u, id, def) => rows(P, u, def).find((r) => r.id === id);
 const bars = (r) => r.bars.map((b) => `${b.label} ${Math.round(b.pct)}`).join(' · ');
 
+test('gasto do mês (livro de uso): texto, singular/plural, nada usado, desconhecido; com % vai na linha de baixo; pede o início do mês local', async () => {
+  const P = load();
+  const t = (m) => P.ctx.pmMonthTxt(m);
+  assert.equal(t({ usd: 3.2, tasks: 14, calls: 41 }), 'uso deste mês: US$ 3,20 · 14 tarefas');
+  assert.equal(t({ usd: 1234.5, tasks: 1, calls: 2 }), 'uso deste mês: US$ 1.234,50 · 1 tarefa');
+  assert.equal(t({ usd: 0.07, tasks: 0, calls: 3 }), 'uso deste mês: US$ 0,07', 'só chamadas avulsas (nova demanda, título)');
+  assert.equal(t({ usd: 0, tasks: 0, calls: 0 }), 'nada usado este mês');
+  assert.equal(t(null), '');
+  const c = row(P, golden(), 'claude');
+  assert.equal(c.foot, 'uso deste mês: US$ 3,20 · 14 tarefas');
+  assert.match(P.ctx.pmHtml(golden(), false, 'claude', NOW), /<div class="pm-sub pm-month">uso deste mês: US\$ 3,20 · 14 tarefas<\/div>/);
+  await P.run('pmLoad()');
+  const d = new Date(); const since = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+  assert.equal(P.ctx.pmMonthSince(), since);
+  assert.equal(P.ctx.pmMonthSince(new Date(2026, 9, 31, 23, 59).getTime()), new Date(2026, 9, 1).getTime());
+});
+
+test('barra de status velha (> 12 h): a % some (era de outra janela) e o gasto do mês assume; detalhe pede o Claude Code', () => {
+  const P = load();
+  // o Rust (with_statusline) já não deixa a barra velha decidir: state/pct/window vêm do rate_limit_event
+  const r = row(P, C({ updatedAt: NOW - 2 * 86400000, state: 'ok', window: 'five_hour', pct: null }), 'claude');
+  assert.equal(r.bars.length, 0);
+  assert.equal(r.text, 'uso deste mês: US$ 3,20 · 14 tarefas');
+  assert.equal(r.hint, '');
+  assert.equal(r.short, 'US$ 3,20 no mês');
+  assert.ok(r.details.some((x) => /A % do Claude é de há 2 d — abra o Claude Code/.test(x)));
+});
+
 test('golden do Rust: Claude com a % real (5h 43, semana 61) + "atualizado há 2 min"; Codex com barras; DeepSeek com saldo', () => {
   const P = load();
   const rs = rows(P, golden());
@@ -97,7 +125,8 @@ test('cores: verde < 70, amarelo 70–90, vermelho > 90 ou bloqueado', () => {
   assert.equal(bars(cx(40, 5)), '5h 40 · semana 5');
   const odd = row(P, U({ codex: { hasData: true, primary: { usedPercent: 40, windowMinutes: 120 }, secondary: { usedPercent: 5, windowMinutes: 4320 } } }), 'codex');
   assert.equal(bars(odd), '2h 40 · 3d 5');
-  assert.equal(row(P, U({ codex: { hasData: false } }), 'codex').text, 'sem dados ainda');
+  assert.equal(row(P, U({ codex: { hasData: false } }), 'codex').text, 'uso deste mês: US$ 0,85 · 2 tarefas', 'sem % → gasto do mês (livro)');
+  assert.equal(row(P, U({ codex: { hasData: false }, month: undefined }), 'codex').text, 'sem dados ainda', 'backend sem livro: como antes');
 });
 
 test('ordem: IA padrão primeiro, depois as outras por maior uso (sem % no fim)', () => {
@@ -113,19 +142,27 @@ test('Claude sem a barra de status: comportamento antigo + dica "ative a % do Cl
   const P = load();
   const r = row(P, C(NO_SL), 'claude');
   assert.equal(r.bars.length, 0);
-  assert.equal(r.text, 'ok · reinicia ' + hm(R5));
+  assert.equal(r.text, 'uso deste mês: US$ 3,20 · 14 tarefas', 'sem %: o gasto do mês é a linha principal');
+  assert.ok(r.details.includes('Limite ok · reinicia ' + hm(R5) + '.'));
+  assert.equal(row(P, U({ claude: { ...GOLDEN.claude, ...NO_SL }, month: undefined }), 'claude').text, 'ok · reinicia ' + hm(R5), 'sem livro: comportamento antigo');
   assert.equal(r.hint, 'Ative a % do Claude em Sua IA.');
   assert.ok(!/%\s*$/.test(r.text) && !/\d+ %/.test(r.text));
   const html = P.ctx.pmHtml(C(NO_SL), false, 'claude', NOW);
   assert.match(html, /<button class="pm-hint" data-pm="cfg" data-pm-id="claude">Ative a % do Claude em Sua IA.<\/button>/);
-  // instalada mas ainda sem resposta do Claude Code
-  assert.equal(row(P, C({ ...NO_SL, statusline: true }), 'claude').hint, 'A % aparece depois da próxima resposta do Claude Code.');
+  // instalada mas ainda sem resposta do Claude Code: nada pra pessoa fazer → a explicação vai pros detalhes
+  const sl = row(P, C({ ...NO_SL, statusline: true }), 'claude');
+  assert.equal(sl.hint, '');
+  assert.ok(sl.details.includes('A % aparece depois da próxima resposta do Claude Code.'));
   assert.ok(row(P, C(NO_SL), 'claude').details.some((d) => /só aparece perto do limite/.test(d)));
-  // sem evento: só o uso do Starfork; erro do uso
-  assert.equal(row(P, C({ ...NO_SL, state: 'none', window: null, resetsAt: null }), 'claude').text, 'Starfork usou 120k tok em 5h');
-  assert.match(row(P, C({ ...NO_SL, state: 'none', starforkError: 'database is locked' }), 'claude').text, /uso do Starfork indisponível/);
+  // sem evento e sem livro: só o uso do Starfork; erro do uso NUNCA vira texto principal (só detalhes)
+  const noLedger = (o) => U({ claude: { ...GOLDEN.claude, ...NO_SL, ...o }, month: undefined });
+  assert.equal(row(P, noLedger({ state: 'none', window: null, resetsAt: null }), 'claude').text, 'Starfork usou 120k tok em 5h');
+  const se = row(P, C({ ...NO_SL, state: 'none', starforkError: 'database is locked' }), 'claude');
+  assert.equal(se.text, 'uso deste mês: US$ 3,20 · 14 tarefas');
+  assert.ok(se.details.includes('Uso do Starfork indisponível agora.'));
   const z = row(P, U({ claude: null }), 'claude');
-  assert.equal(z.text, 'sem dados ainda', 'configurado mas sem resumo: a linha continua');
+  assert.equal(z.text, 'uso deste mês: US$ 3,20 · 14 tarefas', 'configurado mas sem resumo: a linha continua com o gasto do mês');
+  assert.equal(row(P, U({ claude: null, monthError: 'locked' }), 'claude').text, 'sem dados ainda', 'livro com erro: não inventa "nada usado"');
   assert.equal(z.hint, 'Ative a % do Claude em Sua IA.');
 });
 
@@ -147,7 +184,13 @@ test('Claude perto do limite / bloqueado: estado do evento prevalece; warn nunca
 
 test('DeepSeek: saldo com moeda; erro de rede → saldo indisponível; sem saldo vermelho', () => {
   const P = load();
-  assert.equal(row(P, U({ deepseek: { ok: false, available: false, balances: [] } }), 'deepseek').text, 'saldo indisponível');
+  const off = row(P, U({ deepseek: { ok: false, available: false, balances: [] } }), 'deepseek');
+  assert.equal(off.text, 'nada usado este mês', 'saldo fora do ar: mostra o gasto do mês, não um erro');
+  assert.match(off.details[0], /não respondeu agora/);
+  const m = { claude: { usd: 1, tasks: 1, calls: 1 }, deepseek: { usd: 0.4, tasks: 1, calls: 3 } };
+  assert.equal(row(P, U({ deepseek: { ok: false, balances: [] }, month: m }), 'deepseek').text, 'uso deste mês: US$ 0,40 · 1 tarefa');
+  assert.equal(row(P, U({ deepseek: { ok: false, balances: [] }, month: undefined }), 'deepseek').text, 'saldo indisponível');
+  assert.equal(row(P, U({ month: m }), 'deepseek').foot, 'uso deste mês: US$ 0,40 · 1 tarefa', 'com saldo: o mês vai na linha de baixo');
   assert.equal(row(P, U({ deepseek: { ok: true, available: false, balances: [{ currency: 'USD', total: '0.00' }] } }), 'deepseek').level, 'crit');
 });
 
@@ -242,7 +285,7 @@ test('barra velha (> 2 h): mostra a % mas pede pra abrir o Claude Code; instalad
   const old = row(P, C({ updatedAt: NOW - 3 * H }), 'claude');
   assert.equal(old.sub, 'atualizado há 3 h — abra o Claude Code pra atualizar');
   assert.equal(bars(old), '5h 43 · semana 61', 'a % continua visível');
-  const wait = (since) => row(P, C({ ...NO_SL, statusline: true, statuslineWaitingSince: since }), 'claude').hint;
+  const wait = (since) => row(P, C({ ...NO_SL, statusline: true, statuslineWaitingSince: since }), 'claude').details[0];
   assert.equal(wait(NOW - 10 * 60000), 'A % aparece depois da próxima resposta do Claude Code.');
   assert.equal(wait(null), 'A % aparece depois da próxima resposta do Claude Code.');
   assert.equal(wait(NOW - 31 * 60000), 'sem dados da barra — precisa de plano Pro/Max no Claude Code (com chave de API não há %)');
@@ -285,11 +328,16 @@ test('planMeterReset com leitura em andamento: espera ela e lê de novo; redesen
   assert.equal(focused, 'novo');
 });
 
-test('1ª leitura falha → "uso do plano indisponível" + "tentar de novo" (botão próprio, não corta); tentar de novo relê', async () => {
+test('leitura falha: tenta de novo sozinho; só na 3ª falha seguida mostra "não carregou" + "tentar de novo"; tentar de novo relê', async () => {
   let fail = true;
   const P = load({}, { fail: () => fail });
   await P.run('pmLoad()');
-  assert.match(P.el.innerHTML, /<div class="pm-err"[^>]*>.*<span class="pm-errtx">uso do plano indisponível<\/span><button class="pm-retry" data-pm="retry"[^>]*>tentar de novo<\/button><\/div>/);
+  assert.match(P.el.innerHTML, /verificando…/, '1ª falha: sem erro na cara da pessoa');
+  assert.ok(P.timers.some((t) => t.on && t.ms === 15000), 'agendou nova tentativa');
+  await P.run('pmLoad()');
+  assert.ok(!/pm-err/.test(P.el.innerHTML));
+  await P.run('pmLoad()');
+  assert.match(P.el.innerHTML, /<div class="pm-err"[^>]*>.*<span class="pm-errtx">uso do plano não carregou<\/span><button class="pm-retry" data-pm="retry"[^>]*>tentar de novo<\/button><\/div>/);
   assert.match(P.el.innerHTML, /aria-label="Não consegui ler o uso do plano — tentar de novo"/);
   fail = false;
   click(P, 'retry');
@@ -374,4 +422,12 @@ test('"ver uso detalhado": o link aparece na lista expandida e o clique (pmWire)
   click(P, 'uso');
   assert.deepEqual(opened, ['uso']);
   assert.ok(!P.calls.some((c) => c[0] === 'suaIaOpenCfg'), 'não cai no "abrir Sua IA"');
+});
+
+test('texto longo (gasto do mês) vai numa linha própria; curto continua ao lado do nome', () => {
+  const P = load();
+  const h = P.ctx.pmHtml(U({ claude: { ...GOLDEN.claude, ...NO_SL } }), false, 'claude', NOW);
+  assert.match(h, /<div class="pm-line">uso deste mês: US\$ 3,20 · 14 tarefas<\/div>/);
+  const b = P.ctx.pmHtml(C({ state: 'blocked', window: 'five_hour', resetsAt: null, fiveHour: null, sevenDay: null, updatedAt: null }), false, 'claude', NOW);
+  assert.match(b, /<span class="pm-txt">limite atingido<\/span>/);
 });

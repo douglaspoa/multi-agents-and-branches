@@ -5,6 +5,8 @@ const TASK_DONE_ST=['merged','done'];
 function taskIsDone(t){ return !!t && (t.flag==='closed' || TASK_DONE_ST.includes(t.status)); }
 function prNumOf(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
 function agoShort(ms){ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
+// duração desconhecida (sem eventos) = '' — nunca "0 min" como se a tarefa não tivesse levado tempo
+function fmtDurKnown(ms){ return ms>0?fmtDurMs(ms):''; }
 function fmtDurMs(ms){ ms=Math.max(0,ms||0); const m=Math.round(ms/60000); if(m<60) return m+' min'; const h=Math.floor(m/60); return h<48?`${h}h${String(m%60).padStart(2,'0')}`:Math.round(h/24)+' dias'; }
 function taskDurationMs(t){ const evs=eventsOf(t.id); const last=evs.length?+new Date(evs[evs.length-1].ts):0; const a=taskTs(t); return last&&a?last-a:0; }
 // ---- requisitos com estado de prova (mesma regra do resumo/lateral) ----
@@ -46,7 +48,7 @@ function flowDemandCard(t){
     : t.status==='draft' ? 'rascunho — clique pra editar'
     : done ? (prN?`PR #${prN} integrado`:'concluída')
     : (t.prUrl&&prN) ? `PR #${prN} aguardando aprovação`
-    : ['review','delivered'].includes(t.status) ? `pronta pra revisar · ${nPl(diffFiles(diffOf(t.id)),'arquivo')}`
+    : ['review','delivered'].includes(t.status) ? `pronta pra revisar${(n=>n>0?' · '+nPl(n,'arquivo'):'')(diffFiles(diffOf(t.id)))}`
     // E1: erro conhecido do motor/gh vira frase em pt-BR (antes: "spawn claude ENOENT", "Please run /login"…)
     : (t.status==='error' && ev && humanErr(ev.text).id!=='generic') ? `<b style="color:var(--crit)">${esc(humanErr(ev.text).msg)}</b>`
     : ev ? `${esc(ev.agent||t.agent)} — ${esc(String(ev.text||'').slice(0,90))}` : 'iniciando…';
@@ -66,7 +68,7 @@ function flowDemandCard(t){
     : (done ? `<button class="btn sm" data-dcopen="${escA(t.id)}">ver entrega</button>` : '');
   const segs=[1,2,3,4,5].map(i=>`<i class="${i<=ph?((asking.length&&i===ph)?'on warn':'on'):''}"></i>`).join('');
   const foot = done
-    ? `<span class="dc-meta">${prN?`<span class="dc-pr" data-lk="${escA(t.prUrl)}">PR #${prN} ${IC.extlink?icEm(IC.extlink):''}</span>`:''}${nImg?`<span>${nImg} prova${nImg===1?'':'s'}</span>`:''}${nDoc?`<span>${nDoc} doc${nDoc===1?'':'s'}</span>`:''}${rows.length?`<span>${okN}/${rows.length} requisitos provados</span>`:''}<span>${esc(fmtDurMs(taskDurationMs(t)))}</span></span>`
+    ? `<span class="dc-meta">${prN?`<span class="dc-pr" data-lk="${escA(t.prUrl)}">PR #${prN} ${IC.extlink?icEm(IC.extlink):''}</span>`:''}${nImg?`<span>${nImg} prova${nImg===1?'':'s'}</span>`:''}${nDoc?`<span>${nDoc} doc${nDoc===1?'':'s'}</span>`:''}${rows.length?`<span>${okN}/${rows.length} requisitos provados</span>`:''}${(d=>d?`<span>${esc(d)}</span>`:'')(fmtDurKnown(taskDurationMs(t)))}</span>`
     : `<span class="seg5">${segs}</span><span class="dc-pct" data-sum="${escA(t.id)}" title="resumo do que já foi feito">${pct}%</span><span class="dc-msg">${msg}</span>`;
   // F2/F3: tarefa de épico mantém a identidade depois de começar — selo "◆ nome · onda N" + borda na cor do épico
   const epId=(t.epic&&t.epic.epicId)||'';
@@ -91,7 +93,9 @@ function artThumb(taskId, name){
   const k=taskId+'|'+name;
   if(artThumbCache[k]!==undefined) return artThumbCache[k];
   artThumbCache[k]=null;
-  invoke('read_artifact',{ taskId, name }).then(c=>{ artThumbCache[k]=(c&&c.kind==='image'&&c.dataUrl)||null; if(fwTask===taskId&&fwMode==='entrega') renderWorkspace(); }).catch(()=>{});
+  const again=()=>{ if(typeof fwTask!=='undefined' && fwTask===taskId && fwMode==='entrega' && typeof renderWorkspace==='function') renderWorkspace(); };
+  invoke('read_artifact',{ taskId, name }).then(c=>{ const u=(c&&c.kind==='image'&&c.dataUrl)||null; artThumbCache[k]=u; if(!u) artMissing.add(k); again(); })
+    .catch(()=>{ artMissing.add(k); again(); });
   return null;
 }
 // modos escondidos PELO TIPO (dono, 02/10: "esconder pelo tipo" — modo simples global vetado): entrega que não é
@@ -181,7 +185,10 @@ function enVerifHtml(t){
   const live=g.st==='running'?g.live:null;
   const cur=chkFpC[t.id]&&chkFpC[t.id].fp;
   const short=h=>String(h||'').slice(0,7);
-  const sum = g.st==='none' ? `nenhuma checagem configurada neste projeto — a aprovação não fica bloqueada. <a class="lnk" data-encfg="1">configurar</a>`
+  // portão de provas (sempre ligado com requisitos) vem PRIMEIRO; checagens do repositório são um extra opcional
+  const pg0=proofGate(t);
+  const gl=proofGateLine(pg0, Array.isArray(t.requirements)?t.requirements.length:0, esc);
+  const sum = g.st==='none' ? `<span class="vf-opt">Checagens do repositório (opcional): nenhuma configurada — dá pra rodar testes/lint aqui antes de aprovar. <a class="lnk" data-encfg="1">configurar</a></span>`
     : g.st==='loading' ? 'conferindo a versão do código desta tarefa…'
     : g.st==='err' ? esc(humanErr(g.err,'Não deu pra conferir a verificação').msg)
     : g.st==='running' ? `rodando <b>${esc(live.cur?live.cur.label:'…')}</b> (${Math.min(live.done.length+1,g.on.length)} de ${g.on.length}) na cópia desta tarefa`
@@ -217,10 +224,14 @@ function enVerifHtml(t){
         : `${!ok && !['running','loading'].includes(g.st)?`<button class="btn sm ghost" id="vfOverride" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button>`:''}
       <button class="btn" id="vfApprove" ${ok?'':`disabled title="${escA(chkBlockWhy(g))}"`}>${IC.merge} aprovar e abrir PR</button>`}</div>` : '';
   // concluída: sem o tom de alerta (amarelo) de "falta rodar" — é só informação
-  const pillShown=(done && ['notrun','stale'].includes(g.st)) ? [pill[0],'muted'] : pill;
+  let pillShown=(done && ['notrun','stale'].includes(g.st)) ? [pill[0],'muted'] : pill;
+  // sem checagens: o selo é o do portão de provas (nunca "sem checagens" como se nada protegesse a aprovação)
+  if(g.st==='none' && gl.pill) pillShown=done?[gl.pill[0],'muted']:gl.pill;
+  else if(g.st==='none') pillShown=['opcional','muted'];
   return `<section class="en-sec en-verif vf-${done&&['notrun','stale'].includes(g.st)?'done':g.st}" id="enVerif">
     <div class="seclbl2">Verificação <span class="dim">· testes e checagens automáticas, rodadas de verdade (exit code e log)</span><span style="flex:1"></span>
       <span class="vf-pill ${pillShown[1]}">${pillShown[0]}</span>${runBtn}<button class="btn sm ghost" data-encfg="1" title="quais checagens rodam neste projeto (fica em .cardume/checks.json)">${IC.wrench||''} checagens</button></div>
+    ${gl.on?`<div class="vf-sum vf-gate">${IC.check||''}<span>${gl.html}</span></div>`:''}
     <div class="vf-sum">${sum}</div>
     ${rows?`<div class="vf-rows">${rows}</div>`:''}
     ${cfgOpen?`<div class="vf-cfg" id="enChkCfg"></div>`:''}
@@ -450,15 +461,15 @@ function fwRenderEntrega(t, main){
   const c=commitsCache[t.id]||[];
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence));
   const evNorm=new Set([...evidenceNames].map(e=>enEvResolve(t.id, e, arts)).filter(Boolean)); // MESMA regra das mídias por requisito
-  const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=artThumb(t.id,a.name); return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${escA(th)}" alt="" loading="lazy" decoding="async">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
-  const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}">${esc(e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
+  const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${enThumbHtml(t.id, a.name, '')}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
+  const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}" title="${escA(e)}">${esc(enEvName(t.id, e)||e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
   const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(n)]||'ARQ');
   const listed=nonCode?arts:docs;
   const pvSel=enPvPick(t, nonCode?arts:docs);
   const docsHtml = listed.length ? listed.map(a=>`<div class="en-doc${a.name===pvSel?' on':''}"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-pvsel="${escA(a.name)}" title="mostra na prévia abaixo">ver</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
   const dels=(t.deliverables||[]).filter(Boolean);
   const timeline=stageStepper(t).replace('<div class="seclbl" style="margin-top:13px">Etapas</div>','');
-  const dur=fmtDurMs(taskDurationMs(t));
+  const dur=fmtDurKnown(taskDurationMs(t));
   // sem requisitos: "0/0 requisitos provados" parecia reprovação — vira "—"
   const reqKpi = rows.length ? `<div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>` : `<div class="en-kpi" title="esta demanda não tem critérios de aceite"><b>—</b><span>sem requisitos</span></div>`;
   const kpis = nonCode
@@ -468,7 +479,7 @@ function fwRenderEntrega(t, main){
     : `${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'integrado':'aberto'} ${icEm(IC.extlink)}</span></button>`:''}
         ${reqKpi}
         <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?nPl(diffFiles(d),'arquivo'):'sem diff'}</span></div>
-        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</span></div>`;
+        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${esc(commitsLabel(t))}${cost.usd>0?' · '+fmtCost(cost.usd):''}</span></div>`;
   const pvSec=enPvHtml(t, nonCode?arts:docs);
   const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
     <div class="en-head">
@@ -514,7 +525,27 @@ function fwRenderEntrega(t, main){
 }
 // ---- provas DENTRO de cada requisito: miniaturas dos prints e o player dos vídeos citados como evidência ----
 // nome citado no requirements.json ("./.cardume/artifacts/mobile-ios-1.png", "<tarefa>/x.mp4") → nome do artefato
-function enEvName(taskId, e){ let n=String(e||'').trim().replace(/^(\.\/)?(\.cardume\/artifacts\/)?/,''); if(taskId && n.startsWith(taskId+'/')) n=n.slice(taskId.length+1); return n; }
+function enEvName(taskId, e){ return artRelName(taskId, e); }
+// ---- prova cujo arquivo não abre: era uma caixa vazia (img quebrada com o alt cortado) ----
+// taskId|nome → o arquivo da prova não abriu (404 no sfart://, read_artifact falhou, ou a evidência citada não existe)
+const artMissing=new Set();
+const EN_MISS_TXT='arquivo da prova não encontrado';
+function enMissHtml(name){ return `<span class="en-miss" role="img" aria-label="${escA(EN_MISS_TXT+': '+name)}" title="${escA(EN_MISS_TXT+': '+name)}">${IC.image}<span>${EN_MISS_TXT}</span></span>`; }
+// miniatura de um print: a imagem real, o "carregando" (fora do Tauri, lendo) ou o aviso de arquivo que não existe
+function enThumbHtml(taskId, name, alt){
+  const k=taskId+'|'+name;
+  if(artMissing.has(k)) return enMissHtml(name);
+  const th=artThumb(taskId, name);
+  if(artMissing.has(k)) return enMissHtml(name);
+  return th?`<img src="${escA(th)}" alt="${escA(alt||'')}" data-sfthumb="${escA(k)}" loading="lazy" decoding="async">`:`<span class="en-ph" role="img" aria-label="carregando a prova">${IC.image}</span>`;
+}
+// erro de carga (não sobe na árvore: escuta na CAPTURA) de uma miniatura/vídeo de prova → aviso no lugar
+function enMediaErr(ev){
+  const el=ev && ev.target; if(!el || !el.dataset || !el.dataset.sfthumb) return;
+  const k=el.dataset.sfthumb; artMissing.add(k);
+  el.outerHTML=enMissHtml(k.slice(k.indexOf('|')+1));
+}
+if(typeof document!=='undefined' && document.addEventListener) document.addEventListener('error', enMediaErr, true);
 // evidência citada → nome do artefato: igual normalizado; senão pelo nome do arquivo SÓ se UM artefato bater (ambíguo = nada)
 function enEvResolve(taskId, e, arts){
   const n=enEvName(taskId, e); const list=arts||[];
@@ -526,10 +557,13 @@ function enVideoPlaying(root){ try{ return [...root.querySelectorAll('video')].s
 function enEvMediaHtml(t, evidence, arts, imgs){
   const seen=new Set(); const items=[];
   for(const e of (evidence||[])){
-    const n=enEvResolve(t.id, e, arts); if(!n || seen.has(n)) continue; seen.add(n);
+    const n=enEvResolve(t.id, e, arts);
+    // citada como prova mas o arquivo não existe (nem na worktree nem na cópia coletada): diz isso, não some
+    if(!n){ const c=enEvName(t.id, e); const ck=pvKind(c); if((ck==='image'||ck==='video') && !seen.has('?'+c)){ seen.add('?'+c); items.push(`<div class="en-evi en-evmiss" title="${escA(c)}">${enMissHtml(c)}</div>`); } continue; }
+    if(seen.has(n)) continue; seen.add(n);
     const k=pvKind(n);
     if(k==='video') items.push(`<div class="en-evv">${artVideoHtml(t.id, n, 'en-evvid')}<span class="en-evn">${IC.play} ${esc(n)}</span></div>`);
-    else if(k==='image'){ const i=(imgs||[]).findIndex(a=>a.name===n); const th=artThumb(t.id, n); items.push(`<button class="en-evi" ${i>=0?`data-lb="${i}"`:`data-art="${escA(n)}"`} title="${escA(n)}">${th?`<img src="${escA(th)}" alt="${escA('print: '+n)}" loading="lazy" decoding="async">`:`<span class="en-ph">${IC.image}</span>`}</button>`); }
+    else if(k==='image'){ const i=(imgs||[]).findIndex(a=>a.name===n); items.push(`<button class="en-evi" ${i>=0?`data-lb="${i}"`:`data-art="${escA(n)}"`} title="${escA(n)}">${enThumbHtml(t.id, n, 'print: '+n)}</button>`); }
   }
   return items.length?`<div class="en-evm">${items.join('')}</div>`:'';
 }
@@ -565,7 +599,7 @@ async function entregaFacts(t){
     `PR: ${t.prUrl?`#${prNumOf(t)} ${t.prUrl} · ${pr&&pr.state?pr.state:(taskIsDone(t)?'MERGED':'aberto')}${pr&&pr.body?'\nDESCRIÇÃO DO PR:\n'+String(pr.body).slice(0,2500):''}`:'sem PR'}`,
     `REVISÃO INTERNA: ${rev?(rev.summary||'')+(rev.howToTest?'\nCOMO TESTAR: '+rev.howToTest:''):'—'}`,
     `DIÁRIO DO AGENTE:\n${notas.join('\n')||'—'}`,
-    `AGENTES: ${roles||t.agent||'—'}`, `DURAÇÃO: ${fmtDurMs(taskDurationMs(t))}`,
+    `AGENTES: ${roles||t.agent||'—'}`, `DURAÇÃO: ${fmtDurKnown(taskDurationMs(t))||'—'}`,
   ].join('\n\n');
 }
 async function entregaGenReport(t){
