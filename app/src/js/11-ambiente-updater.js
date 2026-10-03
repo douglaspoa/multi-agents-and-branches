@@ -208,6 +208,7 @@ async function ghMount(){
   const h=$id('ghHost'); if(!h) return;
   h.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">lendo contas do gh…</div>';
   try{ ghAccs=await invoke('gh_accounts'); }catch(e){ ghAccs=[]; ghMsg=humanErr(e,'Não consegui ler as contas do GitHub').msg; }
+  if(typeof ghOwnersStale==='function') ghOwnersStale(); // conta nova/trocada/atualizada → o "dono" do novo projeto relê
   ghRender();
 }
 function ghRender(){
@@ -226,7 +227,7 @@ function ghRender(){
   h.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="dim" style="font-size:var(--fs-sm)">nenhuma conta logada no gh.</div>'}
     ${ghMsg?`<div style="font-size:var(--fs-sm);color:var(--warn)">${esc(ghMsg)}</div>`:''}${login}
     <div style="display:flex;gap:8px;margin-top:2px"><button class="btn sm" id="ghAdd"${ghLogin&&!ghLogin.done?' disabled':''}>+ entrar com outra conta</button><button class="btn sm" id="ghRefresh">atualizar</button></div>
-    <div class="dim" style="font-size:var(--fs-xs)">Cada conta fica guardada no gh; trocar a ativa muda quem abre PRs e faz push (git usa a credencial do gh). Repositórios de organização com SSO podem pedir <code>gh auth refresh -s repo</code> uma vez.</div></div>`;
+    <div class="dim" style="font-size:var(--fs-xs)">Cada conta fica guardada no gh. Projetos criados ou publicados pelo Starfork guardam a conta dona e fazem push com ela — trocar a ativa não quebra nenhum; push recusado num projeto antigo descobre sozinho a conta certa. Repositórios de organização com SSO podem pedir <code>gh auth refresh -s repo</code> uma vez.</div></div>`;
   h.querySelectorAll('[data-ghuse]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='trocando…'; ghMsg=''; try{ await invoke('gh_switch_account',{ user:b.dataset.ghuse }); envChecks=null; runEnvCheck(); }catch(e){ ghMsg=humanErr(e,'Não consegui trocar de conta').msg; } await ghMount(); });
   bindClick('ghRefresh', ghMount);
   bindClick('ghAdd', async()=>{ ghMsg=''; try{ const r=await invoke('gh_login_start'); ghLogin={ code:r.code, url:r.url, done:false, ok:false, log:'' }; try{ await navigator.clipboard.writeText(r.code); }catch(_){ } try{ await invoke('open_url',{ url:r.url }); }catch(_){ } ghRender(); ghPoll(); }catch(e){ ghMsg=humanErr(e,'Não consegui iniciar o login no GitHub').msg; ghRender(); } });

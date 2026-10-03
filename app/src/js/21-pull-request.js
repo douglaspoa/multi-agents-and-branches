@@ -448,15 +448,17 @@ function prNoRemoteBody(t, base){
   $id('prepPublish').onclick=async(ev)=>{ const b=ev.currentTarget; b.disabled=true; b.textContent='publicando…';
     const ok=await publishGithub(); if(ok) prPrepOpen(t.id, base); else { b.disabled=false; b.textContent='publicar no GitHub'; } };
 }
-// E4: publica o projeto ativo (só local) no GitHub pela conta ativa do gh. Devolve true se ficou publicado.
+// E4: publica o projeto ativo (só local) no GitHub — no usuário da conta ativa do gh, mas o repo guarda
+// a conta própria pro push (trocar a ativa depois não quebra). Devolve true se ficou publicado.
 async function publishGithub(){
   if(typeof repoHasGit==='function' && !repoHasGit() && !await gitGate()) return false;
-  let owners=[]; try{ owners=(await invoke('gh_owners'))||[]; }catch(_){ }
+  let owners=[]; try{ owners=ghOwnersNorm(await invoke('gh_owners')); }catch(_){ }
   if(!owners.length){ toast('Conecte sua conta do GitHub primeiro — depois é só publicar.','warn',{ label:'abrir Ambiente', fn:ERR_ACTIONS.env }); return false; }
   const name=pathBase(state.repo)||'projeto';
-  if(!await askYes(`Publicar "${name}" no GitHub?\n\nCria o repositório PRIVADO ${owners[0]}/${name} (conta ativa do gh) e envia o código. Depois disso os PRs funcionam normalmente.`)) return false;
+  const o=ghOwnerFind(owners, ghOwnerDefault(owners))||owners[0];
+  if(!await askYes(`Publicar "${name}" no GitHub?\n\nCria o repositório PRIVADO ${o.owner}/${name} (conta ${o.account||'ativa do gh'}) e envia o código. Depois disso os PRs funcionam normalmente — e o push deste projeto segue nessa conta mesmo se você trocar a ativa.`)) return false;
   toast('publicando no GitHub…','info');
-  try{ const r=await invoke('publish_github',{ private:true, owner:owners[0] }); lastSig=''; await refresh(); toast('Projeto publicado no GitHub ✓'+(r&&/^https?:/.test(r)?' · '+r:''),'ok'); return true; }
+  try{ const r=await invoke('publish_github',{ private:true, owner:o.owner, account:o.account||null }); lastSig=''; await refresh(); toast('Projeto publicado no GitHub ✓'+(r&&/^https?:/.test(r)?' · '+r:''),'ok'); return true; }
   catch(e){ showErr(e, 'Não consegui publicar no GitHub'); return false; }
 }
 // falha de um passo do PR: mensagem do catálogo (humanErr) + o texto cru pequeno + o botão que resolve.
