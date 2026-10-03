@@ -59,10 +59,10 @@ function envCardHtml(s){
     <div class="envalt">${detBtn}<span class="dim">ou peça pro agente subir — ele aparece aqui sozinho</span></div>${det}</div>`;
 }
 // faixa do topo do painel quando o ambiente é DO Starfork (no ar / subindo): onde está + reiniciar · parar · detalhes
-function envStripHtml(view){
+function envStripHtml(view, main){
   const v=view||{}; if(!(v.running||v.ready)) return '';
   const host=v.url?String(v.url).replace(/^https?:\/\//,'').replace(/\/$/,''):'';
-  return `<div class="envstrip${v.ready?' on':''}"><span class="envdot" aria-hidden="true"></span><span>${v.ready?'no ar':'subindo'}${host?` · <span class="mono">${esc(host)}</span>`:''}</span><span style="flex:1"></span><button type="button" class="lnk" data-env="restart">reiniciar</button><button type="button" class="lnk" data-env="down">parar</button><button type="button" class="lnk" data-env="details">detalhes</button></div>`;
+  return `<div class="envstrip${v.ready?' on':''}"><span class="envdot" aria-hidden="true"></span><span>${main?'prévia da main · ':''}${v.ready?'no ar':'subindo'}${host?` · <span class="mono">${esc(host)}</span>`:''}</span><span style="flex:1"></span><button type="button" class="lnk" data-env="restart">reiniciar</button><button type="button" class="lnk" data-env="down">parar</button><button type="button" class="lnk" data-env="details">detalhes</button></div>`;
 }
 // o que o AGENTE recebe no "pedir pro agente resolver" (o fim do log vai junto — é o que ele precisa)
 function envAgentMsg(view, plan){
@@ -89,21 +89,23 @@ function envEmptyFor(taskId){ return ()=>{ envPlanEnsure(taskId); return envCard
 // pinta todos os painéis desta demanda (cartão + faixa) — guardado: só troca o que mudou
 function envPaint(taskId){
   if(typeof nvPaint==='function') nvPaint(taskId);
-  const s=envSt(taskId); const h=envStripHtml(s.view);
+  const s=envSt(taskId); const h=envStripHtml(s.view, s.main);
   document.querySelectorAll('.envstriphost[data-envtask="'+(window.CSS&&CSS.escape?CSS.escape(taskId):taskId)+'"]').forEach(el=>{ if(el.__html!==h){ el.__html=h; el.innerHTML=h; } });
 }
 function envOpen(taskId, url){ if(typeof nvGo==='function') nvGo(taskId, url, true); }
-async function envUp(taskId){
+// opts.main: "abrir a prévia da main" — a tarefa foi integrada e a pasta dela sumiu: liga o projeto na pasta principal
+async function envUp(taskId, opts){
   const s=envSt(taskId); if(s.busy) return;
+  s.main=!!(opts&&opts.main);
   s.busy=true; s.view=envApply(null, { ev:'step', step:'detect' }); envPaint(taskId);
-  try{ const v=await invoke('env_up',{ taskId }); if(v && v.ready && v.url){ s.view=Object.assign({}, s.view, v); envOpen(taskId, v.url); } }
+  try{ const v=await invoke('env_up',{ taskId, main:s.main }); if(v && v.ready && v.url){ s.view=Object.assign({}, s.view, v); envOpen(taskId, v.url); } }
   catch(e){ s.view=envApply(s.view, { ev:'fail', code:'start', msg:humanErr?humanErr(e,'Não consegui ligar o site').msg:'Não consegui ligar o site.', tail:String(e&&e.message||e) }); }
   finally{ s.busy=false; envPaint(taskId); }
 }
 async function envDown(taskId, quiet){
   const s=envSt(taskId);
   try{ await invoke('env_down',{ taskId }); }catch(e){ if(!quiet) showErr(e, 'Não consegui parar o site'); return; }
-  s.view=null; s.busy=false;
+  s.view=null; s.busy=false; s.main=false;
   const st=(typeof nvState!=='undefined')?nvState[taskId]:null;
   if(st && typeof nvStop==='function'){ nvStop(taskId); st.addr=''; st.err=''; } // a prévia era do ambiente: volta pro cartão
   envPaint(taskId);
@@ -156,6 +158,7 @@ try{ window.__TAURI__.event.listen('env-progress', (ev)=>{
 function envSweep(snap){
   const tasks=(snap&&snap.tasks)||[];
   for(const id of Object.keys(ENV)){ const s=ENV[id]; if(!s.view || !(s.view.running||s.view.ready)) continue;
+    if(s.main) continue; // a prévia da MAIN de uma tarefa integrada é justamente pra tarefa concluída
     const t=tasks.find(x=>x.id===id); if(!t || (typeof taskIsDone==='function' && taskIsDone(t)) || ['merged','cancelled','abandoned'].includes(t.status)) envDown(id, true); }
 }
 function envOnTaskTabClose(taskId){ const s=ENV[taskId]; if(s && s.view && (s.view.running||s.view.ready)) envDown(taskId, true); }

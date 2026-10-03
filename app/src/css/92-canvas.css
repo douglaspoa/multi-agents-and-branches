@@ -240,3 +240,62 @@ html.sfpane #cloudOverlay,html.sfpane #authOverlay,html.sfpane #obOverlay,html.s
 .cvlayb.on{background:var(--surface-3);color:var(--text)}
 .cvlayb:disabled{opacity:.35;cursor:not-allowed}
 .cvlayb:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+/* ---------- PAINEL PRONTO (03/10): cada painel do grupo é um iframe — o viewport dele É o painel, então as
+   media queries abaixo respondem à largura/altura do PAINEL, não da janela. Nada pode estourar a largura. ---------- */
+html.sfpane,html.sfpane body{overflow-x:hidden}
+html.sfpane .enpage,html.sfpane .fwchat,html.sfpane .fwmain{overflow-wrap:anywhere}
+@media (max-width:720px){
+  /* Entrega: título que cabe, números numa linha compacta (pílulas), uma coluna */
+  html.sfpane .enpage{padding:16px 16px 40px}
+  html.sfpane .en-head{gap:10px;margin-bottom:14px}
+  html.sfpane .en-ht{min-width:0;flex:1 1 100%}
+  html.sfpane .en-h1{font-size:var(--fs-lg);line-height:1.25;margin:4px 0;text-wrap:balance;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+  html.sfpane .en-obj{font-size:var(--fs-sm);margin:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+  html.sfpane .en-kpis{gap:6px;flex:1 1 100%}
+  html.sfpane .en-kpi{flex-direction:row;align-items:baseline;gap:6px;min-width:0;max-width:100%;padding:4px 10px;border-radius:var(--r-pill)}
+  html.sfpane .en-kpi b{font-size:var(--fs-sm);font-variant-numeric:tabular-nums;white-space:nowrap}
+  html.sfpane .en-kpi span{font-size:var(--fs-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  html.sfpane .en-grid{grid-template-columns:minmax(0,1fr)}
+  html.sfpane .en-sec{padding:12px}
+  /* conversa: o texto do agente na régua do painel, o topo do chat numa linha só */
+  html.sfpane .cmsg .cbub{font-size:var(--fs-base);line-height:1.5}
+  html.sfpane .fwchath{padding:7px 12px;gap:8px;min-width:0}
+  html.sfpane .fwchath>div{min-width:0}
+  html.sfpane .fwchatt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  html.sfpane .fwchatd{display:none}
+  html.sfpane .fwhint{display:none}
+  /* compositor numa linha: o seletor de IA encolhe (reticências) antes de o "enviar" cair pra linha de baixo */
+  html.sfpane .cc.cc .cc-row{flex-wrap:nowrap}
+  html.sfpane .cc.cc .cc-row>.cc-model{flex:0 1 auto;min-width:0;overflow:hidden}
+  html.sfpane .cc.cc .cc-row .cc-model-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+}
+@media (max-width:440px){
+  html.sfpane .enpage{padding:12px 12px 32px}
+  html.sfpane .en-h1{font-size:var(--fs-md);-webkit-line-clamp:2}
+  html.sfpane .en-obj{display:none}
+  html.sfpane .fwtreepill .fwtpart{display:none}
+  html.sfpane .fwhead #fwReviewBar .btn .lbl,html.sfpane .fwhead #fwReviewBar .btn>span:not(:first-child){display:none}
+}
+/* painel BAIXO (grade, empilhado): a faixa de etapas vira UMA linha (rostos + "etapa n de N"), sem o gasto */
+@media (max-height:520px){
+  html.sfpane .fwhead{padding-top:7px;padding-bottom:7px}
+  html.sfpane .fwciclo{padding:5px 12px;gap:5px}
+  html.sfpane .cicstrip{flex-wrap:nowrap;gap:8px}
+  html.sfpane .cicst-av{width:18px;height:18px}
+  html.sfpane .cicst-av svg{width:10px;height:10px}
+  html.sfpane .cicst-b{padding:2px}
+  html.sfpane .cicst-list{flex:0 1 auto}
+  html.sfpane .cicst .cicst-tx,html.sfpane .cicst .cicst-c{display:none}
+  html.sfpane .cicst-sum{width:auto;margin-left:auto;flex:0 1 auto;min-width:0;flex-wrap:nowrap;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  html.sfpane .cicst-cost{display:none}
+  html.sfpane .enpage{padding-top:12px}
+  html.sfpane .fwinput .fwta{min-height:34px!important;max-height:56px!important}
+  html.sfpane .fwreqtoggle{margin-top:4px}
+  /* a conversa não some: saem a linha "Arquivos · agente" (os arquivos seguem no modo Código) e a barra de
+     requisitos (eles seguem na Entrega e na faixa do terminal) — sobra altura pras mensagens */
+  html.sfpane .fwchath{display:none}
+  html.sfpane .fwctx{display:none}
+  html.sfpane .fwinput{padding-top:6px;padding-bottom:6px}
+}
+/* painel baixo E estreito: "Agora: …" já diz onde está — o "etapa n de N" sai em vez de ficar cortado */
+@media (max-height:520px) and (max-width:600px){ html.sfpane .cicst-now:not(:empty)~.cicst-pos{display:none} }

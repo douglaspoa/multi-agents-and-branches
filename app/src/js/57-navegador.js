@@ -121,6 +121,23 @@ function nvRouteMsg(states, source, origin){
   for(const k of Object.keys(states||{})){ const s=states[k]; if(s && s.frame && source && source===s.frame.contentWindow && s.proxy && origin===s.proxy.origin) return k; }
   return null;
 }
+// Saúde da Prévia (03/10 — tarefa integrada abria BRANCO: a worktree sumiu e o vite dela seguia vivo servindo 404).
+// h = preview_health do Rust: { verdict:'ok'|'down'|'gone', status, rootStatus, finished, tail }. Cartão no lugar do
+// branco: o que houve + a ação certa. Puro (testado em app/tests/canvas-pronto.test.mjs).
+function nvHealthHtml(h, url){
+  if(!h || h.verdict==='ok') return '';
+  let host=''; try{ host=new URL(url).host; }catch(_){ }
+  const tail=String(h.tail||'').split('\n').filter(Boolean).slice(-6).join('\n');
+  const log=tail?`<pre class="mono nvhlog" aria-label="fim do log da prévia">${esc(tail)}</pre>`:'';
+  if(h.verdict==='gone'){
+    return `<div class="nvempty nvhealth" role="status"><b>${h.finished?'Esta tarefa já foi integrada e a pasta dela foi removida':'A pasta desta tarefa foi removida'}</b>`+
+      `<span>${h.status==null?'Não tem mais nada rodando':'O servidor que sobrou responde 404 em tudo'}${host?' em <code>'+esc(host)+'</code>':''} — por isso a prévia ficaria em branco. Pra ver como ficou, abra a prévia da main: o Starfork liga o projeto na pasta principal.</span>`+
+      `<span class="nvhacts"><button type="button" class="btn sm primary" data-nvh="main">abrir a prévia da main</button><button type="button" class="btn sm ghost" data-nvh="retry">tentar de novo</button></span></div>`;
+  }
+  const why=h.status==null?`Ninguém responde${host?' em <code>'+esc(host)+'</code>':''} — o servidor caiu ou foi parado.`:`Ele responde 404 em tudo${host?' em <code>'+esc(host)+'</code>':''} — perdeu os arquivos ou o build quebrou.`;
+  return `<div class="nvempty nvhealth" role="status"><b>O servidor da prévia parou</b><span>${why}</span>${log}`+
+    `<span class="nvhacts"><button type="button" class="btn sm primary" data-nvh="up">subir de novo</button><button type="button" class="btn sm ghost" data-nvh="retry">tentar de novo</button><button type="button" class="btn sm ghost" data-nvh="force">abrir mesmo assim</button></span></div>`;
+}
 // @nav-puro-fim
 
 const nvState={};          // taskId → estado da Prévia (cada demanda o SEU — F0: nada de prévia "global")
@@ -167,7 +184,11 @@ function nvWire(taskId){
     note.onkeydown=(e)=>{ if(e.key==='Enter' && (e.metaKey||e.ctrlKey)){ e.preventDefault(); nvSend(taskId); } }; }
   const pk=nvQ(st, 'picks'); if(pk) pk.onclick=(e)=>{ const x=e.target.closest('[data-nvrm]'); if(!x) return; const id=+x.dataset.nvrm; st.picks=st.picks.filter(p=>p.id!==id); nvPost(st, { cmd:'unmark', id }); nvPaint(taskId); };
   // "pausado" (o gerente de recursos congelou esta prévia pra outra) → clique retoma (e congela a menos recente)
-  const msg=nvQ(st, 'msg'); if(msg) msg.onclick=(e)=>{ if(e.target.closest('[data-nvresume]')){ st.frozen=false; nvMount(taskId); nvPaint(taskId); } };
+  const msg=nvQ(st, 'msg'); if(msg) msg.onclick=(e)=>{ if(e.target.closest('[data-nvresume]')){ st.frozen=false; nvMount(taskId); nvPaint(taskId); return; }
+    const hb=e.target.closest('[data-nvh]'); if(!hb) return; const k=hb.dataset.nvh; hb.disabled=true;
+    if(k==='retry'){ st.health=null; nvGo(taskId, st.addr, true); }
+    else if(k==='force'){ st.health=null; nvGo(taskId, st.addr, 'skiphealth'); }
+    else if(typeof envUp==='function'){ st.health=null; st.addr=''; nvPaint(taskId); envUp(taskId, { main:k==='main' }); } };
   // visível? (IntersectionObserver — sem laço): escondida 20 s → desmonta o iframe; voltou → remonta
   const wrap=nvQ(st, 'wrap');
   if(st.io) try{ st.io.disconnect(); }catch(_){ }
@@ -190,6 +211,7 @@ function nvPaint(taskId){
   const sb=nvQ(st, 'send'); if(sb){ sb.disabled=!st.picks.length||st.sending; sb.textContent=st.sending?'mandando…':'mandar pra tarefa'; }
   const sh=nvQ(st, 'shot'); if(sh) sh.disabled=!st.frame;
   if(st.opening) nvSetMsg(st, '<div class="nvempty"><span class="spin"></span> abrindo '+esc(st.addr||'')+'…</div>');
+  else if(st.health) nvSetMsg(st, nvHealthHtml(st.health, st.addr));
   // erro ao abrir: diz o que houve E oferece subir o ambiente (nunca só "deu erro")
   else if(st.err) nvSetMsg(st, `<div class="nvempty"><b>Não abri a prévia</b><span>${esc(st.err)}</span></div>`+(st.empty?st.empty():''));
   else if(st.frozen && st.proxy) nvSetMsg(st, '<div class="nvempty"><b>Prévia pausada</b><span>Pra o Mac não esquentar, ficam no máximo 2 páginas vivas ao mesmo tempo.</span><button type="button" class="btn sm primary" data-nvresume="1">continuar daqui</button></div>');
@@ -200,7 +222,14 @@ function nvPaint(taskId){
 async function nvGo(taskId, url, force){
   const st=nvSt(taskId);
   const u=nvNormUrl(url); if(!u){ st.err='endereço inválido — só http(s)'; nvPaint(taskId); return; }
-  st.addr=u; st.err='';
+  st.addr=u; st.err=''; st.health=null; const gen=st.gen=(st.gen||0)+1;
+  // endereço local: confere a saúde ANTES de mostrar — pasta da tarefa sumiu / servidor parou viram cartão, nunca branco
+  // ("abrir mesmo assim" pula a checagem: um servidor só de API, por exemplo, responde 404 no / de propósito)
+  if(nvIsLocalUrl(u) && !(force==='skiphealth')){ st.opening=true; nvPaint(taskId);
+    const h=await invokeQuiet('preview_health', { taskId, url:u }).catch(()=>null);
+    if(st.gen!==gen) return; // outra navegação começou enquanto checava
+    st.opening=false;
+    if(h && h.verdict && h.verdict!=='ok'){ st.health=h; if(st.frame) nvUnmount(taskId); nvPaint(taskId); return; } }
   const same=st.proxy && (()=>{ try{ return new URL(u).origin===st.proxy.target; }catch(_){ return false; } })();
   if(same && st.frame && !force){ st.frame.src=nvToProxy(u, st.proxy.origin); nvPaint(taskId); return; }
   st.opening=true; nvPaint(taskId);
@@ -219,7 +248,7 @@ function nvMount(taskId){
   // teto de webviews (gerente de recursos): a mais antiga congela se esta for a 3ª
   if(typeof cvRmTake==='function') cvRmTake('web', nvResKey(taskId), ()=>nvFreeze(taskId));
   const f=document.createElement('iframe');
-  f.className='nvframe'; f.title='prévia da página';
+  f.className='nvframe'; f.setAttribute('aria-label','prévia da página'); // aria-label: title em iframe vira tooltip nativo preso
   f.setAttribute('allow','clipboard-read; clipboard-write; fullscreen');
   // sem allow-top-navigation: a página não consegue tirar o Starfork da tela (top.location); a origem é a do proxy,
   // diferente da do app, então allow-same-origin só vale pra própria página (cookies/localStorage dela)

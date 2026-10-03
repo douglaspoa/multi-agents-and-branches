@@ -708,7 +708,10 @@ document.addEventListener('keydown', async e=>{
 });
 
 function eventsOf(taskId){ return state.events.filter(e=>e.taskId===taskId); }
-function diffOf(taskId){ return state.diffs.find(d=>d.taskId===taskId); }
+// tamanho da tarefa (fonte única de toda tela). Integrada com PR: o número do PR no GitHub manda (o diff local podia
+// contar o avanço da main: "+132189 −3107 · 924 arquivos") — o Rust também grava o do PR no diffstat
+function diffOf(taskId){ const d=state.diffs.find(x=>x.taskId===taskId); const pr=(typeof prCache!=='undefined')?prCache[taskId]:null; return diffPick(d, pr, taskId); }
+function diffPick(d, pr, taskId){ if(pr && pr.exists && String(pr.state||'').toUpperCase()==='MERGED' && (+pr.changedFiles)>0) return { taskId:(d&&d.taskId)||taskId, additions:+pr.additions||0, deletions:+pr.deletions||0, files:+pr.changedFiles, src:'pr' }; return d; }
 function reviewOf(taskId){ return (state.reviews||[]).find(r=>r.taskId===taskId); }
 async function openRef(taskId, name){
   let c;
