@@ -14,7 +14,7 @@ import { prepEpicTurn } from "./epic-context.ts";
 import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, mobileTurnRelease, realDeps, UI_FILE_RE, type MobileDeps } from "./mobile.ts";
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
-import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
+import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
 import { homedir, userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine } from "./engine/claude.ts";
@@ -26,6 +26,9 @@ import type { AgentEngine } from "./engine/types.ts";
 import { activeAgentMemory, activeSkills, agentVersion } from "./agent-versions.ts";
 import { agentIdOf, capCheck, capPauseText, effectiveCap, fmtUsdBr, FLOW_BY_KIND, MAX_REVIEW_ROUNDS, parseVerdict, producerIndex, reviewDecision, reviewerIsSame, roundText, rosterLine, SAME_REVIEWER_WARNING, taskKindOf, upsertRoleRun, verdictInstructions, starforkReport, type NeedsYou, type ReportData, type ReviewRound, type RoleRun, type Verdict } from "./lifecycle.ts";
 import { ensureHandoff, handoffRule, hasHandoff, HANDOFF_REL, readHandoff } from "./handoff.ts";
+import { loadConfig } from "./config.ts";
+import { oldVerdict, saveSample, type SampleResult } from "./amostra.ts";
+import { recordUsage } from "./usage-ledger.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 
 /**
@@ -654,6 +657,15 @@ export class Orchestrator {
       const reviewAsks = (Array.isArray(spec.reviewRounds) ? spec.reviewRounds : [])
         .filter((x) => x.verdict === "muda")
         .flatMap((x) => { const p = producerOf(x); return (x.items ?? []).map((it) => `${x.reviewer || "o revisor"} pediu a ${p?.name ?? "quem construiu"} (${agentIdOf(p) || "?"}): ${it}`); });
+      // F5: persona sugerida reaberta com a trava da Júlia — só pra quem tem a P12 madura (n ≥ 10 tarefas no portão na
+      // versão ATUAL) e está no catálogo do projeto (a persona mora no cardume.config.json)
+      const catalog = (() => { try { return loadConfig(this.ws.repo).agents; } catch { return []; } })();
+      const personaAgents = team.map((m) => {
+        const a = catalog.find((x) => x.id === m.agentId);
+        if (!a) return null;
+        const n = this.store.agentVersionGateCount(m.agentId, agentVersion(this.ws.dir, m.agentId));
+        return n >= PERSONA_MIN_N ? { agentId: m.agentId, name: m.name, n, persona: String(a.persona ?? "") } : null;
+      }).filter((x): x is { agentId: string; name: string; n: number; persona: string } => !!x);
       const out = await this.aux(retroPrompt({
         title: spec.title,
         objective: String(spec.objective ?? ""),
@@ -664,15 +676,16 @@ export class Orchestrator {
         events,
         brainCatalog: this.brainCatalog(),
         learnedSkills: learned,
-        alreadySuggested: readPending(this.ws.dir).filter((p) => p.taskId === taskId).map((p) => p.nota ? `nota: ${p.nota.title}` : `skill: ${p.skill?.nome ?? ""}`),
+        alreadySuggested: readPending(this.ws.dir).filter((p) => p.taskId === taskId).map((p) => p.nota ? `nota: ${p.nota.title}` : p.persona ? `persona de ${p.agente ?? ""}` : `skill: ${p.skill?.nome ?? ""}`),
         team,
         reviewAsks,
+        personaAgents,
       }), "capaz", model, Math.max(auxTimeoutMs(), 180_000), taskId, (usd) => {
         // o gasto da retro conta no teto e no custo por papel (agente "retro"); o livro de uso o aiOnce já gravou
         if (usd > 0) { try { this.store.addCostLocal(taskId, "retro", "retro", usd, 0, 0, 0, "retro"); } catch { /* sem store */ } }
       }); // retroModel vale só no Claude (Codex/gateway: nível capaz); ~10k chars: teto próprio
       if (!out) { this.store.addEvent(taskId, "Sistema", "retro", "retro: a IA não respondeu — nada foi aprendido desta vez", false); return; }
-      const { notas, skills } = parseRetro(out);
+      const { notas, skills, personas } = parseRetro(out);
       const learnedNames = new Set(learned.map((s) => s.name));
       const items: Omit<PendingItem, "id" | "createdAt">[] = [];
       const base = { taskId, taskTitle: String(spec.title ?? "").slice(0, 140) };
@@ -684,10 +697,17 @@ export class Orchestrator {
       for (const { dono, ...n } of notas) items.push({ ...base, kind: "nota", nota: n, ...owner(dono) });
       // "atualizar" só vale pra skill APRENDIDA que existe; o resto vira "criar" (colisão → nome-2 ao aplicar)
       for (const { dono, ...s } of skills) items.push({ ...base, kind: "skill", skill: { ...s, acao: s.acao === "atualizar" && learnedNames.has(s.nome) ? "atualizar" : "criar" }, ...owner(dono) });
+      // persona: dono OBRIGATÓRIO e elegível (a retro não inventa agente nem fura a trava); `antes` = a persona de agora
+      for (const { dono, ...p } of personas) {
+        const o = retroOwner(dono, team);
+        const el = o ? personaAgents.find((x) => x.agentId === o.agente) : undefined;
+        if (!o || !el || p.texto.trim() === el.persona.trim()) continue;
+        items.push({ ...base, kind: "persona", persona: { ...p, antes: el.persona }, agente: o.agente, papel: o.papel, agenteNome: o.nome });
+      }
       const ok = items.filter((it) => {
         const why = rejectReason(itemText(it));
         if (!why) return true;
-        const what = it.nota ? `a nota proposta "${it.nota.title.slice(0, 60)}"` : `a skill proposta "${it.skill!.nome}"`;
+        const what = it.nota ? `a nota proposta "${it.nota.title.slice(0, 60)}"` : it.persona ? `a persona proposta pra ${it.agenteNome ?? it.agente}` : `a skill proposta "${it.skill!.nome}"`;
         if (why === "segredo") this.noteSecretDropped(taskId, `${what} da retro`);
         else this.learnDropped(taskId, `aprendizado: descartei ${what} da retro — parecia conter instruções pro agente (injeção); nada foi gravado`);
         return false;
@@ -1525,6 +1545,7 @@ export class Orchestrator {
       // piloto com `--budget-usd 0`: sem teto por escolha explícita (compatibilidade) — o relatório diz isso, não inventa um teto
       capUsd: spec.autopilot && !(Number(spec.budgetUsd) > 0) ? 0 : effectiveCap(spec.budgetUsd, readCostCapSetting()),
       reviewOverride: spec.reviewOverride?.reason, releases: spec.budgetReleases ?? [], rounds: spec.reviewRounds ?? [], runs: spec.roleRuns ?? [],
+      orgPolicy: spec.orgPolicy?.rules,
     });
   }
 
@@ -2039,6 +2060,64 @@ export class Orchestrator {
    * tarefa já concluída (review/error), continuando a sessão do agente via
    * --resume na worktree existente, recommitando e refazendo o review.
    */
+  /**
+   * F5 · P15 — TESTAR NUMA AMOSTRA (só o revisor). Reexecuta SÓ a revisão, com a persona e as skills ATUAIS do agente,
+   * numa worktree descartável (detached) no último commit da branch de uma tarefa passada. Nada grava na tarefa antiga:
+   * o motor roda com um banco próprio da amostra (sem evento, sem `cost`, sem prova); o gasto vai pro livro de uso.
+   * Para se passar do teto. O resultado (veredito de antes × de agora) fica em .cardume/aprendizado/amostras.json.
+   */
+  async sampleReview(taskId: string, agentId: string, capUsd: number): Promise<SampleResult> {
+    const t = this.store.getTask(taskId);
+    if (!t) throw new Error("essa tarefa não existe mais neste projeto");
+    if (!(capUsd > 0)) throw new Error("a amostra precisa de um teto");
+    const agent = loadConfig(this.ws.repo).agents.find((a) => a.id === agentId);
+    if (!agent) throw new Error("esse agente não está no catálogo do projeto");
+    if (agent.role !== "reviewer") throw new Error("por enquanto a amostra é só pro revisor");
+    const spec0 = JSON.parse(t.spec_json) as TaskSpec;
+    const old = oldVerdict(spec0, this.store.eventsForTask(taskId), agentId);
+    const ref = (await this.git.refExists(t.branch)) ? t.branch : (await this.git.refExists(`origin/${t.branch}`)) ? `origin/${t.branch}` : "";
+    if (!ref) throw new Error("a branch dessa tarefa não existe mais (apagada depois do merge) — escolha outra tarefa");
+    const stamp = Date.now();
+    const dir = join(this.ws.dir, "amostras", `${taskId}-${stamp}`);
+    await mkdir(join(this.ws.dir, "amostras"), { recursive: true });
+    await run("git", ["-C", this.ws.repo, "worktree", "add", "--detach", dir, ref]);
+    let usd = 0, stopped = false, inTok = 0, outTok = 0, ms = 0;
+    const role: AgentRole = { role: "reviewer", agentId: agent.id, name: agent.name, engine: agent.engine, model: agent.model, persona: agent.persona };
+    try {
+      // o motor lê o TASK.yaml da worktree (.cardume não vai pro git) — a spec da tarefa com outro id: nada volta pra ela
+      const spec: TaskSpec = {
+        ...spec0, id: `amostra-${taskId}-${stamp}`.slice(0, 80), roles: [role], reviewRounds: [], adjustment: undefined, autoPr: "no",
+        deliverables: Array.isArray(spec0.deliverables) ? spec0.deliverables : [], requirements: Array.isArray(spec0.requirements) ? spec0.requirements : [],
+        scope: { owns: spec0.scope?.owns ?? [], offLimits: spec0.scope?.offLimits ?? [] },
+        autonomy: { clarifications: "ask", commit: "at-end", runTests: true, approval: "ask", ...(spec0.autonomy ?? {}) },
+      };
+      await mkdir(join(dir, ".cardume"), { recursive: true });
+      await writeFile(join(dir, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+      const sampleDb = join(dir, ".cardume", "amostra.sqlite");
+      new Store(sampleDb).close();
+      const lens = FLOW_BY_KIND[taskKindOf(spec0)].find((x) => x.role === "reviewer")?.lens ?? "codigo";
+      const persona = agent.persona ? `## Seu perfil (${agent.name} · reviewer)\n${agent.persona}\n\n` : "";
+      const ctx = persona + this.projectMemory(spec) + this.skillsContext(role) + verdictInstructions(lens, 1);
+      const engine = this.engineFor(agent.engine, agent.model, "ask");
+      for await (const ev of engine.run({ cwd: dir, spec, systemContext: ctx, role: "reviewer", agentName: agent.name, dbFile: sampleDb })) {
+        if (ev.cost) { usd += Number(ev.cost.usd) || 0; inTok += ev.cost.inTok || 0; outTok += ev.cost.outTok || 0; ms += ev.cost.ms ?? 0; }
+        if (usd > capUsd) { stopped = true; break; } // teto: para (o motor encerra o processo ao sair do laço)
+      }
+    } finally {
+      if (usd > 0 || inTok > 0) recordUsage({ source: "outros", project: this.ws.repo, taskId, role: "amostra", engine: engineKind(agent.engine), model: agent.model, inTok, outTok, usd, ms });
+    }
+    let text = "";
+    try { text = await readFile(join(dir, ".cardume", "VEREDITO.md"), "utf8"); } catch { /* o revisor não escreveu */ }
+    try { await this.git.worktreeRemove(dir); } catch { try { await rm(dir, { recursive: true, force: true }); await run("git", ["-C", this.ws.repo, "worktree", "prune"]); } catch { /* sobra varrida no próximo prune */ } }
+    const v = stopped && !text.trim() ? { kind: "ilegivel" as const, items: [] } : parseVerdict(text);
+    const res: SampleResult = {
+      at: Date.now(), agentId, agentName: agent.name, taskId, title: t.title,
+      old, now: { v: agentVersion(this.ws.dir, agentId), kind: v.kind, items: v.items }, usd: Math.round(usd * 10000) / 10000, capUsd, stopped,
+    };
+    saveSample(this.ws.dir, res);
+    return res;
+  }
+
   async reworkTask(taskId: string): Promise<void> {
     await this.withTaskLock(taskId, "rework", {}, () => this.reworkTaskInner(taskId));
   }

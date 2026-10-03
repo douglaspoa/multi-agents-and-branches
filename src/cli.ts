@@ -11,6 +11,7 @@ import { c, statusColor, eventGlyph } from "./util/ansi.ts";
 import { slugify } from "./types.ts";
 import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
 import { rolesForKind, TASK_KINDS, type TaskKind } from "./lifecycle.ts";
+import { applyOrgPolicy, orgAgentPolicy, policyActive } from "./org-policy.ts";
 import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
@@ -218,6 +219,24 @@ async function cmdNew(repo: string, a: Args) {
     budgetUsd: Number(a.flags["budget-usd-task"]) > 0 ? Number(a.flags["budget-usd-task"]) : undefined,
   };
 
+  // F5 · P14: a política da organização (Empresa) que o app leu da nuvem — aplicada ANTES de nascer a worktree.
+  // Sem a flag (Grátis, sem login, offline sem cache) nada muda.
+  let policyNotes: string[] = [];
+  if (a.flags["org-policy"]) {
+    let raw: unknown = null;
+    try { raw = JSON.parse(a.flags["org-policy"]); } catch { /* lixo = sem política */ }
+    const pol = orgAgentPolicy(raw);
+    if (policyActive(pol)) {
+      const r = applyOrgPolicy(spec, pol, loadConfig(repo).agents);
+      if (r.blocked) {
+        console.error(c.red("✕ " + r.blocked));
+        process.exit(1);
+      }
+      Object.assign(spec, r.spec);
+      policyNotes = r.notes;
+    }
+  }
+
   const refSources = a.multi.ref ?? [];
   const orch = new Orchestrator(repo);
   // Detecção proativa de sobreposição de escopo: avisa (não bloqueia) se esta
@@ -228,6 +247,7 @@ async function cmdNew(repo: string, a: Args) {
   }
   console.log(c.dim(`→ criando worktree ${branchName(spec)} · equipe: ${roles.map((r) => r.role + ":" + r.name).join(" → ")}`));
   await orch.createTask(spec, refSources);
+  for (const n of policyNotes) orch.store.addEvent(id, "Sistema", "note", n, true);
   if (a.flags["no-start"]) {
     orch.store.setStatus(id, "draft");
     console.log(c.green("✓") + ` rascunho ${c.bold(id)} criado — inicie quando quiser (${c.green("cardume start " + id)})`);
@@ -239,6 +259,24 @@ async function cmdNew(repo: string, a: Args) {
   console.log(renderList(orch.store));
   const rev = orch.store.getReview(id);
   if (rev) console.log(c.dim(`  review disponível: `) + c.green(`cardume review ${id} --repo ${repo}`) + "\n");
+  orch.close();
+}
+
+/** F5 · P15: `cardume sample-review <taskId> --agent <id> --cap <usd> [--json]` — só a revisão, numa cópia descartável. */
+async function cmdSampleReview(repo: string, taskId: string | undefined, a: Args) {
+  const json = a.flags.json === "true";
+  const fail = (msg: string) => { if (json) console.log(JSON.stringify({ error: msg })); else console.error(c.red("✕ " + msg)); process.exit(1); };
+  if (!taskId || !a.flags.agent) return fail("use: cardume sample-review <tarefa> --agent <id> --cap <US$>");
+  const cap = Number(a.flags.cap);
+  if (!(cap > 0)) return fail("a amostra precisa de um teto (--cap)");
+  const orch = new Orchestrator(repo);
+  try {
+    const r = await orch.sampleReview(taskId, a.flags.agent, cap);
+    console.log(json ? JSON.stringify(r) : `${r.title}: antes ${r.old.kind ?? "sem veredito"} · agora ${r.now.kind} (US$ ${r.usd.toFixed(2)})`);
+  } catch (e) {
+    orch.close();
+    return fail((e as Error).message);
+  }
   orch.close();
 }
 
@@ -955,6 +993,9 @@ async function main() {
       break;
     case "rework":
       await cmdRework(repo, a._[1]);
+      break;
+    case "sample-review":
+      await cmdSampleReview(repo, a._[1], a);
       break;
     case "resolve-conflict":
       await cmdResolveConflict(repo, a._[1]);

@@ -238,6 +238,7 @@ async function openAgents(){
     cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
     agBase = JSON.stringify(cfgEdit);
     renderAg(); renderTeams(); renderWf(); agLock(false); agSaveHint();
+    if(typeof orgPolRender==='function') orgPolRender(); // F5 · P14: só lê a nuvem com sessão + org (Grátis: nada)
   }, { label:'lendo os agentes do projeto', ctx:'Não consegui ler os agentes', shape:{ n:6 } });
 }
 function agLock(on){ ['agSave','agAdd','wfAdd','agImport'].forEach(id=>{ const b=$id(id); if(b) b.disabled=!!on; }); }
@@ -283,9 +284,9 @@ function renderWf(){
   const el=$id("wfList");
   const byId=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a]));
   el.innerHTML = cfgEdit.workflows.map((w,i)=>`<div class="wfrow" data-drop="${i}">
-    <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome da equipe (ex.: planejar → construir → revisar)"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="btn sm" data-wshare="${i}" hidden title="publica esta equipe (e seus agentes) no catálogo da org — o time aplica com 1 clique" style="padding:2px 8px;font-size:var(--fs-xs)">⇡ compartilhar com o time</button><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
+    <div class="wftop"><span class="wfgrip" title="equipe">⠿</span><input class="wfname" value="${escA(w.name||'')}" data-wi="${i}" data-wk="name" placeholder="Nome da equipe (ex.: planejar → construir → revisar)"><span class="wfcount">${(w.steps||[]).length} etapa${(w.steps||[]).length===1?'':'s'}</span><button class="btn sm" data-wshare="${i}"${typeof orgCanShareTeams==='function'&&orgCanShareTeams()?'':' hidden'} title="publica esta equipe (e seus agentes) no catálogo da org — o time aplica com 1 clique" style="padding:2px 8px;font-size:var(--fs-xs)">⇡ compartilhar com o time</button><button class="iconbtn" data-wdel="${i}" title="remover equipe">${IC.trash}</button></div>
     <div class="steps" data-steps="${i}">${(w.steps||[]).map((sid,si)=>`<span class="stepchip" draggable="true" data-wi="${i}" data-si="${si}"><span class="sgrip">⠿</span><span class="snum">${si+1}</span><span class="cdot" style="background:${(byId[sid]&&byId[sid].color)||'var(--muted)'}"></span>${byId[sid]?`<b>${esc(byId[sid].name)}</b>`:`<b class="stepgone" title="${escA('o agente '+sid+' não existe mais no catálogo — tire esta etapa')}">agente removido</b>`}<button class="rm" data-wi="${i}" data-rm="${si}" title="tirar">${IC.xs}</button></span>`).join("")||'<span class="stepempty">arraste um agente pra cá, ou escolha ao lado →</span>'}${cfgEdit.agents.length?`<select class="sel wfaddsel" data-wadd="${i}" aria-label="adicionar etapa nesta equipe"><option value="">+ etapa…</option>${cfgEdit.agents.map(a=>`<option value="${escA(a.id||'')}">${esc(a.name||a.id||'agente')}</option>`).join('')}</select>`:''}</div>
-    ${(()=>{ const roles=agTeamRoles(w.steps||[], byId, false); if(!roles.length) return ''; return `<div class="wfstrip">${agStripFor(roles)}</div>`+agTeamWarnings(roles).map(x=>`<p class="agwarn" role="note">${esc(x.text)} (${esc(x.detail)})</p>`).join(''); })()}
+    ${(()=>{ const roles=agTeamRoles(w.steps||[], byId, false); if(!roles.length) return ''; return `<div class="wfstrip">${agStripFor(roles)}</div>`+agTeamWarnings(roles).map(x=>`<p class="agwarn" role="note">${esc(x.text)} (${esc(x.detail)})</p>`).join('')+(typeof orgPolIssuesHtml==='function'?orgPolIssuesHtml(roles):''); })()}
   </div>`).join("") || '<div class="dim" style="font-size:var(--fs-sm);padding:6px 0">nenhuma equipe — clique "+ nova equipe"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
   el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); });
@@ -294,6 +295,9 @@ function renderWf(){
     const w=cfgEdit.workflows[+b.dataset.wshare]; if(!w) return;
     const orgId=cloudData&&cloudData.org&&cloudData.org.id;
     if(!SB.sess()||!orgId){ toast('Entre na sua conta e numa organização primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
+    // F5 · P14/P17: a equipe passa pela política da organização antes de ir pro catálogo do time
+    { const byId0=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a])); const bad=typeof orgTeamShareBlock==='function'?orgTeamShareBlock(agTeamRoles(w.steps||[], byId0, false)):'';
+      if(bad){ toast('Não publiquei: '+bad+'.','warn'); return; } }
     b.disabled=true; const o=b.textContent; b.textContent='publicando…';
     try{
       wfEnsureIds(cfgEdit.workflows); // id único (duas equipes com o mesmo nome não se sobrescrevem no catálogo do time)

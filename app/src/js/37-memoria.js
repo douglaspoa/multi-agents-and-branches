@@ -181,6 +181,7 @@ function memErr(e){
 function memLEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 // rótulo do tipo: nota (com o tipo dela), skill nova ou atualização de uma skill aprendida que já existe
 function memLearnLabel(it){
+  if(it && it.kind==='persona') return 'persona nova';
   if(it && it.kind==='skill'){ const s=it.skill||{}; return s.acao==='atualizar'?'atualiza a skill '+(s.nome||''):'skill nova'; }
   return 'nota · '+((it&&it.nota&&it.nota.type)||'contexto');
 }
@@ -195,12 +196,34 @@ function memLearnWho(it){
 function memLearnSentence(it){
   const w=memLearnWho(it), sk=it&&it.kind==='skill', d=sk?((it&&it.skill)||{}):((it&&it.nota)||{});
   const low=s=>{ s=String(s||'').replace(/\s+/g,' ').trim().replace(/[.;:!]+$/,''); return /^[A-ZÀ-Ý][a-zà-ÿ]/.test(s)?s.charAt(0).toLowerCase()+s.slice(1):s; };
+  // F5: persona sugerida pela retro (só com a P12 madura) — a frase diz o porquê; o texto e o diff ficam em "ver detalhes"
+  if(it && it.kind==='persona') return (w ? (w.art?w.art+' ':'')+w.name : 'O agente')+' vai mudar o jeito de trabalhar: '+low((it.persona||{}).porque||'ajuste sugerido pela retro')+'.';
   const tx=sk ? 'um jeito de fazer: '+String(d.nome||'').replace(/-/g,' ')+(d.descricao?' — '+low(d.descricao):'') : low(d.title);
   return (w ? (w.art?w.art+' ':'')+w.name : 'O projeto')+' vai lembrar'+(sk?' ':': ')+tx+'.';
 }
 // o: { editing:{ a, b } } — o cartão em modo Editar (o texto que a pessoa está mudando)
+// F5: o cartão da persona sugerida — só "Guardar pra X" (persona é do agente: não existe "só no projeto"), Editar o texto
+// novo e Descartar; o diff antes → depois em "ver detalhes" (agLineDiff do 61-meu-time, quando carregado)
+function memPersonaCard(it, o){
+  const p=it.persona||{}, id=memLEsc(it.id), w=memLearnWho(it), ed=o.editing;
+  const diff=(typeof agLineDiff==='function')?agLineDiff(p.antes||'', ed?ed.b:(p.texto||'')).map(l=>'<span class="d'+(l.t==='+'?'a':l.t==='-'?'r':'c')+'">'+memLEsc((l.t==='='?'  ':l.t+' ')+l.s)+'</span>').join('\n'):memLEsc(p.texto||'');
+  const edit=ed?'<div class="memledit"><label>A persona nova (o texto inteiro)<textarea class="in" id="le-b-'+id+'" data-leditb rows="8">'+memLEsc(ed.b)+'</textarea></label></div>':'';
+  return '<article class="memlcard" data-lid="'+id+'">'+
+    '<p class="memlsent">'+memLEsc(memLearnSentence(it))+'</p>'+
+    '<div class="memlsrc dim">da tarefa '+(it.taskTitle?'"'+memLEsc(it.taskTitle)+'"':memLEsc(it.taskId||''))+'</div>'+
+    edit+
+    '<div class="memlacts">'+(w?'<button class="btn sm primary" data-laccept="'+id+'" data-como="agente">Guardar pra '+memLEsc(w.name)+'</button>':'')+
+      (ed?'<button class="btn sm" data-ledit="'+id+'" data-off="1">cancelar edição</button>':'<button class="btn sm" data-ledit="'+id+'">Editar</button>')+'<button class="btn sm" data-ldiscard="'+id+'">Descartar</button></div>'+
+    '<details class="memldet"><summary>ver detalhes</summary>'+
+      '<div class="memlhd"><span class="membadge nota">persona nova</span>'+(w?' <span class="dim">· dono: '+memLEsc(w.id)+(it.papel?' ('+memLEsc(it.papel)+')':'')+'</span>':'')+'</div>'+
+      '<pre class="agf-diff memlbody">'+diff+'</pre>'+
+      (w?'<div class="memlwhy dim">guardar troca a persona de '+memLEsc(w.name)+' e cria uma versão nova (dá pra voltar com 1 clique). A retro só sugere isso pra quem já tem '+'10 tarefas medidas na versão atual.</div>':'')+
+    '</details>'+
+  '</article>';
+}
 function memLearnCard(it, o){
   o=o||{};
+  if(it && it.kind==='persona') return memPersonaCard(it, o);
   const sk=it.kind==='skill', d=sk?(it.skill||{}):(it.nota||{});
   const title=sk?(d.nome||''):(d.title||''), body=sk?(d.corpo||''):(d.body||'');
   const id=memLEsc(it.id), w=memLearnWho(it);
@@ -433,9 +456,9 @@ function learnWire(root, ctx){
     const id=b.dataset.ledit, it=find(id); if(!it) return;
     if(b.dataset.off){ delete LEARN_EDIT[id]; ctx.repaint(); return; }
     const sk=it.kind==='skill', d=sk?(it.skill||{}):(it.nota||{});
-    LEARN_EDIT[id]={ a:sk?(d.descricao||''):(d.title||''), b:sk?(d.corpo||''):(d.body||'') };
+    LEARN_EDIT[id]=it.kind==='persona'?{ a:'', b:(it.persona&&it.persona.texto)||'' }:{ a:sk?(d.descricao||''):(d.title||''), b:sk?(d.corpo||''):(d.body||'') };
     ctx.repaint();
-    const card=[...document.querySelectorAll('.memlcard')].find(c=>c.dataset.lid===id); const f=card&&card.querySelector('[data-ledita]'); if(f) f.focus();
+    const card=[...document.querySelectorAll('.memlcard')].find(c=>c.dataset.lid===id); const f=card&&card.querySelector('[data-ledita],[data-leditb]'); if(f) f.focus();
   });
   root.querySelectorAll('.memlcard').forEach(card=>{ const id=card.dataset.lid; const e=LEARN_EDIT[id]; if(!e) return;
     const a=card.querySelector('[data-ledita]'), bb=card.querySelector('[data-leditb]');
@@ -449,14 +472,16 @@ async function learnAct(ctx, id, act, btn){
   try{
     if(act==='descartar'){ await invoke('learn_discard',{ repo, id }); delete LEARN_EDIT[id]; if(typeof cicLearn!=='undefined') for(const k in cicLearn) delete cicLearn[k]; await ctx.after(repo, null); return; }
     const e=LEARN_EDIT[id]; let edited=null;
-    if(e && it){ edited=it.kind==='skill'?{ descricao:e.a, corpo:e.b }:{ title:e.a, body:e.b }; }
+    if(e && it){ edited=it.kind==='persona'?{ texto:e.b }:it.kind==='skill'?{ descricao:e.a, corpo:e.b }:{ title:e.a, body:e.b }; }
     const r=await invoke('learn_accept',{ repo, id, edited, como:act });
     delete LEARN_EDIT[id];
     if(typeof cicLearn!=='undefined') for(const k in cicLearn) delete cicLearn[k]; // a etapa Retro da tarefa relê a fila
     const w=act==='agente'?memLearnWho(it||{}):null;
-    const undo=r&&r.kind==='skill'?()=>memLearnRevert(repo, r.name, 'voltou logo depois de aceitar', ctx)
+    const undo=r&&r.kind==='persona'&&r.action==='persona'?async()=>{ try{ await invoke('agent_revert',{ agentId:r.agente, reason:'voltou logo depois de aceitar' }); toast('Voltou pra persona de antes — virou uma versão nova.','ok'); if(ctx&&ctx.after) await ctx.after(repo, null); }catch(err){ showErr(err, 'Não consegui voltar'); } }
+      :r&&r.kind==='skill'?()=>memLearnRevert(repo, r.name, 'voltou logo depois de aceitar', ctx)
       :(r&&r.action==='lembra'&&w)?()=>learnForget(repo, w.id, 'nota', id, 'voltou logo depois de aceitar', ctx, 'voltar'):null;
-    const msg=w?(w.name+' vai lembrar disso'+(r&&r.agentVersion?' (agora v'+r.agentVersion+')':'')+' — nas próximas tarefas, só '+w.name+' recebe isso.')
+    const msg=r&&r.kind==='persona'&&w?(w.name+(r.action==='unchanged'?' já trabalhava assim — nada mudou.':' mudou o jeito de trabalhar'+(r.agentVersion?' (agora v'+r.agentVersion+')':'')+' — dá pra voltar com 1 clique.'))
+      :w?(w.name+' vai lembrar disso'+(r&&r.agentVersion?' (agora v'+r.agentVersion+')':'')+' — nas próximas tarefas, só '+w.name+' recebe isso.')
       :r&&r.kind==='skill'?'Guardado no projeto — as próximas tarefas usam.'
       :r&&r.action==='unchanged'?'O cérebro já tinha isso — nada mudou.':'Guardado no cérebro do projeto'+(r&&r.action==='updated'?' (juntei com a nota de mesmo título)':'')+'.';
     toast(msg,'ok', undo?{ label:'voltar pro jeito antigo', fn:undo }:undefined);

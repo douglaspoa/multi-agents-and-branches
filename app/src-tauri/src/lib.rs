@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 mod agent_edits;
 mod agent_versions;
 mod agent_stats;
+mod amostra;
 mod curador;
 mod ambiente;
 mod device;
@@ -3392,6 +3393,8 @@ fn new_task(
     budget_usd: Option<f64>,
     // "terminal" | "auto" — ausente = o padrão de Configurações ("modo das tarefas"); piloto/ondas/épico mandam "auto"
     term_mode: Option<String>,
+    // F5 · P14: a política da organização (Empresa) lida da nuvem pelo app — o motor aplica (revisor, teto máximo, portão)
+    org_policy: Option<serde_json::Value>,
 ) -> Result<String, String> {
     // tolerante: lista de strings (números viram texto), wave numérica ou "2", hitl true/"true"
     let strs = |v: &Option<serde_json::Value>| -> Vec<String> {
@@ -3531,6 +3534,10 @@ fn new_task(
     if wave > 0 { args.push("--wave".to_string()); args.push(wave.to_string()); }
     push_opt(&mut args, "--risk", &risk);
     if hitl { args.push("--hitl".to_string()); }
+    if let Some(p) = org_policy.as_ref().filter(|p| p.is_object()) {
+        args.push("--org-policy".to_string());
+        args.push(p.to_string());
+    }
     // MODO DA TAREFA: terminal só pra motor com CLI interativo oficial (claude/codex); o resto segue automático
     let ek = args.iter().position(|a| a == "--engine").and_then(|i| args.get(i + 1)).map(|e| e.to_lowercase()).unwrap_or_default();
     let mode = term_mode.filter(|m| m == "terminal" || m == "auto").unwrap_or_else(|| term::default_mode().to_string());
@@ -9736,6 +9743,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_repo,
             learn::learn_revert,
+            learn::learn_check_text,
+            learn::learn_import,
+            amostra::agent_sample_review,
+            amostra::agent_samples,
             learn::learn_history,
             agent_revert,
             agent_restore_persona,

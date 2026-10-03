@@ -155,6 +155,30 @@
 .curgone ul{margin:6px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
 .curgone li{line-height:1.6}
 
+/* ---- F5 · P14: política da organização (seção da aba) ---- */
+.agpol-r{margin:6px 0 10px;padding-left:18px;display:flex;flex-direction:column;gap:3px;font-size:var(--fs-base);color:var(--text);line-height:1.5;max-width:75ch}
+.agpol-f{display:flex;flex-direction:column;gap:8px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);padding:12px 14px;max-width:640px}
+.agpol-c{display:flex;align-items:flex-start;gap:8px;font-size:var(--fs-sm);color:var(--text);line-height:1.45;cursor:pointer}
+.agpol-c input{margin-top:3px;accent-color:var(--accent)}
+.agpol-l{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;font-size:var(--fs-sm);color:var(--text-2)}
+.agpol-n{width:120px}
+.agpol-a{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px}
+.agpol-who{margin:4px 0 0;font-size:var(--fs-sm)}
+.agwarn.agpol-b{border-left:3px solid var(--crit)}
+/* ---- F5 · P17: itens do time na ficha ---- */
+.agorg-by{margin:3px 0 0;font-size:var(--fs-xs)}
+.agorg-h4{margin:12px 0 6px;font-size:var(--fs-sm);font-weight:600;color:var(--text-2)}
+/* ---- F5 · P15: testar numa amostra ---- */
+.agsmp-pick{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;margin-top:8px}
+.agsmp-pick label{font-size:var(--fs-sm);color:var(--text-2)}
+.agsmp-pick .sel{max-width:min(420px,100%)}
+.agsmp-cost{margin:6px 0 0;font-size:var(--fs-sm);font-variant-numeric:tabular-nums}
+.agsmp-run{margin:8px 0 0;font-size:var(--fs-sm);color:var(--text);padding:7px 10px;border-radius:var(--r-xs,6px);background:var(--surface-2,var(--surface))}
+.agsmp-l{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.agsmp-l>li{border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);padding:10px 12px}
+.agsmp-l .agf-ls{margin:0}
+.agsmp-l .dim{margin:3px 0 0;font-size:var(--fs-xs);font-variant-numeric:tabular-nums}
+
 @container meutime (max-width:560px){
   .aggrid2{grid-template-columns:1fr}
   .agf-h{align-items:flex-start}
@@ -165,4 +189,4 @@
   .agba thead th:first-child{width:30%}
 }
 @media (prefers-reduced-motion:reduce){ .agcard-b{transition:none} }
-#agOverlay [data-wshare][hidden]{display:none!important} /* F5: compartilhar volta com a política da org */
+#agOverlay [data-wshare][hidden]{display:none!important} /* F5: compartilhar só pra admin de org paga, passando pela política */

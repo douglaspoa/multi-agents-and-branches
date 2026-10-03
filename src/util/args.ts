@@ -25,6 +25,8 @@ export const TEXT_FLAGS = new Set([
   "idea", "dir", "name", "platform", "parallel", "attempts", "budget-usd", "plan",
   // modo terminal (src/terminal.ts)
   "starfork-task", "term-mode", "deliver",
+  // F5: política da organização (P14) e teto da amostra (P15)
+  "org-policy", "cap",
 ]);
 
 /** Flags SEM valor (booleanas). */

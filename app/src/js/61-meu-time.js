@@ -231,6 +231,10 @@ async function agFichaLoad(){
   try{
     // o curador não segura a ficha: pinta quando chegar (1×/dia; o resto do dia é só um arquivo)
     if(typeof curLoad==='function') curLoad(repo).then(()=>{ if(AGF.id===id && AGF.tab==='aprendizados' && agVisible()) agFichaRender(); }).catch(()=>{});
+    // F5: amostras guardadas (P15) e o que o time compartilhou (P17) — lidos UMA vez ao abrir, sem segurar a ficha
+    const later=()=>{ if(AGF.id===id && AGF.tab==='aprendizados' && agVisible()) agFichaRender(); };
+    if(typeof sampleLoad==='function') sampleLoad(repo, id).then(later).catch(()=>{});
+    if(typeof orgTeamLoad==='function') orgTeamLoad(id).then(later).catch(()=>{});
     const [card, pend]=await Promise.all([ invoke('agent_card',{ repo, agentId:id }), invoke('learn_pending',{ repo }).catch(()=>[]) ]);
     if(AGF.id!==id) return;
     AGF.card=card||{}; AGF.pend=(pend||[]).filter(p=>String(p.agente||'')===id);
@@ -296,6 +300,7 @@ function agLearnTabHtml(a){
     <div class="agf-la"><span class="agf-lv" title="cada aceite vira uma versão — dá pra voltar">${esc(verTx)}</span>
     <button class="btn sm" data-agback="${escA(k)}" data-key="${escA(key)}">voltar pro jeito antigo</button>
     <button class="btn sm" data-agforget="${escA(k)}" data-key="${escA(key)}">esquecer</button>
+    ${typeof orgShareBtn==='function'?orgShareBtn(k, key):''}
     </div>${agBaBlock(a, ver(k, key, at), 'isso ajudou? ', { back:{ k, key } })}
     <details class="agf-det"><summary>ver detalhes</summary>${det}</details></li>`;
   const art=(MEM_ART[a.id]||'');
@@ -316,7 +321,10 @@ function agLearnTabHtml(a){
   const goneN=goneU.length+arqSk.length;
   const forgotten=goneN?`<details class="agf-det"><summary>esquecidas (${goneN})</summary><ul class="agf-gone">${goneU.map(n=>`<li>${esc(n.title)}${n.forgetReason?` — <span class="dim">${esc(n.forgetReason)}</span>`:''} <button class="btn sm" data-currestore="nota" data-key="${escA(n.id)}" data-owner="${escA(a.id)}">restaurar</button></li>`).join('')}${arqSk.map(x=>`<li>um jeito de fazer: ${esc(String(x.key).replace(/-/g,' '))}${x.reason?` — <span class="dim">${esc(x.reason)}</span>`:''} <button class="btn sm" data-currestore="skill" data-key="${escA(x.key)}" data-owner="${escA(a.id)}">restaurar</button></li>`).join('')}</ul></details>`:'';
   const cur=typeof curHtml==='function'?curHtml(a.id, { name:a.name }):'';
-  return agBaSection(a)+cur+pendH+remembered+forgotten;
+  // F5: P15 (só revisor) e P17 (itens do time, só com nuvem paga) — cada um some sozinho quando não vale
+  const smp=typeof sampleSectionHtml==='function'?sampleSectionHtml(a):'';
+  const team=typeof orgTeamLearnHtml==='function'?orgTeamLearnHtml(a):'';
+  return agBaSection(a)+smp+cur+pendH+remembered+team+forgotten;
 }
 // ---------------------------------------------------------------- P12: antes × depois na ficha
 // o tipo de tarefa da comparação: o escolhido, ou o que tem mais comparação; nunca "todos misturados"
@@ -405,6 +413,8 @@ function agFichaWire(host, a, i){
   });
   host.querySelectorAll('[data-agbakind]').forEach(b=>b.onclick=()=>{ AGF.kind=b.dataset.agbakind; agFichaRender(); const n=host.querySelector(`[data-agbakind="${b.dataset.agbakind}"]`); if(n&&n.focus) n.focus(); });
   if(typeof curWire==='function') curWire(host, { repo:()=>repo, after:async()=>{ await Promise.all([agFichaLoad(), agStatsLoad()]); } });
+  if(typeof orgTeamWire==='function') orgTeamWire(host, a, async(reload)=>{ if(reload) await agFichaLoad(); else agFichaRender(); });
+  if(typeof sampleWire==='function') sampleWire(host, a, agFichaRender);
   host.querySelectorAll('[data-agforget]').forEach(b=>b.onclick=async()=>{
     if(!await askYes((a.name||'O agente')+' vai esquecer isso nas próximas tarefas.\n\nNada é apagado: fica no histórico, e dá pra recuperar.')) return;
     await learnForget(repo, a.id, b.dataset.agforget, b.dataset.key, 'esquecido pela ficha', ctx);
@@ -460,7 +470,7 @@ function renderTeams(){
   el.innerHTML=AG_READY_KINDS.map(k=>{ const roles=agReadyRoles(k); const ws=agTeamWarnings(roles);
     return `<article class="agteam"><header class="agteam-h"><b>${esc(KIND_TEAM[k])}</b><span class="dim">${esc(KIND_LABEL[k])} · ${esc(roles.map(r=>r.name).join(' → '))}</span></header>
       ${roles.length?agStripFor(roles):'<p class="dim">faltam agentes no catálogo pra esta equipe</p>'}
-      ${ws.map(w=>`<p class="agwarn" role="note">${esc(w.text)} (${esc(w.detail)})</p>`).join('')}</article>`; }).join('');
+      ${ws.map(w=>`<p class="agwarn" role="note">${esc(w.text)} (${esc(w.detail)})</p>`).join('')}${typeof orgPolIssuesHtml==='function'?orgPolIssuesHtml(roles):''}</article>`; }).join('');
   el.querySelectorAll('[data-cicst]').forEach(b=>{ b.tabIndex=-1; b.setAttribute('aria-disabled','true'); });
 }
 // teclado na grade: setas movem o foco entre os cartões (padrão de 54-acessibilidade), Enter abre a ficha

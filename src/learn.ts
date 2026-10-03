@@ -27,19 +27,25 @@ export const RETRO_MODELS: { id: string; label: string }[] = [
 ];
 export const MAX_NOTAS = 3;
 export const MAX_SKILLS = 2;
+/** F5: persona sugerida pela retro — reaberta só com a P12 madura (n ≥ 10 tarefas no portão na versão atual), 1 por retro */
+export const PERSONA_MIN_N = 10;
+export const MAX_PERSONAS = 1;
 
 /** `dono`: o que a retro disse sobre quem é o dono (id/nome de alguém da equipe ou "projeto") — só existe na saída do
  * parseRetro; o orquestrador valida com `retroOwner` e tira do item antes de enfileirar. */
 export interface RetroNota { title: string; type: string; tags: string[]; body: string; dono?: string }
 export interface RetroSkill { acao: "criar" | "atualizar"; nome: string; descricao: string; corpo: string; porque: string; dono?: string }
+/** F5: a persona NOVA inteira (texto completo) + por quê; `antes` = a persona do catálogo quando a retro sugeriu. */
+export interface RetroPersona { texto: string; porque: string; antes?: string; dono?: string }
 export interface PendingItem {
   id: string;
-  kind: "nota" | "skill";
+  kind: "nota" | "skill" | "persona";
   taskId: string;
   taskTitle: string;
   createdAt: number;
   nota?: RetroNota;
   skill?: RetroSkill;
+  persona?: RetroPersona;
   /** agente DONO do aprendizado (id do catálogo). Com dono: aceitar cria nova versão do agente; o modo `auto` nunca aplica. */
   agente?: string;
   /** papel do dono (ex.: "reviewer") */
@@ -99,7 +105,8 @@ export function rejectReason(text: string): "segredo" | "injeção" | null {
 }
 
 /** Todo o texto de um item (o filtro passa por todos os campos). */
-export function itemText(it: { nota?: RetroNota; skill?: RetroSkill }): string {
+export function itemText(it: { nota?: RetroNota; skill?: RetroSkill; persona?: RetroPersona }): string {
+  if (it.persona) return [it.persona.texto, it.persona.porque].join("\n");
   if (it.nota) return [it.nota.title, it.nota.type, ...(it.nota.tags ?? []), it.nota.body].join("\n");
   if (it.skill) return [it.skill.nome, it.skill.descricao, it.skill.corpo, it.skill.porque].join("\n");
   return "";
@@ -124,6 +131,8 @@ export interface RetroCtx {
   team?: TeamMember[];
   /** P9: o que a revisão devolveu, com quem produziu (o sinal de "de quem é a lição") */
   reviewAsks?: string[];
+  /** F5: agentes da equipe com P12 madura (n ≥ 10 no portão na versão atual) — só eles podem ganhar sugestão de persona */
+  personaAgents?: { agentId: string; name: string; n: number; persona: string }[];
 }
 export interface TeamMember { agentId: string; name: string; role: string }
 
@@ -159,10 +168,14 @@ export function retroPrompt(ctx: RetroCtx): string {
     `- NUNCA inclua segredos, chaves, senhas ou valores de .env.\n` +
     `- Se não há nada que valha, responda {"notas":[],"skills":[]} — é uma resposta válida e comum.\n` +
     `- DONO: em cada nota e skill ponha "agente" com o id de quem da equipe deve lembrar disso (a lição é sobre como ESSE papel trabalha — ex.: o que a revisão devolveu é lição de quem construiu) ou "projeto" quando é um fato do projeto que vale pra todos.\n` +
-    `- NUNCA proponha mudar a persona, o modelo ou o motor de um agente — só notas e skills.\n\n` +
+    (ctx.personaAgents?.length
+      ? `- PERSONA: só estes agentes têm histórico suficiente pra medir uma mudança de persona: ${ctx.personaAgents.map((a) => `${a.agentId} (${clip(a.name, 40)}, ${a.n} tarefas na versão atual)`).join(", ")}. Se as correções e a revisão mostram um padrão de COMPORTAMENTO dele (não um fato do projeto), proponha NO MÁXIMO ${MAX_PERSONAS} persona nova em "personas": o texto COMPLETO revisado (mantenha o que já funciona) e o porquê. Na dúvida, não proponha. Nunca mude modelo nem motor.\n` +
+        ctx.personaAgents.map((a) => `\n### Persona atual de ${a.agentId}\n${clip(a.persona, 2000) || "(vazia)"}\n`).join("") + "\n"
+      : `- NUNCA proponha mudar a persona, o modelo ou o motor de um agente — só notas e skills.\n\n`) +
     `Responda SÓ um JSON:\n` +
     `{"notas":[{"title":"título curto e geral","type":"decisão|regra|gotcha|contexto|glossário","tags":["tema"],"body":"...","agente":"id da equipe ou projeto"}],` +
-    `"skills":[{"acao":"criar|atualizar","agente":"id da equipe ou projeto","nome":"nome-em-kebab-case","descricao":"quando usar (gatilho), 1 frase","corpo":"## Quando usar\\n...\\n## Passo a passo\\n...\\n## Armadilhas\\n...\\n## Verificação\\n...","porque":"o que nesta tarefa mostrou isso"}]}`
+    `"skills":[{"acao":"criar|atualizar","agente":"id da equipe ou projeto","nome":"nome-em-kebab-case","descricao":"quando usar (gatilho), 1 frase","corpo":"## Quando usar\\n...\\n## Passo a passo\\n...\\n## Armadilhas\\n...\\n## Verificação\\n...","porque":"o que nesta tarefa mostrou isso"}]` +
+    (ctx.personaAgents?.length ? `,"personas":[{"agente":"id de um dos agentes acima","persona":"texto COMPLETO da persona nova","porque":"o padrão que as correções mostraram, 1 frase"}]}` : `}`)
   );
 }
 
@@ -216,13 +229,23 @@ export function retroOwner(dono: string | undefined, team: TeamMember[] | undefi
 const fold = (s: string | undefined) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
 
 /** Saída da retro → propostas válidas dentro dos limites. Lixo/vazio → listas vazias. */
-export function parseRetro(text: string): { notas: RetroNota[]; skills: RetroSkill[] } {
+function personaFrom(o: any): RetroPersona | null {
+  if (!o || typeof o !== "object") return null;
+  const texto = String(o.persona ?? o.texto ?? "").trim();
+  const porque = String(o.porque ?? "").replace(/\s+/g, " ").trim().slice(0, 400);
+  const dono = String(o.agente ?? o.dono ?? "").trim();
+  if (texto.length < 20 || texto.length > 4000 || porque.length < 8 || !dono) return null;
+  return { texto, porque, dono };
+}
+
+export function parseRetro(text: string): { notas: RetroNota[]; skills: RetroSkill[]; personas: RetroPersona[] } {
   const j = retroJson(String(text ?? ""));
-  let notasRaw: unknown[] = [], skillsRaw: unknown[] = [];
+  let notasRaw: unknown[] = [], skillsRaw: unknown[] = [], personasRaw: unknown[] = [];
   if (Array.isArray(j)) notasRaw = j; // formato antigo do destilador: só notas
   else if (j && typeof j === "object") {
     notasRaw = Array.isArray((j as any).notas) ? (j as any).notas : [];
     skillsRaw = Array.isArray((j as any).skills) ? (j as any).skills : [];
+    personasRaw = Array.isArray((j as any).personas) ? (j as any).personas : [];
   }
   const notas = notasRaw.map(notaFrom).filter((x): x is RetroNota => !!x).slice(0, MAX_NOTAS);
   const seen = new Set<string>();
@@ -231,7 +254,8 @@ export function parseRetro(text: string): { notas: RetroNota[]; skills: RetroSki
     seen.add(x.nome);
     return true;
   }).slice(0, MAX_SKILLS);
-  return { notas, skills };
+  const personas = personasRaw.map(personaFrom).filter((x): x is RetroPersona => !!x).slice(0, MAX_PERSONAS);
+  return { notas, skills, personas };
 }
 
 // ---------------------------------------------------------------------------
@@ -406,8 +430,8 @@ export function readPending(cardumeDir: string): PendingItem[] {
 }
 
 /** Id estável: mesma proposta da mesma tarefa → mesmo id (não duplica na fila). */
-export function pendingId(it: { kind: string; taskId: string; nota?: RetroNota; skill?: RetroSkill }): string {
-  const key = it.nota ? `${it.nota.title}\n${it.nota.body}` : it.skill ? `${it.skill.acao}\n${it.skill.nome}\n${it.skill.corpo}` : "";
+export function pendingId(it: { kind: string; taskId: string; nota?: RetroNota; skill?: RetroSkill; persona?: RetroPersona; agente?: string }): string {
+  const key = it.nota ? `${it.nota.title}\n${it.nota.body}` : it.skill ? `${it.skill.acao}\n${it.skill.nome}\n${it.skill.corpo}` : it.persona ? `${it.agente ?? ""}\n${it.persona.texto}` : "";
   return createHash("sha1").update(`${it.kind}\n${it.taskId}\n${key}`).digest("hex").slice(0, 16);
 }
 
