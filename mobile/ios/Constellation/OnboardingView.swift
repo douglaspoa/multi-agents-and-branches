@@ -94,7 +94,7 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     if let back {
                         Button { go(back) } label: {
-                            Text("← \(backLabel)").font(.system(size: 14)).foregroundStyle(T.dim)
+                            Text("← \(backLabel)").font(.ui(14)).foregroundStyle(T.dim)
                         }.buttonStyle(.plain)
                     }
                     body()
@@ -112,16 +112,16 @@ struct OnboardingView: View {
         Text("PASSO \(n) DE 3").font(.mono(10, .medium)).kerning(1.6).foregroundStyle(T.accent)
     }
     private func h2(_ t: String) -> some View {
-        Text(t).font(.system(size: 30, weight: .semibold)).kerning(-0.75).foregroundStyle(T.text)
+        Text(t).font(.ui(30, .semibold)).kerning(-0.75).foregroundStyle(T.text)
             .fixedSize(horizontal: false, vertical: true)
     }
     private func p(_ t: String) -> some View {
-        Text(t).font(.system(size: 14.5)).foregroundStyle(T.dim).lineSpacing(3)
+        Text(t).font(.ui(14.5)).foregroundStyle(T.dim).lineSpacing(3)
             .fixedSize(horizontal: false, vertical: true)
     }
     @ViewBuilder private var msgView: some View {
         if !msg.isEmpty {
-            Text(msg).font(.system(size: 13)).foregroundStyle(ok ? T.accent : T.warn)
+            Text(msg).font(.ui(13)).foregroundStyle(ok ? T.accent : T.warn)
                 .padding(11).frame(maxWidth: .infinity, alignment: .leading)
                 .background((ok ? T.accent : T.warn).opacity(0.08))
                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -131,7 +131,7 @@ struct OnboardingView: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if busy { ProgressView().tint(T.onAccent) }
-                Text(busy ? "um instante…" : label).font(.system(size: 15, weight: .semibold))
+                Text(busy ? "um instante…" : label).font(.ui(15, .semibold))
             }
             .frame(maxWidth: .infinity).frame(height: 50)
             .background(enabled && !busy ? T.accent : T.panel)
@@ -143,7 +143,7 @@ struct OnboardingView: View {
         .disabled(!enabled || busy)
     }
     private func link(_ label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Text(label).font(.system(size: 13)).foregroundStyle(T.accent) }.buttonStyle(.plain)
+        Button(action: action) { Text(label).font(.ui(13)).foregroundStyle(T.accent) }.buttonStyle(.plain)
     }
 
     // MARK: - Boas-vindas
@@ -154,10 +154,10 @@ struct OnboardingView: View {
                 HStack { Spacer(); OrbitIcon(glyph: "S", size: 58); Spacer() }.padding(.top, 26)
                 VStack(spacing: 10) {
                     Text("STARFORK").font(.mono(10, .medium)).kerning(2.2).foregroundStyle(T.accent.opacity(0.8))
-                    Text("Sua equipe de agentes,\nno bolso").font(.system(size: 30, weight: .semibold)).kerning(-0.75)
+                    Text("Sua equipe de agentes,\nno bolso").font(.ui(30, .semibold)).kerning(-0.75)
                         .foregroundStyle(T.text).multilineTextAlignment(.center)
                     Text("Você escreve a demanda daqui. O Mac executa, testa e abre o PR sozinho.")
-                        .font(.system(size: 14.5)).foregroundStyle(T.dim).multilineTextAlignment(.center).lineSpacing(3)
+                        .font(.ui(14.5)).foregroundStyle(T.dim).multilineTextAlignment(.center).lineSpacing(3)
                 }.frame(maxWidth: .infinity)
                 VStack(spacing: 8) {
                     feature("Escreva a demanda em 30 segundos, com requisitos claros")
@@ -168,13 +168,13 @@ struct OnboardingView: View {
         } cta: {
             primary("Criar conta") { go(.signup) }
             OutlineButton(label: "Já tenho conta", height: 48, full: true) { go(.login) }
-            Text("Ao continuar você aceita os termos e a privacidade.").font(.system(size: 11)).foregroundStyle(T.dim2)
+            Text("Ao continuar você aceita os termos e a privacidade.").font(.ui(11)).foregroundStyle(T.dim2)
         }
     }
     private func feature(_ t: String) -> some View {
         HStack(spacing: 12) {
-            Text("◆").font(.system(size: 10)).foregroundStyle(T.accent)
-            Text(t).font(.system(size: 13.5)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
+            Text("◆").font(.ui(10)).foregroundStyle(T.accent)
+            Text(t).font(.ui(13.5)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }.card(radius: 14, pad: 14)
     }
@@ -206,12 +206,12 @@ struct OnboardingView: View {
                     }
                 }
                 Text(pass.isEmpty ? "use 8+ caracteres" : strength >= 3 ? "senha forte" : strength == 2 ? "razoável — misture números e símbolos" : "fraca — use 8+ caracteres")
-                    .font(.system(size: 11.5)).foregroundStyle(T.dim2)
+                    .font(.ui(11.5)).foregroundStyle(T.dim2)
             }
         } cta: {
             primary("Continuar", enabled: signupOk) { Task { await doSignup() } }
             HStack(spacing: 4) {
-                Text("Já tem conta?").font(.system(size: 12.5)).foregroundStyle(T.dim)
+                Text("Já tem conta?").font(.ui(12.5)).foregroundStyle(T.dim)
                 link("entrar") { go(.login) }
             }
         }
@@ -233,7 +233,7 @@ struct OnboardingView: View {
             OutlineButton(label: "Enviar link mágico por e-mail", height: 46, full: true) { Task { await doMagic() } }
                 .disabled(!email.contains("@")).opacity(email.contains("@") ? 1 : 0.5)
             HStack(spacing: 4) {
-                Text("Ainda não tem conta?").font(.system(size: 12.5)).foregroundStyle(T.dim)
+                Text("Ainda não tem conta?").font(.ui(12.5)).foregroundStyle(T.dim)
                 link("criar agora") { go(.signup) }
             }
         }
@@ -247,10 +247,10 @@ struct OnboardingView: View {
                 OrbitIcon(glyph: "✦", size: 44).padding(.top, 30)
                 if confirmType == "signup" { stepKicker(2) }
                 Text(confirmType == "recovery" ? "Código de recuperação" : "Confirme o e-mail")
-                    .font(.system(size: 28, weight: .semibold)).kerning(-0.6).foregroundStyle(T.text).multilineTextAlignment(.center)
+                    .font(.ui(28, .semibold)).kerning(-0.6).foregroundStyle(T.text).multilineTextAlignment(.center)
                 VStack(spacing: 3) {
                     Text("Mandamos um código de 6 dígitos de \(confirmType == "recovery" ? "recuperação" : confirmType == "magiclink" ? "acesso" : "confirmação") para")
-                        .font(.system(size: 14.5)).foregroundStyle(T.dim).multilineTextAlignment(.center)
+                        .font(.ui(14.5)).foregroundStyle(T.dim).multilineTextAlignment(.center)
                     Text(email).font(.mono(13.5, .medium)).foregroundStyle(T.text)
                 }
                 msgView
@@ -258,9 +258,9 @@ struct OnboardingView: View {
                 TimelineView(.periodic(from: .now, by: 1)) { ctx in
                     let left = max(0, Int(resendAt.timeIntervalSince(ctx.date).rounded(.up)))
                     HStack(spacing: 4) {
-                        Text("não chegou?").font(.system(size: 13)).foregroundStyle(T.dim)
+                        Text("não chegou?").font(.ui(13)).foregroundStyle(T.dim)
                         if left > 0 {
-                            Text(String(format: "reenviar em 0:%02d", left)).font(.system(size: 13)).foregroundStyle(T.accent.opacity(0.7))
+                            Text(String(format: "reenviar em 0:%02d", left)).font(.ui(13)).foregroundStyle(T.accent.opacity(0.7))
                         } else {
                             link("reenviar código") { Task { await doResend() } }
                         }
@@ -364,7 +364,7 @@ struct OnboardingView: View {
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 3) {
                         fieldLabel("Assentos")
-                        Text("quem escreve demanda no time").font(.system(size: 11.5)).foregroundStyle(T.dim2)
+                        Text("quem escreve demanda no time").font(.ui(11.5)).foregroundStyle(T.dim2)
                     }
                     Spacer()
                     HStack(spacing: 0) {
@@ -378,11 +378,11 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     fieldLabel("Total")
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(brl(total)).font(.system(size: 26, weight: .semibold)).kerning(-0.5).foregroundStyle(T.text)
-                        Text("/mês").font(.system(size: 13)).foregroundStyle(T.dim)
+                        Text(brl(total)).font(.ui(26, .semibold)).kerning(-0.5).foregroundStyle(T.text)
+                        Text("/mês").font(.ui(13)).foregroundStyle(T.dim)
                     }
                     Text((perSeat(planKey) && seatsOf(planKey) > 1 ? "\(seatsOf(planKey)) assentos × \(brl(price(planKey, interval))) por mês · " : "") + "custo de modelo à parte" + (interval == "year" ? " · cobrado anualmente" : ""))
-                        .font(.system(size: 11.5)).foregroundStyle(T.dim2)
+                        .font(.ui(11.5)).foregroundStyle(T.dim2)
                 }.card(radius: 14)
             }
         } cta: {
@@ -393,7 +393,7 @@ struct OnboardingView: View {
             } else {
                 primary("Continuar para o pagamento", enabled: !supa.plans.isEmpty) { go(.pay) }
                 Text(supa.plans.isEmpty ? "cobrança ainda não ativada neste backend" : "\(trialDays) dias grátis · cancele quando quiser")
-                    .font(.system(size: 11.5)).foregroundStyle(T.dim2)
+                    .font(.ui(11.5)).foregroundStyle(T.dim2)
             }
         }
         .task { if supa.plans.isEmpty { await supa.checkBilling() } }
@@ -401,7 +401,7 @@ struct OnboardingView: View {
     private func seg(_ t: String, badge: String? = nil, on: Bool, _ a: @escaping () -> Void) -> some View {
         Button(action: a) {
             HStack(spacing: 6) {
-                Text(t).font(.system(size: 14, weight: .semibold))
+                Text(t).font(.ui(14, .semibold))
                 if let badge { Text(badge).font(.mono(10, .bold)).padding(.horizontal, 5).padding(.vertical, 2).background(T.accent.opacity(on ? 0.25 : 0.14)).foregroundStyle(T.accent).clipShape(Capsule()) }
             }
             .foregroundStyle(on ? T.onAccent : T.text2)
@@ -411,7 +411,7 @@ struct OnboardingView: View {
     }
     private func stepBtn(_ t: String, _ a: @escaping () -> Void) -> some View {
         Button(action: a) {
-            Text(t).font(.system(size: 18, weight: .semibold)).foregroundStyle(T.text)
+            Text(t).font(.ui(18, .semibold)).foregroundStyle(T.text)
                 .frame(width: 38, height: 38).background(Color.white.opacity(0.06)).overlay(RoundedRectangle(cornerRadius: 10).stroke(T.line)).clipShape(RoundedRectangle(cornerRadius: 10))
         }.buttonStyle(.plain)
     }
@@ -427,18 +427,18 @@ struct OnboardingView: View {
                     }
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 8) {
-                            Text(d.name).font(.system(size: 18, weight: .semibold)).foregroundStyle(T.text)
+                            Text(d.name).font(.ui(18, .semibold)).foregroundStyle(T.text)
                             if d.hot { Text("MAIS USADO").font(.mono(9, .bold)).kerning(0.8).padding(.horizontal, 7).padding(.vertical, 3).background(T.accent).foregroundStyle(T.onAccent).clipShape(RoundedRectangle(cornerRadius: 6)) }
                         }
-                        Text(d.who).font(.system(size: 12)).foregroundStyle(T.dim)
+                        Text(d.who).font(.ui(12)).foregroundStyle(T.dim)
                     }
                     Spacer(minLength: 6)
                     VStack(alignment: .trailing, spacing: 2) {
                         if ent {
-                            Text("sob consulta").font(.system(size: 15, weight: .semibold)).foregroundStyle(T.text)
+                            Text("sob consulta").font(.ui(15, .semibold)).foregroundStyle(T.text)
                             Text("fale com vendas").font(.mono(10)).foregroundStyle(T.dim2)
                         } else {
-                            Text(brl(price(d.key, interval))).font(.system(size: 24, weight: .semibold)).kerning(-0.5).foregroundStyle(on ? T.accent : T.text)
+                            Text(brl(price(d.key, interval))).font(.ui(24, .semibold)).kerning(-0.5).foregroundStyle(on ? T.accent : T.text)
                             Text(perSeat(d.key) || d.key != "team" ? "por \(d.key == "team" ? "assento" : "pessoa")/mês" : "por time/mês").font(.mono(10)).foregroundStyle(T.dim2)
                         }
                     }
@@ -447,8 +447,8 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(d.feats, id: \.self) { f in
                         HStack(alignment: .top, spacing: 9) {
-                            Text("◆").font(.system(size: 9)).foregroundStyle(on ? T.accent : T.dim2).padding(.top, 3)
-                            Text(f).font(.system(size: 13)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
+                            Text("◆").font(.ui(9)).foregroundStyle(on ? T.accent : T.dim2).padding(.top, 3)
+                            Text(f).font(.ui(13)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -470,19 +470,19 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Circle().fill(T.accent).frame(width: 8, height: 8)
-                    Text("\(def?.name ?? planKey) · \(interval == "year" ? "anual" : "mensal")").font(.system(size: 15, weight: .semibold)).foregroundStyle(T.text)
+                    Text("\(def?.name ?? planKey) · \(interval == "year" ? "anual" : "mensal")").font(.ui(15, .semibold)).foregroundStyle(T.text)
                 }
                 if perSeat(planKey) { sumRow("Assento", "\(brl(price(planKey, interval)))/mês") }
                 sumRow("Assentos", "\(seatsOf(planKey))")
                 sumRow("Após o teste", "\(brl(total))/\(interval == "year" ? "mês (anual)" : "mês")")
                 Rectangle().fill(T.line).frame(height: 1)
-                HStack { Text("Cobrado hoje").font(.system(size: 14)).foregroundStyle(T.text2); Spacer(); Text("R$ 0,00").font(.system(size: 18, weight: .semibold)).foregroundStyle(T.accent) }
+                HStack { Text("Cobrado hoje").font(.ui(14)).foregroundStyle(T.text2); Spacer(); Text("R$ 0,00").font(.ui(18, .semibold)).foregroundStyle(T.accent) }
                 Text("Primeira cobrança em \(df.string(from: first)). Custo de modelo é medido por tarefa e cobrado no mês seguinte.")
-                    .font(.system(size: 11.5)).foregroundStyle(T.dim2).fixedSize(horizontal: false, vertical: true)
+                    .font(.ui(11.5)).foregroundStyle(T.dim2).fixedSize(horizontal: false, vertical: true)
             }.card(radius: 16, pad: 16)
             HStack(spacing: 6) {
                 ForEach(["Cartão", "Pix", "Boleto/NF"], id: \.self) { m in
-                    Text(m).font(.system(size: 12.5, weight: .medium)).foregroundStyle(T.text2)
+                    Text(m).font(.ui(12.5, .medium)).foregroundStyle(T.text2)
                         .padding(.horizontal, 12).frame(height: 32).background(T.panel).overlay(Capsule().stroke(T.line)).clipShape(Capsule())
                 }
             }
@@ -491,18 +491,18 @@ struct OnboardingView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 8) { ProgressView().tint(T.accent); Text("esperando a confirmação da Stripe…").font(.mono(12)).foregroundStyle(T.accent) }
                     HStack(spacing: 4) {
-                        Text("Concluiu o pagamento? O app reconhece sozinho.").font(.system(size: 12)).foregroundStyle(T.dim)
+                        Text("Concluiu o pagamento? O app reconhece sozinho.").font(.ui(12)).foregroundStyle(T.dim)
                         link("verificar agora") { Task { await recheck(silent: false) } }
                     }
                 }.card(radius: 14, stroke: T.accent.opacity(0.3), fill: T.accent.opacity(0.05))
             }
         } cta: {
             primary("Começar teste de \(trialDays) dias") { Task { await doCheckout() } }
-            Text("Sem cobrança agora. Avisamos 3 dias antes de renovar.").font(.system(size: 11.5)).foregroundStyle(T.dim2)
+            Text("Sem cobrança agora. Avisamos 3 dias antes de renovar.").font(.ui(11.5)).foregroundStyle(T.dim2)
         }
     }
     private func sumRow(_ l: String, _ v: String) -> some View {
-        HStack { Text(l).font(.system(size: 13.5)).foregroundStyle(T.dim); Spacer(); Text(v).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(T.text) }
+        HStack { Text(l).font(.ui(13.5)).foregroundStyle(T.dim); Spacer(); Text(v).font(.ui(13.5, .semibold)).foregroundStyle(T.text) }
     }
 
     // MARK: - Pronto
@@ -514,9 +514,9 @@ struct OnboardingView: View {
         return frame {
             VStack(spacing: 14) {
                 OrbitIcon(glyph: "✓", size: 58).padding(.top, 36)
-                Text("Estrela acesa").font(.system(size: 30, weight: .semibold)).kerning(-0.75).foregroundStyle(T.text)
+                Text("Estrela acesa").font(.ui(30, .semibold)).kerning(-0.75).foregroundStyle(T.text)
                 Text((b?.status == "trialing" ? "Teste de \(trialDays) dias começou. " : "") + seatsTxt)
-                    .font(.system(size: 14.5)).foregroundStyle(T.dim).multilineTextAlignment(.center)
+                    .font(.ui(14.5)).foregroundStyle(T.dim).multilineTextAlignment(.center)
             }.frame(maxWidth: .infinity)
             VStack(spacing: 8) {
                 stepRow(1, T.accent, "Parear com o Mac que executa as tarefas")
@@ -530,7 +530,7 @@ struct OnboardingView: View {
     private func stepRow(_ n: Int, _ c: Color, _ t: String) -> some View {
         HStack(spacing: 12) {
             Text("\(n)").font(.mono(12, .bold)).foregroundStyle(T.onAccent).frame(width: 28, height: 28).background(c).clipShape(RoundedRectangle(cornerRadius: 8))
-            Text(t).font(.system(size: 13.5)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
+            Text(t).font(.ui(13.5)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }.card(radius: 14)
     }

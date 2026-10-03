@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Tela 01 — Central: a fila na ordem em que ela te cobra.
-/// Conexão e Mac no topo (honesto), filtro de projeto, ESPERAM VOCÊ (teto · perguntas · entregas com o
-/// portão de prova), EM ÓRBITA (agentes rodando), PR aberto e concluídas hoje. Dados da sincronia única.
+/// Central — a fila na ordem em que ela te cobra (mesma decisão da barra lateral do desktop):
+/// ESPERANDO VOCÊ primeiro (perguntas · teto · entregas prontas com o portão de prova), depois RODANDO,
+/// PR aberto e concluídas hoje. Lista nativa inset-grouped, swipe pra pausar/parar/aprovar, puxar pra atualizar.
 struct CentralView: View {
     @EnvironmentObject var supa: Supa
     @EnvironmentObject var router: PushRouter
@@ -11,13 +11,17 @@ struct CentralView: View {
     @State private var openTaskId: String? = nil
     @State private var answering: Set<String> = []
     @State private var noProofFor: CloudTask? = nil
+    @State private var stopFor: CloudTask? = nil
 
     private var visible: [CloudTask] { hub.visible }
     private var qByTask: [String: Question] {
         Dictionary(hub.myQuestions.compactMap { q in q.taskId.map { ($0, q) } }, uniquingKeysWith: { a, _ in a })
     }
     // "esperando VOCÊ" é literal: só o que é SEU (pergunta de demanda alheia o banco recusa — 0013)
-    private var waiting: [CloudTask] { visible.filter { qByTask[$0.id] != nil && !$0.isEnded && hub.isMine($0) } }
+    private var waiting: [CloudTask] {
+        visible.filter { qByTask[$0.id] != nil && !$0.isEnded && hub.isMine($0) }
+            .sorted { (qByTask[$0.id]?.isTeto == true ? 0 : 1) < (qByTask[$1.id]?.isTeto == true ? 0 : 1) }
+    }
     private var running: [CloudTask] {
         visible.filter { t in (qByTask[t.id] == nil || !hub.isMine(t)) && !t.isEnded
             && ["running", "thinking", "queued", "requested", "plan-review", "error", "conflict", "paused"].contains(t.status) }
@@ -30,40 +34,77 @@ struct CentralView: View {
     private var myCost: Double { visible.filter { hub.isMine($0) }.compactMap(\.costUsd).reduce(0, +) }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            T.bg.ignoresSafeArea()
-            Starfield(seed: 5).frame(height: 420).frame(maxHeight: .infinity, alignment: .top)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    PageHeader(kicker: "Starfork", title: "Central",
-                               sub: hub.loaded ? "\(running.count) agente\(running.count == 1 ? "" : "s") em órbita · \(ready.count + waiting.count) esperando você" : "sincronizando com a nuvem…",
-                               live: true)
-                    ConnBanner(compact: true)
-                    ProjectChips()
-                    if !hub.loaded { BoardSkeleton() } else {
-                        StatRow(items: [
-                            .init(value: "\(running.count)", label: "em órbita"),
-                            .init(value: "\(ready.count + waiting.count)", label: "esperam você", color: T.accent),
-                            .init(value: String(format: "$%.2f", myCost), label: "seu custo"),
-                        ])
-                        if !waiting.isEmpty || !ready.isEmpty {
-                            VStack(alignment: .leading, spacing: 10) {
-                                kicker("esperam você", T.accent, count: waiting.count + ready.count, dot: true)
-                                ForEach(waiting) { t in questionCard(t) }
-                                ForEach(ready) { t in readyCard(t) }
-                            }
-                        }
-                        section("em órbita", T.warn, running, empty: hub.tasks.isEmpty ? "nenhuma demanda ainda — toque no + pra mandar a primeira pro seu Mac" : "nenhum agente rodando agora") { t in orbitCard(t) }
-                        section("PR aberto", T.info, prOpen, empty: nil) { t in prCard(t) }
-                        section("concluídas hoje", T.dim, doneToday, empty: nil) { t in doneRow(t) }
+        List {
+            Section {
+                ConnStatusRow().rowStyle()
+                ProjectFilterNote().rowStyle()
+                if hub.loaded && !visible.isEmpty { stats.rowStyle() }
+            }
+            if !hub.loaded {
+                Section { ForEach(0..<3, id: \.self) { _ in TaskRowSkeleton().rowStyle() } }
+            } else if visible.isEmpty {
+                Section {
+                    EmptyBoard(title: "Nenhuma demanda ainda",
+                               message: hub.projectFilter == nil ? "Mande a primeira daqui: o seu Mac assume, o agente trabalha e cada requisito volta com prova."
+                                                                 : "Nada neste projeto. Troque o filtro ou crie uma demanda.",
+                               symbol: "sparkles", action: ("Nova demanda", { showNew = true }))
+                    .listRowBackground(Color.clear)
+                }
+            } else {
+                if !waiting.isEmpty || !ready.isEmpty {
+                    Section {
+                        ForEach(waiting) { t in questionRow(t).rowStyle().taskSwipes(t, teto: qByTask[t.id]?.isTeto == true, onStop: { stopFor = $0 }, onNoProof: { noProofFor = $0 }) }
+                        ForEach(ready) { t in readyRow(t).rowStyle().taskSwipes(t, onStop: { stopFor = $0 }, onNoProof: { noProofFor = $0 }) }
+                    } header: {
+                        SectionHead(title: "Esperando você", symbol: "hand.raised.fill", color: T.warn, count: waiting.count + ready.count)
                     }
                 }
-                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 96)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                Section {
+                    if running.isEmpty {
+                        Text("Nenhum agente rodando agora").font(.ui(14)).foregroundStyle(T.dim).rowStyle()
+                    }
+                    ForEach(running) { t in
+                        NavigationLink(value: TaskRef(id: t.id)) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                TaskRow(task: t, project: projName(t), lastLine: hub.lastFeed[t.id]?.text)
+                                if hub.isMine(t), t.status == "requested" || t.status == "queued" { ReachNote(reach: hub.reach(t)) }
+                            }
+                        }
+                        .rowStyle()
+                        .taskSwipes(t, onStop: { stopFor = $0 }, onNoProof: { noProofFor = $0 })
+                    }
+                } header: {
+                    SectionHead(title: "Rodando", symbol: "bolt.fill", color: T.accent, count: running.count)
+                }
+                if !prOpen.isEmpty {
+                    Section {
+                        ForEach(prOpen) { t in
+                            NavigationLink(value: TaskRef(id: t.id)) { prRow(t) }.rowStyle()
+                        }
+                    } header: { SectionHead(title: "PR aberto", symbol: "arrow.triangle.pull", color: T.info, count: prOpen.count) }
+                }
+                if !doneToday.isEmpty {
+                    Section {
+                        ForEach(doneToday) { t in
+                            NavigationLink(value: TaskRef(id: t.id)) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "checkmark.seal.fill").foregroundStyle(T.cyan)
+                                    Text(t.title).font(.ui(14)).foregroundStyle(T.text2).lineLimit(1)
+                                }
+                            }.rowStyle()
+                        }
+                    } header: { SectionHead(title: "Concluídas hoje", symbol: "checkmark.seal", count: doneToday.count) }
+                }
             }
-            .refreshable { await hub.refresh() }
         }
-        .overlay(alignment: .bottomTrailing) { fab }
+        .appList()
+        .refreshable { await hub.refresh(); Haptic.select() }
+        .navigationTitle("Central")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) { ProjectFilterMenu() }
+            ToolbarItem(placement: .topBarTrailing) { NewTaskToolbarButton { showNew = true } }
+        }
         .sheet(isPresented: $showNew) { NewTaskView { id in if !id.isEmpty { openTaskId = id } } }
         .sheet(item: $noProofFor) { t in
             if case .unproven(let miss) = ProofGate.gate(t) {
@@ -71,6 +112,13 @@ struct CentralView: View {
                     Task { _ = await hub.intent(t.id, "openPr", extra: ["noProofReason": reason, "missing": miss.map(\.text)]) }
                 }
             }
+        }
+        .confirmationDialog("Parar o turno do agente?", isPresented: Binding(get: { stopFor != nil }, set: { if !$0 { stopFor = nil } }), titleVisibility: .visible, presenting: stopFor) { t in
+            Button("Parar o turno", role: .destructive) { Task { _ = await hub.intent(t.id, "stop") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { _ in Text("O agente termina o que está fazendo agora e a demanda volta pra você revisar.") }
+        .navigationDestination(for: TaskRef.self) { r in
+            TaskDetailView(taskId: r.id, title: hub.tasks.first(where: { $0.id == r.id })?.title ?? "Tarefa")
         }
         .navigationDestination(item: $openTaskId) { id in
             TaskDetailView(taskId: id, title: hub.tasks.first(where: { $0.id == id })?.title ?? "Tarefa")
@@ -91,31 +139,25 @@ struct CentralView: View {
         }
     }
 
-    private var fab: some View {
-        Button { showNew = true } label: {
-            Image(systemName: "plus").font(.system(size: 22, weight: .bold)).foregroundStyle(T.onAccent)
-                .frame(width: 56, height: 56)
-                .background(LinearGradient(colors: [T.accent, T.accent2], startPoint: .top, endPoint: .bottom))
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .shadow(color: T.accent.opacity(0.45), radius: 18, y: 6)
+    // ---- resumo: 3 números de relance ----
+    private var stats: some View {
+        HStack(spacing: 0) {
+            stat("\(running.count)", "rodando", T.text)
+            Divider().overlay(T.line)
+            stat("\(ready.count + waiting.count)", "esperam você", (ready.count + waiting.count) > 0 ? T.warn : T.text)
+            Divider().overlay(T.line)
+            stat(String(format: "$%.2f", myCost), "seu custo", T.text)
         }
-        .padding(.trailing, 20).padding(.bottom, 18)
-        .accessibilityLabel("nova demanda")
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
     }
-
-    // ---- seções ----
-    @ViewBuilder private func section(_ label: String, _ color: Color, _ list: [CloudTask], empty: String?, @ViewBuilder row: @escaping (CloudTask) -> some View) -> some View {
-        if !list.isEmpty || empty != nil {
-            VStack(alignment: .leading, spacing: 10) {
-                kicker(label, color, count: list.count, dot: true)
-                if list.isEmpty, let e = empty {
-                    Text(e).font(.system(size: 12.5)).foregroundStyle(T.dim2).padding(.vertical, 6)
-                }
-                ForEach(list) { t in
-                    Button { openTaskId = t.id } label: { row(t) }.buttonStyle(.plain)
-                }
-            }
+    private func stat(_ v: String, _ l: String, _ c: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(v).font(.ui(20, .semibold)).monospacedDigit().foregroundStyle(c).lineLimit(1).minimumScaleFactor(0.6)
+            Text(l).font(.ui(12)).foregroundStyle(T.dim).lineLimit(1).minimumScaleFactor(0.8)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 6)
     }
 
     private func projName(_ t: CloudTask) -> String? {
@@ -123,179 +165,155 @@ struct CentralView: View {
         return hub.project(t.projectId)?.name
     }
 
-    // ---- cards ----
-    /// EM ÓRBITA: avatar + título + última fala + barra + status · provas · custo · tempo
-    private func orbitCard(_ t: CloudTask) -> some View {
-        let st = T.status(t.status, flag: t.flag)
-        let who = t.issueCode ?? String(t.id.suffix(2))
-        let reach = hub.reach(t)
-        return HStack(alignment: .top, spacing: 12) {
-            Av(name: who, size: 30)
-            VStack(alignment: .leading, spacing: 8) {
-                Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let f = hub.lastFeed[t.id] {
-                    let g = feedGlyph(f.kind)
-                    HStack(spacing: 6) {
-                        Text(g.0).font(.mono(11)).foregroundStyle(g.1)
-                        Text(f.text).font(.mono(11)).foregroundStyle(T.dim).lineLimit(1).truncationMode(.tail)
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
-                ProgressLine(pct: T.pct(t), color: st.1)
-                HStack(spacing: 8) {
-                    Text(st.0).font(.mono(11)).foregroundStyle(st.1)
-                    if let p = t.reqsProved { Text("✓\(p.done)/\(p.total)").font(.mono(11)).foregroundStyle(p.done == p.total ? T.accent : T.dim) }
-                    if let n = projName(t) { Text(n).font(.mono(10)).foregroundStyle(T.info).lineLimit(1) }
-                    Spacer()
-                    Text([fmtUsd(t.costUsd), agoPt(t.updatedAt)].compactMap { $0 }.joined(separator: " · "))
-                        .font(.mono(11)).foregroundStyle(T.dim2)
-                }
-                if hub.isMine(t), t.status == "requested" || t.status == "queued" { ReachNote(reach: reach) }
-            }
-        }
-        .card()
-        .rail(agentColor(who))
-    }
-
-    /// pergunta com as opções DIRETO no card (e o teto de custo com as duas saídas)
-    private func questionCard(_ t: CloudTask) -> some View {
+    // ---- linhas que pedem você ----
+    /// pergunta com as opções DIRETO na linha (e o teto de custo com as duas saídas)
+    private func questionRow(_ t: CloudTask) -> some View {
         let q = qByTask[t.id]!
         let teto = q.isTeto
         let color = teto ? T.bad : T.warn
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                if teto { Image(systemName: "gauge.with.dots.needle.100percent").foregroundStyle(color) } else { Av(name: q.agent, size: 22) }
-                Text(teto ? "TETO DE CUSTO" : "\(q.agent) · perguntou".uppercased()).font(.mono(10, .bold)).kerning(1).foregroundStyle(color)
-                Spacer()
-                Text(agoPt(q.createdAt)).font(.mono(10.5)).foregroundStyle(T.dim)
+            HStack(alignment: .firstTextBaseline) {
+                StatusWord(info: StatusInfo.of(t, waiting: true, teto: teto))
+                Spacer(minLength: 6)
+                Text(agoPt(q.createdAt)).font(.ui(12)).foregroundStyle(T.dim2)
             }
-            Text(t.title).font(.mono(12)).foregroundStyle(T.dim).lineLimit(1)
+            Text(t.title).font(.ui(16, .semibold)).foregroundStyle(T.text).lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if teto {
                 Text("Pausada em \(fmtUsd(t.costUsd) ?? "$0") — nada se perde. Continuar libera mais um teto igual; parar deixa pra você revisar.")
-                    .font(.system(size: 13.5)).foregroundStyle(T.text).fixedSize(horizontal: false, vertical: true)
+                    .font(.ui(14)).foregroundStyle(T.text2).fixedSize(horizontal: false, vertical: true)
             } else {
-                mdText(q.prompt, size: 14, color: T.text)
-                    .lineLimit(6)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .top, spacing: 8) {
+                    Av(name: q.agent.isEmpty ? "agente" : q.agent, size: 22)
+                    mdText(q.prompt, size: 15, color: T.text)
+                        .lineLimit(6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if answering.contains(q.id) {
                 IntentPill(label: "enviando a resposta…")
             } else {
                 ForEach(q.options, id: \.self) { opt in
+                    let stop = teto && opt.hasPrefix("Parar")
                     Button { answer(q, opt) } label: {
-                        Text(opt).font(.system(size: 13.5, weight: .semibold))
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 13).frame(minHeight: 46)
-                            .background((teto && opt.hasPrefix("Parar") ? T.bad : T.accent).opacity(0.12))
-                            .foregroundStyle(teto && opt.hasPrefix("Parar") ? T.bad : T.accent)
-                            .clipShape(RoundedRectangle(cornerRadius: 11))
+                        Text(opt).font(.ui(15, .semibold)).multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 4)
                     }
+                    .buttonStyle(.bordered).buttonBorderShape(.roundedRectangle(radius: 12))
+                    .tint(stop ? T.bad : T.accent)
                 }
                 if !teto {
                     Button { openTaskId = t.id } label: {
-                        Text("✎ responder com minhas palavras").font(.mono(12)).foregroundStyle(T.dim).frame(minHeight: 32)
+                        IconText(symbol: "square.and.pencil", text: "Responder com minhas palavras").font(.ui(13, .medium))
                     }
+                    .buttonStyle(.borderless).tint(T.text2)
                 }
             }
         }
-        .card(stroke: color.opacity(0.4))
-        .rail(color)
+        .padding(.vertical, 6)
+        .overlay(alignment: .leading) { railBar(color) }
         .contentShape(Rectangle())
         .onTapGesture { openTaskId = t.id }
     }
 
-    /// ESPERAM VOCÊ: entrega pronta — com o PORTÃO DE PROVA (mesma regra do desktop, PR #100)
-    private func readyCard(_ t: CloudTask) -> some View {
+    /// entrega pronta — com o PORTÃO DE PROVA (mesma regra do desktop, PR #100)
+    private func readyRow(_ t: CloudTask) -> some View {
         let gate = ProofGate.gate(t)
         let nonCode = ["design", "invest"].contains(t.kind)
         return VStack(alignment: .leading, spacing: 10) {
-            Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(3)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                StatusWord(info: StatusInfo.of(t))
+                Spacer(minLength: 6)
+                if let c = fmtUsd(t.costUsd) { Text(c).font(.mono(12)).monospacedDigit().foregroundStyle(T.text2) }
+            }
+            Text(t.title).font(.ui(16, .semibold)).foregroundStyle(T.text).lineLimit(3)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
                 switch gate {
                 case .unproven(let miss):
-                    Text("○ \(miss.count) requisito\(miss.count == 1 ? "" : "s") sem prova").font(.mono(11)).foregroundStyle(T.warn)
+                    IconText(symbol: "exclamationmark.circle.fill", text: "\(miss.count) requisito\(miss.count == 1 ? "" : "s") sem prova").foregroundStyle(T.warn)
                 case .proven:
-                    Text("✓ todos os requisitos com prova").font(.mono(11)).foregroundStyle(T.accent)
+                    IconText(symbol: "checkmark.seal.fill", text: "Todos os requisitos com prova").foregroundStyle(T.accent)
                 case .none:
-                    Text("✓ entrega pronta pra revisar").font(.mono(11)).foregroundStyle(T.accent)
+                    IconText(symbol: "checkmark.circle", text: "Entrega pronta pra revisar").foregroundStyle(T.accent)
                 }
-                Spacer()
-                Text("\(t.kind == "invest" ? "Investigador" : t.kind == "design" ? "Designer" : "Coder") · \(agoPt(t.updatedAt))").font(.mono(11)).foregroundStyle(T.dim2)
             }
+            .font(.ui(13, .medium))
             if let it = t.spec?.intent {
                 IntentPill(label: "o Mac está executando · \(intentLabel(it.kind))")
             } else if nonCode {
-                OutlineButton(label: "ver a entrega", full: true) { openTaskId = t.id }
+                Button("Ver a entrega") { openTaskId = t.id }.buttonStyle(.bordered).tint(T.text2)
             } else if case .unproven = gate {
                 HStack(spacing: 8) {
-                    Button { Task { _ = await hub.intent(t.id, "askProof") } } label: {
-                        Text("pedir a prova ao agente").font(.system(size: 13.5, weight: .semibold))
-                            .frame(maxWidth: .infinity).frame(height: 44)
-                            .background(T.accent).foregroundStyle(T.onAccent)
-                            .clipShape(RoundedRectangle(cornerRadius: 11))
-                    }.buttonStyle(.plain)
-                    OutlineButton(label: "ver") { openTaskId = t.id }
+                    Button { Haptic.tap(); Task { _ = await hub.intent(t.id, "askProof") } } label: {
+                        Text("Pedir a prova ao agente").font(.ui(14, .semibold)).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent).tint(T.accent).foregroundStyle(T.onAccent)
+                    Button("Ver") { openTaskId = t.id }.buttonStyle(.bordered).tint(T.text2)
                 }
-                Button { noProofFor = t } label: {
-                    Text("aprovar sem prova…").font(.mono(12)).foregroundStyle(T.warn).frame(minHeight: 30)
-                }
+                Button { Haptic.warning(); noProofFor = t } label: {
+                    Text("Aprovar sem prova…").font(.ui(13, .medium))
+                }.buttonStyle(.borderless).tint(T.warn)
             } else {
                 HStack(spacing: 8) {
-                    Button { Task { _ = await hub.intent(t.id, "openPr") } } label: {
-                        Text("aprovar e abrir PR").font(.system(size: 13.5, weight: .semibold))
-                            .frame(maxWidth: .infinity).frame(height: 44)
-                            .background(T.accent).foregroundStyle(T.onAccent)
-                            .clipShape(RoundedRectangle(cornerRadius: 11))
-                    }.buttonStyle(.plain)
-                    OutlineButton(label: "ver") { openTaskId = t.id }
+                    Button { Haptic.success(); Task { _ = await hub.intent(t.id, "openPr") } } label: {
+                        Text("Aprovar e abrir PR").font(.ui(14, .semibold)).frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent).tint(T.accent).foregroundStyle(T.onAccent)
+                    Button("Ver") { openTaskId = t.id }.buttonStyle(.bordered).tint(T.text2)
                 }
             }
             if let res = t.spec?.intentResult, t.spec?.intent == nil {
-                Text("\(res.ok ? "✓" : "✖") \(intentLabel(res.kind)): \(res.msg ?? (res.ok ? "feito" : "falhou"))")
-                    .font(.system(size: 11.5)).foregroundStyle(res.ok ? T.accent : T.bad).fixedSize(horizontal: false, vertical: true)
+                IconText(symbol: res.ok ? "checkmark" : "xmark", text: "\(intentLabel(res.kind)): \(res.msg ?? (res.ok ? "feito" : "falhou"))", lines: 3)
+                    .font(.ui(12)).foregroundStyle(res.ok ? T.accent : T.bad).fixedSize(horizontal: false, vertical: true)
             }
             ReachNote(reach: hub.reach(t))
         }
-        .card(stroke: T.accent.opacity(0.3))
-        .rail(T.accent)
+        .controlSize(.regular)
+        .padding(.vertical, 6)
+        .overlay(alignment: .leading) { railBar(T.accent) }
         .contentShape(Rectangle())
         .onTapGesture { openTaskId = t.id }
     }
 
-    private func prCard(_ t: CloudTask) -> some View {
+    private func prRow(_ t: CloudTask) -> some View {
         let pr = t.spec?.prInfo
         let open = (pr?.comments ?? []).filter { !($0.answered ?? false) }.count
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(2)
-                Spacer()
-                if let n = pr?.number { Text("#\(n)").font(.mono(11.5, .bold)).foregroundStyle(T.info) }
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                if pr?.decision == "APPROVED" {
+                    IconText(symbol: "checkmark.circle.fill", text: "Aprovado").foregroundStyle(T.accent)
+                } else if pr?.decision == "CHANGES_REQUESTED" {
+                    IconText(symbol: "exclamationmark.bubble.fill", text: "Mudanças pedidas").foregroundStyle(T.warn)
+                } else {
+                    IconText(symbol: "arrow.triangle.pull", text: "PR aberto").foregroundStyle(T.info)
+                }
+                Spacer(minLength: 6)
+                if let n = pr?.number { Text("#\(n)").font(.mono(12, .semibold)).foregroundStyle(T.info) }
             }
-            ProgressLine(pct: 92, color: T.info)
+            .font(.ui(12, .semibold))
+            Text(t.title).font(.ui(16, .semibold)).foregroundStyle(T.text).lineLimit(2)
             HStack(spacing: 10) {
-                if pr?.decision == "APPROVED" { Text("✓ aprovado").font(.mono(11)).foregroundStyle(T.accent) }
-                else if pr?.decision == "CHANGES_REQUESTED" { Text("mudanças pedidas").font(.mono(11)).foregroundStyle(T.warn) }
-                else { Text("PR aberto").font(.mono(11)).foregroundStyle(T.info) }
-                if open > 0 { Text("\(open) comentário\(open == 1 ? "" : "s") aberto\(open == 1 ? "" : "s")").font(.mono(11)).foregroundStyle(T.warn) }
-                if let n = projName(t) { Text(n).font(.mono(10)).foregroundStyle(T.info).lineLimit(1) }
-                Spacer()
-                Text(agoPt(t.updatedAt)).font(.mono(11)).foregroundStyle(T.dim2)
+                ProofBadge(proved: t.reqsProved)
+                if open > 0 { IconText(symbol: "text.bubble", text: "\(open)").font(.ui(12)).foregroundStyle(T.warn).accessibilityLabel("\(open) comentários abertos") }
+                if let n = projName(t) { IconText(symbol: "folder", text: n).font(.ui(12)).foregroundStyle(T.dim).lineLimit(1).truncationMode(.middle) }
+                Spacer(minLength: 0)
+                Text(agoPt(t.updatedAt)).font(.ui(12)).foregroundStyle(T.dim2)
             }
-        }.card().rail(T.info)
+        }
+        .padding(.vertical, 4)
     }
 
-    private func doneRow(_ t: CloudTask) -> some View {
-        HStack(spacing: 9) {
-            Text("✓").font(.mono(12, .bold)).foregroundStyle(T.dim2)
-            Text(t.title).font(.system(size: 13)).foregroundStyle(T.dim).lineLimit(1)
-            Spacer()
-            if let n = t.spec?.prInfo?.number { Text("#\(n)").font(.mono(10.5)).foregroundStyle(T.dim2) }
-        }.padding(.vertical, 5)
+    private func railBar(_ c: Color) -> some View {
+        Capsule().fill(c).frame(width: 3).padding(.vertical, 4).offset(x: -12)
+            .accessibilityHidden(true)
     }
 
     // ---- ações ----
     private func answer(_ q: Question, _ opt: String) {
+        Haptic.success()
         answering.insert(q.id)
         Task {
             _ = await hub.answer(q, opt)

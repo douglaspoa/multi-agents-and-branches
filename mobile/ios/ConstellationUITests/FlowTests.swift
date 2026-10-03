@@ -70,10 +70,12 @@ final class FlowTests: XCTestCase {
         launch()
         waitText("AO VIVO", 20)
         waitText("MacBook do Douglas online")
-        waitText("TETO DE CUSTO")
+        waitText("Teto de custo")
         shot("01-central-ao-vivo")
         XCTAssertFalse(writes("auth").isEmpty, "entrou com token vencido → renovou")
-        app.buttons["chip-api-pagamentos"].tap()
+        // filtro de projeto: menu nativo da barra (antes um carrossel de chips que vazava da tela)
+        app.buttons["project-filter"].tap()
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'api-pagamentos'")).firstMatch.tap()
         waitText("Corrigir arredondamento do Pix")
         shot("02-central-filtro-projeto")
     }
@@ -90,7 +92,7 @@ final class FlowTests: XCTestCase {
         let more = app.buttons["Continuar com mais US$ 5"]
         scrollTo(more)
         more.tap()
-        waitGone("TETO DE CUSTO", 15)
+        waitGone("Teto de custo", 15)
         XCTAssertTrue(writes("questions").contains { ($0["answer"] as? String ?? "").hasPrefix("Continuar com mais") })
         shot("04-teto-respondido")
     }
@@ -100,7 +102,7 @@ final class FlowTests: XCTestCase {
         ctl("mac?online=0&ago=720")
         launch(["DEMO_OPEN_TASK": "dddddddd-0000-4000-8000-000000000002"])
         waitText("Mac offline", 20)
-        let field = app.textFields.firstMatch.exists ? app.textFields.firstMatch : app.textViews.firstMatch
+        let field = app.descendants(matching: .any).matching(identifier: "composer").firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.tap()
         field.typeText("troca o texto do botão pra Entrar com Apple")
@@ -119,12 +121,12 @@ final class FlowTests: XCTestCase {
     func test04ApproveWithProofGate() {
         launch(["DEMO_OPEN_TASK": "dddddddd-0000-4000-8000-000000000002", "DEMO_DETAIL_TAB": "1"])
         waitText("feito, mas sem arquivo de prova", 20)
-        let ask = app.buttons["pedir a prova ao agente"]
+        let ask = app.buttons["Pedir a prova ao agente"]
         scrollTo(ask)
         shot("07-entrega-portao-de-prova")
         ask.tap()
         waitText("pedido de prova enviado", 20)
-        let noProof = app.buttons["aprovar sem prova…"]
+        let noProof = app.buttons["Aprovar sem prova…"]
         scrollTo(noProof)
         noProof.tap()
         let reason = app.textFields["motivo (obrigatório)"].exists ? app.textFields["motivo (obrigatório)"] : app.textViews.firstMatch
@@ -140,7 +142,7 @@ final class FlowTests: XCTestCase {
     /// provas publicadas: miniatura de verdade, imagem e VÍDEO tocando no app
     func test05ProofsImageAndVideo() {
         launch(["DEMO_OPEN_TASK": "dddddddd-0000-4000-8000-000000000002", "DEMO_DETAIL_TAB": "1"])
-        waitText("REQUISITOS COM PROVA", 20)
+        waitText("Requisitos com prova", 20)
         let vid = app.buttons["vídeo mobile-ios-1-fluxo.mp4"]
         var n = 0
         while !(vid.exists && vid.isHittable) && n < 8 { app.swipeUp(velocity: .slow); n += 1 }   // a galeria é preguiçosa (LazyVGrid)
@@ -166,7 +168,7 @@ final class FlowTests: XCTestCase {
         XCTAssertTrue(pause.waitForExistence(timeout: 20))
         shot("13-conversa-ao-vivo")
         pause.tap()
-        waitText("pausada", 20)
+        waitText("Pausada", 20)
         let resume = app.buttons["retomar o agente"]
         XCTAssertTrue(resume.waitForExistence(timeout: 15))
         shot("14-pausada")
@@ -180,10 +182,10 @@ final class FlowTests: XCTestCase {
         launch()
         waitText("AO VIVO", 20)
         ctl("ws?down=1"); ctl("drop")
-        waitText("RECONECTANDO", 15)
+        waitText("Reconectando", 15)
         shot("15-reconectando")
         ctl("rest?down=1")
-        waitText("reconectando…", 30)   // REST também fora: a faixa sobe de "reconectando o ao vivo" pra aviso
+        waitText("Reconectando…", 30)   // REST também fora: a faixa sobe de "reconectando o ao vivo" pra aviso
         shot("16-nuvem-fora")
         ctl("rest?down=0"); ctl("ws?down=0")
         waitText("AO VIVO", 40)
@@ -234,7 +236,7 @@ final class FlowTests: XCTestCase {
         shot("21-time")
         app.terminate()
         launch(["DEMO_TAB": "conta"])
-        waitText("CONEXÃO COM O MAC", 20); sleep(2)
+        waitText("Conexão com o Mac", 20); sleep(2)
         shot("22-conta-conexao")
     }
 }

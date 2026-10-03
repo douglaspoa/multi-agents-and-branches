@@ -22,10 +22,12 @@
 		6B4BFCC838F18D50A7000596 /* Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9641337023750DFBE52FA35B /* Sync.swift */; };
 		806AAE9A14135509032F8A97 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7812C9C5511C7D9F8842315 /* OnboardingView.swift */; };
 		82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */; };
+		983403651A73621738DEECB3 /* Native.swift in Sources */ = {isa = PBXBuildFile; fileRef = 536A2AECC19B31F034B03D76 /* Native.swift */; };
 		B6F6997F1728F5A214E436DA /* Speech.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F9A1E6F93A2CF05DA5CCB65 /* Speech.swift */; };
 		C179EC5E709344409D7B782F /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 387991461E9C1C80C2CB9F32 /* Theme.swift */; };
 		C73430DC945A4CE56D725829 /* 00-util.js in Resources */ = {isa = PBXBuildFile; fileRef = 32A92CF2125FCD43C94A39F5 /* 00-util.js */; };
 		CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 15609A2FE9DB55DA327F7617 /* PushManager.swift */; };
+		CF3AA7FEA71685FA87FA81D9 /* LayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC9593E50D85C391C03EDEDE /* LayoutTests.swift */; };
 		D012A516A9B7287637A747EA /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6D1939927FD6490D5CD700 /* TeamView.swift */; };
 		D3C533444B71C46AA35E4976 /* Supa.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192B4419693C35BD2702929E /* Supa.swift */; };
 		E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35F8F6081FFC033EA789D55E /* QuestionsView.swift */; };
@@ -67,6 +69,7 @@
 		4394FB044411B6D91726BA1E /* TasksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TasksView.swift; sourceTree = "<group>"; };
 		49FC84A2FB9FD6AD07D8E63C /* proof-gate-golden.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "proof-gate-golden.json"; sourceTree = "<group>"; };
 		4AE4BDC299DD78A30AB70D16 /* TaskDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskDetailView.swift; sourceTree = "<group>"; };
+		536A2AECC19B31F034B03D76 /* Native.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Native.swift; sourceTree = "<group>"; };
 		54FEA05F261C25A7749DFF00 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		55D4471DFA4C96C34D2F3800 /* Constellation.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Constellation.entitlements; sourceTree = "<group>"; };
 		5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -80,6 +83,7 @@
 		BDA0728D17FC058100F378C6 /* ConstellationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConstellationApp.swift; sourceTree = "<group>"; };
 		C676F8EF1536EC2AA4735422 /* CentralView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CentralView.swift; sourceTree = "<group>"; };
 		DEC089E05D5B5941A779A6FC /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		EC9593E50D85C391C03EDEDE /* LayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LayoutTests.swift; sourceTree = "<group>"; };
 		F7812C9C5511C7D9F8842315 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		F7C12F62FF8501CAFF1121A3 /* ConstellationUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = ConstellationUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		F86A1B17C4E6FDC92C397AD3 /* LiveViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveViews.swift; sourceTree = "<group>"; };
@@ -109,6 +113,7 @@
 			isa = PBXGroup;
 			children = (
 				B0AF5DEE73294ED2B4F12AC2 /* FlowTests.swift */,
+				EC9593E50D85C391C03EDEDE /* LayoutTests.swift */,
 			);
 			path = ConstellationUITests;
 			sourceTree = "<group>";
@@ -134,6 +139,7 @@
 				F86A1B17C4E6FDC92C397AD3 /* LiveViews.swift */,
 				1B0F622175E7CE49CFDDEC23 /* Logic.swift */,
 				5DB1B58ECFD853E4D3F1ABF5 /* Models.swift */,
+				536A2AECC19B31F034B03D76 /* Native.swift */,
 				33C7B45E229CE24BD3A8B979 /* NewTaskView.swift */,
 				F7812C9C5511C7D9F8842315 /* OnboardingView.swift */,
 				15609A2FE9DB55DA327F7617 /* PushManager.swift */,
@@ -303,6 +309,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				1C3D9DDCA762CBAD00DED32A /* FlowTests.swift in Sources */,
+				CF3AA7FEA71685FA87FA81D9 /* LayoutTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -324,6 +331,7 @@
 				110A2849A912B17287D47F56 /* LiveViews.swift in Sources */,
 				5CB411DB3ECA6327F76891BB /* Logic.swift in Sources */,
 				82B1BBB77888AA6459BC0CCA /* Models.swift in Sources */,
+				983403651A73621738DEECB3 /* Native.swift in Sources */,
 				5DF9EBD5B461AB97C56C851C /* NewTaskView.swift in Sources */,
 				806AAE9A14135509032F8A97 /* OnboardingView.swift in Sources */,
 				CCD1483AC6980A2314826C71 /* PushManager.swift in Sources */,
@@ -365,14 +373,14 @@
 				CODE_SIGN_ENTITLEMENTS = Constellation/Constellation.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = SUB6889LA9;
 				INFOPLIST_FILE = Constellation/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.4;
+				MARKETING_VERSION = 0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;
@@ -490,14 +498,14 @@
 				CODE_SIGN_ENTITLEMENTS = Constellation/Constellation.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = SUB6889LA9;
 				INFOPLIST_FILE = Constellation/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.4;
+				MARKETING_VERSION = 0.5;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.constellation.mobile;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.9;

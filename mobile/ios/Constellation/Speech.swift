@@ -90,7 +90,7 @@ struct MicButton: View {
         } label: {
             // mesma caixa 36×36 dos outros botões da barra (harmonia)
             Image(systemName: dict.recording ? "waveform" : "mic.fill")
-                .font(.system(size: 15))
+                .font(.ui(15))
                 .foregroundStyle(dict.recording ? T.warn : T.accent)
                 .symbolEffect(.pulse, isActive: dict.recording)
                 .frame(width: 36, height: 36)

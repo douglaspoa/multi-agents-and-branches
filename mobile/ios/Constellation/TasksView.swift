@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Minhas — sua órbita: chips (rodando · review · backlog · feitas) e cartões
-/// com faixa de status. `mine=false` mostra o quadro inteiro (mesmo layout).
+/// Minhas — seu quadro por estado (Rodando · Review · Backlog · Feitas) num controle segmentado;
+/// o que espera você fica no topo de "Rodando". `mine=false` mostra o quadro inteiro (com o dono na linha).
 struct TasksView: View {
     @EnvironmentObject var supa: Supa
     @EnvironmentObject var router: PushRouter
@@ -11,6 +11,8 @@ struct TasksView: View {
     @State private var showNew = false
     @State private var openTaskId: String? = nil
     @State private var filter = 0   // 0 rodando · 1 review · 2 backlog · 3 feitas
+    @State private var noProofFor: CloudTask? = nil
+    @State private var stopFor: CloudTask? = nil
 
     /// da sincronia única (antes: laço próprio de 6s, o terceiro igual no app)
     private var tasks: [CloudTask] { mine ? hub.visible.filter { hub.isMine($0) } : hub.visible }
@@ -22,52 +24,81 @@ struct TasksView: View {
     private var done: [CloudTask] { tasks.filter { $0.isEnded } }
     private var backlog: [CloudTask] { tasks.filter { $0.flag != "closed" && ["backlog", "draft"].contains($0.status) } }
     private var lists: [[CloudTask]] { [waiting + doing, review, backlog, done] }
-    private let names = ["rodando", "review", "backlog", "feitas"]
+    private let names = ["Rodando", "Review", "Backlog", "Feitas"]
+    private let empties: [(String, String, String)] = [
+        ("Nenhum agente rodando", "Quando você mandar uma demanda, ela aparece aqui enquanto o agente trabalha no seu Mac.", "bolt.slash"),
+        ("Nada esperando review", "Entregas prontas chegam aqui com a prova de cada requisito.", "checkmark.seal"),
+        ("Backlog vazio", "Rascunhos e demandas na fila aparecem aqui.", "tray"),
+        ("Nada concluído ainda", "Demandas integradas ficam guardadas aqui.", "archivebox"),
+    ]
 
     var body: some View {
-        ZStack(alignment: .top) {
-            T.bg.ignoresSafeArea()
-            Starfield(seed: 9).frame(height: 380).frame(maxHeight: .infinity, alignment: .top)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    PageHeader(kicker: mine ? "Sua órbita" : "Quadro", title: mine ? "Minhas" : "Quadro",
-                               sub: loaded ? "\(tasks.count) tarefa\(tasks.count == 1 ? "" : "s") · \(lists[0].count) rodando agora" : "sincronizando…")
-                    ConnBanner(compact: true)
-                    ProjectChips()
-                    if !loaded { BoardSkeleton() } else {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(0..<4, id: \.self) { i in
-                                    Button { withAnimation(.easeOut(duration: 0.15)) { filter = i } } label: {
-                                        Chip(label: names[i], count: lists[i].count, on: filter == i)
-                                    }.buttonStyle(.plain)
-                                }
-                            }.padding(.horizontal, 1)
-                        }
-                        let list = lists[filter]
-                        if list.isEmpty {
-                            Text(["nenhum agente rodando", "nada esperando review", "backlog vazio", "nada concluído ainda"][filter])
-                                .font(.system(size: 12.5)).foregroundStyle(T.dim2).padding(.vertical, 10)
-                        }
-                        ForEach(filter == 3 ? Array(list.prefix(40)) : list) { t in row(t) }
+        List {
+            Section {
+                ConnStatusRow().rowStyle()
+                ProjectFilterNote().rowStyle()
+            }
+            Section {
+                Picker("Estado", selection: $filter) {
+                    ForEach(0..<4, id: \.self) { i in Text(names[i]).tag(i) }
+                }
+                .pickerStyle(.segmented)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+                .accessibilityIdentifier("estado")
+            }
+            if !loaded {
+                Section { ForEach(0..<3, id: \.self) { _ in TaskRowSkeleton().rowStyle() } }
+            } else {
+                let list = filter == 3 ? Array(lists[3].prefix(40)) : lists[filter]
+                if list.isEmpty {
+                    Section {
+                        EmptyBoard(title: empties[filter].0, message: empties[filter].1, symbol: empties[filter].2,
+                                   action: filter == 0 ? ("Nova demanda", { showNew = true }) : nil)
+                            .listRowBackground(Color.clear)
+                    }
+                } else {
+                    let w = filter == 0 ? list.filter { openQ.contains($0.id) } : []
+                    let rest = filter == 0 ? list.filter { !openQ.contains($0.id) } : list
+                    if !w.isEmpty {
+                        Section {
+                            ForEach(w) { t in row(t) }
+                        } header: { SectionHead(title: "Esperando você", symbol: "hand.raised.fill", color: T.warn, count: w.count) }
+                    }
+                    Section {
+                        ForEach(rest) { t in row(t) }
+                    } header: {
+                        SectionHead(title: names[filter], count: rest.count)
                     }
                 }
-                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 96)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .refreshable { await hub.refresh() }
         }
-        .overlay(alignment: .bottomTrailing) {
-            Button { showNew = true } label: {
-                Image(systemName: "plus").font(.system(size: 22, weight: .bold)).foregroundStyle(T.onAccent)
-                    .frame(width: 56, height: 56)
-                    .background(LinearGradient(colors: [T.accent, T.accent2], startPoint: .top, endPoint: .bottom))
-                    .clipShape(RoundedRectangle(cornerRadius: 18))
-                    .shadow(color: T.accent.opacity(0.45), radius: 18, y: 6)
-            }.padding(.trailing, 20).padding(.bottom, 18)
+        .appList()
+        .animation(.easeOut(duration: 0.2), value: filter)
+        .onChange(of: filter) { _, _ in Haptic.select() }
+        .refreshable { await hub.refresh(); Haptic.select() }
+        .navigationTitle(mine ? "Minhas" : "Quadro")
+        .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) { ProjectFilterMenu() }
+            ToolbarItem(placement: .topBarTrailing) { NewTaskToolbarButton { showNew = true } }
         }
         .sheet(isPresented: $showNew) {
             NewTaskView { createdId in if !createdId.isEmpty { openTaskId = createdId } }
+        }
+        .sheet(item: $noProofFor) { t in
+            if case .unproven(let miss) = ProofGate.gate(t) {
+                ApproveNoProofSheet(missing: miss) { reason in
+                    Task { _ = await hub.intent(t.id, "openPr", extra: ["noProofReason": reason, "missing": miss.map(\.text)]) }
+                }
+            }
+        }
+        .confirmationDialog("Parar o turno do agente?", isPresented: Binding(get: { stopFor != nil }, set: { if !$0 { stopFor = nil } }), titleVisibility: .visible, presenting: stopFor) { t in
+            Button("Parar o turno", role: .destructive) { Task { _ = await hub.intent(t.id, "stop") } }
+            Button("Cancelar", role: .cancel) {}
+        } message: { _ in Text("O agente termina o que está fazendo agora e a demanda volta pra você revisar.") }
+        .navigationDestination(for: TaskRef.self) { r in
+            TaskDetailView(taskId: r.id, title: tasks.first(where: { $0.id == r.id })?.title ?? "Tarefa")
         }
         .navigationDestination(item: $openTaskId) { id in
             TaskDetailView(taskId: id, title: tasks.first(where: { $0.id == id })?.title ?? "Tarefa")
@@ -81,41 +112,17 @@ struct TasksView: View {
         }
     }
 
-    @ViewBuilder
     private func row(_ t: CloudTask) -> some View {
-        let st = T.status(t.status, flag: t.flag)
         let isWaiting = openQ.contains(t.id)
-        Button { openTaskId = t.id } label: {
-            VStack(alignment: .leading, spacing: 9) {
-                if isWaiting {
-                    let teto = hub.myQuestions.contains { $0.taskId == t.id && $0.isTeto }
-                    Text(teto ? "⏸ parou no teto de custo — continuar ou parar?" : "⏳ o agente fez uma pergunta — toque pra responder")
-                        .font(.mono(10.5, .bold)).foregroundStyle(teto ? T.bad : T.warn)
-                }
-                Text(t.title).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(T.text).lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                ProgressLine(pct: T.pct(t), color: isWaiting ? T.warn : st.1)
-                HStack(spacing: 8) {
-                    Text(isWaiting ? "esperando você" : st.0).font(.mono(11)).foregroundStyle(isWaiting ? T.warn : st.1).lineLimit(1).fixedSize()
-                    if let code = t.issueCode {
-                        Text(code).font(.mono(10)).padding(.horizontal, 5).padding(.vertical, 1)
-                            .background(T.info.opacity(0.15)).foregroundStyle(T.info).clipShape(Capsule())
-                    }
-                    if !mine, let who = t.assignee ?? t.createdBy, let p = profiles[who] {
-                        Text(p.name ?? p.email ?? "").font(.system(size: 11)).foregroundStyle(T.dim).lineLimit(1)
-                    }
-                    Spacer()
-                    HStack(spacing: 5) {
-                        if let c = fmtUsd(t.costUsd) { Text(c).font(.mono(11)).foregroundStyle(T.dim2) }
-                        if t.prUrl != nil { Text("· PR ↗").font(.mono(11)).foregroundStyle(T.dim2) }
-                        Text("· \(agoPt(t.updatedAt))").font(.mono(11)).foregroundStyle(T.dim2)
-                    }
-                }
-            }
-            .card(stroke: isWaiting ? T.warn.opacity(0.5) : T.line)
-            .rail(isWaiting ? T.warn : st.1)
+        let teto = hub.myQuestions.contains { $0.taskId == t.id && $0.isTeto }
+        let owner: String? = mine ? nil : (t.assignee ?? t.createdBy).flatMap { profiles[$0] }.map { $0.name ?? $0.email ?? "" }
+        return NavigationLink(value: TaskRef(id: t.id)) {
+            TaskRow(task: t, waiting: isWaiting, teto: teto,
+                    project: hub.projectFilter == nil && hub.projectChips.count > 1 ? hub.project(t.projectId)?.name : nil,
+                    owner: owner)
         }
-        .buttonStyle(.plain)
+        .rowStyle()
+        .taskSwipes(t, teto: teto, onStop: { stopFor = $0 }, onNoProof: { noProofFor = $0 })
     }
 
     /// nomes de quem é cada cartão (só no quadro do time)

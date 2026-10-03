@@ -21,7 +21,9 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
-        UIUserInterfaceStyle: Dark
+        UIUserInterfaceStyle: Dark   # escuro deliberado (superfícies tingidas de verde) — o app inteiro é desenhado nele
+        # retrato só: o app é de bolso (fila, chat, provas); paisagem quebrava cabeçalho + teclado sem ganho
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         ITSAppUsesNonExemptEncryption: false
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true   # DEBUG: nuvem falsa em 127.0.0.1 (mock-supabase.mjs); não abre nada da internet
@@ -32,8 +34,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.constellation.mobile
-        MARKETING_VERSION: "0.4"
-        CURRENT_PROJECT_VERSION: "4"
+        MARKETING_VERSION: "0.5"
+        CURRENT_PROJECT_VERSION: "5"
         SWIFT_VERSION: "5.9"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1"
