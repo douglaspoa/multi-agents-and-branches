@@ -237,7 +237,7 @@ function rvProofHtml(t, r){
       : `<button type="button" class="rvshot doc" data-rvproof="0" aria-label="${escA('abrir a prova '+ev[0])}"><span class="rvshot-ph">${vids.length?IC.play:IC.doc}</span></button>`;
     return `<div class="rvprova">${shot}<div class="rvpb"><div class="rvpt"><b>Prova</b><span class="dim">${esc(ev.slice(0,3).join(' · '))}${ev.length>3?` +${ev.length-3}`:''} · <button type="button" class="lnk" data-rvproof="0">abrir</button></span></div>${testsBlk}</div></div>`;
   }
-  return `<div class="rvprova noproof"><div class="rvpb"><div class="rvpt"><b class="wn">Sem prova</b><span class="dim">${r.note?'O agente explicou: “'+esc(r.note)+'”. ':''}Peça uma prova: um print da tela, a saída de um teste ou o arquivo gerado.</span></div>${testsBlk}</div></div>`;
+  return `<div class="rvprova noproof"><div class="rvpb"><div class="rvpt"><b class="rvwarn">Sem prova</b><span class="dim">${r.note?'O agente explicou: “'+esc(r.note)+'”. ':''}Peça uma prova: um print da tela, a saída de um teste ou o arquivo gerado.</span></div>${testsBlk}</div></div>`;
 }
 function rvDetailHtml(t, m, sel){
   const ui=rvUiOf(t.id);
@@ -279,11 +279,11 @@ function rvTopHtml(t, m){
   const loose=(m.pins.loose||[]);
   const parts=[];
   if(n) parts.push(`<span>Você aceitou <b>${acc} de ${n}</b> ${n===1?'requisito':'requisitos'}</span>`);
-  if(m.map.out.length) parts.push(`<span><b class="wn">${nPl(m.map.out.length,'trecho')}</b> fora dos requisitos</span>`);
-  if(m.map.unc.length) parts.push(`<span><b class="wn">${nPl(m.map.unc.length,'trecho')}</b> sem ligação</span>`);
+  if(m.map.out.length) parts.push(`<span><b class="rvwarn">${nPl(m.map.out.length,'trecho')}</b> fora dos requisitos</span>`);
+  if(m.map.unc.length) parts.push(`<span><b class="rvwarn">${nPl(m.map.unc.length,'trecho')}</b> sem ligação</span>`);
   if(revTx) parts.push(`<span>Revisor: ${last&&last.verdict==='muda'?`<button type="button" class="lnk rvloose" data-rvloose aria-expanded="${rvUiOf(t.id).loose}"><b>${esc(revTx)}</b></button>`:`<b>${esc(revTx)}</b>`}</span>`);
-  if(m.df.errs.length) parts.push(`<span class="wn" title="${escA(m.df.errs.join('\n'))}">não consegui ler ${nPl(m.df.errs.length,'arquivo')}</span>`);
-  if(m.st.err) parts.push(`<span class="wn" title="${escA(m.st.err)}">suas decisões não carregaram</span>`);
+  if(m.df.errs.length) parts.push(`<span class="rvwarn" title="${escA(m.df.errs.join('\n'))}">não consegui ler ${nPl(m.df.errs.length,'arquivo')}</span>`);
+  if(m.st.err) parts.push(`<span class="rvwarn" title="${escA(m.st.err)}">suas decisões não carregaram</span>`);
   const looseBox=rvUiOf(t.id).loose && last && last.verdict==='muda'
     ? `<div class="rvlooselist"><b>O que o revisor pediu na rodada ${last.round}</b><ul>${(last.items||[]).map((it,j)=>`<li><span>${esc(it)}</span><button type="button" class="lnk" data-rvitem="${j}">mandar pro agente</button></li>`).join('')}</ul>${loose.length<(last.items||[]).length?'<small class="dim">Os que citam arquivo:linha também aparecem presos ao trecho.</small>':''}</div>` : '';
   return `<div class="rvtop">${parts.join('<span class="rvdot" aria-hidden="true">·</span>')}<span class="rvsp"></span><button type="button" class="btn sm" data-rvfull>ver diff completo</button></div>${looseBox}`;
@@ -382,10 +382,12 @@ function prvGates(t, info){
   return { m, gates, first };
 }
 // o que bloqueia o merge AGORA ('' = pode). Fonte única: a página do PR e o mergePr usam a mesma regra.
+// o que bloqueia além dos 5 portões (conflito e checagens já são portões — não repete)
+function prvExtraBlock(info){ if(!info || info.state!=='OPEN') return 'o PR não está aberto'; if(info.isDraft) return 'tirar o PR do rascunho no GitHub'; return ''; }
 function prvMergeWhy(t, info){
   if(!t||!info) return '';
-  const base=prMergeBlock(info); if(base) return base;
-  return rvMissingText(prvGates(t, info).gates);
+  if(info.state!=='OPEN') return prMergeBlock(info);
+  return rvMissingText(prvGates(t, info).gates, prvExtraBlock(info));
 }
 function prvAgoMs(ms){ if(!(ms>0)) return ''; const s=agoShort(ms); return s==='agora'?'agora':s?'há '+s:''; }
 function prvAgo(iso){ return prvAgoMs(Date.parse(iso||'')); }
@@ -414,7 +416,7 @@ function prvTimeline(t, info){
 function prvRender(t, main, info){
   const { m, gates, first }=prvGates(t, info);
   const open=info.state==='OPEN';
-  const extra=open?prMergeBlock(info):'';
+  const extra=open?prvExtraBlock(info):'';
   const why=open?rvMissingText(gates, extra):'';
   const fixable=gates.some(g=>g.st==='bad' && ['prova','revisor','checks','conflito'].includes(g.id));
   const gHtml=gates.map(g=>`<div class="prvg ${g.st}"><span class="prvst">${g.st==='ok'?'ok':g.st==='bad'?'falhou':g.st==='wn'?'falta':g.st==='run'?'andando':'não se aplica'}</span><b>${esc(g.label)}</b><small>${esc(g.val)}</small>${prvGateExit(g, first)}</div>`).join('');
@@ -424,15 +426,15 @@ function prvRender(t, main, info){
   const d=diffOf(t.id)||{};
   const files=rvCodeFiles(), addN=files.reduce((s,f)=>s+(+f.add||0),0)||(+d.additions||0), delN=files.reduce((s,f)=>s+(+f.del||0),0)||(+d.deletions||0);
   const start=taskTs(t), prAt=Date.parse(info.createdAt||'')||0;
-  const facts=`<div class="prvfacts"><div><b>${m.rows.length}</b><small>${m.rows.length===1?'requisito':'requisitos'}</small></div><div><b>${files.length||diffFiles(d)}</b><small>arquivos · +${addN} −${delN}</small></div><div><b>${esc(fmtCost(taskCost(t.id).usd))}</b><small>custo total</small></div><div><b>${start&&prAt&&prAt>start?esc(fmtDurMs(prAt-start)):'—'}</b><small>do pedido ao PR</small></div></div>`;
-  const rlist=m.rows.length?`<ul class="prvreqs">${m.rows.map(r=>{ const proven=r.st==='ok'&&r.evidence.length; return `<li><span class="prvrq ${proven?'ok':'no'}${r.acc==='acc'?' acc':''}" aria-hidden="true">${r.acc==='acc'?IC.check:''}</span><span>R${r.i+1} ${esc(r.text)}</span><em>${proven?esc(String(r.evidence[0])):'sem prova'}${r.acc==='acc'?' · aceito':''}</em></li>`; }).join('')}</ul>`:'';
+  const facts=`<div class="prvfacts"><div><b>${m.rows.length}</b><small>${m.rows.length===1?'requisito':'requisitos'}</small></div><div><b>${files.length||diffFiles(d)}</b><small>arquivos · +${addN} −${delN}</small></div><div><b>${esc(fmtCost(taskCost(t.id).usd,{ usdOnly:true }))}</b><small>custo total</small></div><div><b>${start&&prAt&&prAt>start?esc(fmtDurMs(prAt-start)):'—'}</b><small>do pedido ao PR</small></div></div>`;
+  const rlist=m.rows.length?`<ul class="prvreqs">${m.rows.map(r=>{ const proven=r.st==='ok'&&r.evidence.length; return `<li><span class="prvrq ${proven?'ok':'no'}${r.acc==='acc'?' acc':''}" aria-hidden="true">${r.acc==='acc'?IC.check:''}</span><span>R${r.i+1} ${esc(r.text)}</span><em>${proven?esc(String(r.evidence[0])):'sem prova'}</em></li>`; }).join('')}</ul>`:'';
   const kept=m.map.out.filter(x=>(m.st.out||{})[x.key]==='keep').length;
   const outLine=m.map.out.length?`<p class="prvout">${nPl(m.map.out.length,'trecho')} fora dos requisitos${kept?` · ${kept} mantido${kept>1?'s':''} por você`:' · você ainda não decidiu'} <button type="button" class="lnk" data-prvx="fora">ver</button></p>`:'';
   const rep=(typeof cicloReportFor==='function')?cicloReportFor(t).trim():'';
   const tl=prvTimeline(t, info);
   main.innerHTML=`<div class="prv">
     <div class="prvready">
-      <div class="prvtop"><span class="prvnum mono">#${info.number}</span><h3>${head}</h3><span class="prvbr mono">${esc(t.branch)} → ${esc(info.baseRefName||'main')}</span>${prStateBadge(info)}<span class="rvsp"></span><span class="dim prvage" id="prAge">${prAgoTx(info._at)}${info.staleErr?' · <span class="wn">sem conexão com o GitHub agora</span>':''}</span></div>
+      <div class="prvtop"><span class="prvnum mono">#${info.number}</span><h3>${head}</h3><span class="prvbr mono">${esc(t.branch)} → ${esc(info.baseRefName||'main')}</span>${prStateBadge(info)}<span class="rvsp"></span><span class="dim prvage" id="prAge">${prAgoTx(info._at)}${info.staleErr?' · <span class="rvwarn">sem conexão com o GitHub agora</span>':''}</span></div>
       ${open?`<div class="prvgates">${gHtml}</div>`:''}
       ${bar}
     </div>

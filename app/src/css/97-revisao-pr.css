@@ -13,7 +13,7 @@
 .rvroot .lnk.sec:hover,.prv .lnk.sec:hover{color:var(--text)}
 .rvsp{flex:1}
 .rvh{margin:16px 14px 6px;font:600 var(--fs-xs) var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.wn{color:var(--warn)} .rvroot b.wn{color:var(--warn)}
+.rvwarn{color:var(--warn)}
 
 /* barra do topo */
 .rvtop{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 16px;border-bottom:1px solid var(--border);background:var(--surface);font-size:var(--fs-sm);color:var(--muted)}
@@ -60,15 +60,15 @@
 /* prova + testes */
 .rvprova{display:grid;grid-template-columns:132px minmax(0,1fr);gap:14px;align-items:start;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px}
 .rvprova.noproof{grid-template-columns:minmax(0,1fr)}
-.rvshot{display:block;width:100%;aspect-ratio:9/16;max-height:240px;border-radius:var(--r-sm);border:1px solid var(--border-strong);background:var(--surface-2);overflow:hidden;padding:0;cursor:zoom-in}
-.rvshot img{width:100%;height:100%;object-fit:cover;object-position:top;display:block}
+.rvshot{display:block;width:100%;aspect-ratio:3/4;max-height:240px;border-radius:var(--r-sm);border:1px solid var(--border-strong);background:var(--surface-2);overflow:hidden;padding:0;cursor:zoom-in}
+.rvshot img{width:100%;height:100%;object-fit:contain;display:block}
 .rvshot.doc{aspect-ratio:4/3;cursor:pointer}
 .rvshot-ph{display:grid;place-items:center;width:100%;height:100%;color:var(--muted)}
 .rvshot-ph svg{width:22px;height:22px}
 .rvpb{display:flex;flex-direction:column;gap:12px;min-width:0;font-size:var(--fs-sm)}
 .rvpt{display:flex;flex-direction:column;gap:4px;min-width:0}
 .rvpt b{font-size:var(--fs-sm);color:var(--text)}
-.rvpt b.wn{color:var(--warn)}
+.rvpt b.rvwarn{color:var(--warn)}
 .rvpt .dim{overflow-wrap:anywhere}
 .rvtests{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
 .rvtests li{display:flex;gap:8px;align-items:baseline;min-width:0}
