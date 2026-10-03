@@ -5977,6 +5977,57 @@ fn get_estimate(state: State<AppState>, task_id: String) -> Result<Option<String
     Ok(r.ok())
 }
 
+// ---------- Revisão por requisito: o que VOCÊ decidiu (aceito por requisito, manter/desfazer trecho fora) ----------
+// Tabela própria (não o spec_json): o orquestrador regrava o spec inteiro em alguns pontos e apagaria o aceite.
+const REVIEW_STATE_SQL: &str = "CREATE TABLE IF NOT EXISTS task_review_state (task_id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL)";
+fn review_state_write(conn: &Connection, task_id: &str, json: &str) -> Result<(), String> {
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("estado da revisão inválido: {e}"))?;
+    if !v.is_object() { return Err("estado da revisão inválido: esperado um objeto".into()); }
+    if json.len() > 512 * 1024 { return Err("estado da revisão grande demais".into()); }
+    let _ = conn.execute(REVIEW_STATE_SQL, []);
+    conn.execute(
+        "INSERT INTO task_review_state(task_id,json,updated_at) VALUES(?1,?2,?3) ON CONFLICT(task_id) DO UPDATE SET json=?2, updated_at=?3",
+        params![task_id, json, now_ms()],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+fn review_state_read(conn: &Connection, task_id: &str) -> Option<String> {
+    conn.query_row("SELECT json FROM task_review_state WHERE task_id=?1", params![task_id], |row| row.get::<_, String>(0)).ok()
+}
+/// Grava o estado da revisão da tarefa (JSON objeto: { acc: {req: {at, sig}}, out: {trecho: "keep"|"undo"} }).
+#[tauri::command(async)]
+fn review_state_set(state: State<AppState>, task_id: String, json: String) -> Result<(), String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    review_state_write(&conn, &task_id, &json)
+}
+/// Estado da revisão (None = a pessoa ainda não decidiu nada nesta tarefa; banco sem a tabela também).
+#[tauri::command(async)]
+fn review_state_get(state: State<AppState>, task_id: String) -> Result<Option<String>, String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    Ok(review_state_read(&conn, &task_id))
+}
+
+#[cfg(test)]
+mod review_state_tests {
+    use super::{review_state_read, review_state_write};
+    use rusqlite::Connection;
+    #[test]
+    fn grava_le_e_recusa_lixo() {
+        let c = Connection::open_in_memory().unwrap();
+        assert_eq!(review_state_read(&c, "t1"), None, "sem tabela: None, sem erro");
+        review_state_write(&c, "t1", r#"{"acc":{"a":{"at":1,"sig":"x"}}}"#).unwrap();
+        assert_eq!(review_state_read(&c, "t1").as_deref(), Some(r#"{"acc":{"a":{"at":1,"sig":"x"}}}"#));
+        review_state_write(&c, "t1", r#"{"acc":{}}"#).unwrap();
+        assert_eq!(review_state_read(&c, "t1").as_deref(), Some(r#"{"acc":{}}"#), "upsert");
+        assert!(review_state_write(&c, "t1", "nao é json").is_err());
+        assert!(review_state_write(&c, "t1", "[1,2]").is_err(), "só objeto");
+        assert_eq!(review_state_read(&c, "t2"), None);
+    }
+}
+
 // ---------- APNs: push REAL pro iPhone (app fechado) ----------
 // JWT ES256 assinado com a key .p8 da conta Apple (openssl faz a assinatura;
 // aqui só convertemos DER→JOSE). Token cacheado por ~40min como a Apple pede.
@@ -7187,6 +7238,8 @@ struct PrInfo {
     failing_checks: Vec<String>,
     /// login da conta do gh (quem "respondeu" as threads)
     gh_user: String,
+    /// quando o PR foi aberto (ISO 8601 do GitHub; vazio = desconhecido) — linha do tempo e "do pedido ao PR"
+    created_at: String,
 }
 
 fn pr_is_bot(a: &str) -> bool {
@@ -7431,10 +7484,10 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
     let empty = PrInfo {
         exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), body: String::new(),
         comments: vec![], reviews: vec![], is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
-        checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(),
+        checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(), created_at: String::new(),
     };
     let mut vcmd = gh_contas::gh_in(&repo);
-    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName"]).args(gh_repo_args(&repo)).current_dir(&repo);
+    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName,createdAt"]).args(gh_repo_args(&repo)).current_dir(&repo);
     let view = output_timeout(vcmd, 12).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
     if !view.status.success() {
         let err = String::from_utf8_lossy(&view.stderr).to_string();
@@ -7606,6 +7659,7 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         checks_pending,
         failing_checks,
         gh_user: me,
+        created_at: v["createdAt"].as_str().unwrap_or("").to_string(),
     })
 }
 
@@ -9830,6 +9884,8 @@ pub fn run() {
             estimate_history,
             save_estimate,
             get_estimate,
+            review_state_get,
+            review_state_set,
             apns_push,
             read_policy,
             publish_release,
@@ -10213,7 +10269,7 @@ mod pr_status_tests {
         let mk = |decision: &str| PrInfo {
             exists: true, number: 1, url: "u".into(), state: "OPEN".into(), decision: decision.into(), mergeable: String::new(), body: String::new(),
             comments: vec![], reviews: rs.clone(), is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
-            checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(),
+            checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(), created_at: String::new(),
         };
         let none = std::collections::HashSet::new();
         let info = mk("CHANGES_REQUESTED");
