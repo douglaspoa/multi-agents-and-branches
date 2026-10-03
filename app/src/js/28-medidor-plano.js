@@ -185,7 +185,8 @@ function pmIaHtml(r, open){
 function pmHtml(u, min, defEng, now, err, open, ord){
   open=open||[];
   const isOpen=id=>typeof open.has==='function'?open.has(id):open.includes(id);
-  if(!u && err) return `<button class="pm-head pm-empty" data-pm="retry" title="${escA(err)}">${pmDot('idle')}<span class="pm-title">não consegui ler o uso — tentar de novo</span></button>`;
+  // erro (mesa da barra lateral, L6): duas linhas que QUEBRAM em vez de cortar — "tentar de novo" sempre à vista
+  if(!u && err) return `<div class="pm-err" title="${escA('Não consegui ler o uso do plano: '+err)}">${pmDot('idle')}<span class="pm-errtx">uso do plano indisponível</span><button class="pm-retry" data-pm="retry" aria-label="Não consegui ler o uso do plano — tentar de novo">tentar de novo</button></div>`;
   if(!u) return `<button class="pm-head" data-pm="toggle" aria-expanded="${!min}"><span class="pm-title">Uso do plano</span><span class="pm-sum dim">verificando…</span>${PM_CHEV}</button>`;
   const rows=pmRows(u, now, defEng, ord);
   if(!rows.length) return `<button class="pm-head pm-empty" data-pm="cfg" title="Nenhuma IA pronta — abrir Sua IA">${pmDot('idle')}<span class="pm-title">configure sua IA</span></button>`;
