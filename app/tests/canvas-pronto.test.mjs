@@ -43,6 +43,8 @@ test('layout automático: a escolha salva NÃO muda; a tela reavalia no resize (
   assert.match(canvas, /new ResizeObserver\(\(\)=>cvRelayout\(\)\)\.observe\(row\)/);
   assert.match(canvas, /window\.addEventListener\('resize', \(\)=>\{ cvNatSync\(\); cvRelayout\(\); \}\)/);
   assert.match(cut(canvas, 'function cvLayHtml(', '\n}\n'), /automático: a janela está estreita/);
+  // no app real o cabeçalho do painel ficava com a medida antiga ao trocar o layout (botões cortados)
+  assert.match(cut(canvas, 'function sfPaneBoot(){', '\n}\n'), /window\.addEventListener\('resize', \(\)=>\{ if\(typeof fwHeadWatch==='function'\)/);
 });
 test('painel: o iframe da demanda tem aria-label, não title (o title virava tooltip nativo preso no canto)', () => {
   const r = cut(canvas, 'function cvRealmRender(tab, body){', '\n}\n');
@@ -104,5 +106,5 @@ test('Prévia: a saúde é checada ANTES de montar o iframe; "main" liga o proje
   const lib = readFileSync(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
   assert.match(lib, /preview_health,\n/, 'comando registrado');
   assert.match(lib, /orfaos::kill_in_dir\(wt\);\n\s*let _ = Command::new\("git"\)\.arg\("-C"\)\.arg\(repo\)\.args\(\["worktree", "remove"/, 'quem roda na worktree morre antes de ela sair');
-  assert.match(lib, /std::thread::spawn\(orfaos::sweep_boot\);/, 'varredura de órfãos no boot');
+  assert.match(lib, /std::thread::spawn\(move \|\| orfaos::sweep_boot\(projs\)\);/, 'varredura de órfãos no boot (só dos projetos deste app)');
 });

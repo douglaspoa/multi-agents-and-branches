@@ -55,10 +55,12 @@ pub fn worktree_root_of(cwd: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Órfãos: cwd numa worktree do Starfork cuja raiz NÃO existe mais. Puro sobre `exists` (testado).
-pub fn orphan_procs(list: &[(i32, PathBuf)], exists: &dyn Fn(&Path) -> bool, me: i32) -> Vec<(i32, PathBuf)> {
+/// Órfãos: cwd numa worktree (apagada) de um dos PROJETOS deste app — outro repo, outra ferramenta ou outra
+/// instância com `.cardume/` não entram. Puro sobre `exists` (testado).
+pub fn orphan_procs(list: &[(i32, PathBuf)], projects: &[PathBuf], exists: &dyn Fn(&Path) -> bool, me: i32) -> Vec<(i32, PathBuf)> {
+    let mine = |r: &Path| projects.iter().any(|p| r.starts_with(p.join(".cardume")));
     let mut v: Vec<(i32, PathBuf)> = list.iter().filter(|(p, _)| *p > 1 && *p != me)
-        .filter_map(|(p, c)| worktree_root_of(c).filter(|r| !exists(r)).map(|r| (*p, r))).collect();
+        .filter_map(|(p, c)| worktree_root_of(c).filter(|r| mine(r) && !exists(r)).map(|r| (*p, r))).collect();
     v.sort_by_key(|x| x.0); v.dedup_by_key(|x| x.0); v
 }
 
@@ -102,10 +104,14 @@ pub fn kill_in_dir(dir: &Path) -> usize {
     pids.len()
 }
 
-/// Boot do app (thread própria): derruba servidores de prévia cuja worktree já foi apagada.
-pub fn sweep_boot() {
+/// Boot do app (thread própria): derruba servidores de prévia cuja worktree (de um projeto deste app) já foi apagada.
+pub fn sweep_boot(projects: Vec<String>) {
     if cfg!(windows) { return; }
-    let list = orphan_procs(&lsof_cwds(), &|p: &Path| p.exists(), std::process::id() as i32);
+    // o caminho como foi salvo E o real (/tmp → /private/tmp): o lsof dá o real
+    let mut roots: Vec<PathBuf> = Vec::new();
+    for p in projects.iter().filter(|p| !p.is_empty()) { let pb = PathBuf::from(p); if let Ok(r) = pb.canonicalize() { roots.push(r); } roots.push(pb); }
+    if roots.is_empty() { return; }
+    let list = orphan_procs(&lsof_cwds(), &roots, &|p: &Path| p.exists(), std::process::id() as i32);
     if list.is_empty() { return; }
     let pids: Vec<i32> = list.iter().map(|x| x.0).collect();
     kill_pids(&pids);
@@ -173,8 +179,9 @@ mod tests {
     fn orfaos_so_de_worktree_apagada() {
         let l = parse_lsof_cwd("p200\nn/r/.cardume/worktrees/viva/web\np201\nn/r/.cardume/worktrees/morta\np202\nn/r/.cardume/reviews/pr-9/x\np203\nn/r/src\np204\nn/r/.cardume/logs\n");
         let exists = |p: &Path| p == Path::new("/r/.cardume/worktrees/viva");
-        let o = orphan_procs(&l, &exists, 1);
+        let o = orphan_procs(&l, &[PathBuf::from("/r")], &exists, 1);
         assert_eq!(o.iter().map(|x| x.0).collect::<Vec<_>>(), vec![201, 202]);
+        assert!(orphan_procs(&l, &[PathBuf::from("/outro")], &exists, 1).is_empty(), "worktree de repo que não é projeto deste app: não mexe");
         assert_eq!(o[0].1, PathBuf::from("/r/.cardume/worktrees/morta"));
         assert_eq!(worktree_root_of(Path::new("/r/.cardume/worktrees")), None, "a pasta das worktrees em si não é worktree");
     }

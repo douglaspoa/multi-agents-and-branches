@@ -143,6 +143,7 @@ function cvShowView(tab){
     want.forEach((el,i)=>{ if(row.children[i]!==el) row.insertBefore(el, row.children[i]||null); });
   }
   cvApplyLayout(row, ids);
+  if(split) cvRelayout(); // a 1ª medida pode vir antes do layout (área 0): reavalia no próximo quadro
   cvNatSync();
   ids.forEach((id,i)=>{ const el=SPL.panes[id]; el.classList.toggle('focus', split && (SPL.focus|0)===i); el.classList.toggle('split', split); cvRenderPane(cvTabOf(id), el); });
   cvAskMarks();
@@ -239,6 +240,9 @@ function cvPanesTick(){
 function sfPaneBoot(){
   const [kind, id]=String(SF_PANE).split(':');
   window.sfPaneTick=()=>{ refresh().catch(()=>{}); };
+  // o painel mudou de tamanho (layout trocado, janela, divisória): o cabeçalho remede — modos viram menu e a ação
+  // principal vira ícone antes de algum botão sair pra fora (no app real o cabeçalho ficava com a medida antiga)
+  window.addEventListener('resize', ()=>{ if(typeof fwHeadWatch==='function') try{ fwHeadWatch(); }catch(_){ } });
   window.sfPaneUnload=()=>{ try{ if(typeof nvState!=='undefined') Object.keys(nvState).forEach(k=>{ if(typeof nvUnmount==='function') nvUnmount(k); }); }catch(_){ } try{ if(typeof dvStopStream==='function') dvStopStream(); }catch(_){ } };
   // foco: clicou neste painel → a janela principal marca ele (⌘1..3, cabeçalho)
   window.addEventListener('pointerdown', ()=>{ try{ window.parent.cvPaneFocus(window.frameElement&&window.frameElement.dataset.tabid); }catch(_){ } }, true);
@@ -346,7 +350,7 @@ try{ window.__TAURI__.event.listen('web-nav', (ev)=>{ const p=ev&&ev.payload; if
 window.addEventListener('resize', ()=>{ cvNatSync(); cvRelayout(); });
 // a área dos painéis mudou (janela, barra lateral recolhida): o layout automático reavalia (só grid-area — nada recarrega)
 let cvRelayQ=0;
-function cvRelayout(){ if(cvRelayQ) return; cvRelayQ=requestAnimationFrame(()=>{ cvRelayQ=0; if(!cvSplitShowing()) return; const row=$id('cvSplit').querySelector('.cvrow'); if(row) cvApplyLayout(row, SPL.ids); }); }
+function cvRelayout(){ if(cvRelayQ) return; cvRelayQ=requestAnimationFrame(()=>{ cvRelayQ=0; if(!SPL.ids || SPL.ids.length<2) return; const ov=$id('cvSplit'), row=ov&&ov.querySelector('.cvrow'); if(row && cvRowBox(row) && SPL.ids.every(id=>SPL.panes[id] && row.contains(SPL.panes[id]))) cvApplyLayout(row, SPL.ids); }); }
 document.addEventListener('visibilitychange', ()=>cvNatSync());
 { try{ const mo=new MutationObserver(()=>{ if(Object.keys(NAT.views).length) cvNatSync(); });
     mo.observe(document.body, { childList:true });

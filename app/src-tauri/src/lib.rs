@@ -9867,7 +9867,11 @@ pub fn run() {
             // "Subir ambiente": derruba o que uma instância anterior (que caiu) deixou rodando
             std::thread::spawn(ambiente::sweep_boot);
             // servidores de prévia cuja worktree já foi apagada (integrada/limpa) — a Prévia mostrava branco por eles
-            std::thread::spawn(orfaos::sweep_boot);
+            {
+                let mut projs = read_project_list();
+                if let Ok(r) = std::env::var("CARDUME_REPO") { projs.push(r); }
+                std::thread::spawn(move || orfaos::sweep_boot(projs));
+            }
             // depois do ENGINE_RESOURCE: o reparo usa o motor bundlado
             std::thread::spawn(claude_statusline_boot_repair);
             // MODO TERMINAL: gerenciador dos PTYs + varredura de terminais órfãos de uma execução que caiu
