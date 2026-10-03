@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { exitGraceMs, killProcess, mapTool } from "./claude.ts";
+import { adjustRuleOf, exitGraceMs, killProcess, mapTool } from "./claude.ts";
 import { loadLlmEnv } from "./codex.ts";
 import { protectEnabled, PROTECT_RULE } from "./protect.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
@@ -342,7 +342,7 @@ export function buildDshPrompt(input: RunInput): string {
     : "";
   const refs = input.spec.refs ?? [];
   const refRule = refs.length ? ` Leia primeiro as referências em .cardume/refs/ (${refs.join(", ")}).` : "";
-  const base = `Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${artifactRule}${reqRule}${ASK_RULE}${GROUND_RULE}${mob}${protect}`;
+  const base = `${adjustRuleOf(input.spec)}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${artifactRule}${reqRule}${ASK_RULE}${GROUND_RULE}${mob}${protect}`;
   // o headless não tem "append system prompt": o contexto do barramento vai no próprio pedido (como no Codex)
   return base + (input.systemContext ? `\n\nCONTEXTO DO BARRAMENTO:\n${input.systemContext}` : "");
 }
