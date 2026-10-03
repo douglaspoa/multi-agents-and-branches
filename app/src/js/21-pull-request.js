@@ -602,6 +602,17 @@ function render(){
 function safe(fn){ try{ fn(); }catch(e){ console.error("render "+(fn.name||"?")+":", e); } }
 function activeIs(x){ return ((((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v)===x; }
 const commitsCache={};
+const commitsDirty={}; // taskId → a worktree tem alteração não commitada (task_commit_info)
+// rótulo dos commits de uma tarefa: "0 commits" numa tarefa em revisão parecia que nada foi feito
+// @commits-rotulo-inicio (testado em app/tests/defeitos-vitrine.test.mjs)
+function commitsLabelOf(n, dirty, done){
+  if(n==null) return '… commits';
+  if(n>0) return n+(n===1?' commit':' commits')+(dirty?' + alterações não commitadas':'');
+  if(dirty) return 'alterações não commitadas';
+  return done?'integrado':'nenhum commit ainda';
+}
+// @commits-rotulo-fim
+function commitsLabel(t){ const c=commitsCache[t.id]; return commitsLabelOf(c===undefined?null:c.length, !!commitsDirty[t.id], typeof taskIsDone==='function' && taskIsDone(t)); }
 // commitsStale: evento novo na tarefa → recarrega MOSTRANDO o valor antigo (antes zerava o cache e o
 // card piscava "carregando…" a cada evento); commitsLoading: 1 carga por tarefa (cada render disparava outra)
 const commitsStale={}, commitsLoading={};
@@ -611,7 +622,8 @@ async function loadCommits(taskId, force){
   if(commitsLoading[taskId]) return commitsLoading[taskId];
   delete commitsStale[taskId];
   commitsLoading[taskId]=(async()=>{
-    try{ commitsCache[taskId]=await invoke("task_commits",{taskId}); }catch(e){ if(commitsCache[taskId]===undefined) commitsCache[taskId]=[]; }
+    try{ const i=await invoke("task_commit_info",{taskId}); commitsCache[taskId]=Array.isArray(i&&i.commits)?i.commits:[]; commitsDirty[taskId]=!!(i&&i.uncommitted); }
+    catch(e){ if(commitsCache[taskId]===undefined) commitsCache[taskId]=[]; }
     finally{ delete commitsLoading[taskId]; }
     return commitsCache[taskId];
   })();
@@ -657,7 +669,7 @@ function flowTaskCard(t, acc){
     <div class="fhead"><span class="sd" style="background:${col}"></span><b>${esc(t.title)}</b>${typeof epTaskBadge==='function'?epTaskBadge(t):''}${typeof taskOriginHtml==='function'?taskOriginHtml(t):''}${t.linkedTo?`<span class="linkbadge" title="correção linkada a outra tarefa">${IC.clip}</span>`:''}${flagBadge}<span class="fstatus stdrop" data-stmenu="${t.id}" style="color:${col}" title="mudar status da demanda"><i style="font-style:normal">${stIcon(st)}</i> ${esc(stLabel(st))}<span class="stcaret">${IC.chevD}</span></span></div>
     ${(()=>{const p=taskPct(t);return `<div class="cardpct" data-sum="${escA(t.id)}" title="ver o resumo do que já foi feito"><div class="bar"><i style="width:${p}%;background:${asking?'var(--warn)':'var(--good)'}"></i></div><span class="cpv">${p}%</span></div>`;})()}
     <div class="fpipe">${pipe}</div>${live}
-    <div class="fmeta"><span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(t.proj||projShort(t.repo||state.repo))}</span>${(()=>{const ty=taskType(t);const c=TYPE_COLOR[ty]||'var(--muted)';return `<span class="typetag" style="color:${c};border-color:color-mix(in srgb,${c} 45%,transparent)">${TYPE_PT[ty]}</span>`;})()}${linkChips(t)}${pvChips(t)}${t.status==='conflict'?`<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA junta a base e resolve os conflitos na worktree; você revisa e integra" style="padding:3px 9px;font-size:var(--fs-xs)">${IC.bolt} resolver conflito</button>`:''}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:var(--fs-xs)">${IC.merge} abrir PR</button>`:''}<span>${nPl((t.deliverables||[]).length,'entregável','entregáveis')}</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">'+IC.ok+' revisada</span>':''}<span>${c!==undefined?nPl(c.length,'commit'):'… commits'}</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
+    <div class="fmeta"><span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(t.proj||projShort(t.repo||state.repo))}</span>${(()=>{const ty=taskType(t);const c=TYPE_COLOR[ty]||'var(--muted)';return `<span class="typetag" style="color:${c};border-color:color-mix(in srgb,${c} 45%,transparent)">${TYPE_PT[ty]}</span>`;})()}${linkChips(t)}${pvChips(t)}${t.status==='conflict'?`<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA junta a base e resolve os conflitos na worktree; você revisa e integra" style="padding:3px 9px;font-size:var(--fs-xs)">${IC.bolt} resolver conflito</button>`:''}${(!['merged','done'].includes(t.status)&&t.flag!=='closed'&&t.status!=='draft'&&!t.prUrl)?`<button class="btn ${['review','delivered'].includes(t.status)?'primary ':''}sm" data-rowpr="${escA(t.id)}" title="checagens do repo → commit & push → cria o PR" style="padding:3px 9px;font-size:var(--fs-xs)">${IC.merge} abrir PR</button>`:''}<span>${nPl((t.deliverables||[]).length,'entregável','entregáveis')}</span><span>${d?`+${d.additions} −${d.deletions}`:'sem diff'}</span>${rev?'<span class="frev">'+IC.ok+' revisada</span>':''}<span>${esc(commitsLabel(t))}</span>${(()=>{const tc=taskCost(t.id);return (tc.usd||tc.tok)?`<span class="fcost">${fmtUsd(tc.usd)} · ${fmtTok(tc.tok)} tok</span>`:'';})()}</div>
     <div class="fclabel fctog" data-ctog="${t.id}"><span class="fcchev">${flowCommitsOpen.has(t.id)?IC.chevD:IC.chevR}</span>Commits <span class="dim">· ${c!==undefined?c.length:'…'}${flowCommitsOpen.has(t.id)?' · clique num commit para ver o diff':''}</span></div>
     ${flowCommitsOpen.has(t.id)?`<div class="fcommits">${cchips}</div>`:''}
   </div>`;

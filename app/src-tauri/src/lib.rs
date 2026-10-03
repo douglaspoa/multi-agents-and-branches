@@ -733,6 +733,43 @@ mod claude_json_tests {
 }
 
 #[cfg(test)]
+mod commit_info_tests {
+    use super::*;
+    fn git(d: &Path, a: &[&str]) { let o = Command::new("git").arg("-C").arg(d).args(a).output().unwrap(); assert!(o.status.success(), "{a:?}: {}", String::from_utf8_lossy(&o.stderr)); }
+    /// Repo real com worktree: commits contados a partir do HEAD da worktree (mesmo que a branch gravada não exista),
+    /// alteração não commitada detectada, .cardume/ ignorada.
+    #[test]
+    fn conta_a_frente_da_base_pela_worktree_e_ve_nao_commitado() {
+        let d = std::env::temp_dir().join(format!("sf-commits-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let repo = d.join("repo"); std::fs::create_dir_all(&repo).unwrap();
+        git(&repo, &["init", "-q", "-b", "main"]);
+        git(&repo, &["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", "base"]);
+        let wt = d.join("wt");
+        git(&repo, &["worktree", "add", "-q", "-b", "homol", wt.to_str().unwrap()]);
+        for i in 0..2 {
+            std::fs::write(wt.join(format!("f{i}.txt")), "x").unwrap();
+            git(&wt, &["add", "."]);
+            git(&wt, &["-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", &format!("c{i}")]);
+        }
+        // a branch gravada na tarefa NÃO existe (antes: 0 commits)
+        let i = commit_info_in(&repo, "main", "feat/nome-antigo", Some(&wt));
+        assert_eq!(i.commits.len(), 2);
+        assert_eq!(i.commits[0]["subject"], "c1", "mais novo primeiro");
+        assert!(!i.uncommitted);
+        std::fs::create_dir_all(wt.join(".cardume/artifacts")).unwrap();
+        std::fs::write(wt.join(".cardume/artifacts/p.png"), "x").unwrap();
+        assert!(!commit_info_in(&repo, "main", "homol", Some(&wt)).uncommitted, ".cardume não conta");
+        std::fs::write(wt.join("f0.txt"), "mudou").unwrap();
+        assert!(commit_info_in(&repo, "main", "homol", Some(&wt)).uncommitted);
+        // sem worktree: pela branch no repo; branch que não existe → vazio
+        assert_eq!(commit_info_in(&repo, "main", "homol", None).commits.len(), 2);
+        assert!(commit_info_in(&repo, "main", "sumiu", None).commits.is_empty());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
 mod artifact_tests {
     use super::*;
     #[test]
@@ -1495,44 +1532,66 @@ async fn ai_commit_summary(state: State<'_, AppState>, hash: String) -> Result<S
 /// Commits de uma tarefa (base..branch) — para vincular commits à tarefa.
 #[tauri::command(async)]
 fn task_commits(state: State<AppState>, task_id: String) -> Result<Vec<serde_json::Value>, String> {
+    Ok(task_commit_info(state, task_id)?.commits)
+}
+
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct CommitInfo {
+    /// commits À FRENTE da base (mais novo primeiro)
+    commits: Vec<serde_json::Value>,
+    /// a worktree tem alterações ainda não commitadas (o front diz "alterações não commitadas")
+    uncommitted: bool,
+}
+
+/// Commits à frente da base + se há alteração não commitada. Conta a partir da WORKTREE (HEAD — o mesmo ponto do
+/// diffstat do motor, `base...HEAD`) quando ela existe; só sem worktree cai na branch gravada no repo. Antes contava
+/// SÓ por `task.branch` no repo: worktree noutra branch (ex.: PR de fora em "homol") ou branch renomeada → "0 commits"
+/// numa tarefa em revisão com +20 −14.
+#[tauri::command(async)]
+fn task_commit_info(state: State<AppState>, task_id: String) -> Result<CommitInfo, String> {
     let dbpath = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let repo = dbpath.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf()).ok_or("repo inválido")?;
     let conn = open(&dbpath)?;
     // tarefa fora do state.sqlite do projeto ATIVO (apagada, de outro projeto, só na nuvem): não há
     // commits a listar — vazio, não "Query returned no rows" (era o erro recorrente em app_errors)
-    let (branch, base): (String, String) = match conn
-        .query_row("SELECT branch, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
+    let (branch, base, wt): (String, String, String) = match conn
+        .query_row("SELECT branch, base, worktree FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
     {
         Ok(v) => v,
-        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(vec![]),
+        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(CommitInfo::default()),
         Err(e) => return Err(e.to_string()),
     };
-    let mb = merge_base_ref(&repo, &base, &branch);
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(&repo)
-        .args([
-            "log",
-            &format!("{mb}..{branch}"),
-            "--format=%H\u{1f}%s\u{1f}%an\u{1f}%ad",
-            "--date=short",
-        ])
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Ok(vec![]); // branch pode ter sido removida (tarefa mergeada)
-    }
+    Ok(commit_info_in(&repo, &base, &branch, (!wt.is_empty()).then(|| PathBuf::from(&wt)).as_deref()))
+}
+
+fn commit_info_in(repo: &Path, base: &str, branch: &str, wt: Option<&Path>) -> CommitInfo {
+    let live = wt.filter(|w| w.join(".git").exists());
+    let (dir, tip) = match live { Some(w) => (w.to_path_buf(), "HEAD".to_string()), None => (repo.to_path_buf(), branch.to_string()) };
+    let mb = merge_base_ref(&dir, base, &tip);
     let mut commits = Vec::new();
-    for line in String::from_utf8_lossy(&out.stdout).lines() {
-        let f: Vec<&str> = line.split('\u{1f}').collect();
-        if f.len() >= 2 {
-            commits.push(serde_json::json!({
-                "hash": f[0], "subject": f[1],
-                "author": f.get(2).unwrap_or(&""), "date": f.get(3).unwrap_or(&""),
-            }));
+    if let Ok(out) = Command::new("git").arg("-C").arg(&dir)
+        .args(["log", &format!("{mb}..{tip}"), "--format=%H\u{1f}%s\u{1f}%an\u{1f}%ad", "--date=short"]).output()
+    {
+        // falhou (branch removida — tarefa mergeada): sem commits a listar
+        if out.status.success() {
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                let f: Vec<&str> = line.split('\u{1f}').collect();
+                if f.len() >= 2 {
+                    commits.push(serde_json::json!({
+                        "hash": f[0], "subject": f[1],
+                        "author": f.get(2).unwrap_or(&""), "date": f.get(3).unwrap_or(&""),
+                    }));
+                }
+            }
         }
     }
-    Ok(commits)
+    // alteração não commitada (ignora a pasta do próprio Starfork: .cardume/ é artefato, não código)
+    let uncommitted = live.is_some_and(|w| Command::new("git").arg("-C").arg(w)
+        .args(["status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude).cardume"]).output()
+        .map(|o| o.status.success() && !o.stdout.iter().all(|b| b.is_ascii_whitespace()))
+        .unwrap_or(false));
+    CommitInfo { commits, uncommitted }
 }
 
 /// Resolve o repo do projeto ativo (parent do .cardume/state.sqlite).
@@ -9662,6 +9721,7 @@ pub fn run() {
             ai_commit_summary,
             commit_summary_cached,
             task_commits,
+            task_commit_info,
             list_artifacts,
             read_artifact,
             browser_open,

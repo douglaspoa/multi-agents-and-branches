@@ -477,7 +477,7 @@ function fwRenderEntrega(t, main){
     : `${prN?`<button class="en-kpi" data-lk="${escA(t.prUrl)}"><b>PR #${prN}</b><span>${done?'integrado':'aberto'} ${icEm(IC.extlink)}</span></button>`:''}
         ${reqKpi}
         <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?nPl(diffFiles(d),'arquivo'):'sem diff'}</span></div>
-        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${nPl(c.length,'commit')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</span></div>`;
+        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${esc(commitsLabel(t))}${cost.usd>0?' · '+fmtCost(cost.usd):''}</span></div>`;
   const pvSec=enPvHtml(t, nonCode?arts:docs);
   const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
     <div class="en-head">

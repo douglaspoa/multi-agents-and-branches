@@ -36,3 +36,15 @@ test('verificação: nunca diz que "a aprovação não fica bloqueada"; checagen
   assert.match(v, /proofGateLine\(pg0/);
   assert.match(v, /if\(g\.st==='none' && gl\.pill\) pillShown=/, 'sem checagens: selo do portão, não "sem checagens"');
 });
+
+test('commits: à frente da base; alterações não commitadas ditas com todas as letras; nunca "0 commits"', () => {
+  const C = new Function(cut(pr, '// @commits-rotulo-inicio', '// @commits-rotulo-fim') + '\nreturn commitsLabelOf;')();
+  assert.equal(C(null, false, false), '… commits');
+  assert.equal(C(3, false, false), '3 commits');
+  assert.equal(C(1, true, false), '1 commit + alterações não commitadas');
+  assert.equal(C(0, true, false), 'alterações não commitadas');
+  assert.equal(C(0, false, false), 'nenhum commit ainda');
+  assert.equal(C(0, false, true), 'integrado', 'mergeada: a branch some, não é "0 commits"');
+  assert.match(pr, /invoke\("task_commit_info",\{taskId\}\)/, 'o front usa o comando que conta pela worktree');
+  for (const f of ['21-pull-request.js', '22-quadro-fluxo.js', '27-entregas.js']) assert.ok(!/nPl\(c\.length,'commit'\)/.test(read(f)), f);
+});
