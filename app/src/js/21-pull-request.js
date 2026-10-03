@@ -336,6 +336,20 @@ function proofGateOf(rows, loaded, ov){
   if(ov && ov.sig===proofSigOf(missing)) return { st:'override', missing, ov };
   return { st:'unproven', missing };
 }
+// linha do PORTÃO DE PROVAS (sempre ligado quando há requisitos — não depende de checagem configurada; o único jeito
+// de passar sem prova é "aprovar sem prova…" com motivo registrado no PR). total = nº de requisitos.
+// → { on, pill:[texto, tom], html } (html já escapado — só números e o motivo passam por `esc`)
+function proofGateLine(g, total, escF){
+  const e=escF||(s=>String(s));
+  const n=Number(total)||0;
+  if(!g || g.st==='none' || !n) return { on:false, pill:null, html:'' };
+  if(g.st==='loading') return { on:true, pill:['portão de provas','muted'], html:'<b>Portão de provas</b>: conferindo as provas…' };
+  const ok=n-(g.missing||[]).length;
+  const cnt=`<b>Portão de provas</b>: ${ok}/${n} com prova`;
+  if(g.st==='proven') return { on:true, pill:['provas ok','good'], html:cnt+' — liberado pra aprovar' };
+  if(g.st==='override') return { on:true, pill:['aprovado com motivo','warn'], html:cnt+' — liberado sem prova, com motivo registrado: <b>'+e(g.ov&&g.ov.reason||'')+'</b>' };
+  return { on:true, pill:['portão ligado','warn'], html:cnt+' — aprovar exige a prova ou um motivo' };
+}
 function proofAskMsg(missing){
   return 'Antes de eu aprovar, falta a PROVA destes requisitos. Para cada um: mostre funcionando de verdade (print, vídeo ou saída de teste), '+
     'anexe o arquivo em .cardume/artifacts/ e atualize .cardume/artifacts/requirements.json com status "done" e a evidência. '+

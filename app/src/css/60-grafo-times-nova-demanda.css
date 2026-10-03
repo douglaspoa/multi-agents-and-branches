@@ -646,6 +646,8 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .en-verif.vf-stale,.en-verif.vf-notrun,.en-verif.vf-override{border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
 .vf-sum{font:400 var(--fs-base)/1.5 var(--display);color:rgba(234,242,238,.78);margin:-2px 0 10px}
 .vf-sum b{color:var(--text)}
+.vf-gate{display:flex;align-items:center;gap:6px;color:var(--text)}.vf-gate svg{width:14px;height:14px;color:var(--good);flex:none}
+.vf-opt{color:var(--text-3);font-size:var(--fs-sm)}
 .vf-rows{display:flex;flex-direction:column}
 .vf-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid rgba(255,255,255,.06)}
 .vf-row:first-child{border-top:0}
@@ -815,7 +817,7 @@ details.suaia-secret[open] summary{margin-bottom:4px}
 /* prova cujo arquivo não abre: aviso legível no lugar da caixa vazia (img quebrada) */
 .en-miss{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:100%;height:100%;min-height:104px;padding:6px;box-sizing:border-box;color:var(--warn);font:500 var(--fs-xs)/1.25 var(--sans, inherit);text-align:center;background:repeating-linear-gradient(135deg,rgba(255,255,255,.02) 0 6px,transparent 6px 12px)}
 .en-miss svg{width:18px;height:18px;opacity:.8}
-.en-evi .en-miss{min-height:0;font-size:10px}
+.en-evi .en-miss{min-height:0;font-size:11px;padding:4px}
 .en-evmiss{cursor:default;border-style:dashed}
 .en-evv{display:flex;flex-direction:column;gap:3px;max-width:100%}
 .en-evv video.en-evvid{width:220px;max-width:100%;max-height:300px;border-radius:8px;background:#000;border:1px solid rgba(255,255,255,.12)}

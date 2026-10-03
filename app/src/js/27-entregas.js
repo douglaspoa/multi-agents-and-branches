@@ -183,7 +183,10 @@ function enVerifHtml(t){
   const live=g.st==='running'?g.live:null;
   const cur=chkFpC[t.id]&&chkFpC[t.id].fp;
   const short=h=>String(h||'').slice(0,7);
-  const sum = g.st==='none' ? `nenhuma checagem configurada neste projeto — a aprovação não fica bloqueada. <a class="lnk" data-encfg="1">configurar</a>`
+  // portão de provas (sempre ligado com requisitos) vem PRIMEIRO; checagens do repositório são um extra opcional
+  const pg0=proofGate(t);
+  const gl=proofGateLine(pg0, Array.isArray(t.requirements)?t.requirements.length:0, esc);
+  const sum = g.st==='none' ? `<span class="vf-opt">Checagens do repositório (opcional): nenhuma configurada — dá pra rodar testes/lint aqui antes de aprovar. <a class="lnk" data-encfg="1">configurar</a></span>`
     : g.st==='loading' ? 'conferindo a versão do código desta tarefa…'
     : g.st==='err' ? esc(humanErr(g.err,'Não deu pra conferir a verificação').msg)
     : g.st==='running' ? `rodando <b>${esc(live.cur?live.cur.label:'…')}</b> (${Math.min(live.done.length+1,g.on.length)} de ${g.on.length}) na cópia desta tarefa`
@@ -219,10 +222,14 @@ function enVerifHtml(t){
         : `${!ok && !['running','loading'].includes(g.st)?`<button class="btn sm ghost" id="vfOverride" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button>`:''}
       <button class="btn" id="vfApprove" ${ok?'':`disabled title="${escA(chkBlockWhy(g))}"`}>${IC.merge} aprovar e abrir PR</button>`}</div>` : '';
   // concluída: sem o tom de alerta (amarelo) de "falta rodar" — é só informação
-  const pillShown=(done && ['notrun','stale'].includes(g.st)) ? [pill[0],'muted'] : pill;
+  let pillShown=(done && ['notrun','stale'].includes(g.st)) ? [pill[0],'muted'] : pill;
+  // sem checagens: o selo é o do portão de provas (nunca "sem checagens" como se nada protegesse a aprovação)
+  if(g.st==='none' && gl.pill) pillShown=done?[gl.pill[0],'muted']:gl.pill;
+  else if(g.st==='none') pillShown=['opcional','muted'];
   return `<section class="en-sec en-verif vf-${done&&['notrun','stale'].includes(g.st)?'done':g.st}" id="enVerif">
     <div class="seclbl2">Verificação <span class="dim">· testes e checagens automáticas, rodadas de verdade (exit code e log)</span><span style="flex:1"></span>
       <span class="vf-pill ${pillShown[1]}">${pillShown[0]}</span>${runBtn}<button class="btn sm ghost" data-encfg="1" title="quais checagens rodam neste projeto (fica em .cardume/checks.json)">${IC.wrench||''} checagens</button></div>
+    ${gl.on?`<div class="vf-sum vf-gate">${IC.check||''} ${gl.html}</div>`:''}
     <div class="vf-sum">${sum}</div>
     ${rows?`<div class="vf-rows">${rows}</div>`:''}
     ${cfgOpen?`<div class="vf-cfg" id="enChkCfg"></div>`:''}
