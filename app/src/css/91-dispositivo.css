@@ -56,6 +56,9 @@
 .dvoff{display:flex;flex-direction:column;align-items:center;gap:10px;color:var(--text-2);font-size:var(--fs-sm);text-align:center;max-width:260px}
 .dvoffic{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--surface-3);color:var(--text-3)}
 .dvoffic svg{width:22px;height:22px}
+.dvofft{color:var(--text);font-weight:600}
+.dvoffs{color:var(--text-3);font-size:var(--fs-xs);line-height:1.45}
+.dvon{display:inline-flex;align-items:center;gap:6px;margin-top:2px}.dvon svg{width:14px;height:14px}
 .dverr{color:var(--warn);font-size:var(--fs-xs);white-space:pre-wrap}
 .dvro{display:flex;align-items:center;gap:6px;margin:0 12px 6px;padding:6px 9px;border-radius:8px;background:var(--surface-3);color:var(--text-2);font-size:var(--fs-xs)}
 .dvro svg{width:14px;height:14px;flex:0 0 auto}

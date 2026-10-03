@@ -24,5 +24,11 @@
     "ok": true,
     "available": true,
     "balances": [{ "currency": "USD", "total": "4.20" }]
-  }
+  },
+  "month": {
+    "claude": { "usd": 3.2, "tasks": 14, "calls": 41 },
+    "codex": { "usd": 0.85, "tasks": 2, "calls": 5 }
+  },
+  "monthSince": 1790823600000,
+  "monthError": null
 }
