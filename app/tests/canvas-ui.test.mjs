@@ -118,18 +118,18 @@ test('tela dividida no TOPO: arrastar a aba pra metade da janela, botão direito
   // botão direito na aba
   assert.match(tabsJs, /el\.addEventListener\('contextmenu', e=>\{ if\(typeof cvTabMenu!=='function'\) return; e\.preventDefault\(\); cvTabMenu\(el\.dataset\.tk, el, e\); \}\)/);
   const tm = cut(canvas, 'function cvTabMenu', '// ---------- arrastar');
-  for (const l of ['dividir à direita', 'dividir à esquerda', 'tirar da tela dividida']) assert.ok(tm.includes(l), l);
+  for (const l of ['dividir à direita', 'dividir à esquerda', 'tirar do grupo']) assert.ok(tm.includes(l), l);
   // atalhos: ⌘\ e ⌘1..3 passam pelo canvas antes das abas; dentro de um painel vão pra janela principal
   assert.match(tabsJs, /if\(typeof cvShortcut==='function' && cvShortcut\(e\)\) return;/);
   const sc = cut(canvas, 'function cvShortcut(e)', 'function cvShortcutFromPane');
   assert.match(sc, /window\.parent\.cvShortcutFromPane/);
   assert.match(cut(canvas, 'function cvShortcutKey', '// trocou de aba do app'), /SPL\.ids\.length>=CV_MAX_PANES/);
   // salva (JSON versionado) e volta no boot sem trocar a tela inicial
-  assert.match(canvas, /localStorage\.setItem\('cv:split', JSON\.stringify\(\{ v:CV_VER, panes/);
+  assert.match(canvas, /localStorage\.setItem\('cv:split', JSON\.stringify\(\{ v:CV_VER, group:true, panes/);
   assert.match(sw, /\.then\(\(\)=>\{ if\(window\.cvRestoreSplit\) window\.cvRestoreSplit\(\); \}\)/);
   assert.match(cut(canvas, 'function cvRestoreSplit', '// ---------- mostrar'), /cvSplitValid\(raw/);
   // aba fechada sai da divisão; overlay compartilhado só some sem ninguém usando
-  assert.match(tabsJs, /if\(typeof cvOnTabClosed==='function'\) cvOnTabClosed\(TABS\[i\]\);/);
+  assert.match(tabsJs, /const grpNext=\(typeof cvOnTabClosed==='function'\) \? cvOnTabClosed\(TABS\[i\]\) : null;/);
   assert.match(tabsJs, /!\(ov==='cvSplit' && typeof cvSplitShowing==='function' && cvSplitShowing\(\)\)/);
   assert.match(tabsJs, /cvShortcut/); assert.ok(!/setInterval\(/.test(canvas), 'canvas sem laço');
 });

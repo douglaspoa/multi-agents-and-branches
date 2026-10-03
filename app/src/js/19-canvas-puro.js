@@ -8,7 +8,8 @@
 //    documento), cada uma do jeito que ela é sozinha. Sem split recursivo. JSON versionado; inválido → sem divisão.
 
 // @canvas-puro-inicio
-const CV_VER=1, CV_MAX_PANES=3;
+// v2 (03/10): a divisão virou GRUPO DE ABAS na barra de cima (estilo Chrome). v1 continua carregando igual.
+const CV_VER=2, CV_VER_OK=[1,2], CV_MAX_PANES=3;
 const CV_CAPS={ web:2, stream:1 };
 // o que pode ir pra tela dividida (as outras abas — Central, Skills… — continuam abrindo sozinhas)
 const CV_SPLIT_KINDS=['task','web','device','doc'];
@@ -78,11 +79,11 @@ function cvDescValid(d, taskIds){
 // divisão salva → { v, panes:[descritor], w:[frações]|undefined, focus } ou null (versão estranha, lixo, menos de 2)
 function cvSplitValid(raw, taskIds){
   let l=raw; if(typeof l==='string'){ try{ l=JSON.parse(l); }catch(_){ return null; } }
-  if(!l || typeof l!=='object' || l.v!==CV_VER || !Array.isArray(l.panes)) return null;
+  if(!l || typeof l!=='object' || !CV_VER_OK.includes(l.v) || !Array.isArray(l.panes)) return null;
   const seen=new Set(), panes=[];
   for(const d0 of l.panes){ const d=cvDescValid(d0, taskIds); if(!d) continue; const id=cvTabIdOf(d); if(seen.has(id)) continue; seen.add(id); panes.push(d); if(panes.length>=CV_MAX_PANES) break; }
   if(panes.length<2) return null;
-  const out={ v:CV_VER, panes, focus:Math.min(panes.length-1, Math.max(0, +l.focus|0)) };
+  const out={ v:CV_VER, group:true, panes, focus:Math.min(panes.length-1, Math.max(0, +l.focus|0)) };
   if(Array.isArray(l.w) && l.w.length===panes.length){ const w=l.w.map(Number); if(w.every(x=>x>=0.12 && x<=0.88) && Math.abs(w.reduce((a,b)=>a+b,0)-1)<0.02) out.w=w.map(x=>Math.round(x*1000)/1000); }
   return out;
 }
@@ -100,6 +101,53 @@ function cvSplitAdd(ids, baseId, id, side){
 function cvSplitRemove(ids, id){ const l=(ids||[]).filter(x=>x!==id); return l.length>=2?l:null; }
 // soltar uma aba arrastada na área de conteúdo: metade esquerda/direita (faixa do meio não divide)
 function cvDropSide(rect, x){ if(!rect || !(rect.width>0)) return null; const r=(x-rect.left)/rect.width; return r<0.42?'left':r>0.58?'right':null; }
+// ---------- grupo de abas (a tela dividida vista na barra de cima, estilo Chrome) ----------
+// Os membros continuam em TABS; a barra mostra UMA aba-grupo no lugar do 1º membro, com um segmento por membro.
+// itens da barra, na ordem: { id } (aba solta) ou { group:[ids] } (uma vez só). Grupo com < 2 membros = abas soltas
+function cvStripItems(tabIds, groupIds){
+  const g=Array.isArray(groupIds)?groupIds.filter(id=>tabIds.includes(id)):[];
+  const grouped=g.length>=2; const out=[]; let put=false;
+  for(const id of tabIds){ if(grouped && g.includes(id)){ if(!put){ put=true; out.push({ group:g }); } continue; } out.push({ id }); }
+  return out;
+}
+// membros colados na barra: entram juntos (na ordem do grupo) no lugar do 1º que aparece
+function cvGroupContig(order, ids){
+  if(!Array.isArray(ids) || ids.length<2) return order.slice();
+  const first=order.findIndex(x=>ids.includes(x)); if(first<0) return order.slice();
+  const rest=order.filter(x=>!ids.includes(x));
+  rest.splice(first, 0, ...ids.filter(x=>order.includes(x)));
+  return rest;
+}
+// um membro sai (fechado ou "tirar do grupo"): o que sobra, o foco novo e quem fica na tela. ids:null = desfez (1 só)
+function cvGroupLeave(ids, id, focus){
+  const list=Array.isArray(ids)?ids:[]; const i=list.indexOf(id); if(i<0) return null;
+  const rest=list.filter(x=>x!==id); if(!rest.length) return { ids:null, focus:0, next:null };
+  const f=Math.max(0, Math.min(list.length-1, focus|0));
+  const nf=Math.max(0, Math.min(rest.length-1, i<f?f-1:i===f?i:f));
+  return rest.length>=2 ? { ids:rest, focus:nf, next:rest[nf] } : { ids:null, focus:0, next:rest[0] };
+}
+// arrastar: segmento solto na barra → sai do grupo; aba solta em cima do grupo → entra (até 3)
+function cvGroupDrop(ids, dragId, onGroup){
+  const inG=!!(Array.isArray(ids) && ids.includes(dragId));
+  if(onGroup){ if(inG) return 'none'; if(Array.isArray(ids) && ids.length>=CV_MAX_PANES) return 'full'; return 'add'; }
+  return inG?'eject':'move';
+}
+// teclado na aba-grupo: ←/→ andam entre segmentos (nas pontas saem pra aba vizinha), Home/End, Delete fecha o membro
+function cvGroupKey(n, cur, key){
+  const c=Math.max(0, Math.min(n-1, cur|0));
+  if(key==='ArrowRight') return c+1<n ? { seg:c+1 } : { out:1 };
+  if(key==='ArrowLeft') return c>0 ? { seg:c-1 } : { out:-1 };
+  if(key==='Home') return { seg:0 };
+  if(key==='End') return { seg:n-1 };
+  if(key==='Delete' || key==='Backspace') return { close:c };
+  if(key==='Enter' || key===' ') return { enter:c };
+  return null;
+}
+// nome da aba-grupo pro leitor de tela (os segmentos são só visuais)
+function cvGroupLabel(titles, focus){
+  const n=titles.length, f=Math.max(0, Math.min(n-1, focus|0));
+  return 'grupo de '+n+' abas lado a lado: '+titles.join(', ')+'. Em foco: '+titles[f]+' ('+(f+1)+' de '+n+'). Setas trocam, Delete fecha, Shift+F10 abre as opções';
+}
 // @canvas-puro-fim
 
 // ---------- gerente de recursos: UM só no app (os painéis divididos usam o da janela principal) ----------

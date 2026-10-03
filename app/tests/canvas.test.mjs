@@ -92,9 +92,9 @@ test('salvar e restaurar a divisão: JSON versionado; versão desconhecida, lixo
   assert.notEqual(F.cvTabIdOf({ kind: 'doc', taskId: 'A', ref: 'file:README.md' }), F.cvTabIdOf({ kind: 'doc', taskId: 'B', ref: 'file:README.md' }));
   const raw = JSON.stringify({ v: 1, panes: [F.cvTabDesc(tabA), F.cvTabDesc(web), { kind: 'doc', taskId: 'B', ref: 'file:README.md' }], focus: 2, w: [0.4, 0.3, 0.3] });
   const s = F.cvSplitValid(raw, ids);
-  assert.equal(s.panes.length, 3); assert.equal(s.focus, 2); assert.deepEqual(s.w, [0.4, 0.3, 0.3]);
+  assert.equal(s.panes.length, 3); assert.equal(s.focus, 2); assert.equal(s.v, 2, 'v1 (antes do grupo de abas) carrega e vira v2'); assert.equal(s.group, true); assert.deepEqual(s.w, [0.4, 0.3, 0.3]);
   assert.equal(s.panes[1].url, 'https://youtu.be/aqz-KE-bpKQ');
-  for (const bad of [null, '', '{', '[]', '{"v":2,"panes":[{"kind":"task","taskId":"A"},{"kind":"task","taskId":"B"}]}', '{"v":1,"panes":[{"kind":"task","taskId":"A"}]}', '{"v":1,"panes":"x"}'])
+  for (const bad of [null, '', '{', '[]', '{"v":3,"panes":[{"kind":"task","taskId":"A"},{"kind":"task","taskId":"B"}]}', '{"v":0,"panes":[{"kind":"task","taskId":"A"},{"kind":"task","taskId":"B"}]}', '{"v":1,"panes":[{"kind":"task","taskId":"A"}]}', '{"v":1,"panes":"x"}'])
     assert.equal(F.cvSplitValid(bad, ids), null, String(bad));
   // pedaços ruins saem; se sobrar < 2 → nada
   const mixed = F.cvSplitValid({ v: 1, focus: 9, panes: [{ kind: 'task', taskId: 'A' }, { kind: 'terminal' }, { kind: 'task', taskId: 'SUMIU' }, { kind: 'web', url: 'javascript:alert(1)' }, { kind: 'doc', taskId: 'A', ref: 'file:../../etc/passwd' }, { kind: 'task', taskId: 'A' }, { kind: 'device', taskId: 'B' }] }, ids);

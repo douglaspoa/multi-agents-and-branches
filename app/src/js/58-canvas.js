@@ -49,7 +49,7 @@ function cvSplitSave(){
   try{
     if(!SPL.ids){ localStorage.removeItem('cv:split'); return; }
     const panes=SPL.ids.map(id=>cvTabDesc(cvTabOf(id))).filter(Boolean);
-    localStorage.setItem('cv:split', JSON.stringify({ v:CV_VER, panes, focus:SPL.focus|0, ...(SPL.w?{ w:SPL.w }:{}) }));
+    localStorage.setItem('cv:split', JSON.stringify({ v:CV_VER, group:true, panes, focus:SPL.focus|0, ...(SPL.w?{ w:SPL.w }:{}) }));
   }catch(_){ }
 }
 // junta `id` à aba `baseId` (ou à divisão em que ela está), do lado pedido; mostra a divisão. false = não deu
@@ -59,21 +59,58 @@ function cvSplitWith(baseId, id, side){
   const cur=cvInSplit(baseId)?SPL.ids:null;
   const next=cvSplitAdd(cur, baseId, id, side||'right');
   if(!next){ toast(id===baseId?'arraste OUTRA aba pra cá — ou use o + pra abrir algo do lado':'no máximo 3 lado a lado','info'); return false; }
-  SPL.ids=next; SPL.w=null; SPL.focus=next.indexOf(id); cvSplitSave();
+  SPL.ids=next; SPL.w=null; SPL.focus=next.indexOf(id); cvSplitSave(); cvGroupContigTabs();
   if(typeof renderTabs==='function') renderTabs();
   activeTab=null; activateTab(id);
   return true;
 }
+// "tirar do grupo": o membro vira uma aba separada (continua aberta); a tela mostra o que sobrou do grupo
 function cvUnsplit(id){
   if(!cvInSplit(id)) return;
-  const rest=cvSplitRemove(SPL.ids, id); SPL.ids=rest; SPL.w=null; SPL.focus=0; cvSplitSave();
-  cvPaneDispose(id);
+  const showing=cvSplitShowing();
+  const r=cvGroupLeave(SPL.ids, id, SPL.focus); SPL.ids=r.ids; SPL.w=null; SPL.focus=r.focus; cvSplitSave();
+  cvPaneDispose(id); cvDisposeLoosePanes();
   if(typeof renderTabs==='function') renderTabs();
-  // a aba que saiu continua aberta; a tela mostra o que sobrou (ou a aba ativa sozinha)
-  const show=rest?(rest.includes(activeTab)?activeTab:rest[0]):activeTab;
+  const show=showing?r.next:activeTab;
   if(cvTabOf(show)){ activeTab=null; activateTab(show); }
 }
-function cvOnTabClosed(tab){ if(tab && cvInSplit(tab.id)){ SPL.ids=cvSplitRemove(SPL.ids, tab.id); SPL.w=null; SPL.focus=0; cvSplitSave(); } if(tab) cvPaneDispose(tab.id); }
+// aba fechada: sai do grupo junto. Devolve quem fica na tela quando o grupo estava à vista (os outros painéis
+// se rearranjam; sobrou 1 → o grupo se desfaz e ele volta a ser uma aba normal) — closeTab ativa esse
+function cvOnTabClosed(tab){
+  if(!tab) return null; let next=null;
+  if(cvInSplit(tab.id)){ const showing=cvSplitShowing(); const r=cvGroupLeave(SPL.ids, tab.id, SPL.focus); SPL.ids=r.ids; SPL.w=null; SPL.focus=r.focus; cvSplitSave(); if(showing) next=r.next; }
+  cvPaneDispose(tab.id); cvDisposeLoosePanes();
+  return next;
+}
+// demanda que saiu do grupo aparece na tela dela de sempre: o iframe do painel não serve mais (solta)
+function cvDisposeLoosePanes(){ for(const id of Object.keys(SPL.panes)){ if(id.startsWith('__split') || cvInSplit(id)) continue; const t=cvTabOf(id); if(!t || t.kind==='task') cvPaneDispose(id); } }
+// membros colados na barra de abas (o grupo aparece no lugar do 1º)
+function cvGroupContigTabs(){ if(!SPL.ids || typeof TABS==='undefined') return; const ord=cvGroupContig(TABS.map(t=>t.id), SPL.ids); const by=new Map(TABS.map(t=>[t.id,t])); TABS.splice(0, TABS.length, ...ord.map(id=>by.get(id))); }
+// o membro em foco (⌘W fecha ESTE quando o grupo está na tela)
+function cvGroupMember(){ return cvSplitShowing() ? SPL.ids[Math.min(SPL.ids.length-1, SPL.focus|0)] : null; }
+// desagrupar: cada membro vira uma aba separada; a tela volta a mostrar UMA — a que estava em foco
+function cvGroupUngroup(){
+  if(!SPL.ids) return; const keep=SPL.ids[Math.min(SPL.ids.length-1, SPL.focus|0)];
+  SPL.ids=null; SPL.w=null; SPL.focus=0; cvSplitSave(); cvDisposeLoosePanes();
+  activeTab=null; activateTab(keep);
+}
+// fechar grupo: fecha todos os membros (cada um pela guarda de edição não salva)
+async function cvGroupCloseAll(){ for(const id of (SPL.ids||[]).slice().reverse()){ if(typeof tabCloseGuarded==='function' && !await tabCloseGuarded(id)) return; } }
+// aba solta em cima do grupo: entra (até 3), à direita
+function cvGroupAdd(id){ if(!SPL.ids) return false; if(SPL.ids.length>=CV_MAX_PANES){ toast('no máximo 3 abas num grupo','info'); return false; } return cvSplitWith(SPL.ids[SPL.ids.length-1], id, 'right'); }
+// segmento arrastado pra fora do grupo: vira aba separada, no lugar onde foi solto
+function cvGroupEject(id, toId){
+  cvUnsplit(id);
+  if(toId==='end'){ const i=TABS.findIndex(t=>t.id===id); if(i>=0){ TABS.push(TABS.splice(i,1)[0]); if(typeof renderTabs==='function') renderTabs(); } return; }
+  if(toId && toId!==id && typeof tabMove==='function' && tabMove(id, toId) && typeof renderTabs==='function') renderTabs();
+}
+// clicou num segmento: foca o painel dele (como ⌘1..3); o grupo fora da tela → aparece com ele em foco
+function cvGroupPick(id, keepFocus){
+  if(!cvInSplit(id)) return; const i=SPL.ids.indexOf(id);
+  if(!cvSplitShowing()){ SPL.focus=i; cvSplitSave(); activateTab(id); return; }
+  cvPaneFocus(id); if(!keepFocus) cvPaneFocusContent(id);
+}
+function cvPaneFocusContent(id){ const el=SPL.panes[id]; if(!el) return; const fr=el.querySelector('iframe.cvrealm'); if(fr){ try{ fr.contentWindow.focus(); }catch(_){ } return; } const f=el.querySelector('input,button,textarea,[tabindex]'); if(f) try{ f.focus(); }catch(_){ } }
 // boot: a divisão salva volta (as abas reabrem; a tela inicial continua a Central)
 function cvRestoreSplit(){
   let raw=null; try{ raw=localStorage.getItem('cv:split'); }catch(_){ }
@@ -86,7 +123,7 @@ function cvRestoreSplit(){
       if(d.kind!=='task') tab.title=cvTitleOf(tab).slice(0,28); TABS.push(tab); }
     ids.push(id);
   }
-  SPL.ids=ids; SPL.w=s.w||null; SPL.focus=s.focus|0;
+  SPL.ids=ids; SPL.w=s.w||null; SPL.focus=s.focus|0; cvGroupContigTabs();
   if(typeof renderTabs==='function') renderTabs();
 }
 
@@ -129,7 +166,7 @@ function cvPaneDispose(id){
 // cabeçalho do painel (só com a tela dividida): nome + cor da demanda, "tirar da divisão"
 function cvPaneHeadHtml(tab){
   const tid=tab.taskId||null, color=tid?cvTaskColor(tid):'var(--muted)';
-  return `<span class="cvdot" style="background:${color}" aria-hidden="true"></span><span class="cvphn">${esc(cvTitleOf(tab))}</span><span class="cvphk">· ${esc((VIEW_META[tab.kind]||{}).title||'')}</span><span style="flex:1"></span><button type="button" class="cvphx" data-cvunsplit="${escA(tab.id)}" title="tirar da tela dividida (a aba continua aberta)" aria-label="${escA('tirar '+cvTitleOf(tab)+' da tela dividida')}">×</button>`;
+  return `<span class="cvdot" style="background:${color}" aria-hidden="true"></span><span class="cvphn">${esc(cvTitleOf(tab))}</span><span class="cvphk">· ${esc((VIEW_META[tab.kind]||{}).title||'')}</span><span style="flex:1"></span><button type="button" class="cvphx" data-cvunsplit="${escA(tab.id)}" title="tirar do grupo (a aba continua aberta)" aria-label="${escA('tirar '+cvTitleOf(tab)+' do grupo')}">×</button>`;
 }
 function cvRenderPane(tab, el){
   if(!tab) return;
@@ -170,6 +207,7 @@ function sfPaneBoot(){
 // a demanda do painel pediu pra fechar (× da tela da demanda, Esc): sai da divisão — a aba continua aberta
 function cvPaneRequestClose(tabId){ if(tabId && cvInSplit(tabId)) cvUnsplit(tabId); }
 function cvPaneFocus(tabId){ if(!SPL.ids) return; const i=SPL.ids.indexOf(tabId); if(i<0 || i===(SPL.focus|0)) return; SPL.focus=i; cvSplitSave(); const ov=$id('cvSplit'); if(ov) ov.querySelectorAll('.cvpane').forEach(p=>p.classList.toggle('focus', p.dataset.tabid===tabId));
+  cvGroupPaintFocus(); // o segmento do painel em foco acende na aba-grupo (sem refazer a barra)
   if(typeof renderRail==='function') renderRail(); } // aria-current da barra lateral segue o painel em foco
 
 // ---------- Navegador: site qualquer (sem proxy/mira/ponte) ou o app de uma demanda ----------
@@ -407,9 +445,9 @@ function cvSubMenu(m, list, title){
   const f=l.querySelector('[data-cvsub]'); if(f) f.focus();
 }
 // Navegador: o endereço é pedido AQUI no menu (a aba nunca nasce vazia só com um campo); ou o app de uma demanda
-function cvMenuKeys(m){
+function cvMenuKeys(m, back){
   m.addEventListener('keydown', (e)=>{
-    if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cvCloseMenu(); const a=$id('tabAdd'); if(a) a.focus(); return; }
+    if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cvCloseMenu(); const a=(back && back.isConnected)?back:$id('tabAdd'); if(a) a.focus(); return; }
     if(!['ArrowDown','ArrowUp','Home','End'].includes(e.key)) return;
     const its=[...m.querySelectorAll('[role=menuitem]')]; if(!its.length) return;
     const cur=its.indexOf(document.activeElement);
@@ -425,16 +463,104 @@ function cvTabMenu(id, anchor, ev){
   const items=[];
   if(id!==activeTab && cvSplitable(act) && !(inS && cvInSplit(activeTab))){ items.push({ label:'dividir à direita', hint:'lado a lado com '+cvTitleOf(act), go:()=>cvSplitWith(activeTab, id, 'right') }); items.push({ label:'dividir à esquerda', hint:'lado a lado com '+cvTitleOf(act), go:()=>cvSplitWith(activeTab, id, 'left') }); }
   if(id===activeTab && !(SPL.ids && cvInSplit(id) && SPL.ids.length>=CV_MAX_PANES)) items.push({ label:'dividir à direita…', hint:'escolher o que abrir do lado', go:()=>cvPlusMenu($id('tabAdd'), { split:'right' }) });
-  if(inS) items.push({ label:'tirar da tela dividida', hint:'a aba continua aberta', go:()=>cvUnsplit(id) });
-  if(!items.length) return;
-  const m=document.createElement('div'); m.className='cvmenu cvctx'; m.setAttribute('role','menu'); m.setAttribute('aria-label','opções da aba');
-  m.innerHTML=`<div class="cvml">${items.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-ctx="${i}"><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span></button>`).join('')}</div>`;
+  if(inS) items.push({ label:'tirar do grupo', hint:'vira uma aba separada', go:()=>cvUnsplit(id) });
+  cvCtxMenu(items, anchor, ev, 'opções da aba');
+}
+// menu de contexto (botão direito / Shift+F10): role=menu, ↑/↓/Home/End (a11yMenuStep), Esc volta pra quem abriu.
+// É um .cvmenu no <body> → o Navegador nativo (navexterno.rs) se esconde enquanto ele está aberto (cvNatBlocked)
+function cvCtxMenu(items, anchor, ev, label){
+  cvCloseMenu(); if(!items.length) return null;
+  const m=document.createElement('div'); m.className='cvmenu cvctx'; m.setAttribute('role','menu'); m.setAttribute('aria-label', label);
+  m.innerHTML=`<div class="cvml">${items.map((x,i)=>x.sep?'<div class="cvmsep" role="separator"></div>':`<button type="button" class="cvmi" role="menuitem" data-ctx="${i}"><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span></button>`).join('')}</div>`;
   document.body.appendChild(m); SPL.menu=m;
-  const x=ev&&ev.clientX!=null?ev.clientX:anchor.getBoundingClientRect().left, y=ev&&ev.clientY!=null?ev.clientY:anchor.getBoundingClientRect().bottom;
+  const ar=anchor.getBoundingClientRect(); const x=ev&&ev.clientX!=null?ev.clientX:ar.left, y=ev&&ev.clientY!=null?ev.clientY:ar.bottom;
   m.style.top=Math.min(window.innerHeight-m.offsetHeight-8, y+4)+'px'; m.style.left=Math.max(8, Math.min(window.innerWidth-m.offsetWidth-8, x))+'px';
   setTimeout(()=>document.addEventListener('mousedown', cvMenuOut, true), 0);
   m.querySelectorAll('[data-ctx]').forEach(b=>b.onclick=()=>{ const it=items[+b.dataset.ctx]; cvCloseMenu(); it.go(); });
-  cvMenuKeys(m); const f=m.querySelector('[data-ctx]'); if(f) f.focus();
+  cvMenuKeys(m, anchor); const f=m.querySelector('[data-ctx]'); if(f) f.focus();
+  return m;
+}
+
+// ---------- grupo de abas na barra de cima (estilo Chrome) ----------
+// As abas da tela dividida aparecem como UMA aba-grupo: um segmento por membro (ícone + nome curto, "|" fino entre
+// eles), cada um com o seu ×. Contorno/sublinhado calmo na cor da 1ª demanda do grupo. Botão direito: no segmento
+// "tirar do grupo"/"fechar"; no grupo (ou no chip da ponta) "desagrupar"/"fechar grupo". Teclado: a aba-grupo é UMA
+// parada do Tab (role=tab); ←/→ trocam o segmento em foco (e o painel), Delete/⌘W fecham o membro, Shift+F10 = menu.
+// @grupo-abas-inicio (puro: só esc/escA/cvGroupLabel — testado em app/tests/canvas-grupo.test.mjs)
+const CV_IC_GROUP='<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M8 3.2v9.6"/>';
+function cvGroupHtml(members, o){
+  o=o||{}; const n=members.length, f=Math.max(0, Math.min(n-1, o.focus|0));
+  const ic=(p)=>`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">${p||''}</svg>`;
+  const segs=members.map((m,i)=>(i?'<span class="tgsep" aria-hidden="true"></span>':'')+
+    `<span class="tgseg${i===f?' cur':''}" data-seg="${escA(m.id)}" draggable="true" title="${escA(m.title+(m.kind?' · '+m.kind:''))}">${ic(m.icon)}<span class="tt">${esc(m.title)}</span><span class="x" data-segx="${escA(m.id)}" title="fechar só esta (⌘W)">${o.x||ic('<path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/>')}</span></span>`).join('');
+  return `<span class="tab tgroup${o.on?' on':''}" data-tg="1" role="tab" tabindex="${o.on?0:-1}" aria-selected="${o.on?'true':'false'}" aria-label="${escA(cvGroupLabel(members.map(m=>m.title), f))}" aria-keyshortcuts="ArrowLeft ArrowRight Delete Shift+F10" style="--tg:${escA(o.color||'var(--accent)')};--n:${n}">`+
+    `<span class="tgchip" data-tgmenu="1" aria-hidden="true" title="opções do grupo: desagrupar, fechar grupo">${ic(CV_IC_GROUP)}</span><span class="tgsegs" aria-hidden="true">${segs}</span></span>`;
+}
+// @grupo-abas-fim
+function cvGroupTabHtml(ids){
+  const tabs=ids.map(cvTabOf).filter(Boolean);
+  const lead=tabs.find(t=>t.taskId); // cor da 1ª demanda do grupo (nome+cor batem com o cabeçalho do painel)
+  const members=tabs.map(t=>({ id:t.id, title:t.title||cvTitleOf(t), icon:(typeof tabIcon==='function'?tabIcon(t.kind):''), kind:(VIEW_META[t.kind]||{}).title||'' }));
+  return cvGroupHtml(members, { on:ids.includes(activeTab), focus:SPL.focus, color:lead?cvTaskColor(lead.taskId):'var(--accent)', x:(typeof IC!=='undefined'&&IC.x)||'' });
+}
+// o painel em foco mudou: só acende o segmento certo (refazer a barra tiraria o foco do teclado)
+function cvGroupPaintFocus(){
+  const g=document.querySelector('#tabBar [data-tg]'); if(!g || !SPL.ids) return; const f=SPL.focus|0;
+  g.querySelectorAll('[data-seg]').forEach((s,i)=>s.classList.toggle('cur', i===f));
+  g.setAttribute('aria-label', cvGroupLabel([...g.querySelectorAll('[data-seg] .tt')].map(x=>x.textContent), f));
+}
+function cvSegMenu(id, anchor, ev){
+  const tab=cvTabOf(id); if(!tab) return;
+  cvCtxMenu([
+    { label:'tirar do grupo', hint:'"'+cvTitleOf(tab)+'" vira uma aba separada', go:()=>cvUnsplit(id) },
+    { label:'fechar', hint:'fecha só esta aba', go:()=>tabCloseGuarded(id) },
+  ], anchor, ev, 'opções de '+cvTitleOf(tab));
+}
+// menu do grupo; pelo teclado (Shift+F10) também traz as opções do segmento em foco
+function cvGroupMenu(anchor, ev, kbd){
+  const ids=SPL.ids||[]; if(ids.length<2) return; const items=[];
+  if(kbd){ const id=ids[Math.min(ids.length-1, SPL.focus|0)], nm=cvTitleOf(cvTabOf(id));
+    items.push({ label:'tirar do grupo', hint:'"'+nm+'" vira uma aba separada', go:()=>cvUnsplit(id) }, { label:'fechar', hint:'fecha só "'+nm+'"', go:()=>tabCloseGuarded(id) }, { sep:true }); }
+  items.push({ label:'desagrupar', hint:'cada uma vira uma aba separada; a tela mostra a que está em foco', go:()=>cvGroupUngroup() });
+  if(ids.length<CV_MAX_PANES) items.push({ label:'adicionar ao grupo…', hint:'escolher o que abrir do lado', go:()=>{ if(!cvSplitShowing()) activateTab(ids[SPL.focus|0]); cvPlusMenu($id('tabAdd'), { split:'right' }); } });
+  items.push({ label:'fechar grupo', hint:'fecha as '+ids.length+' abas', go:()=>cvGroupCloseAll() });
+  cvCtxMenu(items, anchor, ev, 'opções do grupo de abas');
+}
+// fiação da aba-grupo (renderTabs chama a cada render; o elemento é novo a cada vez)
+function cvWireGroup(g, bar){
+  const ids=()=>SPL.ids||[];
+  g.onclick=async e=>{
+    const x=e.target.closest('[data-segx]'); if(x){ e.stopPropagation(); tabCloseGuarded(x.dataset.segx); return; }
+    if(e.target.closest('[data-tgmenu]')){ e.stopPropagation(); cvGroupMenu(g, null); return; }
+    const s=e.target.closest('[data-seg]'); const id=s?s.dataset.seg:ids()[SPL.focus|0];
+    if(!id || (typeof tabLeaveGuard==='function' && !await tabLeaveGuard(id, false))) return;
+    cvGroupPick(id);
+  };
+  g.addEventListener('mousedown', e=>{ if(e.button===1) e.preventDefault(); });
+  g.addEventListener('auxclick', e=>{ if(e.button!==1) return; const s=e.target.closest('[data-seg]'); if(!s) return; e.preventDefault(); tabCloseGuarded(s.dataset.seg); });
+  g.addEventListener('contextmenu', e=>{ e.preventDefault(); const s=e.target.closest('[data-seg]'); if(s) cvSegMenu(s.dataset.seg, g, e); else cvGroupMenu(g, e); });
+  g.onkeydown=e=>{
+    if(e.key==='ContextMenu' || (e.shiftKey && e.key==='F10')){ e.preventDefault(); cvGroupMenu(g, null, true); return; }
+    const l=ids(); const a=cvGroupKey(l.length, SPL.focus|0, e.key); if(!a) return; e.preventDefault();
+    if(a.out){ const all=[...bar.querySelectorAll('[data-tk],[data-tg]')]; const i=all.indexOf(g); const n=all[(i+a.out+all.length)%all.length]; if(n) n.focus(); return; }
+    if(a.seg!=null){ if(cvSplitShowing()) cvGroupPick(l[a.seg], true); else { SPL.focus=a.seg; cvSplitSave(); cvGroupPaintFocus(); } return; }
+    if(a.close!=null){ tabCloseGuarded(l[a.close]).then(ok=>{ if(!ok) return; const n=bar.querySelector('[data-tg].on')||bar.querySelector('.tab.on'); if(n) n.focus(); }); return; }
+    if(a.enter!=null) cvGroupPick(l[a.enter]);
+  };
+  // arrastar: segmento pra fora (barra) sai do grupo · aba solta em cima do grupo entra (até 3) · metade da tela continua
+  g.querySelectorAll('[data-seg]').forEach(s=>{
+    s.addEventListener('dragstart', e=>{ e.stopPropagation(); tabDragId=s.dataset.seg; s.classList.add('dragging'); try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', tabDragId); }catch(_){ } cvTabDragStart(tabDragId); });
+    s.addEventListener('dragend', ()=>{ tabDragId=null; s.classList.remove('dragging'); bar.querySelectorAll('.dropin,.dropto,.dropafter').forEach(x=>x.classList.remove('dropin','dropto','dropafter')); cvTabDragEnd(); });
+  });
+  g.addEventListener('dragover', e=>{ if(!tabDragId) return; const act=cvGroupDrop(SPL.ids, tabDragId, true); if(act==='none') return; e.preventDefault(); g.classList.add('dropin'); });
+  g.addEventListener('dragleave', e=>{ if(!g.contains(e.relatedTarget)) g.classList.remove('dropin'); });
+  g.addEventListener('drop', e=>{ if(!tabDragId) return; const act=cvGroupDrop(SPL.ids, tabDragId, true); if(act==='none') return; e.preventDefault(); g.classList.remove('dropin'); const id=tabDragId; tabDragId=null; cvTabDragEnd(); if(act==='full') toast('no máximo 3 abas num grupo','info'); else cvGroupAdd(id); });
+  // espaço livre da barra: soltar um segmento ali = ele sai do grupo e vai pro fim
+  const grow=bar.querySelector('.tabgrow');
+  if(grow){
+    grow.addEventListener('dragover', e=>{ if(tabDragId && cvGroupDrop(SPL.ids, tabDragId, false)==='eject') e.preventDefault(); });
+    grow.addEventListener('drop', e=>{ if(!tabDragId || cvGroupDrop(SPL.ids, tabDragId, false)!=='eject') return; e.preventDefault(); const id=tabDragId; tabDragId=null; cvTabDragEnd(); cvGroupEject(id, 'end'); });
+  }
 }
 
 // ---------- arrastar uma aba do topo pra metade da tela ----------
@@ -607,6 +733,6 @@ function cvReqOverlayPaint(taskId){
 function cvMenuKey(k){
   const last=window.__sfLastKey; if(last && last.k===k && Date.now()-last.at<600) return;
   if(k==='\\' || /^[1-3]$/.test(k)){ if(cvShortcutKey(k, null)) return; if(/^[1-3]$/.test(k)){ const t=TABS[+k-1]; if(t && t.id!==activeTab) activateTab(t.id); } return; }
-  if(k==='w'){ const t=cvTabOf(activeTab); if(t && !t.pin && typeof tabCloseGuarded==='function') tabCloseGuarded(t.id); }
+  if(k==='w'){ const t=cvTabOf(cvGroupMember()||activeTab); if(t && !t.pin && typeof tabCloseGuarded==='function') tabCloseGuarded(t.id); } // grupo na tela: fecha o membro em foco
 }
 try{ window.__TAURI__.event.listen('sf-key', (ev)=>{ if(typeof SF_PANE!=='undefined' && SF_PANE) return; cvMenuKey(String(ev&&ev.payload||'')); }); }catch(_){ }

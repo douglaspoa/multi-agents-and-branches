@@ -60,8 +60,29 @@ button.lnk{border:0;background:none;font:inherit;padding:0}
 .cvsplitter{flex:none;width:5px;margin:0 -3px;cursor:col-resize;z-index:3;position:relative}
 .cvsplitter:hover,.cvsplitter:active{background:var(--accent-line)}
 .cvdot,.cvtdot{flex:none;width:8px;height:8px;border-radius:50%;display:inline-block}
-/* aba que está na tela dividida: marquinha no canto */
-.tab.insplit::before{content:"";position:absolute;left:5px;top:5px;width:5px;height:5px;border-radius:2px;background:var(--accent);opacity:.9}
+/* grupo de abas (tela dividida) na barra de cima — como os grupos do Chrome: UMA aba com um segmento por membro,
+   "|" fino entre eles, × em cada um; contorno e sublinhado calmos na cor da 1ª demanda (--tg). Sem degradê, sem brilho. */
+.tabbar .tab.tgroup{--tg:var(--accent);gap:0;padding:4px 6px 4px 4px;max-width:calc(var(--n,2) * 200px + 34px);min-width:calc(var(--n,2) * 64px + 30px);flex-shrink:1;border-color:color-mix(in srgb,var(--tg) 30%,transparent)}
+.tabbar .tab.tgroup.on{border-color:color-mix(in srgb,var(--tg) 45%,var(--border-strong));flex-shrink:1}
+.tgroup::after{content:"";position:absolute;left:8px;right:8px;bottom:0;height:2px;border-radius:2px 2px 0 0;background:var(--tg);opacity:.5;pointer-events:none}
+.tgroup.on::after{opacity:.85}
+.tgchip{flex:none;width:20px;height:20px;margin-right:3px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;color:var(--tg);background:color-mix(in srgb,var(--tg) 16%,transparent);cursor:pointer}
+.tabbar .tab .tgchip svg{width:12px;height:12px;opacity:1}
+.tgchip:hover{background:color-mix(in srgb,var(--tg) 26%,transparent)}
+.tgsegs{display:flex;align-items:center;min-width:0;flex:1 1 auto}
+.tgseg{display:inline-flex;align-items:center;gap:6px;flex:0 1 auto;min-width:58px;max-width:200px;padding:4px 4px 4px 8px;border-radius:6px;color:var(--muted);overflow:hidden}
+.tgseg .tt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tgseg:hover{color:var(--text-2);background:var(--surface-3)}
+.tgroup.on .tgseg.cur{color:var(--text);background:color-mix(in srgb,var(--tg) 13%,var(--surface))}
+.tgroup.on .tgseg.cur svg{opacity:1}
+.tgsep{flex:none;width:1px;height:14px;margin:0 3px;background:var(--border-strong)}
+.tgseg.dragging{opacity:.45}
+.tabbar .tab.tgroup.dropin{border-color:var(--tg);background:color-mix(in srgb,var(--tg) 8%,transparent)}
+/* janela estreita: o segmento encolhe (reticências) mas o ícone e o × ficam; × sempre à vista dentro do grupo */
+.tabbar.crowded .tab.tgroup{padding:4px 4px 4px 3px}
+.tabbar.crowded .tgseg{padding:4px 3px 4px 6px;gap:5px}
+.tabbar.crowded .tab.tgroup .tgsegs .tgseg .x{display:inline-flex}
+.cvmsep{height:1px;margin:4px 6px;background:var(--border)}
 /* arrastar uma aba pra metade da tela: onde ela vai cair */
 .cvdropzone{position:fixed;left:var(--rail-w,250px);right:0;top:var(--chrome-h,96px);bottom:0;z-index:120;display:flex;gap:10px;padding:12px;pointer-events:auto}
 .cvdropzone[hidden]{display:none}
