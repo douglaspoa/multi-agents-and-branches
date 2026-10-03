@@ -6,13 +6,21 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 
-/** `lsof -d cwd -Fpn` → [pid, cwd]. Puro (testado). */
+/** Nome do executável (como o lsof mostra) de um servidor de dev/prévia. Sem nome = conta. Puro (testado). */
+export function isDevServer(cmd: string): boolean {
+  if (!cmd) return true;
+  const c = cmd.toLowerCase();
+  return ["node", "bun", "deno", "python", "ruby", "php", "uvicorn", "gunicorn", "esbuild", "vite", "next-serv", "java", "dotnet", "rails", "hugo", "caddy"].some((k) => c.startsWith(k));
+}
+
+/** `lsof -d cwd -Fpcn` → [pid, cwd] SÓ de servidores de dev (shell/editor/agente da pessoa na pasta não entram). Puro. */
 export function parseLsofCwd(out: string): Array<[number, string]> {
   const v: Array<[number, string]> = [];
-  let pid: number | null = null;
+  let pid: number | null = null, cmd = "";
   for (const line of out.split("\n")) {
-    if (line.startsWith("p")) { const n = Number(line.slice(1)); pid = Number.isFinite(n) ? n : null; continue; }
-    if (line.startsWith("n") && pid !== null && line[1] === "/") v.push([pid, line.slice(1).trimEnd()]);
+    if (line.startsWith("p")) { const n = Number(line.slice(1)); pid = Number.isFinite(n) ? n : null; cmd = ""; continue; }
+    if (line.startsWith("c")) { cmd = line.slice(1).trim(); continue; }
+    if (line.startsWith("n") && pid !== null && line[1] === "/" && isDevServer(cmd)) v.push([pid, line.slice(1).trimEnd()]);
   }
   return v;
 }
@@ -25,12 +33,14 @@ export function procsInDir(list: Array<[number, string]>, dir: string, me: numbe
 }
 
 const lsof = () => new Promise<string>((res) => {
-  execFile("lsof", ["-w", "-a", "-d", "cwd", "-Fpn", "-u", String(process.getuid?.() ?? "")], { timeout: 8000, maxBuffer: 16 << 20 }, (_e, out) => res(String(out || "")));
+  execFile("lsof", ["-w", "-a", "-d", "cwd", "-Fpcn", "-u", String(process.getuid?.() ?? "")], { timeout: 8000, maxBuffer: 16 << 20 }, (_e, out) => res(String(out || "")));
 });
 
 /** Derruba (TERM, depois KILL) quem roda em `dir`. Devolve quantos. Nunca lança. */
 export async function killInDir(dir: string): Promise<number> {
   if (process.platform === "win32") return 0;
+  // só dentro de uma worktree/revisão do Starfork — nunca "" nem "/" nem o repo
+  if (!/\/\.cardume\/(worktrees|reviews)\/[^/]+\/?$/.test(dir)) return 0;
   try {
     const list = parseLsofCwd(await lsof());
     const dirs = [dir]; try { const r = realpathSync(dir); if (r !== dir) dirs.push(r); } catch { /* já apagada */ }

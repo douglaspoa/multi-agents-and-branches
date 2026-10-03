@@ -69,6 +69,8 @@ struct EnvProc {
     child: Child,
     pid: i32,
     view: EnvView,
+    /// ligado na pasta do projeto ("prévia da main"), não na worktree da tarefa
+    main: bool,
 }
 static ENVS: OnceLock<Mutex<HashMap<String, EnvProc>>> = OnceLock::new();
 fn envs() -> &'static Mutex<HashMap<String, EnvProc>> { ENVS.get_or_init(|| Mutex::new(HashMap::new())) }
@@ -169,10 +171,15 @@ pub fn env_detect(state: State<AppState>, task_id: String) -> Result<Value, Stri
 pub fn env_up(app: AppHandle, state: State<AppState>, task_id: String, main: Option<bool>) -> Result<Value, String> {
     {
         let mut m = envs().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(cur) = m.get_mut(&task_id) {
-            if matches!(cur.child.try_wait(), Ok(None)) { return Ok(cur.view.to_json()); }
-            m.remove(&task_id); // terminou: sobe de novo
-        }
+        let want_main = main == Some(true);
+        let keep = match m.get_mut(&task_id) {
+            Some(cur) => { let alive = matches!(cur.child.try_wait(), Ok(None)); if alive && cur.main == want_main { return Ok(cur.view.to_json()); } false }
+            None => true,
+        };
+        // terminou, ou era o da outra pasta (worktree × main): derruba e sobe de novo
+        let stale = if keep { None } else { m.remove(&task_id) };
+        drop(m);
+        if let Some(e) = stale { kill_proc(e); reg_drop_task(&task_id); }
     }
     let wt = if main == Some(true) { repo_of(&state)? } else { wt_of(&state, &task_id)? };
     let mut c = node_cmd();
@@ -186,7 +193,7 @@ pub fn env_up(app: AppHandle, state: State<AppState>, task_id: String, main: Opt
     let stdout = child.stdout.take().ok_or("sem saída do ambiente")?;
     reg_add(&task_id, pid);
     let view = EnvView { running: true, ..Default::default() };
-    envs().lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.clone(), EnvProc { child, pid, view: view.clone() });
+    envs().lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.clone(), EnvProc { child, pid, view: view.clone(), main: main == Some(true) });
     web_log(format!("[ambiente] {task_id}: subindo (supervisor {pid})"));
     let tid = task_id.clone();
     std::thread::spawn(move || {
@@ -346,7 +353,7 @@ mod tests {
         apply_event(&mut view, &parse_line(&line).unwrap());
         let site = view.site_pid.expect("pid do filho");
         assert!(pid_alive(site));
-        kill_proc(EnvProc { child, pid, view });
+        kill_proc(EnvProc { child, pid, view, main: false });
         std::thread::sleep(Duration::from_millis(200));
         assert!(!pid_alive(site), "o filho (site) morreu junto");
         assert!(!pid_alive(pid), "o supervisor morreu");

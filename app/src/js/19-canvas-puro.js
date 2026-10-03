@@ -111,7 +111,9 @@ function cvLayFits(n, lay, box){
 function cvLayEff(n, lay, box){
   const want=lay==='stack'?'stack':(lay==='grid' && n>=3)?'grid':'side';
   if(cvLayFits(n, want, box)) return want;
-  return n>=3 ? 'grid' : 'stack';
+  // o automático: o 1º que cabe (3 → grade antes; 2 → empilhado antes); nenhum cabe → o padrão do nº de painéis
+  const alts=n>=3?['grid','side','stack']:['stack','side'];
+  return alts.find(l=>l!==want && cvLayFits(n, l, box)) || (n>=3?'grid':'stack');
 }
 // fração por painel (lista salva válida ou partes iguais)
 function cvFracs(n, l){ return (Array.isArray(l) && l.length===n) ? l.slice() : Array.from({ length:n }, ()=>1/n); }

@@ -31,6 +31,8 @@ test('layout automático: a escolha EXPLÍCITA vale enquanto couber; sem medida 
   assert.equal(CV.cvLayEff(2, 'grid', box(1600, 900)), 'side', 'grade com 2 continua lado a lado');
   assert.equal(CV.cvLayEff(3, 'side', null), 'side', 'painel escondido (sem medida): não troca nada');
   assert.equal(CV.cvLayEff(3, 'side'), 'side');
+  assert.equal(CV.cvLayEff(2, 'side', { w: 900, h: 400 }), 'stack', 'nenhum cabe: o padrão de 2');
+  assert.equal(CV.cvLayEff(3, 'grid', { w: 1600, h: 400 }), 'side', 'grade não cabe (baixa), lado a lado cabe → lado a lado');
   assert.ok(CV.cvLayFits(3, 'side', { w: 3 * 460 + 12, h: 700 }));
   assert.ok(!CV.cvLayFits(3, 'side', { w: 3 * 460 + 11, h: 700 }));
 });
@@ -56,7 +58,7 @@ test('painel responsivo à largura/altura DO PAINEL (o iframe é o viewport): En
   assert.match(narrow, /html\.sfpane \.cmsg \.cbub\{font-size:var\(--fs-base\)/, 'texto do agente na régua do painel');
   const short = cut(css, '@media (max-height:520px){', '\n}\n');
   assert.match(short, /\.cicst-cost\{display:none\}/, 'faixa de etapas numa linha');
-  assert.match(short, /\.fwchath\{display:none\}/, 'a conversa não some num painel baixo');
+  assert.match(short, /\.fwchath\{display:none\}/, 'painel baixo: sai a linha "Arquivos · agente" pra sobrar altura pras mensagens');
   assert.match(css, /html\.sfpane,html\.sfpane body\{overflow-x:hidden\}/, 'nada estoura a largura do painel');
   assert.match(base, /\.cbub h1,\.cbub h2,\.cbub h3,\.cbub h4\{font-size:1em/, 'título do agente nunca menor que o texto');
 });
@@ -88,6 +90,7 @@ test('Prévia: tarefa em andamento com o servidor caído → "o servidor da pré
   const h = NV({ verdict: 'down', status: null, tail: 'linha 1\nError: Cannot find module \'vite\'\n' }, 'http://127.0.0.1:4412/');
   assert.match(h, /O servidor da prévia parou/); assert.match(h, /Ninguém responde/);
   assert.match(h, /data-nvh="up">subir de novo/);
+  assert.match(h, /data-nvh="force">abrir mesmo assim/, 'falso positivo (servidor só de API) não prende a prévia');
   assert.match(h, /<pre class="mono nvhlog"[^>]*>linha 1\nError: Cannot find module &#39;vite&#39;<\/pre>/);
   assert.equal(NV({ verdict: 'ok' }, 'http://x'), '');
   assert.equal(NV(null, 'http://x'), '');

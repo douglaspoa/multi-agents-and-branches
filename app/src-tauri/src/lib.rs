@@ -786,6 +786,16 @@ mod commit_info_tests {
         assert!(commit_info_in(&repo, "main", "sumiu", None).commits.is_empty());
         let _ = std::fs::remove_dir_all(&d);
     }
+    #[test]
+    fn diffstat_do_pr_grava_e_resposta_vazia_nao_zera() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE diffstat (task_id TEXT PRIMARY KEY, files INTEGER NOT NULL, additions INTEGER NOT NULL, deletions INTEGER NOT NULL, updated_at INTEGER NOT NULL); INSERT INTO diffstat VALUES ('t',924,132189,3107,1);").unwrap();
+        let get = |c: &Connection| c.query_row("SELECT files,additions,deletions FROM diffstat WHERE task_id='t'", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))).unwrap();
+        diffstat_from_pr(&c, "t", &serde_json::json!({ "additions": 412, "deletions": 57, "changedFiles": 9 }));
+        assert_eq!(get(&c), (9, 412, 57), "o número do PR substitui o inflado");
+        diffstat_from_pr(&c, "t", &serde_json::json!({ "additions": 0, "deletions": 0, "changedFiles": 0 }));
+        assert_eq!(get(&c), (9, 412, 57), "resposta sem arquivos não zera");
+    }
     /// Ponto de bifurcação: o merge-base MAIS NOVO entre origin/main e main local. Main local defasada (caso real:
     /// 171 commits atrás) não pode arrastar o avanço da main pro número da tarefa.
     #[test]
@@ -805,6 +815,12 @@ mod commit_info_tests {
         let head_origin = String::from_utf8_lossy(&Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "origin/main"]).output().unwrap().stdout).trim().to_string();
         assert_eq!(merge_base_ref(&wt, "main", "HEAD"), head_origin, "main local 5 commits atrás: vale o fork na origin/main");
         assert_eq!(merge_base_ref(&wt, "origin/main", "HEAD"), head_origin);
+        // o contrário: merge feito na main LOCAL (sem push) e trazido pra branch — vale o fork na main local
+        git(&repo, &["checkout", "-q", "main"]); git(&repo, &["merge", "-q", "--ff-only", "origin/main"]);
+        c(&repo, "só local");
+        git(&wt, &["-c", "user.email=a@b", "-c", "user.name=a", "merge", "-q", "--no-edit", "main"]);
+        let head_local = String::from_utf8_lossy(&Command::new("git").arg("-C").arg(&repo).args(["rev-parse", "main"]).output().unwrap().stdout).trim().to_string();
+        assert_eq!(merge_base_ref(&wt, "main", "HEAD"), head_local, "origin não buscado não esconde o merge local");
         let _ = std::fs::remove_dir_all(&d);
     }
 }
@@ -9482,10 +9498,11 @@ fn preview_health(state: State<AppState>, task_id: String, url: String) -> Resul
     let status = orfaos::http_status(&host, port, &path, 1500);
     let root_status = if status == Some(404) && path != "/" { orfaos::http_status(&host, port, "/", 1500) } else { status };
     let tail = wt.as_ref().ok().map(|w| preview_tail(w, 12)).unwrap_or_default();
+    // integrada de verdade (merged/done) — cancelada/abortada não diz "já foi integrada"
     let merged = (|| -> Option<bool> {
         let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
         let conn = open(&db).ok()?;
-        conn.query_row("SELECT status FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)).ok().map(|s| TASK_FINISHED.contains(&s.as_str()))
+        conn.query_row("SELECT status FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)).ok().map(|s| matches!(s.as_str(), "merged" | "done"))
     })().unwrap_or(false);
     Ok(serde_json::json!({ "verdict": orfaos::verdict(wt_gone, status, root_status), "wtGone": wt_gone, "status": status, "rootStatus": root_status, "finished": merged, "tail": tail }))
 }

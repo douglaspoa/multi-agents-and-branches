@@ -175,7 +175,7 @@ function cvSetLay(lay){
   const ov=$id('cvSplit'), row=ov&&ov.querySelector('.cvrow'); if(row && cvSplitShowing()) cvApplyLayout(row, SPL.ids);
   if(typeof renderTabs==='function') renderTabs();
   // a escolha fica salva; se não cabe nesta largura, a tela usa o automático e volta sozinha quando alargar
-  if(!cvLayFits(n, cvLayEff(n, lay), box)){ toast(({ side:'lado a lado', stack:'empilhado', grid:'a grade' })[lay]+' não cabe nesta largura — fica '+(cvLayEff(n, lay, box)==='grid'?'em grade':'empilhado')+' e volta sozinho quando a janela alargar', 'info'); return; }
+  if(cvLayEff(n, lay, box)!==cvLayEff(n, lay)){ toast(({ side:'lado a lado', stack:'empilhado', grid:'a grade' })[lay]+' não cabe nesta largura — fica '+(cvLayEff(n, lay, box)==='grid'?'em grade':'empilhado')+' e volta sozinho quando a janela alargar', 'info'); return; }
   const lb={ side:'lado a lado', stack:'empilhado', grid:'grade — a tarefa em foco fica grande; ⌘1–3 trocam' }[lay]; toast('grupo: '+lb, 'info');
 }
 // quem está esperando você acende a borda (mesmo pequeno na grade)

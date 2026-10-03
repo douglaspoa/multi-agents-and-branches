@@ -282,14 +282,9 @@ export class GitService {
   /** Diff da branch da worktree contra o ponto de bifurcação real (após commit). */
   async diffStat(worktree: string, base: string): Promise<DiffStat> {
     const fork = await this.forkPoint(worktree, base);
-    const { stdout } = await run("git", [
-      "-C",
-      worktree,
-      "diff",
-      "--numstat",
-      fork,
-      "HEAD",
-    ]);
+    // sem merge-base nenhum: fica o `base...HEAD` de antes (dois pontos contaria a base ao contrário)
+    const range = fork === base ? [`${base}...HEAD`] : [fork, "HEAD"];
+    const { stdout } = await run("git", ["-C", worktree, "diff", "--numstat", ...range]);
     let files = 0;
     let add = 0;
     let del = 0;

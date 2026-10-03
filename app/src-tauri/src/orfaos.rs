@@ -15,17 +15,25 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use super::{pid_alive, procsig, web_log};
+use super::{output_timeout, pid_alive, procsig, web_log};
 
-/// Saída de `lsof -d cwd -Fpn` → [(pid, cwd)]. Puro (testado).
+/// Saída de `lsof -d cwd -Fpcn` → [(pid, cwd)] SÓ dos processos de servidor de dev (node, vite, bun, python…):
+/// shell, editor e o agente da pessoa que estejam com a pasta aberta NÃO entram. Puro (testado).
 pub fn parse_lsof_cwd(out: &str) -> Vec<(i32, PathBuf)> {
     let mut v = Vec::new();
-    let mut pid: Option<i32> = None;
+    let (mut pid, mut cmd): (Option<i32>, String) = (None, String::new());
     for line in out.lines() {
-        if let Some(p) = line.strip_prefix('p') { pid = p.trim().parse().ok(); continue; }
-        if let Some(n) = line.strip_prefix('n') { if let Some(p) = pid { if n.starts_with('/') { v.push((p, PathBuf::from(n.trim_end()))); } } }
+        if let Some(p) = line.strip_prefix('p') { pid = p.trim().parse().ok(); cmd.clear(); continue; }
+        if let Some(c) = line.strip_prefix('c') { cmd = c.trim().to_string(); continue; }
+        if let Some(n) = line.strip_prefix('n') { if let Some(p) = pid { if n.starts_with('/') && is_dev_server(&cmd) { v.push((p, PathBuf::from(n.trim_end()))); } } }
     }
     v
+}
+/// Nome do executável (como o lsof mostra, truncado) de um servidor de dev/prévia. Sem nome (saída antiga) = conta.
+pub fn is_dev_server(cmd: &str) -> bool {
+    if cmd.is_empty() { return true; }
+    let c = cmd.to_ascii_lowercase();
+    ["node", "bun", "deno", "python", "ruby", "php", "uvicorn", "gunicorn", "esbuild", "vite", "next-serv", "java", "dotnet", "rails", "hugo", "caddy"].iter().any(|k| c.starts_with(k))
 }
 
 /// Pids com cwd dentro de `dir` (o próprio dir ou abaixo dele). Puro (testado).
@@ -58,9 +66,10 @@ fn lsof_cwds() -> Vec<(i32, PathBuf)> {
     if cfg!(windows) { return vec![]; }
     let uid = unsafe_uid();
     let mut c = Command::new("lsof");
-    c.args(["-w", "-a", "-d", "cwd", "-Fpn"]);
+    c.args(["-w", "-a", "-d", "cwd", "-Fpcn"]);
     if let Some(u) = uid { c.args(["-u", &u]); }
-    match c.output() { Ok(o) => parse_lsof_cwd(&String::from_utf8_lossy(&o.stdout)), Err(_) => vec![] }
+    // com teto: lsof pode travar (montagem de rede) e quem chama está removendo uma worktree
+    match output_timeout(c, 8) { Ok(o) => parse_lsof_cwd(&String::from_utf8_lossy(&o.stdout)), Err(_) => vec![] }
 }
 fn unsafe_uid() -> Option<String> {
     let o = Command::new("id").arg("-u").output().ok()?;
@@ -107,10 +116,10 @@ pub fn sweep_boot() {
 // ---------- saúde da Prévia ----------
 /// Código HTTP de um GET (só loopback). None = recusou/sem resposta. Bloqueia até ~`ms` ms.
 pub fn http_status(host: &str, port: u16, path: &str, ms: u64) -> Option<u16> {
-    let ips: Vec<IpAddr> = match host {
-        "127.0.0.1" => vec![IpAddr::V4(Ipv4Addr::LOCALHOST)],
-        "::1" => vec![IpAddr::V6(Ipv6Addr::LOCALHOST)],
-        _ => vec![IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)],
+    let ips: Vec<IpAddr> = match host.parse::<IpAddr>() {
+        Ok(ip) if ip.is_loopback() => vec![ip],
+        Ok(_) => return Some(0), // não é loopback: não dá pra checar daqui — não bloqueia a prévia
+        Err(_) => vec![IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V6(Ipv6Addr::LOCALHOST)],
     };
     let to = Duration::from_millis(ms);
     for ip in ips {
@@ -150,9 +159,9 @@ mod tests {
     use super::*;
     #[test]
     fn lsof_e_processos_na_pasta() {
-        let out = "p100\nfcwd\nn/Users/a/proj/.cardume/worktrees/header-abas\np101\nfcwd\nn/Users/a/proj/.cardume/worktrees/header-abas/web\np102\nfcwd\nn/Users/a/proj\np7\nfcwd\nn/\n";
+        let out = "p100\ncnode\nfcwd\nn/Users/a/proj/.cardume/worktrees/header-abas\np101\ncbun\nfcwd\nn/Users/a/proj/.cardume/worktrees/header-abas/web\np102\ncnode\nfcwd\nn/Users/a/proj\np7\ncnode\nfcwd\nn/\np103\nczsh\nfcwd\nn/Users/a/proj/.cardume/worktrees/header-abas\np104\ncnvim\nfcwd\nn/Users/a/proj/.cardume/worktrees/header-abas\n";
         let l = parse_lsof_cwd(out);
-        assert_eq!(l.len(), 4);
+        assert_eq!(l.len(), 4, "o shell (zsh) e o editor (nvim) da pessoa na pasta nunca entram");
         let dir = Path::new("/Users/a/proj/.cardume/worktrees/header-abas");
         assert_eq!(procs_in_dir(&l, dir, 999), vec![100, 101]);
         assert_eq!(procs_in_dir(&l, dir, 100), vec![101], "o próprio app nunca");
@@ -198,13 +207,15 @@ mod tests {
         if cfg!(windows) { return; }
         let d = std::env::temp_dir().join(format!("sf-orfaos-{}", std::process::id())).join(".cardume").join("worktrees").join("t1");
         std::fs::create_dir_all(&d).unwrap();
-        let mut ch = Command::new("sleep").arg("30").current_dir(&d).spawn().unwrap();
+        // um "servidor" de verdade (node) — sleep/shell não são alvo
+        let mut ch = super::super::node_cmd(); // o node que o app acha (nvm/homebrew), como no app de verdade
+        let mut ch = ch.args(["-e", "setTimeout(()=>{}, 30000)"]).current_dir(&d).stdout(std::process::Stdio::null()).spawn().unwrap();
         // sob carga (cargo test em paralelo) o exec do sleep pode demorar: tenta por até ~3 s
         let mut n = 0;
         for _ in 0..15 { std::thread::sleep(Duration::from_millis(200)); n = kill_in_dir(&d); if n >= 1 { break; } }
         assert!(n >= 1);
         let st = ch.wait().unwrap();
-        assert!(!st.success(), "o sleep morreu antes dos 30 s");
+        assert!(!st.success(), "o node morreu antes dos 30 s");
         let _ = std::fs::remove_dir_all(d.parent().unwrap().parent().unwrap().parent().unwrap());
     }
 }

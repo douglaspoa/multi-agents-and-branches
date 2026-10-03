@@ -136,7 +136,7 @@ function nvHealthHtml(h, url){
   }
   const why=h.status==null?`Ninguém responde${host?' em <code>'+esc(host)+'</code>':''} — o servidor caiu ou foi parado.`:`Ele responde 404 em tudo${host?' em <code>'+esc(host)+'</code>':''} — perdeu os arquivos ou o build quebrou.`;
   return `<div class="nvempty nvhealth" role="status"><b>O servidor da prévia parou</b><span>${why}</span>${log}`+
-    `<span class="nvhacts"><button type="button" class="btn sm primary" data-nvh="up">subir de novo</button><button type="button" class="btn sm ghost" data-nvh="retry">tentar de novo</button></span></div>`;
+    `<span class="nvhacts"><button type="button" class="btn sm primary" data-nvh="up">subir de novo</button><button type="button" class="btn sm ghost" data-nvh="retry">tentar de novo</button><button type="button" class="btn sm ghost" data-nvh="force">abrir mesmo assim</button></span></div>`;
 }
 // @nav-puro-fim
 
@@ -187,6 +187,7 @@ function nvWire(taskId){
   const msg=nvQ(st, 'msg'); if(msg) msg.onclick=(e)=>{ if(e.target.closest('[data-nvresume]')){ st.frozen=false; nvMount(taskId); nvPaint(taskId); return; }
     const hb=e.target.closest('[data-nvh]'); if(!hb) return; const k=hb.dataset.nvh; hb.disabled=true;
     if(k==='retry'){ st.health=null; nvGo(taskId, st.addr, true); }
+    else if(k==='force'){ st.health=null; nvGo(taskId, st.addr, 'skiphealth'); }
     else if(typeof envUp==='function'){ st.health=null; st.addr=''; nvPaint(taskId); envUp(taskId, { main:k==='main' }); } };
   // visível? (IntersectionObserver — sem laço): escondida 20 s → desmonta o iframe; voltou → remonta
   const wrap=nvQ(st, 'wrap');
@@ -221,11 +222,13 @@ function nvPaint(taskId){
 async function nvGo(taskId, url, force){
   const st=nvSt(taskId);
   const u=nvNormUrl(url); if(!u){ st.err='endereço inválido — só http(s)'; nvPaint(taskId); return; }
-  st.addr=u; st.err=''; st.health=null;
+  st.addr=u; st.err=''; st.health=null; const gen=st.gen=(st.gen||0)+1;
   // endereço local: confere a saúde ANTES de mostrar — pasta da tarefa sumiu / servidor parou viram cartão, nunca branco
-  if(nvIsLocalUrl(u)){ st.opening=true; nvPaint(taskId);
+  // ("abrir mesmo assim" pula a checagem: um servidor só de API, por exemplo, responde 404 no / de propósito)
+  if(nvIsLocalUrl(u) && !(force==='skiphealth')){ st.opening=true; nvPaint(taskId);
     const h=await invokeQuiet('preview_health', { taskId, url:u }).catch(()=>null);
-    st.opening=false; if(st.addr!==u) return; // trocou de endereço enquanto checava
+    if(st.gen!==gen) return; // outra navegação começou enquanto checava
+    st.opening=false;
     if(h && h.verdict && h.verdict!=='ok'){ st.health=h; if(st.frame) nvUnmount(taskId); nvPaint(taskId); return; } }
   const same=st.proxy && (()=>{ try{ return new URL(u).origin===st.proxy.target; }catch(_){ return false; } })();
   if(same && st.frame && !force){ st.frame.src=nvToProxy(u, st.proxy.origin); nvPaint(taskId); return; }

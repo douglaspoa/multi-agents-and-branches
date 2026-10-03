@@ -39,23 +39,34 @@ test("diffStat: main LOCAL defasada não entra no número da tarefa (conta do po
     git(repo, "fetch", "-q", "origin"); git(wt, "merge", "-q", "--no-edit", "origin/main");
     const d2 = await new GitService(repo).diffStat(wt, "main");
     assert.equal(d2.files, 2, "merge da origin/main na branch não conta como arquivo da tarefa");
+    // o contrário: merge na main LOCAL (sem push, origin não buscado) trazido pra branch — não vira arquivo da tarefa
+    git(repo, "checkout", "-q", "main"); git(repo, "merge", "-q", "--ff-only", "origin/main");
+    commit(repo, "so-local.txt", 7, "só local");
+    git(wt, "merge", "-q", "--no-edit", "main");
+    const d3 = await new GitService(repo).diffStat(wt, "main");
+    assert.equal(d3.files, 2, "merge local mais novo que o origin: vale o fork na main local");
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("órfãos: lsof → processos dentro da pasta (prefixo de nome não conta)", () => {
-  const l = parseLsofCwd("p10\nfcwd\nn/r/.cardume/worktrees/header\np11\nfcwd\nn/r/.cardume/worktrees/header/web\np12\nfcwd\nn/r/.cardume/worktrees/header-2\np13\nfcwd\nn/r\n");
+test("órfãos: lsof → servidores dentro da pasta (prefixo de nome não conta; shell/editor da pessoa nunca)", () => {
+  const l = parseLsofCwd("p10\ncnode\nfcwd\nn/r/.cardume/worktrees/header\np11\ncbun\nfcwd\nn/r/.cardume/worktrees/header/web\np12\ncnode\nfcwd\nn/r/.cardume/worktrees/header-2\np13\ncnode\nfcwd\nn/r\np14\nczsh\nfcwd\nn/r/.cardume/worktrees/header\np15\ncCode Helper\nfcwd\nn/r/.cardume/worktrees/header\n");
   assert.deepEqual(procsInDir(l, "/r/.cardume/worktrees/header", 999), [10, 11]);
   assert.deepEqual(procsInDir(l, "/r/.cardume/worktrees/header/", 10), [11], "o próprio processo nunca");
 });
 
-test("órfãos: remover a worktree derruba o servidor que roda dentro dela", { skip: process.platform === "win32" }, async () => {
+test("órfãos: remover a worktree (GitService.worktreeRemove) derruba o servidor que roda dentro dela", { skip: process.platform === "win32" }, async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "sf-orfao-")));
-  const wt = join(root, ".cardume", "worktrees", "t1"); mkdirSync(wt, { recursive: true });
-  const ch = spawn("sleep", ["30"], { cwd: wt, stdio: "ignore" });
+  const repo = join(root, "repo");
+  execFileSync("git", ["init", "-q", "-b", "main", repo]); git(repo, "config", "user.email", "t@t"); git(repo, "config", "user.name", "t");
+  commit(repo, "a.txt", 1, "base");
+  const wt = join(repo, ".cardume", "worktrees", "t1"); mkdirSync(join(repo, ".cardume", "worktrees"), { recursive: true });
+  git(repo, "worktree", "add", "-q", "-b", "feat/t1", wt);
+  const ch = spawn(process.execPath, ["-e", "setTimeout(()=>{}, 30000)"], { cwd: wt, stdio: "ignore" }); // um "dev server" node
   const exited = new Promise<number | null>((r) => ch.on("exit", (c, sig) => r(sig ? -1 : c)));
   await new Promise((r) => setTimeout(r, 300));
   try {
-    assert.ok((await killInDir(wt)) >= 1);
+    assert.equal(await killInDir("/"), 0, "fora de .cardume/worktrees: nunca");
+    await new GitService(repo).worktreeRemove(wt);
     assert.equal(await exited, -1, "morreu por sinal, antes dos 30 s");
   } finally { try { ch.kill("SIGKILL"); } catch { /* */ } rmSync(root, { recursive: true, force: true }); }
 });
