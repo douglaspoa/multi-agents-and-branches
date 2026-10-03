@@ -300,16 +300,18 @@ window.epicAttachRef=epicAttachRef;
 // tasks.spec.epicChecks; o snapshot expõe em t.epic.epicChecks). Cada marca vai UMA vez (localStorage),
 // com checkedBy = "agent:<tarefa local>"; com tudo marcado o épico fecha, igual ao clique humano.
 const epMirrorInFlight=new Set();
-function epMirroredSet(){ try{ return new Set(JSON.parse(lsGet('ep:mirrored')||'[]')); }catch(_){ return new Set(); } }
+// marcas já espelhadas: POR CONTA (40-conta-escopo) — a de outra conta não vale aqui
+const epMirroredKey=()=>userKey('ep:mirrored', cloudUserId());
+function epMirroredSet(){ try{ return new Set(JSON.parse(lsGet(epMirroredKey())||'[]')); }catch(_){ return new Set(); } }
 async function epicMirrorChecks(t){
   const ep=t.epic||{}; const epicId=ep.epicId; const checks=Array.isArray(ep.epicChecks)?ep.epicChecks:[];
-  if(!epicId||!checks.length||epMirrorInFlight.has(t.id)) return;
+  if(!epicId||!checks.length||epMirrorInFlight.has(t.id)||!cloudScopeOk()) return;
   const done=epMirroredSet(); const pend=checks.filter(c=>c&&c.id&&!done.has(t.id+'|'+c.id));
   if(!pend.length) return;
   epMirrorInFlight.add(t.id);
   try{
     const fresh=(await sbGet('epics?select=id,spec,status&id=eq.'+epicId))[0];
-    if(!fresh){ pend.forEach(c=>done.add(t.id+'|'+c.id)); lsSet('ep:mirrored', JSON.stringify([...done].slice(-500))); return; } // épico apagado: não fica tentando pra sempre
+    if(!fresh){ pend.forEach(c=>done.add(t.id+'|'+c.id)); lsSet(epMirroredKey(), JSON.stringify([...done].slice(-500))); return; } // épico apagado: não fica tentando pra sempre
     const spec={ ...(fresh.spec||{}) }; const dw=(Array.isArray(spec.doneWhen)?spec.doneWhen:[]).map(d=>({ ...d }));
     let changed=false;
     for(const c of pend){
@@ -326,7 +328,7 @@ async function epicMirrorChecks(t){
       if(epTab&&epTab.id===epicId){ await epicPageLoad(epicId); epicPageRender(); }
       teamTasks=null; teamPaintSig='';
     }
-    pend.forEach(c=>done.add(t.id+'|'+c.id)); lsSet('ep:mirrored', JSON.stringify([...done].slice(-500)));
+    pend.forEach(c=>done.add(t.id+'|'+c.id)); lsSet(epMirroredKey(), JSON.stringify([...done].slice(-500)));
   }catch(e){ console.warn('espelho do pronto quando falhou', e&&e.message||e); }
   finally{ epMirrorInFlight.delete(t.id); }
 }
@@ -354,7 +356,7 @@ let epQueue={ rows:[], stOf:{}, flagOf:{}, titleOf:{}, epicOf:{}, projOf:{}, pro
 function epDepDone(a){ const q=epQueue; return EP_AUTO_READY.has(q.stOf[a]) || q.flagOf[a]==='closed'; }
 function epDepsLeft(ct){ const q=epQueue; return ((ct.spec||{}).after||[]).filter(a=>(a in q.stOf) && !epDepDone(a)); }
 async function epicAutoStartTick(){
-  if(epAutoBusy || !SB.sess() || !cloudTeamId()) return;
+  if(epAutoBusy || !SB.sess() || !cloudTeamId() || !cloudScopeOk()) return;
   epAutoBusy=true;
   try{
     const rows=await sbGet('tasks?select=*&team_id=eq.'+cloudTeamId()+'&status=eq.backlog&epic_id=not.is.null&order=created_at.asc')||[];
@@ -581,7 +583,7 @@ async function epCardStart(ct, btn){
 // abre (troca pra) o projeto LOCAL cujo remote é o do cartão; não achou nesta máquina → aba Projetos
 async function epOpenProjectOf(pj){
   try{
-    const locals=(await invoke('list_projects'))||[];
+    const locals=(await invoke('list_projects', { user:(typeof cloudUserId==='function'?cloudUserId():undefined) }))||[];
     for(const p of locals){ const ids=await repoRemoteIds(p.path); if(remoteSame(pj.repo_remote, ids)){ if(window.switchProject) await window.switchProject(p.path); return; } }
   }catch(e){ console.warn('abrir projeto do cartão', e); }
   toast('O projeto '+(pj.name||pj.repo_remote||'')+' não está aberto nesta máquina — abra ou clone a pasta dele em Projetos.','warn');

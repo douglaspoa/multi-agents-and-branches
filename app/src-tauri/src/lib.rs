@@ -22,6 +22,7 @@ mod memoria;
 mod mesa;
 mod ideia;
 mod plan_usage;
+mod projetos_conta;
 mod usage_ledger;
 #[cfg(target_os = "macos")]
 mod notif_mac;
@@ -1643,20 +1644,20 @@ fn projects_file() -> PathBuf {
     let home = home_dir_s();
     PathBuf::from(home).join(".cardume").join("projects.json")
 }
+/// TODOS os caminhos salvos (de todas as contas) — boot e a lista branca do reveal_project.
 fn read_project_list() -> Vec<String> {
-    std::fs::read_to_string(projects_file())
-        .ok()
-        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
-        .unwrap_or_default()
+    projetos_conta::read_from(&projects_file()).items.into_iter().map(|e| e.path).collect()
 }
-fn write_project_list(list: &[String]) {
-    let f = projects_file();
-    if let Some(dir) = f.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Ok(s) = serde_json::to_string_pretty(list) {
-        let _ = std::fs::write(&f, s);
-    }
+/// Caminhos que a conta ATUAL enxerga (dela + os sem dono) — o que a barra lateral, a Central,
+/// as concluídas e os planos mostram. Projeto de outra conta fica oculto, nunca apagado.
+fn visible_project_list() -> Vec<String> {
+    let user = projetos_conta::current_user();
+    projetos_conta::visible_paths(&projetos_conta::read_from(&projects_file()), user.as_deref())
+}
+/// Projeto aberto/criado: topo da lista e, com sessão, passa a ser da conta logada.
+fn register_opened_project(path: &str) {
+    let user = projetos_conta::current_user();
+    projetos_conta::update(&projects_file(), |f| projetos_conta::register_opened(f, path, user.as_deref()));
 }
 fn active_repo_of(state: &State<AppState>) -> Option<String> {
     state
@@ -1675,17 +1676,24 @@ struct Project {
     active: bool,
 }
 
+/// Projetos da conta atual (+ os sem dono). `user` (id da nuvem; vazio = sem sessão) atualiza a conta
+/// da vez; sem o argumento vale a última que o front informou.
 #[tauri::command(async)]
-fn list_projects(state: State<AppState>) -> Vec<Project> {
-    let mut list = read_project_list();
-    let active = active_repo_of(&state);
-    // garante que o repo ativo (ex.: aberto via CARDUME_REPO no boot) esteja na lista
-    if let Some(a) = &active {
-        if !list.iter().any(|p| p == a) {
-            list.insert(0, a.clone());
-            write_project_list(&list);
-        }
+fn list_projects(state: State<AppState>, user: Option<String>) -> Vec<Project> {
+    if let Some(u) = &user {
+        projetos_conta::set_current_user(Some(u));
     }
+    let active = active_repo_of(&state);
+    let file = projects_file();
+    // garante que o repo ativo (ex.: aberto via CARDUME_REPO no boot) esteja na lista — sem dono
+    if let Some(a) = &active {
+        projetos_conta::update(&file, |f| {
+            if !f.items.iter().any(|e| &e.path == a) {
+                f.items.insert(0, projetos_conta::ProjEntry { path: a.clone(), owner: None });
+            }
+        });
+    }
+    let list = visible_project_list();
     list.iter()
         .map(|p| Project {
             name: PathBuf::from(p)
@@ -1696,6 +1704,95 @@ fn list_projects(state: State<AppState>) -> Vec<Project> {
             path: p.clone(),
         })
         .collect()
+}
+
+/// Conta da vez trocou (login/logout/boot): grava e, se o projeto ATIVO é de outra conta, troca pro
+/// primeiro visível (ou fica sem projeto). Devolve o resumo pra linha da barra lateral.
+#[tauri::command(async)]
+fn set_projects_user(state: State<AppState>, user: Option<String>) -> serde_json::Value {
+    projetos_conta::set_current_user(user.as_deref());
+    let mut switched = false;
+    let f = projetos_conta::read_from(&projects_file());
+    let u = projetos_conta::current_user();
+    let vis = projetos_conta::visible_paths(&f, u.as_deref());
+    if let Some(a) = active_repo_of(&state) {
+        let known = f.items.iter().any(|e| e.path == a);
+        if known && !vis.contains(&a) {
+            let next = vis.iter().map(|p| PathBuf::from(p).join(".cardume").join("state.sqlite")).find(|db| db.exists());
+            if let Some(db) = &next { ensure_app_schema(db); }
+            *state.db.lock().unwrap_or_else(|e| e.into_inner()) = next;
+            switched = true;
+        }
+    }
+    serde_json::json!({
+        "switched": switched,
+        "active": active_repo_of(&state),
+        "visible": vis.len(),
+        "hidden": projetos_conta::hidden_count(&f, u.as_deref()),
+        "pending": f.pending,
+    })
+}
+
+/// Resumo da lista pra conta da vez (linha "mostrando os projetos de … · N ocultos").
+#[tauri::command(async)]
+fn projects_scope() -> serde_json::Value {
+    let f = projetos_conta::read_from(&projects_file());
+    let u = projetos_conta::current_user();
+    serde_json::json!({
+        "user": u,
+        "visible": projetos_conta::visible_paths(&f, u.as_deref()).len(),
+        "hidden": projetos_conta::hidden_count(&f, u.as_deref()),
+        "pending": f.pending,
+    })
+}
+
+/// Evidência local pra migração de donos (front): TODOS os projetos (até os ocultos), com o dono,
+/// os ids das tarefas locais (pra cruzar com o mapa tarefa→cartão) e os e-mails de quem commitou.
+#[tauri::command(async)]
+fn projects_owner_audit() -> serde_json::Value {
+    let f = projetos_conta::read_from(&projects_file());
+    let items: Vec<serde_json::Value> = f
+        .items
+        .iter()
+        .map(|e| {
+            let db = PathBuf::from(&e.path).join(".cardume").join("state.sqlite");
+            let mut ids: Vec<String> = vec![];
+            if let Ok(conn) = Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI) {
+                let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
+                if let Ok(mut st) = conn.prepare("SELECT id FROM task ORDER BY rowid DESC LIMIT 400") {
+                    if let Ok(rows) = st.query_map([], |r| r.get::<_, String>(0)) {
+                        ids = rows.flatten().collect();
+                    }
+                }
+            }
+            let mut emails: Vec<String> = vec![];
+            let git = |args: &[&str]| -> String {
+                Command::new("git").arg("-C").arg(&e.path).args(args).output().ok()
+                    .filter(|o| o.status.success())
+                    .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                    .unwrap_or_default()
+            };
+            for l in git(&["config", "user.email"]).lines().chain(git(&["log", "-60", "--format=%ae"]).lines()) {
+                let l = l.trim().to_lowercase();
+                if !l.is_empty() && !emails.contains(&l) { emails.push(l); }
+            }
+            serde_json::json!({ "path": e.path, "owner": e.owner, "taskIds": ids, "emails": emails })
+        })
+        .collect();
+    serde_json::json!({ "pending": f.pending, "items": items })
+}
+
+#[derive(serde::Deserialize)]
+struct ProjAssign {
+    path: String,
+    owner: Option<String>,
+}
+/// Grava os donos decididos pela migração (`done` encerra a migração do formato antigo).
+#[tauri::command(async)]
+fn assign_project_owners(assign: Vec<ProjAssign>, done: bool) -> serde_json::Value {
+    let pairs: Vec<(String, Option<String>)> = assign.into_iter().map(|a| (a.path, a.owner)).collect();
+    projetos_conta::update(&projects_file(), |f| projetos_conta::assign(f, &pairs, done));
+    projects_scope()
 }
 
 /// Abre um projeto: valida git, inicializa o workspace do Starfork se preciso,
@@ -1878,10 +1975,7 @@ fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
     }
     ensure_app_schema(&db);
     *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
-    let mut list = read_project_list();
-    list.retain(|p| p != path);
-    list.insert(0, path.to_string());
-    write_project_list(&list);
+    register_opened_project(path); // com sessão: passa a ser da conta logada
     Ok(path.to_string())
 }
 
@@ -2223,19 +2317,15 @@ fn switch_project(state: State<AppState>, path: String) -> Result<String, String
     ensure_app_schema(&db);
     *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
     // move pro topo: o topo da lista é o "último projeto ativo" restaurado no boot
-    let mut list = read_project_list();
-    list.retain(|p| p != &path);
-    list.insert(0, path.clone());
-    write_project_list(&list);
+    projetos_conta::update(&projects_file(), |f| projetos_conta::touch(f, &path, None)); // só reordena: o dono não muda
     Ok(path)
 }
 
 /// Remove um projeto da lista (não apaga nada do repo em disco).
 #[tauri::command(async)]
 fn remove_project(state: State<AppState>, path: String) -> Vec<String> {
-    let mut list = read_project_list();
-    list.retain(|p| p != &path);
-    write_project_list(&list);
+    projetos_conta::update(&projects_file(), |f| f.items.retain(|e| e.path != path));
+    let list = visible_project_list();
     // BUG-20: tirar o projeto ATIVO da lista também o fecha — vai pro próximo da lista (ou pro estado vazio).
     // Antes ele seguia aberto e o list_projects o devolvia pra lista no refresh seguinte.
     if active_repo_of(&state).as_deref() == Some(path.as_str()) {
@@ -4027,7 +4117,7 @@ fn orch_list(state: State<AppState>) -> Vec<serde_json::Value> {
     let active = repo_of(&state).ok();
     let mut repos: Vec<PathBuf> = vec![];
     if let Some(a) = &active { repos.push(a.clone()); }
-    for p in read_project_list() {
+    for p in visible_project_list() {
         let pb = PathBuf::from(&p);
         if !repos.contains(&pb) && pb.is_dir() { repos.push(pb); }
     }
@@ -7804,7 +7894,7 @@ struct ProjOverview {
 /// conta sessões ativas/review lendo o state.sqlite de cada repo. Best-effort.
 #[tauri::command(async)]
 fn projects_overview() -> Vec<ProjOverview> {
-    read_project_list()
+    visible_project_list()
         .iter()
         .map(|p| {
             let name = PathBuf::from(p)
@@ -7856,7 +7946,7 @@ struct AllTask {
 #[tauri::command(async)]
 fn list_all_tasks() -> Vec<AllTask> {
     let mut out: Vec<AllTask> = Vec::new();
-    for p in read_project_list() {
+    for p in visible_project_list() {
         let name = PathBuf::from(&p).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| p.clone());
         let db = PathBuf::from(&p).join(".cardume").join("state.sqlite");
         let conn = match Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI) {
@@ -7916,7 +8006,7 @@ struct DoneTask {
 fn list_done_tasks() -> Vec<DoneTask> {
     let clip = |s: String, n: usize| if s.chars().count() > n { s.chars().take(n).collect::<String>() + "…" } else { s };
     let mut out: Vec<DoneTask> = Vec::new();
-    for p in read_project_list() {
+    for p in visible_project_list() {
         let name = PathBuf::from(&p).file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| p.clone());
         let db = PathBuf::from(&p).join(".cardume").join("state.sqlite");
         let conn = match Connection::open_with_flags(&db, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI) {
@@ -9354,6 +9444,10 @@ pub fn run() {
             task_agent_edit,
             resolve_conflict,
             list_projects,
+            set_projects_user,
+            projects_scope,
+            projects_owner_audit,
+            assign_project_owners,
             projects_overview,
             repo_checks,
             checks_config,

@@ -414,15 +414,45 @@ const NOT_EMPTY = (dir: string) => `a pasta ${dir} já existe e não está vazia
 
 /** Pasta nova (ou vazia) → git init na main, README + .gitignore + 1º commit. NUNCA cria remoto. Idempotente:
  * retoma uma criação interrompida (git sem commit, ou só o 1º commit do piloto). */
-/** Põe o projeto no topo da lista do app (~/.cardume/projects.json, a mesma do "Abrir projeto"),
- *  pra quem roda o piloto pela CLI achar o projeto no Starfork. Best-effort. */
-export function registerProject(dir: string, home = homedir()): void {
+/** Lista de projetos do app (~/.cardume/projects.json) — MESMO formato do Rust (app/src-tauri/src/projetos_conta.rs):
+ *  {"v":2,"pending":bool,"items":[{"path","owner"}]}. `owner` = id da conta da nuvem dona do projeto (null = deste
+ *  computador, visível pra todas). O formato antigo (array de caminhos) ainda é lido e vira `pending` (migração no app). */
+export interface ProjItem { path: string; owner: string | null }
+export interface ProjList { pending: boolean; items: ProjItem[] }
+export function parseProjectList(raw: string): ProjList {
+  let v: unknown;
+  try { v = JSON.parse(raw); } catch { return { pending: false, items: [] }; }
+  const legacy = Array.isArray(v);
+  const arr: unknown[] = legacy ? (v as unknown[]) : (v && typeof v === "object" && Array.isArray((v as { items?: unknown }).items) ? (v as { items: unknown[] }).items : []);
+  const items: ProjItem[] = [];
+  for (const x of arr) {
+    let it: ProjItem | null = null;
+    if (typeof x === "string") it = { path: x, owner: null };
+    else if (x && typeof x === "object" && typeof (x as { path?: unknown }).path === "string") {
+      const o = (x as { owner?: unknown }).owner;
+      it = { path: (x as { path: string }).path, owner: typeof o === "string" && o.trim() ? o.trim() : null };
+    }
+    if (it && it.path && !items.some((i) => i.path === it!.path)) items.push(it);
+  }
+  const pending = legacy ? items.length > 0 : !!(v && typeof v === "object" && (v as { pending?: unknown }).pending === true);
+  return { pending, items };
+}
+export function serializeProjectList(l: ProjList): string {
+  return JSON.stringify({ v: 2, pending: l.pending, items: l.items }, null, 2);
+}
+
+/** Põe o projeto no topo da lista do app (a mesma do "Abrir projeto"), pra quem roda o piloto pela CLI achar o
+ *  projeto no Starfork. Mantém o dono que o projeto já tinha (o app carimba a conta logada ao iniciar o piloto);
+ *  `owner` (ou CARDUME_PROJECT_OWNER) força um dono. Best-effort. */
+export function registerProject(dir: string, home = homedir(), owner: string | null = process.env.CARDUME_PROJECT_OWNER || null): void {
   try {
     const f = join(home, ".cardume", "projects.json");
-    let list: string[] = [];
-    try { const v = JSON.parse(readFileSync(f, "utf8")); if (Array.isArray(v)) list = v.filter((x) => typeof x === "string"); } catch { /* sem lista ainda */ }
+    let l: ProjList = { pending: false, items: [] };
+    try { l = parseProjectList(readFileSync(f, "utf8")); } catch { /* sem lista ainda */ }
     const abs = resolve(dir);
-    writeFileSync(f, JSON.stringify([abs, ...list.filter((p) => p !== abs)], null, 2));
+    const cur = l.items.find((p) => p.path === abs);
+    const item: ProjItem = { path: abs, owner: owner && owner.trim() ? owner.trim() : (cur ? cur.owner : null) };
+    writeFileSync(f, serializeProjectList({ pending: l.pending, items: [item, ...l.items.filter((p) => p.path !== abs)] }));
   } catch { /* lista é conveniência — nunca derruba o piloto */ }
 }
 
