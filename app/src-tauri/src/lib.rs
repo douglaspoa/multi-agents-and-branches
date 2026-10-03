@@ -24,6 +24,7 @@ mod mesa;
 mod ideia;
 mod plan_usage;
 mod projetos_conta;
+mod pty;
 mod usage_ledger;
 #[cfg(target_os = "macos")]
 mod notif_mac;
