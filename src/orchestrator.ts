@@ -1545,16 +1545,6 @@ export class Orchestrator {
       roles.find((r) => canTalk(r.engine)) ||
       Orchestrator.fallbackRole(spec);
 
-    const DOC = "MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados; 3) Resultado esperado & como validar. Conciso e visual.";
-    const TESTS = "TESTES REAIS na branch desta worktree — PROIBIDO testar num script isolado ou num front mockado que nao reflete o ambiente real. Faca: 1) suba o ambiente LOCAL de verdade nesta branch (as envs reais existem — procure `.env`, `code-refuge-relay/supabase`, docker-compose); 2) escreva e RODE os testes na suite real do projeto (unittest/pytest/vitest — a que o repo usa), exercitando a funcionalidade contra o ambiente que subiu; 3) salve a comprovacao em `.cardume/artifacts/tests.md` com os comandos e a SAIDA real (quantos passaram/falharam). Se algo nao subir/rodar, escreva EXATAMENTE o que travou (comando, erro literal) e PERGUNTE ao humano (mcp__cardume__ask_human) — nao improvise mock.";
-    const PROOF = "PROVA na UI REAL com o AMBIENTE REAL — prints de verdade. PROIBIDO usar dados mockados ou entregar so um script: o ambiente e as credenciais EXISTEM e funcionam. Faca: 1) rode a aplicacao localmente com as ENVS reais (ache e use o que precisa — ex.: `.env`, `code-refuge-relay/supabase`, docker-compose); 2) exercite a funcionalidade na tela e capture screenshots REAIS em `.cardume/artifacts/proof.png` (proof-1.png, proof-2.png…). Se voce NAO conseguir rodar ALGO (faltou uma env, um comando falhou, um servico nao subiu), NAO improvise mock nem script: escreva em `.cardume/artifacts/proof.md` EXATAMENTE o que travou (o comando exato, o erro literal, o que faltou) e PERGUNTE ao humano (mcp__cardume__ask_human) o que precisa pra destravar — ele tem o env e sabe que funciona, entao vai te ajudar a rodar. Sem print real da UI o humano nao consegue validar a entrega — a prova e obrigatoria, entao persista (perguntando quando travar) ate conseguir o print real.";
-    const head = "Esta tarefa JÁ FOI implementada nesta worktree. NÃO reimplemente nada além do necessário pra testar. ";
-    const PROMPTS: Record<string, string> = {
-      doc: head + "Produza o " + DOC,
-      tests: head + TESTS,
-      proof: head + PROOF,
-      all: head + "Produza TRÊS entregáveis em `.cardume/artifacts/`:\n1) " + DOC + "\n2) " + TESTS + "\n3) " + PROOF + "\nGere os três.",
-    };
     const label =
       kind === "doc" ? "documento de arquitetura"
       : kind === "tests" ? "testes de comprovação"
@@ -1569,7 +1559,7 @@ export class Orchestrator {
     this.store.addEvent(taskId, role.name, "status", `gerando ${label}…`, true, role.role);
     let failed = false;
     try {
-      for await (const ev of engine.run({ cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, promptOverride: PROMPTS[kind] })) {
+      for await (const ev of engine.run({ cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, promptOverride: deliverPrompt(kind) })) {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }
         if (ev.type === "claim") continue;
         if (ev.type === "error") failed = true;
@@ -1954,9 +1944,86 @@ export class Orchestrator {
     this.store.deleteTask(taskId);
   }
 
+  // ================= MODO TERMINAL (src/terminal.ts) =================
+  // A tarefa roda o CLI OFICIAL num PTY do app; o motor não tem o processo. O que o pipeline fazia ao
+  // fim de cada papel acontece aqui, disparado pelo hook Stop (fim do turno) — mesma régua de entrega.
+
+  /** Papel, contexto (barramento, memória, skills, épico) e a spec — o mesmo que um papel do pipeline recebe. */
+  terminalContext(taskId: string): { task: TaskRow; spec: TaskSpec; role: AgentRole; ctx: string } {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    if (stickEngines(spec)) this.store.updateSpec(taskId, JSON.stringify(spec));
+    this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
+    const roles = spec.roles?.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
+    // um terminal = uma sessão: conversa com quem CONSTRÓI (o planner/reviewer do pipeline viram pedidos na conversa)
+    const role = roles.find((r) => r.role === "builder") ?? roles.find((r) => canTalk(r.engine)) ?? roles[0];
+    this.prepEpic(spec, task.worktree);
+    const persona = role.persona ? `## Seu perfil (${role.name} · ${role.role})\n${role.persona}\n\n` : "";
+    const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext() + this.issueContext(spec) + this.epicContext(spec);
+    return { task, spec, role, ctx };
+  }
+
+  /**
+   * FIM DE TURNO no terminal (hook Stop / notify do Codex): commita o que ficou solto, recalcula o diff,
+   * coleta artefatos, roda o GATE (verifyProofs) e leva a tarefa pra "review". Se um turno novo começou
+   * no meio (sessão ocupada de novo), não mexe no status. Devolve o resultado do gate.
+   */
+  async terminalTurnEnd(taskId: string, isBusy: () => boolean = () => false): Promise<{ ok: boolean; reasons: string[] } | null> {
+    const task = this.store.getTask(taskId);
+    if (!task) return null;
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    const role = spec.roles?.find((r) => r.role === "builder") ?? spec.roles?.[0];
+    const agent = role?.name || spec.agent;
+    await this.collectArtifacts(taskId, task.worktree, agent).catch(() => {});
+    if (spec.kind !== "review") {
+      try {
+        if (await this.git.commitAll(task.worktree, `starfork(terminal): ${task.title}`)) {
+          this.store.addEvent(taskId, agent, "note", "mudanças do turno commitadas na branch ✓", true, role?.role);
+        }
+        const d = await this.git.diffStat(task.worktree, task.base);
+        this.store.setDiff(taskId, d.files, d.add, d.del);
+      } catch (err) {
+        this.store.addEvent(taskId, agent, "note", `falha ao commitar o turno: ${(err as Error).message}`, false, role?.role);
+      }
+    }
+    const gate = await this.verifyProofs(taskId, task, spec).catch((e) => ({ ok: false, reasons: [String((e as Error)?.message ?? e)] }));
+    this.store.addEvent(taskId, "Sistema", "note", gate.ok ? "gate de verificação: ok — requisitos provados com evidência" : `gate de verificação: pendente — ${gate.reasons.slice(0, 3).join(" · ")}`, gate.ok);
+    if (isBusy()) return gate; // a pessoa já mandou outra coisa: o turno novo manda no status
+    const cur = this.store.getTask(taskId);
+    const wasReview = cur?.status === "review";
+    if (cur && ["running", "thinking", "queued", "draft", "review", "error"].includes(cur.status)) {
+      this.store.releaseClaims(taskId);
+      this.store.setStatus(taskId, "review");
+    }
+    this.harvestBrain(task.worktree, taskId, task.title);
+    if (!wasReview) {
+      notify("Starfork", "Turno concluído no terminal — pronta pra revisar", task.title);
+      this.appendHistory(taskId);
+      this.harvestRunbook(task.worktree);
+      if (gate.ok) await this.maybeOpenPr(taskId, task, spec);
+    }
+    return gate;
+  }
+
   close(): void {
     this.store.close();
   }
+}
+
+/** Pedido de ENTREGÁVEL sob demanda ("pedir prova/doc/testes") — o mesmo texto no modo automático e no terminal. */
+export function deliverPrompt(kind: "doc" | "tests" | "proof" | "all"): string {
+  const DOC = "MAPA DE ARQUITETURA em `.cardume/artifacts/ARCHITECTURE.md` (Markdown, pode usar mermaid), com 3 seções: 1) Intenção — o quê e por quê; 2) Arquitetura — componentes/arquivos criados e o fluxo de dados; 3) Resultado esperado & como validar. Conciso e visual.";
+  const TESTS = "TESTES REAIS na branch desta worktree — PROIBIDO testar num script isolado ou num front mockado que nao reflete o ambiente real. Faca: 1) suba o ambiente LOCAL de verdade nesta branch (as envs reais existem — procure `.env`, `code-refuge-relay/supabase`, docker-compose); 2) escreva e RODE os testes na suite real do projeto (unittest/pytest/vitest — a que o repo usa), exercitando a funcionalidade contra o ambiente que subiu; 3) salve a comprovacao em `.cardume/artifacts/tests.md` com os comandos e a SAIDA real (quantos passaram/falharam). Se algo nao subir/rodar, escreva EXATAMENTE o que travou (comando, erro literal) e PERGUNTE ao humano (mcp__cardume__ask_human) — nao improvise mock.";
+  const PROOF = "PROVA na UI REAL com o AMBIENTE REAL — prints de verdade. PROIBIDO usar dados mockados ou entregar so um script: o ambiente e as credenciais EXISTEM e funcionam. Faca: 1) rode a aplicacao localmente com as ENVS reais (ache e use o que precisa — ex.: `.env`, `code-refuge-relay/supabase`, docker-compose); 2) exercite a funcionalidade na tela e capture screenshots REAIS em `.cardume/artifacts/proof.png` (proof-1.png, proof-2.png…). Se voce NAO conseguir rodar ALGO (faltou uma env, um comando falhou, um servico nao subiu), NAO improvise mock nem script: escreva em `.cardume/artifacts/proof.md` EXATAMENTE o que travou (o comando exato, o erro literal, o que faltou) e PERGUNTE ao humano (mcp__cardume__ask_human) o que precisa pra destravar — ele tem o env e sabe que funciona, entao vai te ajudar a rodar. Sem print real da UI o humano nao consegue validar a entrega — a prova e obrigatoria, entao persista (perguntando quando travar) ate conseguir o print real.";
+  const head = "Esta tarefa JÁ FOI implementada nesta worktree. NÃO reimplemente nada além do necessário pra testar. ";
+  const PROMPTS: Record<string, string> = {
+    doc: head + "Produza o " + DOC,
+    tests: head + TESTS,
+    proof: head + PROOF,
+    all: head + "Produza TRÊS entregáveis em `.cardume/artifacts/`:\n1) " + DOC + "\n2) " + TESTS + "\n3) " + PROOF + "\nGere os três.",
+  };
+  return PROMPTS[kind] ?? PROMPTS.all;
 }
 
 /** Evidência citada no requirements.json existe no disco como ARQUIVO comum, DENTRO da pasta de artefatos ou da

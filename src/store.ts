@@ -149,6 +149,15 @@ export class Store {
         created_at INTEGER NOT NULL,
         done_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS term_session (
+        task_id TEXT PRIMARY KEY,             -- tarefa em MODO TERMINAL (src/terminal.ts): o CLI oficial num PTY do app
+        pid INTEGER,                          -- líder do grupo do PTY (gravado pelo app ao spawnar)
+        engine TEXT,
+        busy INTEGER NOT NULL DEFAULT 0,      -- 1 entre UserPromptSubmit e Stop (hooks do próprio CLI)
+        session_id TEXT,
+        started_at INTEGER,
+        updated_at INTEGER
+      );
       CREATE TABLE IF NOT EXISTS session_cost (
         session_id TEXT PRIMARY KEY,
         total REAL NOT NULL,          -- custo ACUMULADO da sessão do claude no fim do último turno
@@ -400,6 +409,27 @@ export class Store {
   // ---------- sessão do agente (para --resume) ----------
   setSession(taskId: string, sessionId: string): void {
     this.db.prepare(`UPDATE task SET session_id = ? WHERE id = ?`).run(sessionId, taskId);
+  }
+
+  // ---------- MODO TERMINAL: estado da sessão vinda dos hooks ----------
+  termGet(taskId: string): { pid: number | null; engine: string | null; busy: number; session_id: string | null } | undefined {
+    return this.db.prepare(`SELECT pid, engine, busy, session_id FROM term_session WHERE task_id = ?`).get(taskId) as never;
+  }
+  /** Ocupado/livre (hooks UserPromptSubmit/Stop). Ocupado também trava o turno (busy_pid = pid do PTY): o
+   * modo automático e o ▶ não sobem outro agente na mesma worktree enquanto o terminal trabalha. */
+  termSetBusy(taskId: string, busy: boolean): void {
+    const now = Date.now();
+    this.db.prepare(`INSERT INTO term_session (task_id, busy, updated_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET busy = excluded.busy, updated_at = excluded.updated_at`).run(taskId, busy ? 1 : 0, now);
+    const pid = this.termGet(taskId)?.pid ?? null;
+    this.db.prepare(`UPDATE task SET busy_pid = ?, busy_since = ? WHERE id = ?`).run(busy && pid ? pid : null, busy && pid ? now : null, taskId);
+  }
+  termSetSession(taskId: string, sessionId: string): void {
+    this.db.prepare(`INSERT INTO term_session (task_id, session_id, updated_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at`).run(taskId, sessionId, Date.now());
+    this.setSession(taskId, sessionId);
+  }
+  termSetPid(taskId: string, pid: number | null, engine: string): void {
+    const now = Date.now();
+    this.db.prepare(`INSERT INTO term_session (task_id, pid, engine, busy, started_at, updated_at) VALUES (?, ?, ?, 0, ?, ?) ON CONFLICT(task_id) DO UPDATE SET pid = excluded.pid, engine = excluded.engine, busy = 0, started_at = excluded.started_at, updated_at = excluded.updated_at`).run(taskId, pid, engine, now, now);
   }
 
   // ---------- instruções do humano no meio da execução ----------

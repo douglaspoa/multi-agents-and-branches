@@ -1,0 +1,8 @@
+/* MODO TERMINAL — gancho mínimo (o layout final da tela da tarefa ainda será escolhido).
+   O terminal ocupa a área da Conversa; o composer de sempre fica embaixo. Só tokens do app. */
+.fwtermslot{display:flex;flex-direction:column;min-height:0;padding:0;overflow:hidden;background:var(--surface-2)}
+.fwterm{display:flex;flex-direction:column;flex:1;min-height:0}
+.fwtermbox{flex:1;min-height:120px;padding:6px 4px 4px 8px}
+.fwtermbox .xterm{height:100%}
+.fwtermbox .xterm-viewport{background:transparent!important}
+.fwtermbar{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:var(--fs-sm);color:var(--text-2);background:var(--surface)}

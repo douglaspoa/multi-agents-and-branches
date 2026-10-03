@@ -402,7 +402,7 @@ async function epicAutoStartTick(){
       const live=(state.tasks||[]).filter(x=>ACTIVE_ST.has(x.status)).length;
       if(live>=slotMax) break; // respeita o limite de execuções; tenta de novo no próximo tick
       try{
-        await teamClaimStart(ct, null, { silent:true });
+        await teamClaimStart(ct, null, { silent:true, auto:true });
         pushNotif('▶ Começou sozinha', ct.title+' — os pré-requisitos foram concluídos', null);
       }catch(e){ console.error('início automático do épico:', e); }
     }
