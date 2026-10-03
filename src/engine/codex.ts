@@ -91,7 +91,7 @@ export function buildPrompt(input: RunInput): string {
     : "";
   const reqs = input.spec.requirements ?? [];
   const reqRule = reqs.length && input.role !== "planner"
-    ? ` Ao final escreva .cardume/artifacts/requirements.json: [{"req":"<texto EXATO do requisito>","status":"done"|"blocked","evidence":["arquivos que comprovam"],"note":"..."}] — requisito sem evidência real não é done.`
+    ? ` Ao final escreva .cardume/artifacts/requirements.json: [{"req":"<texto EXATO do requisito>","status":"done"|"blocked","evidence":["arquivos que comprovam"],"note":"...","did":"o que você fez por este requisito, 1-2 frases","code":[{"file":"caminho/no/repo.ts","lines":"12-30"}],"tests":[{"name":"arquivo › caso","status":"pass"|"fail"|"missing"}]}] — requisito sem evidência real não é done; "code" lista os trechos que você mudou POR ESTE requisito (a Revisão do app mostra só eles) e o que não entrar em nenhum aparece como "fora dos requisitos".`
     : "";
   const refs = input.spec.refs ?? [];
   const refRule = refs.length ? ` Leia primeiro as referências em .cardume/refs/ (${refs.join(", ")}).` : "";

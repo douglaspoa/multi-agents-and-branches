@@ -48,20 +48,6 @@ function prStateBadge(info){
   const M={ OPEN:['aberto','open'], MERGED:['mergeado','ok'], CLOSED:['fechado','bad'] };
   const m=M[st]; return m?`<span class="prbadge ${m[1]}">${m[0]}</span>`:(st?`<span class="prbadge">${esc(st.toLowerCase())}</span>`:'');
 }
-function prDecisionBadge(info){
-  const dec=(info&&info.decision)||'';
-  return dec==='APPROVED'?'<span class="prbadge ok">✓ aprovado</span>' : dec==='CHANGES_REQUESTED'?'<span class="prbadge chg">mudanças pedidas</span>' : dec==='REVIEW_REQUIRED'?'<span class="prbadge">aguardando review</span>' : '<span class="prbadge">sem review</span>';
-}
-function prChecksBadges(info){
-  if(!info) return '';
-  let h='';
-  const tot=info.checksTotal||0, fail=info.checksFail||0, pend=info.checksPending||0;
-  if(fail) h+=`<span class="prbadge bad" title="${fail} de ${tot} checagens falharam">${IC.x} checks (${fail})</span>`;
-  else if(pend) h+=`<span class="prbadge" title="${pend} de ${tot} checagens ainda rodando">… checks</span>`;
-  else if(tot) h+=`<span class="prbadge ok" title="${tot} checagens passaram">✓ checks</span>`;
-  if(info.state==='OPEN' && info.mergeable==='CONFLICTING') h+='<span class="prbadge bad" title="a branch conflita com a base">conflito</span>';
-  return h;
-}
 // por que NÃO dá pra mergear agora ('' = pode)
 function prMergeBlock(info){
   if(!info || info.state!=='OPEN') return 'o PR não está aberto';
@@ -70,14 +56,7 @@ function prMergeBlock(info){
   if(info.checksFail) return 'há checagens falhando — corrija antes de mergear';
   return '';
 }
-// botão de merge: só com o PR ABERTO; bloqueado mostra o motivo (title + linha abaixo)
-function prMergeBtnHtml(info, id, extraCls, style){
-  if(!info || info.state!=='OPEN') return '';
-  const why=prMergeBlock(info);
-  return `<button class="btn ${extraCls||''}" id="${id}"${why?` disabled title="${escA(why)}"`:' title="squash + apaga a branch remota"'}${style?` style="${style}"`:''}>${IC.merge} merge PR</button>`;
-}
-function prMergeWhyHtml(info){ const why=(info&&info.state==='OPEN')?prMergeBlock(info):''; return why?`<div class="prmergewhy">${esc(why)}</div>`:''; }
-// ---- comentários: UMA renderização (painel lateral e página do PR) ----
+// ---- comentários do PR (a linha do tempo da aba PR, 63-revisao-pr, usa estes helpers + a delegação abaixo) ----
 function prCmtKey(c){ const m=String(c.url||'').match(/#issuecomment-(\d+)$/); return String(c.id ?? (m?m[1]:((c.author||'')+':'+(c.body||'').slice(0,40)))); }
 // resolvido = resolvido no GitHub, respondido (✔ / resposta sua na thread), desatualizado (o código mudou) ou ignorado aqui
 // resumo AUTOMÁTICO de bot na conversa (CodeRabbit "summarize by coderabbit.ai", walkthrough etc.) é
@@ -91,46 +70,6 @@ function prRevKey(r,i){ return String(r.id||('idx:'+i)); }
 function prRevList(info){ const all=((info&&info.reviews)||[]); return all.map((r,i)=>({ r, key:prRevKey(r,i) })).filter(x=>String(x.r.body||'').trim()); }
 function prRevOpen(info, x, ign){ return x.r.state==='CHANGES_REQUESTED' && !x.r.superseded && (info&&info.decision)==='CHANGES_REQUESTED' && !ign.has(x.key); }
 function prIsReviewCmt(c){ return !!(c.threadId || c.path); } // inline (thread de review) × conversa do PR
-function prCommentsHtml(t, info, opts){
-  const compact=!!(opts&&opts.compact);
-  const bs=compact?'padding:3px 9px;font-size:var(--fs-xs)':'padding:4px 10px;font-size:var(--fs-xs)';
-  const ign=prIgnSet(t.id);
-  const roots=prRoots(info);
-  const revs=prRevList(info);
-  const showDone=lsGet('prShowDone')==='1';
-  const openRoots=roots.filter(c=>!prCmtDone(c,ign)), openRevs=revs.filter(x=>prRevOpen(info,x,ign));
-  const openN=openRoots.length+openRevs.length, total=roots.length+revs.length, doneN=total-openN;
-  const body=(txt, dim)=>{ const s=String(txt||''); const long=s.length>600;
-    return `<div class="prcmt-b${long?' clamp':''}"${dim?' style="opacity:.55"':''}>${chatMd(s.slice(0,6000))}</div>${long?'<button class="lnk prmore" data-prmore>ver mais</button>':''}`; };
-  const ghLink=u=>u?`<button class="lnk prgh" data-prgh="${escA(u)}" title="abrir no GitHub">GitHub ↗</button>`:'';
-  const ignBtn=k=>`<button class="lnk prign" data-prign="${escA(k)}" title="marcar como não-aplicável — vai pros resolvidos">ignorar</button>`;
-  // ações: principal(is) à esquerda; ignorar + GitHub juntos à direita (nunca "ignorar" sozinho numa linha)
-  const actsRow=(main, sec)=>`<div class="prcmt-acts">${main}<span class="prcmt-sec">${sec}</span></div>`;
-  const RV={ CHANGES_REQUESTED:['pediu mudanças','chg'], COMMENTED:['comentou',''], APPROVED:['aprovou','ok'], DISMISSED:['dispensado',''] };
-  const revCard=x=>{ const r=x.r, m=RV[r.state]||[String(r.state||'review').toLowerCase(),''], open=prRevOpen(info,x,ign);
-    const tag=`<span class="prbadge ${m[1]}">${m[0]}</span>`+(open?'':(ign.has(x.key)?'<span class="prbadge">ignorado</span>':r.superseded?'<span class="prbadge" title="o autor revisou de novo depois">antigo</span>':''));
-    const acts=open ? actsRow(`<button class="btn primary sm" data-prfixrev="${escA(x.key)}" data-prtask="${escA(t.id)}" style="${bs}">${IC.ai} aplicar correção</button>`, ignBtn(x.key)+ghLink(r.url))
-      : (r.url?actsRow('', ghLink(r.url)):'');
-    return `<div class="prcmt prrev${r.isBot?' bot':''}${open?'':' ok'}"><div class="prcmt-h"><span class="prau">${esc(r.author)}${r.isBot?' <span class="botag">bot</span>':''}</span><span class="prloc">review</span>${tag}</div>${body(r.body, !open)}${acts}</div>`; };
-  const cmtCard=c=>{
-    const done=prCmtDone(c,ign);
-    const tag=c.resolved?'<span class="prbadge ok">'+IC.ok+' resolvido</span>' : c.answered?'<span class="prbadge ok">'+IC.ok+' respondido</span>' : c.outdated?'<span class="prbadge" title="o código comentado já mudou">desatualizado</span>' : done?'<span class="prbadge">ignorado</span>' : '';
-    const loc=c.path?`<span class="prloc mono" title="${escA(c.path+(c.line?':'+c.line:''))}">${esc(c.path)}${c.line?':'+c.line:''}</span>`:'<span class="prloc">conversa</span>';
-    const acts=!done
-      ? actsRow(`<button class="btn primary sm" data-prfix="${escA(prCmtKey(c))}" style="${bs}">${IC.ai} aplicar correção</button>${c.threadId?`<button class="btn sm" data-prresolve="${escA(c.threadId)}" data-prtask="${escA(t.id)}" style="${bs}" title="marca a conversa como resolvida no GitHub">resolver</button>`:''}`, ignBtn(prCmtKey(c))+ghLink(c.url))
-      : (c.url?actsRow('', ghLink(c.url)):'');
-    return `<div class="prcmt${c.isBot?' bot':''}${done?' ok':''}"><div class="prcmt-h"><span class="prau">${esc(c.author)}${c.isBot?' <span class="botag">bot</span>':''}</span>${loc}${tag}</div>${body(c.body, done)}${acts}</div>`;
-  };
-  // em aberto primeiro; os resolvidos (inclui aprovou/comentou) só com o "mostrar resolvidos"
-  const html=openRevs.map(revCard).join('')+openRoots.map(cmtCard).join('')
-    +(showDone?revs.filter(x=>!prRevOpen(info,x,ign)).map(revCard).join('')+roots.filter(c=>prCmtDone(c,ign)).map(cmtCard).join(''):'');
-  const empty=!total ? `<div class="dim" style="font-size:var(--fs-sm);padding:4px 2px">sem comentários ainda${compact?'':' — o link já está com o time.'}</div>`
-    : (!openN&&!showDone) ? '<div class="dim" style="font-size:var(--fs-sm);padding:4px 2px">'+IC.ok+' nenhum comentário em aberto</div>' : '';
-  // o alternador fica AO LADO da contagem (quem chama posiciona) — um termo só: "resolvidos"
-  const toggle=doneN?`<button class="lnk prshowdone" data-prshowdone data-prtask="${escA(t.id)}">${showDone?'ocultar resolvidos':`mostrar resolvidos (${doneN})`}</button>`:'';
-  const countTx=`${openN} em aberto`;
-  return { html:html+empty, toggle, countTx, open:openN, total, done:doneN };
-}
 // delegação: funciona no painel lateral e na página do PR sem depender de quem pintou o HTML
 document.addEventListener('click', async e=>{
   const mo=e.target.closest('[data-prmore]'); if(mo){ const b=mo.previousElementSibling; if(b){ const on=b.classList.toggle('clamp'); mo.textContent=on?'ver mais':'ver menos'; } return; }
@@ -555,8 +494,13 @@ async function reworkFromPr(taskId, btnEl){
 }
 // merge SEMPRE squash (mesmo método em todas as telas do desktop)
 async function mergePr(taskId){
-  const why=prMergeBlock(prCache[taskId]); if(prCache[taskId] && why){ toast('Não dá pra mergear agora: '+why,'warn'); return false; }
-  if(!await askYes('Mergear o PR no GitHub (squash + apaga a branch remota)?')) return false;
+  // portões da aba PR (63-revisao-pr: prova, seu aceite por requisito, revisor, checagens, conflito) — mesma régua do botão
+  const t=(state.tasks||[]).find(x=>x.id===taskId);
+  // a régua completa precisa dos arquivos DESTA tarefa (fwFiles é da tarefa aberta) — fora dela, não integra por aqui
+  if(typeof prvMergeWhy==='function' && t && (typeof fwTask==='undefined' || fwTask!==taskId)){ toast('Abra a aba PR da tarefa pra integrar: os portões são conferidos lá','warn'); return false; }
+  const why=(typeof prvMergeWhy==='function' && t) ? prvMergeWhy(t, prCache[taskId]) : prMergeBlock(prCache[taskId]);
+  if(prCache[taskId] && why){ toast('Não dá pra integrar agora. '+capFirst(why),'warn'); return false; }
+  if(!await askYes('Integrar o PR na base pelo GitHub (squash + apaga a branch remota)?')) return false;
   try{ await invoke('merge_pr',{ taskId, method:'squash' }); prCache[taskId]=undefined; lastSig=''; await refresh(); toast('PR mergeado','ok'); return true; }
   catch(e){ showErr(e, 'Merge do PR falhou'); return false; }
 }

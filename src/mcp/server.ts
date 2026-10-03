@@ -75,6 +75,21 @@ const TOOLS = [
     },
   },
   {
+    name: "map_requirement",
+    description:
+      "Registre, para UM requisito do TASK.yaml, O QUE você fez e QUAIS TRECHOS de código mudou por ele (arquivo + faixa de linhas no arquivo NOVO) e os testes que o cobrem. A Revisão do Starfork mostra ao humano só esses trechos por requisito; o que você mudou e não estiver em nenhum requisito aparece como \"fora dos requisitos\". Grava em .cardume/artifacts/requirements.json (campos did/code/tests) sem mexer no status nem na evidência da prova. Chame de novo quando os trechos mudarem — substitui o mapa daquele requisito.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        req: { type: "string", description: "TEXTO EXATO do requisito, copiado do TASK.yaml." },
+        did: { type: "string", description: "O que você fez por este requisito, em 1-2 frases (aparece como 'o que o agente diz que fez')." },
+        code: { type: "array", items: { type: "object", properties: { file: { type: "string", description: "caminho relativo ao repo" }, lines: { type: "string", description: "faixa no arquivo novo, ex.: '12-30' (vazio = o arquivo inteiro)" } }, required: ["file"] }, description: "Trechos mudados POR ESTE requisito." },
+        tests: { type: "array", items: { type: "object", properties: { name: { type: "string", description: "arquivo › caso de teste" }, status: { type: "string", enum: ["pass", "fail", "missing"] } }, required: ["name", "status"] }, description: "Testes que cobrem o requisito ('missing' = falta teste)." },
+      },
+      required: ["req", "code"],
+    },
+  },
+  {
     name: "set_issue",
     description:
       "Registre o LINK da issue desta demanda no tracker do projeto. Use quando o projeto tem 'criar issue ao abrir demanda' ligado E o TASK.yaml ainda NÃO traz issueUrl: crie a issue seguindo as INSTRUÇÕES DE ISSUE do projeto (título/corpo a partir do TASK.yaml) e chame esta tool com a URL resultante. O link fica na tarefa e é compartilhado com o time. Se o TASK.yaml já trouxer issueUrl, NÃO crie outra nem chame esta tool.",
@@ -245,6 +260,36 @@ async function callTool(name: string, args: any): Promise<{ text: string; isErro
       return { text: `requisito registrado (${spec.requirements.length} na checklist): ${item}` };
     } catch (e) {
       return { text: `falha registrando requisito: ${(e as Error).message}`, isError: true };
+    }
+  }
+
+  if (name === "map_requirement") {
+    const req = String(args?.req ?? "").trim();
+    if (!req) return { text: "req vazio — copie o texto exato do requisito do TASK.yaml", isError: true };
+    if (!Array.isArray(args?.code)) return { text: "code precisa ser uma lista de { file, lines }", isError: true };
+    const task = store.getTask(TASK);
+    if (!task) return { text: "tarefa não encontrada", isError: true };
+    try {
+      const { mergeReqMap, norm } = await import("../req-map.ts");
+      const { readFile, writeFile, mkdir } = await import("node:fs/promises");
+      const { join } = await import("node:path");
+      const dir = join(task.worktree, ".cardume", "artifacts"), file = join(dir, "requirements.json");
+      const known = (() => { try { return ((JSON.parse(task.spec_json) as TaskSpec).requirements ?? []).map(String); } catch { return []; } })();
+      // requisito que não existe NÃO entra no arquivo (viraria um "pending" eterno no portão das provas)
+      if (known.length && !known.some((k) => norm(k) === norm(req))) return { text: `"${req.slice(0, 80)}" não é um requisito desta tarefa. Copie o texto exato de um destes: ${known.map((k) => `"${k}"`).join("; ")}`, isError: true };
+      let raw: string | null = null;
+      try { raw = await readFile(file, "utf8"); } catch { /* ainda não existe: começa vazio */ }
+      let cur: unknown = [];
+      if (raw != null && raw.trim()) {
+        try { cur = JSON.parse(raw); } catch { return { text: "o .cardume/artifacts/requirements.json está com JSON inválido — corrija o arquivo antes (não sobrescrevi pra não apagar as provas)", isError: true }; }
+      }
+      const wrapped = !Array.isArray(cur) && cur && typeof cur === "object" && Array.isArray((cur as { list?: unknown }).list);
+      const { list, entry } = mergeReqMap(wrapped ? (cur as { list: unknown }).list : cur, { req, did: args?.did, code: args.code, tests: args?.tests });
+      await mkdir(dir, { recursive: true });
+      await writeFile(file, JSON.stringify(wrapped ? { ...(cur as object), list } : list, null, 2), "utf8");
+      return { text: `mapa registrado: ${entry.code?.length ?? 0} trecho(s), ${entry.tests?.length ?? 0} teste(s) para "${req.slice(0, 80)}".` };
+    } catch (e) {
+      return { text: `falha registrando o mapa: ${(e as Error).message}`, isError: true };
     }
   }
 

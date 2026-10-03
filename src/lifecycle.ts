@@ -246,11 +246,13 @@ export function reviewDecision(round: number, v: Verdict): "segue" | "refaz" | "
 export function verdictInstructions(lens: "codigo" | "documento", round: number): string {
   const what = lens === "codigo"
     ? "LENTE: CÓDIGO — leia o diff (git diff <base>...HEAD), RODE os testes do projeto e confira cada requisito do TASK.yaml contra o que mudou."
+      + " Confira também o \"code\" de cada requisito no .cardume/artifacts/requirements.json (arquivo + faixa de linhas): se apontar trecho errado ou faltar, peça a correção no \"muda\"."
     : "LENTE: DOCUMENTO — confira as FONTES (link e data em cada afirmação), os NÚMEROS (conta e origem), o PORTUGUÊS e se o roteiro do plano foi atendido seção por seção.";
   return `\n\n## SUA REVISÃO TEM VEREDITO (rodada ${round} de ${MAX_REVIEW_ROUNDS})\n${what}\n` +
     `Ao terminar, escreva .cardume/VEREDITO.md começando com UMA destas linhas:\n` +
     `- \`VEREDITO: aprova\` — está pronto pra prova;\n` +
     `- \`VEREDITO: muda\` — seguida de uma lista com "- " de cada mudança concreta que o builder precisa fazer.\n` +
+    (lens === "codigo" ? `Item que aponta código começa com \`caminho:linha — \` (ex.: \`- src/lib/horarios.ts:13 — use o fuso do estúdio\`): o comentário aparece preso ao trecho na Revisão do app.\n` : "") +
     `Sem essa linha a revisão é tratada como ilegível e a tarefa para pra pessoa decidir. Não aprove por educação: "muda" volta pro builder (no máximo ${MAX_REVIEW_ROUNDS} rodadas).`;
 }
 /** Frase da rodada pra faixa e pra conversa: "Revisão 1/2 (Nyx): muda — 2 itens". */
