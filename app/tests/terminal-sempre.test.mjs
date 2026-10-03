@@ -9,7 +9,7 @@ const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8'
 const cut = (src, from, to) => { const a = src.indexOf(from); const b = src.indexOf(to, a + from.length); assert.ok(a >= 0 && b > a, 'trecho não encontrado: ' + from); return src.slice(a, b); };
 const SRC = read('js/60-terminal.js');
 const TH = new Function(cut(SRC, '// @term-hist-puro-inicio', '// @term-hist-puro-fim') +
-  '\nreturn { thClean, thItemLines, thFromEvents, thSysNotes, thRender };')();
+  '\nreturn { thClean, thItemLines, thFromEvents, thSysNotes, thRender, thWrap };')();
 const plain = (s) => s.replace(/\x1b\[[0-9;]*m/g, '');
 
 test('transcript → gramática do mock: > você · ● fala · ⎿ ferramenta · ● Update(arq) +N −M', () => {
@@ -105,7 +105,10 @@ test('a UI usa termViewOf (não o termMode cru) onde a Conversa virava Terminal'
 test('Ideia: compositor único em cartão, na mesma coluna do texto', () => {
   assert.match(read('js/59-ideia.js'), /chatComposerHtml\(\{ input:'ideiaNewIn'[^)]*cls:'card'/);
   const css = read('css/81-chat.css');
-  assert.match(css, /\.cc\.cc\.card:focus-within\s*\{[^}]*box-shadow:\s*var\(--ring\)/);
+  const fw = css.match(/\.cc\.cc\.card:focus-within\s*\{([^}]*)\}/)[1];
+  assert.match(fw, /outline: 2px solid var\(--accent\)/, 'o foco padrão do .in:focus');
+  assert.match(fw, /border-color: transparent/, 'a borda some: UM contorno só');
+  assert.ok(!/box-shadow/.test(fw), 'sem o anel duplo');
   assert.match(css, /\.cc\.cc\.card \.cc-ta, \.cc\.cc\.card \.cc-ta:focus \{[^}]*border: 0;[^}]*box-shadow: none/);
   const ic = read('css/94-ideia.css');
   assert.match(ic, /\.ideiastart\{--ideia-measure:72ch/);
@@ -126,4 +129,19 @@ test('teto de custo: cartão com uma opção por botão (trava enquanto envia); 
   assert.match(h, /Teto de custo<\/b> · Chegou a US\$ 2,00/);
   TL.budSending.t1 = 1;
   assert.equal((f({ id: 't1' }).match(/ disabled/g) || []).length, 2, 'enviando: o poll repinta desabilitado');
+});
+
+test('histórico quebra POR PALAVRA na largura do xterm (nunca "vo ltaram"); continuação alinha depois do marcador', () => {
+  const said = 'As barras voltaram um pouco menores, sem voltar ao estado inicial. Banheiro: esfregar o sabão como antes.';
+  const out = plain(TH.thRender([{ k: 'say', ts: 1, text: said }, { k: 'tool', ts: 2, name: 'Read', arg: 'src/' + 'x'.repeat(90) + '.ts' }], { cols: 40 }));
+  const L = out.split('\r\n').filter(Boolean);
+  for (const l of L) assert.ok(l.length <= 39, 'cabe: ' + JSON.stringify(l));
+  const words = said.split(' ');
+  const got = L.filter((l) => !/⎿|x{5}/.test(l)).map((l) => l.replace(/^[● ]+/, '')).join(' ').split(' ');
+  assert.deepEqual(got, words, 'nenhuma palavra partida');
+  assert.match(L[0], /^● As barras/); assert.match(L[1], /^ {2}\S/);
+  assert.ok(L.some((l) => /^ {4}x+/.test(l)), 'caminho gigante partido, alinhado depois do ⎿');
+  const sgr = TH.thWrap('\x1b[32m● \x1b[0m' + 'palavra '.repeat(12), 40);
+  assert.ok(sgr.length > 1 && sgr.every((l) => plain(l).length <= 39), 'cores não contam na largura');
+  assert.deepEqual(TH.thWrap('curta', 80), ['curta']);
 });

@@ -114,10 +114,10 @@
 .chathint.busy { color: var(--text-2); }
 
 /* variante CARTÃO (chatComposerHtml({ cls:'card' })): página de entrada sem moldura própria (Começar por uma ideia).
-   UM contorno só em volta do texto + da linha de botões; o foco acende o contorno (anel do app), não a caixa de
+   UM contorno só em volta do texto + da linha de botões; o foco acende o contorno (o mesmo do .in:focus), não a caixa de
    dentro; a dica das teclas fica fora, logo abaixo. A largura é a da coluna onde ele mora. */
-.cc.cc.card { padding: 10px 12px 8px; border: 1px solid var(--border-strong); border-radius: var(--r); background: var(--surface); margin-bottom: 26px; transition: border-color .15s ease-out, box-shadow .15s ease-out; }
-.cc.cc.card:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
+.cc.cc.card { padding: 10px 12px 8px; border: 1px solid var(--border-strong); border-radius: var(--r); background: var(--surface); margin-bottom: 26px; transition: border-color .15s ease-out; }
+.cc.cc.card:focus-within { border-color: transparent; outline: 2px solid var(--accent); outline-offset: -1px; } /* o foco padrão do app (.in:focus em 10-base): UM contorno */
 .cc.cc.card .cc-ta, .cc.cc.card .cc-ta:focus { border: 0; outline: 0; box-shadow: none; background: transparent; padding: 4px 2px; min-height: 64px; font-size: var(--fs-md); }
 .cc.cc.card .cc-ta::placeholder { color: var(--muted); }
 .cc.cc.card .cc-row { margin-top: 8px; }

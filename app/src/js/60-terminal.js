@@ -94,7 +94,30 @@ function thSysNotes(evs){
   return (evs||[]).filter(e=>{ const tx=String(e.text||''); return tx.trim() && ((e.agent==='Sistema' && (e.type==='note'||e.type==='status')) || /^(PR aberto|PR NÃO aberto|requisito adicionado:|falha ao finalizar)/i.test(tx)); })
     .map(e=>({ k:'note', ts:thTs(e), text:String(e.text) }));
 }
-/** itens (+ notas do sistema intercaladas pelo horário) → texto pro xterm. o: { head, foot, notes } */
+// quebra POR PALAVRA na largura do xterm (o xterm sozinho corta no meio da palavra). Conta só o visível (sem os
+// códigos de cor); a continuação alinha depois do marcador (●, ⎿, >, ?…). Palavra maior que a linha é partida.
+const thVis=(s)=>s.replace(/\x1b\[[0-9;]*m/g,'');
+function thWrap(line, cols){
+  const W=(+cols||0)-1; if(W<20) return [line];
+  const v=thVis(line); if(v.length<=W) return [line];
+  const m=v.match(/^( *)([●⎿>?▸✗✓] )?/); const ind=' '.repeat(Math.min(W>>1, m[1].length+(m[2]?2:0)));
+  const toks=line.split(/( +)/); const out=[]; let cur='', w=0;
+  const push=()=>{ out.push(cur.replace(/ +$/,'')); cur=ind; w=ind.length; };
+  for(const tk of toks){
+    if(!tk) continue;
+    const tw=thVis(tk).length;
+    if(/^ +$/.test(tk)){ if(w && w+tw<=W){ cur+=tk; w+=tw; } continue; }
+    if(w+tw>W && w>ind.length) push();
+    if(tw>W-ind.length){ // palavra gigante (caminho, URL): parte por caractere visível
+      let rest=tk; while(thVis(rest).length>W-w){ let i=0, n=0; while(i<rest.length && n<W-w){ if(rest[i]==='\x1b'){ const e=rest.indexOf('m',i); i=e<0?rest.length:e+1; continue; } i++; n++; } cur+=rest.slice(0,i); rest=rest.slice(i); push(); }
+      cur+=rest; w+=thVis(rest).length; continue;
+    }
+    cur+=tk; w+=tw;
+  }
+  if(thVis(cur).trim()) out.push(cur);
+  return out;
+}
+/** itens (+ notas do sistema intercaladas pelo horário) → texto pro xterm. o: { head, foot, notes, cols } */
 function thRender(items, o){
   o=o||{}; const notes=(o.notes||[]).slice().sort((a,b)=>a.ts-b.ts); let ni=0;
   const L=[]; if(o.head) L.push(thC('2','╭─ '+thClean(o.head)), '');
@@ -110,7 +133,7 @@ function thRender(items, o){
   flush(null);
   if(!items || !items.length) L.push(thC('2','(a sessão ainda não tem nada registrado)'));
   if(o.foot) L.push('', thC('2','╰─ '+thClean(o.foot)));
-  return L.join('\r\n')+'\r\n';
+  return (o.cols?L.flatMap(l=>thWrap(l, o.cols)):L).join('\r\n')+'\r\n';
 }
 // @term-hist-puro-fim
 
@@ -141,6 +164,16 @@ function termFit(taskId){
   try{ st.fit && st.fit.fit(); }catch(_){ }
   const k=st.term.cols+'x'+st.term.rows;
   if(k!==st.lastSize){ st.lastSize=k; if(st.alive) invokeQuiet('term_resize',{ taskId, cols:st.term.cols, rows:st.term.rows }).catch(()=>{}); }
+  // histórico: a quebra por palavra depende da largura — refaz do que já está na memória (sem reler o arquivo)
+  // (fora do ciclo do fit: reset no meio do redimensionamento deixava o desenho do xterm vazio)
+  if(st.mode==='hist' && st.hlast && st.hcols!==st.term.cols && !st.hloading){ clearTimeout(st.hrt); st.hrt=setTimeout(()=>termHistRepaint(taskId), 40); }
+}
+function termHistRepaint(taskId){
+  const st=TERM[taskId]; if(!st||st.mode!=='hist'||!st.hlast||st.hloading||st.hcols===st.term.cols) return;
+  st.hcols=st.term.cols;
+  const out=thRender(st.hlast.items, { ...st.hlast.o, cols:st.term.cols });
+  const b=st.term.buffer&&st.term.buffer.active; const atEnd=!b||b.viewportY>=b.baseY-1;
+  st.term.reset(); st.term.write(out, ()=>{ try{ if(atEnd) st.term.scrollToBottom(); st.term.refresh(0, st.term.rows-1); }catch(_){ } });
 }
 async function termAttach(taskId){
   const st=TERM[taskId]; if(!st||!st.term||st.attached) return;
@@ -190,10 +223,12 @@ async function termHistLoad(taskId, force){
     const foot=termGone(h)?TERM_WT_GONE:termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · mande uma mensagem pelo compositor pra retomar esta sessão no terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Configurações → modo das tarefas)';
     // log cru do PTY: sai da tela alternativa/colagem antes do rodapé (o TUI pode ter deixado ligado)
     const out=st.hraw!==undefined ? st.hraw+'\x1b[?1049l\x1b[?2004l\x1b[?25h\x1b[0m\r\n\r\n'+thC('2','╰─ '+foot)+'\r\n'
-      : thRender(st.hitems||thFromEvents(evs), { head, foot, notes:st.hitems?thSysNotes(evs):[] });
+      : (st.hlast={ items:st.hitems||thFromEvents(evs), o:{ head, foot, notes:st.hitems?thSysNotes(evs):[] } }, thRender(st.hlast.items, { ...st.hlast.o, cols:st.term.cols }));
+    if(st.hraw!==undefined) st.hlast=null;
+    st.hcols=st.term.cols;
     // quem rolou pra cima continua onde estava (poll da tarefa rodando em segundo plano)
     const b=st.term.buffer&&st.term.buffer.active; const atEnd=!b || force || b.viewportY>=b.baseY-1; const y=b?b.viewportY:0;
-    st.term.reset(); st.term.write(out, ()=>{ try{ if(atEnd) st.term.scrollToBottom(); else st.term.scrollToLine(y); }catch(_){ } });
+    st.term.reset(); st.term.write(out, ()=>{ try{ if(atEnd) st.term.scrollToBottom(); else st.term.scrollToLine(y); st.term.refresh(0, st.term.rows-1); }catch(_){ } });
     termSetAlive(taskId, false);
   }catch(e){ console.error('term_history', e); try{ st.term.write('\r\n'+thC('31','não consegui ler o histórico desta sessão: '+thClean(typeof errShort==='function'?errShort(e):String(e)))+'\r\n'); }catch(_){ } }
   finally{
