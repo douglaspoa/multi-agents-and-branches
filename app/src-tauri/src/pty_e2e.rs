@@ -49,6 +49,14 @@ fn cpu_group(pid: u32, secs: u64) -> (f64, f64) {
     (avg, samples.iter().cloned().fold(0.0, f64::max))
 }
 
+/// Segundos de CPU (usuário+sistema) gastos por ESTE processo até agora.
+fn self_cpu_s() -> f64 {
+    let mut ru: libc::rusage = unsafe { std::mem::zeroed() };
+    unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut ru); }
+    let t = |v: libc::timeval| v.tv_sec as f64 + v.tv_usec as f64 / 1e6;
+    t(ru.ru_utime) + t(ru.ru_stime)
+}
+
 #[test]
 #[ignore]
 fn pty_e2e() {
@@ -110,7 +118,13 @@ fn pty_e2e() {
             "keys" => { s.write_bytes(unesc(arg).as_bytes()).unwrap(); eprintln!("[e2e {ts:.1}s] keys {arg:?}"); }
             "sleep" => std::thread::sleep(Duration::from_secs_f32(arg.parse().unwrap_or(1.0))),
             "resize" => { let (c, r) = arg.split_once('x').unwrap(); s.resize(c.parse().unwrap(), r.parse().unwrap()).unwrap(); }
-            "cpu" => { let (a, mx) = cpu_group(s.pid, arg.parse().unwrap_or(10)); eprintln!("[e2e {ts:.1}s] CPU do grupo do CLI: média {a:.2}% · pico {mx:.1}% · eventos de saída até aqui: {} ({} bytes)", sink.n.lock().unwrap(), sink.bytes.lock().unwrap()); }
+            "cpu" => {
+                let secs: u64 = arg.parse().unwrap_or(10);
+                let self0 = self_cpu_s(); let w0 = Instant::now();
+                let (a, mx) = cpu_group(s.pid, secs);
+                let app = 100.0 * (self_cpu_s() - self0) / w0.elapsed().as_secs_f64();
+                eprintln!("[e2e {ts:.1}s] CPU — CLI (grupo): média {a:.2}% · pico {mx:.1}% | lado do app (PTY+lotes, este processo): {app:.2}% | eventos de saída até aqui: {} ({} bytes)", sink.n.lock().unwrap(), sink.bytes.lock().unwrap());
+            }
             "screen" => { let t = strip_ansi(&s.snapshot()); let tail: String = t.chars().rev().take(2500).collect::<Vec<_>>().into_iter().rev().collect(); eprintln!("[e2e {ts:.1}s] ---- tela (fim) ----\n{tail}\n---- fim da tela ----"); }
             "trust" => {
                 // diálogos de primeira vez: "confiar nesta pasta" (Claude: ↓+Enter; Codex: Enter) e "Hooks need
