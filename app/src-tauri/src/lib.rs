@@ -20,6 +20,7 @@ mod navegador;
 mod navexterno;
 mod memoria;
 mod mesa;
+mod ideia;
 mod plan_usage;
 mod usage_ledger;
 #[cfg(target_os = "macos")]
@@ -4259,7 +4260,7 @@ fn ai_title_in(text: &str, project: Option<&Path>) -> Result<String, String> {
 }
 
 /// Uma linha em português do que a IA está fazendo (tool_use do stream-json) — vai pro chat do planner.
-fn tool_line(name: &str, input: &serde_json::Value) -> String {
+pub(crate) fn tool_line(name: &str, input: &serde_json::Value) -> String {
     let n = name.to_ascii_lowercase();
     let s = |k: &str| input.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
     let short = |t: String, max: usize| -> String { let t = t.replace('\n', " "); if t.chars().count() > max { format!("{}…", t.chars().take(max).collect::<String>()) } else { t } };
@@ -4270,7 +4271,8 @@ fn tool_line(name: &str, input: &serde_json::Value) -> String {
     else if n == "ls" { format!("listando {}", rel(s("path"))) }
     else if n == "bash" { format!("rodando {}", short(s("command"), 90)) }
     else if n.contains("task") { format!("subagente: {}", short(s("description"), 80)) }
-    else if n.contains("webfetch") || n.contains("websearch") { format!("consultando {}", short(if s("url").is_empty() { s("query") } else { s("url") }, 80)) }
+    // web: Claude (WebFetch/WebSearch), Codex (websearch) e DeepSeek (web_search/web_fetch — com "_")
+    else if n.replace('_', "").contains("webfetch") || n.replace('_', "").contains("websearch") { format!("consultando {}", short(if s("url").is_empty() { s("query") } else { s("url") }, 80)) }
     else { short(name.to_string(), 40) }
 }
 
@@ -4297,7 +4299,7 @@ fn chat_other(source: &str, eng: ai_once::AiEngine, sys: &str, prompt: &str, ses
     };
     // "parar" pedido DEPOIS que esta rodada começou (mesmo sem processo vivo no momento — ex.: entre duas tentativas)
     let cancelled = || stop_requested_since(&stop_id, started);
-    let t = ai_once::ChatTurn { sys, prompt, session_id: session_id.as_deref(), cwd, secs };
+    let t = ai_once::ChatTurn { sys, prompt, session_id: session_id.as_deref(), cwd, secs, web: false };
     let h = ai_once::ChatHooks { activity, on_start: &on_start, on_end: &on_end, stopped: &stopped, cancelled: &cancelled, stop_marker: marker };
     let r = ai_once::chat_turn(eng, &t, &h);
     ai_once::record_chat(source, eng, cwd, &r, started); // livro de uso (melhor-esforço)
@@ -9316,6 +9318,18 @@ pub fn run() {
             learn::learn_accept,
             learn::learn_discard,
             mesa::mesa_ask,
+            ideia::ideia_save,
+            ideia::ideia_read,
+            ideia::ideia_list,
+            ideia::ideia_delete,
+            ideia::ideia_ask,
+            ideia::ideia_research_mode,
+            ideia::ideia_research,
+            ideia::ideia_commit_doc,
+            ideia::reach_status,
+            ideia::reach_install,
+            ideia::reach_doctor,
+            ideia::reach_remove,
             mesa::mesa_stop,
             mesa::mesa_resume,
             mesa::mesa_save,

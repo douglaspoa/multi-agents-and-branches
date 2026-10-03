@@ -28,6 +28,7 @@
 <link rel="stylesheet" href="css/91-dispositivo.css">
 <link rel="stylesheet" href="css/92-canvas.css">
 <link rel="stylesheet" href="css/93-critica.css">
+<link rel="stylesheet" href="css/94-ideia.css">
 <!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
      offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -111,7 +112,7 @@
           <div class="emwhere" id="emWhere"></div>
           <div class="emerr" id="emErr" style="display:none"></div>
           <div class="emcta"><button class="btn primary embig" id="emGo">Começar</button><span class="dim emkbd">⌘↵</span></div>
-          <div class="emalt"><a id="emAbrir">Abrir uma pasta que já tenho</a><span class="dim">·</span><a id="emNovo" title="escolher onde a pasta mora e (opcional) criar o repositório no GitHub">Criar projeto com GitHub…</a></div>
+          <div class="emalt"><a id="emAbrir">Abrir uma pasta que já tenho</a><span class="dim">·</span><a id="emNovo" title="escolher onde a pasta mora e (opcional) criar o repositório no GitHub">Criar projeto com GitHub…</a><span class="dim">·</span><a id="emIdeia" title="conversar com a mesa de personas, pesquisar na web se a ideia teria procura agora e só então criar o projeto">Começar por uma ideia (pesquisa + mesa)</a></div>
         </div>
       </div>
     </div>
@@ -397,6 +398,13 @@
   <div class="modal" style="width:min(1100px,100%)">
     <div class="mhead"><b>Progresso do piloto</b><span style="flex:1"></span><button class="x" id="pilotoRunClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody" id="pilRunBody"></div>
+  </div>
+</div>
+<!-- Começar por uma ideia: conversa com a mesa + pesquisa com fontes + decisão → projeto (59-ideia.js) — aba, não modal -->
+<div class="overlay" id="ideiaOverlay" style="display:none;z-index:95">
+  <div class="modal" style="width:min(1240px,100%)">
+    <div class="mhead"><b>Ideia</b><span style="flex:1"></span><button class="x" id="ideiaClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mbody" id="ideiaBody"></div>
   </div>
 </div>
 <!-- Mesa de personas (party mode): personas debatem e votam o que construir (aba, não modal) -->
@@ -743,5 +751,6 @@
 <script src="js/57-dispositivo.js"></script>
 <script src="js/58-ambiente.js"></script>
 <script src="js/58-canvas.js"></script>
+<script src="js/59-ideia.js"></script>
 </body>
 </html>

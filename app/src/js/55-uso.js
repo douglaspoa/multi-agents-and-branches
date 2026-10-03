@@ -10,7 +10,7 @@ const USO_SOURCES={
   'tarefa':'Tarefas', 'nova-tarefa':'Nova tarefa (planner e spec com IA)', 'personas':'Personas (mesa)',
   'chat-projeto':'Chat do projeto', 'chat-issues':'Chat de issues', 'orquestrador':'Orquestrador',
   'retro':'Retro e aprendizados', 'previsao':'Previsão', 'titulo-branch':'Título e nome de branch',
-  'commit-pr':'Commit e PR', 'relatorios':'Relatórios', 'teste':'Testes de conexão', 'autopilot':'Piloto automático', 'outros':'Outros',
+  'commit-pr':'Commit e PR', 'relatorios':'Relatórios', 'teste':'Testes de conexão', 'autopilot':'Piloto automático', 'ideia':'Ideia (mesa e pesquisa)', 'outros':'Outros',
 };
 const USO_ENGINES={ claude:'Claude Code', codex:'Codex', deepseek:'DeepSeek', gateway:'Gateway' };
 const USO_PERIODS=[['hoje','hoje'],['7d','7 dias'],['30d','30 dias']];

@@ -1014,6 +1014,9 @@ pub(crate) struct ChatTurn<'a> {
     pub session_id: Option<&'a str>,
     pub cwd: &'a Path,
     pub secs: u64,
+    /// rodada de PESQUISA (aba Ideia): liga a busca na web nativa do motor — Codex `--search`; o DeepSeek Harness
+    /// já traz busca/leitura de página no perfil headless; o gateway não tem ferramentas (ideia.rs decide o caminho)
+    pub web: bool,
 }
 /// Ganchos da tela: linha de atividade ("lendo X") e o "parar" (pid registrado num slot/chave/mesa).
 /// `stopped(pid)` diz se o usuário parou ESTE processo (no Windows o taskkill devolve código 1, não "sem código").
@@ -1144,17 +1147,17 @@ pub(crate) fn dsh_events(line: &str) -> Vec<ChatEv> {
     }
 }
 
-enum ProcErr {
+pub(crate) enum ProcErr {
     Spawn(std::io::Error),
     Stopped,
     Timeout,
     /// morreu por sinal SEM o usuário ter parado (crash, OOM, kill de fora)
     Crash,
 }
-struct ProcOut {
-    status: std::process::ExitStatus,
-    stdout: String,
-    stderr: String,
+pub(crate) struct ProcOut {
+    pub status: std::process::ExitStatus,
+    pub stdout: String,
+    pub stderr: String,
 }
 /// Depois que o processo sai (ou é morto), quanto ainda esperamos o stdout/stderr fecharem: um neto fora do grupo
 /// segurando o pipe não pode prender a tela.
@@ -1163,7 +1166,7 @@ const PIPE_GRACE: Duration = Duration::from_secs(2);
 /// (`on_line`) com teto de `secs`. Leitura LIMITADA: os pipes são lidos em threads soltas e a espera acaba no prazo
 /// (+PIPE_GRACE depois da saída). Parado = SÓ quando a tela parou (`stopped`/`cancelled`); morte por sinal sem isso =
 /// Crash; o prazo só vira Timeout se o processo ainda NÃO tinha saído quando o prazo venceu.
-fn run_proc(mut cmd: Command, input: Option<&str>, secs: u64, h: &ChatHooks, on_line: &mut dyn FnMut(&str)) -> Result<ProcOut, ProcErr> {
+pub(crate) fn run_proc(mut cmd: Command, input: Option<&str>, secs: u64, h: &ChatHooks, on_line: &mut dyn FnMut(&str)) -> Result<ProcOut, ProcErr> {
     use std::io::{BufRead, Read, Write};
     use std::sync::mpsc::{channel, RecvTimeoutError};
     if (h.cancelled)() { return Err(ProcErr::Stopped); }
@@ -1225,6 +1228,14 @@ pub(crate) fn codex_chat_args(resume: Option<&str>, model: Option<&str>) -> Vec<
     if let Some(id) = resume { a.splice(1..1, ["resume".to_string(), id.to_string()]); }
     a
 }
+/// Rodada de PESQUISA no Codex: os mesmos argumentos (só-leitura) + `-c web_search="live"` (a busca na web nativa,
+/// ligada SÓ aqui — o `--search` do Codex é flag do comando raiz, o `exec` recusa; a config vale nos dois).
+pub(crate) fn codex_research_args(resume: Option<&str>, model: Option<&str>) -> Vec<String> {
+    let mut a = codex_chat_args(resume, model);
+    let at = a.len() - 1; // antes do "-" (prompt pelo STDIN)
+    a.splice(at..at, ["-c".to_string(), "web_search=\"live\"".to_string()]);
+    a
+}
 
 pub(crate) const CODEX_CRASH_MSG: &str = "O Codex foi encerrado no meio da resposta (o processo caiu) — tente de novo.";
 pub(crate) const DSH_CRASH_MSG: &str = "O DeepSeek Harness foi encerrado no meio da resposta (o processo caiu) — tente de novo.";
@@ -1234,7 +1245,7 @@ fn codex_turn_once(bin: &str, key: Option<&str>, t: &ChatTurn, resume: Option<&s
     let left = deadline.saturating_duration_since(Instant::now()).as_secs();
     if left == 0 { return Err(fail("timeout", CODEX_TIMEOUT_MSG.into())); }
     let mut cmd = codex_command(bin, key, Some(t.cwd));
-    cmd.args(codex_chat_args(resume, model));
+    cmd.args(if t.web { codex_research_args(resume, model) } else { codex_chat_args(resume, model) });
     let mut seen = std::collections::HashSet::new();
     let (mut sid, mut tin, mut tout, mut tcache) = (resume.map(String::from).unwrap_or_default(), 0u64, 0u64, 0u64);
     let input = chat_input(resume.map(|r| format!("codex:{r}")).as_deref(), t.sys, t.prompt);
@@ -2225,7 +2236,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         let repo = tmpdir("chat-repo");
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
-        let t = ChatTurn { sys: "VOCÊ É O PLANNER", prompt: "quero um \"filtro\" por data", session_id: None, cwd: &repo, secs: 20 };
+        let t = ChatTurn { sys: "VOCÊ É O PLANNER", prompt: "quero um \"filtro\" por data", session_id: None, cwd: &repo, secs: 20, web: false };
         let out = codex_chat(&bin, Some("sk-x"), &t, None, None, &h).unwrap();
         // 1ª rodada: sessão nova, só-leitura, prompt (instruções + mensagem) no STDIN, cwd = projeto
         let argv = lines(d.join("argv.txt"));
@@ -2280,7 +2291,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
                 signal_group(pid, procsig::KILL);
             });
             hooks!(acts, slot, h);
-            let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 60 };
+            let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 60, web: false };
             let r = codex_chat(&bin, None, &t, None, None, &h);
             assert!(acts.lock().unwrap().is_empty());
             r
@@ -2297,7 +2308,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
             let bin = fake_codex_chat(&d, mode);
             let slot = std::sync::atomic::AtomicI32::new(0);
             hooks!(acts, slot, h);
-            let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 1 };
+            let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 1, web: false };
             let t0 = Instant::now();
             assert_eq!(codex_chat(&bin, None, &t, None, None, &h).unwrap_err(), CODEX_TIMEOUT_MSG, "{mode}");
             assert!(t0.elapsed() < Duration::from_secs(8), "{mode}: leitura limitada depois do prazo ({:?})", t0.elapsed());
@@ -2312,7 +2323,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         let bin = fake_codex_chat(&d, "crash");
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
-        let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 20 };
+        let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 20, web: false };
         let e = codex_chat(&bin, None, &t, None, None, &h).unwrap_err();
         assert_eq!(e, CODEX_CRASH_MSG, "morte por sinal sem 'parar' = erro, não TEST_STOPPED");
         assert!(acts.lock().unwrap().is_empty());
@@ -2325,7 +2336,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         let bin = fake_codex_chat(&d, "refuse");
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
-        let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 20 };
+        let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 20, web: false };
         let out = codex_chat(&bin, None, &t, None, Some("modelo-recusado-chat-1"), &h).unwrap();
         assert_eq!(out.session_id, "codex:th-novo");
         assert_eq!(lines(d.join("calls.log")).len(), 2, "1ª com -m (recusada), 2ª sem");
@@ -2357,7 +2368,7 @@ sed "s/__TID__/$TID/" "{d}/out.jsonl"
         let bin = script(&d, "dsh", "cat > /dev/null\nsleep 30\n");
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
-        let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 1 };
+        let t = ChatTurn { sys: "s", prompt: "p", session_id: None, cwd: &d, secs: 1, web: false };
         let t0 = Instant::now();
         assert_eq!(dsh_chat(&bin, "k", &t, None, None, &h).unwrap_err(), DSH_TIMEOUT_MSG);
         assert!(t0.elapsed() < Duration::from_secs(8));
@@ -2393,7 +2404,7 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
 "#));
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
-        let t = ChatTurn { sys: "VOCÊ É O COPILOTO", prompt: "onde mora a lista?", session_id: None, cwd: &d, secs: 20 };
+        let t = ChatTurn { sys: "VOCÊ É O COPILOTO", prompt: "onde mora a lista?", session_id: None, cwd: &d, secs: 20, web: false };
         let out = dsh_chat(&bin, "sk-ds", &t, None, None, &h).unwrap();
         assert_eq!(out.session_id, "dsh:s-novo");
         assert!(out.text.contains("```json") && out.text.contains("Qual o objetivo?"));
@@ -2447,7 +2458,7 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         // o front (aiCallResumeSafe) põe o histórico na mensagem a cada rodada do gateway
         let prompt = "[CONTEXTO — histórico desta conversa até aqui]\nUSUÁRIO: primeira pergunta\n\nVOCÊ: primeira resposta\n[/CONTEXTO]\n\nsegunda pergunta";
         let dir = std::env::temp_dir();
-        let t = ChatTurn { sys: "VOCÊ É O ORQUESTRADOR", prompt, session_id: None, cwd: &dir, secs: 10 };
+        let t = ChatTurn { sys: "VOCÊ É O ORQUESTRADOR", prompt, session_id: None, cwd: &dir, secs: 10, web: false };
         let out = gateway_chat(&g, &t, &h).unwrap();
         assert_eq!(out.text, "```json\n{\"say\":\"ok\"}\n```");
         assert_eq!((out.session_id.as_str(), out.in_tok, out.out_tok), (GATEWAY_SID, 40, 5));
@@ -2501,7 +2512,7 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
         let dir = std::env::temp_dir();
-        let t = ChatTurn { sys: "S", prompt: "P", session_id: None, cwd: &dir, secs: 10 };
+        let t = ChatTurn { sys: "S", prompt: "P", session_id: None, cwd: &dir, secs: 10, web: false };
         // 400 recusando o max_tokens → 2ª chamada SEM max_tokens → resposta
         let (port, srv) = serve_seq(vec![
             (400, r#"{"error":{"message":"max_tokens is too large: 16000. This model supports at most 4096 completion tokens","type":"invalid_request_error"}}"#),
@@ -2540,7 +2551,7 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         assert_eq!(chat_engine(), Ok(AiEngine::Codex), "segue a IA padrão mesmo com o claude instalado");
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
-        let t = ChatTurn { sys: "PLANNER", prompt: "oi", session_id: None, cwd: &d, secs: 20 };
+        let t = ChatTurn { sys: "PLANNER", prompt: "oi", session_id: None, cwd: &d, secs: 20, web: false };
         let out = chat_turn(AiEngine::Codex, &t, &h).unwrap();
         assert_eq!(out.session_id, "codex:th-novo");
         assert!(!acts.lock().unwrap().is_empty());
@@ -2603,7 +2614,7 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         let _env = EnvGuard::set(&[("HOME", home_s.as_str()), ("CARDUME_DSH_HOME", dsh_home.as_str()), ("CARDUME_DSH_PATCH", prov_s.as_str())]);
         let slot = std::sync::atomic::AtomicI32::new(0);
         hooks!(acts, slot, h);
-        let t = ChatTurn { sys: "VOCÊ É O PLANNER", prompt: "quero um filtro por data", session_id: None, cwd: &repo, secs: 60 };
+        let t = ChatTurn { sys: "VOCÊ É O PLANNER", prompt: "quero um filtro por data", session_id: None, cwd: &repo, secs: 60, web: false };
         let out = dsh_chat(&bin, "sk-fake", &t, None, None, &h).unwrap();
         assert!(out.text.contains("Qual a tela?"), "{out:?}");
         assert!(out.session_id.starts_with("dsh:") && out.session_id.len() > 4, "{out:?}");
@@ -2643,11 +2654,11 @@ sed "s/__SID__/$SID/" "{dd}/out.jsonl"
         let h = ChatHooks { activity: &act, on_start: &nop, on_end: &nop, stopped: &no, cancelled: &never, stop_marker: "X" };
         let sys = "Você é o PLANNER. Responda SEMPRE E SOMENTE com um bloco ```json {\"say\":\"\",\"chips\":[],\"patch\":{},\"asking\":\"\",\"done\":false}. Leia o código antes (só-leitura).";
         let t0 = Instant::now();
-        let out = chat_turn(AiEngine::Codex, &ChatTurn { sys, prompt: "Quero um teste para a função tool_line em src/lib.rs. Leia-a e pergunte o objetivo.", session_id: None, cwd: &repo, secs: 300 }, &h);
+        let out = chat_turn(AiEngine::Codex, &ChatTurn { sys, prompt: "Quero um teste para a função tool_line em src/lib.rs. Leia-a e pergunte o objetivo.", session_id: None, cwd: &repo, secs: 300, web: false }, &h);
         eprintln!("planner codex ({:?}): {out:?}", t0.elapsed());
         let out = out.unwrap();
         assert!(out.session_id.starts_with("codex:") && out.text.contains('{'));
-        let out2 = chat_turn(AiEngine::Codex, &ChatTurn { sys: "Você é o copiloto do projeto. Responda curto.", prompt: "Em que arquivo está a função tool_line?", session_id: Some(&out.session_id), cwd: &repo, secs: 300 }, &h);
+        let out2 = chat_turn(AiEngine::Codex, &ChatTurn { sys: "Você é o copiloto do projeto. Responda curto.", prompt: "Em que arquivo está a função tool_line?", session_id: Some(&out.session_id), cwd: &repo, secs: 300, web: false }, &h);
         eprintln!("chat do projeto codex (retomado): {out2:?}");
         assert!(out2.is_ok());
         let _ = std::fs::remove_dir_all(&tmp);

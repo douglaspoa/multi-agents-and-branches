@@ -400,7 +400,8 @@ export async function canStartIn(dir: string): Promise<boolean> {
   if (!existsSync(dir)) return true;
   const left = readdirSync(dir).filter((f) => f !== ".cardume" && f !== ".DS_Store");
   if (!left.length) return true;
-  if (!left.includes(".git") || !left.every((f) => [".git", "README.md", ".gitignore"].includes(f))) return false;
+  // `docs/`: os documentos do plano pronto (aba Ideia) — criação interrompida antes do 1º commit
+  if (!left.includes(".git") || !left.every((f) => [".git", "README.md", ".gitignore", "docs"].includes(f))) return false;
   if (!(await hasHead(dir))) return true; // git init feito, commit não
   try {
     const subjects = (await git(dir, "log", "--format=%s", "-n", "2", "HEAD")).stdout.trim().split("\n");
@@ -425,7 +426,24 @@ export function registerProject(dir: string, home = homedir()): void {
   } catch { /* lista é conveniência — nunca derruba o piloto */ }
 }
 
-export async function createProject(dir: string, name: string): Promise<void> {
+/** Documentos que vêm junto com um plano pronto (`--plan`, aba Ideia: a pesquisa de mercado) e entram no 1º commit.
+ * PURA: só `docs/<nome>.md` (a-z0-9-), no máximo 4, até 200 KB cada — o resto é ignorado. */
+export interface ApDoc { path: string; content: string }
+export function planDocs(raw: unknown): ApDoc[] {
+  const list = raw && typeof raw === "object" && Array.isArray((raw as { docs?: unknown }).docs) ? (raw as { docs: unknown[] }).docs : [];
+  const out: ApDoc[] = [];
+  for (const d of list) {
+    const o = (d ?? {}) as { path?: unknown; content?: unknown };
+    const path = String(o.path ?? "").trim(), content = String(o.content ?? "");
+    if (!/^docs\/[a-z0-9-]{1,80}\.md$/.test(path) || !content.trim() || content.length > 200_000) continue;
+    if (out.some((x) => x.path === path)) continue;
+    out.push({ path, content });
+    if (out.length >= 4) break;
+  }
+  return out;
+}
+
+export async function createProject(dir: string, name: string, docs: ApDoc[] = []): Promise<void> {
   if (!(await canStartIn(dir))) throw new Error(NOT_EMPTY(dir));
   mkdirSync(dir, { recursive: true });
   if (!existsSync(join(dir, ".git"))) {
@@ -446,6 +464,7 @@ export async function createProject(dir: string, name: string): Promise<void> {
   if (await hasHead(dir)) return; // o 1º commit já existe (retomada)
   if (!existsSync(join(dir, "README.md"))) writeFileSync(join(dir, "README.md"), `# ${name}\n\nProjeto criado pelo piloto automático do Starfork.\n`, "utf8");
   if (!existsSync(join(dir, ".gitignore"))) writeFileSync(join(dir, ".gitignore"), ".DS_Store\nnode_modules/\n.env\n.cardume/\n", "utf8");
+  for (const d of docs) { mkdirSync(join(dir, "docs"), { recursive: true }); writeFileSync(join(dir, d.path), d.content, "utf8"); }
   await git(dir, "add", "-A");
   await git(dir, "commit", "-q", "-m", FIRST_COMMIT_MSG);
 }
@@ -631,7 +650,12 @@ async function pilot(dir: string, prev: ApState | null, idea: string, o: Autopil
   };
   let orch: Orchestrator;
   try {
-    if (!prev || !(await hasHead(dir))) { setPhase("creating"); saveRaw(); await createProject(dir, name); }
+    if (!prev || !(await hasHead(dir))) {
+      setPhase("creating"); saveRaw();
+      let docs: ApDoc[] = [];
+      if (o.planFile) { try { docs = planDocs(JSON.parse(readFileSync(o.planFile, "utf8"))); } catch { /* plano ilegível: o planEpic acusa */ } }
+      await createProject(dir, name, docs);
+    }
     // node --test (NODE_TEST_CONTEXT) não suja a lista real de projetos da pessoa
     if (!process.env.NODE_TEST_CONTEXT) registerProject(dir);
     if (await new GitService(dir).hasRemote("origin")) throw new Error("este projeto tem um remoto (origin) — o piloto automático só roda em projeto LOCAL, sem remoto");

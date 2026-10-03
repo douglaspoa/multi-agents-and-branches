@@ -84,7 +84,7 @@ pub fn repo_summary(repo: &Path) -> String {
 // processos: várias personas em paralelo por mesa, todas paráveis
 // ---------------------------------------------------------------------------
 
-type Killed = Arc<AtomicBool>;
+pub(crate) type Killed = Arc<AtomicBool>;
 fn pids() -> &'static Mutex<HashMap<String, Vec<(i32, Killed)>>> {
     static P: OnceLock<Mutex<HashMap<String, Vec<(i32, Killed)>>>> = OnceLock::new();
     P.get_or_init(|| Mutex::new(HashMap::new()))
@@ -95,17 +95,26 @@ fn stopped() -> &'static Mutex<HashSet<String>> {
     static S: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     S.get_or_init(|| Mutex::new(HashSet::new()))
 }
-fn is_stopped(id: &str) -> bool { stopped().lock().unwrap_or_else(|e| e.into_inner()).contains(id) }
+pub(crate) fn is_stopped(id: &str) -> bool { stopped().lock().unwrap_or_else(|e| e.into_inner()).contains(id) }
 fn pid_del(id: &str, pid: i32) {
     let mut m = pids().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(v) = m.get_mut(id) { v.retain(|(p, _)| *p != pid); if v.is_empty() { m.remove(id); } }
 }
 fn kill_list(list: &[(i32, Killed)]) { for (p, k) in list { k.store(true, Ordering::SeqCst); signal_group(*p, procsig::KILL); } }
+/// Registra um processo de fora (a pesquisa da aba Ideia, que lê o stream linha a linha) sob o id: o `stop_id` o
+/// derruba como derruba as personas. Devolve a marca "parado pelo usuário" desse pid.
+pub(crate) fn track(id: &str, pid: i32) -> Killed {
+    let killed: Killed = Arc::new(AtomicBool::new(false));
+    pids().lock().unwrap_or_else(|e| e.into_inner()).entry(id.to_string()).or_default().push((pid, killed.clone()));
+    if is_stopped(id) { kill_list(&[(pid, killed.clone())]); } // o "parar" chegou entre o spawn e o registro
+    killed
+}
+pub(crate) fn untrack(id: &str, pid: i32) { pid_del(id, pid) }
 
 /// Roda o claude num grupo próprio, com teto de tempo, registrado sob o id da mesa. `input` vai
 /// pelo stdin (o prompt não cabe na linha de comando do Windows, 32K). Parado/estourado é
 /// decidido por flags explícitas — no Windows o taskkill devolve código 1, não "sem código".
-fn run_stoppable(mut cmd: std::process::Command, secs: u64, id: &str, input: Option<String>) -> Result<std::process::Output, String> {
+pub(crate) fn run_stoppable(mut cmd: std::process::Command, secs: u64, id: &str, input: Option<String>) -> Result<std::process::Output, String> {
     if is_stopped(id) { return Err(STOPPED.to_string()); }
     detach_new_group(&mut cmd);
     cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -136,7 +145,7 @@ fn run_stoppable(mut cmd: std::process::Command, secs: u64, id: &str, input: Opt
 }
 
 /// Custo do wrapper JSON do claude (também quando a chamada deu erro — ele cobra igual).
-fn cost_of(out: &std::process::Output) -> f64 {
+pub(crate) fn cost_of(out: &std::process::Output) -> f64 {
     serde_json::from_slice::<serde_json::Value>(String::from_utf8_lossy(&out.stdout).trim().as_bytes())
         .ok()
         .and_then(|v| v["total_cost_usd"].as_f64().or_else(|| v["cost_usd"].as_f64()))
@@ -210,6 +219,10 @@ pub fn mesa_ask(
 /// parável pela mesa como o claude. Custo US$ 0 (como nas tarefas), com os tokens e o motor — o teto da mesa vira
 /// teto por tokens na tela.
 pub(crate) fn ask_other(eng: ai_once::AiEngine, id: &str, sys: &str, prompt: &str, repo: &Path) -> Result<serde_json::Value, String> {
+    ask_other_as("personas", eng, id, sys, prompt, repo)
+}
+/// `ask_other` com a origem do livro de uso (a aba Ideia grava como "ideia").
+pub(crate) fn ask_other_as(source: &str, eng: ai_once::AiEngine, id: &str, sys: &str, prompt: &str, repo: &Path) -> Result<serde_json::Value, String> {
     if is_stopped(id) { return Err(STOPPED.to_string()); }
     let killed: Killed = Arc::new(AtomicBool::new(false));
     let on_start = |pid: i32| {
@@ -219,11 +232,11 @@ pub(crate) fn ask_other(eng: ai_once::AiEngine, id: &str, sys: &str, prompt: &st
     let on_end = |pid: i32| pid_del(id, pid);
     let stopped = |_pid: i32| killed.load(Ordering::SeqCst);
     let cancelled = || is_stopped(id);
-    let t = ai_once::ChatTurn { sys, prompt, session_id: None, cwd: repo, secs: ASK_SECS };
+    let t = ai_once::ChatTurn { sys, prompt, session_id: None, cwd: repo, secs: ASK_SECS, web: false };
     let h = ai_once::ChatHooks { activity: &|_| {}, on_start: &on_start, on_end: &on_end, stopped: &stopped, cancelled: &cancelled, stop_marker: STOPPED };
     let started = std::time::Instant::now();
     let r = ai_once::chat_turn(eng, &t, &h);
-    ai_once::record_chat("personas", eng, repo, &r, started); // livro de uso: tokens + US$ estimado
+    ai_once::record_chat(source, eng, repo, &r, started); // livro de uso: tokens + US$ estimado
     let out = r?;
     // US$ 0 (o motor não informa preço) + tokens: a tela aplica o TETO POR TOKENS (38-mesa.js, MESA_TOK_USD: entrada/cache/saída)
     Ok(serde_json::json!({ "text": out.text, "costUsd": 0.0, "inTok": out.in_tok, "outTok": out.out_tok, "cachedTok": out.cached_tok, "engine": eng.id() }))

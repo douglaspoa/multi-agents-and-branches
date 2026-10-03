@@ -373,6 +373,7 @@ function cvPlusMenu(anchor, opts){
   const items=[
     // ícones do conjunto IC (10-core), mesmo traço do resto do app — antes eram glifos Unicode
     !opts.split && { k:'nova', label:'Nova demanda', hint:'começar uma demanda (⌘N)', ic:CV_IC_PLUS },
+    !opts.split && { k:'ideia', label:'Ideia nova', hint:'conversar com a mesa, pesquisar se vale a pena e criar o projeto', ic:IC.ideia||CV_IC_PLUS },
     { k:'task', label:'Abrir demanda', hint:'uma demanda deste projeto', ic:IC.stack, sub:true },
     { k:'web', label:'Navegador', hint:'YouTube, documentação, ou o app de uma demanda', ic:IC.globe, sub:true },
     { k:'device', label:'Simulador iOS/Android', hint:'o celular de uma demanda ao vivo', ic:IC.phone, sub:true },
@@ -390,6 +391,7 @@ function cvPlusMenu(anchor, opts){
   m.querySelectorAll('[data-cvmi]').forEach(b=>b.onclick=()=>{
     const x=items[+b.dataset.cvmi];
     if(x.k==='nova'){ cvCloseMenu(); openTab('nova'); return; }
+    if(x.k==='ideia'){ cvCloseMenu(); if(window.ideiaNew) window.ideiaNew(); return; }
     if(x.k==='task') return taskList('Abrir demanda', ()=>'a tela da demanda', t=>open({ kind:'task', taskId:t.id }));
     if(x.k==='web') return open({ kind:'web', url:'' }); // abre o navegador JÁ (aba em branco, barra de endereço focada) — sem formulário nem lista
     if(x.k==='device') return taskList('Simulador iOS/Android', t=>{ const i=(typeof DV!=='undefined')?DV.info[t.id]:null; return i&&i.mobile?'app de celular':'o simulador desta demanda'; }, t=>open({ kind:'device', taskId:t.id }));

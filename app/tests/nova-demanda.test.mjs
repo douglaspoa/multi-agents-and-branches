@@ -101,9 +101,10 @@ test('exemplos: 4 a 6, com pelo menos 2 que não são software, e ordem pelo tip
   assert.equal(N.ndProjectIsSoftware('loja'), true);
 });
 
-test('seletor de modo pequeno: Conversar · Formulário · Dividir · Piloto automático', () => {
+test('seletor de modo pequeno: Conversar · Formulário · Dividir · Piloto automático · Ideia', () => {
   const h = N.ndMethodSeg('chat');
-  assert.equal(text(h), 'Conversar Formulário Dividir Piloto automático');
+  assert.equal(text(h), 'Conversar Formulário Dividir Piloto automático Ideia');
+  assert.match(h, /data-ndseg="ideia"[^>]*>Ideia</);
   assert.match(N.ndMethodSeg('auto'), /class="on"[^>]*data-ndseg="piloto"/);
   assert.match(h, /ndseg-sm/);
   assert.match(h, /class="on"[^>]*data-ndseg="planner"/);

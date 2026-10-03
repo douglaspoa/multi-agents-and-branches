@@ -116,7 +116,7 @@ test('Rust: cada chat escolhe o motor ANTES dos argumentos do claude; os não-Cl
   const ask = cut(mesa, 'pub fn mesa_ask(', '\n}\n');
   assert.ok(ask.indexOf('ai_once::chat_engine()') > 0 && ask.indexOf('ask_other(') < ask.indexOf('claude_cmd('), 'mesa: motor antes do claude');
   // fora do Claude: US$ 0 (como nas tarefas) + tokens + motor — a tela aplica o TETO POR TOKENS (teste abaixo)
-  assert.match(cut(mesa, 'fn ask_other(', '\n}\n'), /"costUsd": 0\.0, "inTok": out\.in_tok, "outTok": out\.out_tok, "cachedTok": out\.cached_tok, "engine": eng\.id\(\)/);
+  assert.match(cut(mesa, 'fn ask_other_as(', '\n}\n'), /"costUsd": 0\.0, "inTok": out\.in_tok, "outTok": out\.out_tok, "cachedTok": out\.cached_tok, "engine": eng\.id\(\)/);
   const once = rs('ai_once.rs');
   assert.match(once, /sandbox_mode=\\"read-only\\"/);
   assert.match(once, /DSH_PERMISSION_MODE", "read-only"/);

@@ -300,7 +300,7 @@ async function mesaLoadGen(){
 
 async function openMesa(){
   const ov=$id('mesaOverlay'); if(!ov) return;
-  if(!state.repo){ toast('Abra um projeto primeiro — a mesa discute o projeto aberto.','warn'); return; }
+  if(!state.repo){ toast('Abra um projeto primeiro — a mesa discute o projeto aberto. Pra começar do zero, use "Ideia nova".','warn', window.ideiaNew?{ label:'ideia nova', fn:()=>window.ideiaNew() }:null); return; }
   if(MESA.repo!==state.repo){
     MESA.repo=state.repo; MESA.view='lista'; MESA.pick=null; MESA.tema=''; MESA.draft=''; MESA.target='mesa';
     // mesa de outro projeto rodando continua (salva no projeto dela); só deixa de ser a mesa na tela
@@ -311,6 +311,8 @@ async function openMesa(){
   await loadInto($id('mesaBody'), 'lista', ()=>Promise.all([mesaLoadList(), mesaLoadGen()]), ()=>{
     if(!MESA.pick) MESA.pick=new Set(MESA_PERSONAS.map(p=>p.id));
     mesaRender();
+    // ideias recentes (59-ideia) chegam depois, sem segurar a lista de mesas
+    if(window.ideiaLoadList) window.ideiaLoadList().then(()=>{ if(MESA.view==='lista') mesaRender(); }).catch(()=>{});
   }, { label:'buscando as mesas', keep:!(MESA.view==='lista' && !MESA.list.length), shape:{ wrap:'mesawrap', head:true, n:5 } });
 }
 window.openMesa=openMesa;
@@ -657,10 +659,11 @@ function mesaListaHtml(){
     return `<button class="mesarow" data-mopen="${mesaEsc(x.id)}"><span class="mesart"><b>${mesaEsc(x.tema||'(sem tema)')}</b>${mesaStBadge(st)}</span><span class="mesarm">${x.personas} personas · ${x.rounds} rodada${x.rounds===1?'':'s'} · ${mesaEsc(fmtCost(+x.costUsd||0))}${d?' · '+d:''}</span></button>`;
   }).join('');
   return mesaHead('Mesa de personas', mesaEsc(pathBase(MESA.repo))+' · '+(MESA.list.length||0)+' mesa'+(MESA.list.length===1?'':'s'),
-      `<button class="btn primary" id="mesaNew">${IC.ai}Nova mesa</button>`)+
+      `<button class="btn" id="mesaIdeia" title="começar um produto do zero: conversar com a mesa, pesquisar na web se vale a pena e criar o projeto">${IC.ideia||''}Ideia nova</button><button class="btn primary" id="mesaNew">${IC.ai}Nova mesa</button>`)+
     `<div class="mesascroll">`+
     (rows?`<div class="mesalist">${rows}</div>`:
       `<div class="mesaempty">${IC.mesa}<p><b>Decida o que construir com uma mesa de vozes.</b></p><p class="dim">Você escreve o tema (ex.: "próximas features do app de agendamento"). Cada persona — a vibe coder, o tech lead, quem não programa, a estratégia de produto, a cética — responde separada, com a memória do projeto. Na rodada 1 cada uma dá a sua posição; na rodada 2 elas debatem e votam (top 5 com peso e vetos). Você vê a tabela de votos, aprova ou rejeita cada feature, argumenta com a mesa e transforma as aprovadas em demandas.</p></div>`)+
+    (typeof ideiaRecentHtml==='function'?ideiaRecentHtml(4, true):'')+ // ideias (59-ideia): começam aqui e viram projeto
     `</div>`;
 }
 function mesaNovaHtml(){
@@ -783,6 +786,7 @@ function mesaWire(body){
   bindClick('mesaNew', ()=>{ MESA.view='nova'; if(!MESA.pick) MESA.pick=new Set(MESA_PERSONAS.map(p=>p.id)); mesaRender(); const t=$id('mesaTema'); if(t) t.focus(); });
   bindClick('mesaBack', async()=>{ MESA.view='lista'; MESA.cur=null; await mesaLoadList(); mesaRender(); });
   bindClick('mesaGen', mesaGenerate);
+  bindClick('mesaIdeia', ()=>{ if(window.ideiaNew) window.ideiaNew(); });
   bindClick('mesaGo', mesaStart);
   bindClick('mesaStop', ()=>MESA.cur&&mesaStop(MESA.cur));
   bindClick('mesaCont', ()=>MESA.cur&&mesaRun(MESA.cur, { retryFailed:true }));
