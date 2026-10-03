@@ -78,15 +78,21 @@ pub fn skill_name(s: &str) -> String {
     t.trim_end_matches('-').to_string()
 }
 
-/// SKILL.md de uma skill aprendida (mesmo formato do `skillMd` do TS).
+/// SKILL.md de uma skill aprendida (mesmo formato do `skillMd` do TS), sem dono.
 pub fn skill_md(name: &str, description: &str, tarefas: &[String], body: &str) -> String {
+    skill_md_as(name, description, tarefas, body, "")
+}
+/// Com o agente DONO (P9): a linha `agente:` só existe quando há dono (≡ `skillMd(..., agente)` do TS).
+pub fn skill_md_as(name: &str, description: &str, tarefas: &[String], body: &str, agente: &str) -> String {
     let desc: String = description.split_whitespace().collect::<Vec<_>>().join(" ").replace(['"', '\\'], "'");
     let mut ts: Vec<String> = vec![];
     for t in tarefas {
         let c: String = t.chars().filter(|ch| !ch.is_whitespace() && !",[]".contains(*ch)).collect();
         if !c.is_empty() && !ts.contains(&c) { ts.push(c); }
     }
-    format!("---\nname: {name}\ndescription: \"{}\"\norigem: aprendida\ntarefas: [{}]\n---\n\n{}\n", desc.trim(), ts.join(", "), body.trim())
+    let ag = agent_versions::agent_key(agente);
+    let agl = if ag.is_empty() { String::new() } else { format!("agente: {ag}\n") };
+    format!("---\nname: {name}\ndescription: \"{}\"\norigem: aprendida\n{agl}tarefas: [{}]\n---\n\n{}\n", desc.trim(), ts.join(", "), body.trim())
 }
 
 /// (é aprendida?, tarefas) do frontmatter de um SKILL.md.
@@ -119,8 +125,9 @@ fn slot(repo_skills: &Path, personal: &Path, name: &str) -> Slot {
     Slot::Free
 }
 
-/// Liga (ou atualiza a descrição de) uma skill em `.cardume/skills.json`.
-pub fn enable_skill(repo: &Path, name: &str, description: &str) -> Result<(), String> {
+/// Liga (ou atualiza a descrição de) uma skill em `.cardume/skills.json`, marcando o DONO (P9) — o motor injeta skill com dono só no papel dono. Sem dono: não mexe no dono que já havia.
+pub fn enable_skill_as(repo: &Path, name: &str, description: &str, agente: &str) -> Result<(), String> {
+    let ag = agent_versions::agent_key(agente);
     let p = repo.join(".cardume").join("skills.json");
     let mut arr: Vec<serde_json::Value> = std::fs::read_to_string(&p).ok()
         .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
@@ -129,8 +136,12 @@ pub fn enable_skill(repo: &Path, name: &str, description: &str) -> Result<(), St
     let desc = description.split_whitespace().collect::<Vec<_>>().join(" ");
     if let Some(hit) = arr.iter_mut().find(|x| x.get("name").and_then(|n| n.as_str()) == Some(name)) {
         hit["description"] = serde_json::json!(desc);
-    } else {
+        // o dono no skills.json é SEMPRE o do SKILL.md recém-gravado (uma fonte só: sem dono = tira)
+        if !ag.is_empty() { hit["agente"] = serde_json::json!(ag); } else if let Some(o) = hit.as_object_mut() { o.remove("agente"); }
+    } else if ag.is_empty() {
         arr.push(serde_json::json!({ "name": name, "description": desc }));
+    } else {
+        arr.push(serde_json::json!({ "name": name, "description": desc, "agente": ag }));
     }
     atomic_write(&p, &serde_json::to_string_pretty(&arr).map_err(|e| e.to_string())?)
 }
@@ -167,8 +178,8 @@ pub fn apply_skill_as(repo: &Path, personal: &Path, skill: &serde_json::Value, t
     }
     let (mut tarefas, action) = match cur { Slot::Learned(t) => (t, "updated"), _ => (vec![], "created") };
     if !task_id.is_empty() { tarefas.push(task_id.to_string()); }
-    let version = agent_versions::write_skill_version(&repo.join(".cardume"), &root, &name, skill_md(&name, &desc, &tarefas, &body).as_bytes(), now_ms(), if action == "updated" { "atualizar" } else { "criar" }, "", task_id, agente)?;
-    enable_skill(repo, &name, &desc)?;
+    let version = agent_versions::write_skill_version(&repo.join(".cardume"), &root, &name, skill_md_as(&name, &desc, &tarefas, &body, agente).as_bytes(), now_ms(), if action == "updated" { "atualizar" } else { "criar" }, "", task_id, agente)?;
+    enable_skill_as(repo, &name, &desc, agente)?;
     exclude_skill(repo, &name);
     Ok(serde_json::json!({ "kind": "skill", "name": name, "action": action, "version": version }))
 }
@@ -264,6 +275,13 @@ fn all_strings(v: &serde_json::Value, out: &mut Vec<String>) {
 /// Aceita o item `id`: aplica e tira da fila. Falha → o item FICA na fila e o erro volta.
 /// `edited`: campos que o humano mudou antes de aceitar (mesmas chaves de `nota`/`skill`).
 pub fn accept(repo: &Path, personal: &Path, id: &str, edited: Option<&serde_json::Value>) -> Result<serde_json::Value, String> {
+    accept_as(repo, personal, id, edited, None)
+}
+
+/// P9: aceite com DESTINO. `como`: "agente" (padrão quando o item tem dono — [Guardar pra X]) ou "projeto"
+/// ([Só no projeto]: aplica sem dono, nenhum agente muda). Nota com dono vai pra memória DO AGENTE (lembra.json),
+/// não pro cérebro — só o papel dono recebe. Todo aceite com dono = nova versão do agente.
+pub fn accept_as(repo: &Path, personal: &Path, id: &str, edited: Option<&serde_json::Value>, como: Option<&str>) -> Result<serde_json::Value, String> {
     let item = read_pending(repo)?.into_iter().find(|x| x.get("id").and_then(|i| i.as_str()) == Some(id))
         .ok_or("esse aprendizado não está mais na fila (já foi aceito ou descartado)")?;
     let kind = s(&item, "kind");
@@ -280,9 +298,16 @@ pub fn accept(repo: &Path, personal: &Path, id: &str, edited: Option<&serde_json
         None => {}
     }
     let task_id = s(&item, "taskId");
-    let agente = s(&item, "agente");
+    let agente = if como == Some("projeto") { String::new() } else { agent_versions::agent_key(&s(&item, "agente")) };
     let mut r = if key == "skill" {
         apply_skill_as(repo, personal, &payload, &task_id, &agente)?
+    } else if !agente.is_empty() {
+        let title: String = s(&payload, "title").split_whitespace().collect::<Vec<_>>().join(" ");
+        let body = s(&payload, "body");
+        if title.is_empty() || body.is_empty() { return Err("a nota proposta está sem título ou sem conteúdo".into()); }
+        let v = agent_versions::agent_version(&repo.join(".cardume"), &agente) + 1;
+        agent_versions::add_agent_note(&repo.join(".cardume"), &agente, serde_json::json!({ "id": id, "kind": "nota", "title": title, "body": body, "at": now_ms(), "v": v, "taskId": task_id }))?;
+        serde_json::json!({ "kind": "nota", "action": "lembra", "agente": agente, "id": id })
     } else {
         let title: String = s(&item, "taskTitle").chars().take(60).collect();
         apply_note(repo, &payload, &format!("agente · retro da tarefa \"{title}\" ({task_id}) · aceita na Memória"))?
@@ -291,6 +316,7 @@ pub fn accept(repo: &Path, personal: &Path, id: &str, edited: Option<&serde_json
     if !agente.is_empty() {
         let what = if key == "skill" { r["name"].as_str().unwrap_or("").to_string() } else { s(&payload, "title") };
         r["agentVersion"] = serde_json::json!(agent_versions::bump_agent(&repo.join(".cardume"), &agente, now_ms(), key, &what, None, None)?);
+        r["agente"] = serde_json::json!(agente);
     }
     mark_resolved(repo, id)?;
     Ok(r)
@@ -336,9 +362,74 @@ pub fn learn_pending(state: State<AppState>, repo: Option<String>) -> Result<ser
 }
 
 #[tauri::command(async)]
-pub fn learn_accept(state: State<AppState>, repo: Option<String>, id: String, edited: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+pub fn learn_accept(state: State<AppState>, repo: Option<String>, id: String, edited: Option<serde_json::Value>, como: Option<String>) -> Result<serde_json::Value, String> {
     let repo = repo_or(&state, repo)?;
-    accept(&repo, &personal_root(), &id, edited.as_ref())
+    accept_as(&repo, &personal_root(), &id, edited.as_ref(), como.as_deref())
+}
+
+/// "Esquecer" (P9): nota do agente → marcada como esquecida (fica o rastro); skill do agente → ARQUIVADA (o SKILL.md
+/// vai pro histórico, sai do skills.json). Nunca apaga. Vira versão nova do agente ("esquecer").
+pub fn forget(repo: &Path, agent_id: &str, kind: &str, key: &str, reason: &str) -> Result<serde_json::Value, String> {
+    forget_as(repo, agent_id, kind, key, reason, "esquecer")
+}
+/// `change`: "esquecer" ou "voltar" (o "voltar pro jeito antigo" de uma nota = desfazer o aceite; fica registrado como volta).
+pub fn forget_as(repo: &Path, agent_id: &str, kind: &str, key: &str, reason: &str, change: &str) -> Result<serde_json::Value, String> {
+    let change = if change == "voltar" { "voltar" } else { "esquecer" };
+    let cd = repo.join(".cardume");
+    let ag = agent_versions::agent_key(agent_id);
+    if ag.is_empty() { return Err("agente sem id — não dá pra esquecer".into()); }
+    let what = if kind == "skill" {
+        let n = skill_name(key);
+        let md = repo.join(".claude").join("skills").join(&n).join("SKILL.md");
+        let owner = std::fs::read_to_string(&md).ok().map(|t| skill_owner(&t)).unwrap_or_default();
+        if owner != ag { return Err("essa skill não é desse agente".into()); }
+        // tira do skills.json ANTES de mover o arquivo: se falhar no meio, não sobra skill fantasma ligada sem SKILL.md
+        disable_skill(repo, &n)?;
+        agent_versions::archive_skill(&cd, &repo.join(".claude").join("skills"), &n, reason, now_ms(), &ag)?;
+        format!("esqueceu a skill {n}")
+    } else {
+        let t = agent_versions::forget_agent_note(&cd, &ag, key, reason, now_ms())?;
+        if change == "voltar" { format!("voltou (desfez): {t}") } else { format!("esqueceu: {t}") }
+    };
+    let v = agent_versions::bump_agent(&cd, &ag, now_ms(), change, &what, None, None)?;
+    Ok(serde_json::json!({ "agente": ag, "agentVersion": v, "kind": kind }))
+}
+
+#[tauri::command(async)]
+pub fn agent_forget(state: State<AppState>, repo: Option<String>, agent_id: String, kind: String, key: String, reason: Option<String>, change: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = repo_or(&state, repo)?;
+    forget_as(&repo, &agent_id, &kind, &key, reason.as_deref().unwrap_or(""), change.as_deref().unwrap_or("esquecer"))
+}
+
+/// Dono gravado no frontmatter de um SKILL.md ("" = do projeto).
+pub fn skill_owner(text: &str) -> String {
+    let src = text.trim_start_matches('\u{feff}').replace("\r\n", "\n");
+    if let Some(fm) = src.strip_prefix("---\n").and_then(|rest| rest.find("\n---").map(|i| rest[..i].to_string())) {
+        for line in fm.lines() {
+            if let Some(v) = line.strip_prefix("agente:") { return agent_versions::agent_key(v.trim().trim_matches('"')); }
+        }
+    }
+    String::new()
+}
+
+/// O que o agente lembra pra ficha: notas (memória dele, inclusive esquecidas) + skills dele (do skills.json, com a
+/// versão e o rastro). Lido sob demanda ao abrir a ficha — nunca em laço.
+pub fn learnings(repo: &Path, agent_id: &str) -> serde_json::Value {
+    let cd = repo.join(".cardume");
+    let ag = agent_versions::agent_key(agent_id);
+    let notes = agent_versions::read_agent_memory(&cd, &ag);
+    let arr: Vec<serde_json::Value> = std::fs::read_to_string(cd.join("skills.json")).ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).and_then(|v| v.as_array().cloned()).unwrap_or_default();
+    let mut skills = vec![];
+    for x in arr {
+        if ag.is_empty() || agent_versions::agent_key(x["agente"].as_str().unwrap_or("")) != ag { continue; }
+        let name = x["name"].as_str().unwrap_or("").to_string();
+        if name.is_empty() { continue; }
+        let body = std::fs::read_to_string(repo.join(".claude").join("skills").join(&name).join("SKILL.md")).map(|t| skill_body(&t)).unwrap_or_default();
+        let hist = agent_versions::read_skill_history(&cd, &name).unwrap_or(serde_json::Value::Null);
+        skills.push(serde_json::json!({ "name": name, "description": x["description"], "body": body, "history": hist }));
+    }
+    serde_json::json!({ "notes": notes, "skills": skills })
 }
 
 /// Tira a skill do `.cardume/skills.json` (≡ `disableSkill` do TS).
@@ -643,6 +734,93 @@ mod tests {
         queue(&r, serde_json::json!([{ "id": "h1", "kind": "skill", "taskId": "t1", "taskTitle": "T", "createdAt": 1, "skill": skill("rodar-testes", "atualizar", "corpo novo") }]));
         let items = pending_for_ui(&r).unwrap();
         assert_eq!(items[0]["atual"], "## Passo a passo\ncorpo antigo");
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    // ---------------------------------------------------------------- F3 · P9: aprendizado com dono
+
+    #[test]
+    fn guardar_pra_agente_marca_dono_cria_versao_e_so_no_projeto_nao() {
+        let r = tmp_repo("dono");
+        let personal = r.join("home-skills");
+        queue(&r, serde_json::json!([
+            { "id": "d1", "kind": "skill", "taskId": "t1", "taskTitle": "T", "createdAt": 1, "agente": "lumen", "papel": "docs", "skill": skill("citar fonte", "criar", "## Passo a passo\ncite link e data") },
+            { "id": "d2", "kind": "skill", "taskId": "t1", "taskTitle": "T", "createdAt": 1, "agente": "lumen", "papel": "docs", "skill": skill("rodar lint", "criar", "## Passo a passo\nnpm run lint") },
+        ]));
+        let a = accept_as(&r, &personal, "d1", None, Some("agente")).unwrap();
+        assert_eq!(a["agentVersion"], 2);
+        let md = std::fs::read_to_string(r.join(".claude/skills/citar-fonte/SKILL.md")).unwrap();
+        assert!(md.contains("\nagente: lumen\n"), "{md}");
+        assert_eq!(skill_owner(&md), "lumen");
+        assert_eq!(skills_json(&r)[0]["agente"], "lumen");
+        // [Só no projeto]: sem dono, nenhum agente muda
+        let b = accept_as(&r, &personal, "d2", None, Some("projeto")).unwrap();
+        assert!(b.get("agentVersion").is_none());
+        let md2 = std::fs::read_to_string(r.join(".claude/skills/rodar-lint/SKILL.md")).unwrap();
+        assert!(!md2.contains("agente:"), "{md2}");
+        assert!(skills_json(&r)[1].get("agente").is_none());
+        assert_eq!(agent_versions::agent_version(&r.join(".cardume"), "lumen"), 2);
+        // a ficha vê só a dela
+        let l = learnings(&r, "lumen");
+        assert_eq!(l["skills"].as_array().unwrap().len(), 1);
+        assert_eq!(l["skills"][0]["name"], "citar-fonte");
+        assert_eq!(learnings(&r, "nyx")["skills"], serde_json::json!([]));
+        // [Só no projeto] num update da skill da Lumen: o dono sai dos DOIS lugares (SKILL.md e skills.json)
+        queue(&r, serde_json::json!([{ "id": "d3", "kind": "skill", "taskId": "t2", "taskTitle": "T", "createdAt": 1, "agente": "lumen", "skill": skill("citar-fonte", "atualizar", "## Passo a passo\ncite sempre") }]));
+        accept_as(&r, &personal, "d3", None, Some("projeto")).unwrap();
+        assert!(!std::fs::read_to_string(r.join(".claude/skills/citar-fonte/SKILL.md")).unwrap().contains("agente:"));
+        assert!(skills_json(&r).as_array().unwrap().iter().all(|x| x.get("agente").is_none()), "{}", skills_json(&r));
+        assert_eq!(learnings(&r, "lumen")["skills"], serde_json::json!([]));
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn skill_md_com_dono_igual_ao_ts() {
+        // ≡ src/agentes-f3.test.ts ("skillMd: a linha agente só existe com dono")
+        assert_eq!(skill_md_as("x", "d", &["t1".into()], "corpo", "Lúmen"), "---\nname: x\ndescription: \"d\"\norigem: aprendida\nagente: lumen\ntarefas: [t1]\n---\n\ncorpo\n");
+        assert_eq!(skill_md_as("x", "d", &["t1".into()], "corpo", ""), skill_md("x", "d", &["t1".into()], "corpo"));
+        assert_eq!(skill_owner("---\nname: x\nagente: Lúmen\n---\n"), "lumen");
+    }
+
+    #[test]
+    fn nota_com_dono_vai_pra_memoria_do_agente_e_esquecer_nao_apaga() {
+        let r = tmp_repo("dono-nota");
+        let personal = r.join("home-skills");
+        queue(&r, serde_json::json!([{ "id": "n9", "kind": "nota", "taskId": "t1", "taskTitle": "T", "createdAt": 1, "agente": "Nyx", "nota": { "title": "Conferir o teste de login", "type": "regra", "tags": [], "body": "Sempre rode o teste de login antes de aprovar." } }]));
+        let a = accept_as(&r, &personal, "n9", None, None).unwrap();
+        assert_eq!(a["action"], "lembra");
+        assert_eq!(a["agente"], "nyx");
+        assert!(memoria::list_notes(&r, false).is_empty(), "nota com dono não vai pro cérebro do projeto");
+        let mem = agent_versions::read_agent_memory(&r.join(".cardume"), "nyx");
+        assert_eq!(mem.len(), 1);
+        assert_eq!(mem[0]["v"], 2);
+        let f = forget(&r, "nyx", "nota", "n9", "voltou pro jeito antigo").unwrap();
+        assert_eq!(f["agentVersion"], 3);
+        let mem = agent_versions::read_agent_memory(&r.join(".cardume"), "nyx");
+        assert_eq!(mem.len(), 1, "esquecer marca, nunca apaga");
+        assert!(mem[0]["forgottenAt"].is_i64());
+        assert!(forget(&r, "nyx", "nota", "n9", "").is_err(), "já esquecida");
+        // "voltar pro jeito antigo" numa nota = desfazer o aceite, registrado como "voltar"
+        queue(&r, serde_json::json!([{ "id": "n10", "kind": "nota", "taskId": "t1", "taskTitle": "T", "createdAt": 1, "agente": "nyx", "nota": { "title": "Outra", "type": "regra", "tags": [], "body": "outra coisa pra lembrar" } }]));
+        accept_as(&r, &personal, "n10", None, None).unwrap();
+        forget_as(&r, "nyx", "nota", "n10", "", "voltar").unwrap();
+        let vs = agent_versions::read_agent_versions(&r.join(".cardume"), "nyx");
+        assert_eq!(vs["versions"].as_array().unwrap().last().unwrap()["change"], "voltar");
+        let _ = std::fs::remove_dir_all(&r);
+    }
+
+    #[test]
+    fn esquecer_skill_do_agente_arquiva_e_tira_do_skills_json() {
+        let r = tmp_repo("esquecer");
+        let personal = r.join("home-skills");
+        queue(&r, serde_json::json!([{ "id": "e1", "kind": "skill", "taskId": "t1", "taskTitle": "T", "createdAt": 1, "agente": "iris", "skill": skill("menor diff", "criar", "## Passo a passo\nmude pouco") }]));
+        accept_as(&r, &personal, "e1", None, None).unwrap();
+        assert!(forget(&r, "nyx", "skill", "menor-diff", "").is_err(), "skill de outro agente");
+        let f = forget(&r, "iris", "skill", "menor-diff", "não ajudou").unwrap();
+        assert_eq!(f["agentVersion"], 3);
+        assert!(!r.join(".claude/skills/menor-diff/SKILL.md").exists());
+        assert!(r.join(".cardume/aprendizado/historico/menor-diff/arquivada-v2.md").exists(), "movida pro histórico com a versão no nome");
+        assert_eq!(skills_json(&r), serde_json::json!([]));
         let _ = std::fs::remove_dir_all(&r);
     }
 }

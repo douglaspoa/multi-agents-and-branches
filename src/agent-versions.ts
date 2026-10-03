@@ -169,8 +169,34 @@ export function revertSkill(cardumeDir: string, skillsRoot: string, name: string
 
 // ---------------------------------------------------------------- P10: o que rodou no papel
 
-/** Skills ativas no projeto (`.cardume/skills.json`) com a versão de cada uma: ["rodar-testes@v3", …]. */
-export function activeSkills(cardumeDir: string): string[] {
-  const arr = readJson<{ name?: string }[]>(join(cardumeDir, "skills.json"));
-  return (Array.isArray(arr) ? arr : []).map((s) => String(s?.name ?? "").trim()).filter(Boolean).map((n) => `${n}@v${skillVersion(cardumeDir, n)}`);
+/** Skills ativas no projeto (`.cardume/skills.json`) com a versão de cada uma: ["rodar-testes@v3", …].
+ * Com `agentId` (P9): só as que ESSE papel recebe — as do projeto (sem dono) + as dele; as de outro agente ficam de fora. */
+export function activeSkills(cardumeDir: string, agentId?: string): string[] {
+  const arr = readJson<{ name?: string; agente?: string }[]>(join(cardumeDir, "skills.json"));
+  const me = agentId === undefined ? null : agentKey(agentId);
+  return (Array.isArray(arr) ? arr : [])
+    .filter((s) => me === null || !agentKey(s?.agente ?? "") || agentKey(s?.agente ?? "") === me)
+    .map((s) => String(s?.name ?? "").trim()).filter(Boolean).map((n) => `${n}@v${skillVersion(cardumeDir, n)}`);
+}
+
+// ---------------------------------------------------------------- P9: o que o agente lembra (notas com dono)
+
+/**
+ * Nota aceita "pra Lumen" mora na memória DO AGENTE (`.cardume/agentes/<id>/lembra.json`), não no cérebro do projeto:
+ * só o papel dono recebe no prompt. Só o APP escreve (aceite/esquecer, `learn.rs`); "esquecer" marca `forgottenAt`
+ * (nunca apaga — fica o rastro). Formato ≡ `agent_versions::read_agent_memory` do Rust.
+ */
+export interface AgentMemoryItem { id: string; kind: "nota"; title: string; body: string; at: number; v: number; taskId: string; forgottenAt?: number; forgetReason?: string }
+export function agentMemoryFile(cardumeDir: string, agentId: string): string {
+  return join(cardumeDir, "agentes", agentKey(agentId), "lembra.json");
+}
+/** Tudo o que o agente já lembrou (inclusive esquecidas). Sem arquivo/ilegível = []. */
+export function readAgentMemory(cardumeDir: string, agentId: string | undefined): AgentMemoryItem[] {
+  if (!agentId || !agentKey(agentId)) return [];
+  const j = readJson<{ items?: AgentMemoryItem[] }>(agentMemoryFile(cardumeDir, agentId));
+  return Array.isArray(j?.items) ? j!.items.filter((x) => x && typeof x.title === "string" && typeof x.body === "string") : [];
+}
+/** Só o que ele lembra AGORA (sem as esquecidas). */
+export function activeAgentMemory(cardumeDir: string, agentId: string | undefined): AgentMemoryItem[] {
+  return readAgentMemory(cardumeDir, agentId).filter((x) => !x.forgottenAt);
 }

@@ -184,24 +184,50 @@ function memLearnLabel(it){
   if(it && it.kind==='skill'){ const s=it.skill||{}; return s.acao==='atualizar'?'atualiza a skill '+(s.nome||''):'skill nova'; }
   return 'nota · '+((it&&it.nota&&it.nota.type)||'contexto');
 }
-function memLearnCard(it){
+// P9 (mesa 03/10): o aprendizado chega como FRASE em português com o nome do agente dono; skill, versão e corpo
+// só em "ver detalhes". Fonte única do cartão: Memória, ficha do agente (61-meu-time) e etapa Retro da tarefa.
+const MEM_ART={ vega:'A', iris:'A', nyx:'A', aria:'A', lumen:'A', cobalt:'O' }; // artigo dos agentes do catálogo padrão
+function memLearnWho(it){
+  const id=String((it&&it.agente)||'').trim(); if(!id) return null;
+  const name=String((it&&it.agenteNome)||'').trim() || id.charAt(0).toUpperCase()+id.slice(1);
+  return { id, name, art:MEM_ART[id]||'' };
+}
+function memLearnSentence(it){
+  const w=memLearnWho(it), sk=it&&it.kind==='skill', d=sk?((it&&it.skill)||{}):((it&&it.nota)||{});
+  const low=s=>{ s=String(s||'').replace(/\s+/g,' ').trim().replace(/[.;:!]+$/,''); return /^[A-ZÀ-Ý][a-zà-ÿ]/.test(s)?s.charAt(0).toLowerCase()+s.slice(1):s; };
+  const tx=sk ? 'um jeito de fazer: '+String(d.nome||'').replace(/-/g,' ')+(d.descricao?' — '+low(d.descricao):'') : low(d.title);
+  return (w ? (w.art?w.art+' ':'')+w.name : 'O projeto')+' vai lembrar'+(sk?' ':': ')+tx+'.';
+}
+// o: { editing:{ a, b } } — o cartão em modo Editar (o texto que a pessoa está mudando)
+function memLearnCard(it, o){
+  o=o||{};
   const sk=it.kind==='skill', d=sk?(it.skill||{}):(it.nota||{});
   const title=sk?(d.nome||''):(d.title||''), body=sk?(d.corpo||''):(d.body||'');
-  const id=memLEsc(it.id);
+  const id=memLEsc(it.id), w=memLearnWho(it);
+  const ed=o.editing;
+  // ids estáveis: um repaint (custo, faixa) devolve o foco pro campo que a pessoa estava digitando
+  const edit=ed?'<div class="memledit"><label>'+(sk?'Quando usar':'O que lembrar')+'<input class="in" id="le-a-'+id+'" data-ledita value="'+memLEsc(ed.a)+'"></label><label>'+(sk?'Como fazer':'Detalhe')+'<textarea class="in" id="le-b-'+id+'" data-leditb rows="5">'+memLEsc(ed.b)+'</textarea></label></div>':'';
+  const keep=w?'<button class="btn sm primary" data-laccept="'+id+'" data-como="agente">Guardar pra '+memLEsc(w.name)+'</button><button class="btn sm" data-lproj="'+id+'">Só no projeto</button>'
+    :'<button class="btn sm primary" data-laccept="'+id+'" data-como="projeto">Guardar no projeto</button>';
   return '<article class="memlcard" data-lid="'+id+'">'+
-    '<div class="memlhd"><span class="membadge '+(sk?'skill':'nota')+'">'+memLEsc(memLearnLabel(it))+'</span><b>'+memLEsc(title)+'</b></div>'+
-    (sk&&d.descricao?'<div class="memldesc">'+memLEsc(d.descricao)+'</div>':'')+
+    '<p class="memlsent">'+memLEsc(memLearnSentence(it))+'</p>'+
     '<div class="memlsrc dim">da tarefa '+(it.taskTitle?'"'+memLEsc(it.taskTitle)+'"':memLEsc(it.taskId||''))+'</div>'+
-    '<pre class="memlbody">'+memLEsc(body)+'</pre>'+
-    (sk&&d.porque?'<div class="memlwhy dim">por quê: '+memLEsc(d.porque)+'</div>':'')+
-    (sk&&d.acao==='atualizar'&&it.atual!=null?'<details class="memlcur"><summary>versão atual (aceitar substitui o corpo inteiro)</summary><pre class="memlbody">'+memLEsc(it.atual)+'</pre></details>':'')+
-    '<div class="memlacts"><button class="btn sm" data-ldiscard="'+id+'">Descartar</button><button class="btn sm primary" data-laccept="'+id+'">Aceitar</button></div>'+
+    edit+
+    '<div class="memlacts">'+keep+(ed?'<button class="btn sm" data-ledit="'+id+'" data-off="1">cancelar edição</button>':'<button class="btn sm" data-ledit="'+id+'">Editar</button>')+'<button class="btn sm" data-ldiscard="'+id+'">Descartar</button></div>'+
+    '<details class="memldet"><summary>ver detalhes</summary>'+
+      '<div class="memlhd"><span class="membadge '+(sk?'skill':'nota')+'">'+memLEsc(memLearnLabel(it))+'</span><b>'+memLEsc(title)+'</b>'+(w?' <span class="dim">· dono: '+memLEsc(w.id)+(it.papel?' ('+memLEsc(it.papel)+')':'')+'</span>':'')+'</div>'+
+      (sk&&d.descricao?'<div class="memldesc">'+memLEsc(d.descricao)+'</div>':'')+
+      '<pre class="memlbody">'+memLEsc(body)+'</pre>'+
+      (sk&&d.porque?'<div class="memlwhy dim">por quê: '+memLEsc(d.porque)+'</div>':'')+
+      (w?'<div class="memlwhy dim">guardar pra '+memLEsc(w.name)+' cria uma versão nova dela (dá pra voltar com 1 clique)</div>':'')+
+      (sk&&d.acao==='atualizar'&&it.atual!=null?'<details class="memlcur"><summary>versão atual (aceitar substitui o corpo inteiro)</summary><pre class="memlbody">'+memLEsc(it.atual)+'</pre></details>':'')+
+    '</details>'+
   '</article>';
 }
-function memLearnHtml(items){
+function memLearnHtml(items, edits){
   const n=(items||[]).length; if(!n) return '';
   return '<details class="memlearn" open><summary>Aprendizados para revisar ('+n+') <span class="dim">· o que a retro do fim das tarefas propôs — nada entra no cérebro nem vira skill sem o seu aceite</span></summary>'+
-    '<div class="memlgrid">'+items.map(memLearnCard).join('')+'</div></details>';
+    '<div class="memlgrid">'+items.map(it=>memLearnCard(it, { editing:edits&&edits[it.id] })).join('')+'</div></details>';
 }
 // o que muda a contagem da fila: troca de projeto ou evento novo "aprendizado…" que o motor grava ao enfileirar
 function memLearnSigOf(snap){ return (snap&&snap.repo||'')+'|'+((snap&&snap.events)||[]).filter(e=>/^aprendizado/.test(String(e&&e.text||''))).map(e=>e.id).join(','); }
@@ -317,7 +343,7 @@ function memRender(){
         '<button class="btn primary" id="memNew">'+memIc('plus')+'Nova nota</button>'+
       '</div>'+
     '</div>'+
-    memLearnHtml(MEM.learn)+
+    memLearnHtml(MEM.learn, LEARN_EDIT)+
     '<div class="memgrid'+(MEM.view==='grafo'?' isgraph':'')+'">'+
       '<aside class="memside">'+
         '<input class="in" id="memQ" placeholder="buscar nas notas…" value="'+memEsc(MEM.q)+'" spellcheck="false" aria-label="Buscar nas notas">'+
@@ -389,38 +415,70 @@ function memWire(body){
     const t=$id('meTitle'); if(t && !MEM.edit.slug && !MEM.edit.focused){ MEM.edit.focused=true; setTimeout(()=>t.focus(),30); }
   }
 }
-function memWireLearn(root){
-  root.querySelectorAll('[data-laccept]').forEach(b=>b.onclick=()=>memLearnAct(b.dataset.laccept, true, b));
-  root.querySelectorAll('[data-ldiscard]').forEach(b=>b.onclick=()=>memLearnAct(b.dataset.ldiscard, false, b));
+// ---- os 4 botões do cartão (Memória, ficha do agente e etapa Retro usam o MESMO caminho) ----
+const LEARN_EDIT={}; // id → { a, b } enquanto a pessoa edita o cartão antes de guardar
+function memWireLearn(root){ learnWire(root, { repo:()=>MEM.repo, items:()=>MEM.learn, guard:memRepoChanged, after:async(repo)=>{ await memLoad(repo); memRender(); }, repaint:memRender }); }
+// ctx: { repo(), items(), after(repo, r), repaint(), guard()? }
+function learnWire(root, ctx){
+  const find=id=>(ctx.items()||[]).find(x=>x.id===id);
+  root.querySelectorAll('[data-laccept]').forEach(b=>b.onclick=()=>learnAct(ctx, b.dataset.laccept, b.dataset.como||'agente', b));
+  root.querySelectorAll('[data-lproj]').forEach(b=>b.onclick=()=>learnAct(ctx, b.dataset.lproj, 'projeto', b));
+  root.querySelectorAll('[data-ldiscard]').forEach(b=>b.onclick=()=>learnAct(ctx, b.dataset.ldiscard, 'descartar', b));
+  root.querySelectorAll('[data-ledit]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.ledit, it=find(id); if(!it) return;
+    if(b.dataset.off){ delete LEARN_EDIT[id]; ctx.repaint(); return; }
+    const sk=it.kind==='skill', d=sk?(it.skill||{}):(it.nota||{});
+    LEARN_EDIT[id]={ a:sk?(d.descricao||''):(d.title||''), b:sk?(d.corpo||''):(d.body||'') };
+    ctx.repaint();
+    const card=[...document.querySelectorAll('.memlcard')].find(c=>c.dataset.lid===id); const f=card&&card.querySelector('[data-ledita]'); if(f) f.focus();
+  });
+  root.querySelectorAll('.memlcard').forEach(card=>{ const id=card.dataset.lid; const e=LEARN_EDIT[id]; if(!e) return;
+    const a=card.querySelector('[data-ledita]'), bb=card.querySelector('[data-leditb]');
+    if(a) a.oninput=()=>{ e.a=a.value; }; if(bb) bb.oninput=()=>{ e.b=bb.value; }; });
 }
-// aceitar: nota → cérebro (dedup pelo título); skill → .claude/skills/<nome>/SKILL.md do repo + ligada pras próximas tarefas
-async function memLearnAct(id, accept, btn){
-  if(memRepoChanged()) return;
-  const repo=MEM.repo; const card=btn&&btn.closest('.memlcard');
+// guardar (pro agente dono ou só no projeto) ou descartar; aceitar sempre oferece "voltar pro jeito antigo" a 1 clique
+async function learnAct(ctx, id, act, btn){
+  if(ctx.guard && ctx.guard()) return;
+  const repo=ctx.repo(); const card=btn&&btn.closest('.memlcard'); const it=(ctx.items()||[]).find(x=>x.id===id);
   if(card) card.querySelectorAll('button').forEach(x=>x.disabled=true);
   try{
-    if(accept){
-      const r=await invoke('learn_accept',{ repo, id });
-      // P11: todo aceite tem "voltar pro jeito antigo" a um clique (restaura byte a byte a versão anterior; skill nova é arquivada)
-      if(r && r.kind==='skill') toast('Skill '+r.name+(r.action==='updated'?' atualizada':' criada')+' (v'+(r.version||1)+') e ligada — as próximas tarefas deste projeto usam.','ok', { label:'voltar pro jeito antigo', fn:()=>memLearnRevert(repo, r.name, 'voltou logo depois de aceitar') });
-      else { toast(r&&r.action==='unchanged'?'O cérebro já tinha isso — nada mudou.':'Nota gravada no cérebro'+(r&&r.action==='updated'?' (juntei com a nota de mesmo título)':'')+'.','ok'); if(r&&r.slug) MEM.sel={ scope:r.scope, slug:r.slug }; }
-      await memLoad(repo); memRender();
-      if(r && r.scope==='time') memTeamSync().then(ch=>{ if(ch) memRefresh(); });
-    } else {
-      await invoke('learn_discard',{ repo, id });
-      await memLoad(repo); memRender();
-    }
+    if(act==='descartar'){ await invoke('learn_discard',{ repo, id }); delete LEARN_EDIT[id]; if(typeof cicLearn!=='undefined') for(const k in cicLearn) delete cicLearn[k]; await ctx.after(repo, null); return; }
+    const e=LEARN_EDIT[id]; let edited=null;
+    if(e && it){ edited=it.kind==='skill'?{ descricao:e.a, corpo:e.b }:{ title:e.a, body:e.b }; }
+    const r=await invoke('learn_accept',{ repo, id, edited, como:act });
+    delete LEARN_EDIT[id];
+    if(typeof cicLearn!=='undefined') for(const k in cicLearn) delete cicLearn[k]; // a etapa Retro da tarefa relê a fila
+    const w=act==='agente'?memLearnWho(it||{}):null;
+    const undo=r&&r.kind==='skill'?()=>memLearnRevert(repo, r.name, 'voltou logo depois de aceitar', ctx)
+      :(r&&r.action==='lembra'&&w)?()=>learnForget(repo, w.id, 'nota', id, 'voltou logo depois de aceitar', ctx, 'voltar'):null;
+    const msg=w?(w.name+' vai lembrar disso'+(r&&r.agentVersion?' (agora v'+r.agentVersion+')':'')+' — nas próximas tarefas, só '+w.name+' recebe isso.')
+      :r&&r.kind==='skill'?'Guardado no projeto — as próximas tarefas usam.'
+      :r&&r.action==='unchanged'?'O cérebro já tinha isso — nada mudou.':'Guardado no cérebro do projeto'+(r&&r.action==='updated'?' (juntei com a nota de mesmo título)':'')+'.';
+    toast(msg,'ok', undo?{ label:'voltar pro jeito antigo', fn:undo }:undefined);
+    if(r && r.slug && typeof MEM!=='undefined') MEM.sel={ scope:r.scope, slug:r.slug };
+    await ctx.after(repo, r);
+    if(r && r.scope==='time' && typeof memTeamSync==='function') memTeamSync().then(ch=>{ if(ch) memRefresh(); });
   }catch(e){
-    showErr(memErr(e), accept?'Não consegui aplicar o aprendizado':'Não consegui descartar o aprendizado');
+    showErr(memErr(e), act==='descartar'?'Não consegui descartar o aprendizado':'Não consegui guardar o aprendizado');
     if(card) card.querySelectorAll('button').forEach(x=>x.disabled=false);
   }
 }
-async function memLearnRevert(repo, name, reason){
+async function memLearnRevert(repo, name, reason, ctx){
   try{
     const r=await invoke('learn_revert',{ repo, name, reason:reason||'' });
-    toast(r&&r.action==='arquivada'?'Skill '+name+' arquivada — saiu das próximas tarefas (o texto fica no histórico).':'Skill '+name+' voltou pra v'+(r&&r.restored)+' — exatamente como era.','ok');
-    if(MEM.repo===repo){ await memLoad(repo); memRender(); }
-  }catch(e){ showErr(memErr(e), 'Não consegui voltar a skill'); }
+    toast(r&&r.action==='arquivada'?'Voltou pro jeito antigo: '+name.replace(/-/g,' ')+' saiu das próximas tarefas (o texto fica no histórico).':'Voltou pro jeito antigo: '+name.replace(/-/g,' ')+' está exatamente como era.','ok');
+    if(ctx && ctx.after) await ctx.after(repo, null);
+    else if(MEM.repo===repo){ await memLoad(repo); memRender(); }
+  }catch(e){ showErr(memErr(e), 'Não consegui voltar pro jeito antigo'); }
+}
+// "esquecer" (e o "voltar" de uma nota do agente): nunca apaga — marca/arquiva e o agente ganha versão nova
+// change: 'esquecer' (padrão) ou 'voltar' (desfazer o aceite de uma nota — fica registrado como volta)
+async function learnForget(repo, agentId, kind, key, reason, ctx, change){
+  try{
+    await invoke('agent_forget',{ repo, agentId, kind, key, reason:reason||'', change:change||'esquecer' });
+    toast(change==='voltar'?'Voltou pro jeito antigo — não vai mais pras próximas tarefas (fica no histórico).':'Pronto — não vai mais pras próximas tarefas (fica no histórico).','ok');
+    if(ctx && ctx.after) await ctx.after(repo, null);
+  }catch(e){ showErr(memErr(e), 'Não consegui esquecer'); }
 }
 function memWireLinks(root){
   root.querySelectorAll('[data-mslug]').forEach(a=>a.onclick=(ev)=>{ ev.preventDefault(); memOpenNote(a.dataset.mscope, a.dataset.mslug); });
