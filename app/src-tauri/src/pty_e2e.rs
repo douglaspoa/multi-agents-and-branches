@@ -237,3 +237,58 @@ fn shell_e2e() {
     assert!(!s.alive(), "`exit` no shell fecha o terminal");
     eprintln!("[shell_e2e] ok — tela final:\n{}", tail());
 }
+
+/// Terminal integrado com a IA REAL (gasta crédito — só manual): SF_E2E_REPO/SF_E2E_TASK/SF_E2E_CLI + SF_E2E_AI
+/// (claude|codex). O shell sobe a IA da tarefa com a 1ª mensagem; ela tem que usar o comando `starfork sugerir`
+/// (integração universal) — o evento `suggest` aparece no banco — e, ao sair, o shell volta (cli = '').
+#[test]
+#[ignore]
+fn shell_ia_real_e2e() {
+    let repo = PathBuf::from(std::env::var("SF_E2E_REPO").expect("SF_E2E_REPO"));
+    let task = std::env::var("SF_E2E_TASK").expect("SF_E2E_TASK");
+    let cli = std::env::var("SF_E2E_CLI").expect("SF_E2E_CLI");
+    let ai = std::env::var("SF_E2E_AI").unwrap_or_else(|_| "claude".into());
+    let db = repo.join(".cardume").join("state.sqlite");
+    let start_id: i64 = Connection::open(&db).ok().and_then(|c| c.query_row("SELECT COALESCE(MAX(id),0) FROM event", [], |r| r.get(0)).ok()).unwrap_or(0);
+    let msg = "Teste do Starfork: NÃO mexa em arquivo nenhum. Rode no shell exatamente: starfork sugerir \"pode seguir\" \"pare aqui\" — depois responda só PRONTO.";
+    let out = std::process::Command::new("node").args(["--disable-warning=ExperimentalWarning", &cli, "term-prep", &task, "--ai", &ai, "--msg", msg, "--repo"]).arg(&repo).current_dir(&repo).output().unwrap();
+    let so = String::from_utf8_lossy(&out.stdout);
+    let line = so.lines().rev().find(|l| l.starts_with('{')).unwrap_or_else(|| panic!("prep: {}", String::from_utf8_lossy(&out.stderr)));
+    let v: serde_json::Value = serde_json::from_str(line).unwrap();
+    assert!(v.get("error").is_none(), "{v}");
+    let list = |k: &str| v[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_else(Vec::new);
+    let env: Vec<(String, String)> = v["env"].as_object().unwrap().iter().map(|(k, x)| (k.clone(), x.as_str().unwrap_or("").to_string())).chain([("CARDUME_NOTIFY".to_string(), "0".to_string())]).collect();
+    let m = Arc::new(PtyManager::new(Arc::new(Sink { n: Mutex::new(0), bytes: Mutex::new(0) }), None));
+    let s = m.spawn(&task, SpawnSpec {
+        program: v["program"].as_str().unwrap().into(), args: list("args"), cwd: PathBuf::from(v["cwd"].as_str().unwrap()), env, env_remove: list("envRemove"),
+        cols: 120, rows: 34, log_path: None, scroll_cap: SCROLL_CAP, engine: v["engine"].as_str().unwrap_or("").into(),
+    }).unwrap();
+    s.attach();
+    let q = |sql: &str| Connection::open(&db).ok().and_then(|c| { let _ = c.busy_timeout(Duration::from_millis(3000)); c.query_row(sql, params![task], |r| r.get::<_, Option<String>>(0)).ok().flatten() }).unwrap_or_default();
+    let tail = || { let t = strip_ansi(&s.snapshot()); t.chars().rev().take(2500).collect::<Vec<_>>().into_iter().rev().collect::<String>() };
+    let w = Instant::now();
+    while w.elapsed() < Duration::from_secs(240) && q("SELECT text FROM event WHERE task_id=?1 AND type='suggest' AND id > START ORDER BY id DESC LIMIT 1".replace("START", &start_id.to_string()).as_str()).is_empty() {
+        // o Codex/Claude podem pedir confiança na pasta: Enter aceita o padrão
+        // pasta nova: o Claude Code pergunta se confia (padrão = "No, exit") → seta pra baixo + Enter = "Yes"
+        let t = tail();
+        if t.replace(' ', "").contains("trustthecontentsofthisdirectory") && t.contains("Press enter") && !t.contains("PRONTO") { s.write_bytes(b"\r").unwrap(); std::thread::sleep(Duration::from_secs(3)); }
+        else if t.replace(' ', "").contains("trustthisfolder") && !t.contains("PRONTO") { s.write_bytes(b"\x1b[B").unwrap(); std::thread::sleep(Duration::from_millis(400)); s.write_bytes(b"\r").unwrap(); std::thread::sleep(Duration::from_secs(3)); }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+    let sug = q(&"SELECT text FROM event WHERE task_id=?1 AND type='suggest' AND id > START ORDER BY id DESC LIMIT 1".replace("START", &start_id.to_string()));
+    assert!(sug.contains("pode seguir"), "a IA real usou `starfork sugerir` → evento suggest:\n{}", tail());
+    assert_eq!(q("SELECT cli FROM term_session WHERE task_id=?1"), ai, "cli = a IA rodando");
+    eprintln!("[ia-real] suggest = {sug}");
+    eprintln!("[ia-real] eventos: {}", Connection::open(&db).unwrap().prepare("SELECT agent||' · '||type||' · '||substr(text,1,90) FROM event WHERE task_id=?1 ORDER BY id").unwrap().query_map(params![task], |r| r.get::<_, String>(0)).unwrap().filter_map(|x| x.ok()).collect::<Vec<_>>().join("\n  "));
+    std::thread::sleep(Duration::from_secs(8));
+    s.write_bytes(if ai == "codex" { b"\x03\x03" as &[u8] } else { b"/exit\r" }).unwrap();
+    let w = Instant::now();
+    while w.elapsed() < Duration::from_secs(30) && !q("SELECT cli FROM term_session WHERE task_id=?1").is_empty() { std::thread::sleep(Duration::from_millis(200)); }
+    assert_eq!(q("SELECT cli FROM term_session WHERE task_id=?1"), "", "a IA saiu → shell de volta:\n{}", tail());
+    assert!(s.alive(), "o shell segue vivo");
+    s.write_bytes(b"starfork status\r").unwrap();
+    std::thread::sleep(Duration::from_secs(6));
+    assert!(tail().contains("t1") || tail().to_lowercase().contains("requisito"), "`starfork status` no shell:\n{}", tail());
+    eprintln!("[ia-real] ok — tela final:\n{}", tail());
+    m.kill(&task);
+}
