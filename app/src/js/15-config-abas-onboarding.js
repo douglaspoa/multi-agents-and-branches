@@ -420,7 +420,7 @@ function showActiveView(){
   const target=t.kind==='flow'?null:((typeof cvViewTarget==='function' && cvViewTarget(t)) || VIEW_OVERLAY[t.kind]);
   // esconde as OUTRAS telas; a do destino fica como está (esconder e mostrar a mesma = piscada)
   Object.keys(VIEW_OVERLAY).forEach(k=>{ const id=VIEW_OVERLAY[k]; if(id===target) return; const o=$id(id); if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
-  if(t.kind==='flow') return; // o quadro (.body) já aparece
+  if(t.kind==='flow'){ if(typeof fwHeadDock==='function') fwHeadDock(); return; } // o quadro (.body) já aparece
   if(t.kind==='task') tabTaskId=t.taskId; // qual tarefa esta aba mostra
   loadTabState(t);      // devolve o estado guardado desta aba (views múltiplas)
   const kindWas=t.kind;
@@ -431,6 +431,7 @@ function showActiveView(){
   // vira ABA no MESMO quadro: antes era num requestAnimationFrame e a tela pintava 1 quadro como
   // modal (flex, sem .astab) a cada troca de aba — a "piscada"
   if(o){ syncChromeH(); o.classList.add('astab'); o.style.display='block'; requestAnimationFrame(syncChromeH); }
+  if(typeof fwHeadDock==='function') fwHeadDock();
 }
 let _updBtnNode=null; // o botão "atualizar" sobrevive aos re-renders da barra de abas (ver renderTabs)
 function renderTabs(){
@@ -444,6 +445,9 @@ function renderTabs(){
   // o botão "atualizar" mora DENTRO da barra: tira ele antes do innerHTML e devolve depois (guardado em
   // _updBtnNode — antes o 2º render destruía o botão e o aviso de versão nova nunca aparecia).
   { const u=$id('updBtn'); if(u) _updBtnNode=u; if(_updBtnNode && bar.contains(_updBtnNode)) _updBtnNode.remove(); }
+  // redesenho F1: o cabeçalho da tarefa pode estar DOCADO aqui (20-workspace fwHeadDock) — sai antes do innerHTML e
+  // volta no fim (mesmo nó: ids, handlers e o ResizeObserver intactos)
+  { const h=bar.querySelector('.fwhead'); if(h) h.remove(); }
   bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+'<span class="tablist" role="tablist" aria-label="abas abertas">'+((typeof cvStripItems==='function')?cvStripItems(TABS.map(t=>t.id), (typeof SPL!=='undefined')?SPL.ids:null):TABS.map(t=>({ id:t.id }))).map(it=>{
     // tela dividida = UMA aba-grupo com um segmento por membro (58-canvas, estilo grupo de abas do Chrome)
     if(it.group) return cvGroupTabHtml(it.group);
@@ -453,7 +457,7 @@ function renderTabs(){
     // tooltip (o texto corta em 28) e arrastável pra reordenar (a Central fica fixa na frente). O X é só pro mouse
     // (aria-hidden: controle dentro de role=tab não é permitido) — pelo teclado fecha com Delete.
     return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true" aria-keyshortcuts="Delete"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" aria-hidden="true" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
-  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" role="button" tabindex="0" aria-haspopup="menu" aria-label="abrir: nova demanda, demanda, navegador, simulador ou documento" aria-keyshortcuts="Meta+N Control+N" title="abrir — nova demanda (⌘N), outra demanda, navegador, simulador ou documento&#10;arraste uma aba pra metade da tela pra dividir (⌘\\)&#10;? ou ⌘/ abre o painel de atalhos&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
+  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" role="button" tabindex="0" aria-haspopup="menu" aria-label="abrir: nova demanda, demanda, navegador, simulador ou documento" aria-keyshortcuts="Meta+N Control+N" title="abrir — nova demanda (⌘N), outra demanda, navegador, simulador ou documento&#10;arraste uma aba pra metade da tela pra dividir (⌘\\)&#10;? ou ⌘/ abre o painel de atalhos&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabtools" id="tabTools"></span><span class="tabright" id="tabRight"></span>`;
   bar.querySelectorAll('[data-tk]').forEach(el=>{
     el.onclick=async e=>{ if(e.target.closest('[data-xk]')) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); };
     // botão do meio fecha a aba (como no navegador)
@@ -488,6 +492,7 @@ function renderTabs(){
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
   // sem #tabRight o nó continua guardado em _updBtnNode e volta no próximo render (nunca se perde)
   { const u=_updBtnNode||$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
+  if(typeof fwHeadDock==='function') fwHeadDock(); // faixa 1 = abas + modos + ação da tarefa (ou o cabeçalho volta pro .fw)
   requestAnimationFrame(syncChromeH);
   tabsFit();
 }

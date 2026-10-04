@@ -106,8 +106,10 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   ctx.termMount({ id: 't1' }); await tick(); await tick(); await tick();
   const st = ctx.TERM.t1;
   assert.equal(st.mode, 'hist');
-  assert.match(st.bar.innerHTML, /retomar sessão/);
-  assert.match(st.bar.innerHTML, /histórico · digite pra continuar/); // terminal integrado: digitar retoma
+  // redesenho F1: sem a barra "histórico · digite pra continuar" em cima do terminal (digitar/clicar retoma; o
+  // "retomar sessão" mora na barra de status — tlBarHtml)
+  assert.equal(st.bar.style.display, 'none');
+  assert.equal(st.bar.innerHTML, '');
   const out = st.term.out.join('').replace(/\x1b\[[0-9;]*m/g, '');
   assert.match(out, /╭─ claude · sessão e3f63ca1 · worktree t1/);
   assert.match(out, /● velho/);
@@ -171,4 +173,27 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   const html = readFileSync(new URL('../src/index.html', import.meta.url), 'utf8');
   assert.match(html, /vendor\/xterm\/xterm\.js/);
   assert.doesNotMatch(html, /cdn[^"']*xterm/i, 'xterm local, sem CDN');
+});
+
+// redesenho F1: a barra "histórico" saiu de cima do xterm — "retomar sessão" mora na barra de status (tlBarHtml), só
+// quando há sessão pra retomar
+test('barra de status: "retomar sessão" no histórico; nunca com modo automático (resumes:false) nem em rascunho sem sessão', () => {
+  const lay = src('60-terminal-layout.js');
+  const a = lay.indexOf('function tlBarHtml(t){'), b = lay.indexOf('// teto de custo aberto', a);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const TERM = {};
+  const bar = new Function('esc', 'escA', 'TERM', 'taskSt', 'stMeta', 'termEvents', 'tiCompOn', 'termHeadless', 'termWtGone', lay.slice(a, b) + '\nreturn tlBarHtml;')(
+    esc, esc, TERM, (t) => t.status, () => ({ c: 'var(--muted)', pt: 'pronta' }), () => [], () => false, () => false, () => false);
+  const t = { id: 't1', status: 'review', engine: 'claude', branch: 'feat/x' };
+  TERM.t1 = { mode: 'hist', alive: false, hinfo: { source: 'transcript', resumes: true } };
+  assert.match(bar(t), /class="lnk tlresume" data-termopen="t1"[^>]*>retomar sessão</);
+  assert.match(bar(t), /class="tlbr mono"[^>]*>feat\/x</);
+  TERM.t1.hinfo.resumes = false;
+  assert.ok(!/retomar sessão/.test(bar(t)), 'modo automático: o compositor manda (aviso fica na barra do xterm)');
+  TERM.t1 = { mode: 'hist', alive: false, hinfo: { source: 'none' } };
+  assert.ok(!/retomar sessão/.test(bar({ ...t, status: 'draft' })), 'rascunho sem sessão: não há o que retomar');
+  TERM.t1 = { mode: 'live', alive: true, hinfo: null };
+  assert.ok(!/retomar sessão/.test(bar(t)), 'vivo: nada a retomar');
+  // o "abrindo…" acha o botão novo (fora da barra do xterm)
+  assert.match(src('60-terminal.js'), /st\.bar\.querySelector\(sel\)\|\|st\.bar\.querySelector\('\[data-termopen\]'\)\|\|\(typeof document!=='undefined' && document\.querySelector \? document\.querySelector\(sel\) : null\)/);
 });

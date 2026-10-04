@@ -141,6 +141,8 @@ function renderBus(){
   if(el.title!==tip) el.title=tip;
 }
 
+// redesenho F1: "Fábrica" na navegação da lateral (a tela é do 65-fabrica.js — enquanto não carrega, só avisa)
+{ const fb=$id('fabricaBtn'); if(fb) fb.onclick=()=>{ typeof fabOpen==='function' ? fabOpen() : toast('Fábrica chegando'); }; }
 // clique numa contagem da barra de status → Central (Execução) filtrada naquela etapa
 { const bs=$id('busSummary'); if(bs) bs.addEventListener('click', e=>{
   const b=e.target.closest('[data-busst]'); if(!b) return;

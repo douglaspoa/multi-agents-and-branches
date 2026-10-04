@@ -102,7 +102,7 @@ function tiAiLabel(ai, model){ const x=TI_AIS.find(a=>a.id===ai); return (x?x.sh
 function tiAiSelHtml(cli, rec){
   const opts=TI_AIS.map(x=>`<option value="${x.id}"${x.id===cli?' selected':''}>${esc(tiAiLabel(x.id, x.id===rec.ai?rec.model:'')+(x.exp?' (experimental)':''))}</option>`).join('');
   const odd=cli && !TI_AIS.some(x=>x.id===cli) ? `<option value="${escA(cli)}" selected>${esc(cli)}</option>` : '';
-  return `<select class="tiai" data-ti="ai" aria-label="IA rodando no terminal — trocar">${cli===''?'<option value="" selected disabled>shell (sem IA)</option>':''}${odd}${opts}<option value="__cmd">Outro comando…</option></select>`;
+  return `<select class="tiai" data-ti="ai" aria-label="IA rodando no terminal — trocar" title="a IA que roda no terminal — trocar (ou digite starfork ia &lt;nome&gt; no terminal)">${cli===''?'<option value="" selected disabled>shell (sem IA)</option>':''}${odd}${opts}<option value="__cmd">Outro comando…</option></select>`;
 }
 /** Anexo salvo (rel dentro da worktree) → menção que o Claude Code lê. Nome com espaço vai entre aspas. */
 function tiAtRef(rel){ const r=String(rel||'').replace(/^\.\//,'').replace(/[\x00-\x1f\x7f]/g,''); if(!r) return ''; return (/\s/.test(r)?'@"'+r.replace(/"/g,'')+'"':'@'+r)+' '; }
@@ -200,6 +200,18 @@ function tiAiRowHtml(o){
 }
 /** Chips da vez pra mostrar: some com a IA no meio de um turno (busy) e depois do clique (usedId). */
 function tiChipsFor(evs, usedId, busy){ if(busy) return null; const s=tiSuggest(evs); return (!s || s.id===usedId) ? null : s; }
+/**
+ * Faixa "Responder" (redesenho F1), COLADA ao terminal e separada da linha de comandos: responder ≠ comandar.
+ * o: { chips:{ id, list }|null, busy (IA no meio de um turno), live (PTY vivo), shell (PTY vivo sem IA), rec:{ai,model,command} }
+ * shell → "a IA parou · Continuar com <IA · modelo>"; busy → só "Interromper (esc)"; chips → 1·2·3 com o atalho; nada → ''.
+ */
+function tiReplyHtml(o){
+  o=o||{};
+  if(o.shell && o.rec) return `<div class="tireply shell" role="status"><span class="tirl">a IA parou</span><button type="button" class="btn sm primary tirecbtn" data-ti="rec" title="${escA('roda no terminal: '+o.rec.command)}">Continuar com ${esc(tiAiLabel(o.rec.ai, o.rec.model))}</button></div>`;
+  if(o.busy) return o.live ? `<div class="tireply busy"><span class="tirl">a IA está trabalhando</span><span class="sp"></span><button type="button" class="btn sm tiesc" data-ti="esc" title="manda Esc pro terminal — a IA para o turno e espera você">Interromper <span class="kbd">esc</span></button></div>` : '';
+  const c=o.chips; if(!c || !c.list || !c.list.length) return '';
+  return `<div class="tireply"><span class="tirl" id="tiReplyL">Responder</span><div class="tichips" role="group" aria-labelledby="tiReplyL">${c.list.map((x,i)=>`<button type="button" class="tichip${i?'':' pri'}" data-tichip="${i}" data-sid="${escA(String(c.id))}" title="${escA('manda pro terminal: '+x)}"${i<3?` aria-keyshortcuts="${i+1}"`:''}><span class="tichx">${esc(x)}</span>${i<3?`<span class="tik" aria-hidden="true">${i+1}</span>`:''}</button>`).join('')}</div></div>`;
+}
 /** O compositor de texto aparece? o: { pref (localStorage tiComp), tmp (alguém pediu o campo), budget (teto aberto), pend (anexos esperando), draft } */
 function tiCompVisible(o){ o=o||{}; return o.pref==='1' || !!o.tmp || !!o.budget || !!(o.pend && o.pend.length) || !!String(o.draft||'').trim(); }
 // @ti-puro-fim
@@ -215,7 +227,10 @@ function tiEngine(t){ const s=t&&TI.stat[t.id]; return String((s && s.cli) || (s
 function tiRec(t){ const s=TI.stat[t.id]; return tiRecommended(s&&s.recommended, tiTaskAi(t), tiTaskModel(t)); }
 function tiAiRow(t){ const s=TI.stat[t.id]; const st=TERM[t.id]; const live=!!(st && st.alive);
   // "shell (sem IA)" só com o PTY VIVO e nada rodando nele; sem terminal vivo o seletor mostra a IA da tarefa
-  return tiAiRowHtml({ cli:(live && s && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:live && !!s && s.cli==='' }); }
+  // shell: o "Continuar com…" mora na faixa Responder (tiReplyHtml) — aqui fica só o seletor, sem repetir o botão
+  if(live && s && s.cli==='') return `<div class="tiairow">${tiAiSelHtml('', tiRec(t))}</div>`;
+  return tiAiRowHtml({ cli:(live && s && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:false }); }
+function tiShellNow(t){ const s=TI.stat[t.id], st=TERM[t.id]; return !!(st && st.alive && s && s.cli===''); }
 function tiAiRowReset(t){ const box=$id('tiAiRow'); if(box) box.__html=''; tiAiRowPaint(t); } // o <select> ficou na opção escolhida: volta pro real
 // trocar/rodar com a IA no meio de um turno interrompe o trabalho: pergunta antes
 async function tiBusyOk(taskId){
@@ -364,22 +379,25 @@ function tiAttached(taskId, atts){
 }
 
 // ---------------------------------------------------------------- dock embaixo do terminal
+// faixa Responder da tarefa: chips (sugestões do agente), "Interromper" no meio do turno ou "Continuar com…" no shell
 function tiChipsHtml(t){
-  const st=TI.stat[t.id]; const s=tiChipsFor(termEvents(t.id), TI.used[t.id], !!(st && st.busy)); if(!s) return '';
-  return `<div class="tichips" role="group" aria-label="respostas sugeridas pelo agente">${s.list.map((c,i)=>`<button type="button" class="tichip${i?'':' pri'}" data-tichip="${i}" data-sid="${escA(String(s.id))}" title="${escA('manda pro terminal: '+c)}">${esc(c)}</button>`).join('')}</div>`;
+  const st=TI.stat[t.id]; const busy=!!(st && st.busy); const live=!!(TERM[t.id] && TERM[t.id].alive);
+  return tiReplyHtml({ chips:tiChipsFor(termEvents(t.id), TI.used[t.id], busy), busy, live, shell:tiShellNow(t), rec:tiRec(t) });
 }
+// redesenho F1: [faixa Responder colada ao terminal] + [linha de comandos: IA ▾ · Anexar · ✎ | Etapa · Skills · Tarefa ·
+// Revisão / PR · "botão só digita o comando"]. O compositor virou ícone (✎) — sem o rótulo "compositor" solto.
 function tiDockHtml(t){
   const comp=tiCompOn(t);
   const act=(k, label)=>`<button type="button" class="tiact" data-tisheet="${k}" aria-haspopup="dialog">${TI_IC[k]}<span>${esc(label)}</span></button>`;
-  return `<div class="tidock" id="tiDock" data-task="${escA(t.id)}"><div id="tiAiRow">${tiAiRow(t)}</div><div id="tiChips">${tiChipsHtml(t)}</div>`+
-    `<div class="tiacts"><button type="button" class="tiact ticlip" data-ti="att" title="anexar print, PDF ou arquivo — ou arraste/cole (⌘V) no terminal">${TI_IC.clip}<span>Anexar</span></button><span class="tisep" aria-hidden="true"></span>`+
-    act('etapa','Etapa')+act('skill','Skills')+act('tarefa','Tarefa')+act('pr','Revisão/PR')+
-    `<button type="button" class="tiact ticomp" data-ti="comp" aria-pressed="${comp}" title="${comp?'esconder o compositor de texto':'mostrar o compositor de texto (anexos, vira requisito, IA da tarefa)'}"><span aria-hidden="true">✎</span><span>compositor</span></button>`+
-    `<span class="sp"></span><span class="tihint">botão = comando no terminal</span></div></div>`;
+  return `<div class="tidock" id="tiDock" data-task="${escA(t.id)}"><div id="tiChips">${tiChipsHtml(t)}</div>`+
+    `<div class="tiacts"><div id="tiAiRow" class="tiaipick">${tiAiRow(t)}</div><button type="button" class="tiact ticlip" data-ti="att" title="anexar print, PDF ou arquivo — ou arraste/cole (⌘V) no terminal">${TI_IC.clip}<span>Anexar</span></button>`+
+    `<button type="button" class="tiact ticomp" data-ti="comp" aria-pressed="${comp}" aria-label="${comp?'esconder o compositor de texto':'mostrar o compositor de texto'}" title="${comp?'esconder o compositor de texto':'escrever num compositor de texto (anexos, vira requisito, IA da tarefa)'}"><span aria-hidden="true">✎</span></button><span class="tisep" aria-hidden="true"></span>`+
+    act('etapa','Etapa')+act('skill','Skills')+act('tarefa','Tarefa')+act('pr','Revisão / PR')+
+    `<span class="sp"></span><span class="tihint">botão só digita o comando</span></div></div>`;
 }
 /** Depois do render (tlWire): liga o dock, devolve a folha aberta e põe o foco no terminal quando a tarefa abre. */
 function tiWire(t){
-  const dock=$id('tiDock'); if(dock){ dock.__chips=tiChipsHtml(t); dock.onclick=(e)=>tiDockClick(t.id, e);
+  const dock=$id('tiDock'); if(dock){ dock.__chips=tiChipsHtml(t); dock.onclick=(e)=>tiDockClick(t.id, e); dock.onkeydown=(e)=>tiReplyKey(t.id, e);
     const row=$id('tiAiRow'); if(row) row.__html=tiAiRow(t);
     dock.onchange=(e)=>{ const sel=e.target.closest('[data-ti="ai"]'); if(!sel) return; const ai=sel.value; sel.blur(); const r=tiRec(t); tiSwitchAi(t.id, ai, ai===r.ai?r.model:null); };
     if(TI.stat[t.id]===undefined) tiStatRefresh(t, true); }
@@ -396,9 +414,23 @@ function tiDockClick(taskId, e){
   const b=e.target.closest('[data-ti]'); if(!b) return;
   if(b.dataset.ti==='att'){ tiAttachPick(taskId); return; }
   if(b.dataset.ti==='rec'){ tiRunRec(taskId); return; }
+  if(b.dataset.ti==='esc'){ tiInterrupt(taskId); return; }
   if(b.dataset.ti==='comp'){ const t=tiTask(taskId); const on=!tiCompOn(t); lsSet('tiComp', on?'1':'0'); if(!on) delete TI.compTmp[taskId];
     if(typeof renderWorkspace==='function') renderWorkspace();
     if(on){ const i=$id('fwInput'); if(i) i.focus(); } else tlFocusTerm(taskId); }
+}
+/** "Interromper (esc)": o MESMO Esc que você apertaria no terminal (o CLI para o turno e espera) — só com o PTY vivo. */
+function tiInterrupt(taskId){
+  const st=TERM[taskId]; if(!st || !st.alive){ toast('o terminal não está aberto — nada pra interromper aqui', 'info'); return; }
+  invokeQuiet('term_write', { taskId, data:'\x1b' }).catch(()=>{});
+  tlFocusTerm(taskId);
+  setTimeout(()=>{ const t=tiTask(taskId); if(t) tiStatRefresh(t, true); }, 900);
+}
+// atalho 1–3 SÓ com o foco na faixa Responder (no terminal e na linha de comandos o número não é dela)
+function tiReplyKey(taskId, e){
+  if(e.metaKey||e.ctrlKey||e.altKey || !/^[1-3]$/.test(e.key) || !e.target.closest('.tireply')) return;
+  const b=document.querySelector(`#tiDock[data-task="${CSS.escape(taskId)}"] [data-tichip="${+e.key-1}"]`); if(!b) return;
+  e.preventDefault(); b.click();
 }
 async function tiChip(taskId, btn){
   const s=tiSuggest(termEvents(taskId)); const i=+btn.dataset.tichip; if(!s || String(s.id)!==btn.dataset.sid || !s.list[i]) return;

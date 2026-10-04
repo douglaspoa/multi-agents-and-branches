@@ -27,6 +27,7 @@ mod navexterno;
 mod memoria;
 mod mesa;
 mod ideia;
+mod fabrica;
 mod plan_usage;
 mod projetos_conta;
 mod pty;
@@ -10023,6 +10024,12 @@ pub fn run() {
             ideia::reach_install,
             ideia::reach_doctor,
             ideia::reach_remove,
+            fabrica::fabrica_start,
+            fabrica::fabrica_read,
+            fabrica::fabrica_list,
+            fabrica::fabrica_stop,
+            fabrica::fabrica_discard,
+            fabrica::fabrica_choose,
             mesa::mesa_stop,
             mesa::mesa_resume,
             mesa::mesa_save,

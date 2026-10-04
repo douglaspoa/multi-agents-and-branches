@@ -91,3 +91,66 @@
 .ntkind-locks{font-size:var(--fs-xs)}
 .ntkind-cap{margin-top:4px}
 .cicdec-go{border-color:var(--accent-line);color:var(--text)}
+
+/* ==== redesenho F1 (protótipo aprovado 04/10): no máximo 2 faixas acima do conteúdo da tarefa ====
+   faixa 1 = barra de abas com os modos + a ação principal + ⋯ (o .fwhead docado — 20-workspace fwHeadDock);
+   faixa 2 = esta: selo do estado · etapas · portão (N de M com prova) · adiados · gasto, numa linha só.
+   Só estrutura: cores pelos tokens de 10-base (a paleta nova é a F2) e nenhuma animação (F3). */
+.tabbar .tabtools{display:flex;align-items:center;flex:0 0 auto;min-width:0;align-self:center;margin-bottom:4px}
+.tabbar .tabtools:empty{display:none}
+.tabbar .fwhead.docked{flex:0 0 auto;padding:0 2px 0 10px;border:0;background:none;gap:6px;min-width:0}
+.tabbar .fwhead.docked #fwTaskName,.tabbar .fwhead.docked #fwTaskBranch,.tabbar .fwhead.docked #fwOrqChips,
+.tabbar .fwhead.docked #fwClose,.tabbar .fwhead.docked #fwTaskEpic,
+.tabbar .fwhead.docked>span[style*="flex:1"],.tabbar .fwhead.docked .fwnoproof{display:none} /* "aprovar sem prova…" continua no portão (painel e Entrega) */
+/* o selo do estado mora na faixa 2; tarefa sem faixa (sem papéis) mantém o selo aqui */
+.tabbar .fwhead.docked #fwPhases{display:inline-flex}
+body:has(#fwCiclo .cicst-pill) .tabbar .fwhead.docked #fwPhases{display:none}
+.tabbar .fwhead.docked .btn{height:28px}
+.fwciclo .cicstrip{flex-wrap:nowrap;gap:8px 14px}
+.cicst-pill{flex:none;display:inline-flex}
+.cicst-epic,.cicst-orq{flex:none;display:inline-flex;align-items:center;gap:4px;min-width:0}
+.cicst-orq:empty{display:none}
+.cicst-br{display:none;flex:0 1 auto;min-width:0;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);color:var(--muted)}
+@container ciclo (min-width:1300px){ .fwciclo .cicst-br{display:inline} }
+html.sfpane .cicst-epic,html.sfpane .cicst-br{display:none} /* no painel o cabeçalho do painel já mostra */
+html.sfpane .cicst-pill{display:none} /* no painel o selo mora no cabeçalho do painel (#fwPhases) */
+.fwciclo .cicst-list{flex:0 1 auto;gap:2px}
+.fwciclo .cicst-b{gap:5px;padding:2px 7px 2px 2px}
+.fwciclo .cicst-av{width:20px;height:20px}
+.fwciclo .cicst.s-feito .cicst-w,.fwciclo .cicst.s-espera .cicst-w{display:none} /* ✓ já diz "pronto"; "depois" é o padrão */
+.fwciclo .cicst-sep{width:8px}
+.fwciclo .cicst-sum{flex:1 1 auto;flex-wrap:nowrap;white-space:nowrap;min-width:0;align-items:center;gap:6px 12px;margin-left:0}
+html:not(.sfpane) .fwciclo .cicst-now,html:not(.sfpane) .fwciclo .cicst-next{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.fwciclo .cicst-cost{margin-left:auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.cicst-posl{display:none}
+.fwciclo .cicst-c{display:none}
+@container ciclo (min-width:1400px){ .fwciclo .cicst-c{display:inline} }
+.cicgate{display:inline-flex;align-items:center;gap:6px;flex:none;color:var(--muted);font-size:var(--fs-sm);padding-left:12px;border-left:1px solid var(--border)}
+.cicgate-tx{color:var(--text-2)}
+.cicgate-tx b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.cicgate-ring{width:16px;height:16px;flex:none}
+.cicgate-ring circle{fill:none;stroke-width:2}
+.cicgate-ring .bg{stroke:var(--border-strong)}
+.cicgate-ring .fg{stroke:currentColor;stroke-linecap:round}
+.cicgate.g-ok{color:var(--good)}
+.cicgate.g-no{color:var(--st-ask)}
+.cicgate.g-ov{color:var(--warn)}
+.cicgate.g-ld{color:var(--muted)}
+.cicgate.g-ld .cicgate-ring .bg{stroke-dasharray:2 2}
+.cicgate-ad{flex:none;border:1px dashed var(--border-strong);border-radius:var(--r-xs);padding:1px 7px;font-size:var(--fs-xs);color:var(--text-2)}
+/* < 1120 px de faixa: só as etapas que pedem atenção (agora · sua vez · precisa) ficam com texto — as outras viram o rosto,
+   com o nome no tooltip; < 960 px: todas viram o rosto e entra "etapa n de N · Rótulo" (o selo do estado fica) */
+@container ciclo (max-width:1120px){
+  .fwciclo .cicst:not(.s-agora):not(.s-sua-vez):not(.s-precisa) .cicst-tx{display:none}
+  .fwciclo .cicst:not(.s-agora):not(.s-sua-vez):not(.s-precisa) .cicst-b{padding:3px}
+  .fwciclo .cicst-sep{width:6px}
+  .fwciclo .cicst-sum{width:auto}
+}
+@container ciclo (max-width:960px){
+  .fwciclo .cicst-pos,.fwciclo .cicst-posl{display:inline}
+  .fwciclo .cicst .cicst-tx,.fwciclo .cicst .cicst-c{display:none}
+  .fwciclo .cicst .cicst-b{padding:3px}
+  .fwciclo .cicgate-w,.fwciclo .cicst-epic .epn{display:none} /* o selo do estado FICA (compacto); sai o texto longo do portão */
+}
+@container ciclo (max-width:620px){ .fwciclo .cicst-posl{display:inline} .fwciclo .cicgate-tx,.fwciclo .cicgate-ad{display:none} }
+.fwciclo .cicst-pos+.cicst-posl{margin-left:-10px}

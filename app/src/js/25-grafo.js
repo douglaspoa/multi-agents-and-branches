@@ -228,6 +228,12 @@ function railProjTip(c){
 // projetos com demanda viva ficam na lista (veto da Júlia: nada vivo atrás de clique); os vazios viram UMA linha
 function railSplitProjects(list){ const vivos=[], vazios=[]; for(const p of (list||[])) ((p.tasks||[]).length?vivos:vazios).push(p); return { vivos, vazios }; }
 function railEmptyText(n){ return '+'+n+(n===1?' projeto sem demanda':' projetos sem demanda'); }
+// redesenho F1 (direção B): selo do projeto = cor estável (projColor) + INICIAL — a cor nunca é o único código.
+// O mesmo selo aparece na Central (66-central-tabela) pra ligar a linha da lateral à linha da tabela.
+function railBadgeHtml(name, color){ const n=String(name||'').replace(/^[^\p{L}\p{N}]+/u,''); const ini=(n.charAt(0)||'?').toUpperCase();
+  return `<span class="rpbadge" style="--pc:${escA(color||'var(--muted)')}" aria-hidden="true">${esc(ini)}</span>`; }
+// título da lista: "Demandas · N em aberto" (a contagem é a do rodapé — railCounts, mesma régua da Central)
+function railHeadHtml(vivas){ return `<div class="rhead"><span>Demandas</span><span class="n">${vivas===1?'1 em aberto':vivas+' em aberto'}</span></div>`; }
 // L14: tooltip da linha = título inteiro · estado · branch · projeto (sem hora relativa: a guarda el.__html continua valendo)
 function railRowTip(t, label, proj){ return [t.title, label, t.branch, proj].filter(Boolean).join(' · '); }
 // ↑/↓/Home/End entre as linhas da lista (L13)
@@ -262,7 +268,8 @@ function renderRail(){
 
   // ---- PROJETO ATUAL ----
   let html = '';
-  html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n" title="${escA(railProjTip(cMine))}">${cMine.vivas}</span></div>${gitRailTag()}</div>`;
+  const pcol=(typeof projColor==='function')?projColor:(()=>'');
+  html+=`<div class="rproj on" title="projeto atual"><div class="rph">${railBadgeHtml(curName, pcol(curPath))}<b>${esc(curName)}</b><span class="n" title="${escA(railProjTip(cMine))}">${cMine.vivas}</span></div>${gitRailTag()}</div>`;
   if(window.orqRailRows) html+=window.orqRailRows();
   if(rows.length){
     html+=rows.map(r=>rowHtml(r.t, r.st, curName, '')).join('');
@@ -278,7 +285,7 @@ function renderRail(){
   vivos.sort((a,b)=> cOf.get(b).voce-cOf.get(a).voce || cOf.get(b).vivas-cOf.get(a).vivas || String(a.name).localeCompare(String(b.name)));
   for(const p of vivos){
     const c=cOf.get(p);
-    html+=`<div class="rproj"><div class="rph"><b>${esc(p.name)}</b><span class="n" title="${escA(railProjTip(c))}">${c.vivas}</span></div></div>`;
+    html+=`<div class="rproj"><div class="rph">${railBadgeHtml(p.name, pcol(p.path))}<b>${esc(p.name)}</b><span class="n" title="${escA(railProjTip(c))}">${c.vivas}</span></div></div>`;
     const pt=(p.tasks||[]).slice().sort((x,y)=>railRank(x.status)-railRank(y.status));
     html+=pt.slice(0,3).map(t=>rowHtml(t, t.status, p.name, p.path)).join('');
     if(pt.length>3) html+=`<div class="prow2 other more" data-proj="${escA(p.path)}" role="button" tabindex="0" title="abrir ${escA(p.name)}"><span class="tt dim">+${pt.length-3} neste projeto</span></div>`;
@@ -288,6 +295,7 @@ function renderRail(){
   // de quem são os projetos listados (lista POR CONTA — 40-conta-escopo) e quantos de outras contas ficaram ocultos
   if(typeof projScopeHtml==='function') html+=projScopeHtml();
   const cAll=railSum([cMine, ...vivos.map(p=>cOf.get(p))]);
+  html=railHeadHtml(cAll.vivas)+html; // demandas PRIMEIRO na lateral (a navegação mora embaixo — index.html .sbnav2)
   html+=`<div class="rpfoot" title="${escA('Até '+slotMax+' demandas rodando ao mesmo tempo — muda em Configurações › Tarefas ao mesmo tempo')}">${esc(railFootText(cAll, slotMax))}</div>`;
   if(el.__html===html && el.firstChild) return; // nada visível mudou: mantém o DOM (e os handlers) — sem piscar
   // a ordem mudou com o mouse ou o foco na lista: espera sair (senão a linha pula e o clique cai na demanda errada)

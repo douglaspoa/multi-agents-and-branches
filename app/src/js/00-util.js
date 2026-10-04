@@ -76,6 +76,17 @@ function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
 function aiKeepSid(r, set){ set(String((r&&r.sessionId)||'')); }
 // caminhos de ARQUIVO nos dois formatos (/Users/x/proj e C:\Users\x\proj) — Windows mostrava o caminho inteiro.
 // Só pra caminho do sistema de arquivos: URL e nome de branch continuam com split('/').
+// @adiado-puro-inicio — UMA régua de "requisito ADIADO por decisão sua" (o agente marca deferred/waived, ou blocked com
+// a nota da decisão). Vale pro portão (proofMissingOf, 21), o orquestrador (orqReqSettled, 34), o painel e a faixa
+// (60-terminal-layout/60-ciclo), a Entrega (27), a Central (66) e a Prévia (58) — e bate com o verifyProofs do motor
+// ("done ou deferred" passa). Provado (com arquivo de prova) nunca é adiado. Adiado conta como resolvido, nunca riscado.
+const REQ_ADIADO_RE=/deferid|adiad|dispensad|fora de escopo|decis[aã]o (de produto|do humano|do usu[aá]rio)|via ask_human/i;
+function reqIsAdiado(r){
+  if(!r) return false;
+  if((r.st==='ok' || r.status==='done') && Array.isArray(r.evidence) && r.evidence.length) return false;
+  const s=String(r.status||''); return s==='deferred' || s==='waived' || (s==='blocked' && REQ_ADIADO_RE.test(String(r.note||'')));
+}
+// @adiado-puro-fim
 function pathBase(p){ return String(p||'').split(/[\\/]+/).filter(Boolean).slice(-1)[0]||''; }
 function pathDir(p){ const s=String(p||''); const i=Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\')); return i>0?s.slice(0,i):(i===0?s.slice(0,1):''); }
 // sistema operacional do app ('mac' | 'win' | 'linux') — o updater só aplica o .app no Mac

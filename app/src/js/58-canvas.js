@@ -694,6 +694,8 @@ function cvShowMsg(o){
 // linhas compactas do overlay de requisitos na Prévia: "requisito 3 ✓ com print"
 function cvReqOverlayRows(rows){
   return (rows||[]).map((r,i)=>{ const shots=r.evidence.filter(e=>/\.(png|jpe?g|gif|webp|mp4|mov|webm)$/i.test(String(e))).length;
+    // adiado com motivo (redesenho F1): tracejado, nunca "✗ falta" (60-terminal-layout reqIsAdiado)
+    if(typeof reqIsAdiado==='function' && reqIsAdiado(r)) return { n:i+1, st:'ad', mark:'◌', tail:'adiado', text:r.text, ev:r.evidence };
     const st=r.st==='ok'?'✓':r.st==='blk'?'✗':'·';
     const tail=r.st==='ok'?(shots?`com ${shots>1?shots+' prints':'print'}`:'sem print'):r.st==='blk'?'falta':'ainda sem prova';
     return { n:i+1, st:r.st, mark:st, tail, text:r.text, ev:r.evidence }; });

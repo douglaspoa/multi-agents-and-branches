@@ -263,7 +263,9 @@ function approveShowEntrega(t, scrollTo){
 // e vai na descrição do PR). Vale em TODA porta de aprovação: cabeçalho, card da Central, Entrega e resumo.
 // @prova-gate-inicio (testado em app/tests/critica-impeccable.test.mjs)
 // sem prova = não está "feito" OU está "feito" sem nenhum arquivo de evidência
-function proofMissingOf(rows){ return (rows||[]).filter(r=>r.st!=='ok' || !(Array.isArray(r.evidence)&&r.evidence.length)); }
+// adiado por decisão sua (reqIsAdiado, 00-util) conta como RESOLVIDO — igual ao verifyProofs do motor ("done ou deferred");
+// por isso o "pedir a prova" não pede os adiados
+function proofMissingOf(rows){ return (rows||[]).filter(r=>(r.st!=='ok' || !(Array.isArray(r.evidence)&&r.evidence.length)) && !(typeof reqIsAdiado==='function' && reqIsAdiado(r))); }
 function proofSigOf(missing){ return (missing||[]).map(r=>r.text).join('\n'); }
 // st: none (sem requisitos) · loading (provas ainda não lidas) · proven · unproven · override (liberada com motivo)
 // o motivo vale pra ESTE conjunto de requisitos sem prova — apareceu outro, pergunta de novo

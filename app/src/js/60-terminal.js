@@ -281,13 +281,19 @@ function termSetAlive(taskId, alive){
   if(termGone(h)) html=`<span>${esc(TERM_WT_GONE)}</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}" title="retoma a sessão da tarefa (a pasta dela é recriada)">conversar</button><button class="btn sm" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
   else if(termHeadless(t)) html=`<span><span class="pulse" style="--pc:var(--good)"></span> rodando em segundo plano (modo automático) · o histórico se atualiza sozinho</span><span class="cc-sp"></span>`;
   else if(fresh) html=`<span>o terminal desta tarefa ainda não foi aberto</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}">abrir terminal</button>`;
-  else html=`<span>histórico${h.resumes===false?' · o compositor manda no modo automático':' · digite pra continuar'}</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
-  st.bar.style.display='flex';
+  // redesenho F1: sem a barra "histórico · digite pra continuar" — digitar ou clicar no terminal já retoma, e o
+  // "retomar sessão" mora na barra de status (tlBarHtml). Fica só o aviso que muda o que acontece: modo automático.
+  else if(h.resumes===false) html=`<span>o compositor manda no modo automático</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
+  else html='';
+  st.bar.style.display=html?'flex':'none';
   if(st.bar.__html!==html){ st.bar.__html=html; st.bar.innerHTML=html; }
 }
 async function termOpen(taskId){
   const st=termEnsure(taskId); if(st.opening) return; st.opening=true;
-  const b=st.bar.querySelector('[data-termopen]'); if(b){ b.disabled=true; b.textContent='abrindo…'; }
+  // o botão pode estar na barra do xterm ou no "retomar sessão" da barra de status (tlBarHtml, redesenho F1)
+  const sel='[data-termopen="'+String(taskId).replace(/["\\]/g,'')+'"]';
+  const b=st.bar.querySelector(sel)||st.bar.querySelector('[data-termopen]')||(typeof document!=='undefined' && document.querySelector ? document.querySelector(sel) : null);
+  if(b){ b.disabled=true; b.textContent='abrindo…'; }
   try{
     const cols=(st.term&&st.term.cols)||120, rows=(st.term&&st.term.rows)||34;
     const info=await invoke('term_open',{ taskId, cols, rows, resume:true });

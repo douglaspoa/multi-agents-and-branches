@@ -234,7 +234,8 @@ function pmHtml(u, min, defEng, now, err, open, ord){
   const rows=pmRows(u, now, defEng, ord);
   if(!rows.length) return `<button class="pm-head pm-empty" data-pm="cfg" title="Nenhuma IA pronta — abrir Sua IA">${pmDot('idle')}<span class="pm-title">configure sua IA</span></button>`;
   const main=pmMain(rows, defEng);
-  const head=`<button class="pm-head" data-pm="toggle" aria-expanded="${!min}" aria-controls="pmRows" title="${min?'Mostrar o uso de cada IA':'Minimizar'}"><span class="pm-title">${min?esc(main.name):'Uso do plano'}</span>`
+  // recolhido (padrão desde o redesenho F1): UMA linha "Uso do plano · Claude 11 %" — as demandas ganham o espaço
+  const head=`<button class="pm-head" data-pm="toggle" aria-expanded="${!min}" aria-controls="pmRows" title="${min?'Mostrar o uso de cada IA':'Minimizar'}">${min?'<span class="pm-lbl">Uso do plano ·</span>':''}<span class="pm-title">${min?esc(main.name):'Uso do plano'}</span>`
     +(min?`<span class="pm-sum pm-${main.level}">${esc(main.short)}</span>`:'<span class="pm-sum"></span>')+PM_CHEV+'</button>';
   const minBar=min && main.topBar?pmBarHtml(main.name, main.topBar, 'pm-bar pm-minbar'):'';
   const list=rows.map(r=>pmIaHtml(r, isOpen(r.id))).join('');
@@ -243,7 +244,7 @@ function pmHtml(u, min, defEng, now, err, open, ord){
   return head+minBar+`<div class="pm-rows" id="pmRows"${min?' hidden':''}>${list}${more}</div>`;
 }
 // @medidor-puro-fim
-function pmIsMin(){ return lsGet(PM_MIN_KEY)==='1'; }
+function pmIsMin(){ return lsGet(PM_MIN_KEY)!=='0'; } // redesenho F1: recolhido por padrão; abrir fica lembrado ('0')
 // mesmo id do seletor (aiEngineOf: "dsh…"/"deepseek…" → deepseek, "codex…" → codex…)
 function pmEngId(e){
   if(typeof aiEngineOf==='function') return aiEngineOf(e);

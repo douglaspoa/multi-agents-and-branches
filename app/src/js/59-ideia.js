@@ -214,8 +214,12 @@ function ideiaBuildPlan(idea, view, reportMd){
     doneWhen:[`Abrir o app mostra a tela inicial de "${ideiaCut(titulo,60)}"`].concat(feats.slice(0,5).map(f=>`Dá pra usar "${ideiaCut(f.titulo,60)}" de ponta a ponta`)),
     boundaries:non.slice(0,6), platform:plat, tasks };
   if(reportMd) plan.docs=[{ path:`docs/pesquisa-${ideiaSlug(titulo)}.md`, content:reportMd }];
+  // veio da Fábrica (65-fabrica) com mock aprovado: o mock vira requisito da tela principal e vai pra docs/
+  if(idea.fabrica && idea.fabrica.mockHtml){ const mp=`docs/mock-${ideiaSlug(titulo)}.md`; tasks[0].requirements.push(`A tela principal se parece com o mock aprovado na Fábrica (${mp}), com prova por captura`); plan.docs=(plan.docs||[]).concat([{ path:mp, content:ideiaMockMd(titulo, idea.fabrica.mockHtml) }]); }
   return plan;
 }
+// o mock aprovado na Fábrica como documento (docs/mock-<slug>.md: o HTML num bloco, com o aviso de que é ilustração)
+function ideiaMockMd(titulo, html){ return `# Mock aprovado: ${titulo}\n\n*Ilustração com dados falsos, não app. Aprovado na Fábrica do Starfork — a tarefa da tela principal prova que a tela se parece com isto.*\n\n\`\`\`html\n${String(html||'').trim()}\n\`\`\`\n`; }
 // o épico como documento (vai pro projeto em docs/epico-<slug>.md na opção "seguir eu mesmo")
 function ideiaEpicMd(plan, titulo){
   const L=[`# ${plan.epic}`, plan.outcome, `**Plataforma:** ${ideiaPlatName(plan.platform)}`];
@@ -529,6 +533,7 @@ async function ideiaCreate(m, mode){
     }
     if(md) await invoke('ideia_commit_doc',{ repo:path, rel:`docs/pesquisa-${slug}.md`, content:md, message:`docs: pesquisa de mercado da ideia "${ideiaCut(m.titulo,60)}"` });
     await invoke('ideia_commit_doc',{ repo:path, rel:`docs/epico-${slug}.md`, content:ideiaEpicMd(plan, m.titulo), message:`docs: épico do MVP "${ideiaCut(m.titulo,60)}"` });
+    if(m.fabrica && m.fabrica.mockHtml) await invoke('ideia_commit_doc',{ repo:path, rel:`docs/mock-${slug}.md`, content:ideiaMockMd(m.titulo, m.fabrica.mockHtml), message:`docs: mock aprovado na Fábrica "${ideiaCut(m.titulo,60)}"` });
     const epicId='ideia-'+slug, made=m.partial.tasks.map(t=>t.id);
     const pol=typeof ntPolicy!=='undefined'?ntPolicy:{};
     const all=ideiaTaskPayloads(plan, epicId, { engine:defaultAiEngine(), model:defaultAiModel(), proof:pol.proofRequired, tests:pol.testsRequired });

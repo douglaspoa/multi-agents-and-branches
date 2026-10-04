@@ -217,7 +217,8 @@ function renderFlowFilters(){
     `<span class="grow"></span>`+resetBtn+
     `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados" aria-label="filtros avançados" aria-expanded="${ffAdvOpen?'true':'false'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
     `<span class="fvsep"></span>`+
-    `<button class="fvic${flowView==='list'?' on':''}" data-fv="list" title="Fluxo em lista" aria-label="ver em lista" aria-pressed="${flowView==='list'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
+    `<button class="fvic${flowViewEff()==='table'?' on':''}" data-fv="table" title="${flowTableOk()?'Tabela — ordenável, uma ação por linha':'Tabela só na Execução sem agrupar por dia — aqui aparecem os cartões'}" aria-label="ver em tabela" aria-pressed="${flowViewEff()==='table'}"${flowTableOk()?'':' disabled'}><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2.5" y="3" width="11" height="10" rx="1.2"/><path d="M2.5 6.4h11M2.5 9.7h11M6.2 6.4V13"/></svg></button>`+
+    `<button class="fvic${flowViewEff()==='list'?' on':''}" data-fv="list" title="Cartões em lista" aria-label="ver em cartões" aria-pressed="${flowViewEff()==='list'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
     `<button class="fvic${flowView==='grid'?' on':''}" data-fv="grid" title="Fluxo em grade" aria-label="ver em grade" aria-pressed="${flowView==='grid'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="3" width="4.4" height="4.4" rx="1"/><rect x="3" y="8.6" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="8.6" width="4.4" height="4.4" rx="1"/></svg></button>`+
     `<button class="fvic" data-view="kanban" title="Kanban" aria-label="ver no Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`+
     `</div>`;
@@ -434,7 +435,13 @@ function flowDoneGroupHtml(k, label, color, list, item){
   const head=`<button type="button" class="sech cgtog" data-donetog="${escA(k)}" aria-expanded="${col?'false':'true'}" aria-controls="${id}" title="${escA(label+' · '+(col?'mostrar as entregas':'recolher'))}"><span class="secchev">${col?IC.chevR:IC.chevD}</span><span class="prjd" style="background:${color}"></span>${esc(label)} <span class="n">${list.length}</span></button>`;
   return `<div class="secgrp cgrp${col?' collapsed':''}" data-sec="${escA('concl:'+k)}">${head}<div class="cgbody" id="${id}"${col?' hidden':''}>${col?'':flowDonePageHtml(k, list, item)}</div></div>`;
 }
-let flowView=lsGet('flowView')||'list';   // list | grid (redesign p1/p2)
+// table | list (cartões) | grid (redesign p1/p2). Redesenho F1: a Central abre em TABELA (66-central-tabela) — uma vez
+// pra quem estava na lista (ou nunca escolheu); quem escolheu a grade continua nela. Depois vale a escolha de cada um
+let flowView=(()=>{ const v=lsGet('flowView'); if(lsGet('flowViewF1')!=='1'){ lsSet('flowViewF1','1'); if(!v || v==='list'){ lsSet('flowView','table'); return 'table'; } } return v||'table'; })();
+// a tabela é da Execução sem agrupar por dia (Concluídas agrupa por projeto; "por dia" agrupa por data): lá ela fica
+// indisponível no seletor (com o porquê no tooltip) e o que aparece são os cartões — o seletor não mente
+function flowTableOk(){ return flowScope!=='done' && flowGroupBy!=='day'; }
+function flowViewEff(){ return (flowView==='table' && !flowTableOk())?'list':flowView; }
 function renderFlowHead(){
   const el=$id('flowHead'); if(!el) return;
   // só troca o DOM se mudou: reescrever a cada render piscava e zerava o #coordChip (preenchido a cada 2s)
@@ -721,7 +728,7 @@ function renderFlow(){
   // monta o HTML numa string (não escreve direto no DOM) pra poder pular o rebuild
   // quando NADA VISÍVEL mudou — senão o poll (evento de agente ativo) reconstruía a
   // lista inteira e o card sob o mouse piscava (pior em Concluídas, onde nada muda).
-  let tasks=[], html='', grouped=false; const rendered=[];
+  let tasks=[], html='', grouped=false; const rendered=[]; let ctTbl=null; // ctTbl: o pedaço da tabela (66), pra ela mexer no lugar
   // fila dos épicos (46): respeita busca/status/tipo/agente/épico lá dentro; entra DEPOIS de
   // "Aguardando você" e "Em andamento" (recolhida por padrão se há algo esperando você)
   const nWaitYou=flowScope==='done'?0:src.filter(t=>flowScopeOk(t)&&flowBucket(t)==='aguardando').length;
@@ -759,6 +766,10 @@ function renderFlow(){
         for(const t of tasks){ const k=t.repo||state.repo||''; if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
         // um grupo por projeto: abre por padrão, recolhe por projeto, 12 cartões por vez
         html = [...g.entries()].map(([k,list])=>flowDoneGroupHtml(k, projShort(k), projColor(k), list, item)).join("");
+      } else if(flowViewEff()==='table' && typeof ctHtml==='function'){
+        // redesenho F1: tabela ordenável (a fila dos épicos continua em cima, como nas seções)
+        tasks.forEach(t=>rendered.push(t));
+        ctTbl = ctHtml(tasks); html = epHtml + ctTbl;
       } else {
         const by={}; for(const t of tasks){ (by[flowBucket(t)] ||= []).push(t); }
         html = FLOW_SECS.map(([k,label,tone,acc])=>{
@@ -774,6 +785,7 @@ function renderFlow(){
   }
   // planos do orquestrador entram no topo em QUALQUER ordenação/agrupamento (sem busca ativa)
   if(window.orqBoardHtml && !flowQuery.trim()) html=window.orqBoardHtml(flowScope)+html;
+  if(typeof CT!=='undefined') CT.last=ctTbl!=null?{ pre:html.slice(0, html.length-ctTbl.length) }:null;
   // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
   if(html===flowLastHtml && el.firstChild) return;
   el.innerHTML=html; flowLastHtml=html;
@@ -794,6 +806,7 @@ function renderFlow(){
   bindClick('flowClearAll', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; flowClearFilters(); });
   bindClick('flowEmptyNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearSearch', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); });
+  if(typeof ctWire==='function' && el.querySelector('.cttable')) ctWire(el, src); // 66-central-tabela: ordenar, abrir a linha, teclado
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
   el.querySelectorAll('.frow,.dcard').forEach(row=>{
@@ -842,7 +855,7 @@ function renderFlow(){
     lastSig=''; renderFlow();
   });
   el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.sum; crossRun(id, ()=>openTaskSummary(id)); });
-  el.querySelectorAll('[data-dcopen]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=src.find(x=>x.id===b.dataset.dcopen); if(!t) return; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } selected=t.id; render(); openWorkspace(t.id); });
+  el.querySelectorAll('[data-dcopen]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=src.find(x=>x.id===b.dataset.dcopen); if(!t) return; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } selected=t.id; render(); openOrEdit(t); }); // rascunho abre o editor (igual ao Enter da linha da tabela)
   el.querySelectorAll('[data-tmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskMenu(b.dataset.tmenu, b); });
   el.querySelectorAll('[data-stmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openStatusMenu(b.dataset.stmenu, b); });
   el.querySelectorAll('.fcard:not(.ghost)').forEach(card=>{

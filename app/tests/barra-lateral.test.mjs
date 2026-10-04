@@ -102,10 +102,13 @@ test('L6: erro do medidor em duas linhas que quebram — "tentar de novo" sempre
   assert.ok(!/\.pm-err[^{]*\{[^}]*white-space:nowrap/.test(css), 'nada de nowrap no erro');
 });
 
-test('L7b: Projetos · Issues · Chat à vista; Skills, Agentes & Equipes e Daily no topo do "Mais"', () => {
-  const nav = cut(html, '<div class="sbnew">', '<div class="sbscroll">');
+test('L7b: Projetos · Issues · Chat · Fábrica à vista (redesenho F1: embaixo das demandas); Skills, Agentes & Equipes e Daily no topo do "Mais"', () => {
+  assert.ok(html.indexOf('<div class="sbscroll">') < html.indexOf('<div class="sbnav2"'), 'demandas primeiro, navegação depois');
+  const nav = cut(html, '<div class="sbnav2"', '<div class="planmeter"');
   const visible = [...nav.matchAll(/<button class="btn sbitem[^"]*" id="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(visible, ['projetosBtn', 'issuesBtn', 'pcBtn']);
+  assert.deepEqual(visible, ['projetosBtn', 'issuesBtn', 'pcBtn', 'fabricaBtn']);
+  assert.ok(!/class="btn sbitem/.test(cut(html, '<div class="sbnew">', '<div class="sbscroll">')), 'em cima só a Nova demanda');
+  assert.match(read('js/26-sidebar-projetos.js'), /typeof fabOpen==='function' \? fabOpen\(\) : toast\('Fábrica chegando'\)/);
   const menu = cut(html, '<div class="moremenu" id="moreMenu"', '</aside>');
   const inMenu = [...menu.matchAll(/<button class="btn" id="(\w+)"/g)].map((m) => m[1]);
   assert.deepEqual(inMenu.slice(0, 3), ['skillsBtn', 'agentsBtn', 'dailyBtn'], 'no topo do menu, com os mesmos ids (handlers e atalhos intactos)');

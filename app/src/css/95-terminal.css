@@ -172,3 +172,35 @@ html.sfpane .fw:has(.fwchat.tl) .fwciclo{max-height:34vh;overflow:auto}
   html.sfpane .fwchat.tl .fwinput.cc #fwSendBtns{order:4}
   html.sfpane .fwchat.tl .fwinput.cc .attrow,html.sfpane .fwchat.tl .fwinput.cc .fwselchip{order:0;flex-basis:100%}
 }
+
+/* ==== redesenho F1: requisitos como LINHA DO TEMPO (uma estação por requisito) + carimbo estático ====
+   provado = estação cheia + carimbo "provado"; adiado = estação TRACEJADA + "adiado — motivo: …" (nunca riscado).
+   Tokens de 10-base; o carimbo não gira nem anima (movimento é a F3). */
+.tlph{justify-content:flex-start}
+.tlph>span:first-child{flex:1;min-width:0}
+.tlphn{color:var(--muted);font-weight:500;font-size:var(--fs-xs);white-space:nowrap}
+.tlgate{margin-top:0}
+.tltl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;position:relative}
+.tltl .tlreq{grid-template-columns:16px minmax(0,1fr) auto;column-gap:10px;position:relative;padding-bottom:14px}
+.tltl .tlreq:last-child{padding-bottom:0}
+.tltl .tlreq::before{content:"";position:absolute;left:7px;top:19px;bottom:1px;width:1.5px;background:var(--border-strong)}
+.tltl .tlreq:last-child::before{display:none}
+.tltl .tlreq.ck-ok::before{background:color-mix(in srgb,var(--accent) 55%,var(--border-strong))}
+.tltl .tlreq.ck-ad::before{background:none;border-left:1.5px dashed var(--border-strong);width:0}
+.tlck.ad{border-style:dashed;border-color:var(--text-2)}
+.tlrn{font-family:var(--mono);font-size:var(--fs-xs);font-weight:600;color:var(--muted);margin-right:3px}
+.tlreq.ck-ad .tlrt small{color:var(--text-2)}
+.tlstamp{align-self:start;margin-top:1px;font:700 var(--fs-xs)/1.2 var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:3px 6px;border-radius:var(--r-xs);border:1.5px solid currentColor;white-space:nowrap}
+.tlstamp.ok{color:var(--accent);background:var(--accent-soft)}
+.tlstamp.ad{color:var(--text-2);border-style:dashed}
+.tldots i.ad{border-style:dashed;border-color:var(--text-2)}
+.tlnum{writing-mode:horizontal-tb;transform:none;display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.1}
+.tlnum b{color:var(--text);font-weight:600}
+.tlnum small{font-family:var(--ui);font-weight:500;color:var(--muted);font-size:var(--fs-xs)}
+/* Entrega (27-entregas): os mesmos R1…Rn e carimbos do painel */
+.en-req .en-rt{flex:1;min-width:0}
+.en-req .tlstamp{flex:none;margin-left:auto}
+.reqst.ad{border:1.5px dashed var(--text-2);background:transparent}
+.en-req.ad .en-adnote{color:var(--text-2)}
+.tlgr{flex-wrap:wrap;column-gap:10px}
+.tlgr b{white-space:nowrap}

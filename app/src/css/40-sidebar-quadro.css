@@ -322,3 +322,72 @@
 /* L7b: Skills, Agentes & Equipes e Daily no topo do "Mais", separados do resto */
 .moremenu .mmsep{height:1px;margin:4px 6px;background:var(--border)}
 .prow2.emptyrow .tt{font-size:var(--fs-xs)}
+
+/* ==== redesenho F1: lateral com as DEMANDAS primeiro — título "Demandas · N em aberto", selo do projeto (cor + inicial),
+   a navegação (Projetos · Issues · Chat · Fábrica) embaixo da lista e o "Uso do plano" recolhido numa linha ==== */
+.rhead{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:4px 20px 4px;font:600 var(--fs-xs) var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.rhead .n{font-weight:500;letter-spacing:0;text-transform:none;font-variant-numeric:tabular-nums}
+.rpbadge{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:700 var(--fs-xs)/1 var(--ui);color:var(--pc);border:1.5px solid var(--pc);background:color-mix(in srgb,var(--pc) 12%,transparent)}
+.sbnav2{flex:none;display:flex;flex-direction:column;gap:2px;padding:8px 12px 8px;border-top:1px solid var(--border)}
+.sbnav2 .sbitem{width:100%;justify-content:flex-start;gap:9px}
+.planmeter .pm-lbl{color:var(--muted);white-space:nowrap;flex:none;margin-right:2px}
+
+/* ==== redesenho F1: Central em TABELA (66-central-tabela) — ordenável, percurso de etapas, ação por linha, linha que abre.
+   Densa e estática (nada de split-flap: veto da mesa); cores = tokens de status do 10-base. ==== */
+.ctwrap{container-type:inline-size;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);overflow:hidden;margin-bottom:14px}
+.cttable{width:100%;border-collapse:collapse;table-layout:auto;font-size:var(--fs-sm)}
+.cttable td.ct-title{max-width:0} /* o título corta com … e a tabela nunca passa da largura */
+.cttable th{text-align:left;font-weight:600;font-size:var(--fs-xs);color:var(--muted);background:var(--surface-2);border-bottom:1px solid var(--border);padding:0;white-space:nowrap}
+.cttable th:not(:has(button)){padding:8px 10px}
+.ctsort{display:inline-flex;align-items:center;gap:5px;width:100%;font:inherit;color:inherit;background:none;border:0;padding:8px 10px;cursor:pointer;text-align:left}
+.ctsort:hover,.ctsort.on{color:var(--text)}
+.ctsort:focus-visible{outline:2px solid transparent;box-shadow:var(--ring-inset)}
+.ctar{font-size:var(--fs-xs);opacity:.7}
+.cttable td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text-2)}
+.ctrow{cursor:pointer}
+.ctrow:hover td{background:var(--surface-2)}
+.ctrow:focus-visible{outline:2px solid transparent;box-shadow:var(--ring-inset)}
+.ctrow.open td{background:var(--surface-2);border-bottom-color:transparent}
+.ctrow.needs td:first-child{box-shadow:inset 3px 0 0 var(--st-ask)}
+.cttable .ct-title{width:40%}
+.ctti{display:flex;align-items:center;gap:6px;min-width:0;max-width:420px}
+.ctchev{flex:none;width:20px;height:20px;border:0;background:none;color:var(--muted);cursor:pointer;border-radius:var(--r-xs);font-size:var(--fs-xs);padding:0}
+.ctchev:hover{color:var(--text);background:var(--surface-3)}
+.ctchev:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.ctt{display:flex;flex-direction:column;min-width:0}
+.cttx{color:var(--text);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctcode{font-size:var(--fs-xs);color:var(--muted)}
+.ct-proj{white-space:nowrap}
+.ct-proj .rpbadge{display:inline-grid;vertical-align:middle;margin-right:6px}
+.ctpn{vertical-align:middle}
+.ct-ia,.ct-upd{white-space:nowrap}
+.ctroute{display:inline-flex;flex-direction:column;gap:3px;white-space:nowrap}
+.ctroute.none{color:var(--muted)}
+.ctdots{display:inline-flex;align-items:center}
+.ctdot{width:10px;height:10px;border-radius:50%;border:1.5px solid var(--border-strong);box-sizing:border-box;flex:none}
+.ctdot.f{background:var(--accent);border-color:var(--accent)}
+.ctdot.a{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.ctdot.p{border-color:var(--st-ask);border-style:dashed}
+.ctln{width:10px;height:1.5px;background:var(--border-strong);flex:none}
+.ctrl{font-size:var(--fs-xs);color:var(--muted)}
+.ctrl b{color:var(--text-2);font-weight:600}
+.ct-provas{white-space:nowrap;font-variant-numeric:tabular-nums}
+.ct-provas b{color:var(--text)}
+.ctad{font-size:var(--fs-xs);color:var(--text-2);border:1px dashed var(--border-strong);border-radius:var(--r-xs);padding:0 5px;margin-left:4px}
+.ctdim{color:var(--muted)}
+.ctlink{font:inherit;color:var(--info);background:none;border:0;padding:0;cursor:pointer;font-variant-numeric:tabular-nums}
+.ctlink:hover{text-decoration:underline}
+.ctst{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:var(--stc);font-weight:600}
+.ctst i{width:7px;height:7px;border-radius:50%;background:var(--stc);flex:none}
+.ct-act{text-align:right;white-space:nowrap}
+.ct-act .btn{min-width:72px;justify-content:center}
+.ctexp td{background:var(--surface-2);padding:0 10px 10px}
+.ctexpb{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);padding:9px 12px}
+.ctexpb .sp{flex:1 1 0}
+.ctsent{margin:0;color:var(--text-2);font-size:var(--fs-sm);min-width:0}
+.ctsent b{color:var(--text)}
+.ctring{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;border:2px dashed var(--accent-line);font:700 var(--fs-xs) var(--ui);color:var(--text)}
+/* tabela num painel estreito: some primeiro o que dá pra ver abrindo a linha */
+@container (max-width:980px){ .cttable .ct-ia,.cttable .ct-pr{display:none} }
+@container (max-width:820px){ .cttable .ct-upd,.cttable .ct-proj{display:none} .ctrl{display:none} }
+@container (max-width:620px){ .cttable .ct-etapa,.cttable .ct-provas{display:none} }

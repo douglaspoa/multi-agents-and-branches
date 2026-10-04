@@ -87,14 +87,14 @@
 /* Nav do topo (Projetos/Skills/Agentes/Chat): linha LIMPA, sem caixa — igual ao
    "Projetos" (que usa .sbproj). Vale só no grupo de cima (.sbnew); o Daily/Mais
    de baixo (.sbnav) mantêm a caixa. */
-.sbnew .sbitem {
+.sbnew .sbitem, .sbnav2 .sbitem {
   border-color: transparent;
   background: transparent;
   box-shadow: none;
   color: var(--text-2);
   padding: 7px 10px;
 }
-.sbnew .sbitem:hover { background: var(--surface-2); color: var(--text); }
+.sbnew .sbitem:hover, .sbnav2 .sbitem:hover { background: var(--surface-2); color: var(--text); }
 
 /* "Nova demanda" estava colado no topo — dá respiro abaixo da marca */
 .sbnew { padding-top: 14px; }

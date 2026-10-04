@@ -143,8 +143,9 @@ test('ganchos: arquivos registrados, suggest fora de todo feed, xterm do histór
   const term = read('js/60-terminal.js');
   assert.match(term, /if\(st\.alive\)\{ invokeQuiet\('term_write'[^\n]*tiHistKey\(taskId, d\)/);
   assert.match(term, /tiHostWire\(taskId, st\)/);
-  assert.match(term, /histórico\$\{[^\n]*digite pra continuar/);
+  assert.match(term, /fim do histórico · digite aqui pra continuar a conversa/);
   const lay = read('js/60-terminal-layout.js');
+  assert.match(lay, /class="lnk tlresume" data-termopen=[^\n]*retomar sessão/, 'retomar sessão na barra de status (sem a barra "histórico")');
   assert.match(lay, /tiDockHtml\(t\):''\}\$\{composer\}/);
   assert.match(lay, /ti-nocomp/); assert.match(lay, /tiWire\(t\)/); assert.match(lay, /tiSideClick\(taskId, e\)/); assert.match(lay, /tiLivePaint\(t\)/);
   assert.match(read('css/98-terminal-integrado.css'), /\.tlcol\.ti-nocomp>\.fwinput\{display:none\}/);

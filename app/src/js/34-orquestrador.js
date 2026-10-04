@@ -82,8 +82,7 @@ function orqProved(t){
 // com a nota da decisão) — isso não pode travar o plano pra sempre: quem decidiu adiar foi você.
 function orqReqSettled(x){
   if(!x) return false;
-  if(x.status==='done'||x.status==='deferred'||x.status==='waived') return true;
-  return x.status==='blocked' && /deferid|adiad|dispensad|fora de escopo|decis[aã]o (de produto|do humano|do usu[aá]rio)|via ask_human/i.test(String(x.note||''));
+  return x.status==='done' || reqIsAdiado(x); // régua única do adiado (00-util)
 }
 function orqPhaseOfTask(t){ for(const p of [orq.plan, ...(orq.list||[])]){ if(!p) continue; const ph=(p.phases||[]).find(x=>x.taskId===t.id); if(ph) return { p, ph }; } return null; }
 function orqReleased(t){ const f=orqPhaseOfTask(t); return !!(f&&f.ph.released); }

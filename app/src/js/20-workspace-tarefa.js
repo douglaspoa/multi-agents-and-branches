@@ -298,7 +298,7 @@ async function fwLoadFile(){
 function closeWorkspace(){
   // painel da tela dividida (58-canvas): fechar a demanda = sair da divisão (a aba continua lá em cima)
   if(typeof SF_PANE!=='undefined' && SF_PANE){ try{ window.parent.cvPaneRequestClose(window.frameElement&&window.frameElement.dataset.tabid); }catch(_){ } return; }
-  const o=$id('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } if(typeof closeTab==='function' && fwTask) closeTab('task:'+fwTask); }
+  const o=$id('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } fwHeadDock(); if(typeof closeTab==='function' && fwTask) closeTab('task:'+fwTask); }
 function fwSelRange(){ if(!fwSelA) return null; const a=Math.min(fwSelA,fwSelB||fwSelA), b=Math.max(fwSelA,fwSelB||fwSelA); return {a,b}; }
 function fwPlan(t){
   const roles=t.roles||[]; if(!roles.length) return '';
@@ -683,6 +683,7 @@ function fwModesMenuOpen(t, anchor){
 // mede e decide (no ResizeObserver do cabeçalho e quando a lista de modos muda)
 function fwHeadFit(){
   const head=FW_HEAD.head; if(!head || !head.isConnected || head.offsetParent===null) return;
+  if(head.classList.contains('docked')){ fwHeadFitDocked(head); return; }
   const headW=head.clientWidth; if(!(headW>0)) return;
   head.classList.toggle('narrow', headW<FW_HEAD_COMPACT);
   const m=$id('fwModes');
@@ -698,15 +699,61 @@ function fwHeadFit(){
   if(!tight && head.scrollWidth>head.clientWidth+1) head.classList.add('tight');
   else if(tight && headW>=FW_HEAD_TIGHT) head.classList.remove('tight');
 }
+// docado: o espaço é o que sobra na barra de abas (o cabeçalho + o vão livre .tabgrow − o que transborda). Primeiro os
+// modos viram o botão "Terminal ▾"; só se nem assim couber a ação principal vira ícone — e volta ao texto assim que cabe.
+function fwHeadFitDocked(head){
+  const bar=$id('tabBar'), g=bar&&bar.querySelector('.tabgrow');
+  const avail=head.offsetWidth+(g?g.offsetWidth:0)-(bar?Math.max(0, bar.scrollWidth-bar.clientWidth):0);
+  if(!(avail>0)) return;
+  const m=$id('fwModes');
+  if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=m.scrollWidth;
+  let fixed=8; for(const el of head.children){ if(el===m || el.offsetParent===null) continue; fixed+=el.offsetWidth+6; }
+  const r=fwHeadLayout({ headW:avail, modesW:FW_HEAD.modesW, fixedW:fixed, cur:FW_HEAD.mode });
+  if(r.modes!==FW_HEAD.mode){ FW_HEAD.mode=r.modes; const t=fwTaskObj(); if(t) fwModesPaint(t); }
+  const tight=head.classList.contains('tight');
+  if(!tight && head.offsetWidth>avail+1){ FW_HEAD.tightNeed=head.offsetWidth; head.classList.add('tight'); }
+  else if(tight && avail>=(FW_HEAD.tightNeed||0)+8) head.classList.remove('tight');
+}
 const FW_HEAD_TIGHT=560;
 function fwHeadWatch(){
-  const head=document.querySelector('#fwOverlay .fwhead'); if(!head) return;
-  if(FW_HEAD.head!==head){ FW_HEAD.head=head; if(FW_HEAD.ro) try{ FW_HEAD.ro.disconnect(); }catch(_){ }
-    if(typeof ResizeObserver==='function'){ FW_HEAD.ro=new ResizeObserver(()=>{ setTimeout(fwHeadFit, 0); }); FW_HEAD.ro.observe(head); } }
+  const head=fwHeadEl(); if(!head) return;
+  // docado na barra de abas o cabeçalho tem a largura do conteúdo: quem muda de tamanho é a BARRA — observa ela também
+  const bar=head.classList.contains('docked')?$id('tabBar'):null;
+  if(FW_HEAD.head!==head || FW_HEAD.obsBar!==bar){ FW_HEAD.head=head; FW_HEAD.obsBar=bar; if(FW_HEAD.ro) try{ FW_HEAD.ro.disconnect(); }catch(_){ }
+    if(typeof ResizeObserver==='function'){ FW_HEAD.ro=new ResizeObserver(()=>{ setTimeout(fwHeadFit, 0); }); FW_HEAD.ro.observe(head); if(bar) FW_HEAD.ro.observe(bar); } }
   setTimeout(fwHeadFit, 0); // timer: o rAF para com a janela coberta e o cabeçalho ficava com a medida velha
+}
+// ---- redesenho F1 (faixa 1 de 2): o cabeçalho da tarefa mora NA BARRA DE ABAS — abas · modos · ação principal · ⋯ ----
+// É o MESMO nó .fwhead (ids, handlers e o ResizeObserver intactos), movido pra #tabTools quando a aba ativa é esta tarefa
+// sozinha; volta pro .fw na tela dividida, no painel do canvas (SF_PANE, que não tem barra de abas) e fora da tarefa.
+// O título mora na aba (inteiro no tooltip e na Entrega); a faixa 2 é a das etapas (60-ciclo). Só move quando muda.
+// @fw-dock-puro-inicio (testado em app/tests/redesign-f1.test.mjs)
+function fwHeadDockOf(o){ return !!(o && !o.pane && o.visible && o.kind==='task' && !o.split && o.tabTask!=null && o.tabTask===o.fwTask); }
+// @fw-dock-puro-fim
+// o nó guardado vale mesmo solto por um instante (renderTabs tira e devolve); só re-procura se houver OUTRO .fwhead na página
+function fwHeadEl(){ const n=FW_HEAD.node; if(n && (n.isConnected || !document.querySelector('.fwhead'))) return n; return (FW_HEAD.node=document.querySelector('#fwOverlay .fwhead')); }
+// chips do orquestrador: docado, o cabeçalho some da faixa 1 → os chips vão pra faixa 2 (#cicOrq, 60-ciclo); senão voltam
+function fwOrqChipsPlace(){
+  const oc=FW_HEAD.orq||(FW_HEAD.orq=$id('fwOrqChips')); const head=fwHeadEl(); if(!oc || !head) return;
+  const slot=head.classList.contains('docked')?$id('cicOrq'):null;
+  if(slot){ if(oc.parentNode!==slot) slot.appendChild(oc); }
+  else if(oc.parentNode!==head) head.insertBefore(oc, head.querySelector('#fwPhases'));
+}
+function fwHeadDock(){
+  const head=fwHeadEl(); if(!head) return;
+  const slot=$id('tabTools'), home=document.querySelector('#fwOverlay .fw');
+  const tab=(typeof tabById==='function' && typeof activeTab!=='undefined')?tabById(activeTab):null;
+  const want=!!slot && fwHeadDockOf({ pane:typeof SF_PANE!=='undefined' && !!SF_PANE, visible:fwVisible(), kind:tab&&tab.kind,
+    split:!!(tab && typeof cvInSplit==='function' && cvInSplit(tab.id)), tabTask:tab?tab.taskId:null, fwTask });
+  const was=head.classList.contains('docked');
+  if(want){ if(head.parentNode!==slot) slot.appendChild(head); }
+  else if(home && head.parentNode!==home) home.insertBefore(head, home.firstChild);
+  if(was!==want){ head.classList.toggle('docked', want); head.classList.remove('tight','narrow'); FW_HEAD.mode='tabs'; FW_HEAD.tightNeed=0; fwOrqChipsPlace(); const t=fwTaskObj(); if(t) fwModesPaint(t); } // a medida do outro lugar não vale aqui
+  if(want || was) fwHeadWatch();
 }
 function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
+  fwHeadDock(); // faixa 1: abas + modos + ação (só move o nó quando muda)
   // modo que o TIPO esconde (ex.: Código numa investigação, guardado na aba) cai na Entrega
   if(typeof fwModesList==='function' && !fwModesList(t).some(([k])=>k===fwMode)){ fwMode='entrega'; fwRememberTab(); }
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }

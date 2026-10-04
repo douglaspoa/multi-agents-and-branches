@@ -98,6 +98,7 @@ function cicloPaint(t){
   if(host.__sig===sig) return;
   const keep=document.activeElement && host.contains(document.activeElement) ? document.activeElement.id : '';
   host.__sig=sig;
+  { const oc=(typeof FW_HEAD!=='undefined' && FW_HEAD.orq)||null; if(oc && host.contains(oc)) oc.remove(); } // o nó dos chips do orquestrador sobrevive ao innerHTML
   host.innerHTML=strip+(d?cicloDecisionHtml(t, d, ui):plan)+learn;
   host.hidden=!host.innerHTML;
   ['cicUsd','cicWhy'].forEach(id=>{ const el=$id(id); if(el) el.oninput=()=>{ const u=cicUi[t.id]=cicUi[t.id]||{}; u[id==='cicUsd'?'usd':'why']=el.value; }; });
@@ -105,6 +106,7 @@ function cicloPaint(t){
   on('cicRelease','release'); on('cicStop','stop'); on('cicGo','go'); on('cicRound','round');
   const why=$id('cicWhy'); if(why) why.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const b=$id('cicRelease')||$id('cicGo'); if(b) b.click(); } };
   if(typeof cicloStripWire==='function') cicloStripWire(host, t);
+  if(typeof fwOrqChipsPlace==='function') fwOrqChipsPlace();
   if(learn && typeof learnWire==='function') learnWire(host, { repo:()=>state.repo, items:()=>(cicLearn[t.id]||{}).items||[], repaint:()=>{ host.__sig=''; cicloPaint(t); }, after:async()=>{ delete cicLearn[t.id]; host.__sig=''; cicloPaint(t); } });
   if(keep){ const el=$id(keep); if(el){ el.focus(); try{ el.setSelectionRange(el.value.length, el.value.length); }catch(_){ } } }
 }
@@ -235,7 +237,8 @@ function stagesSummary(stages, x){
     else if(now.state==='precisa') nowTx=now.id==='provar'?'Falta prova':now.word==='parou'?((now.who||now.label)+' parou'):'Precisa de você';
     else nowTx=now.who?`Agora: ${now.who} está ${now.word}`:`Agora: ${now.word}`;
   } else if(stages.length && stages.every(s=>s.state==='feito')) nowTx='Tudo pronto';
-  return { now:nowTx, next:next?('Depois: '+next.label+(next.who?' ('+next.who+')':'')):'', spent:+x.spent||0, cap:+x.cap||0, n:stages.length, pos:Math.max(1, stages.indexOf(now||next||stages[stages.length-1])+1) };
+  const at=now||next||stages[stages.length-1];
+  return { now:nowTx, next:next?('Depois: '+next.label+(next.who?' ('+next.who+')':'')):'', spent:+x.spent||0, cap:+x.cap||0, n:stages.length, pos:Math.max(1, stages.indexOf(at)+1), label:at?at.label:'' };
 }
 const CIC_LOCK='<svg class="cicst-lock" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3.5" y="7" width="9" height="6.5" rx="1.5"/><path d="M5.5 7V5.2a2.5 2.5 0 0 1 5 0V7" stroke-linecap="round"/></svg>';
 const CIC_CHECK='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3.5 8.4l2.9 2.8 6-6.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -253,10 +256,29 @@ function stageStripHtml(stages, sum, o){
   const capTx=sum.cap>0?` de ${esc(usd(sum.cap))}`:'';
   // o.foot: rodapé próprio (a prévia da equipe em "Meu time" mostra o custo médio, não o "gasto até agora")
   const foot=o.foot!=null?`<div class="cicst-sum"><span class="cicst-cost">${o.foot}</span></div>`
-    :`<div class="cicst-sum"><span class="cicst-now">${esc(sum.now)}</span>${sum.next?`<span class="cicst-next">${esc(sum.next)}</span>`:''}<span class="cicst-pos">etapa ${sum.pos} de ${sum.n}</span><span class="cicst-cost">gasto até agora <b>${esc(usd(sum.spent))}</b>${capTx}</span></div>`;
-  return `<div class="cicstrip" role="group" aria-label="${escA(o.label||'Etapas da tarefa')}">`+
+    // redesenho F1: UMA faixa — etapas · portão · adiados · gasto. "Agora/Depois" ficam pro leitor de tela e pro tooltip
+    // (a palavra de cada etapa já diz); estreito vira "etapa n de N · Rótulo"
+    :`<div class="cicst-sum" title="${escA([sum.now, sum.next].filter(Boolean).join(' · '))}">${o.gate||''}<span class="cicst-now">${esc(sum.now)}</span>${sum.next?`<span class="cicst-next">${esc(sum.next)}</span>`:''}<span class="cicst-pos">etapa ${sum.pos} de ${sum.n}</span>${sum.label?`<span class="cicst-posl"> · ${esc(sum.label)}</span>`:''}<span class="cicst-cost">gasto <b>${esc(usd(sum.spent))}</b>${capTx}</span></div>`;
+  return `<div class="cicstrip" role="group" aria-label="${escA(o.label||'Etapas da tarefa')}">`+(o.pill||'')+
     `<ol class="cicst-list">${items}</ol>`+foot+
   `</div>`;
+}
+// portão + adiados na MESMA faixa das etapas (redesenho F1, protótipo aprovado): o anel é estático (sem animação — F3).
+// g = { st:'none'|'loading'|'proven'|'unproven'|'override', ok, n, adiados } — os números saem de reqRows/proofGate
+// (fonte única). Adiado é tracejado, nunca riscado (mesa: riscado parece "removido").
+function cicGateHtml(g){
+  if(!g || g.st==='none' || !(+g.n>0 || +g.adiados>0)) return '';
+  const n=Math.max(0, +g.n||0), ok=g.st==='loading'?0:Math.max(0, Math.min(n, +g.ok||0)), ad=Math.max(0, +g.adiados||0);
+  const tone=g.st==='proven'?'ok':g.st==='override'?'ov':g.st==='loading'?'ld':'no';
+  const tip=g.st==='proven'?'Portão de provas liberado: todos os requisitos têm prova'
+    :g.st==='override'?'Portão liberado sem prova, com o motivo registrado no PR'
+    :g.st==='loading'?'Conferindo as provas dos requisitos'
+    :'Portão de provas ligado: aprovar exige a prova de cada requisito (ou um motivo)';
+  const C=2*Math.PI*6.5, fill=(n?ok/n*C:(g.st==='loading'?0:C)).toFixed(2);
+  const ring=`<svg class="cicgate-ring" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" class="bg"/><circle cx="8" cy="8" r="6.5" class="fg" stroke-dasharray="${fill} ${C.toFixed(2)}" transform="rotate(-90 8 8)"/></svg>`;
+  const tx=g.st==='loading'?'conferindo as provas…':n?`<b>${ok} de ${n}</b><span class="cicgate-w"> exigidos com prova</span>`:'<span class="cicgate-w">nenhum exigido</span>';
+  const adTx=ad?`<span class="cicgate-ad" title="${escA(ad===1?'1 requisito adiado com motivo — o motivo aparece no painel de requisitos':ad+' requisitos adiados com motivo — os motivos aparecem no painel de requisitos')}">${ad===1?'1 adiado':ad+' adiados'}</span>`:'';
+  return `<span class="cicgate g-${tone}" title="${escA(tip)}">${ring}<span class="cicgate-tx">${tx}</span></span>${adTx}`;
 }
 // @ciclo-faixa-fim
 
@@ -307,14 +329,26 @@ const cicOpen={}; // taskId → índice da etapa aberta (o que ela entregou)
 function cicloStripX(t){
   const pg=(typeof proofGate==='function')?proofGate(t):{ st:'none' };
   const retro=[...(typeof eventsOf==='function'?eventsOf(t.id):[])].reverse().find(e=>e.type==='retro');
+  const rows=(typeof reqRows==='function' && pg.st!=='none')?reqRows(t):[];
+  const adiados=(typeof reqIsAdiado==='function')?rows.filter(reqIsAdiado).length:0;
+  const n=rows.length-adiados; // EXIGIDOS: adiado com motivo conta como resolvido (proofMissingOf já não pede)
   return { costs:(typeof costsOf==='function'?costsOf(t.id):[]).map(c=>({ role:c.role, agent:c.agent, usd:c.usd })), proof:pg.st, retro:retro?retro.text:null,
-    working:(typeof fwIsWorking==='function')?fwIsWorking(t):false, spent:taskCost(t.id).usd, cap:budgetOf(t) };
+    working:(typeof fwIsWorking==='function')?fwIsWorking(t):false, spent:taskCost(t.id).usd, cap:budgetOf(t),
+    gate:{ st:pg.st, n, ok:pg.st==='loading'?0:n-(pg.missing||[]).length, adiados } }; // portão = proofGate (o mesmo do painel e da Entrega); lendo = anel vazio
 }
 function cicloStripHtml(t){
   if(!t || t.kind==='review' || !(t.roles||[]).length) return '';
   const x=cicloStripX(t), st=taskStages(t, x), sum=stagesSummary(st, x);
   const open=cicOpen[t.id];
-  return stageStripHtml(st, sum, { open, color:(typeof agentColor==='function')?agentColor:null })+(open!=null&&st[open]?cicloStageDetail(t, st[open]):'');
+  // faixa 2 do cabeçalho (redesenho F1): selo do estado + etapas + portão/adiados + gasto, numa linha só
+  // com o cabeçalho docado na barra de abas, o que ele mostrava vem pra cá: épico (clique abre), chips do orquestrador
+  // (#cicOrq, o nó é movido por fwOrqChipsPlace) e a branch (texto curto em faixa larga; sempre no tooltip do selo)
+  const br=t.branch?'branch: '+t.branch+(t.agent?' · '+t.agent:''):'';
+  const ep=(typeof epTaskBadge==='function')?epTaskBadge(t):'';
+  const pill=((typeof phasesHtml==='function')?`<span class="cicst-pill"${br?` title="${escA(br)}"`:''}>${phasesHtml(t)}</span>`:'')+
+    (ep?`<span class="cicst-epic">${ep}</span>`:'')+(t.orchestration?'<span class="cicst-orq" id="cicOrq"></span>':'')+
+    (t.branch?`<span class="cicst-br mono" title="${escA(br)}">${esc(t.branch)}</span>`:'');
+  return stageStripHtml(st, sum, { open, color:(typeof agentColor==='function')?agentColor:null, gate:cicGateHtml(x.gate), pill })+(open!=null&&st[open]?cicloStageDetail(t, st[open]):'');
 }
 // o que a etapa entregou, em linguagem normal; o log fica em "ver detalhes"
 function cicloStageDetail(t, s){
@@ -347,6 +381,7 @@ function cicloStripWire(host, t){
     b.onkeydown=e=>{ if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return; e.preventDefault(); const all=[...host.querySelectorAll('[data-cicst]')]; const i=all.indexOf(b); const n=all[(i+(e.key==='ArrowRight'?1:-1)+all.length)%all.length]; if(n) n.focus(); };
   });
   const g=host.querySelector('#cicGate'); if(g) g.onclick=()=>{ if(typeof approveGate==='function') approveGate(t); };
+  host.querySelectorAll('.cicst-epic [data-epbadge]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.epbadge); });
   const pa=host.querySelector('#cicPlanAsk'); if(pa) pa.onclick=()=>{ const i=(typeof fwInputShow==='function')?fwInputShow():$id('fwInput'); if(i){ i.focus(); i.placeholder='o que ajustar no plano?'; } };
 }
 

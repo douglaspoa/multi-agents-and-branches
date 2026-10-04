@@ -299,3 +299,4 @@ html.sfpane .enpage,html.sfpane .fwchat,html.sfpane .fwmain{overflow-wrap:anywhe
 }
 /* painel baixo E estreito: "Agora: …" já diz onde está — o "etapa n de N" sai em vez de ficar cortado */
 @media (max-height:520px) and (max-width:600px){ html.sfpane .cicst-now:not(:empty)~.cicst-pos{display:none} }
+.cvovr.ad .cvovm{background:transparent;border:1.5px dashed var(--text-2);color:var(--text-2)} /* adiado com motivo (redesenho F1): tracejado, neutro */

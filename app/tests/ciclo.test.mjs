@@ -171,6 +171,7 @@ test('faixa (P1): quem age agora, sua vez nos cadeados, precisa de você, prova 
   assert.equal(sum.now, 'Agora: Íris está construindo');
   assert.equal(sum.next, 'Depois: Revisar (Nyx)');
   assert.equal(sum.pos, 2); assert.equal(sum.n, 6);
+  assert.equal(sum.label, 'Construir', 'rótulo da etapa de agora ("etapa 2 de 6 · Construir" no estreito)');
   // Cadeado 1
   s = stages(c, { ...base, status: 'plan-review', stage: 'planner' });
   assert.deepEqual(pick(s).slice(0, 2), [['plano', 'sua-vez', 'sua vez'], ['construir', 'espera', 'depois']]);
@@ -214,7 +215,7 @@ test('faixa (P1) larga e estreita: rótulos, palavra, custo ao lado do ✓, cade
   assert.match(h, /<li class="cicst s-feito"><button[^>]*>.*Plano.*US\$ 0,10/s, 'custo ao lado do ✓');
   assert.equal((h.match(/class="cicst-k"/g) || []).length, 2, 'Cadeado 1 e Cadeado 2');
   assert.equal((h.match(/aria-current="step"/g) || []).length, 1);
-  assert.match(h, /gasto até agora <b>US\$ 0,10<\/b> de US\$ 2,00/);
+  assert.match(h, /gasto <b>US\$ 0,10<\/b> de US\$ 2,00/); // redesenho F1: "gasto" curto, na mesma faixa das etapas
   assert.match(h, /<span class="cicst-pos">etapa 2 de 6<\/span>/);
   assert.equal(s.length, 6);
   // estreito: container query esconde o texto das etapas que não são a de agora e mostra "etapa n de N"
