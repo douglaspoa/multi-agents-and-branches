@@ -81,7 +81,7 @@ test("piloto com o plano da ideia (motor mock): a pesquisa entra no 1º commit e
     const planFile = join(root, "plan.json");
     writeFileSync(planFile, JSON.stringify(raw));
     const dir = join(root, "rotina-skincare");
-    const st = await runAutopilot({ idea: idea.titulo, dir, engine: "mock", platform: "web", planFile, log: () => {} });
+    const st = await runAutopilot({ idea: idea.titulo, dir, engine: "mock", platform: "web", planFile, budgetUsd: 50, log: () => {} });
     assert.equal(st.phase, "done");
     const git = (...a: string[]) => execFileSync("git", ["-C", dir, ...a], { encoding: "utf8" }).trim();
     const first = git("rev-list", "--max-parents=0", "HEAD");

@@ -12,6 +12,8 @@ const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8'
 const cut = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b, i); assert.ok(i >= 0 && j > i, 'trecho não encontrado: ' + a); return s.slice(i, j); };
 const MESA_PURE = cut(read('js/38-mesa.js'), '// @puro-inicio', '// @puro-fim');
 const IDEIA_SRC = read('js/59-ideia.js');
+// F4: o fim de caminho da ideia (aba Projeto) é o MESMO formulário do "construir sozinho" (56-piloto)
+const PILOTO_PURE = cut(read('js/00-util.js'), '// DINHEIRO DIGITADO', '// @helpers-comuns-fim') + cut(read('js/56-piloto.js'), '// @piloto-puro-inicio', '// @piloto-puro-fim');
 const P = new Function(MESA_PURE + cut(IDEIA_SRC, '// @ideia-puro-inicio', '// @ideia-puro-fim') +
   '\nreturn { IDEIA_PESQ, ideiaPanel, ideiaTitle, ideiaSlug, ideiaPlat, ideiaCheckReport, ideiaSanitize, ideiaReportMd, ideiaResearchCost, ideiaTurnPrompt, ideiaHistory, ideiaPersonaSys, ideiaResearchPrompt, ideiaFixPrompt, ideiaPickPlatform, ideiaDecisionView, ideiaBuildPlan, ideiaEpicMd, ideiaTaskPayloads, ideiaStage, ideiaRevive, ideiaR1Prompt, ideiaR2Prompt };')();
 const plain = (v) => JSON.parse(JSON.stringify(v)); // valores de outro contexto do vm
@@ -207,11 +209,12 @@ function load(opts = {}) {
     chatComposer() {}, aiChatModelPill: (id) => ({ id, label: 'Claude · Sonnet' }), aiChatRunLabel: () => 'Claude · Sonnet', aiClaudeModel: () => null,
     defaultAiEngine: () => opts.engine || 'claude', defaultAiModel: () => null, lsGet: () => '', lsSet() {}, renderTabs() {}, chatPinBottom() {}, stickBottom: () => () => {},
     ovShow: (o) => { o.style.display = 'block'; }, roughEstimate: (n, m) => [0.12 * n, 0.5 * n],
+    esc: (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;'), escA: (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
     invoke: (cmd, args) => { calls.push([cmd, args]); return opts.invoke ? opts.invoke(cmd, args) : Promise.resolve(null); },
   };
   ctx.invokeQuiet = ctx.invoke;
   vm.createContext(ctx);
-  vm.runInContext(MESA_PURE + '\n' + IDEIA_SRC + '\n;globalThis.__I=IDEIA;', ctx);
+  vm.runInContext(MESA_PURE + '\n' + PILOTO_PURE + '\n' + IDEIA_SRC + '\n;globalThis.__I=IDEIA;', ctx);
   return { ctx, el, calls, toasts, tabs, listeners, run: (c) => vm.runInContext(c, ctx) };
 }
 const idea0 = (extra = {}) => Object.assign({ id: 'i-test-1', v: 1, titulo: 'App de rotina de skincare', turns: [], report: null, decision: null, project: null, costUsd: 0, tokUsd: 0 }, extra);
@@ -223,9 +226,13 @@ test('aba registrada no motor de abas: instância múltipla, overlay próprio, s
   assert.match(abas, /MULTI_KINDS=new Set\(\[[^\]]*'ideia'/);
   assert.match(abas, /ideia:\(\)=>window\.openIdeia&&window\.openIdeia\(fresh\)/);
   assert.ok(!/\['nova','form','planner','orq'\]\.includes\(kind\) && typeof state!=='undefined' && !state\.repo/.test(abas) || !/'ideia'\]\.includes\(kind\) && typeof state/.test(abas), 'a ideia não exige projeto');
-  assert.match(read('js/14-nova-demanda-inicio.js'), /\{ k:'ideia', tab:'ideia', name:'Ideia'/);
-  assert.match(read('js/58-canvas.js'), /k:'ideia', label:'Ideia nova'/);
-  assert.match(read('js/38-mesa.js'), /id="mesaIdeia"/);
+  // F4 (G2, D8): a Ideia saiu do seletor da Nova demanda (cria PROJETO) e virou Fábrica › App novo › "Tenho uma ideia"
+  assert.doesNotMatch(read('js/14-nova-demanda-inicio.js'), /\{ k:'ideia', tab:'ideia'/);
+  assert.match(read('js/65-fabrica.js'), /id="fabIdeia"[\s\S]*Tenho uma ideia/);
+  assert.match(read('js/65-fabrica.js'), /bindClick\('fabIdeia', \(\)=>\{ if\(typeof ideiaNew==='function'\) ideiaNew\(/);
+  // F4 (G1, D8): "Ideia nova" saiu do "+" — o "+" leva a Novo projeto… (Fábrica › App novo, onde mora Tenho uma ideia)
+  assert.match(read('js/58-canvas.js'), /k:'novoproj', label:'Novo projeto…'/);
+  assert.doesNotMatch(read('js/38-mesa.js'), /id="mesaIdeia"/, 'a lista de mesas (com "Ideia nova") foi pra Fábrica › Sessões');
   const html = read('index.html');
   assert.match(html, /id="ideiaOverlay"/);
   assert.match(html, /<script src="js\/59-ideia\.js"><\/script>/);
@@ -250,7 +257,8 @@ test('início: composer com a pílula da IA e as ideias recentes; abrir sem proj
   const { run, calls } = load({ invoke: (c) => Promise.resolve(c === 'ideia_list' ? [{ id: 'i-a', titulo: 'Pou', updatedAt: 1, pesquisa: 'ok' }] : c === 'ideia_research_mode' ? { engine: 'claude', mode: 'native', tools: 'WebSearch' } : null) });
   await run('openIdeia(true)');
   const h = run('$id("ideiaBody").innerHTML');
-  assert.match(h, /Começar por uma ideia/);
+  assert.match(h, /Tenho uma ideia/);
+  assert.match(h, /data-igo="sessoes">Sessões/, 'migalha Fábrica › Sessões › ideia');
   assert.match(h, /id="ideiaNewIn"/);
   assert.match(h, /data-iopen="i-a"/);
   assert.match(text(h), /Pou pesquisada/);
@@ -296,23 +304,27 @@ test('passos e botões: pesquisar (com custo previsto e teto) → decidir → cr
   assert.match(h, /id="ideiaResGo"/);
   assert.match(text(h), /deve custar ~US\$/);
   assert.match(h, /id="ideiaCap"/, 'teto da pesquisa (Claude)');
-  assert.match(h, /aria-current="step">Pesquisar/);
+  assert.match(h, /aria-current="step"><span class="c"><\/span><b>Pesquisar/, 'mesma barra de etapas do Piloto e da Tarefa');
   assert.match(h, /id="ideiaDecGo"/);
   assert.ok(!/id="ideiaMkManual"/.test(h), 'criar só depois da decisão');
   const r = P.ideiaCheckReport(json(good())).report;
   const ps = P.ideiaPanel(), v = (top) => ({ st: 'ok', plataforma: 'web', voto: { fala: '', top: top.map(([id, peso]) => ({ id, peso })), vetos: [] } });
   const decision = { status: 'ok', rounds: [{ n: 1, resp: {} }, { n: 2, resp: Object.fromEntries(ps.map((p) => [p.id, v([['F1', 2]])])) }], cands: [{ id: 'F1', titulo: 'Rotina guiada', descricao: 'd' }], escolhas: {} };
   h = html(idea0({ turns: [{ you: 'oi', resp: {} }], report: { status: 'ok', data: r, md: P.ideiaReportMd(r, 'x', {}), costUsd: 0.31, sites: 7 }, decision }));
-  assert.match(text(h), /Vale a pena agora\? Talvez confiança média/);
+  assert.match(text(h), /Vale a pena agora\? Talvez · confiança média/);
   assert.match(text(h), /4 fontes · 7 páginas lidas/);
   assert.match(h, /data-ichoose="F1:aprovada"/);
-  assert.match(h, /id="ideiaPlat"/);
-  assert.match(h, /id="ideiaMkManual"/);
-  assert.match(h, /id="ideiaMkPiloto"/);
-  assert.match(h, /id="ideiaGh"/, 'GitHub opcional, como no projeto novo');
+  assert.match(h, /data-iplat="web"/, 'plataforma votada vira botão');
+  // aba Projeto = fim de caminho: seguir à mão | construir sozinho (teto OBRIGATÓRIO) — mesmo formulário do 56-piloto
+  assert.match(h, /data-pil-eo="hand"/);
+  assert.match(h, /data-pil-eo="auto"/);
+  assert.match(h, /id="ipilGh"/, 'GitHub opcional, como no projeto novo');
+  assert.match(h, /id="ipilBudget"/);
+  assert.match(h, /id="ipilGo" disabled>Construir sozinho/, 'sem teto o botão fica desligado');
+  assert.match(h, /data-itab="pes"[\s\S]*data-itab="mvp"[\s\S]*data-itab="proj"/, 'painel com abas Pesquisa · MVP · Projeto');
   h = html(idea0({ project: { dir: '/Users/x/Documents/Starfork/skincare', mode: 'piloto', at: 1 } }));
-  assert.match(text(h), /Entregue pro piloto automático ~\/Documents\/Starfork\/skincare/);
-  assert.match(h, /ver o progresso do piloto/);
+  assert.match(text(h), /Entregue pro piloto \(construir sozinho\) ~\/Documents\/Starfork\/skincare/);
+  assert.match(h, /Ver o progresso do piloto/);
 });
 
 test('IA sem web (gateway sem pesquisa ampliada): explica e não oferece "Pesquisar"', () => {
@@ -392,7 +404,13 @@ test('criar e entregar pro piloto: autopilot_start com o --plan (épico + pesqui
   const { run, calls, tabs } = load({ invoke: async (c) => c === 'autopilot_start' ? { dir: '/Users/x/Documents/Starfork/rotina-skincare' } : null });
   run(`IDEIA.cur=${JSON.stringify(idea0({ titulo: 'App de rotina de skincare', turns: [{ you: 'oi', resp: {} }], report: { status: 'ok', data: r, md: '# Pesquisa' }, decision }))}; IDEIA.mem['i-test-1']=IDEIA.cur;`);
   await run('ideiaCreate(IDEIA.cur, "piloto")');
+  assert.ok(!calls.some(([c]) => c === 'autopilot_start'), 'sem teto: não dispara (teto obrigatório)');
+  assert.match(run('IDEIA.endErr'), /Defina um teto/);
+  run('ideiaEndForm(IDEIA.cur).budget="30,00"');
+  await run('ideiaCreate(IDEIA.cur, "piloto")');
   const a = calls.find(([c]) => c === 'autopilot_start')[1];
+  assert.equal(a.budgetUsd, 30);
+  assert.equal(a.attempts, 3);
   assert.equal(a.platform, 'mobile');
   assert.equal(a.name, 'rotina-skincare');
   assert.equal(a.plan.tasks.length, 2);
@@ -497,4 +515,34 @@ test('revisão: criar que parou no meio CONTINUA na mesma pasta, sem repetir tar
   assert.equal(tasks.length, 4, '1 ok + 1 que falhou + as 2 que faltavam');
   assert.equal(run('IDEIA.cur.project.tasks.length'), 3);
   assert.equal(run('IDEIA.cur.partial'), undefined);
+});
+
+// ---------------- revisão F4 ----------------
+test('a mesa da ideia fica CONGELADA nela (m.panel): editar personas depois não muda histórico nem apuração', () => {
+  const { run } = load();
+  run(`IDEIA.cur=${JSON.stringify(idea0({ panel: [{ id: 'pesq', nome: 'Pesquisadora', papel: 'p', desc: '' }, { id: 'zeca', nome: 'Zeca', papel: 'z', desc: '' }], turns: [{ you: 'oi', resp: { zeca: { st: 'ok', text: 'opa' } } }] }))};`);
+  const h = run('ideiaIdeaHtml(IDEIA.cur)');
+  assert.match(h, /Zeca/); assert.doesNotMatch(h, />Bia </, 'quem não estava na mesa não aparece');
+  assert.equal(run('ideiaPanelOf(IDEIA.cur).length'), 2);
+  assert.ok(run('ideiaPanelSnap().length') >= 6, 'ideia nova congela a mesa do momento');
+});
+
+test('criação parcial + "Construir sozinho" NÃO cria um 2º projeto; criar pede confirmação (projeto, GitHub, teto)', async () => {
+  const r = P.ideiaCheckReport(json(good())).report;
+  const ps = P.ideiaPanel(), v = (top) => ({ st: 'ok', plataforma: 'web', voto: { fala: '', top: top.map(([id, peso]) => ({ id, peso })), vetos: [] } });
+  const decision = { status: 'ok', rounds: [{ n: 1, resp: {} }, { n: 2, resp: Object.fromEntries(ps.map((p) => [p.id, v([['F1', 2]])])) }], cands: [{ id: 'F1', titulo: 'Rotina', descricao: 'd' }], escolhas: {} };
+  const asked = [];
+  const { run, calls, ctx } = load({ invoke: async (c) => c === 'autopilot_start' ? { dir: '/x' } : null });
+  ctx.askYes = async (q) => { asked.push(q); return false; };
+  run(`IDEIA.cur=${JSON.stringify(idea0({ turns: [{ you: 'oi', resp: {} }], report: { status: 'ok', data: r, md: '# P' }, decision, partial: { mode: 'manual', dir: '/x/rotina', tasks: [] } }))}; IDEIA.mem['i-test-1']=IDEIA.cur;`);
+  run('ideiaEndForm(IDEIA.cur).budget="30"');
+  await run('ideiaCreate(IDEIA.cur, "piloto")');
+  assert.ok(!calls.some(([c]) => c === 'autopilot_start'));
+  assert.match(run('IDEIA.endErr'), /Seguir à mão/);
+  run('delete IDEIA.cur.partial; ideiaEndForm(IDEIA.cur).budget="30"');
+  await run('ideiaCreate(IDEIA.cur, "piloto")');
+  assert.equal(asked.length, 1, 'confirmação antes de gastar');
+  assert.match(asked[0], /Constrói sozinho[\s\S]*US\$ 30/);
+  assert.ok(!calls.some(([c]) => c === 'autopilot_start'), 'recusou: nada começa');
+  assert.equal(run('ideiaEndForm(IDEIA.cur).gh'), false, 'GitHub só vem marcado com conta conectada');
 });

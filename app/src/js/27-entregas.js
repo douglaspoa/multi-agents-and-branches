@@ -4,6 +4,15 @@
 const TASK_DONE_ST=['merged','done'];
 function taskIsDone(t){ return !!t && (t.flag==='closed' || TASK_DONE_ST.includes(t.status)); }
 function prNumOf(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
+// carimbo ESTÁTICO "entregue" (redesenho F2, componente .stamp): só quando a demanda foi integrada (PR mergeado) — na
+// cabeça da Entrega e na faixa de etapas, como no protótipo. Data = último movimento da tarefa; o número do PR se houver
+function enStampEntregue(t){
+  if(!t || t.status!=='merged') return '';
+  const pr=prNumOf(t), ts=(typeof taskTs==='function')?taskTs(t):0;
+  const d=ts?new Date(ts).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }):'';
+  const sub=[d, pr?'PR #'+pr:''].filter(Boolean).join(' · ');
+  return `<span class="stamp entregue" role="img" aria-label="${escA('entregue'+(sub?' — '+sub:''))}">entregue${sub?`<span class="d">${esc(sub)}</span>`:''}</span>`;
+}
 function agoShort(ms){ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
 // duração desconhecida (sem eventos) = '' — nunca "0 min" como se a tarefa não tivesse levado tempo
 function fmtDurKnown(ms){ return ms>0?fmtDurMs(ms):''; }
@@ -468,11 +477,15 @@ function fwRenderEntrega(t, main){
   const evidenceNames=new Set(rows.flatMap(r=>r.evidence));
   const evNorm=new Set([...evidenceNames].map(e=>enEvResolve(t.id, e, arts)).filter(Boolean)); // MESMA regra das mídias por requisito
   const proofsHtml = (imgs.length||vids.length) ? `<div class="en-proofs">${imgs.map((a,i)=>{ return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${enThumbHtml(t.id, a.name, '')}<span class="en-pn">${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}${vids.map(a=>`<div class="en-proof en-vproof" title="${escA(a.name)}">${artVideoHtml(t.id, a.name, 'en-pvid')}<span class="en-pn">${IC.play} ${esc(a.name)}</span>${evNorm.has(a.name)?'<span class="en-pv">evidência</span>':''}</div>`).join('')}</div>` : `<div class="en-empty">nenhum print ou vídeo de prova ainda${done?'':' — o agente anexa em .cardume/artifacts quando comprova um requisito'}</div>`;
-  const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}" title="${escA(e)}">${esc(enEvName(t.id, e)||e)}</button>`).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
+  // redesenho F1: R1…Rn + carimbo estático "provado"/"adiado" (o mesmo do painel do terminal — tlStampHtml); adiado é
+  // tracejado com "adiado — motivo: …", nunca riscado
+  const reqHtml = rows.length ? rows.map((r,i)=>{ const ad=typeof reqIsAdiado==='function' && reqIsAdiado(r); const pr=r.st==='ok'&&r.evidence.length>0;
+      const ck=pr?'ok':ad?'ad':'';
+      return `<div class="en-req ${r.st}${ad?' ad':''}"><span class="reqst ${ad?'ad':r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${ad?'':r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div><b class="tlrn">R${i+1}</b> ${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}" title="${escA(e)}">${esc(enEvName(t.id, e)||e)}</button>`).join('')}</div>`:''}${ad?`<div class="reqnote en-adnote">${esc(typeof tlAdiadoSub==='function'?tlAdiadoSub(r.note):'adiado')}</div>`:r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div>${typeof tlStampHtml==='function'?tlStampHtml(ck):''}</div>`; }).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
   const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(n)]||'ARQ');
   const listed=nonCode?arts:docs;
   const pvSel=enPvPick(t, nonCode?arts:docs);
-  const docsHtml = listed.length ? listed.map(a=>`<div class="en-doc${a.name===pvSel?' on':''}"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-pvsel="${escA(a.name)}" title="mostra na prévia abaixo">ver</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
+  const docsHtml = listed.length ? listed.map(a=>`<div class="en-doc${a.name===pvSel?' on':''}"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${typeof tiOpenDoc==='function'?`<button type="button" class="tilink en-dlink" data-tidoc="${escA(a.name)}" title="${escA('abrir '+a.name+' na aba Documento, ao lado')}">${esc(a.name)}</button>`:esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-pvsel="${escA(a.name)}" title="mostra na prévia abaixo">ver</button><button class="btn sm ghost" data-tiapp="${escA(a.name)}" title="abrir no app padrão do computador">${IC.extlink||'↗'} app</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
   const dels=(t.deliverables||[]).filter(Boolean);
   const timeline=stageStepper(t).replace('<div class="seclbl" style="margin-top:13px">Etapas</div>','');
   const dur=fmtDurKnown(taskDurationMs(t));
@@ -490,7 +503,7 @@ function fwRenderEntrega(t, main){
   const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
     <div class="en-head">
       <div class="en-ht"><span class="ndeyebrow">${esc(TYPE_PT[taskType(t)]||'demanda')} · ${done?'concluída':nonCode&&['review','delivered'].includes(t.status)?'pronta pra você conferir':esc(PHASES[taskPhase(t)-1]||'')}</span><h2 class="en-h1">${esc(t.title)}</h2>${t.objective?`<p class="en-obj">${esc(t.objective)}</p>`:''}</div>
-      <div class="en-kpis">${kpis}</div>
+      <div class="en-kpis">${kpis}${enStampEntregue(t)}</div>
     </div>
     ${enLiveHtml(t)}
     ${nonCode?enSaveBarHtml(t, arts)+pvSec:enVerifHtml(t)}
@@ -518,6 +531,9 @@ function fwRenderEntrega(t, main){
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   main.querySelectorAll('[data-docpdf]').forEach(b=>b.onclick=()=>entregaDocPdf(t, b.dataset.docpdf, b));
   main.querySelectorAll('[data-docslack]').forEach(b=>b.onclick=()=>sendArtifactSlack(t.id, b.dataset.docslack));
+  // arquivo entregue = link (64-terminal-integrado): abre na aba Documento ao lado, ou no app padrão
+  main.querySelectorAll('.en-doc [data-tidoc]').forEach(b=>b.onclick=()=>tiOpenDoc(t.id, b.dataset.tidoc));
+  main.querySelectorAll('.en-doc [data-tiapp]').forEach(b=>b.onclick=()=>invoke('open_artifact',{ taskId:t.id, name:b.dataset.tiapp }).catch(e=>showErr(e, 'Não consegui abrir no app padrão')));
   main.querySelectorAll('.en-doc [data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); setTimeout(()=>{ const p=$id('enPv'); if(p) p.scrollIntoView(scrollOpts('start')); }, 40); });
   main.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>{ if(b.dataset.hash&&typeof openCommit==='function') openCommit(b.dataset.hash); });
   main.querySelectorAll('[data-enopendir]').forEach(b=>b.onclick=()=>invoke('open_folder',{ path:b.dataset.enopendir }).catch(e=>showErr(e, 'Não abriu a pasta')));

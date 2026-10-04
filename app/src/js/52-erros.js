@@ -128,3 +128,65 @@
   setTimeout(flush, 6000);
   setInterval(flush, 60000);
 })();
+
+// ===== FOLHA ANCORADA (F4 · G3, estados globais D23): confirmação, campo de texto e escolha numa folhinha presa ao
+// botão que a abriu — no lugar dos diálogos nativos (OK/Cancelar) e do modal #txOverlay. askYes/askText continuam
+// sendo a API (00-util / 11-ambiente-updater delegam pra cá). Esc ou clique fora cancela; Enter confirma.
+// opts: { anchor, title, text, field:{ type, placeholder, value }, choices:[{ value, label, hint, disabled, danger }],
+//         ok, cancel, danger, allowEmpty } → Promise: true/false (confirmação) · texto/null (campo) · valor/null (escolha)
+// @folha-puro-inicio
+function sheetPlace(r, w, h, vw, vh){
+  const below=r.bottom+8+h<=vh || r.top-8-h<0;
+  let top=below?r.bottom+8:r.top-8-h;
+  top=Math.max(8, Math.min(vh-h-8, top)); // nunca sai da tela (nem em cima nem embaixo)
+  const left=Math.max(8, Math.min(vw-w-8, r.left+r.width/2-w/2));
+  return { top:Math.round(top), left:Math.round(left), up:!below, ax:Math.round(Math.max(14, Math.min(w-14, r.left+r.width/2-left))) };
+}
+// valor de "cancelar" de CADA folha: confirmação → false; campo ou escolha → null
+function sheetCancelValue(o){ return (o&&(o.field||o.choices))?null:false; }
+// @folha-puro-fim
+// UMA folha por vez: a segunda espera a primeira terminar (antes a nova "cancelava" a pendente como false — uma
+// confirmação sumia sem resposta)
+let _sheetQ=Promise.resolve();
+function sheetAsk(o){ const run=()=>sheetOpen(o||{}); const p=_sheetQ.then(run, run); _sheetQ=p.catch(()=>{}); return p; }
+function sheetOpen(o){
+  return new Promise(res=>{
+    const cancelV=sheetCancelValue(o);
+    const prevFocus=document.activeElement;
+    const anchor=(o.anchor&&o.anchor.getBoundingClientRect&&o.anchor.isConnected!==false)?o.anchor:((prevFocus&&prevFocus!==document.body&&prevFocus.getBoundingClientRect)?prevFocus:null);
+    const el=document.createElement('div'); el.className='sfsheet'+(o.danger?' danger':''); el.setAttribute('role','dialog'); el.setAttribute('aria-modal','true');
+    el.setAttribute('aria-label', String(o.title||'Confirmar'));
+    const E=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+    const ch=o.choices||null; let pick=ch?((ch.find(c=>!c.disabled)||{}).value):null;
+    el.innerHTML=`<div class="sh-h"><b>${E(o.title||'Confirmar')}</b></div><div class="sh-b">${o.text?`<p>${E(o.text)}</p>`:''}`
+      +(o.field?`<input class="in" data-sh-in type="${o.field.type==='password'?'password':'text'}" placeholder="${E(o.field.placeholder||'')}" value="${E(o.field.value||'')}" autocomplete="off" spellcheck="false" aria-label="${E(o.field.placeholder||o.title||'')}">`:'')
+      +(ch?`<div class="sh-opts" role="radiogroup">${ch.map((c,i)=>`<button type="button" class="sh-opt${c.value===pick?' on':''}${c.danger?' danger':''}" role="radio" aria-checked="${c.value===pick}" data-sh-i="${i}"${c.disabled?' aria-disabled="true"':''}><span class="rd"></span><b>${E(c.label)}</b>${c.hint?`<em>${E(c.hint)}</em>`:''}</button>`).join('')}</div>`:'')
+      +`</div><div class="sh-f"><button type="button" class="btn ${o.danger?'danger':'primary'} sm" data-sh-ok>${E(o.ok||'confirmar')}</button><button type="button" class="btn sm" data-sh-no>${E(o.cancel||'cancelar')}</button><span>Esc fecha</span></div>`;
+    document.body.appendChild(el);
+    const vw=window.innerWidth||1280, vh=window.innerHeight||800;
+    const r=anchor?anchor.getBoundingClientRect():{ top:vh/2-40, bottom:vh/2-40, left:vw/2, width:0 };
+    const p=sheetPlace(r, el.offsetWidth||380, el.offsetHeight||160, vw, vh);
+    el.style.top=p.top+'px'; el.style.left=p.left+'px'; el.style.setProperty('--ax', p.ax+'px'); if(p.up) el.classList.add('up');
+    if(!anchor) el.classList.add('noarrow');
+    const input=el.querySelector('[data-sh-in]');
+    let over=false, armed=false;
+    const done=v=>{ if(over) return; over=true; el.remove(); if(armed){ document.removeEventListener('mousedown', outside, true); document.removeEventListener('keydown', key, true); }
+      try{ if(prevFocus&&prevFocus.focus&&prevFocus.isConnected) prevFocus.focus(); }catch(_){ } res(v); };
+    const cancel=()=>done(cancelV);
+    const choose=i=>{ const c=ch[i]; if(!c||c.disabled) return false; pick=c.value; el.querySelectorAll('[data-sh-i]').forEach(x=>{ const on=+x.dataset.shI===i; x.classList.toggle('on',on); x.setAttribute('aria-checked',String(on)); }); return true; };
+    const ok=()=>{ if(o.field){ const v=input.value.trim(); if(!v && !o.allowEmpty){ input.focus(); return; } done(o.allowEmpty?v:v||null); } else if(ch) done(pick==null?null:pick); else done(true); };
+    const outside=e=>{ if(!el.contains(e.target)) cancel(); };
+    const key=e=>{
+      if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); cancel(); return; }
+      if(e.key==='Tab'){ const f=[...el.querySelectorAll('button:not([disabled]),input')].filter(x=>x.getAttribute('aria-disabled')!=='true'); if(!f.length) return; const i=f.indexOf(document.activeElement);
+        if(e.shiftKey && i<=0){ e.preventDefault(); f[f.length-1].focus(); } else if(!e.shiftKey && (i===-1||i===f.length-1)){ e.preventDefault(); f[0].focus(); } return; } // foco preso na folha
+      if(e.key==='Enter' && el.contains(e.target)){
+        if(e.target.matches && e.target.matches('[data-sh-no]')) return;
+        const o2=e.target.closest && e.target.closest('[data-sh-i]');
+        e.preventDefault(); if(o2){ if(choose(+o2.dataset.shI)) ok(); return; } ok(); } };
+    el.querySelector('[data-sh-ok]').onclick=ok; el.querySelector('[data-sh-no]').onclick=cancel;
+    el.querySelectorAll('[data-sh-i]').forEach(b=>b.onclick=()=>choose(+b.dataset.shI));
+    setTimeout(()=>{ if(over) return; armed=true; document.addEventListener('mousedown', outside, true); document.addEventListener('keydown', key, true); (input||el.querySelector(o.danger?'[data-sh-no]':'[data-sh-ok]')).focus(); }, 0);
+  });
+}
+window.sheetAsk=sheetAsk;

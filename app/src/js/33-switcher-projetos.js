@@ -179,6 +179,9 @@ document.addEventListener("keydown", e=>{
 let cfgEdit = { agents:[], workflows:[] };
 function escA(s){ return esc(s).replace(/"/g,"&quot;"); }
 // @puro-agentes-inicio (testado em app/tests/agentes.test.mjs — sem DOM nem estado global)
+// @cor-dado-inicio — cor padrão GRAVADA no agente novo (dado do usuário; o <input type=color> exige hex)
+const AG_COLOR_PADRAO='#1e9e4a';
+// @cor-dado-fim
 function agSlug(s){ return (String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,24))||"item"; }
 // cabeçalho do .md de subagente (bloco entre ---): aceita CRLF (arquivo salvo no Windows), BOM, cabeçalho vazio
 // (---\n---) e valor em bloco do YAML (description: > / |, com as linhas indentadas seguintes) — antes o regex só
@@ -206,7 +209,7 @@ function agFromMd(filename, content){
   const { fm, body }=agFrontmatter(content);
   const name=fm.name || String(filename||'agente').replace(/\.md$/i,'') || 'agente';
   const persona=((fm.description ? fm.description.trim()+(body?' ':'') : '')+body).trim();
-  return { name, role: fm.role || fm.category || 'builder', engine: (fm.engine==='mock'?'mock':'claude'), model: fm.model||undefined, color: fm.color || '#1e9e4a', avatar: fm.avatar || '', persona };
+  return { name, role: fm.role || fm.category || 'builder', engine: (fm.engine==='mock'?'mock':'claude'), model: fm.model||undefined, color: fm.color || AG_COLOR_PADRAO, avatar: fm.avatar || '', persona };
 }
 // id de equipe ÚNICO sem NUNCA renomear um id existente: 1º reserva todos os ids que já existem, depois dá id
 // só às equipes sem id (duas "Nova equipe" viravam nova-equipe e a 2ª sobrescrevia a 1ª). Devolve se mudou algo.
@@ -238,18 +241,22 @@ async function openAgents(){
     cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
     agBase = JSON.stringify(cfgEdit);
     renderAg(); renderTeams(); renderWf(); agLock(false); agSaveHint();
-    if(typeof orgPolRender==='function') orgPolRender(); // F5 · P14: só lê a nuvem com sessão + org (Grátis: nada)
+    if(typeof agTopSync==='function') agTopSync();
+    if(typeof orgPolRender==='function') orgPolRender(); // F5 · P14: avisos da política (o formulário mora em Ajustes › Regras da organização)
+    if(typeof agOrgCatRender==='function') agOrgCatRender(); // D18: catálogo da organização (enviar/aplicar) mora em Equipes › Do time
   }, { label:'lendo os agentes do projeto', ctx:'Não consegui ler os agentes', shape:{ n:6 } });
 }
 function agLock(on){ ['agSave','agAdd','wfAdd','agImport'].forEach(id=>{ const b=$id(id); if(b) b.disabled=!!on; }); }
 function closeAgents(){ ovHide("agOverlay"); } // aba: fecha a aba (não deixa em branco)
 async function cancelAgents(){ if(agDirty() && !await askYes('Descartar as mudanças nos agentes e equipes?\n\nNada foi salvo ainda.')) return; agBase=''; closeAgents(); }
 const ROLES=["planner","builder","reviewer","designer","tester","docs","security"];
+// @cor-dado-inicio — cor GRAVADA no agente (dado do usuário, vai pro .md/nuvem; o <input type=color> exige hex)
 const PALETTE=["#1e9e4a","#e6b53c","#0a72e0","#a05cff","#e5484d","#12a3a3","#e07b39","#ec4899"];
+// @cor-dado-fim
 const GLYPHS=["🦊","🦉","🐙","🐢","🦋","🐝","🦁","🐬","🧠","⚡","🛠️","🔍","🎨","🧪","📝","🛡️"];
 function avatarInner(a){ return a.avatar ? esc(a.avatar) : esc((a.name||"?").trim().slice(0,2).toUpperCase()); }
 function allCats(){ const s=new Set(ROLES); cfgEdit.agents.forEach(a=>{ if(a.role) s.add(a.role); }); return [...s]; }
-function addAgent(){ const id=uniqueId("agente"); cfgEdit.agents.push({id,name:"Novo agente",role:"builder",engine:"claude",persona:"",color:"#1e9e4a",avatar:""}); agFichaOpen(id, 'editar'); agSaveHint(); }
+function addAgent(){ const id=uniqueId("agente"); cfgEdit.agents.push({id,name:"Novo agente",role:"builder",engine:"claude",persona:"",color:PALETTE[0],avatar:""}); agFichaOpen(id, 'editar'); agSaveHint(); }
 // papel do agente em PT (o id técnico em inglês fica no tooltip)
 const AG_ROLE_PT={ planner:'Planejador', builder:'Construtor', reviewer:'Revisor', docs:'Documentador', tester:'Testador', investigator:'Investigador', designer:'Designer', coder:'Construtor' };
 function roleLabel(r){ const k=String(r||'').toLowerCase(); return AG_ROLE_PT[k]||r||''; }
@@ -289,7 +296,8 @@ function renderWf(){
     ${(()=>{ const roles=agTeamRoles(w.steps||[], byId, false); if(!roles.length) return ''; return `<div class="wfstrip">${agStripFor(roles)}</div>`+(typeof orgPolCovers==='function'&&orgPolCovers()?[]:agTeamWarnings(roles)).map(x=>`<p class="agwarn" role="note">${esc(x.text)} (${esc(x.detail)})</p>`).join('')+(typeof orgPolIssuesHtml==='function'?orgPolIssuesHtml(roles):''); })()}
   </div>`).join("") || '<div class="dim" style="font-size:var(--fs-sm);padding:6px 0">nenhuma equipe — clique "+ nova equipe"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
-  el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); });
+  el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=async()=>{ const w=cfgEdit.workflows[+b.dataset.wdel]; if(!w) return; // F4: remover equipe confirma (agente já confirmava)
+    if(!await askYes('Remover a equipe "'+(w.name||'equipe')+'"?\n\nOs agentes continuam. Só vale depois de salvar.')) return; cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); agSaveHint(); });
   // compartilhar UMA equipe com o time (redesign p18) — publica o workflow + os agentes dele
   el.querySelectorAll("[data-wshare]").forEach(b=>b.onclick=async()=>{
     const w=cfgEdit.workflows[+b.dataset.wshare]; if(!w) return;
@@ -345,7 +353,7 @@ async function saveConfig(){
     await invoke("save_config",{config:cfgEdit}); state.config=JSON.parse(JSON.stringify(cfgEdit)); lastSig='';
     // na ficha: fica nela (a versão nova aparece no cabeçalho); na grade: fecha a aba como antes
     if(AGF.id){ agBase=JSON.stringify(cfgEdit); await agFichaLoad(); agSaveHint(); toast('Salvo — cada agente alterado ganhou uma versão nova','ok'); }
-    else { agBase=''; closeAgents(); toast('Agentes e equipes salvos','ok'); }
+    else { agBase=JSON.stringify(cfgEdit); agSaveHint(); toast('Agentes e equipes salvos','ok'); } // F4: salvar NUNCA fecha a aba
   }
   catch(e){ showErr(e, 'Falha ao salvar catálogo'); }
   finally{ btn.disabled=false; btn.textContent="salvar"; }
@@ -397,3 +405,26 @@ setInterval(async()=>{
   refresh().then(()=>{ if(state!==before){ snapStamp=stamp; snapFullAt=Date.now(); snapSigMark=lastSig; } })
     .catch(e=>console.error("refresh:", e)).finally(()=>{ if(refreshBusyAt===my) refreshBusyAt=0; });
 }, 1000);
+
+// ===== F4 (G1, D15/D18): Projeto › Agentes — abas Agentes · Equipes; "Do time" = catálogo da organização =====
+let agTop=lsGet('agTop')==='eq'?'eq':'ag';
+function agTopSync(){
+  const ag=$id('agPanelAg'), eq=$id('agPanelEq'); if(!ag||!eq) return;
+  ag.hidden=agTop!=='ag'; eq.hidden=agTop!=='eq';
+  [['agTabAg','ag'],['agTabEq','eq']].forEach(([id,k])=>{ const b=$id(id); if(b){ b.classList.toggle('on', agTop===k); b.setAttribute('aria-selected', agTop===k); b.tabIndex=agTop===k?0:-1; } });
+  const na=$id('agTabAgN'), ne=$id('agTabEqN');
+  if(na) na.textContent=String((cfgEdit&&cfgEdit.agents||[]).length||'');
+  if(ne){ const prontas=($id('agTeams')?$id('agTeams').querySelectorAll('.agteam').length:0); ne.textContent=String((prontas+(cfgEdit&&cfgEdit.workflows||[]).length)||''); } // o que a aba Equipes MOSTRA (prontas + minhas)
+}
+document.querySelectorAll('[data-agtop]').forEach(b=>{ b.onclick=()=>{ agTop=b.dataset.agtop; lsSet('agTop', agTop); agShowFicha(false); agTopSync(); };
+  b.onkeydown=e=>{ if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return; e.preventDefault(); agTop=agTop==='ag'?'eq':'ag'; lsSet('agTop',agTop); agTopSync(); const n=$id(agTop==='ag'?'agTabAg':'agTabEq'); if(n) n.focus(); }; });
+bindClick('agEqModo', ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('modo'); else if(window.openTab) window.openTab('cfg'); });
+// catálogo da org (antes em Conta › "Agentes & equipes da organização"): só com sessão + organização
+function agOrgCatRender(){
+  const el=$id('agOrgCat'); if(!el) return;
+  const org=(typeof cloudData!=='undefined' && cloudData && cloudData.org)||null;
+  if(!(typeof SB!=='undefined' && SB.sess() && org)){ el.innerHTML=''; return; }
+  const isAdmin=cloudData.meRole==='owner'||cloudData.meRole==='admin';
+  el.innerHTML=`<div class="pgsh3"><h3>Do time</h3><span>catálogo da organização ${esc(org.name||'')}</span><span class="grow"></span>${isAdmin?'<button class="btn sm" id="sbCatPush">enviar os deste projeto</button>':''}<button class="btn sm primary" id="sbCatPull">aplicar neste projeto</button></div><div id="sbCat" class="pgnote">lendo o catálogo…</div>`;
+  if(typeof cloudCatalog==='function') cloudCatalog(org.id, isAdmin);
+}

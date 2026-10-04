@@ -52,7 +52,7 @@
 .mesach .dim{font-size:var(--fs-xs)}
 .mesachip{font-size:var(--fs-xs);color:var(--muted);display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .mesachip.live{color:var(--info)}
-.mesachip.ok{color:var(--accent)}
+.mesachip.ok{color:var(--ok)}
 .mesachip.bad{color:var(--err,var(--bad))}
 .mesachip .pltyping{transform:scale(.8)}
 .mesamd{font-size:var(--fs-sm);line-height:1.5}

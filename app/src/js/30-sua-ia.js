@@ -39,7 +39,7 @@ function suaIaObSuggest(list, defEng){
 }
 // @sua-ia-puro-fim
 function suaIaOf(id){ const k=typeof aiEngineOf==='function'?aiEngineOf(id):id; return (suaIaList||[]).find(s=>s.id===k)||null; }
-function suaIaEngine(id){ return (typeof AI_ENGINES!=='undefined'?AI_ENGINES:[]).find(e=>e.id===id)||{ id, name:id, color:'#8b959b', icon:'', models:[] }; }
+function suaIaEngine(id){ return (typeof AI_ENGINES!=='undefined'?AI_ENGINES:[]).find(e=>e.id===id)||{ id, name:id, color:'var(--muted)', icon:'', models:[] }; }
 function suaIaDefEng(){ return aiEngineOf(aiDefaults().eng); }
 // modelos do cartão: catálogo do seletor (29-ia-picker); gateway = os da config da conta (vêm no status; o 1º é o padrão = '')
 function suaIaModels(s){
@@ -124,8 +124,10 @@ function suaIaCardHtml(s, opts, shortest, ob){
   const busy=suaIaUi.busy[s.id], msg=suaIaUi.msg[s.id];
   const name=suaIaName(s);
   const used=(suaIaList||[]).find(x=>x.inUse);
-  const gwCfg=s.id==='gateway' && !s.ready ? (opts.ctx==='cfg'
-      ? `<div class="suaia-fix"><span>A URL, a chave e o modelo ficam logo abaixo, em <b>Gateway próprio</b>.</span><button type="button" class="btn sm" data-sa="gwscroll">configurar</button></div>`
+  // Ajustes (F4): o formulário do gateway mora DENTRO do cartão (um cartão só pra IA da sua empresa); recolhido quando pronto
+  const gwCfg=s.id==='gateway' && opts.ctx==='ajustes' ? `<details class="suaia-gwd"${s.ready?'':' open'}><summary>endereço, chave e modelo</summary><div class="suaia-gw" data-sagw="${hk}"></div></details>`
+    : s.id==='gateway' && !s.ready ? (opts.ctx==='cfg'
+      ? `<div class="suaia-fix"><span>O endereço, a chave e o modelo ficam logo abaixo, em <b>IA da sua empresa</b>.</span><button type="button" class="btn sm" data-sa="gwscroll">configurar</button></div>`
       : (suaIaUi.gwOpen?`<div class="suaia-gw" data-sagw="${hk}"></div>`:`<div class="suaia-fix"><span>Use o endpoint da sua empresa (OpenAI-compatível): URL, chave e modelo.</span><button type="button" class="btn sm" data-sa="gwopen">configurar aqui</button></div>`)) : '';
   const note=isDef&&!s.ready ? ` · <b>seu padrão não está pronto</b>${used?` — por enquanto as chamadas usam ${esc(suaIaName(used))}`:''}`
     : (s.inUse&&!isDef ? ' · <b>em uso agora</b> (seu padrão não está pronto)' : '');
@@ -280,9 +282,9 @@ async function suaIaTest(id){
   suaIaUi.busy[id]=null; suaIaRefresh();
   return suaIaUi.msg[id];
 }
-// abre o painel nas Configurações (link "configurar" dos seletores) — aba, não modal
+// abre o painel em Ajustes › IA e modelos (link "configurar" dos seletores, medidor, erros) — aba, não modal
 function suaIaOpenCfg(){
-  if(window.openTab) window.openTab('cfg'); else if(typeof openCfg==='function') openCfg();
+  if(typeof ajustesOpen==='function') ajustesOpen('motores'); else if(window.openTab) window.openTab('cfg');
   setTimeout(()=>{ const el=$id('suaIaCfg'); if(el && el.scrollIntoView) el.scrollIntoView(typeof scrollOpts==='function'?scrollOpts('start'):{ block:'start' }); }, 120);
 }
 window.suaIaOpenCfg=suaIaOpenCfg;

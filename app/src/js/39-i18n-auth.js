@@ -63,7 +63,7 @@ const I18N={ 'pt-BR':{
   'auth.pw.caps':'Caps Lock ligado',
   // ---- telas ----
   'auth.top.signup':'criar conta', 'auth.top.login':'entrar', 'auth.top.confirm':'confirmar e-mail', 'auth.top.newpass':'nova senha',
-  'auth.top.plans':'planos', 'auth.top.pay':'pagamento', 'auth.top.ready':'bem-vindo',
+  'auth.top.plans':'planos', 'auth.top.pay':'pagamento', 'auth.top.ready':'conta pronta', 'auth.top.error':'erro',
   'auth.logout':'sair da conta', 'auth.back':'← voltar',
   'auth.signup.title':'Criar conta',
   'auth.signup.sub':'Se o seu time já usa o Starfork, use o e-mail do trabalho — assim você entra direto no time certo.',

@@ -83,7 +83,7 @@ test('a liberação é uma SEÇÃO da aba (não modal): valor + motivo, gasto at
 
 test('budgetRelease: sem motivo nada muda; pouco demais recusa dizendo o mínimo; ok grava valor+motivo e retoma do jeito certo', async () => {
   const m = teto.match(/async function budgetRelease\([^)]*\)\{[\s\S]*?\n\}\n/); assert.ok(m);
-  const mk = (t, spent) => { const c = ctx({ budgetOf: () => 2, taskCost: () => ({ usd: spent }) }); run(c, m[0] + '\nthis.budgetRelease=budgetRelease;'); return c; };
+  const mk = (t, spent) => { const c = ctx({ budgetOf: () => 2, taskCost: () => ({ usd: spent }) }); run(c, teto.match(/function budgetOrgMax\(t\)\{[^\n]*\n/)[0] + m[0] + '\nthis.budgetRelease=budgetRelease;'); return c; };
   const t = { id: 't', status: 'needs-you', spec: { budgetUsd: 2, budgetHit: { usd: 1.6, cap: 2, mode: 'etapa' }, budgetReleases: [{ usd: 1, reason: 'antes', at: 1, capBefore: 1, capAfter: 2 }] } };
   let c = mk(t, 1.6);
   await assert.rejects(c.budgetRelease(t, '2', 'sim'), /motivo/);
@@ -171,6 +171,7 @@ test('faixa (P1): quem age agora, sua vez nos cadeados, precisa de você, prova 
   assert.equal(sum.now, 'Agora: Íris está construindo');
   assert.equal(sum.next, 'Depois: Revisar (Nyx)');
   assert.equal(sum.pos, 2); assert.equal(sum.n, 6);
+  assert.equal(sum.label, 'Construir', 'rótulo da etapa de agora ("etapa 2 de 6 · Construir" no estreito)');
   // Cadeado 1
   s = stages(c, { ...base, status: 'plan-review', stage: 'planner' });
   assert.deepEqual(pick(s).slice(0, 2), [['plano', 'sua-vez', 'sua vez'], ['construir', 'espera', 'depois']]);
@@ -211,10 +212,10 @@ test('faixa (P1) larga e estreita: rótulos, palavra, custo ao lado do ✓, cade
   const h = run(c, `stageStripHtml(taskStages(${JSON.stringify(t)}, ${JSON.stringify(x)}), stagesSummary(taskStages(${JSON.stringify(t)}, ${JSON.stringify(x)}), { spent:0.1, cap:2 }), {})`);
   assert.match(h, /^<div class="cicstrip" role="group" aria-label="Etapas da tarefa">/);
   for (const w of ['Plano', 'Construir', 'Revisar', 'Provar', 'Entregar', 'Retro', 'pronto', 'construindo', 'depois']) assert.match(h, new RegExp(w));
-  assert.match(h, /<li class="cicst s-feito"><button[^>]*>.*Plano.*US\$ 0,10/s, 'custo ao lado do ✓');
+  assert.match(h, /<li class="cicst s-feito"[^>]*><button[^>]*>.*Plano.*US\$ 0,10/s, 'custo ao lado do ✓');
   assert.equal((h.match(/class="cicst-k"/g) || []).length, 2, 'Cadeado 1 e Cadeado 2');
   assert.equal((h.match(/aria-current="step"/g) || []).length, 1);
-  assert.match(h, /gasto até agora <b>US\$ 0,10<\/b> de US\$ 2,00/);
+  assert.match(h, /gasto <b>US\$ 0,10<\/b> de US\$ 2,00/); // redesenho F1: "gasto" curto, na mesma faixa das etapas
   assert.match(h, /<span class="cicst-pos">etapa 2 de 6<\/span>/);
   assert.equal(s.length, 6);
   // estreito: container query esconde o texto das etapas que não são a de agora e mostra "etapa n de N"

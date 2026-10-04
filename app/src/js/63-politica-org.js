@@ -223,51 +223,116 @@ function orgTeamShareBlock(roles){
 }
 
 // ---------------------------------------------------------------- P14: seção "Política da organização" (aba Meu time)
+// A seção "Política da organização" saiu de Meu time: virou Ajustes › Regras da organização (UMA página com os padrões
+// de demanda, versão e só leitura pra quem não é o dono). Aqui fica o atalho + a leitura que os avisos das equipes usam.
 async function orgPolRender(){
   const el=$id('agPolicy'); if(!el) return;
   const org=orgCur();
-  if(!orgSessOk() || !org){ el.innerHTML=''; return; }   // Grátis/sem login: nada (o local é livre)
-  if(orgPlanOf(org, Date.now())!=='empresa'){
-    el.innerHTML=`<div class="seclbl2" style="margin-top:22px">Política da organização</div><p class="imhint">A política da organização para agentes (portão obrigatório, teto máximo, revisor obrigatório e quem aprova o aprendizado do time) é do plano Empresa.</p>`;
-    return;
-  }
-  el.innerHTML=`<div class="seclbl2" style="margin-top:22px">Política da organização</div><p class="imhint">lendo a política…</p>`;
-  const p=await orgPolGet();
-  if(!agVisible()) return;
-  const pol=p||orgAgentPolicy({});
-  const rules=policyRules(pol);
-  const admin=orgIsOwner();
-  const form=admin?`<form class="agpol-f" id="agPolForm" aria-label="Editar a política da organização">
-      <label class="agpol-c"><input type="checkbox" name="portao"${pol.portao?' checked':''}> toda tarefa passa pelo portão (nenhum PR abre sozinho; prova obrigatória)</label>
-      <label class="agpol-c"><input type="checkbox" name="revisor"${pol.revisor?' checked':''}> toda equipe tem um revisor</label>
-      <label class="agpol-c"><input type="checkbox" name="revisorDiferente"${pol.revisorDiferente?' checked':''}> o revisor roda em motor ou modelo diferente de quem constrói</label>
-      <label class="agpol-l">Teto máximo por tarefa (US$) <input class="in agpol-n" type="text" name="tetoMaxUsd" inputmode="decimal" pattern="[0-9]*[.,]?[0-9]*" value="${pol.tetoMaxUsd!=null?escA(pol.tetoMaxUsd):''}" placeholder="sem máximo"></label>
-      <label class="agpol-l">Quem aprova aprendizado compartilhado <select class="sel" name="aprovaAprendizado"><option value="admins"${pol.aprovaAprendizado==='admins'?' selected':''}>um admin da organização</option><option value="membros"${pol.aprovaAprendizado==='membros'?' selected':''}>outra pessoa da organização</option></select></label>
-      <div class="agpol-a"><button class="btn sm primary" type="submit" id="agPolSave">salvar política</button><span class="dim" id="agPolMsg" aria-live="polite"></span></div>
-    </form>`:`<p class="dim agpol-who">Quem muda a política: o dono da organização.</p>`;
-  el.innerHTML=`<div class="seclbl2" style="margin-top:22px">Política da organização</div>
-    <p class="imhint">Vale pra toda tarefa criada por quem é da organização — o Starfork aplica ao criar a tarefa, e o PR leva as regras no Relatório.</p>
-    <ul class="agpol-r">${rules.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>${form}`;
-  const f=$id('agPolForm'); if(f) f.onsubmit=async(ev)=>{ ev.preventDefault();
-    const fd=new FormData(f), b=$id('agPolSave'), msg=$id('agPolMsg');
-    const tetoTx=String(fd.get('tetoMaxUsd')||'').trim().replace(',','.');
-    if(tetoTx && !(Number(tetoTx)>0)){ const m=$id('agPolMsg'); if(m) m.textContent='O teto máximo tem que ser um valor em US$ maior que zero (ex.: 5 ou 2,50) — ou vazio pra sem máximo.'; return; }
-    const next=orgAgentPolicy({ portao:fd.get('portao')==='on', revisor:fd.get('revisor')==='on', revisorDiferente:fd.get('revisorDiferente')==='on',
-      tetoMaxUsd:tetoTx, aprovaAprendizado:fd.get('aprovaAprendizado') });
-    if(!await askYes('Salvar a política pra organização inteira?\n\n'+policyRules(next).map(x=>'• '+x).join('\n')+'\n\nVale nas próximas tarefas de todo mundo da organização.')) return;
-    b.disabled=true; if(msg) msg.textContent='salvando…';
-    try{
-      // mescla: os padrões de demanda (minRequirements, provas…) moram no mesmo jsonb e não podem sumir
-      const rows=await sbGet('orgs?select=policy&id=eq.'+org.id); const cur=((rows&&rows[0])||{}).policy||{};
-      await orgWrite('/rest/v1/orgs?id=eq.'+org.id, 'PATCH', { policy:Object.assign({}, cur, { agentes:next }) });
-      if(typeof orgDefCache!=='undefined'){ orgDefCache=null; orgDefAt=0; }
-      ORGP.at=0; await orgPolGet(true);
-      toast('Política salva — vale nas próximas tarefas da organização.','ok');
-      orgPolRender(); if(typeof renderTeams==='function') renderTeams(); if(typeof renderWf==='function') renderWf();
-    }catch(e){ if(msg) msg.textContent=(typeof cloudErrMsg==='function')?cloudErrMsg(e,'Não consegui salvar a política'):String(e&&e.message||e); b.disabled=false; }
-  };
+  if(!orgSessOk() || !org){ el.innerHTML=''; return; }
+  el.innerHTML=`<div class="ajband"><span>As regras da organização (portão, teto máximo, revisor, padrões de demanda) agora ficam em <b>Ajustes › Regras da organização</b>.</span><span class="r"><button type="button" class="btn sm" id="agPolGo">abrir</button></span></div>`;
+  bindClick('agPolGo', ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('regras'); });
+  try{ await orgPolGet(); }catch(_){ }
   if(typeof renderTeams==='function') renderTeams(); if(typeof renderWf==='function') renderWf(); // os avisos inline usam a política lida
 }
+// ---------------------------------------------------------------- Ajustes › Regras da organização (F4 · G3)
+// junta orgs.policy (padrões de demanda: minRequirements/provas/testes/doc/costWarn + o bloco agentes da P14) e
+// orgs.spec_template. Salvar é EXPLÍCITO porque cria versão (ajPolicyNext: histórico no próprio jsonb, até 20);
+// se a versão não puder ser gravada, cai no salvar simples. Quem não é o dono vê em modo leitura.
+// @regras-puro-inicio (testado em app/tests/redesign-f4-g3.test.mjs)
+function orgRulesFlat(pol, tpl){
+  const p=Object.assign({ minRequirements:1, proofRequired:true, testsRequired:true, docRequired:false, costWarn:25 }, pol||{});
+  const a=orgAgentPolicy(p);
+  return { minRequirements:+p.minRequirements||1, proofRequired:!!p.proofRequired, testsRequired:!!p.testsRequired, docRequired:!!p.docRequired, costWarn:+p.costWarn||0,
+    tetoMaxUsd:a.tetoMaxUsd, portao:a.portao, revisor:a.revisor, revisorDiferente:a.revisorDiferente, aprovaAprendizado:a.aprovaAprendizado, tpl:String(tpl||'') };
+}
+function orgRulesPatch(f){
+  return { minRequirements:f.minRequirements, proofRequired:f.proofRequired, testsRequired:f.testsRequired, docRequired:f.docRequired, costWarn:f.costWarn,
+    agentes:orgAgentPolicy({ portao:f.portao, revisor:f.revisor, revisorDiferente:f.revisorDiferente, tetoMaxUsd:f.tetoMaxUsd, aprovaAprendizado:f.aprovaAprendizado }) };
+}
+// corpo do PATCH a partir da política RELIDA agora (edição concorrente não se perde). withVersion=false só quando o
+// servidor recusou guardar a versão de vez: grava a regra, mas o histórico que já existe fica intacto (nunca some).
+function orgRulesSaveBody(fresh, draft, me, now, withVersion){
+  const patch=orgRulesPatch(draft);
+  const policy=withVersion===false ? Object.assign({}, fresh||{}, patch) : ajPolicyNext(fresh||{}, patch, me, now);
+  return { policy, spec_template:String(draft.tpl||'').trim()||null };
+}
+// o servidor NÃO consegue guardar o histórico (tamanho/formato) — só aí cai no salvar sem versão nova; o resto é transitório
+function orgRulesHistFatal(e){ return /value too long|too large|payload|22001|23514|check constraint/i.test(String((e&&e.message)||e||'')); }
+// @regras-puro-fim
+const ORGR={ orgId:'', saved:null, tpl:'', draft:null, err:'', bad:false, saving:false, noHist:false };
+async function orgRulesRender(host, d){
+  const org=d.org, canEdit=d.meRole==='owner'||d.meRole==='admin';
+  const head=t=>(typeof ajSecHead==='function'?ajSecHead('regras', t||''):'');
+  // Regras da organização são do plano Enterprise (como a política P14): fora dele, só a explicação
+  if(orgPlanOf(org, Date.now())!=='empresa'){
+    host.innerHTML=head()+`<div class="ajempty"><h3>Regras da organização são do plano Enterprise</h3><p>Portão obrigatório, teto máximo, revisor e padrões de demanda que valem pra organização inteira. Fale com a gente pra ativar.</p><div class="acts"><button type="button" class="btn sm" id="orgrUp">ver Assinatura e plano</button></div></div>`;
+    bindClick('orgrUp', ()=>{ if(typeof ajGo==='function') ajGo('assinatura'); }); return;
+  }
+  if(ORGR.orgId!==org.id || !ORGR.saved){
+    host.innerHTML=head()+skeletonHtml('lista',{ n:5, label:'lendo as regras' });
+    let rows=null, err=null;
+    try{ rows=await sbGet('orgs?select=policy,spec_template&id=eq.'+org.id); }catch(e){ err=e; }
+    if(typeof AJ!=='undefined' && AJ.sec!=='regras') return;   // trocou de seção enquanto lia
+    if(err){ host.innerHTML=head()+errorHtml(err, null, 'Não consegui ler as regras da organização'); ldWireErr(host, err, 'Não consegui ler as regras da organização', ()=>orgRulesRender(host, d)); return; } // falha NÃO vira cache
+    const r=(rows&&rows[0])||{}; ORGR.saved=r.policy||{}; ORGR.tpl=r.spec_template||''; ORGR.orgId=org.id; ORGR.draft=orgRulesFlat(ORGR.saved, ORGR.tpl); ORGR.bad=false;
+  }
+  const ver=ajPolicyVersion(ORGR.saved), saved=orgRulesFlat(ORGR.saved, ORGR.tpl), f=ORGR.draft;
+  const ownerId=((d.orgMembers||[]).find(m=>m.role==='owner')||{}).user_id;
+  const who=ownerId&&typeof ajPName==='function'?ajPName(d, ownerId)+' e os admins':'o dono e os admins da organização';
+  const when=ORGR.saved&&ORGR.saved.savedAt?new Date(ORGR.saved.savedAt).toLocaleDateString('pt-BR',{ day:'2-digit', month:'2-digit' }):'';
+  const by=ORGR.saved&&ORGR.saved.savedBy&&typeof ajPName==='function'?ajPName(d, ORGR.saved.savedBy):'';
+  const dis=canEdit?'':' disabled';
+  const ck=(k,label,help)=>ajRow(label, help||'', `<input type="checkbox" class="ajchk" data-orgr="${k}"${f[k]?' checked':''}${dis} aria-label="${escA(label)}">`);
+  const hist=Array.isArray(ORGR.saved&&ORGR.saved.history)?ORGR.saved.history.slice().reverse():[];
+  host.innerHTML=head(`Valem para todos os projetos da ${esc(org.name)}. Cada projeto pode apertar em Projeto › Regras, nunca afrouxar. Junta a antiga “Política” (Meu time) e os “Padrões de demanda” (Conta e time).`).replace('</div>', `<span class="ajtag">versão ${ver}${when?' · '+esc(when):''}${by?' por '+esc(by):''}</span></div>`)
+    +(canEdit?'':`<div class="ajband">Só leitura. Quem muda estas regras: ${esc(who)}.</div>`)
+    +(ORGR.noHist?`<div class="ajband warn">O servidor não guardou a versão desta vez — a regra foi salva e o histórico anterior continua intacto.</div>`:'')
+    +`<div class="${canEdit?'':'ajro'}"><h3 class="ajh3">Toda demanda precisa ter</h3><div class="ajrows">`
+    +ajRow('Mínimo de requisitos', 'Requisitos verificáveis no plano antes de rodar.', `<input class="in ajnum" type="number" min="1" max="10" data-orgr="minRequirements" value="${escA(String(f.minRequirements))}"${dis} aria-label="mínimo de requisitos">`)
+    +ck('proofRequired','Prova real (prints ou vídeo)','Cada requisito com prova antes de entregar.')+ck('testsRequired','Testes comprovando')+ck('docRequired','Documento de arquitetura')
+    +ck('portao','Toda tarefa passa pela revisão antes do PR','nenhum PR abre sozinho; a prova é obrigatória')
+    +ck('revisor','Toda equipe tem um revisor')+ck('revisorDiferente','O revisor roda em outra IA ou outro modelo','diferente de quem constrói')
+    +`</div><h3 class="ajh3">Custo</h3><div class="ajrows">`
+    +ajRow('Aviso de custo da organização', '', `<span class="ajmoney"><i>US$</i><input class="in" type="number" min="0" step="1" data-orgr="costWarn" value="${escA(String(f.costWarn))}"${dis}></span>`)
+    +ajRow('Teto máximo por tarefa', 'Ninguém libera acima disso. Vazio = sem máximo.', `<span class="ajmoney"><i>US$</i><input class="in" type="text" inputmode="decimal" data-orgr="tetoMaxUsd" value="${f.tetoMaxUsd!=null?escA(String(f.tetoMaxUsd)):''}" placeholder="sem máximo"${dis} aria-describedby="orgrTetoErr"></span>`, 'orgrTetoErr')
+    +ajRow('Quem aprova aprendizado compartilhado', '', `<select class="in" data-orgr="aprovaAprendizado"${dis}><option value="admins"${f.aprovaAprendizado==='admins'?' selected':''}>um admin da organização</option><option value="membros"${f.aprovaAprendizado==='membros'?' selected':''}>outra pessoa da organização</option></select>`)
+    +`</div><h3 class="ajh3">Guia de demanda</h3><textarea class="in ajta mono" data-orgr="tpl" rows="9"${dis} aria-label="guia de demanda">${esc(f.tpl)}</textarea>
+      <details class="ajvd"><summary>ver versões anteriores${hist.length?' ('+hist.length+')':''} · ninguém perde a versão anterior</summary>${hist.length?`<div class="ajlist">${hist.map(h=>`<div class="ajli"><div class="l"><b>versão ${esc(String(h.version||'?'))}</b><small>${h.savedAt?esc(new Date(h.savedAt).toLocaleString('pt-BR')):'antes do histórico'}${h.savedBy&&typeof ajPName==='function'?' · '+esc(ajPName(d,h.savedBy)):''} · ${esc(policyRules(orgAgentPolicy(h)).slice(0,2).join(' · '))}</small></div>${canEdit?`<button type="button" class="btn sm" data-orgrback="${escA(String(h.version))}">voltar pra esta</button>`:''}</div>`).join('')}</div>`:'<p class="dim">ainda não há versão anterior</p>'}</details></div>`
+    +(canEdit?`<div class="ajsavebar" id="orgrBar" hidden><b id="orgrN"></b><span class="dim" id="orgrV"></span><span class="sp"></span><button type="button" class="btn sm" id="orgrDiscard">descartar</button><button type="button" class="btn primary sm" id="orgrSave"></button></div><p class="ajfe" id="orgrErr" role="alert" hidden></p>`:'');
+  if(!canEdit) return;
+  const bar=$id('orgrBar');
+  const sync=()=>{ const n=ajPolicyDiff(saved, ORGR.draft); bar.hidden=!n && !ORGR.bad; $id('orgrN').textContent=n+(n===1?' mudança não salva':' mudanças não salvas');
+    $id('orgrV').textContent='em Regras da organização · vira a versão '+(ver+1);
+    const sb=$id('orgrSave'); sb.textContent=ORGR.saving?'salvando…':'salvar versão '+(ver+1); sb.disabled=ORGR.bad||ORGR.saving||!n; };
+  host.querySelectorAll('[data-orgr]').forEach(el=>{ const k=el.dataset.orgr; const ev=el.type==='checkbox'||el.tagName==='SELECT'?'change':'input';
+    el.addEventListener(ev, ()=>{ let v=el.type==='checkbox'?el.checked:el.value;
+      if(k==='minRequirements') v=Math.max(1, Math.min(10, parseInt(v,10)||1)); else if(k==='costWarn') v=Math.max(0, parseFloat(String(v).replace(',','.'))||0);
+      else if(k==='tetoMaxUsd'){ const t=String(v).trim().replace(',','.'); const e=$id('orgrTetoErr');
+        ORGR.bad=!!t && !(Number(t)>0); el.setAttribute('aria-invalid', String(ORGR.bad));
+        if(e){ e.textContent=ORGR.bad?'Use um valor em US$ maior que zero (ex.: 5 ou 2,50) — ou deixe vazio pra sem máximo.':''; e.hidden=!ORGR.bad; }
+        if(ORGR.bad){ sync(); return; } v=t?Math.round(Number(t)*100)/100:null; }
+      ORGR.draft[k]=v; sync(); }); });
+  bindClick('orgrDiscard', ()=>{ ORGR.draft=orgRulesFlat(ORGR.saved, ORGR.tpl); ORGR.bad=false; orgRulesRender(host, d); });
+  host.querySelectorAll('[data-orgrback]').forEach(b=>b.onclick=()=>{ const h=(ORGR.saved.history||[]).find(x=>String(x.version)===b.dataset.orgrback); if(!h) return; ORGR.draft=orgRulesFlat(h, ORGR.draft.tpl); orgRulesRender(host, d); });
+  bindClick('orgrSave', async()=>{ if(ORGR.saving||ORGR.bad) return; ORGR.saving=true; sync();
+    const errEl=$id('orgrErr'); if(errEl) errEl.hidden=true;
+    const me=typeof cloudUserId==='function'?cloudUserId():'';
+    try{
+      // relê AGORA e mescla: o que outra pessoa salvou no meio do caminho não some (e a versão é a próxima da relida)
+      const rows=await sbGet('orgs?select=policy&id=eq.'+org.id); const fresh=((rows&&rows[0])||{}).policy||{};
+      let body=orgRulesSaveBody(fresh, ORGR.draft, me, Date.now(), true), noHist=false;
+      try{ await orgWrite('/rest/v1/orgs?id=eq.'+org.id, 'PATCH', body); }
+      catch(e){ if(!orgRulesHistFatal(e)) throw e; body=orgRulesSaveBody(fresh, ORGR.draft, me, Date.now(), false); await orgWrite('/rest/v1/orgs?id=eq.'+org.id, 'PATCH', body); noHist=true; }
+      if(typeof AJ!=='undefined' && AJ.sec!=='regras'){ ORGR.saving=false; ORGR.saved=null; return; }
+      ORGR.saved=body.policy; ORGR.tpl=body.spec_template||''; ORGR.draft=orgRulesFlat(body.policy, ORGR.tpl); ORGR.noHist=noHist; ORGR.saving=false;
+      if(typeof orgDefCache!=='undefined'){ orgDefCache=null; orgDefAt=0; } ORGP.at=0; orgPolGet(true).catch(()=>{});
+      orgRulesRender(host, d); if(typeof ajSaved==='function') ajSaved(noHist?'salvo ✓':'versão '+ajPolicyVersion(body.policy)+' salva ✓');
+    }catch(e){ ORGR.saving=false; sync(); // o rascunho fica: é só tentar de novo
+      if(errEl){ errEl.textContent=((typeof cloudErrMsg==='function')?cloudErrMsg(e,'Não consegui salvar as regras'):String(e&&e.message||e))+' — suas mudanças continuam aqui; tente de novo.'; errEl.hidden=false; } }
+  });
+  sync();
+}
+window.orgRulesRender=orgRulesRender;
 
 // ---------------------------------------------------------------- P17: compartilhar aprendizado por item
 function orgShareBtn(kind, key){

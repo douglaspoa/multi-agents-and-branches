@@ -217,6 +217,11 @@ test('Prévia: requisitos por cima do app — "requisito 3 ✓ com print" / "fal
     { text: 'botão remarcar', st: 'ok', evidence: ['browser-1.png', 'browser-2.png'] }, { text: 'horário livre', st: 'ok', evidence: ['tests/x.test.ts'] },
     { text: 'modo escuro', st: 'blk', evidence: [] }, { text: 'aviso', st: 'na', evidence: [] }]);
   assert.deepEqual(rows.map((r) => `requisito ${r.n} ${r.mark} ${r.tail}`), ['requisito 1 ✓ com 2 prints', 'requisito 2 ✓ sem print', 'requisito 3 ✗ falta', 'requisito 4 · ainda sem prova']);
+  // redesenho F1: com a régua do adiado (00-util) carregada, adiado com motivo vira "◌ adiado" (tracejado, nunca "✗ falta")
+  const PROOF2 = new Function('esc', 'escA', cut(read('js/00-util.js'), '// @adiado-puro-inicio', '// @adiado-puro-fim') + cut(canvas, 'const CV_PROOF_IC', '// @canvas-provas-inicio') + cut(canvas, '// @canvas-provas-inicio', '// @canvas-provas-fim') + '\nreturn { cvReqOverlayRows };')(esc, escA);
+  const ad = PROOF2.cvReqOverlayRows([{ text: 'base', st: 'blk', status: 'deferred', note: 'você escolheu a main', evidence: [] }, { text: 'modo escuro', st: 'blk', status: 'blocked', note: 'sem paleta', evidence: [] }]);
+  assert.deepEqual(ad.map((r) => `${r.st} ${r.mark} ${r.tail}`), ['ad ◌ adiado', 'blk ✗ falta']);
+  assert.match(read('css/92-canvas.css'), /\.cvovr\.ad \.cvovm\{[^}]*dashed/);
   const ov = cut(canvas, 'function cvReqOverlayPaint', '\n}\n');
   assert.match(ov, /if\(ov\.__html!==html\)/, 'só repinta quando muda'); assert.match(ov, /data-cvov="close"/);
   assert.match(read('js/57-navegador.js'), /if\(typeof cvReqOverlayPaint==='function'\) cvReqOverlayPaint\(t\.id\); \}/, 'pintado junto com a Prévia');

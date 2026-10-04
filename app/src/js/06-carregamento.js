@@ -67,20 +67,51 @@ function ldHumanOf(err, ctx, o){
   if((o&&o.human) || (err&&err.ldHuman)){ const m=String((err&&err.message)||err||''); return { msg:m, raw:m, action:null }; }
   return (typeof humanErr==='function')?humanErr(err, ctx):{ msg:String((err&&err.message)||err||'erro'), raw:String(err), action:null };
 }
+// F4 · G3 (estados globais): todo erro diz O QUE FAZER (passos numerados) e o texto cru fica em "ver detalhes" — inline,
+// com "copiar" e "abrir em aba" (aba Detalhes do erro, nunca modal). o.steps: passos próprios de quem chama.
+const LD_STEPS={
+  network:['Confira a internet ou a VPN.','Tente de novo.'],
+  'db-locked':['Feche outra janela do Starfork aberta neste projeto, se houver.','Espere a tarefa que está salvando terminar (uns segundos).','Tente de novo.'],
+  'ai-limit':['Espere alguns minutos — o limite da IA volta sozinho.','Tente de novo (ou troque de IA em Ajustes › IA e modelos).'],
+  session:['Entre de novo na sua conta.','Tente de novo.'],
+  permission:['Confira se a conta tem acesso (GitHub, organização ou arquivo).','Tente de novo.'],
+  server:['Espere alguns minutos — o problema é do servidor.','Tente de novo.'],
+};
+function ldStepsOf(h, o){
+  if(o&&Array.isArray(o.steps)&&o.steps.length) return o.steps;
+  if(LD_STEPS[h.id]) return LD_STEPS[h.id];
+  if(h.action&&h.action.label) return [h.action.label.charAt(0).toUpperCase()+h.action.label.slice(1)+'.', 'Tente de novo.'];
+  return [];
+}
 function errorHtml(err, retryId, ctx, o){
   const h=ldHumanOf(err, ctx, o);
+  const steps=ldStepsOf(h, o);
+  const raw=h.raw&&h.raw!==h.msg?String(h.raw):'';
   return `<div class="ld-empty ld-err" role="alert"><span class="ld-ic">${ldIcon('warn')}</span><b>${esc(h.msg)}</b>`
-    +`${h.raw&&h.raw!==h.msg?`<p class="ld-raw" title="${ldA(h.raw)}">${esc(String(h.raw).split('\n')[0].slice(0,160))}</p>`:''}`
+    +(steps.length?`<div class="ld-do"><span>O que fazer</span><ol>${steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></div>`:'')
+    +`${raw?`<p class="ld-raw" title="${ldA(raw)}">${esc(raw.split('\n')[0].slice(0,160))}</p>`:''}`
     +`<div class="ld-acts">${h.action&&h.action.label?`<button class="btn primary sm" data-ldfix>${esc(h.action.label)}</button>`:''}`
-    +`<button class="btn sm" ${retryId?`id="${ldA(retryId)}"`:''} data-ldretry>${ldIcon('retry')}tentar de novo</button></div></div>`;
+    +`<button class="btn sm" ${retryId?`id="${ldA(retryId)}"`:''} data-ldretry>${ldIcon('retry')}tentar de novo</button></div>`
+    +(raw?`<details class="ld-det"><summary>ver detalhes</summary><pre class="ld-pre">${esc(raw)}</pre><span class="ld-detacts"><button type="button" class="btn sm quiet" data-ldcopy>copiar</button><button type="button" class="btn sm quiet" data-ldtab>abrir em aba</button></span></details>`:'')
+    +`</div>`;
 }
-// liga os botões do erro dentro de root: a ação do catálogo e o "tentar de novo" (retry)
+// liga os botões do erro dentro de root: a ação do catálogo, o "tentar de novo" (retry) e os detalhes (copiar · abrir em aba)
 function ldWireErr(root, err, ctx, retry, o){
   if(!root || !root.querySelector) return;
   const h=ldHumanOf(err, ctx, o);
   const f=root.querySelector('[data-ldfix]'); if(f && h.action && h.action.fn) f.onclick=()=>h.action.fn();
   const r=root.querySelector('[data-ldretry]'); if(r && retry) r.onclick=retry;
+  const c=root.querySelector('[data-ldcopy]'); if(c) c.onclick=()=>{ try{ navigator.clipboard.writeText(h.raw||'').then(()=>{ c.textContent='copiado ✓'; },()=>{ c.textContent='selecione e copie'; }); }catch(_){ c.textContent='selecione e copie'; } };
+  const t=root.querySelector('[data-ldtab]'); if(t) t.onclick=()=>{ if(typeof errTabOpen==='function') errTabOpen(h); };
 }
+// estados de página padrão (sem projeto, sem conta, sem organização, sem permissão) — o MESMO bloco do vazio, com a ação
+const LD_STATES={
+  semprojeto:{ icon:'folder', title:'Nenhum projeto aberto', help:'Abra uma pasta com git ou comece um projeto novo na Fábrica — as demandas rodam dentro de um projeto.', action:'abrir um projeto' },
+  semconta:{ icon:'warn', title:'Entre na sua conta', help:'Organização, times, convites e chaves seguem a sua conta. O que é deste computador continua valendo sem conta.', action:'entrar' },
+  semorg:{ icon:'warn', title:'Você ainda não está numa organização', help:'Crie uma organização com o primeiro time, ou entre num time com o convite que recebeu.', action:'criar organização' },
+  semperm:{ icon:'warn', title:'Só quem administra vê isto', help:'Peça pra um admin da organização fazer isso, ou te dar a permissão.', action:'' },
+};
+function ldStateHtml(kind, id){ const S=LD_STATES[kind]||LD_STATES.semprojeto; return emptyHtml({ icon:S.icon, title:S.title, help:S.help, action:S.action?{ id, label:S.action }:null }); }
 // Núcleo puro (testável sem DOM): roda fetchFn e dispara os ganchos na hora certa.
 // h: { show() aos 150 ms, brand() aos 1,5 s (se o.brand), slow() aos 4 s, done(d), empty(d), fail(e), stale() }
 // o: { alive() → false descarta a resposta (outra carga começou / a tela saiu), isEmpty(d), brand:boolean,

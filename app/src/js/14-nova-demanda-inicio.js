@@ -24,22 +24,38 @@ function ndKindCreate(kind){ const k=ND_CREATE[kind]?kind:'build'; return Object
 const ND_NAME_OF_MODE={build:'Feature',fix:'Correção',invest:'Investigação',design:'Design',review:'Review de PR'};
 window.ND_TO_MODE=ND_TO_MODE; window.ND_NAME_OF_MODE=ND_NAME_OF_MODE;
 let ndType='build', ndMethod='chat', ndIntent=''; // ndIntent: o texto da caixa única (sobrevive à troca de aba/projeto)
-// ===== as 3 formas de montar uma demanda: MESMOS nomes e MESMO seletor (pequeno) em todo lugar
-// (composer da Nova demanda, aba Formulário e aba do Orquestrador) — repaginada B: vira controle, não cabeçalho =====
+// ===== F4 · D7: UMA porta pra demanda, 2 modos — Conversar (padrão) | Formulário. "Dividir" deixou de ser modo: é o
+// RESULTADO "várias em etapas" (o orquestrador continua o motor, veto do Rafa). Piloto e Ideia criam PROJETO e foram pra
+// Fábrica (App novo › construir sozinho / Tenho uma ideia) — saíram deste seletor. =====
 const ND_METHODS=[
   { k:'chat', tab:'planner', name:'Conversar', tip:'a IA pergunta só o essencial e monta a demanda' },
-  { k:'form', tab:'form', name:'Formulário', tip:'formulário com todos os campos, sem conversa' },
-  { k:'orq', tab:'orq', name:'Dividir', tip:'um agente coordenador divide o problema em etapas e abre uma tarefa por etapa' },
-  // app do zero, sem ninguém conduzir: cria o projeto local e constrói sozinho (56-piloto, src/autopilot.ts)
-  { k:'auto', tab:'piloto', name:'Piloto automático', tip:'app do zero: dê a ideia e o Starfork cria o projeto e constrói sozinho, sem perguntar' },
-  // começar por uma ideia (59-ideia): conversa com a mesa, pesquisa se vale a pena e cria o projeto
-  { k:'ideia', tab:'ideia', name:'Ideia', tip:'começar por uma ideia: converse com a mesa de personas, pesquise na web se vale a pena agora e crie o projeto' },
+  { k:'form', tab:'form', name:'Formulário', tip:'campo a campo, sem conversa' },
 ];
-// cur: 'chat'|'form'|'orq'|'auto' · ids: { chat:'idDoBotão' } quando a tela já tem um handler próprio pra aquele botão
+// cur: 'chat'|'form' (os antigos 'orq'|'auto'|'ideia' não marcam nenhum) · ids: { chat:'idDoBotão' }
 function ndMethodSeg(cur, ids){
   ids=ids||{};
-  return `<div class="orq-seg ndseg ndseg-sm" role="tablist" aria-label="como montar a demanda">${ND_METHODS.map(m=>`<button type="button" role="tab" class="${m.k===cur?'on':''}" aria-selected="${m.k===cur}"${ids[m.k]?` id="${ids[m.k]}"`:''} data-ndseg="${m.tab}" title="${escA(m.tip)}">${esc(m.name)}</button>`).join('')}</div>`;
+  return `<div class="g2seg ndseg" role="tablist" aria-label="Modo">${ND_METHODS.map(m=>`<button type="button" role="tab" class="${m.k===cur?'on':''}" aria-selected="${m.k===cur}"${ids[m.k]?` id="${ids[m.k]}"`:''} data-ndseg="${m.tab}" title="${escA(m.tip)}">${esc(m.name)}</button>`).join('')}</div>`;
 }
+// "Padrões que valem aqui" (D7/D17): a política do repo/organização e o guia de demanda, INLINE e só leitura —
+// quem edita é o dono da organização em Ajustes › Conta e time › Regras da organização (nada de janela por cima).
+// PURA: pol = ntPolicy (minRequirements, proofRequired, testsRequired, docRequired, costWarn, specGuide, guideFrom)
+function ndGuideLines(md, n){ return String(md||'').split('\n').map(l=>l.trim()).filter(l=>/^([-*]|\d+\.)\s+/.test(l)).map(l=>l.replace(/^([-*]|\d+\.)\s+/,'').replace(/[*_`]/g,'')).slice(0, n||3); }
+function ndPadroesHtml(pol, id, open){
+  pol=pol||{}; const min=Math.max(1,+pol.minRequirements||1), warn=+pol.costWarn||0;
+  const from={ repo:'este repositório', org:'organização', padrao:'padrão do Starfork' }[pol.guideFrom]||'padrão do Starfork';
+  const sum=[`mín. ${min} requisito${min===1?'':'s'}`, pol.proofRequired?'prints obrigatórios':'', pol.testsRequired?'testes obrigatórios':'', warn?`aviso de custo a partir de US$ ${String(warn).replace('.',',')}`:'', 'guia: '+from].filter(Boolean).join(' · ');
+  const ck='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.4l3 3 6-6.6"/></svg>';
+  const chips=[`${ck}pelo menos ${min} requisito${min===1?'':'s'}`, pol.proofRequired?`${ck}prova com prints`:'prova com prints: opcional', pol.testsRequired?`${ck}testes comprovando`:'testes: opcional', pol.docRequired?`${ck}doc de arquitetura`:'doc de arquitetura: opcional', warn?`aviso ao passar de US$ ${String(warn).replace('.',',')}`:''].filter(Boolean);
+  const g=ndGuideLines(pol.specGuide, 3);
+  return `<div class="g2std${open?' open':''}"${id?` id="${id}"`:''}><button type="button" data-ndstd aria-expanded="${!!open}"><b>Padrões que valem aqui</b><span> · ${esc(sum)}</span><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 6.5l3.5 3.5 3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`+
+    `<div class="g2std-b"${open?'':' hidden'}><div class="g2pol">${chips.map(c=>`<span>${c}</span>`).join('')}</div>`+
+    (g.length?`<div class="g2guide"><b>Guia de demanda (${esc(from)})</b>${g.map(x=>`<span>· ${esc(x)}</span>`).join('')}</div>`:'')+
+    `<span class="g2help">Quem muda: o dono da organização, em Ajustes › Conta e time › Regras da organização. Aqui é só leitura.</span></div></div>`;
+}
+window.ndPadroesHtml=ndPadroesHtml;
+const ND_STD_OPEN={};
+document.addEventListener('click', e=>{ const b=e.target.closest&&e.target.closest('[data-ndstd]'); if(!b) return; const w=b.parentElement, body=w.querySelector('.g2std-b'); const open=!w.classList.contains('open');
+  w.classList.toggle('open', open); b.setAttribute('aria-expanded', String(open)); if(body) body.hidden=!open; if(w.id) ND_STD_OPEN[w.id]=open; });
 window.ndMethodSeg=ndMethodSeg;
 // ===== repaginada B: "Nova demanda" abre direto no planner (uma tela só). A tela antiga de 2 passos
 // fica por uma versão atrás de lsGet('nd:legacy')==='1'. =====
@@ -130,7 +146,8 @@ document.addEventListener('click', e=>{
   { const t=(typeof tabById==='function')?tabById(activeTab):null; if(!t || t.kind!==kind){ ndCarryText=''; ndCarryExtra=null; } }
 });
 window.TAB_STATE_nova={ get:()=>({ ndType, ndMethod, ndIntent }), set:(st)=>{ ndType=st.ndType||'build'; ndMethod=st.ndMethod||'chat'; ndIntent=st.ndIntent||''; } };
-function ndInjectFonts(){ if($id('ndFonts')) return; const l=document.createElement('link'); l.id='ndFonts'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; document.head.appendChild(l); }
+// fontes agora são locais (vendor/fonts via @font-face no 10-base.css): nada a injetar — fica o nome pros chamadores antigos
+function ndInjectFonts(){}
 window.ndInjectFonts=ndInjectFonts;
 // sem a flag legada, a aba "nova" nem chega aqui (openTab troca por 'planner'); aba restaurada cai no planner
 function openNovaStart(){ ndInjectFonts(); if(!ndLegacy() && window.openTab){ window.openTab('planner', { replace:true }); return; } $id('ndOverlay').style.display='flex'; ndRenderStart(); }
@@ -166,7 +183,7 @@ function ndRenderStart(){
     <div class="ndmethods">
       <button class="ndm ndm-primary${ndMethod==='chat'?' on':''}" id="ndChat" data-ndm="chat"><span class="ndmtop"><span class="ndmt">Montar conversando</span><span class="ndmbadge">recomendado</span></span><span class="ndmd">A IA pergunta só o essencial e monta a demanda na sua frente. Você revisa e aprova.</span><span class="ndmeta">~7 perguntas · 2 min</span></button>
       <button class="ndm${ndMethod==='form'?' on':''}" id="ndForm" data-ndm="form"><span class="ndmt2">Preencher eu mesmo</span><span class="ndmd">Formulário com todos os campos da demanda. Controle total, sem conversa.</span><span class="ndmeta">~10 campos, um de cada vez</span></button>
-      <button class="ndm ndm-orq${ndMethod==='orq'?' on':''}" id="ndOrq" data-ndm="orq"><span class="ndmtop"><span class="ndmt2">Dividir entre vários agentes</span><span class="ndmbadge" style="background:rgba(180,124,224,.2);color:#d9b8f2">problemas grandes</span></span><span class="ndmd">Você descreve o problema inteiro. Um agente coordenador divide em etapas, abre uma tarefa por etapa e acompanha a execução — você aprova o plano antes.</span><span class="ndmeta">1 campo · plano visual das etapas</span></button>
+      <button class="ndm ndm-orq${ndMethod==='orq'?' on':''}" id="ndOrq" data-ndm="orq"><span class="ndmtop"><span class="ndmt2">Dividir entre vários agentes</span><span class="ndmbadge" style="background:color-mix(in srgb,var(--purple) 18%,transparent);color:var(--purple)">problemas grandes</span></span><span class="ndmd">Você descreve o problema inteiro. Um agente coordenador divide em etapas, abre uma tarefa por etapa e acompanha a execução — você aprova o plano antes.</span><span class="ndmeta">1 campo · plano visual das etapas</span></button>
     </div>
     <div class="ndcta"><button class="as-btn primary big" id="ndGo">Continuar${ndMethod==='chat'?' · montar conversando':ndMethod==='form'?' · preencher eu mesmo':' · dividir entre vários agentes'} →</button><span class="dim" style="font-size:var(--fs-sm)">tipo <b style="color:var(--text)">${esc(cur.name)}</b> · o caminho escolhido abre nesta mesma aba</span></div>
     <div class="ndfoot"><div class="ndfl">já tem um .md? <a id="ndImport">importar</a> · guia de demanda deste repo: <span class="mono" title="arquivo SPEC.md na pasta de trabalho do Starfork (.cardume/)">SPEC.md</span></div></div>

@@ -159,22 +159,22 @@ test('erros da IA auxiliar: Codex/gateway/nenhum motor NÃO viram "faça login n
   assert.equal(id('Login do Claude Code expirou — rode `claude`'), 'claude-login');
 });
 
-test('textos de onboarding não dizem mais que o Claude é obrigatório', () => {
-  assert.match(read('15-config-abas-onboarding.js'), /basta uma, com login feito/);
-  assert.match(read('44-onboarding.js'), /Git e uma IA: Claude Code, Codex ou gateway/);
+test('textos de Primeiros passos não dizem mais que o Claude é obrigatório', () => {
+  const aj = read('67-ajustes.js');
+  assert.match(aj, /git, Node e o que as tarefas precisam/);
+  assert.doesNotMatch(aj, /Claude Code é obrigatório|precisa do Claude Code pra/);
+  assert.match(read('11-ambiente-updater.js'), /Basta uma: Claude Code, Codex, o gateway da sua empresa ou o DeepSeek Harness/);
 });
 
-test('tour de boas-vindas: correção com várias opções vira uma linha por opção (copiar só em comando)', () => {
-  const cfg = read('15-config-abas-onboarding.js');
-  const ctx = { esc: (x) => String(x), escA: (x) => String(x) };
-  vm.createContext(ctx);
-  vm.runInContext(cut(envSrc, '// @env-puro-inicio', '// @env-puro-fim') + cut(cfg, '// @ob-envfix-inicio', '// @ob-envfix-fim') + '\nglobalThis.__f=obEnvFixHtml;', ctx);
-  const html = ctx.__f('npm install -g @anthropic-ai/claude-code && claude\nnpm install -g @openai/codex && codex login\nconfigure um gateway em Configurações → Gateway próprio', false);
-  assert.equal((html.match(/data-envfix=/g) || []).length, 2);
-  assert.equal((html.match(/margin-top:5px/g) || []).length, 3);
-  assert.match(html, /ou rode no Terminal:/);
-  assert.match(html, /como resolver:<\/span><span[^>]*>configure um gateway/);
-  assert.doesNotMatch(cfg, /data-envfix="\$\{escA\(c\.fix\)\}"/, 'o tour não copia mais o fix inteiro como um comando só');
+test('Verificação (ex-tour/Ambiente): correção com várias opções vira uma linha por opção (copiar só em comando)', () => {
+  const amb = read('11-ambiente-updater.js');
+  const r = cut(amb, 'function renderEnv(host){', 'function envWireRecheck(');
+  assert.match(r, /fixes\.map\(\(f,j\)=>/, 'uma linha por opção (envFixLines)');
+  assert.match(r, /fixes\.length>1&&j>0\?'ou ':''/);
+  assert.match(r, /f\.cmd\?`<code class="ajcmd">\$\{esc\(f\.text\)\}<\/code><button class="btn sm" data-envfix=/, 'copiar só em comando');
+  assert.match(r, /f\.cmd\?'rode no Terminal:':'como resolver:'/);
+  const ENV2 = new Function(cut(amb, '// @env-puro-inicio', '// @env-puro-fim') + '\nreturn { envFixLines };')();
+  assert.deepEqual(ENV2.envFixLines('npm i -g a\nnpm i -g b\nconfigure um gateway em Ajustes').map((x) => x.cmd), [true, true, false]);
 });
 
 test('DeepSeek (beta): erros humanos próprios, Ambiente explica, chave não manda logar no Claude', () => {
@@ -194,12 +194,12 @@ test('DeepSeek (beta): erros humanos próprios, Ambiente explica, chave não man
   assert.deepEqual(ENV.envFixLines('npm i -g @deepseek-ai/dsh\nconfigure a DEEPSEEK_API_KEY em Conta → Chaves de modelo (DeepSeek, beta)').map((x) => x.cmd), [true, false]);
 });
 
-test('salvar/remover chave em Conta → Chaves de modelo zera o cache de disponibilidade (DeepSeek aparece na hora)', async () => {
+test('salvar/remover chave (Ajustes › IA e modelos) zera o cache de disponibilidade (DeepSeek aparece na hora)', async () => {
   const src = read('41-assinatura-chaves.js');
   const calls = [];
   const ctx = { invoke: async (c) => { calls.push(c); }, sbFetch: async () => ({}), cloudUserId: () => 'u', secretsSync: async () => {} };
   vm.createContext(ctx);
-  vm.runInContext(cut(src, '// chave nova/removida', '// seção na Conta: listar') + '\nglobalThis.__s=secretSet; globalThis.__d=secretDel;', ctx);
+  vm.runInContext(cut(src, '// chave nova/removida', '// "Chaves de modelo" saiu da Conta') + '\nglobalThis.__s=secretSet; globalThis.__d=secretDel;', ctx);
   await ctx.__s('DEEPSEEK_API_KEY', 'k');
   await ctx.__d('DEEPSEEK_API_KEY');
   assert.deepEqual(calls, ['ai_avail_refresh', 'ai_avail_refresh']);

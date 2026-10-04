@@ -17,7 +17,8 @@ import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
 import { mobileCli } from "./mobile.ts";
-import { askHookCli, AUQ_TOOL, hookCli, HOOK_MARK, statuslineCli, termMessage, termPrep, turnEndCli } from "./terminal.ts";
+import { askHookCli, AUQ_TOOL, hookCli, HOOK_MARK, setTermAi, statuslineCli, termMessage, termPrep, turnEndCli } from "./terminal.ts";
+import { starforkCli } from "./starfork-cli.ts";
 import { browserProxyCli } from "./browser-proxy.ts";
 import { envCli } from "./env-up.ts";
 import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
@@ -898,7 +899,7 @@ function cmdClaudeStatusline(sub: string | undefined, a: Args) {
 async function cmdAutopilot(a: Args) {
   const dir = a.flags.dir || a._[1];
   if (!dir || dir === "true") {
-    console.error(c.red(`✕ use: cardume autopilot --idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine …] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] [--budget-usd N (0 = sem teto)]`));
+    console.error(c.red(`✕ use: cardume autopilot --idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine …] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] --budget-usd N (teto obrigatório, maior que 0)`));
     process.exitCode = 1;
     return;
   }
@@ -924,6 +925,12 @@ async function cmdAutopilot(a: Args) {
     return;
   }
   const num = (k: string) => (a.flags[k] !== undefined && a.flags[k] !== "" && Number.isFinite(Number(a.flags[k])) ? Number(a.flags[k]) : undefined);
+  // teto: dado e inválido/vazio ("--budget-usd" sem número, "abc") é erro — nunca "sem teto" por engano
+  if (a.flags["budget-usd"] !== undefined && num("budget-usd") === undefined) {
+    console.error(c.red("✕ teto inválido: use --budget-usd com um valor em US$ maior que 0"));
+    process.exitCode = 1;
+    return;
+  }
   const platform = a.flags.platform;
   if (platform && !AP_PLATFORMS.includes(platform as ApPlatform)) {
     console.error(c.red(`✕ --platform deve ser ${AP_PLATFORMS.join("|")}`));
@@ -1035,17 +1042,33 @@ async function main() {
         // (oferece uma tarefa nova de ajuste).
         const t0 = orch.store.getTask(a._[1]);
         if (t0 && t0.status !== "merged" && t0.worktree && !existsSync(t0.worktree)) await orch.ensureTaskWorktree(a._[1]);
-        console.log(JSON.stringify(termPrep(orch, a._[1], { resume: !!a.flags.resume, message: a.flags.msg })));
+        // INTEGRADA sem pasta: reabre pra CONVERSAR (mesmo caminho = o --resume acha a sessão); a tarefa segue integrada
+        if (t0 && t0.status === "merged" && t0.worktree && !existsSync(t0.worktree)) await orch.ensureTaskWorktree(a._[1], { conversation: true });
+        console.log(JSON.stringify(termPrep(orch, a._[1], { resume: !!a.flags.resume, message: a.flags.msg, ai: a.flags.ai || undefined, model: a.flags.ai ? a.flags.model : undefined })));
       } catch (e) {
         console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));
         process.exitCode = 1;
       } finally { orch.close(); }
       break;
     }
+    case "term-ai": {
+      // troca de IA pelo app (term_switch_ai): grava spec.termAi/termModel — reabrir o terminal lembra
+      const orch = new Orchestrator(repo);
+      try { console.log(JSON.stringify({ ok: true, recommended: setTermAi(orch, a._[1], a.flags.ai ?? "", a.flags.model) })); }
+      catch (e) { console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) })); process.exitCode = 1; }
+      finally { orch.close(); }
+      break;
+    }
+    case "starfork":
+      // o `starfork` do shell do terminal integrado (src/starfork-cli.ts) — argv cru: as flags são dele
+      process.exitCode = await starforkCli(argv.slice(1));
+      break;
     case "term-msg": {
       const orch = new Orchestrator(repo);
       try {
-        console.log(JSON.stringify({ text: await termMessage(orch, a._[1], a.flags.kind ?? "talk", { msg: a.flags.msg, asReq: !!a.flags["as-req"], deliver: a.flags.deliver }) }));
+        const text = await termMessage(orch, a._[1], a.flags.kind ?? "talk", { msg: a.flags.msg, asReq: !!a.flags["as-req"], deliver: a.flags.deliver });
+        // worktree: o app grava a mensagem em .cardume/term/next-msg.txt quando o shell está no prompt (sem IA)
+        console.log(JSON.stringify({ text, worktree: orch.store.getTask(a._[1])?.worktree ?? "" }));
       } catch (e) {
         console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));
         process.exitCode = 1;
@@ -1091,7 +1114,7 @@ ${c.dim("criar & rodar")}
   ${c.green("cardume start")} ${c.dim("<taskId>")}               inicia uma tarefa em rascunho (--no-start)
   ${c.green("cardume rework")} ${c.dim("<taskId>")}              re-roda a equipe aplicando os ajustes do humano
 
-  ${c.green("cardume autopilot")} ${c.dim(`--idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine claude] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] [--budget-usd N (0 = sem teto)]`)}
+  ${c.green("cardume autopilot")} ${c.dim(`--idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine claude] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] --budget-usd N (teto obrigatório, maior que 0)`)}
       piloto automático: cria o projeto local, planeja o épico e constrói o app sozinho (rode de novo pra continuar; --stop para; --status mostra)
 
 ${c.dim("acompanhar")}

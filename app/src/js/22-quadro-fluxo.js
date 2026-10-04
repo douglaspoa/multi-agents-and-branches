@@ -12,7 +12,7 @@ function projShort(p){ return pathBase(p); } // E10: aceita C:\… também
 function projList(){ const m=new Map(); if(state.repo) m.set(state.repo, projShort(state.repo)); (allTasksCache||[]).forEach(t=>{ if(t.repo) m.set(t.repo, t.proj||projShort(t.repo)); }); return [...m.entries()]; }
 function projColor(p){ // cor estável por projeto (hash → hue)
   let h=0; const s=String(p||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0;
-  const hues=[145,210,265,32,190,330,95]; return `hsl(${hues[h%hues.length]} 62% 60%)`;
+  return `var(--chart-${h%8+1})`; // série do tema (o hsl fixo lia mal no claro)
 }
 // normaliza uma tarefa agregada (de outro projeto) pro formato que o board espera
 function normAgg(t){ return Object.assign({}, t, { created_at: t.createdAt, roles: [], _cross: true }); }
@@ -100,9 +100,15 @@ function taskTs(t){
   const ms=v=>{ const n=typeof v==='number'?v:Date.parse(v||''); return n>0?(n<1e12?n*1000:n):0; };
   return t ? (ms(t.createdAt)||ms(t.created_at)) : 0;
 }
+// data de CONCLUSÃO (último evento da tarefa — `finishedAt` vem do snapshot/list_all_tasks; nuvem: updated_at);
+// sem nenhuma, cai na de criação (nunca 0 pra tarefa que existe)
+function taskDoneTs(t){
+  const ms=v=>{ const n=typeof v==='number'?v:Date.parse(v||''); return n>0?(n<1e12?n*1000:n):0; };
+  return t ? (ms(t.finishedAt)||ms(t.finished_at)||ms(t.updated_at)||taskTs(t)) : 0;
+}
 function inPeriod(t){
   if(flowPeriod==='all') return true;
-  const now=Date.now(), d=new Date(), ts=taskTs(t);
+  const now=Date.now(), d=new Date(), ts=taskEncerrada(t)?taskDoneTs(t):taskTs(t); // concluída: pela data de conclusão
   if(flowPeriod==='today'){ return ts >= new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); }
   if(flowPeriod==='week'){ return ts >= now-7*864e5; }
   if(flowPeriod==='month'){ return ts >= now-30*864e5; }
@@ -128,7 +134,7 @@ function taskType(t){
   return 'feat';
 }
 const TYPE_PT={ feat:'Feature', fix:'Fix', docs:'Docs', chore:'Chore', refactor:'Refactor', perf:'Perf', design:'Design', invest:'Investigação', review:'Review', build:'Entrega' };
-const TYPE_COLOR={ feat:'var(--accent)', fix:'var(--crit)', docs:'var(--info)', chore:'var(--muted)', refactor:'var(--warn)', perf:'#c99cdb', design:'#7cd0b8', invest:'var(--warn)', review:'var(--info)' };
+const TYPE_COLOR={ feat:'var(--accent)', fix:'var(--crit)', docs:'var(--info)', chore:'var(--muted)', refactor:'var(--warn)', perf:'var(--chart-7)', design:'var(--chart-6)', invest:'var(--warn)', review:'var(--info)' };
 const TYPE_ORDER=['feat','fix','docs','refactor','perf','chore','design','invest','review'];
 // código da issue (FND-853) direto da branch; link usa a base configurada nas configurações
 function issueCodeOf(t){ const m=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/); return m?m[1]:null; }
@@ -148,15 +154,14 @@ function wireLinkChips(root){
   root.querySelectorAll('[data-lk]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openExternal(b.dataset.lk); }; });
   root.querySelectorAll('[data-lkcfg]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); openCfg(); }; });
 }
-let flowScope=(lsGet('flowScope')==='done')?'done':'exec';   // all | mine | done (abas da Central)
+let flowScope=(lsGet('flowScope')==='done')?'done':'exec';   // exec (Em andamento) | done (Concluídas)
+let centralDoneSub=(lsGet('centralDone')==='res')?'res':'ent'; // Concluídas › Entregas | Resumo do período (ex-Daily, D20)
 let ffAdvOpen=false;                        // filtros avançados recolhidos por padrão
 let flowLastHtml=null;                      // último HTML do flow — pula rebuild idêntico (evita piscar no hover)
 // Execução = o que está vivo (rascunho, rodando, review, PR aberto); Concluídas = mergeadas/encerradas.
 // Uma tarefa ENCERRADA (flag closed) mora em Concluídas mesmo que o status seja review/erro.
 function flowScopeOk(t){
-  return flowScope==='done'
-    ? (t.flag==='closed'||['merged','done'].includes(t.status))
-    : (notHidden(t) && !(t.flag==='closed'||['merged','done'].includes(t.status)));
+  return flowScope==='done' ? taskEncerrada(t) : (notHidden(t) && !taskEncerrada(t)); // F4: cancelada = encerrada (Concluídas)
 }
 function flowVisible(tasks){
   const q=flowQuery.trim().toLowerCase();
@@ -204,7 +209,9 @@ function renderFlowFilters(){
     .map(([k,l])=>`<option value="${k}"${flowType===k?' selected':''}>${l}</option>`).join('');
   // abas da Central: Execução (o que está vivo) · Concluídas (portfólio) · Time (espaço próprio)
   if(flowScope!=='done') flowScope='exec';
-  const TABS=[['exec','Execução'],['done','Concluídas'],['team','Time']];
+  // F4 (mesa D2): Em andamento · Concluídas — "Time" virou página própria (lateral, só com organização)
+  const nExec=srcAll.filter(t=>notHidden(t)&&!taskEncerrada(t)).length, nDone=srcAll.filter(taskEncerrada).length;
+  const TABS=[['exec','Em andamento',nExec],['done','Concluídas',nDone]];
   // Execução = SÓ o que é meu (tarefas locais + cartões que assumi). Backlog do time de outra pessoa / sem dono /
   // de projeto que não tenho aqui mora no Time — o número na aba avisa e o clique abre direto o Quadro do time
   const nTeamQ=(typeof epQueueTeamCount==='function')?epQueueTeamCount():0;
@@ -213,13 +220,12 @@ function renderFlowFilters(){
   const manualOn=flowScope!=='done' && lsGet('flowManual')!=='0' && srcAll.some(t=>t.sortOrder!=null);
   const resetBtn=manualOn?`<button class="fvlink" id="flowResetOrder" title="você reordenou arrastando — volta pra ordem automática (mais recentes primeiro em cada seção)">↺ restaurar ordem</button>`:'';
   const tabsHtml=`<div class="ftabs">`+
-    TABS.map(([k,l])=>`<button class="ft${(k!=='team'&&flowScope===k)?' on':''}" data-ftab="${k}"${k==='team'&&nTeamQ?` title="${escA(nPl(nTeamQ,'tarefa','tarefas')+' do time na fila (de outras pessoas ou de projetos que você não tem aqui) — assuma lá pra trazer pra sua Execução')}"`:''}>${l}${k==='team'&&nTeamQ?`<span class="n">${nTeamQ}</span>`:''}</button>`).join('')+
+    TABS.map(([k,l,n])=>`<button class="ft${flowScope===k?' on':''}" role="tab" aria-selected="${flowScope===k}" data-ftab="${k}">${l}<span class="n">${n}</span></button>`).join('')+
     `<span class="grow"></span>`+resetBtn+
     `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados" aria-label="filtros avançados" aria-expanded="${ffAdvOpen?'true':'false'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
     `<span class="fvsep"></span>`+
-    `<button class="fvic${flowView==='list'?' on':''}" data-fv="list" title="Fluxo em lista" aria-label="ver em lista" aria-pressed="${flowView==='list'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
-    `<button class="fvic${flowView==='grid'?' on':''}" data-fv="grid" title="Fluxo em grade" aria-label="ver em grade" aria-pressed="${flowView==='grid'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="3" width="4.4" height="4.4" rx="1"/><rect x="3" y="8.6" width="4.4" height="4.4" rx="1"/><rect x="8.6" y="8.6" width="4.4" height="4.4" rx="1"/></svg></button>`+
-    `<button class="fvic" data-view="kanban" title="Kanban" aria-label="ver no Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`+
+    (flowScope==='done'?'':`<button class="fvic${flowViewEff()==='table'?' on':''}" data-fv="table" title="${flowTableOk()?'Lista — ordenável, uma ação por linha':'Lista só sem agrupar por dia — aqui aparecem os cartões'}" aria-label="ver em lista" aria-pressed="${flowViewEff()==='table'}"${flowTableOk()?'':' disabled'}><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
+    `<button class="fvic" data-view="kanban" title="Kanban" aria-label="ver no Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`)+
     `</div>`;
   // PROJETO e ÉPICO viram dois selects compactos (antes eram 2 linhas de chips acima dos chips de status).
   // Mesmas chaves persistidas (projFilter / flowEpic).
@@ -253,7 +259,7 @@ function renderFlowFilters(){
   // SEMPRE visível: status + busca + projeto/épico/tipo (selects compactos)
   const isDone=flowScope==='done';
   const filterRow=`<div class="ffrow" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">`+
-    (isDone?`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`:`<div class="ffchips">${stChips}</div>`)+
+    (isDone?`<div class="seg2 cdseg" role="tablist" aria-label="Concluídas"><button role="tab" class="${centralDoneSub==='ent'?'on':''}" aria-selected="${centralDoneSub==='ent'}" data-cdsub="ent">Entregas</button><button role="tab" class="${centralDoneSub==='res'?'on':''}" aria-selected="${centralDoneSub==='res'}" data-cdsub="res">Resumo do período</button></div>`+(centralDoneSub==='res'?'':`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`):`<div class="ffchips">${stChips}</div>`)+
     `<span style="flex:1"></span>`+
     // busca por nome SEMPRE visível (antes ficava escondida nos filtros avançados)
     `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
@@ -266,14 +272,17 @@ function renderFlowFilters(){
     `<select class="sel" id="ffPeriod">${peOpts}</select>`+
     `<select class="sel" id="ffAgent">${agOpts}</select>`+
     `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select></div>`;
-  { const h=tabsHtml + filterRow + advHtml; if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; } // sem mudança: mantém DOM/handlers (e o foco da busca)
+  const resumo=isDone && centralDoneSub==='res';
+  { const h=resumo ? tabsHtml.replace(/<button class="fvic[^"]*" id="ffMore"[\s\S]*?<\/button>/,'')+`<div class="ffrow" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">${filterRow.match(/<div class="seg2 cdseg"[\s\S]*?<\/div>/)[0]}</div>` : tabsHtml + filterRow + advHtml;
+    if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; } // sem mudança: mantém DOM/handlers (e o foco da busca)
+  el.querySelectorAll('[data-cdsub]').forEach(b=>b.onclick=()=>{ centralDoneSub=b.dataset.cdsub; lsSet('centralDone', centralDoneSub); lastSig=''; renderFlow(); });
+  if(resumo){ el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{ flowScope=b.dataset.ftab; lsSet('flowScope',flowScope); lastSig=''; renderFlow(); }); return; }
   { const s=$id('ffProj'); if(s) s.onchange=(e)=>{ projFilter=e.target.value; lsSet('projFilter',projFilter); lastSig=''; renderFlow(); }; }
   { const s=$id('ffEpic'); if(s) s.onchange=(e)=>{ flowEpic=e.target.value; flowSetF('flowEpic',flowEpic); lastSig=''; renderFlow(); }; }
   bindClick('ffClearAll', flowClearFilters);
   bindClick('flowResetOrder', ()=>{ lsSet('flowManual','0'); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.ftab;
-    if(k==='team'){ const v=nTeamQ?'board':'people'; tmView=v; lsSet('tmView',v); teamPaintSig=''; setView('team'); return; } // PDF p7: time por PESSOA; com backlog do time esperando → o Quadro
     flowScope=k; lsSet('flowScope',k); lastSig=''; renderFlow();
   });
   el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
@@ -281,6 +290,7 @@ function renderFlowFilters(){
   { const b=el.querySelector('#ffMore'); if(b) b.onclick=()=>{ ffAdvOpen=!ffAdvOpen; lastSig=''; renderFlow(); }; }
   el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; flowSetF('flowStatus',flowStatus); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>{ if(b.dataset.flag==='blocked') flowShowBlocked=!flowShowBlocked; else flowShowClosed=!flowShowClosed; lastSig=''; renderFlow(); });
+  { const t=$id('ffType'); if(!t) return; } // (Resumo do período não tem os filtros)
   $id('ffType').onchange=(e)=>{ flowType=e.target.value; flowSetF('flowType',flowType); lastSig=''; renderFlow(); };
   $id('ffPeriod').onchange=(e)=>{ flowPeriod=e.target.value; flowSetF('flowPeriod',flowPeriod); lastSig=''; renderFlow(); };
   { const p2=$id('ffPeriod2'); if(p2) p2.onchange=(e)=>{ flowPeriod=e.target.value; flowSetF('flowPeriod',flowPeriod); lastSig=''; renderFlow(); }; }
@@ -327,28 +337,28 @@ function renderNavTabs(v){
   const el=$id('navTabs'); if(!el) return;
   if(el.dataset.sig===('nav:'+v)) return; el.dataset.sig='nav:'+v;
   el.innerHTML=`<div class="ftabs">
-    <button class="ft" data-nv-scope="exec">Execução</button>
+    <button class="ft${v==='kanban'?' on':''}" data-nv-scope="exec">Em andamento</button>
     <button class="ft" data-nv-scope="done">Concluídas</button>
-    <button class="ft${v==='team'?' on':''}" data-nv-team>Time</button>
     <span class="grow"></span>
     <button class="fvic${v==='flow'?' on':''}" data-nv-view="flow" title="Fluxo (lista)" aria-label="ver em lista" aria-pressed="${v==='flow'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>
     <button class="fvic${v==='kanban'?' on':''}" data-nv-view="kanban" title="Kanban" aria-label="ver no Kanban" aria-pressed="${v==='kanban'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>
   </div>`;
   el.querySelectorAll('[data-nv-scope]').forEach(b=>b.onclick=()=>{ flowScope=b.dataset.nvScope; lsSet('flowScope',flowScope); lastSig=''; setView('flow'); });
-  { const b=el.querySelector('[data-nv-team]'); if(b) b.onclick=()=>{ if(v==='team') return; tmView='people'; lsSet('tmView','people'); teamPaintSig=''; setView('team'); }; }
   el.querySelectorAll('[data-nv-view]').forEach(b=>b.onclick=()=>{ if(b.dataset.nvView!==v) setView(b.dataset.nvView); });
 }
 let flowDragId=null;
 // Central de execuções: bucket de cada tarefa (ordem = urgência pro humano)
 // É A regra única de "em que etapa está" — Central, chips, cabeçalho, barra de status, Kanban,
 // barra lateral e Time contam por aqui (flowCounts). Não crie outra classificação numa tela.
+// F4 (inventário 01): "concluída hoje" pela DATA DE CONCLUSÃO (taskDoneTs), não a de criação; `cancelled` é encerrada
+// (vai pra Concluídas, nunca "Em andamento"); aguardando você = taskAguardaVoce (00-util, regra única D14).
 function flowBucket(t){
   if(t.status==='draft') return 'rascunho';
-  if((t.flag==='closed'||['merged','done'].includes(t.status))) {
-    const d=new Date(taskTs(t)); const today=new Date();
+  if(taskEncerrada(t)) {
+    const d=new Date(taskDoneTs(t)); const today=new Date();
     return (d.toDateString()===today.toDateString())?'hoje':'anteriores';
   }
-  if(pendingOf(t.id).length || ['plan-review','needs-you','error','conflict','aborted'].includes(t.status)) return 'aguardando';
+  if(taskAguardaVoce(t)) return 'aguardando';
   if(t.prUrl && t.status!=='merged') return 'praberto';
   if(['review','delivered'].includes(t.status)) return 'prontas';
   if(['backlog','requested'].includes(t.status)) return 'fila'; // só cartões da nuvem (Time) — local não tem backlog
@@ -369,13 +379,15 @@ function nPl(n, sing, plur){ n=+n||0; return n+' '+(n===1?sing:(plur||sing+'s'))
 // tarefas VIVAS do board (mesma regra de visibilidade da lista de Execução: sem encerradas; bloqueadas só com o toggle)
 function flowLiveTasks(src){
   if(!src){ try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); } }
-  return (src||[]).filter(t=>notHidden(t) && !(t.flag==='closed'||['merged','done'].includes(t.status)));
+  return (src||[]).filter(t=>notHidden(t) && !taskEncerrada(t));
 }
 // A CONTAGEM ÚNICA: quantas tarefas em cada etapa (chaves = FLOW_SECS + 'fila'). `rodando` = subconjunto de
 // andamento que está de fato executando agora (running/thinking) — só pra detalhe/tooltip.
 function flowCounts(tasks){
-  const c={ aguardando:0, andamento:0, prontas:0, praberto:0, rascunho:0, fila:0, hoje:0, anteriores:0, rodando:0, total:0 };
-  for(const t of (tasks||[])){ const b=flowBucket(t); c[b]=(c[b]||0)+1; c.total++; if(b==='andamento' && ['running','thinking'].includes(t.status)) c.rodando++; }
+  const c={ aguardando:0, andamento:0, prontas:0, praberto:0, rascunho:0, fila:0, hoje:0, anteriores:0, canceladas:0, rodando:0, total:0 };
+  for(const t of (tasks||[])){ const b=flowBucket(t); c.total++;
+    if((b==='hoje'||b==='anteriores') && t.status==='cancelled'){ c.canceladas++; continue; } // em Concluídas, mas não é entrega
+    c[b]=(c[b]||0)+1; if(b==='andamento' && ['running','thinking'].includes(t.status)) c.rodando++; }
   return c;
 }
 const FLOW_SECS=[
@@ -384,6 +396,7 @@ const FLOW_SECS=[
   ['prontas','Prontas pra revisar','',''],
   ['praberto','PR aberto','','acc-info'],
   ['rascunho','Rascunhos','',''],
+  ['fila','Na fila','',''], // F4 (inventário 01): a fila (cartões do time assumidos/no backlog) aparece — antes era só contada
   ['hoje','Concluídas hoje','',''],
   ['anteriores','Anteriores','',''],
 ];
@@ -394,13 +407,14 @@ const FLOW_SEC_TIP={
   prontas:'Prontas pra revisar: o agente terminou — confira e abra o PR (ou conclua).',
   praberto:'PR aberto: esperando revisão/merge no GitHub.',
   rascunho:'Rascunhos: ainda não começaram — ▶ inicia.',
+  fila:'Na fila: cartões do time no backlog (ou pedidos) que ainda não começaram — assuma pra trazer pra cá.',
   hoje:'Concluídas hoje: mergeadas ou concluídas por você.',
   anteriores:'Concluídas antes de hoje.',
   epativos:'Épicos em andamento: épicos cujas tarefas já começaram todas — o resumo mostra quantas foram entregues, a onda atual e um ponto por tarefa (clique pra abrir).',
   epicos:'Na fila dos épicos: tarefas de épicos do time que ainda não começaram, agrupadas por épico e por onda. Onda = grupo de tarefas que rodam juntas; a próxima começa quando esta termina.',
 };
-const FLOW_SEC_COLOR={ aguardando:'var(--st-ask)', andamento:'var(--st-run)', prontas:'var(--st-review)', praberto:'var(--info)', rascunho:'var(--muted)' };
-const FLOW_EXEC_KEYS=['aguardando','andamento','prontas','praberto','rascunho'];
+const FLOW_SEC_COLOR={ aguardando:'var(--st-ask)', andamento:'var(--st-run)', prontas:'var(--st-review)', praberto:'var(--info)', rascunho:'var(--muted)', fila:'var(--muted)' };
+const FLOW_EXEC_KEYS=['aguardando','andamento','prontas','praberto','rascunho','fila'];
 // seção recolhida (B4): estado por seção no localStorage; `def` = padrão quando o usuário nunca mexeu
 function flowSecCollapsed(k, def){ const v=lsGet('sec:col:'+k); return v==null?!!def:v==='1'; }
 // R8: seta e ícone (opcional, ex.: IC.epic) em SVG; antes ▾/▸ e "◆ " colado no rótulo
@@ -434,26 +448,38 @@ function flowDoneGroupHtml(k, label, color, list, item){
   const head=`<button type="button" class="sech cgtog" data-donetog="${escA(k)}" aria-expanded="${col?'false':'true'}" aria-controls="${id}" title="${escA(label+' · '+(col?'mostrar as entregas':'recolher'))}"><span class="secchev">${col?IC.chevR:IC.chevD}</span><span class="prjd" style="background:${color}"></span>${esc(label)} <span class="n">${list.length}</span></button>`;
   return `<div class="secgrp cgrp${col?' collapsed':''}" data-sec="${escA('concl:'+k)}">${head}<div class="cgbody" id="${id}"${col?' hidden':''}>${col?'':flowDonePageHtml(k, list, item)}</div></div>`;
 }
-let flowView=lsGet('flowView')||'list';   // list | grid (redesign p1/p2)
+// table | list (cartões) | grid (redesign p1/p2). Redesenho F1: a Central abre em TABELA (66-central-tabela) — uma vez
+// pra quem estava na lista (ou nunca escolheu); quem escolheu a grade continua nela. Depois vale a escolha de cada um
+// F4 (D22): a grade saiu — quem estava nela vai pra lista (tabela); a escolha antiga fica guardada em flowView:f4 (nada se perde)
+let flowView=(()=>{ const v0=lsGet('flowView'); if(v0==='grid'){ lsSet('flowView:f4', v0); lsSet('flowView','table'); } const v=lsGet('flowView'); if(lsGet('flowViewF1')!=='1'){ lsSet('flowViewF1','1'); if(!v || v==='list'){ lsSet('flowView','table'); return 'table'; } } return v||'table'; })();
+// a tabela é da Execução sem agrupar por dia (Concluídas agrupa por projeto; "por dia" agrupa por data): lá ela fica
+// indisponível no seletor (com o porquê no tooltip) e o que aparece são os cartões — o seletor não mente
+function flowTableOk(){ return flowScope!=='done' && flowGroupBy!=='day'; }
+function flowViewEff(){ return (flowView==='table' && !flowTableOk())?'list':flowView; }
+// F4 (D25): cabeçalho no padrão de página — "Central" + selo de escopo + a contagem ÚNICA (aguardando você à parte de
+// prontas pra revisar — D14) + o chip de coordenação; Concluídas: entregas e PRs do filtro
+function centralSumHtml(fc){
+  const bits=[`<b>${fc.aguardando}</b> aguardando você`, `<b>${fc.rodando}</b> rodando`];
+  if(fc.andamento-fc.rodando>0) bits.push(`<b>${fc.andamento-fc.rodando}</b> em andamento`);
+  bits.push(`<b>${fc.prontas}</b> ${fc.prontas===1?'pronta':'prontas'} pra revisar`);
+  if(fc.praberto) bits.push(`<b>${fc.praberto}</b> ${fc.praberto===1?'PR aberto':'PRs abertos'}`);
+  if(fc.fila) bits.push(`<b>${fc.fila}</b> na fila`);
+  return bits.join(' · ');
+}
 function renderFlowHead(){
   const el=$id('flowHead'); if(!el) return;
   // só troca o DOM se mudou: reescrever a cada render piscava e zerava o #coordChip (preenchido a cada 2s)
   const put=h=>{ if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; };
-  // mesma contagem dos chips/barra de status/Kanban (flowCounts) — antes "andamento" aqui somava prontas+PR
   const fc=flowCounts(flowLiveTasks());
+  let sum;
   if(flowScope==='done'){
     let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
-    const done=flowVisible(src); const prs=done.filter(t=>t.prUrl).length;
-    put(`<h1>Entregas concluídas</h1><div class="sub">${done.length} demanda${done.length===1?'':'s'}${prs?` · ${prs} PR${prs===1?'':'s'}`:''} · objetivos, provas e documentos de cada uma</div><span style="flex:1"></span>`);
-    return;
-  }
-  const bits=[];
-  if(fc.aguardando) bits.push(`<b>${fc.aguardando} aguardando você</b>`);
-  bits.push(`${fc.andamento} em andamento`);
-  if(fc.prontas) bits.push(`${fc.prontas} pronta${fc.prontas===1?'':'s'} pra revisar`);
-  if(fc.praberto) bits.push(nPl(fc.praberto,'PR aberto','PRs abertos'));
-  put(`<h1>Central</h1><div class="sub">${bits.join(' · ')}</div>
-    <span style="flex:1"></span><span id="coordChip" class="coordchip"></span>`);
+    const all=flowVisible(src), canc=all.filter(t=>t.status==='cancelled').length, done=all.filter(t=>t.status!=='cancelled'); const prs=done.filter(t=>t.prUrl).length;
+    // cancelada mora em Concluídas, mas NÃO é entrega (contada à parte)
+    sum=`<b>${done.length}</b> ${done.length===1?'entrega':'entregas'}${prs?` · <b>${prs}</b> ${prs===1?'PR':'PRs'}`:''}${canc?` · ${canc} ${canc===1?'cancelada':'canceladas'}`:''}`;
+  } else sum=centralSumHtml(fc);
+  const scope=(typeof projList==='function' && projList().length>1 && projFilter==='all')?'todos os projetos':(projFilter!=='all'?projShort(projFilter):pathBase(state.repo||''));
+  put(pageHead({ title:'Central', scope:'computador', scopeLabel:scope, sum, right:'<span id="coordChip" class="coordchip"></span>' }));
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
 function taskPct(t){
@@ -569,7 +595,7 @@ function openTaskMenu(taskId, anchor){
   menuClose($id('tmenuPop'));
   const pop=document.createElement('div');
   pop.id='tmenuPop';
-  pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
+  pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-pop);padding:5px';
   // R8: ícone SVG (IC) + rótulo; antes o glifo ia colado no texto (✓ ◆ ⌥ ❙❙ ▶ ↻ ✕)
   // o slot .mnic existe SEMPRE (vazio quando o item não tem ícone) — senão o rótulo sai desalinhado dos outros.
   // o.stay: o item abre outro menu (trocar modelo) — fecha este e não recarrega o quadro
@@ -656,7 +682,7 @@ function openStatusMenu(taskId, anchor){
   if(!taskOffersMerge(t)){ const i=opts.findIndex(o=>o.key==='merged'); if(i>=0) opts.splice(i,1); }
   const pop=document.createElement('div');
   pop.id='stmenuPop';
-  pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
+  pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-pop);padding:5px';
   opts.forEach(o=>{ const b=document.createElement('button');
     const on=(o.key===cur);
     b.setAttribute('role','menuitemradio'); b.setAttribute('aria-checked', on?'true':'false');
@@ -715,13 +741,16 @@ function renderFlow(){
   renderFlowHead();
   renderFlowFilters();
   const el=$id("flow");
+  // F4 (D20): Concluídas › Resumo do período = o antigo Daily (commits e marcos por tarefa + relatório) no lugar da lista
+  { const rs=$id('flowResumo'), on=flowScope==='done' && centralDoneSub==='res';
+    if(rs){ rs.hidden=!on; el.hidden=on; if(on){ if(typeof centralResumoMount==='function') centralResumoMount(rs); return; } } }
   el.classList.toggle('gridview', flowView==='grid');
   let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); } // integrado por padrão; fallback pro repo ativo se algo falhar
   const ghost='<div class="fcard ghost" id="ghostNew"><span class="gplus">＋</span><b>Nova demanda</b><span style="font-size:var(--fs-sm)">descreva o que precisa ser feito — o time de agentes cuida do resto</span></div>';
   // monta o HTML numa string (não escreve direto no DOM) pra poder pular o rebuild
   // quando NADA VISÍVEL mudou — senão o poll (evento de agente ativo) reconstruía a
   // lista inteira e o card sob o mouse piscava (pior em Concluídas, onde nada muda).
-  let tasks=[], html='', grouped=false; const rendered=[];
+  let tasks=[], html='', grouped=false; const rendered=[]; let ctTbl=null; // ctTbl: o pedaço da tabela (66), pra ela mexer no lugar
   // fila dos épicos (46): respeita busca/status/tipo/agente/épico lá dentro; entra DEPOIS de
   // "Aguardando você" e "Em andamento" (recolhida por padrão se há algo esperando você)
   const nWaitYou=flowScope==='done'?0:src.filter(t=>flowScopeOk(t)&&flowBucket(t)==='aguardando').length;
@@ -733,9 +762,11 @@ function renderFlow(){
     // plana pra sempre. Sem sortOrder (tarefa nova) fica no topo da seção; "restaurar ordem" desliga.
     const manual=lsGet('flowManual')!=='0' && vis.some(t=>t.sortOrder!=null);
     const so=t=>t.sortOrder==null?-1:t.sortOrder;
-    tasks = manual
+    // Concluídas: mais recente pela DATA DE CONCLUSÃO (inventário 01 — antes era a de criação)
+    const tsOf = flowScope==='done' ? taskDoneTs : taskTs;
+    tasks = manual && flowScope!=='done'
       ? vis.sort((a,b)=> so(a)-so(b) || taskTs(b)-taskTs(a))
-      : vis.sort((a,b)=> taskTs(b)-taskTs(a));
+      : vis.sort((a,b)=> tsOf(b)-tsOf(a));
     // R7: vazio com saída. Antes: "nenhuma tarefa neste filtro." sem botão — e, com a fila dos épicos na tela,
     // nem isso (os épicos apareciam sozinhos e parecia que o filtro tinha falhado)
     if(!tasks.length){ html = (flowStatus==='epicos' && epHtml) ? epHtml : flowEmptyHtml()+epHtml; }
@@ -750,7 +781,7 @@ function renderFlow(){
         const g=new Map();
         // Concluídas por dia: pagina a lista inteira (12 por vez) antes de agrupar
         const dayN = isDone ? flowDoneN('dia', tasks.length) : tasks.length;
-        for(const t of tasks.slice(0, dayN)){ const d=new Date(taskTs(t)); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
+        for(const t of tasks.slice(0, dayN)){ const d=new Date(isDone?taskDoneTs(t):taskTs(t)); const k=new Date(d.getFullYear(),d.getMonth(),d.getDate()).getTime(); if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
         const keys=[...g.keys()].sort((a,b)=>b-a);
         html = keys.map(k=>`<div class="daygrp"><div class="dayh">${esc(dayLabel(k))} <span class="dayn">${nPl(g.get(k).length,'tarefa')}</span></div>${g.get(k).map(t=>item(t)).join("")}</div>`).join("")
           + (isDone ? flowDoneMoreHtml('dia', tasks.length, dayN) : '') + epHtml;
@@ -759,6 +790,10 @@ function renderFlow(){
         for(const t of tasks){ const k=t.repo||state.repo||''; if(!g.has(k)) g.set(k,[]); g.get(k).push(t); }
         // um grupo por projeto: abre por padrão, recolhe por projeto, 12 cartões por vez
         html = [...g.entries()].map(([k,list])=>flowDoneGroupHtml(k, projShort(k), projColor(k), list, item)).join("");
+      } else if(flowViewEff()==='table' && typeof ctHtml==='function'){
+        // redesenho F1: tabela ordenável (a fila dos épicos continua em cima, como nas seções)
+        tasks.forEach(t=>rendered.push(t));
+        ctTbl = ctHtml(tasks); html = epHtml + ctTbl;
       } else {
         const by={}; for(const t of tasks){ (by[flowBucket(t)] ||= []).push(t); }
         html = FLOW_SECS.map(([k,label,tone,acc])=>{
@@ -774,6 +809,7 @@ function renderFlow(){
   }
   // planos do orquestrador entram no topo em QUALQUER ordenação/agrupamento (sem busca ativa)
   if(window.orqBoardHtml && !flowQuery.trim()) html=window.orqBoardHtml(flowScope)+html;
+  if(typeof CT!=='undefined') CT.last=ctTbl!=null?{ pre:html.slice(0, html.length-ctTbl.length) }:null;
   // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
   if(html===flowLastHtml && el.firstChild) return;
   el.innerHTML=html; flowLastHtml=html;
@@ -794,6 +830,7 @@ function renderFlow(){
   bindClick('flowClearAll', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; flowClearFilters(); });
   bindClick('flowEmptyNew', ()=>{ if(window.openTab) window.openTab('nova'); else openNewTask(); });
   bindClick('flowClearSearch', ()=>{ flowQuery=''; const a=$id('topSearch'); if(a) a.value=''; const b=$id('ffSearch'); if(b) b.value=''; lastSig=''; renderFlow(); });
+  if(typeof ctWire==='function' && el.querySelector('.cttable')) ctWire(el, src); // 66-central-tabela: ordenar, abrir a linha, teclado
   wireLinkChips(el);
   // linha → abre a tela de execução direto (fluxo do redesign)
   el.querySelectorAll('.frow,.dcard').forEach(row=>{
@@ -842,7 +879,8 @@ function renderFlow(){
     lastSig=''; renderFlow();
   });
   el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.sum; crossRun(id, ()=>openTaskSummary(id)); });
-  el.querySelectorAll('[data-dcopen]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=src.find(x=>x.id===b.dataset.dcopen); if(!t) return; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } selected=t.id; render(); openWorkspace(t.id); });
+  el.querySelectorAll('[data-dcopen]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=src.find(x=>x.id===b.dataset.dcopen); if(!t) return; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } const go=()=>{ selected=t.id; render(); openOrEdit(t); }; const src0=b.closest('tr[data-ctrow],.fcard,.dcard'); const ti=src0&&src0.querySelector('.cttx,.ftitle,.dc-title');
+    if(typeof mvOpen==='function') mvOpen(ti, go); else go(); }); // rascunho abre o editor (igual ao Enter da linha da tabela); F3: o título voa até a aba
   el.querySelectorAll('[data-tmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskMenu(b.dataset.tmenu, b); });
   el.querySelectorAll('[data-stmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openStatusMenu(b.dataset.stmenu, b); });
   el.querySelectorAll('.fcard:not(.ghost)').forEach(card=>{

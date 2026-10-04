@@ -17,7 +17,7 @@
 .tlwrap{flex:1;min-height:0;min-width:0;display:flex;position:relative}
 .tlcol{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;position:relative}
 .tlcol .fwtermslot{flex:1}
-.tltermbar{flex:none;display:flex;align-items:center;gap:8px;min-width:0;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--surface);font-size:var(--fs-xs);color:var(--muted);white-space:nowrap}
+.tltermbar{flex:none;display:flex;align-items:center;gap:8px;min-width:0;padding:6px 12px;border-bottom:1px solid var(--border);background:var(--surface-2);font-size:var(--fs-xs);color:var(--muted);white-space:nowrap}
 .tltermbar .sp{flex:1}
 .tldot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--c,var(--accent))}
 .tlai{flex:0 1 auto;font-family:var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;min-width:9ch}
@@ -40,7 +40,7 @@
 /* ---------- painel "Requisitos e provas" ---------- */
 .tlside{flex:none;display:flex;min-height:0;position:relative}
 .tlpanel{width:300px;flex:none;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;min-height:0}
-.tlpanel.overlay{position:absolute;right:44px;top:0;bottom:0;z-index:6;box-shadow:-12px 0 32px -12px rgba(0,0,0,.6)}
+.tlpanel.overlay{position:absolute;right:44px;top:0;bottom:0;z-index:6;box-shadow:-12px 0 32px -12px color-mix(in srgb,var(--shade) 60%,transparent)}
 .tlph{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px 8px 14px;border-bottom:1px solid var(--border);font-size:var(--fs-sm);color:var(--text-2);font-weight:600}
 .tltog{flex:none;width:28px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-xs);border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;padding:0}
 .tltog svg{width:15px;height:15px}
@@ -68,7 +68,7 @@
 .tlgr{display:flex;justify-content:space-between;gap:8px;font-size:var(--fs-sm)}
 .tlgr span{color:var(--text-2);font-variant-numeric:tabular-nums}
 .tlbar{height:6px;border-radius:3px;background:var(--surface-3);overflow:hidden}
-.tlbar i{display:block;width:100%;height:100%;border-radius:3px;background:var(--accent);transform-origin:left center;transition:transform .4s cubic-bezier(.2,.8,.2,1)}
+.tlbar i{display:block;width:100%;height:100%;border-radius:3px;background:var(--accent);transform-origin:left center;transition:transform .28s cubic-bezier(.2,.8,.2,1)}
 .tlgate .btn{justify-content:center}
 .tlgh{color:var(--muted);font-size:var(--fs-xs)}
 
@@ -86,7 +86,7 @@
 /* ---------- folha de pergunta (por cima do terminal, como no Claude) ---------- */
 .tlsheethost{position:absolute;left:12px;right:12px;bottom:12px;top:8px;z-index:5;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;pointer-events:none}
 .tlsheethost>*{pointer-events:auto}
-.tlsheet{width:min(760px,100%);max-height:calc(100% - 8px);display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border:1px solid color-mix(in srgb,var(--st-ask) 38%,var(--border-strong));border-radius:var(--r);box-shadow:0 -6px 18px -6px rgba(0,0,0,.5),0 18px 48px -18px rgba(0,0,0,.7);animation:tlup .24s cubic-bezier(.16,1,.3,1)}
+.tlsheet{width:min(760px,100%);max-height:calc(100% - 8px);display:flex;flex-direction:column;overflow:hidden;background:var(--surface);border:1px solid color-mix(in srgb,var(--st-ask) 38%,var(--border-strong));border-radius:var(--r);box-shadow:0 -6px 18px -6px color-mix(in srgb,var(--shade) 50%,transparent),0 18px 48px -18px color-mix(in srgb,var(--shade) 70%,transparent);animation:tlup .24s cubic-bezier(.16,1,.3,1)}
 @keyframes tlup{from{transform:translateY(14px);opacity:.35}to{transform:none;opacity:1}}
 .tlsheet:focus{outline:0}
 .tlsheet.sending{opacity:.75}
@@ -123,7 +123,7 @@
 .tlsf .sp{flex:1}
 .tlsf .lnk{font-size:var(--fs-xs);color:var(--text-2);margin-right:4px}
 .tlsf .lnk:hover{color:var(--text)}
-.tlpill{display:inline-flex;align-items:center;gap:8px;font:inherit;font-size:var(--fs-sm);color:var(--text-2);background:var(--surface);border:1px solid color-mix(in srgb,var(--st-ask) 45%,var(--border));border-radius:var(--r-pill);padding:6px 14px;cursor:pointer;box-shadow:0 8px 24px -10px rgba(0,0,0,.7)}
+.tlpill{display:inline-flex;align-items:center;gap:8px;font:inherit;font-size:var(--fs-sm);color:var(--text-2);background:var(--surface);border:1px solid color-mix(in srgb,var(--st-ask) 45%,var(--border));border-radius:var(--r-pill);padding:6px 14px;cursor:pointer;box-shadow:0 8px 24px -10px color-mix(in srgb,var(--shade) 70%,transparent)}
 .tlpill b{color:var(--st-ask)}
 .tlsheethost.min{align-items:flex-end}
 /* pane pequeno (canvas em grade): folha compacta — sem descrição das opções, menos respiro */
@@ -172,3 +172,41 @@ html.sfpane .fw:has(.fwchat.tl) .fwciclo{max-height:34vh;overflow:auto}
   html.sfpane .fwchat.tl .fwinput.cc #fwSendBtns{order:4}
   html.sfpane .fwchat.tl .fwinput.cc .attrow,html.sfpane .fwchat.tl .fwinput.cc .fwselchip{order:0;flex-basis:100%}
 }
+
+/* ==== redesenho F1: requisitos como LINHA DO TEMPO (uma estação por requisito) + carimbo estático ====
+   provado = estação cheia + carimbo "provado"; adiado = estação TRACEJADA + "adiado — motivo: …" (nunca riscado).
+   Tokens de 10-base; o carimbo não gira nem anima (movimento é a F3). */
+.tlph{justify-content:flex-start}
+.tlph>span:first-child{flex:1;min-width:0}
+.tlphn{color:var(--muted);font-weight:500;font-size:var(--fs-xs);white-space:nowrap}
+.tlgate{margin-top:0}
+.tltl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;position:relative}
+.tltl .tlreq{grid-template-columns:16px minmax(0,1fr) auto;column-gap:10px;position:relative;padding-bottom:14px}
+.tltl .tlreq:last-child{padding-bottom:0}
+.tltl .tlreq::before{content:"";position:absolute;left:7px;top:19px;bottom:1px;width:1.5px;background:var(--border-strong)}
+.tltl .tlreq:last-child::before{display:none}
+.tltl .tlreq.ck-ok::before{background:color-mix(in srgb,var(--accent) 55%,var(--border-strong))}
+.tltl .tlreq.ck-ad::before{background:none;border-left:1.5px dashed var(--border-strong);width:0}
+.tlck.ad{border-style:dashed;border-color:var(--text-2)}
+.tlrn{font-family:var(--mono);font-size:var(--fs-xs);font-weight:600;color:var(--muted);margin-right:3px}
+.tlreq.ck-ad .tlrt small{color:var(--text-2)}
+/* CARIMBO (redesenho F2): componente estático "provado / adiado / entregue" — a cor do carimbo do tema (roxo no claro,
+   verde do logo no escuro), borda dupla de tinta e leve rotação (--rot); adiado é ardósia tracejada, sem a 2ª borda.
+   A queda (escala 1,3→1) é do 05-movimento (stampLand), só quando o requisito ACABA de ser provado. */
+.stamp,.tlstamp{--c:var(--stamp);--rot:-3deg;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;align-self:start;flex:none;margin-top:1px;line-height:1;color:var(--c);border:1.5px solid var(--c);box-shadow:inset 0 0 0 2px var(--surface),inset 0 0 0 3px var(--c);border-radius:4px;padding:5px 8px 4px;font:900 var(--fs-xs)/1 var(--ui);text-transform:uppercase;letter-spacing:.12em;white-space:nowrap;transform:rotate(var(--rot));background:color-mix(in srgb,var(--c) 7%,transparent);opacity:.95}
+.stamp .d{font-size:var(--fs-xs);letter-spacing:.04em;font-weight:700;margin-top:3px;text-transform:none}
+.stamp.ad,.stamp.adiado,.tlstamp.ad{--c:var(--slate);--rot:-2deg;border-style:dashed;box-shadow:none}
+.stamp.entregue{--rot:2deg}
+.en-kpis .stamp.entregue{align-self:center;margin-left:6px} .cicstrip .stamp.entregue{margin:0 4px}
+.stamp.xl{font-size:var(--fs-lg);letter-spacing:.18em;padding:8px 16px 7px;border-width:2px;box-shadow:inset 0 0 0 2.5px var(--bg),inset 0 0 0 4px var(--c)}
+.tldots i.ad{border-style:dashed;border-color:var(--text-2)}
+.tlnum{writing-mode:horizontal-tb;transform:none;display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.1}
+.tlnum b{color:var(--text);font-weight:600}
+.tlnum small{font-family:var(--ui);font-weight:500;color:var(--muted);font-size:var(--fs-xs)}
+/* Entrega (27-entregas): os mesmos R1…Rn e carimbos do painel */
+.en-req .en-rt{flex:1;min-width:0}
+.en-req .tlstamp{flex:none;margin-left:auto}
+.reqst.ad{border:1.5px dashed var(--text-2);background:transparent}
+.en-req.ad .en-adnote{color:var(--text-2)}
+.tlgr{flex-wrap:wrap;column-gap:10px}
+.tlgr b{white-space:nowrap}

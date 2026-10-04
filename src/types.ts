@@ -130,6 +130,8 @@ export interface TaskSpec {
   prNumber?: number;
   /** PRs anteriores desta tarefa (ex.: PR já MERGEADO antes de a conversa ser retomada numa branch nova). */
   prHistory?: string[];
+  /** sha do commit do merge do PR (quando se sabe) — reabrir a tarefa integrada pra conversa parte dele */
+  prMergeCommit?: string;
   /**
    * Link da ISSUE do tracker desta demanda (visível pro time). Preenchido pelo
    * humano na Nova demanda (issue já existente) OU pelo agente via mcp__cardume__set_issue
@@ -159,6 +161,11 @@ export interface TaskSpec {
    * papéis). Ausente = "auto" (tarefas de antes do terminal). Piloto, ondas e épico em auto-start usam "auto".
    */
   termMode?: "terminal" | "auto";
+  /** IA do terminal escolhida no app (term_switch_ai): claude | codex | deepseek | gemini | opencode. Ausente = a do
+   * motor da tarefa. O shell do terminal reabre com ela (src/terminal.ts › termAiOf). */
+  termAi?: string;
+  /** Modelo escolhido junto com a termAi (vazio = o padrão da IA). Só vale quando termAi está gravada. */
+  termModel?: string;
   /** Tarefa do PILOTO AUTOMÁTICO (src/autopilot.ts): ninguém responde — o app não pausa no teto (o piloto decide). */
   autopilot?: boolean;
   // ---- Tarefa SOB ÉPICO. Todos opcionais: tarefa criada fora do planner não tem nenhum. ----

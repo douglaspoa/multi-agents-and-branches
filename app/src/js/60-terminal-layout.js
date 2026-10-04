@@ -11,17 +11,20 @@
 // Fontes únicas: reqRows/proofGate/proofGateLine/proofAsk/approveGate/approveNoProof (21/27), taskSt/stMeta, enThumbHtml.
 
 // @tl-puro-inicio (puro: só esc/escA — testado em app/tests/terminal-layout.test.mjs)
-const TL_NARROW=760; // largura da coluna do terminal abaixo da qual o painel vira faixa sozinho
+const TL_NARROW=820; // largura da coluna do terminal abaixo da qual o painel vira faixa sozinho (spec do redesenho F1: painel < 820 px)
 const TL_IN_TERMINAL='(responder no terminal)'; // = AUQ_IN_TERMINAL (src/terminal.ts): o hook solta e o picker do CLI aparece no TTY
 const TL_SKIP_HUMAN='(sem resposta — siga com a melhor suposição e registre-a em .cardume/artifacts/ASSUMPTIONS.md)';
 const TL_IC={
   fold:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.2" y="2.8" width="11.6" height="10.4" rx="1.6"/><path d="M10 2.8v10.4M5 6.2 6.8 8 5 9.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   unfold:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="2.2" y="2.8" width="11.6" height="10.4" rx="1.6"/><path d="M10 2.8v10.4M6.8 6.2 5 8l1.8 1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
-// estado visual de cada requisito: ok (com prova) · no (bloqueado/sem prova) · go (rodando, ainda sem prova) · '' (não começou)
+// adiado (reqIsAdiado, 00-util — a régua única): tracejado com "adiado — motivo: …", nunca riscado (mesa do redesenho)
+function tlAdiadoSub(note){ const n=String(note||'').replace(/\s+/g,' ').trim(); return n?'adiado — motivo: '+n.slice(0,140):'adiado'; }
+// estado visual de cada requisito: ok (com prova) · ad (adiado com motivo) · no (bloqueado/sem prova) · go (rodando, ainda sem prova) · '' (não começou)
 function tlReqView(rows, working){
   return (rows||[]).map(r=>{
     const ev=Array.isArray(r.evidence)?r.evidence:[];
+    if(typeof reqIsAdiado==='function' && reqIsAdiado(r)) return { text:r.text, ck:'ad', sub:tlAdiadoSub(r.note), ev };
     if(r.st==='ok' && ev.length) return { text:r.text, ck:'ok', sub:'prova: '+ev.slice(0,2).map(e=>String(e).split('/').pop()).join(' · ')+(ev.length>2?' +'+(ev.length-2):''), ev };
     if(r.st==='ok') return { text:r.text, ck:'no', sub:'feito, mas sem arquivo de prova', ev };
     // requirements.json marca "pending" como não-feito (blk): rodando e sem motivo = ainda em andamento
@@ -38,16 +41,23 @@ function tlRailHtml(view, o){
   return `<aside class="tlrail${o.forced?' forced':''}" data-tl="unfold" role="button" tabindex="0" aria-label="${escA('abrir requisitos e provas — '+label)}" title="abrir requisitos e provas">`+
     `<span class="tltog" aria-hidden="true">${TL_IC.unfold}</span>`+
     `<span class="tldots" aria-hidden="true">${(view||[]).slice(0,12).map(v=>`<i class="${v.ck}"></i>`).join('')}</span>`+
-    `<span class="tlnum">${esc(label)}</span></aside>`;
+    `<span class="tlnum">${m?`<b>${n}/${m}</b><small>provas</small>`:'—'}</span></aside>`; // horizontal (a mesa vetou o texto vertical)
 }
 // o painel inteiro: requisitos (com miniaturas das provas) + o portão
-// o: { view, gate:{st,missing}, gateHtml, phase:'working'|'review'|'pr'|'idle', thumbs:(ev)=>html, overlay, loading }
+// o: { view, gate:{st,missing}, gateHtml, phase:'working'|'review'|'pr'|'idle', thumbs:(ev)=>html, overlay, loading,
+//      subHtml:(v,i)=>html (linha de baixo do requisito com os nomes das provas virando link), extra:html (Entregáveis) }
+// carimbo ESTÁTICO do requisito (redesenho F1, identidade da direção A sem o vocabulário de cartório): "provado" ou
+// "adiado" — sem rotação nem animação (a F3 decide o movimento); os outros estados não carimbam
+function tlStampHtml(ck){ return ck==='ok'?'<span class="tlstamp ok" aria-hidden="true">provado</span>':ck==='ad'?'<span class="tlstamp ad" aria-hidden="true">adiado</span>':''; }
+const TL_CK_TXT={ ok:'com prova', ad:'adiado com motivo', no:'sem prova', go:'em andamento' };
 function tlPanelHtml(o){
-  const view=o.view||[]; const n=tlCount(view), m=view.length;
+  const view=o.view||[]; const n=tlCount(view), m=view.length; const ad=view.filter(v=>v.ck==='ad').length;
+  // linha do tempo (direção B): uma estação por requisito, R1…Rn, com as miniaturas das provas e o carimbo
   const items=!m
     ? `<div class="tlempty"><b>Sem requisitos ainda</b><span>Marque <b>vira requisito</b> no compositor pra transformar um pedido em requisito com prova.</span></div>`
-    : view.map((v,i)=>`<div class="tlreq"><span class="tlck ${v.ck}" aria-label="${escA(v.ck==='ok'?'com prova':v.ck==='no'?'sem prova':v.ck==='go'?'em andamento':'não começou')}"></span><span class="tlrt"><span class="tlrtx">${esc(v.text)}</span><small>${esc(v.sub)}</small>${v.ck==='ok'&&o.thumbs?o.thumbs(v.ev, i):''}</span></div>`).join('');
-  const pct=m?Math.round(n/m*100):0;
+    : `<ol class="tltl" aria-label="requisitos">`+view.map((v,i)=>`<li class="tlreq ck-${v.ck||'na'}" data-rk="${escA(v.text)}"><span class="tlck ${v.ck}" aria-label="${escA(TL_CK_TXT[v.ck]||'não começou')}"></span><span class="tlrt"><span class="tlrtx"><b class="tlrn">R${i+1}</b> ${esc(v.text)}</span><small>${o.subHtml?o.subHtml(v, i):esc(v.sub)}</small>${v.ck==='ok'&&o.thumbs?o.thumbs(v.ev, i):''}</span>${tlStampHtml(v.ck)}</li>`).join('')+`</ol>`;
+  const req=m-ad; // exigidos: adiado com motivo conta como resolvido (o portão não pede prova dele)
+  const pct=req?Math.round(n/req*100):(m?100:0);
   let acts='';
   if(m){
     if(o.loading) acts='<span class="tlgh">conferindo as provas…</span>';
@@ -58,8 +68,10 @@ function tlPanelHtml(o){
     else if(o.phase==='closed') acts='';
     else acts='<span class="tlgh">aprovar exige a prova de cada requisito ou um motivo</span>';
   }
-  const gate=m?`<div class="tlgate"><div class="tlgr"><b>Portão de provas</b><span>${n}/${m} com prova</span></div><div class="tlbar" role="progressbar" aria-valuemin="0" aria-valuemax="${m}" aria-valuenow="${n}" aria-label="requisitos com prova"><i style="transform:scaleX(${(pct/100).toFixed(3)})"></i></div>${acts}</div>`:'';
-  return `<aside class="tlpanel${o.overlay?' overlay':''}" aria-label="Requisitos e provas"><div class="tlph"><span>Requisitos e provas</span><button type="button" class="tltog" data-tl="fold" title="${o.overlay?'fechar':'recolher (fica uma faixa com o progresso)'}" aria-label="${o.overlay?'fechar requisitos e provas':'recolher requisitos e provas'}">${TL_IC.fold}</button></div><div class="tlpb">${items}${gate}</div></aside>`;
+  const adTx=ad?` · ${ad===1?'1 adiado':ad+' adiados'}`:'';
+  const gate=m?`<div class="tlgate"><div class="tlgr"><b>Portão de provas</b><span>${n} de ${req} exigidos com prova${adTx}</span></div><div class="tlbar" role="progressbar" aria-valuemin="0" aria-valuemax="${req}" aria-valuenow="${n}" aria-label="requisitos com prova"><i style="transform:scaleX(${(pct/100).toFixed(3)})"></i></div>${acts}</div>`:'';
+  // o resumo do portão vem PRIMEIRO (a frase que responde "posso entregar?"), depois a linha do tempo e os entregáveis
+  return `<aside class="tlpanel${o.overlay?' overlay':''}" aria-label="Requisitos e provas"><div class="tlph"><span>Requisitos e provas</span>${m?`<span class="tlphn">${m===1?'1 requisito':m+' requisitos'}</span>`:''}<button type="button" class="tltog" data-tl="fold" title="${o.overlay?'fechar':'recolher (fica uma faixa com o progresso)'}" aria-label="${o.overlay?'fechar requisitos e provas':'recolher requisitos e provas'}">${TL_IC.fold}</button></div><div class="tlpb">${gate}${items}${o.extra||''}</div></aside>`;
 }
 
 // ---- pergunta do agente ----
@@ -152,7 +164,8 @@ function tlSideHtml(t){
   const folded=narrow || tlFolded(t.id);
   if(folded && !(narrow && TL.peek[t.id])) return tlRailHtml(view, { forced:narrow });
   const gate=(typeof proofGate==='function')?proofGate(t):{ st:'none', missing:[] };
-  return (narrow?tlRailHtml(view, { forced:true }):'')+tlPanelHtml({ view, gate, phase, thumbs:tlThumbs(t), overlay:narrow, loading:gate.st==='loading' });
+  return (narrow?tlRailHtml(view, { forced:true }):'')+tlPanelHtml({ view, gate, phase, thumbs:tlThumbs(t), overlay:narrow, loading:gate.st==='loading',
+    subHtml:(typeof tiProofSubHtml==='function')?(v)=>tiProofSubHtml(t, v):null, extra:(typeof tiDelivHtml==='function')?tiDelivHtml(t):'' }); // 64-terminal-integrado: provas e entregáveis viram link
 }
 function tlBarHtml(t){
   const st=taskSt(t), m=stMeta(st);
@@ -160,13 +173,21 @@ function tlBarHtml(t){
   const q=+t.queued||0;
   const ts=TERM[t.id]; const live=!!(ts && ts.mode==='live' && ts.alive);
   const gone=!live && typeof termWtGone==='function' && termWtGone(t.id);
-  const hint=live ? 'Enter no compositor entra na fila · ⌘Enter interrompe'
-    : gone ? '' : (typeof termHeadless==='function' && termHeadless(t)) ? 'Enter entra na fila · ⌘Enter interrompe e retoma no terminal'
+  const comp=typeof tiCompOn!=='function' || tiCompOn(t); // compositor escondido (terminal integrado): digita-se no próprio terminal
+  const hint=!comp ? (live ? 'digite direto no terminal' : gone ? 'digite pra perguntar sobre o que foi feito' : (typeof termHeadless==='function' && termHeadless(t)) ? 'rodando em segundo plano · as sugestões e os botões entram na fila' : 'digite no terminal pra retomar a sessão')
+    : live ? 'Enter no compositor entra na fila · ⌘Enter interrompe'
+    : gone ? 'Enter no compositor retoma a conversa da tarefa integrada' : (typeof termHeadless==='function' && termHeadless(t)) ? 'Enter entra na fila · ⌘Enter interrompe e retoma no terminal'
     : (ts && ts.hinfo && ts.hinfo.resumes===false) ? 'Enter manda no modo automático' : 'Enter no compositor retoma a sessão no terminal';
   const note=tlSysNote(t);
+  // redesenho F1: a barra "histórico · digite pra continuar" saiu de cima do terminal — o "retomar sessão" mora aqui
+  // rascunho/fila sem sessão gravada: não há o que retomar (a barra do terminal oferece "abrir terminal")
+  const noSess=['draft','queued'].includes(t.status) && !(ts && ts.hinfo && ts.hinfo.source && ts.hinfo.source!=='none');
+  const resume=!live && !gone && !noSess && ts && ts.mode==='hist' && !(typeof termHeadless==='function' && termHeadless(t)) && !(ts.hinfo && ts.hinfo.resumes===false)
+    ? `<button type="button" class="lnk tlresume" data-termopen="${escA(t.id)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>` : '';
   return `<span class="tldot" style="--c:${m.c}" aria-hidden="true"></span><span class="tlai">${esc(ai)}</span><span class="tlst" style="color:${m.c}">${esc(m.pt)}</span>`+
+    (t.branch?`<span class="tlbr mono" title="${escA('branch: '+t.branch)}">${esc(t.branch)}</span>`:'')+
     (note?`<span class="tlnote" title="${escA(note)}">${esc(note)}</span>`:'')+'<span class="sp"></span>'+
-    `${q?`<span class="tlq1" title="mensagens esperando o terminal terminar o turno">${q} na fila</span>`:''}${hint?`<span class="tlhint">${esc(hint)}</span>`:''}`;
+    `${q?`<span class="tlq1" title="mensagens esperando o terminal terminar o turno">${q} na fila</span>`:''}${hint?`<span class="tlhint">${esc(hint)}</span>`:''}${resume}`;
 }
 // a última nota do Starfork (PR aberto, fila, requisito, sessão retomada…) — no vivo ela não entra no TTY: fica na barra
 function tlSysNote(t){
@@ -188,7 +209,7 @@ function tlBudgetHtml(t){
 }
 /** O HTML da coluna da tarefa em modo terminal (renderWorkspace chama; o composer vem pronto de lá). */
 function tlChatHtml(t, composer){
-  return `<div class="tlwrap" data-tlwrap="${escA(t.id)}"><div class="tlcol"><div class="tltermbar" id="tlBar">${tlBarHtml(t)}</div>${termSlotHtml(t)}<div id="tlBudget">${tlBudgetHtml(t)}</div>${composer}</div><div class="tlside" id="tlSide">${tlSideHtml(t)}</div></div>`;
+  return `<div class="tlwrap" data-tlwrap="${escA(t.id)}"><div class="tlcol${typeof tiCompOn==='function'&&!tiCompOn(t)?' ti-nocomp':''}"><div class="tltermbar" id="tlBar">${tlBarHtml(t)}</div>${termSlotHtml(t)}<div id="tlBudget">${tlBudgetHtml(t)}</div>${typeof tiDockHtml==='function'?tiDockHtml(t):''}${composer}</div><div class="tlside" id="tlSide">${tlSideHtml(t)}</div></div>`;
 }
 /** Depois do innerHTML: liga o painel, mede a largura e põe a folha (se houver pergunta). */
 function tlWire(t, grab){
@@ -200,8 +221,10 @@ function tlWire(t, grab){
       finally{ delete TL.budSending[t.id]; const bd=$id('tlBudget'); if(bd){ bd.__html=''; } } }; }
   tlWatchWidth(t.id, wrap);
   tlAskPaint(t, false, grab);
+  if(typeof tiWire==='function') tiWire(t); // terminal integrado: dock (sugestões, anexar, botões → comando)
 }
 function tlSideClick(taskId, e){
+  if(typeof tiSideClick==='function' && tiSideClick(taskId, e)) return; // prova/entregável → aba Documento ou app padrão
   const lb=e.target.closest('[data-tllb]'); if(lb){ try{ const [names, i]=JSON.parse(lb.dataset.tllb); if(typeof lbOpen==='function') lbOpen(taskId, names, i); }catch(_){ } return; }
   const b=e.target.closest('[data-tl]'); if(!b) return; tlSideAct(taskId, b.dataset.tl, b);
 }
@@ -217,7 +240,25 @@ async function tlSideAct(taskId, k, btn){
 function tlSidePaint(t, force){
   const side=$id('tlSide'); if(!side || !side.isConnected) return;
   const h=tlSideHtml(t); if(!force && side.__html===h) return;
+  const bar0=side.querySelector('.tlbar i'), sc0=bar0?tlBarScale(bar0):null;
   side.__html=h; side.innerHTML=h;
+  tlMotion(t, side, sc0);
+}
+// F3 (movimento): só o que MUDOU desde a última pintura desta tarefa anima — requisito que acabou de ser provado (o
+// carimbo cai e a estação enche), o contador do portão rola e a barra anda do valor velho pro novo. 1ª pintura, troca de
+// tarefa e poll sem mudança: nada. A comparação é pelo TEXTO do requisito (data-rk) — reordenar/inserir não engana —, por tarefa.
+const TL_MV={};
+function tlBarScale(i){ const m=String(i.style.transform||'').match(/scaleX\(([\d.]+)\)/); return m?+m[1]:null; }
+function tlMotion(t, side, sc0){
+  const items=[...side.querySelectorAll('.tltl .tlreq')]; if(!items.length) return; // faixa recolhida: guarda o que havia
+  const ok={}, by={}; items.forEach((li,i)=>{ const k=li.dataset.rk||String(i); ok[k]=li.classList.contains('ck-ok'); by[k]=li; }); // chave = o texto do requisito (estável)
+  const n=items.filter(li=>li.classList.contains('ck-ok')).length;
+  const prev=TL_MV[t.id]; TL_MV[t.id]={ ok, n };
+  if(!prev || typeof mvNewlyTrue!=='function') return;
+  mvNewlyTrue(prev.ok, ok).forEach(k=>{ const li=by[k]; if(!li) return; stampLand(li.querySelector('.tlstamp')); mvAnim(li.querySelector('.tlck'), [{ transform:'scale(.3)' }, { transform:'none' }], { duration:260 }); });
+  if(mvTicked(prev.n, n)){ mvTick(side.querySelector('.tlgr span'));
+    const bar=side.querySelector('.tlbar i'), sc=bar?tlBarScale(bar):null;
+    if(bar && sc0!=null && sc!=null && sc!==sc0) mvAnim(bar, [{ transform:`scaleX(${sc0})` }, { transform:`scaleX(${sc})` }], { duration:280 }); }
 }
 // largura da coluna: abaixo de TL_NARROW o painel vira faixa (canvas com 2–3 tarefas, janela estreita)
 function tlWatchWidth(taskId, wrap){
@@ -235,6 +276,7 @@ function tlLivePaint(t){
   const bar=$id('tlBar'); if(bar){ const h=tlBarHtml(t); if(bar.__html!==h){ bar.__html=h; bar.innerHTML=h; } }
   tlSidePaint(t);
   tlAskPaint(t);
+  if(typeof tiLivePaint==='function') tiLivePaint(t);
 }
 
 // ---------------------------------------------------------------- folha de pergunta
@@ -263,7 +305,7 @@ function tlAskPaint(t, focus, grab){
 }
 // a folha sobe do topo do compositor; sem espaço (pane pequeno do canvas) ela cobre o compositor também
 function tlSheetPlace(col, el){
-  const comp=col.querySelector(':scope > .fwinput'); const ch=comp?comp.offsetHeight:0; const H=col.clientHeight;
+  const comp=col.querySelector(':scope > .fwinput'), dock=col.querySelector(':scope > .tidock'); const ch=(comp?comp.offsetHeight:0)+(dock?dock.offsetHeight:0); const H=col.clientHeight; // compositor escondido = 0
   const room=H-ch; const tight=room<320;
   el.style.bottom=(tight?8:ch+12)+'px';
   el.classList.toggle('tight', H<300 || room<200);

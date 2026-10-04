@@ -175,7 +175,7 @@ function renderTeamBoard(){
     <div class="tskpis">
       <div class="tskpi"><div class="v">${done}</div><div class="l">entregas</div><div class="d">${inP.length} tarefas no período</div></div>
       <div class="tskpi"><div class="v" style="color:var(--accent)">${doing.length}</div><div class="l">em andamento</div><div class="d">${fcT.aguardando?`${fcT.aguardando} aguardando alguém · `:''}${nPl(nDevs,'dev ativo','devs ativos')}</div></div>
-      <div class="tskpi"><div class="v" style="color:#c678dd">${eps}</div><div class="l">épicos ativos</div><div class="d">${activeEps.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(epDelivered).length;return esc(e.name.split(' ')[0])+' '+dn+'/'+ts.length;}).join(' · ')||'—'}</div></div>
+      <div class="tskpi"><div class="v" style="color:var(--purple)">${eps}</div><div class="l">épicos ativos</div><div class="d">${activeEps.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(epDelivered).length;return esc(e.name.split(' ')[0])+' '+dn+'/'+ts.length;}).join(' · ')||'—'}</div></div>
       <div class="tskpi"><div class="v" style="color:${prs.length?'var(--warn)':'var(--text)'}">${prs.length}</div><div class="l">PRs pra revisar</div><div class="d">${prs.length?'mais antigo '+agoTx(prs[prs.length-1].updated_at):'em dia ✓'}</div></div>
       <div class="tskpi"><div class="v">${fmtCost(custo,{usdOnly:true})}</div><div class="l">custo no período · ≈ R$ ${fmtNumBR(custo*usdBrlRate(),true)}</div><div class="d">${inP.length?fmtCost(custo/Math.max(1,done||1))+' por entrega':'—'}</div></div>
     </div>
@@ -222,7 +222,7 @@ function renderTeamBoard(){
             const act=mine.filter(t=>!['merged','done'].includes(t.status)&&t.flag!=='closed').slice(0,3);
             if(!act.length) return '';
             const KIND_PT={build:'FEATURE',fix:'FIX',invest:'INVESTIGAÇÃO',design:'DESIGN',review:'REVIEW'};
-            const KIND_CO={build:'var(--accent)',fix:'var(--warn)',invest:'#c678dd',design:'var(--info)',review:'var(--good)'};
+            const KIND_CO={build:'var(--accent)',fix:'var(--warn)',invest:'var(--purple)',design:'var(--info)',review:'var(--good)'};
             const pctOf=s=>({backlog:5,requested:10,queued:15,running:45,thinking:45,'plan-review':30,review:80,delivered:85,error:45,conflict:45}[s]??20);
             return act.map(t=>{ const k=(t.spec||{}).kind|| ((t.branch||'').startsWith('fix/')?'fix':(t.branch||'').startsWith('invest/')?'invest':(t.branch||'').startsWith('design/')?'design':'build');
               return `<div data-ct="${escA(t.id)}" style="cursor:pointer;margin-top:7px;padding-top:7px;border-top:1px dashed var(--border)">
@@ -480,8 +480,8 @@ async function cloudCatalog(orgId, isAdmin){
         try{
           const local=await invoke('config');
           const byId=o=>Object.fromEntries((o||[]).map(x=>[x.id,x]));
-          const la=$id(local.agents), lw=$id(local.workflows);
-          for(const a of ags){ const full=await sbGet('org_agents?select=*&org_id=eq.'+orgId+'&id=eq.'+encodeURIComponent(a.id)); const f=full[0]; la[f.id]={ id:f.id, name:f.name, role:f.role, engine:f.engine||'claude', model:f.model||undefined, color:f.color||undefined, persona:f.persona||'' }; }
+          const la=byId(local.agents), lw=byId(local.workflows); // inventário 21: era $id (getElementById → null) e sempre falhava
+          for(const a of ags){ const full=await sbGet('org_agents?select=*&org_id=eq.'+orgId+'&id=eq.'+encodeURIComponent(a.id)); const f=full[0]; if(!f) continue; la[f.id]={ id:f.id, name:f.name, role:f.role, engine:f.engine||'claude', model:f.model||undefined, color:f.color||undefined, persona:f.persona||'' }; }
           for(const w of wfs){ lw[w.id]={ id:w.id, name:w.name, steps:w.steps||[] }; }
           await invoke('save_config',{ config:{ agents:Object.values(la), workflows:Object.values(lw) } });
           b.textContent='✓ aplicado no projeto';
@@ -513,7 +513,7 @@ async function cloudOrgView(){
 }
 
 /* ===== ABAS: expõe openers do bloco 1 e re-aponta os botões pra abrir como aba ===== */
-window.openCloud = openCloud;
+window.openCloud = ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('perfil'); else openCloud(); };
 window.openAgents = openAgents;
 window.switchProject = switchProject;
 window.pickFolder = pickFolder;

@@ -1,145 +1,11 @@
 // Starfork — 15-config-abas-onboarding
 // ---------- configurações (⌘,) ----------
 // fecha Configurações: como ABA fecha a aba (esconder o overlay deixava a aba ativa EM BRANCO); como modal, esconde
-// modo das tarefas na tela — espelha term.rs mode_default: terminal é o padrão; "auto" só vale se escolhido na tela nova
-// (taskModeSet=2). Na tela antiga "Automático (padrão)" era gravado junto com o resto, sem ser escolha.
-function cfgTaskModeOf(o){ return (o && String(o.taskModeSet)==='2' && o.taskMode==='auto') ? 'auto' : 'terminal'; }
-// grava quando mudou, ou quando você salva com Terminal e ele ainda não estava gravado (é o que liga o Codex no terminal)
-function cfgTaskModeShouldSave(val, loaded, stored){ if(loaded===undefined) return false; return val!==loaded || (val==='terminal' && stored!=='terminal'); }
 function cfgHide(){ const o=$id('cfgOverlay'); if(o&&o.classList.contains('astab')) closeTabOfKind('cfg'); else if(o) o.style.display='none'; }
-// @puro-inicio cfgValidate — valores do formulário (texto dos inputs) → null (ok) ou { field, msg } do 1º problema
-function cfgValidate(v){
-  const num=x=>String(x==null?'':x).trim()===''?NaN:Number(String(x).replace(',','.'));
-  const n={ cap:num(v.cap), cost:num(v.cost), brl:num(v.brl), slots:num(v.slots), retry:num(v.retry) };
-  if(!(n.cap>0)) return { field:'cfgCap', msg:'O teto por tarefa fica sempre ligado: use um valor maior que 0 (a tarefa pausa a 80% dele e pergunta).' };
-  if(!(n.cost>=0)) return { field:'cfgCost', msg:'O aviso de custo precisa ser um número maior ou igual a 0 (0 desliga).' };
-  if(!(n.brl>0)) return { field:'cfgBrl', msg:'A cotação do dólar precisa ser maior que zero.' };
-  if(!(Number.isInteger(n.slots) && n.slots>=1 && n.slots<=12)) return { field:'cfgSlots', msg:'Tarefas ao mesmo tempo: um número inteiro de 1 a 12.' };
-  if(!(Number.isInteger(n.retry) && n.retry>=0 && n.retry<=240)) return { field:'cfgLimitRetry', msg:'Retomar depois do limite: de 0 a 240 minutos (0 desliga).' };
-  return null;
-}
-// @puro-fim cfgValidate
-// modelos da retro (aprendizado contínuo) — uma lista só; valor do settings.json fora dela vira opção (não é trocado no salvar)
-const RETRO_MODELS=[['claude-sonnet-5','Sonnet 5 (padrão)'],['claude-haiku-4-5-20251001','Haiku 4.5 (mais barato)']];
-function retroModelSelect(sel, v){
-  v=String(v==null?'':v).trim(); if(!v) return;
-  if(![...sel.options].some(x=>x.value===v)){ const o=document.createElement('option'); o.value=v; o.textContent=v+' (personalizado)'; sel.appendChild(o); }
-  sel.value=v;
-}
-function openCfg(){
-  const body=$id('cfgBody');
-  body.innerHTML=`
-    <div class="seclbl2">Custo <span class="dim cfgsecd">· quanto cada tarefa pode gastar e como o valor aparece</span></div>
-    <div class="cfggrid">
-      <div class="cfgf"><label for="cfgCap">Teto por tarefa</label>
-        <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCap" type="number" min="0.5" step="0.5" value="${escA(String(costCapDefault()))}"><span class="dim" id="cfgCapBrl"></span></div>
-        <p class="cfghint">Fica sempre ligado. A 80% dele a tarefa para e pergunta; liberar mais pede o valor e o motivo (o motivo vai pro PR). Dá pra mudar por tarefa ao criar.</p></div>
-      <div class="cfgf"><label for="cfgCost">Aviso de custo</label>
-        <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCost" type="number" min="0" step="5" value="${escA(lsGet('costWarn')||'25')}"></div>
-        <p class="cfghint">Só avisa quando uma tarefa passa desse valor — não pausa. 0 desliga.</p></div>
-      <div class="cfgf"><label for="cfgBrl">Cotação do dólar</label>
-        <div class="cfgin"><span class="dim">R$</span><input class="in" id="cfgBrl" type="number" min="0.5" step="0.05" value="${escA(String(usdBrlRate()))}"><span class="dim">por US$ 1</span></div>
-        <p class="cfghint">Só pra mostrar o "≈ R$" ao lado do custo em dólar.</p></div>
-    </div>
-    <div class="seclbl2" style="margin-top:22px">Execução <span class="dim cfgsecd">· quantas tarefas rodam juntas e o que fazer no limite da IA</span></div>
-    <div class="cfggrid">
-      <div class="cfgf"><label for="cfgSlots">Tarefas ao mesmo tempo</label>
-        <div class="cfgin"><input class="in" id="cfgSlots" type="number" min="1" max="12" value="${escA(String(slotMax))}"><span class="dim">de 1 a 12</span></div>
-        <p class="cfghint">Mais tarefas em paralelo terminam antes, mas pesam na máquina e no limite de uso da IA.</p></div>
-      <div class="cfgf"><label for="cfgLimitRetry">Retomar depois do limite da IA</label>
-        <div class="cfgin"><span class="dim">a cada</span><input class="in" id="cfgLimitRetry" type="number" min="0" max="240" step="5" value="60"><span class="dim">min</span></div>
-        <p class="cfghint">Quando a conta bate o limite de uso, a tarefa espera e tenta de novo sozinha. 0 desliga.</p></div>
-    </div>
-    <div class="seclbl2" style="margin-top:22px">Issues <span class="dim cfgsecd">· links dos códigos de issue</span></div>
-    <div class="cfgf"><label for="cfgIssueBase">Endereço base das issues</label>
-      <input class="in" id="cfgIssueBase" placeholder="ex.: https://linear.app/sua-empresa/issue" value="${escA(lsGet('issueBase')||'')}" style="max-width:560px">
-      <p class="cfghint">Com ele, um código como FND-853 na tarefa vira link pra base/FND-853.</p></div>
-    <div class="seclbl2" style="margin-top:20px">Sua IA <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· qual IA roda as demandas novas — estado, configuração, teste e modelo de cada uma</span></div>
-    <div id="suaIaCfg"></div>
-    <div id="raHost"></div>
-    <div class="seclbl2" style="margin-top:20px">GitHub <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· a conta ativa abre os PRs e faz o push — troque ao mudar de empresa/conta</span></div>
-    <div id="ghHost" style="margin-top:8px"></div>
-    <div class="seclbl2" style="margin-top:20px">Navegador dos agentes</div>
-    <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgBrowserVisible" style="margin-top:3px"><span>Mostrar a janela do navegador <span class="dim">— por padrão ele roda em segundo plano (tarefas em paralelo não disputam a tela). Ligue quando precisar fazer login ou assumir a navegação; vale pras próximas execuções.</span></span></label>
-    <div class="seclbl2" style="margin-top:20px">Previsão</div>
-    <label class="cfgck" style="display:flex;gap:9px;align-items:flex-start;margin-top:8px;text-transform:none;letter-spacing:0;font-weight:400;cursor:pointer"><input type="checkbox" id="cfgEstimate" checked style="margin-top:3px"><span>Previsão de tempo e tokens antes de rodar <span class="dim">— no "montar conversando", a IA dimensiona cada requisito e o histórico do repo converte em minutos, tokens e custo. Desligado: nenhuma chamada extra de IA.</span></span></label>
-    <div class="seclbl2" style="margin-top:20px">Modo das tarefas <span class="dim cfgsecd">· como cada tarefa NOVA roda (a tarefa guarda o modo com que começou)</span></div>
-    <div class="cfggrid">
-      <div class="cfgf"><label for="cfgTaskMode">Modo</label>
-        <select class="in" id="cfgTaskMode"><option value="terminal">Terminal (padrão) — o Claude Code oficial num terminal dentro da tarefa</option><option value="auto">Automático — o agente roda em segundo plano e conversa pelo chat</option></select>
-        <p class="cfghint">Motores sem terminal (DeepSeek, gateway) rodam no automático. O Codex abre no terminal quando você salva Terminal aqui. Piloto automático, ondas e épicos que iniciam sozinhos sempre usam o automático. Pra rodar sem ninguém olhando, o caminho mais seguro é uma chave de API.</p></div>
-    </div>
-    <div class="seclbl2" style="margin-top:20px">Aprendizado contínuo <span class="dim cfgsecd">· no fim de cada tarefa uma retro relê o que aconteceu (suas correções, retrabalho) e propõe notas pro cérebro e skills do projeto</span></div>
-    <div class="cfggrid">
-      <div class="cfgf"><label for="cfgLearnMode">Modo</label>
-        <select class="in" id="cfgLearnMode"><option value="sugerir">Sugerir (você revisa na Memória)</option><option value="auto">Automático (aplica sozinho)</option><option value="desligado">Desligado</option></select>
-        <p class="cfghint">Sugerir: as propostas esperam seu aceite na aba Memória. Desligado: nenhuma chamada extra de IA no fim da tarefa.</p></div>
-      <div class="cfgf"><label for="cfgRetroModel">Modelo da retro</label>
-        <select class="in" id="cfgRetroModel">${RETRO_MODELS.map(([v,l])=>'<option value="'+escA(v)+'">'+l+'</option>').join('')}</select>
-        <p class="cfghint">Roda uma vez por tarefa, quando ela chega em review.</p></div>
-    </div>
-    <div class="seclbl2" style="margin-top:20px">Notificações <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· avisos de tarefa pronta, plano pra aprovar, falha — clicar abre a tarefa</span></div>
-    <div id="notifHost" style="margin-top:8px"></div>
-    <div class="seclbl2" style="margin-top:20px">Versão <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· o app procura versão nova sozinho a cada 2 min (e quando você volta pra janela) — ou agora, aqui</span></div>
-    <div id="updHost" style="margin-top:8px"></div>
-    <div class="seclbl2" style="margin-top:20px">Espaço em disco <span class="dim" style="text-transform:none;letter-spacing:0;font-weight:400">· pasta de trabalho do Starfork deste projeto <span class="mono" style="font-size:var(--fs-xs)">(.cardume/)</span> — aprendizados ficam, o resto pode ir</span></div>
-    <div id="wsHost" style="margin-top:8px"></div>
-    <div class="seclbl2" style="margin-top:20px">Sistema</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-      <button class="btn sm" id="cfgEnv">${ic('pulse')}verificar ambiente</button>
-      ${(canSeeDevTools()||lsGet('sb:url'))?'<button class="btn sm" id="cfgBackend" title="avançado: aponta o app pra outro servidor (dev/admin)">servidor da conta…</button>':''}
-      <button class="btn sm" id="cfgTour">rever o tour</button>
-    </div>
-    <div class="cfgsavebar"><span class="dim" id="cfgDirty"></span><span style="flex:1"></span><button class="btn primary" id="cfgSave">salvar</button></div>`;
-  // carrega o intervalo de retomada salvo (settings.json via Rust)
-  invoke('read_settings').then(s=>{ try{ const o=JSON.parse(s||'{}'); const el=$id('cfgLimitRetry'); if(el && o.limitRetryMin!=null && o.limitRetryMin!=='') el.value=String(o.limitRetryMin); const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true'); const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false'); const lm=$id('cfgLearnMode'); if(lm && ['sugerir','auto','desligado'].includes(o.learnMode)) lm.value=o.learnMode; const rm=$id('cfgRetroModel'); if(rm) retroModelSelect(rm, o.retroModel); const tm=$id('cfgTaskMode'); if(tm){ tm.value=cfgTaskModeOf(o); tm.dataset.loaded=tm.value; tm.dataset.stored=o.taskMode||''; } }catch(_){} }).catch(()=>{});
-  { const cap=$id('cfgCap'), brl=$id('cfgBrl'), out=$id('cfgCapBrl');
-    const upd=()=>{ const v=Math.max(0, parseFloat(cap.value)||0), r=parseFloat(brl.value)||usdBrlRate(); out.textContent=v>0?'≈ R$ '+fmtNumBR(v*r,true):'sem teto'; };
-    cap.oninput=upd; brl.oninput=upd; upd(); }
-  // "alterações não salvas" só pros campos que dependem do botão salvar: IA padrão, gateway, GitHub, versão e
-  // disco se salvam sozinhos — antes mexer neles acendia o aviso (e o salvar não fazia nada com eles)
-  { const SELF='#suaIaCfg,#raHost,#ghHost,#updHost,#wsHost,#notifHost';
-    const mark=e=>{ if(e && e.target && e.target.closest && e.target.closest(SELF)) return; const d=$id('cfgDirty'); if(d) d.textContent='alterações não salvas'; };
-    body.oninput=mark; body.onchange=mark; }
-  $id('cfgSave').onclick=async()=>{
-    const btn=$id('cfgSave'); if(btn.disabled) return;
-    const v={ cap:$id('cfgCap').value, cost:$id('cfgCost').value, brl:$id('cfgBrl').value, slots:$id('cfgSlots').value, retry:$id('cfgLimitRetry').value };
-    // valor fora da faixa: avisa e foca o campo (antes era ajustado em silêncio — 0 tarefas virava 4, -3 virava 0)
-    const bad=cfgValidate(v); if(bad){ toast(bad.msg,'warn'); const f=$id(bad.field); if(f) f.focus(); return; }
-    const N=x=>Number(String(x).replace(',','.'));
-    lsSet('costWarn', String(N(v.cost))); lsSet('costCap', String(N(v.cap))); lsSet('usdBrl', String(N(v.brl)));
-    lsSet('issueBase', $id('cfgIssueBase').value.trim()); setSlotMax(N(v.slots));
-    lastSig=''; // o que já foi gravado vale agora, mesmo se o resto falhar
-    // settings.json (Rust): cada chave no seu try — a falha diz QUAL não gravou (antes: .catch(()=>{}) e "salvas")
-    const bv=$id('cfgBrowserVisible'), fails=[];
-    btn.disabled=true; btn.textContent='salvando…';
-    const w=async(key, value, nome)=>{ try{ await invoke('write_setting',{ key, value }); }catch(e){ fails.push({ nome, e }); } };
-    await w('limitRetryMin', String(N(v.retry)), 'retomar depois do limite da IA');
-    await w('costCap', String(N(v.cap)), 'teto por tarefa'); // o motor lê daqui o teto de quem não tem teto próprio
-    if(bv) await w('browserVisible', bv.checked?'1':'0', 'mostrar a janela do navegador');
-    { const es=$id('cfgEstimate'); if(es){ await w('estimateEnabled', es.checked?'1':'0', 'previsão de tempo e tokens'); if(typeof estSetEnabled==='function') estSetEnabled(es.checked); } }
-    // só grava o modo quando a pessoa MUDOU (gravar "auto" junto com o resto foi o que prendeu gente no modo antigo)
-    // (antes de ler as configurações não grava nada — salvar cedo marcava uma escolha que ninguém fez)
-    { const tm=$id('cfgTaskMode'); if(tm && cfgTaskModeShouldSave(tm.value, tm.dataset.loaded, tm.dataset.stored)){ const n0=fails.length; await w('taskMode', tm.value==='auto'?'auto':'terminal', 'modo das tarefas'); await w('taskModeSet', '2', 'modo das tarefas'); if(fails.length===n0){ tm.dataset.loaded=tm.value; tm.dataset.stored=tm.value; } } }
-    { const lm=$id('cfgLearnMode'), rm=$id('cfgRetroModel'); if(lm) await w('learnMode', lm.value, 'modo do aprendizado contínuo'); if(rm) await w('retroModel', rm.value, 'modelo da retro'); }
-    btn.disabled=false; btn.textContent='salvar';
-    if(fails.length){ const d=$id('cfgDirty'); if(d) d.textContent='não salvou: '+fails.map(f=>f.nome).join(' e ');
-      showErr(fails[0].e,'Não consegui gravar "'+fails.map(f=>f.nome).join('" e "')+'" — o resto foi salvo'); return; }
-    cfgHide(); toast('Configurações salvas','ok'); };
-  $id('cfgEnv').onclick=()=>{ cfgHide(); if(window.openTab) openTab('env'); else openEnv(); };
-  bindClick('cfgBackend', ()=>{ cfgHide(); cloudCfgOpen=true; if(window.openTab) openTab('conta'); else openCloud(); });
-  $id('cfgTour').onclick=()=>{ cfgHide(); openOnboarding(); };
-  // Route AI vive no bloco 1 (onde secretsCache/secretSet moram); monta via window
-  if(window.routeAiMount) window.routeAiMount();
-  if(typeof ghMount==='function') ghMount();
-  if(typeof updRenderCfg==='function') updRenderCfg();
-  wsMount();
-  if(typeof notifCfgMount==='function') notifCfgMount();
-  // painel "Sua IA" (30-sua-ia.js) — o MESMO componente do passo de IA do primeiro acesso
-  if(typeof suaIaMount==='function') suaIaMount($id('suaIaCfg'), { ctx:'cfg', fresh:true });
-  $id('cfgOverlay').style.display='flex';
-}
-$id('cfgBtn').onclick=openCfg;
+// Ajustes (ex-Configurações): a página inteira mora em 67-ajustes.js (F4 · G3) — aqui só a porta de entrada da aba 'cfg'
+// (cfgValidate, cfgTaskModeOf/ShouldSave, RETRO_MODELS e retroModelSelect também foram pra lá)
+function openCfg(){ if(typeof ajustesRender==='function') ajustesRender(); }
+$id('cfgBtn').onclick=()=>{ if(typeof ajustesOpen==='function') ajustesOpen(); else openCfg(); };
 
 // ---------- "Com qual IA?" sem jargão (o seletor é desenhado em 29-ia-picker; aqui só a camada de texto) ----------
 // alias / id fixo → "sempre o mais novo" / "versão travada" (o termo técnico fica no tooltip);
@@ -180,9 +46,12 @@ window.aiPlainWatch=aiPlainWatch;
 // skills, issue, orchestrations, state.sqlite) NUNCA saem daqui. Worktrees e
 // entregáveis de tarefas finalizadas + temporários (logs/why/tmp) podem ir.
 let wsUsage=null, wsMsg='';
-function fmtBytes(n){ n=Number(n)||0; if(n<1024) return n+' B'; if(n<1048576) return (n/1024).toFixed(0)+' KB'; if(n<1073741824) return (n/1048576).toFixed(n<10485760?1:0)+' MB'; return (n/1073741824).toFixed(2)+' GB'; }
+function fmtBytes(n){ return fmtBytes0(n).replace('.',','); } // pt-BR: vírgula decimal
+function fmtBytes0(n){ n=Number(n)||0; if(n<1024) return n+' B'; if(n<1048576) return (n/1024).toFixed(0)+' KB'; if(n<1073741824) return (n/1048576).toFixed(n<10485760?1:0)+' MB'; return (n/1073741824).toFixed(2)+' GB'; }
+// F4 (G1): o disco é do PROJETO — mora em Projeto › Espaço em disco (#projWsHost); #wsHost (Ajustes antigo) segue valendo
+function wsHostEl(){ const d=$id('projDisk'), p=$id('projWsHost'); return (p && d && !d.hidden) ? p : ($id('wsHost')||p); }
 async function wsMount(){
-  const h=$id('wsHost'); if(!h) return;
+  const h=wsHostEl(); if(!h) return;
   if(!state.repo){ h.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">abra um projeto pra ver o espaço usado.</div>'; return; }
   h.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">medindo a pasta de trabalho do Starfork… (cópias grandes do código levam alguns segundos)</div>';
   // medir de novo com sucesso apaga o erro de uma medição anterior (antes ficava "Não consegui medir" ao lado dos números)
@@ -190,36 +59,34 @@ async function wsMount(){
   wsRender();
 }
 function wsRender(){
-  const h=$id('wsHost'); if(!h) return;
+  const h=wsHostEl(); if(!h) return;
   if(!wsUsage){ h.innerHTML=`<div style="font-size:var(--fs-sm);color:var(--warn)">${esc(wsMsg||'sem dados')}</div>`; return; }
   const u=wsUsage, wt=u.worktrees, ar=u.artifacts;
   const trash = (wt.staleBytes||0) + (u.temp||0);
-  const row=(label, val, hint, keep)=>`<div style="display:flex;align-items:baseline;gap:10px;padding:7px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2)">
-      <span style="font-size:var(--fs-sm);${keep?'':''}">${label}</span><span class="dim" style="font-size:var(--fs-xs);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${hint}</span><b class="mono" style="font-size:var(--fs-sm);${keep?'color:var(--accent)':''}">${fmtBytes(val)}</b></div>`;
+  const tot=Math.max(1, u.total||0);
+  const row=(label, sub, val, note, keep)=>`<div class="wsrow"><span><b>${label}</b><br><span class="dim">${sub}</span></span><div class="wsm"><i class="${keep?'keep':''}" style="width:${Math.max(1, Math.round((val||0)/tot*100))}%"></i></div><b class="mono">${fmtBytes(val)}</b><span class="dim">${note}</span></div>`;
   const stale=(wt.items||[]).filter(i=>i.stale).sort((a,b)=>b.bytes-a.bytes).slice(0,6);
-  h.innerHTML=`<div style="display:flex;flex-direction:column;gap:6px">
-      ${row('Aprendizados e estado', u.keep, 'MEMORY · HISTORY · RUNBOOK · SPEC · PREFS · política · skills · issue · planos · banco — <b>sempre mantidos</b>', true)}
-      ${row('Entregáveis', ar.bytes, `${ar.count} tarefa${ar.count===1?'':'s'} · ${fmtBytes(ar.staleBytes)} em ${ar.staleCount} finalizada${ar.staleCount===1?'':'s'} (mergeadas/canceladas)`)}
-      ${row('Worktrees', wt.bytes, `${wt.count} pasta${wt.count===1?'':'s'} · ${fmtBytes(wt.staleBytes)} em ${wt.staleCount} de tarefa finalizada ou órfã — só lixo`)}
-      ${row('Temporários', u.temp, 'logs · cache de explicações (why) · scripts descartáveis (tmp)')}
-      ${u.attachments?row('Anexos do chat', u.attachments, 'prints e documentos que você anexou nas conversas — ficam'):''}
-      <div style="display:flex;align-items:center;gap:10px;padding:2px 12px 0"><span class="dim" style="font-size:var(--fs-xs)">total ${fmtBytes(u.total)} · liberável agora: <b style="color:var(--text)">${fmtBytes(trash)}</b> sem perder nada${ar.staleBytes?' · +'+fmtBytes(ar.staleBytes)+' se limpar os entregáveis finalizados':''}</span></div>
-      ${stale.length?`<div class="dim mono" style="font-size:var(--fs-xs);padding:0 12px;line-height:1.6">${stale.map(i=>esc((i.title||i.id||'').slice(0,48))+' · '+esc(i.status)+' · '+fmtBytes(i.bytes)).join('<br>')}${wt.staleCount>stale.length?'<br>… e mais '+(wt.staleCount-stale.length):''}</div>`:''}
-      ${wsMsg?`<div style="font-size:var(--fs-sm);color:${/^✓/.test(wsMsg)?'var(--accent)':'var(--warn)'};padding:0 12px">${esc(wsMsg)}</div>`:''}
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">
-        <button class="btn sm" id="wsCleanTrash"${trash?'':' disabled'}>${ic('folder')}liberar ${fmtBytes(trash)} — worktrees finalizadas + temporários</button>
-        <button class="btn sm" id="wsCleanArts"${ar.staleBytes?'':' disabled'}>limpar entregáveis de tarefas finalizadas (${fmtBytes(ar.staleBytes)})</button>
-        <button class="btn sm" id="wsRefresh" title="medir de novo">${ic('pulse')}</button>
-      </div></div>`;
+  h.innerHTML=`<div class="wsk"><div class="num"><b>${fmtBytes(u.total)}</b><span>total da pasta</span></div><div class="num"><b>${fmtBytes(trash)}</b><span>liberável agora, sem perder nada</span></div><div class="num"><b>+${fmtBytes(ar.staleBytes||0)}</b><span>se limpar entregáveis de tarefas finalizadas</span></div></div>
+    <div class="pgcard wsrows">
+      ${row('Aprendizados e estado', 'memória, configurações, planos, banco', u.keep, 'sempre mantidos', true)}
+      ${row('Cópias de trabalho', 'uma por tarefa', wt.bytes, `${wt.staleCount} de tarefa finalizada ou órfã`)}
+      ${row('Entregáveis', 'provas, prints, documentos', ar.bytes, `${ar.staleCount} de tarefa${ar.staleCount===1?'':'s'} finalizada${ar.staleCount===1?'':'s'}`)}
+      ${row('Temporários', 'logs, cache, scripts descartáveis', u.temp, 'podem ir')}
+      ${u.attachments?row('Anexos da conversa', 'prints e documentos que você anexou', u.attachments, 'ficam'):''}
+    </div>
+    ${stale.length?`<div class="pgsh3"><h3>Cópias paradas de tarefas finalizadas</h3><span>entram no “liberar”</span></div><div class="pgcard rows">${stale.map(i=>`<div class="li"><span>${esc((i.title||i.id||'').slice(0,60))}</span><span class="grow"></span><span class="dim">${esc(stLabel(i.status))} · ${fmtBytes(i.bytes)}</span></div>`).join('')}${wt.staleCount>stale.length?`<div class="li dim">… e mais ${wt.staleCount-stale.length}</div>`:''}</div>`:''}
+    ${wsMsg?`<p class="pgnote" style="color:${/^✓/.test(wsMsg)?'var(--accent)':'var(--warn)'}">${esc(wsMsg)}</p>`:''}
+    <div class="wsacts"><button class="btn primary sm" id="wsCleanTrash"${trash?'':' disabled'}>Liberar ${fmtBytes(trash)}</button><button class="btn sm" id="wsRefresh" title="medir de novo" aria-label="medir de novo">${ic('pulse')}</button><span class="grow"></span>
+      <button class="btn sm danger" id="wsCleanArts"${ar.staleBytes?'':' disabled'}>Limpar entregáveis de tarefas finalizadas (${fmtBytes(ar.staleBytes)})…</button></div>`;
   bindClick('wsRefresh', wsMount);
   bindClick('wsCleanTrash', ()=>wsClean({ worktrees:true, temp:true, artifacts:false },
-    `Liberar ${fmtBytes(trash)}?\n\nRemove ${wt.staleCount} worktree${wt.staleCount===1?'':'s'} de tarefas mergeadas/canceladas/abortadas (ou órfãs) e os temporários (logs parados, cache, tmp).\n\nAprendizados, planos, banco e entregáveis NÃO são tocados. Tarefas em andamento, em review ou com erro ficam intactas.`));
+    `Liberar ${fmtBytes(trash)}?\n\nRemove ${wt.staleCount} cópia${wt.staleCount===1?'':'s'} de trabalho de tarefas mergeadas/canceladas/abortadas (ou órfãs) e os temporários (logs parados, cache, tmp).\n\nAprendizados, planos, banco e entregáveis NÃO são tocados. Tarefas em andamento, em revisão ou com erro ficam intactas.`));
   bindClick('wsCleanArts', ()=>wsClean({ worktrees:false, temp:false, artifacts:true },
-    `Apagar os entregáveis de ${ar.staleCount} tarefa${ar.staleCount===1?'':'s'} finalizada${ar.staleCount===1?'':'s'} (${fmtBytes(ar.staleBytes)})?\n\nSão os prints de prova, testes e documentos gerados na pasta de trabalho do Starfork — a tela de Entregas deixa de mostrá-los. O código mergeado e os aprendizados ficam.`));
+    `Apagar os entregáveis de ${ar.staleCount} tarefa${ar.staleCount===1?'':'s'} finalizada${ar.staleCount===1?'':'s'} (${fmtBytes(ar.staleBytes)})?\n\nSão os prints de prova, testes e documentos gerados na pasta de trabalho do Starfork — a tela de Entregas deixa de mostrá-los. O código mergeado e os aprendizados ficam.`))
 }
 async function wsClean(what, question){
   if(!await askYes(question)) return;
-  const h=$id('wsHost'); if(h) h.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">limpando…</div>';
+  const h=wsHostEl(); if(h) h.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">limpando…</div>';
   wsMsg='';
   try{ const r=await invoke('workspace_clean', what); wsMsg=`✓ ${fmtBytes(r.freed)} liberados (${r.removed} ${r.removed===1?'item':'itens'})`+((r.errors||[]).length?` · não deu em ${r.errors.length}: ${r.errors.slice(0,2).join('; ')}`:''); }
   catch(e){ wsMsg=humanErr(e,'Não consegui limpar').msg; }
@@ -320,16 +187,32 @@ function ovShow(o){
 }
 function tabsOfKind(kind){ return TABS.filter(t=>t.kind===kind); }
 function tabIcon(kind){ if(kind==='flow') return '<rect x="2.5" y="3" width="11" height="10" rx="1.4"/><path d="M2.5 6h11"/>'; return (VIEW_META[kind]||{}).icon||''; }
-function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id;
+function activateTab(id){ const mvChanged=id!==activeTab; if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id;
   // a demanda da aba ativa vira a "selecionada" (Central/grafo) e a barra lateral repinta o destaque (railHi, 25)
   { const at=tabById(id); if(at && at.taskId) selected=at.taskId; }
   renderTabs(); showActiveView(); if(typeof renderRail==='function') renderRail();
+  if(mvChanged && typeof mvViewIn==='function' && tabById(id)){ const at=tabById(id); mvViewIn(at.kind!=='flow' ? $id((typeof cvViewTarget==='function' && cvViewTarget(at)) || VIEW_OVERLAY[at.kind]) : $id('flowPane')); } // F3: a tela nova entra
   if(typeof cvOnViewChange==='function') cvOnViewChange(); } // canvas: stream/webview reavaliam (sem laço)
 // openTab(kind, opts): views únicas reaproveitam a aba; views múltiplas abrem uma NOVA aba,
 // salvo opts.replace (a aba ativa de "Nova demanda" vira o método escolhido, mantendo o id)
 // ou opts.reuse (função que escolhe uma aba já aberta do mesmo kind).
+// @puro-rotas-inicio (F4 G1 — testado em app/tests/redesign-f4-g1.test.mjs)
+// telas antigas → lugar novo (mesa-ia §5): o que era aba própria agora mora numa página com sub-navegação.
+// Quem chama openTab('chat'|'memoria'|'agents'|'skills'|'prefs'|'daily'|'issuesbulk'|'team') continua funcionando.
+const VIEW_ROUTES={ chat:['projeto','conversa'], memoria:['projeto','memoria'], agents:['projeto','agentes'], skills:['projeto','skills'],
+  prefs:['projeto','regras'], disco:['projeto','disco'], daily:['flow','resumo'], issuesbulk:['issues','nova'], team:['time',null], kbd:['atalhos',null],
+  // F4 (G2): Ideia, Mesa e Piloto viraram partes da Fábrica — as listas antigas vão pra Fábrica › Sessões; "novo projeto" → Nova sessão
+  // (uma mesa/ideia ESPECÍFICA continua abrindo na própria aba: 65-fabrica fabRoute decide pelo id)
+  mesas:['fabrica','sessoes'], ideias:['fabrica','sessoes'], novoprojeto:['fabrica','nova'], personas:['fabrica','personas'] };
+function viewRoute(kind, opts){
+  const r=VIEW_ROUTES[kind]; opts=Object.assign({}, opts||{});
+  if(!r) return { kind, opts };
+  if(r[1] && opts.sub==null) opts.sub=r[1];
+  return { kind:r[0], opts, from:kind };
+}
+// @puro-rotas-fim
 function openTab(kind, opts){
-  opts=opts||{};
+  { const r=viewRoute(kind, opts); kind=r.kind; opts=r.opts; if(r.from && opts.from==null) opts.from=r.from; }
   // criar demanda/plano exige um projeto aberto: sem projeto, leva pra Projetos em vez de abrir um formulário sem destino
   if(['nova','form','planner','orq'].includes(kind) && typeof state!=='undefined' && !state.repo){
     // "Começar sem portões": a tela inicial já cria o projeto a partir do pedido — leva pra lá, não pra Projetos
@@ -341,7 +224,7 @@ function openTab(kind, opts){
   // repaginada B: "Nova demanda" (botão, +, n, ghostNew, trocar tipo) abre DIRETO no planner vazio — uma tela só.
   // A tela antiga de 2 passos fica atrás de lsGet('nd:legacy')==='1' por uma versão.
   if(kind==='nova' && !(window.ndLegacy && window.ndLegacy())) kind='planner';
-  if(kind==='flow'){ activateTab('flow'); return; }
+  if(kind==='flow'){ if(opts.sub==='resumo' && typeof centralOpenResumo==='function') centralOpenResumo(); activateTab('flow'); return; }
   let tab=null;
   if(MULTI_KINDS.has(kind)){
     const cur=tabById(activeTab);
@@ -351,6 +234,8 @@ function openTab(kind, opts){
   } else {
     tab=tabById(kind); if(!tab){ tab={id:kind, kind, title:(VIEW_META[kind]||{}).title||kind}; TABS.push(tab); }
     tab.loaded=false; // aberto pelo menu/atalho: recarrega a tela
+    if(opts.sub!=null) tab.sub=opts.sub; // seção pedida (Projeto › Memória, Issues › Nova issue…)
+    tab.from=opts.from||null; // de qual tela antiga veio (ex.: 'mesas' → Fábrica › Sessões filtrada)
   }
   activateTab(tab.id);
 }
@@ -368,6 +253,8 @@ function closeTab(id){
   const kind=TABS[i].kind;
   // Agentes & Equipes com edição não salva: o X da aba passa pelo mesmo "descartar?" do cancelar (33 cancelAgents)
   if(kind==='agents' && typeof agDirty==='function' && agDirty() && typeof cancelAgents==='function'){ cancelAgents(); return; }
+  // F4: a página Projeto tem rascunho (agentes ou convenções)? pergunta antes de fechar (68-casca: g1ProjLeaveOk)
+  if(kind==='projeto' && typeof g1ProjLeaveOk==='function' && !closeTab.__projOk){ g1ProjLeaveOk(null).then(ok=>{ if(!ok) return; closeTab.__projOk=true; try{ closeTab(id); }finally{ closeTab.__projOk=false; } }); return; }
   // grupo de abas (58-canvas): a aba sai do grupo junto; se o grupo estava na tela, devolve quem fica (os painéis se rearranjam)
   const grpNext=(typeof cvOnTabClosed==='function') ? cvOnTabClosed(TABS[i]) : null;
   if(kind==='task' && typeof nvOnTaskTabClose==='function') nvOnTaskTabClose(TABS[i].taskId); // Prévia: o proxy da tarefa morre com a aba
@@ -419,8 +306,9 @@ function showActiveView(){
   // tela dividida (58-canvas): uma demanda que está nela mostra a divisão (cvSplit), não a tela da demanda sozinha
   const target=t.kind==='flow'?null:((typeof cvViewTarget==='function' && cvViewTarget(t)) || VIEW_OVERLAY[t.kind]);
   // esconde as OUTRAS telas; a do destino fica como está (esconder e mostrar a mesma = piscada)
-  Object.keys(VIEW_OVERLAY).forEach(k=>{ const id=VIEW_OVERLAY[k]; if(id===target) return; const o=$id(id); if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
-  if(t.kind==='flow') return; // o quadro (.body) já aparece
+  const tgtEl=target?$id(target):null; // F4: seção que mora DENTRO da página (Projeto › Conversa…) não é escondida
+  Object.keys(VIEW_OVERLAY).forEach(k=>{ const id=VIEW_OVERLAY[k]; if(id===target) return; const o=$id(id); if(o && tgtEl && tgtEl!==o && tgtEl.contains(o)) return; if(o && o.dataset.lock!=='1'){ o.classList.remove('astab'); if(o.style.display!=='none') o.style.display='none'; } });
+  if(t.kind==='flow'){ if(typeof fwHeadDock==='function') fwHeadDock(); return; } // o quadro (.body) já aparece
   if(t.kind==='task') tabTaskId=t.taskId; // qual tarefa esta aba mostra
   loadTabState(t);      // devolve o estado guardado desta aba (views múltiplas)
   const kindWas=t.kind;
@@ -431,6 +319,7 @@ function showActiveView(){
   // vira ABA no MESMO quadro: antes era num requestAnimationFrame e a tela pintava 1 quadro como
   // modal (flex, sem .astab) a cada troca de aba — a "piscada"
   if(o){ syncChromeH(); o.classList.add('astab'); o.style.display='block'; requestAnimationFrame(syncChromeH); }
+  if(typeof fwHeadDock==='function') fwHeadDock();
 }
 let _updBtnNode=null; // o botão "atualizar" sobrevive aos re-renders da barra de abas (ver renderTabs)
 function renderTabs(){
@@ -444,6 +333,9 @@ function renderTabs(){
   // o botão "atualizar" mora DENTRO da barra: tira ele antes do innerHTML e devolve depois (guardado em
   // _updBtnNode — antes o 2º render destruía o botão e o aviso de versão nova nunca aparecia).
   { const u=$id('updBtn'); if(u) _updBtnNode=u; if(_updBtnNode && bar.contains(_updBtnNode)) _updBtnNode.remove(); }
+  // redesenho F1: o cabeçalho da tarefa pode estar DOCADO aqui (20-workspace fwHeadDock) — sai antes do innerHTML e
+  // volta no fim (mesmo nó: ids, handlers e o ResizeObserver intactos)
+  { const h=bar.querySelector('.fwhead'); if(h) h.remove(); }
   bar.innerHTML=`<button class="railtgl railtgl-main" id="railToggleMain" title="Expandir a barra lateral (⌘B)" aria-label="Expandir barra lateral"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2.5" width="12" height="11" rx="1.6"/><path d="M6.2 2.8v10.4" stroke-linecap="round"/></svg></button>`+'<span class="tablist" role="tablist" aria-label="abas abertas">'+((typeof cvStripItems==='function')?cvStripItems(TABS.map(t=>t.id), (typeof SPL!=='undefined')?SPL.ids:null):TABS.map(t=>({ id:t.id }))).map(it=>{
     // tela dividida = UMA aba-grupo com um segmento por membro (58-canvas, estilo grupo de abas do Chrome)
     if(it.group) return cvGroupTabHtml(it.group);
@@ -453,7 +345,7 @@ function renderTabs(){
     // tooltip (o texto corta em 28) e arrastável pra reordenar (a Central fica fixa na frente). O X é só pro mouse
     // (aria-hidden: controle dentro de role=tab não é permitido) — pelo teclado fecha com Delete.
     return `<span class="tab ${on?'on':''} ${t.pin?'pin':''}" data-tk="${escA(t.id)}" role="tab" tabindex="${on?0:-1}" aria-selected="${on}" title="${escA(title)}"${t.pin?'':' draggable="true" aria-keyshortcuts="Delete"'}><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${tabIcon(t.kind)}</svg><span class="tt">${esc(title)}</span>${t.pin?'':`<span class="x" data-xk="${escA(t.id)}" aria-hidden="true" title="fechar (⌘W)">${IC.x}</span>`}</span>`;
-  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" role="button" tabindex="0" aria-haspopup="menu" aria-label="abrir: nova demanda, demanda, navegador, simulador ou documento" aria-keyshortcuts="Meta+N Control+N" title="abrir — nova demanda (⌘N), outra demanda, navegador, simulador ou documento&#10;arraste uma aba pra metade da tela pra dividir (⌘\\)&#10;? ou ⌘/ abre o painel de atalhos&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabright" id="tabRight"></span>`;
+  }).join('')+'</span>'+`<span class="tabadd" id="tabAdd" role="button" tabindex="0" aria-haspopup="menu" aria-label="abrir: nova demanda, demanda, navegador, simulador ou documento" aria-keyshortcuts="Meta+N Control+N" title="abrir — nova demanda (⌘N), outra demanda, navegador, simulador ou documento&#10;arraste uma aba pra metade da tela pra dividir (⌘\\)&#10;? ou ⌘/ abre o painel de atalhos&#10;${escA(SHORTCUTS_HELP)}">+</span><span class="tabgrow" data-tauri-drag-region></span><span class="tabtools" id="tabTools"></span><span class="tabright" id="tabRight"></span>`;
   bar.querySelectorAll('[data-tk]').forEach(el=>{
     el.onclick=async e=>{ if(e.target.closest('[data-xk]')) return; const id=el.dataset.tk; if(!await tabLeaveGuard(id, false)) return; activateTab(id); };
     // botão do meio fecha a aba (como no navegador)
@@ -488,8 +380,10 @@ function renderTabs(){
   // o botão "atualizar" (versão nova) mora na barra de abas, à direita
   // sem #tabRight o nó continua guardado em _updBtnNode e volta no próximo render (nunca se perde)
   { const u=_updBtnNode||$id('updBtn'), slot=$id('tabRight'); if(u&&slot&&u.parentElement!==slot) slot.appendChild(u); }
+  if(typeof fwHeadDock==='function') fwHeadDock(); // faixa 1 = abas + modos + ação da tarefa (ou o cabeçalho volta pro .fw)
   requestAnimationFrame(syncChromeH);
   tabsFit();
+  if(typeof mvTabsPainted==='function') mvTabsPainted(bar); // F3: aba nova desliza pra dentro (só depois de um clique)
 }
 // R7: barra de abas lotada → modo compacto (menos respiro; o X das abas de fundo só no hover, como no navegador) e
 // rola até a ativa. Recalcula no render e ao redimensionar a janela.
@@ -509,140 +403,10 @@ $id('bdClose').onclick=()=>bdClosePlan();
 $id('bdCancel').onclick=()=>bdClosePlan();
 $id('bdOverlay').addEventListener('click',e=>{ if(e.target.id==='bdOverlay') bdClosePlan(); });
 $id('cfgClose').onclick=cfgHide;
-$id('cfgOverlay').addEventListener('click',e=>{ if(e.target.id==='cfgOverlay') cfgHide(); });
+// Ajustes nunca fecha por clique fora (F4: nada fecha a aba; ⌘W fecha)
 
-// @ob-envfix-inicio — correção do item no tour: UMA linha por opção (envFixLines, igual à aba Ambiente);
-// só linha de COMANDO ganha "copiar" ("configure…"/"reinstale…" são instrução). Testado em app/tests/ia-auxiliar.test.mjs.
-function obEnvFixHtml(fix, soft){
-  return envFixLines(fix).map((f,i,all)=>`<div style="display:flex;gap:8px;align-items:center;margin-top:5px"><span class="dim" style="font-size:var(--fs-xs)">${all.length>1&&i>0?'ou ':''}${f.cmd?'rode no Terminal:':'como resolver:'}</span>${f.cmd
-    ?`<code class="mono" style="font-size:var(--fs-xs);color:${soft?'var(--text-2)':'var(--warn)'};flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escA(f.text)}">${esc(f.text)}</code><button class="btn sm" data-envfix="${escA(f.text)}">copiar</button>`
-    :`<span style="font-size:var(--fs-xs);color:var(--warn)">${esc(f.text)}</span>`}</div>`).join('');
-}
-// @ob-envfix-fim
-// ---------- onboarding de 60 segundos (primeiro boot) ----------
-// Ordem do 1º uso: login (gate obrigatório do 44-onboarding) → ESTE tour → abrir/criar projeto.
-// Antes o tour abria em 900ms e o gate de login (3,2s) cobria ele no meio. Agora ele só começa com
-// sessão aberta e a tela de entrada fechada: obMaybeStart() é chamado pelo auHide/loginGateSync.
-// Texto pra quem NÃO programa (veto da Carla: sem branch/mock/gh por padrão). O técnico fica no Ambiente.
-const OB_STEPS=[
-  { t:'Bem-vindo ao Starfork', b:'Você conta o que precisa em português normal e <b>agentes de IA</b> fazem o trabalho — cada tarefa numa <b>cópia separada do seu projeto</b>, então uma não atrapalha a outra. No fim, cada entrega vem com <b>provas de verdade</b> (prints, testes, documentos) pra você revisar antes de aprovar.' },
-  { t:'Seu time vê o essencial', b:'Com a conta num time (<b>Conta e time</b>, no rodapé da barra lateral), o time vê o <b>andamento de cada tarefa</b>: título, status e custo sincronizam sozinhos. A <b>conversa com o agente fica só no seu computador</b>, e as provas só sobem quando você publicar.' },
-  { t:'Qual IA você vai usar?', b:'Os agentes trabalham com <b>uma IA</b> — escolha a sua: o <b>Claude Code</b>, o <b>Codex</b> (OpenAI), o <b>DeepSeek</b> (beta, open source) ou o gateway da sua empresa. Cada uma mostra se já está pronta e o que falta; dá pra <b>testar</b> e deixar como padrão aqui mesmo.', ia:true },
-  { t:'O que o computador precisa', b:'Os agentes usam o <b>Git</b> (guarda o histórico) e <b>uma IA</b> — o <b>Claude Code</b>, o <b>Codex</b> (OpenAI), o <b>DeepSeek</b> (beta) ou o gateway da sua empresa; basta uma, com login feito. O <b>GitHub</b> é recomendado — só serve pra publicar. Outros extras são opcionais. Estamos conferindo agora; o que faltar vem com o comando pronto pra copiar.', env:true },
-  { t:'Agora é com você', b:'Diga o que você quer fazer — um app, um site, um relatório, uma planilha — e o Starfork cria a pasta do projeto e a IA monta o plano com você. Se já tem uma pasta, é só abrir.', proj:true },
-];
-let obStep=0;
-function openOnboarding(){ obStep=0; renderOb(); $id('obOverlay').style.display='flex'; setTimeout(()=>{ const b=$id('obNext'); if(b) b.focus(); },50); }
-// teclado: Esc pula o tour, → avança (antes só dava com o mouse)
-// outra janela do app por cima (askText, detalhes do erro…) → as teclas são dela, não do tour
-function obOtherModalOpen(){ const tx=$id('txOverlay'); return !!((tx && tx.style.display==='flex') || $id('errOverlay')); }
-document.addEventListener('keydown', e=>{
-  const ob=$id('obOverlay'); if(!ob || ob.style.display!=='flex') return;
-  if(obOtherModalOpen() || (e.target && e.target.closest && !e.target.closest('#obOverlay') && e.target!==document.body)) return;
-  if(e.key==='Tab'){ // foco preso no tour (é um diálogo modal)
-    const f=[...ob.querySelectorAll('button:not([disabled]),[href],input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(x=>x.offsetParent!==null);
-    if(!f.length) return; const i=f.indexOf(document.activeElement);
-    if(e.shiftKey && (i<=0)){ e.preventDefault(); f[f.length-1].focus(); }
-    else if(!e.shiftKey && (i===-1 || i===f.length-1)){ e.preventDefault(); f[0].focus(); }
-    return; }
-  if(e.key==='Escape'){ e.preventDefault(); finishOb(); }
-  else if(e.key==='ArrowRight' && !/INPUT|TEXTAREA|SELECT/.test((document.activeElement||{}).tagName||'')){ e.preventDefault(); const b=$id('obNext'); if(b) b.click(); }
-});
-// só no 1º uso, com sessão aberta e sem a tela de entrada/planos por cima
-function obMaybeStart(){
-  if(lsGet('onboarded')) return;
-  const ob=$id('obOverlay'); if(ob && ob.style.display==='flex') return;
-  if(typeof SB==='undefined' || !SB.sess()) return;
-  if(typeof auOpen==='function' && auOpen()) return;
-  openOnboarding();
-}
-window.obMaybeStart=obMaybeStart;
-function renderOb(){
-  const s=OB_STEPS[obStep];
-  const last=obStep===OB_STEPS.length-1;
-  const hasRepo=!!(state&&state.repo);
-  $id('obBody').innerHTML=`
-    <div style="display:flex;gap:6px;margin-bottom:18px;align-items:center" role="progressbar" aria-valuemin="1" aria-valuemax="${OB_STEPS.length}" aria-valuenow="${obStep+1}" aria-label="passo ${obStep+1} de ${OB_STEPS.length}">${OB_STEPS.map((_,i)=>`<span style="height:4px;flex:1;border-radius:99px;background:${i<=obStep?'var(--accent)':'var(--border)'}"></span>`).join('')}<span class="dim mono" style="font-size:var(--fs-xs);margin-left:6px">${obStep+1}/${OB_STEPS.length}</span></div>
-    <h2 style="font-size:20px;margin:0 0 10px" id="obTitle">${s.t}</h2>
-    <p style="color:var(--text-2);font-size:var(--fs-md);line-height:1.65;margin:0">${s.b}</p>
-    ${s.ia?'<div id="obSuaIa"></div>':''}
-    ${s.env?'<div id="obEnv" style="margin-top:14px"><div class="dim" style="font-size:var(--fs-sm)">verificando o ambiente…</div></div>':''}
-    ${s.proj?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center">${hasRepo?`<span class="dim" style="font-size:var(--fs-sm)">✓ projeto aberto: <b style="color:var(--text)">${esc(pathBase(state.repo))}</b></span><span style="flex:1"></span>`:''}<button class="btn sm" id="obOpenDir">${ic('folder')}${hasRepo?'Abrir outra pasta':'Já tenho uma pasta'}</button></div>`:''}
-    <div style="display:flex;gap:8px;margin-top:24px;align-items:center">
-      <button class="btn sm" id="obSkip" title="Esc">pular</button><span style="flex:1"></span>
-      ${obStep>0?'<button class="btn sm" id="obBack">voltar</button>':''}
-      ${s.ia?'<span class="dim" id="obIaWill" style="font-size:var(--fs-sm)" aria-live="polite"></span><button class="btn sm" id="obIaLater" title="a IA padrão continua como está — troque quando quiser em Configurações → Sua IA">decido depois</button>':''}
-      <button class="btn primary" id="obNext">${last?(hasRepo?'Começar':'Dizer o que eu quero fazer'):'continuar'}</button>
-    </div>`;
-  $id('obSkip').onclick=()=>{ finishOb(); };
-  $id('obNext').onclick=()=>{
-    // passo de IA: o "continuar" APLICA a IA pronta escolhida/sugerida quando o padrão atual não está pronto
-    // (quem só tem Codex/gateway não fica com o Claude de padrão); "decido depois" (obIaLater) não aplica nada
-    if(s.ia && typeof suaIaObApply==='function') suaIaObApply();
-    if(!last){ obStep++; renderOb(); const b=$id('obNext'); if(b) b.focus(); return; }
-    finishOb();
-    // sem projeto: vai direto pra caixa "O que você quer fazer?" (Começar sem portões) — antes o botão dizia "depois"
-    // as dicas de primeira vez ficam pra quando o projeto abrir (36-comecar/noProjSync chama o coachStart)
-    if(!(state&&state.repo)){ lsSet('coachPending','1'); if(window.openTab) window.openTab('flow'); setTimeout(()=>{ const t=$id('emWhat'); if(t) t.focus(); },120); return; }
-    coachStart(); };
-  bindClick('obBack', ()=>{ if(obStep>0){ obStep--; renderOb(); } });
-  // passo de IA: pulável ("decido depois" segue o tour sem mudar nada) e com o painel único (30-sua-ia.js)
-  bindClick('obIaLater', ()=>{ obStep++; renderOb(); const b=$id('obNext'); if(b) b.focus(); });
-  if(s.ia && typeof suaIaMount==='function') suaIaMount($id('obSuaIa'), { ctx:'onboarding', fresh:true,
-    onPick:(id, nome)=>{ const w=$id('obIaWill'); if(w) w.textContent=id?'vai usar: '+nome:''; } });
-  bindClick('obOpenDir', async()=>{ try{ if(window.pickFolder) await window.pickFolder(); }catch(_){ } if(state&&state.repo){ finishOb(); coachStart(); } else renderOb(); });
-  // check de ambiente INTEGRADO no onboarding (redesign p16): fix inline com botão de copiar, sem bloquear a entrada
-  if(s.env) runEnvCheck().then(()=>{
-    const el=$id('obEnv'); if(!el) return;
-    const S=envSummary(envChecks);
-    el.innerHTML=(envChecks||[]).map(c=>{ const k=envKind(c), soft=!c.ok&&k!=='req', tag=ENV_KIND_TAG[k];
-      // mesmo ícone da aba Ambiente: ✓ ok · ! obrigatório faltando · – recomendado/opcional faltando (neutro)
-      const icon=c.ok?`<span style="color:var(--good)">${IC.ok}</span>`:soft?'<span style="color:var(--text-3);font:600 var(--fs-base) var(--code);width:14px;text-align:center">–</span>':`<span style="color:var(--warn)">${IC.warn}</span>`;
-      return `<div style="display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px dashed var(--border);font-size:var(--fs-sm)">
-      ${icon}<div style="flex:1;min-width:0"><b>${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}</b>${tag?` <span class="envtag">${tag}</span>`:''} <span class="dim">${esc(c.ok?(c.detail||'').slice(0,60):envWhat(c)||(c.detail||'').slice(0,80))}</span>${!c.ok&&c.fix?obEnvFixHtml(c.fix, soft):''}</div></div>`; }).join('')
-      +(S.reqBad?'<div class="dim" style="font-size:var(--fs-xs);margin-top:8px">Dá pra seguir mesmo assim — o que faltar fica com um aviso em <b>Mais › Ambiente</b>, no rodapé da barra lateral.</div>'
-        :'<div style="font-size:var(--fs-sm);margin-top:8px;color:var(--good)">Tudo certo pra começar.'+(S.optBad?' <span class="dim">Os opcionais dá pra instalar depois.</span>':'')+'</div>');
-    el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>envCopy(b); });
-  }).catch(()=>{});
-}
-function finishOb(){ lsSet('onboarded','1'); $id('obOverlay').style.display='none'; }
-// rede de segurança: sessão que já existia no boot (o gate nem abre) → começa depois do gate checar (3,2s)
-setTimeout(obMaybeStart, 3800);
-
-// ---------- coach marks de primeira vez (redesign p17) ----------
-const COACH=[
-  ['newTaskBtn','Tudo começa aqui','Descreva o que precisa em 1–2 frases — o assistente monta a spec e o time de agentes executa.'],
-  ['ffSearch','Busca em tudo','Ache qualquer demanda pelo título — ou use ⌘K de qualquer lugar.'],
-  ['rail','Execução ao vivo','Os agentes rodando agora ficam aqui. Amarelo = um deles está aguardando você.'],
-];
-function coachStart(){
-  if(lsGet('coached')) return;
-  let i=0;
-  const tipEl=document.createElement('div'); tipEl.id='coachTip';
-  tipEl.style.cssText='position:fixed;z-index:9999;max-width:260px;background:var(--surface);border:1px solid var(--accent);border-radius:10px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35)';
-  document.body.appendChild(tipEl);
-  const show=()=>{
-    if(i>=COACH.length){ done(); return; }
-    const [id,t,b]=COACH[i];
-    const a=$id(id);
-    const r=a?a.getBoundingClientRect():null;
-    // alvo que não está na tela (ex.: busca da Central sem projeto aberto) → pula, em vez de pôr a dica no canto (0,0)
-    if(!a || !r || (r.width===0 && r.height===0) || a.offsetParent===null){ i++; show(); return; }
-    tipEl.innerHTML=`<b style="font-size:var(--fs-base)">${esc(t)}</b><div class="dim" style="font-size:var(--fs-sm);line-height:1.5;margin-top:4px">${esc(b)}</div>
-      <div style="display:flex;gap:8px;margin-top:10px;align-items:center"><button class="btn sm" id="coachSkip">pular tudo</button><span style="flex:1"></span><span class="dim" style="font-size:var(--fs-xs)">${i+1}/${COACH.length}</span><button class="btn primary sm" id="coachNext">${i<COACH.length-1?'próximo':'entendi'}</button></div>`;
-    const top=Math.min(window.innerHeight-160, r.bottom+10);
-    const left=Math.max(10, Math.min(window.innerWidth-280, r.left));
-    tipEl.style.top=top+'px'; tipEl.style.left=left+'px';
-    a.style.outline='2px solid var(--accent)'; a.style.outlineOffset='3px';
-    const clear=()=>{ a.style.outline=''; a.style.outlineOffset=''; };
-    $id('coachNext').onclick=()=>{ clear(); i++; show(); };
-    $id('coachSkip').onclick=()=>{ clear(); done(); };
-  };
-  const onKey=e=>{ if(e.key==='Escape'){ const sk=$id('coachSkip'); if(sk) sk.click(); } };
-  const done=()=>{ lsSet('coached','1'); tipEl.remove(); document.removeEventListener('keydown', onKey); };
-  document.addEventListener('keydown', onKey);
-  show();
-}
+// Tour de 5 passos e coach marks → aba "Primeiros passos" (67-ajustes.js: primeirosPassosOpen, ppMaybeStart). F4 · G3.
+function openOnboarding(){ if(typeof primeirosPassosOpen==='function') primeirosPassosOpen(); }
 
 // ---------- atalhos ----------
 // ⌘J/⌘, abrem como ABA (igual à barra lateral — antes viravam modal flutuante), ⌘W fecha a aba ativa,
@@ -654,9 +418,9 @@ function coachStart(){
 const SHORTCUTS=[
   ['Abas e navegação', [
     [['⌘N'],'nova demanda (sempre abre uma aba nova)'],
-    [['⌘K'],'buscar na Central de execuções'],
-    [['⌘J'],'chat do projeto'],
-    [['⌘,'],'configurações'],
+    [['⌘K'],'buscar na página aberta (Central, Issues, Skills…)'],
+    [['⌘J'],'conversa do projeto'],
+    [['⌘,'],'ajustes'],
     [['⌘O'],'abrir pasta de projeto'],
     [['⌘B'],'recolher/mostrar a barra lateral (numa tarefa: a lista de arquivos)'],
     [['⌘W'],'fechar a aba atual'],
@@ -671,7 +435,7 @@ const SHORTCUTS=[
     [['Enter'],'enviar a mensagem no chat'],
     [['⇧Enter'],'quebrar linha no chat'],
     [['⌘Enter'],'continuar/iniciar nos campos de nova demanda'],
-    [['Esc'],'fechar a janela ou o detalhe aberto (não fecha com texto por enviar)'],
+    [['Esc'],'fechar menu, folha ou detalhes — nunca fecha a aba (quem fecha é ⌘W; no terminal, Esc é da IA)'],
   ]],
   ['Provas e janelas', [
     [['←','→'],'print anterior / próximo na visualização de provas'],
@@ -692,8 +456,8 @@ document.addEventListener('keydown', async e=>{
   // tela dividida (58-canvas): ⌘\ divide, ⌘1..3 foca o painel — dentro de um painel, o atalho vai pra janela principal
   if(typeof cvShortcut==='function' && cvShortcut(e)) return;
   if(typeof SF_PANE!=='undefined' && SF_PANE) return; // abas são da janela principal
-  if(k==='j' && !e.shiftKey){ e.preventDefault(); openTab('chat'); }
-  else if(k===',' && !e.shiftKey){ e.preventDefault(); openTab('cfg'); }
+  if(k==='j' && !e.shiftKey){ e.preventDefault(); openTab('projeto',{ sub:'conversa' }); }
+  else if(k===',' && !e.shiftKey){ e.preventDefault(); if(typeof ajustesOpen==='function') ajustesOpen(); else openTab('cfg'); }
   else if(k==='b' && !e.shiftKey){ e.preventDefault(); setRailCollapsed(!railIsCol()); }
   else if(k==='w' && !e.shiftKey){ e.preventDefault(); const t=tabById((typeof cvGroupMember==='function' && cvGroupMember()) || activeTab); if(!t || t.pin) return; // grupo na tela: fecha o membro em foco
     // aba de tarefa com o editor aberto: pergunta antes de descartar o que não foi salvo (igual ao "fechar")

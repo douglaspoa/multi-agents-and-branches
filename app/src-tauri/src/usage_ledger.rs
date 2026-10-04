@@ -18,9 +18,9 @@ use std::collections::{HashMap, HashSet};
 
 /// Origens fixas (o nome na tela vem do front). Qualquer outra vira "outros". `teste` = "testar" do painel Sua IA
 /// (testes de conexão — fora do total principal).
-pub(crate) const SOURCES: [&str; 15] = [
+pub(crate) const SOURCES: [&str; 16] = [
     "tarefa", "nova-tarefa", "personas", "chat-projeto", "chat-issues", "orquestrador", "retro", "previsao",
-    "titulo-branch", "commit-pr", "relatorios", "teste", "autopilot", "ideia", "outros",
+    "titulo-branch", "commit-pr", "relatorios", "teste", "autopilot", "ideia", "fabrica", "outros",
 ];
 
 /// Esquema — IGUAL ao tests/fixtures/usage-golden/schema.sql e ao USAGE_SCHEMA do TS (testes conferem).
@@ -534,7 +534,14 @@ fn report_rows(ledger: &Path, repos: &[String], since: i64, project: Option<&str
 }
 
 pub(crate) fn report_in(ledger: &Path, repos: &[String], period: &str, since: i64, project: Option<&str>, default_engine: &str) -> Result<Value, String> {
-    let (rows, titles) = report_rows(ledger, repos, since, project, None, default_engine)?;
+    report_engine_in(ledger, repos, period, since, project, None, default_engine)
+}
+
+/// Mesmo relatório filtrado por IA (página Uso, filtro "todas as IAs" / uma IA): só as linhas daquele motor contam.
+pub(crate) fn report_engine_in(ledger: &Path, repos: &[String], period: &str, since: i64, project: Option<&str>, engine: Option<&str>, default_engine: &str) -> Result<Value, String> {
+    let (mut rows, titles) = report_rows(ledger, repos, since, project, None, default_engine)?;
+    // compara pelos ids NORMALIZADOS (os mesmos do byEngine): "logcomex"/"codex-mini" casam com gateway/codex
+    if let Some(e) = engine.map(str::trim).filter(|e| !e.is_empty()).map(norm_engine) { rows.retain(|r| norm_engine(&r.engine) == e); }
     Ok(build_report(period, since, &rows, &titles, repos))
 }
 
@@ -583,11 +590,11 @@ fn human_err(e: String) -> String {
 
 /// Relatório da aba Uso. Async: nada de disco na thread da janela.
 #[tauri::command(async)]
-pub(crate) fn usage_report(period: String, project: Option<String>, since: Option<i64>) -> Result<Value, String> {
+pub(crate) fn usage_report(period: String, project: Option<String>, since: Option<i64>, engine: Option<String>) -> Result<Value, String> {
     let now = now_ms();
     let from = period_since(&period, now, since);
     let project = project.filter(|p| !p.trim().is_empty());
-    report_in(&db_path(), &read_project_list(), &period, from, project.as_deref(), &ai_once::pref_engine()).map_err(human_err)
+    report_engine_in(&db_path(), &read_project_list(), &period, from, project.as_deref(), engine.as_deref(), &ai_once::pref_engine()).map_err(human_err)
 }
 
 /// Detalhe de uma tarefa (etapas/agentes e rodadas).
@@ -834,6 +841,15 @@ mod tests {
         // filtro com barra no fim acha o mesmo projeto
         let r4 = report_in(&db, &[repo.clone()], "7d", 0, Some(&format!("{repo}/")), "claude").unwrap();
         assert_eq!(r4["totals"]["calls"], 5);
+        // filtro por IA (página Uso): só o codex — t2 (histórico) + personas
+        let r5 = report_engine_in(&db, &[repo.clone()], "7d", 0, None, Some("codex"), "claude").unwrap();
+        assert_eq!(r5["totals"]["calls"], 2);
+        assert!((r5["totals"]["usd"].as_f64().unwrap() - (codex_t2 + personas)).abs() < 1e-6);
+        let eng5: Vec<&str> = r5["byEngine"].as_array().unwrap().iter().map(|s| s["engine"].as_str().unwrap()).collect();
+        assert_eq!(eng5, vec!["codex"]);
+        // vazio = todas as IAs (igual ao report_in)
+        let r6 = report_engine_in(&db, &[repo.clone()], "7d", 0, None, Some(""), "claude").unwrap();
+        assert_eq!(r6["totals"]["calls"], 5);
     }
 
     #[test]

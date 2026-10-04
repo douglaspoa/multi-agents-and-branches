@@ -176,6 +176,32 @@ const noAskTool = (engine: string | undefined) => ["codex", "gateway", "logcomex
 /** Papel capaz de conversar/retomar sessão (qualquer motor real — Claude, Codex, gateway). */
 const canTalk = (engine: string | undefined) => engineKind(engine) !== "mock";
 
+/**
+ * Ambiente do `gh` agindo como a conta do GitHub DESTE repositório (a mesma regra do app, gh_contas.rs): o
+ * `.git/config` guarda `credential.https://github.com.username` quando o app escolheu a conta; aí o token dela vai
+ * só no GH_TOKEN do filho (nunca no disco/log). Sem conta gravada (ou gh sem ela) → a conta ativa, como antes.
+ */
+export function ghEnvFor(repo: string): NodeJS.ProcessEnv {
+  const env = netEnv();
+  try {
+    const acc = execFileSync("git", ["-C", repo, "config", "--get", "credential.https://github.com.username"], { encoding: "utf8", timeout: 5000 }).trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(acc)) return env;
+    const clean = { ...env }; delete clean.GH_TOKEN; delete clean.GITHUB_TOKEN;
+    const tok = execFileSync(ghBin(), ["auth", "token", "-h", "github.com", "-u", acc], { encoding: "utf8", timeout: 10_000, env: clean, stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (tok && !/\s/.test(tok)) return { ...clean, GH_TOKEN: tok };
+  } catch { /* sem conta gravada / gh sem essa conta: segue com a ativa */ }
+  return env;
+}
+
+/** sha do commit do merge de um PR (gh pr view). Offline/sem gh/não mergeado → "". */
+export async function prMergeCommit(prUrl: string, repo: string): Promise<string> {
+  try {
+    const { stdout } = await run(ghBin(), ["pr", "view", prUrl, "--json", "mergeCommit", "-q", ".mergeCommit.oid"], { cwd: repo, env: ghEnvFor(repo), timeout: 15_000 });
+    const sha = stdout.trim();
+    return /^[0-9a-f]{7,64}$/i.test(sha) ? sha : "";
+  } catch { return ""; }
+}
+
 export class Orchestrator {
   ws: Workspace;
   git: GitService;
@@ -840,7 +866,7 @@ export class Orchestrator {
    *     de verdade e precisam passar.
    * Retorna { ok, reasons } — `reasons` descreve o que reprovou.
    */
-  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec): Promise<{ ok: boolean; reasons: string[] }> {
+  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec, opts: { runTests?: boolean } = {}): Promise<{ ok: boolean; reasons: string[] }> {
     const reasons: string[] = [];
     const artDir = join(task.worktree, ".cardume", "artifacts");
     let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
@@ -873,7 +899,8 @@ export class Orchestrator {
       }
     } catch { /* sem detecção/diff: fica só a regra geral */ }
     const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
-    if (wantsTests) {
+    // runTests:false = consulta SEM efeito colateral (task_status no terminal): não roda a suíte (até 180s)
+    if (wantsTests && opts.runTests !== false) {
       const t = await this.runRepoTests(task.worktree);
       if (t.ran && !t.passed) reasons.push(`os testes falharam: ${t.detail}`);
     }
@@ -1495,35 +1522,90 @@ export class Orchestrator {
       return;
     }
     // mode === "auto": GATE MECÂNICO antes de abrir (evidência existe + testes passam)
-    const gate = await this.verifyProofs(taskId, task, spec);
-    if (!gate.ok) {
-      const why = gate.reasons.slice(0, 3).join(" · ");
-      this.store.addEvent(taskId, spec.agent, "note", `PR NÃO aberto (gate de verificação): ${why}`, false);
-      notify("Starfork", "PR não aberto — verificação falhou", task.title);
-      return;
+    await this.openPr(taskId, { auto: true, task, spec });
+  }
+
+  /**
+   * ABRE O PR desta tarefa (o mesmo caminho do PR automático e da tool open_pr do terminal integrado):
+   *  0) PR já aberto (spec.prUrl) → "atualizar": commita o solto, push e devolve a URL dele (sem gate, sem gh);
+   *  1) GATE (verifyProofs) — reprovou e não é rascunho → NÃO abre e devolve os motivos;
+   *  2) commita o que ficou solto, `git push -u origin <branch>`, `gh pr create` (--draft se pedido);
+   *  3) PR já aberto pra branch → a URL vem do erro do gh; grava spec.prUrl/prNumber (como o app faz no pr_status).
+   * `auto` = chamado pelo fim do pipeline (textos/notificações de sempre). Nunca lança: erro vem em `error`.
+   */
+  async openPr(taskId: string, o: { draft?: boolean; title?: string; body?: string; auto?: boolean; task?: TaskRow; spec?: TaskSpec } = {}): Promise<{ ok: boolean; url?: string; reasons?: string[]; error?: string }> {
+    const task = o.task ?? this.store.getTask(taskId);
+    if (!task) return { ok: false, error: `tarefa ${taskId} não encontrada` };
+    const spec = o.spec ?? this.freshSpec(taskId) ?? (JSON.parse(task.spec_json) as TaskSpec);
+    const role = spec.roles?.find((r) => r.role === "builder") ?? spec.roles?.[0];
+    const agent = o.auto ? spec.agent : role?.name || spec.agent;
+    if (["merged", "aborted"].includes(task.status)) return { ok: false, error: `a tarefa já está ${task.status === "merged" ? "integrada" : "cancelada"} — não há PR a abrir` };
+    if (spec.kind === "review") return { ok: false, error: "esta tarefa é uma revisão de PR — não tem branch própria pra abrir PR" };
+    const commitLoose = async () => {
+      try {
+        if (await this.git.commitAll(task.worktree, `starfork(pr): ${task.title}`)) {
+          this.store.addEvent(taskId, agent, "note", "mudanças soltas commitadas antes do PR ✓", true);
+          const d = await this.git.diffStat(task.worktree, task.base);
+          this.store.setDiff(taskId, d.files, d.add, d.del);
+        }
+      } catch { /* sem nada a commitar / hook recusou: o push leva o que já está commitado */ }
+    };
+    if (spec.prUrl && !o.auto) {
+      // PR já aberto: "atualizar" = commit + push (o PR se atualiza sozinho) — o gate vale na hora de ABRIR
+      try {
+        await commitLoose();
+        await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
+        this.store.addEvent(taskId, agent, "note", `PR atualizado (push): ${spec.prUrl}`, true);
+        return { ok: true, url: spec.prUrl };
+      } catch (err) {
+        const msg = String((err as { stderr?: string }).stderr || (err as Error).message || err).trim().slice(0, 300);
+        this.store.addEvent(taskId, agent, "note", `falha ao atualizar o PR: ${msg.slice(0, 140)}`, false);
+        return { ok: false, error: msg };
+      }
+    }
+    if (!o.draft) {
+      const gate = await this.verifyProofs(taskId, task, spec);
+      if (!gate.ok) {
+        const why = gate.reasons.slice(0, 3).join(" · ");
+        this.store.addEvent(taskId, agent, "note", `PR NÃO aberto (gate de verificação): ${why}`, false);
+        if (o.auto) notify("Starfork", "PR não aberto — verificação falhou", task.title);
+        return { ok: false, reasons: gate.reasons };
+      }
     }
     const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
     try {
+      await commitLoose();
       await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
-      const body =
-        `## O quê\n${spec.objective || spec.title}\n\n` +
-        ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "") +
-        (await this.reportFor(taskId, task)) + "\n" +
-        `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._`;
+      const title = String(o.title ?? "").trim() || spec.title;
+      const head = String(o.body ?? "").trim()
+        ? `${String(o.body).trim()}\n\n`
+        : `## O quê\n${spec.objective || spec.title}\n\n` +
+          ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "");
+      const body = head + (await this.reportFor(taskId, task)) + "\n" +
+        (o.auto ? `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._` : o.draft ? `_Rascunho aberto pelo agente no terminal do Starfork._` : `_Aberto pelo agente no terminal do Starfork (requisitos provados)._`);
+      // --draft no FIM: o gh falso dos testes lê a branch pela posição ($6)
+      const args = ["pr", "create", "--base", base, "--head", task.branch, "--title", title, "--body", body, ...(o.draft ? ["--draft"] : [])];
       let url = "";
       try {
-        const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree, env: netEnv(), timeout: netTimeoutMs() });
-        url = prUrlFrom(stdout) || (stdout.trim().split("\n").pop() ?? "");
+        const { stdout } = await run(ghBin(), args, { cwd: task.worktree, env: ghEnvFor(this.ws.repo), timeout: netTimeoutMs() });
+        const last = stdout.trim().split("\n").pop()?.trim() ?? "";
+        url = prUrlFrom(stdout) || (/^https?:\/\//.test(last) ? last : "");
       } catch (e) {
         // PR já aberto pra esta branch (retry, ou o humano abriu antes): o gh FALHA mas cita a URL —
         // antes virava "falha ao abrir o PR" com o PR existindo
         url = /already exists/i.test(String((e as { stderr?: string }).stderr ?? "")) ? prUrlFrom(String((e as { stderr?: string }).stderr)) : "";
         if (!url) throw e;
       }
-      this.store.addEvent(taskId, spec.agent, "note", `PR aberto automaticamente: ${url}`, true);
+      if (!url) throw new Error("gh não devolveu a URL do PR");
+      const n = Number(url.match(/\/pull\/(\d+)/)?.[1] ?? 0);
+      try { this.store.patchSpec(taskId, { prUrl: url, ...(n ? { prNumber: n } : {}) }); } catch { /* banco ocupado: o app grava no próximo pr_status */ }
+      this.store.addEvent(taskId, agent, "note", o.auto ? `PR aberto automaticamente: ${url}` : `${o.draft ? "PR rascunho aberto" : "PR aberto"}: ${url}`, true);
       notify("Starfork", "PR aberto ✓", task.title);
+      return { ok: true, url };
     } catch (err) {
-      this.store.addEvent(taskId, spec.agent, "note", `falha ao abrir o PR automaticamente: ${(err as Error).message?.slice(0, 140)}`, false);
+      const msg = String((err as { stderr?: string }).stderr || (err as Error).message || err).trim().slice(0, 300);
+      this.store.addEvent(taskId, agent, "note", `falha ao abrir o PR${o.auto ? " automaticamente" : ""}: ${msg.slice(0, 140)}`, false);
+      return { ok: false, error: msg };
     }
   }
 
@@ -1990,7 +2072,12 @@ export class Orchestrator {
    * PR antigo vai pro histórico (spec.prHistory) — o próximo push abre PR novo.
    * Retorna true se recriou.
    */
-  async ensureTaskWorktree(taskId: string): Promise<boolean> {
+  /**
+   * `conversation`: tarefa INTEGRADA reaberta só pra CONVERSAR no terminal (perguntar sobre o que foi feito): recria a
+   * pasta no MESMO caminho (o `claude --resume` acha o transcript pela pasta) a partir da branch da tarefa (local ou
+   * origin) ou, sem ela, do commit do merge / da base, SEM trocar branch nem arquivar o PR — a tarefa segue integrada.
+   */
+  async ensureTaskWorktree(taskId: string, o: { conversation?: boolean } = {}): Promise<boolean> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
@@ -2013,6 +2100,21 @@ export class Orchestrator {
     const merged = task.status === "merged";
     const base = task.base || (spec.base && spec.base.trim()) || (await this.git.defaultBase());
     await this.git.ensureExcluded([".cardume/", ".constellation/"]);
+    if (merged && o.conversation) {
+      let r: { from: string };
+      try {
+        r = await this.git.recreateForConversation(wt, { branch: task.branch, base, commit: spec.prMergeCommit || (spec.prUrl ? await prMergeCommit(spec.prUrl, this.ws.repo) : "") });
+      } catch (err) {
+        throw new Error(`não consegui reabrir a pasta desta tarefa integrada (${String((err as { stderr?: string }).stderr || (err as Error).message).trim().split("\n").pop()}) — pra mexer de novo, abra uma tarefa de ajuste`);
+      }
+      await mkdir(join(wt, ".cardume"), { recursive: true });
+      try { await this.seedWorktreeEnv(wt, spec.light === true); } catch { /* best-effort */ }
+      await writeFile(join(wt, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+      // provas coletadas no repo (.cardume/artifacts/<id>) voltam pra pasta: a conversa pode citar
+      try { const src = join(this.ws.repo, ".cardume", "artifacts", taskId); if (existsSync(src)) await cp(src, join(wt, ".cardume", "artifacts"), { recursive: true, force: false }); } catch { /* sem provas */ }
+      this.store.addEvent(taskId, "Sistema", "note", `tarefa integrada reaberta pra conversa — a pasta foi recriada a partir de ${r.from}`, true);
+      return true;
+    }
     let r: { branch: string; from: string; reused: boolean };
     try {
       r = await this.git.recreateWorktree(wt, { branch: task.branch, base, merged });
@@ -2300,6 +2402,8 @@ export class Orchestrator {
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     const role = spec.roles?.find((r) => r.role === "builder") ?? spec.roles?.[0];
     const agent = role?.name || spec.agent;
+    // tarefa INTEGRADA reaberta só pra conversa: nada de commit, gate, status ou PR — o turno foi só pergunta/resposta
+    if (task.status === "merged") return null;
     await this.collectArtifacts(taskId, task.worktree, agent).catch(() => {});
     if (spec.kind !== "review") {
       try {

@@ -27,8 +27,21 @@ export const AP_PLATFORMS: ApPlatform[] = ["web", "ios", "android", "mobile"];
 /** Limites do piloto — os MESMOS nas três camadas: aqui (motor), app/src-tauri/src/autopilot.rs
  * (AP_MAX_PARALLEL/AP_MAX_ATTEMPTS) e app/src/js/56-piloto.js (PILOTO_MAX_PAR/PILOTO_MAX_ATT). */
 export const AP_MAX_PARALLEL = 4;
-/** Teto padrão do piloto (mesa 03/10, veto da Carla: nada que gaste começa sem teto ligado por padrão). 0 explícito = sem teto. */
-export const AP_DEFAULT_BUDGET_USD = 20;
+/** Teto OBRIGATÓRIO (F4, dono 04/10 — fim do "padrão US$ 20" × "vazio = sem teto"): nenhuma rodada do piloto começa sem
+ * um teto em US$ maior que 0 e maior que o já gasto. As três camadas recusam igual: aqui (motor), o Rust
+ * (autopilot.rs `cap_check`) e o app (56-piloto.js `pilotoCapCheck`). Estados antigos com teto 0 ("sem teto") só
+ * continuam com um teto novo. */
+export const AP_CAP_REQUIRED = "defina um teto de custo em US$ (maior que 0): o piloto automático não roda sem teto";
+/** O teto que vai valer nesta rodada, ou o motivo da recusa. `next` = o teto pedido agora (undefined = manter o do estado). */
+export function apCapCheck(next: number | undefined, prev: { budgetUsd?: number; costUsd?: number } | null): { ok: true; cap: number } | { ok: false; err: string } {
+  const given = next !== undefined && next !== null;
+  if (given && !(Number.isFinite(next) && (next as number) > 0)) return { ok: false, err: AP_CAP_REQUIRED };
+  const cap = given ? (next as number) : Number(prev?.budgetUsd) || 0;
+  if (!(cap > 0)) return { ok: false, err: AP_CAP_REQUIRED };
+  const spent = Number(prev?.costUsd) || 0;
+  if (prev && cap <= spent) return { ok: false, err: `o teto de ${fmtUsd(cap)} já foi gasto (${fmtUsd(spent)}) — pra continuar, aumente o teto (maior que o já gasto)` };
+  return { ok: true, cap };
+}
 export const AP_MAX_ATTEMPTS = 5;
 /** Fases em que o piloto terminou (o processo saiu ou vai sair). */
 export const AP_END_PHASES: ApPhase[] = ["done", "stopped", "budget", "failed"];
@@ -643,13 +656,11 @@ export async function runAutopilot(o: AutopilotOptions, hooks: AutopilotHooks = 
   if (pol.portao) throw new Error(AP_GATE_POLICY);
   // pasta com conteúdo que não é de um piloto: recusa ANTES de criar qualquer coisa nela
   if (!prev && !(await canStartIn(dir))) throw new Error(NOT_EMPTY(dir));
-  // retomar depois do teto com um teto que já foi gasto só pararia de novo na hora: exige subir (ou 0 = sem teto)
-  if (prev?.phase === "budget") {
-    const cap = o.budgetUsd !== undefined && o.budgetUsd >= 0 ? o.budgetUsd : prev.budgetUsd;
-    if (cap > 0 && cap <= (prev.costUsd || 0)) {
-      throw new Error(`o teto de ${fmtUsd(cap)} já foi gasto (${fmtUsd(prev.costUsd || 0)}) — pra continuar, aumente o teto (--budget-usd) ou use 0 pra seguir sem teto`);
-    }
-  }
+  // teto OBRIGATÓRIO: rodada nova sem teto (ou 0/negativo/lixo) é recusada; retomar com um teto que já foi gasto só
+  // pararia de novo na hora — exige subir. Recusa ANTES de tocar na pasta ou no estado.
+  const capOk = apCapCheck(o.budgetUsd, prev);
+  if (!capOk.ok) throw new Error(capOk.err);
+  o = { ...o, budgetUsd: capOk.cap };
   // UM piloto por pasta: trava exclusiva ANTES de mexer em qualquer coisa (inclusive criar o projeto)
   const release = acquireLock(dir);
   try { rmSync(startingFile(dir), { force: true }); } catch { /* o app não marcou */ }
@@ -665,7 +676,7 @@ async function pilot(dir: string, prev: ApState | null, idea: string, o: Autopil
   const name = (o.name ?? prev?.name ?? "").trim() || idea.split(/\s+/).slice(0, 5).join(" ");
   const now = Date.now();
   const s: ApState = prev ?? {
-    version: 1, idea, name, platform, engine: o.engine ?? "claude", model: o.model, parallel: 2, attempts: 2, budgetUsd: AP_DEFAULT_BUDGET_USD, dir,
+    version: 1, idea, name, platform, engine: o.engine ?? "claude", model: o.model, parallel: 2, attempts: 2, budgetUsd: o.budgetUsd ?? 0, dir,
     epicId: "", epicTitle: "", phase: "starting", lastPhase: "starting", pid: process.pid, runs: 0, startedAt: now, updatedAt: now, costUsd: 0, tasks: [], events: [],
   };
   const setPhase = (p: ApPhase) => { s.phase = p; if (!AP_END_PHASES.includes(p)) s.lastPhase = p; };
@@ -674,7 +685,7 @@ async function pilot(dir: string, prev: ApState | null, idea: string, o: Autopil
   if (o.model) s.model = o.model;
   if (o.parallel && o.parallel > 0) s.parallel = Math.min(AP_MAX_PARALLEL, Math.max(1, Math.floor(o.parallel)));
   if (o.attempts && o.attempts > 0) s.attempts = Math.min(AP_MAX_ATTEMPTS, Math.max(1, Math.floor(o.attempts)));
-  if (o.budgetUsd !== undefined && o.budgetUsd >= 0) s.budgetUsd = o.budgetUsd;
+  if (o.budgetUsd !== undefined && o.budgetUsd > 0) s.budgetUsd = o.budgetUsd;
   if (o.orgPolicy !== undefined) { const p = orgAgentPolicy(o.orgPolicy); if (policyActive(p)) s.orgPolicy = p; else delete s.orgPolicy; }
   s.dir = dir;
   s.pid = process.pid;

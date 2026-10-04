@@ -36,19 +36,19 @@
 .dvbody{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:14px 16px;overflow:auto}
 /* moldura do aparelho: cantos arredondados + botões laterais; a tela mantém a proporção do quadro (--ar) */
 .dvframe{--ar:1206/2622;position:relative;height:100%;max-height:100%;max-width:100%;aspect-ratio:var(--ar);
-  padding:10px;border-radius:44px;background:linear-gradient(145deg,#2b2d31,#141518);box-shadow:0 0 0 1.5px #3a3c41,0 10px 30px rgba(0,0,0,.28)}
+  padding:10px;border-radius:44px;background:linear-gradient(145deg,var(--device-1),var(--device-2));box-shadow:0 0 0 1.5px var(--device-edge),0 10px 30px color-mix(in srgb,var(--shade) 28%,transparent)}
 .dvframe.android{border-radius:30px;padding:9px}
 .dvframe.land{height:auto;width:100%;max-height:100%}
 .dvframe.z100{height:auto;width:auto;max-height:none}
 .dvframe.z75{height:75%}
 .dvframe.z50{height:50%}
-.dvside{position:absolute;width:3px;background:#3a3c41;border-radius:2px}
+.dvside{position:absolute;width:3px;background:var(--device-edge);border-radius:2px}
 .dvside.l1{left:-3px;top:16%;height:6%}.dvside.l2{left:-3px;top:25%;height:9%}.dvside.r1{right:-3px;top:22%;height:11%}
 .dvframe.android .dvside.l1,.dvframe.android .dvside.l2{display:none}
-.dvscreen{position:relative;width:100%;height:100%;border-radius:34px;overflow:hidden;background:#000;outline:none;touch-action:none;cursor:pointer}
+.dvscreen{position:relative;width:100%;height:100%;border-radius:34px;overflow:hidden;background:var(--media-bg);outline:none;touch-action:none;cursor:pointer}
 .dvframe.android .dvscreen{border-radius:22px}
 .dvscreen canvas{width:100%;height:100%;display:block;object-fit:contain}
-.dvwait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;color:#bbb;font-size:var(--fs-sm)}
+.dvwait{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;color:var(--device-ink);font-size:var(--fs-sm)}
 .dvwait[hidden]{display:none}
 .dvmarkbox{position:absolute;border:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent);border-radius:4px;pointer-events:none}
 .dvmarkbox[hidden]{display:none}
@@ -78,7 +78,7 @@
 .dvb:hover:not(:disabled){background:var(--surface-3);color:var(--text)}
 .dvb:disabled{opacity:.42;cursor:default}
 .dvb.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-#dvRec.on{background:var(--crit);border-color:var(--crit);color:#fff}
+#dvRec.on{background:var(--crit);border-color:var(--crit);color:var(--on-color)}
 .fwdevbtn{display:inline-flex;align-items:center;gap:5px}
 .fwdevbtn svg{width:14px;height:14px}
 .fwdevbtn.on{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}

@@ -176,7 +176,7 @@ test('detector: ícones do "+" são SVG do IC, botões só-ícone têm aria-labe
   assert.match(plus, /ic:IC\.stack[\s\S]*ic:IC\.globe[\s\S]*ic:IC\.phone[\s\S]*ic:IC\.doc/);
   assert.ok(!/'▤'/.test(cut(cv, 'function cvSubMenu(m, list, title){', '\n}\n')));
   assert.match(qf, /id="ffMore" title="filtros avançados" aria-label="filtros avançados"/);
-  assert.equal((qf.match(/<button class="fvic[^>]*data-(?:fv|view|nv-view)="[^"]*"[^>]*aria-label="/g) || []).length, 5);
+  assert.equal((qf.match(/<button class="fvic[^>]*data-(?:fv|view|nv-view)="[^"]*"[^>]*aria-label="/g) || []).length, 4); // F4 (D22): a grade e os cartões saíram da Execução — lista (tabela) + Kanban (+ os 2 da barra antiga)
   assert.match(qf, /if\(!r\.hasAttribute\('role'\)\)\{ r\.setAttribute\('role','button'\);/);
   assert.match(gr, /<div class="prow2 more" data-more="1" role="button" tabindex="0"/);
 });

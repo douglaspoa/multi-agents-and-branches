@@ -97,7 +97,7 @@ test('a UI usa termViewOf (não o termMode cru) onde a Conversa virava Terminal'
     assert.ok(!/termModeOf\(t\)/.test(s), f + ' ainda decide a aba pelo termMode');
   }
   const ws = read('js/20-workspace-tarefa.js');
-  assert.match(ws, /termWtGone\(t\.id\)/, 'mergeada sem worktree não manda nada');
+  assert.doesNotMatch(ws, /termWtGone\(t\.id\)/, 'integrada conversa de novo: o compositor não barra mais (o backend recria a pasta)');
   assert.match(ws, /termGoLive\(t\.id\)/, 'depois de mandar, o xterm vira o vivo');
   assert.match(ws, /termHistTick\(t\)/, 'histórico acompanha a sessão em segundo plano');
 });

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "./store.ts";
 import { Orchestrator } from "./orchestrator.ts";
-import { applyHook, askHookCli, auqCollect, auqHookOutput, auqRows, AUQ_IN_TERMINAL, AUQ_TOOL, AUQ_TIMEOUT_S, envToRemove, hookTarget, hookArgv, CODEX_ENV_TASK, excludeFromGit, mapHook, mergeClaudeSettings, recordStatuslineCost, termMessage, termModeOf, terminalCapable, HOOK_MARK, CLAUDE_HOOK_EVENTS, lastAssistantText } from "./terminal.ts";
+import { applyHook, askHookCli, auqCollect, auqHookOutput, auqRows, AUQ_IN_TERMINAL, AUQ_TOOL, AUQ_TIMEOUT_S, envToRemove, hookTarget, hookArgv, CODEX_ENV_TASK, excludeFromGit, mapHook, mergeClaudeSettings, recordStatuslineCost, termMessage, termModeOf, terminalCapable, iaExit, HOOK_MARK, CLAUDE_HOOK_EVENTS, lastAssistantText } from "./terminal.ts";
 import type { TaskSpec } from "./types.ts";
 
 const BASE = ["/usr/bin/node", "/app/cli.mjs"];
@@ -22,12 +22,16 @@ function withStore(fn: (s: Store, dir: string) => void) {
   try { fn(store, dir); } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 }
 
-test("modo da tarefa: antigo = automático; só claude/codex têm terminal", () => {
+test("modo da tarefa: antigo = automático; claude/codex/deepseek têm terminal (no shell, qualquer motor)", () => {
   assert.equal(termModeOf({}), "auto");
   assert.equal(termModeOf({ termMode: "terminal" }), "terminal");
   assert.equal(termModeOf(null), "auto");
   assert.ok(terminalCapable("claude") && terminalCapable("codex"));
-  assert.ok(!terminalCapable("deepseek"));
+  assert.ok(terminalCapable("deepseek"), "DeepSeek roda dentro do claude");
+  assert.ok(!terminalCapable("gateway", "win32"), "Windows: a IA direto no PTY — gateway não tem CLI");
+  assert.ok(terminalCapable("gemini", "linux") && terminalCapable("codex", "darwin"), "shell: a pessoa escolhe a IA");
+  assert.ok(!terminalCapable("gateway", "darwin") && !terminalCapable("logcomex", "linux"), "gateway/logcomex não viram Claude em silêncio");
+  assert.ok(!terminalCapable("", "darwin") && !terminalCapable("mock", "darwin") && !terminalCapable(undefined, "win32"));
 });
 
 test("settings.local.json: funde sem apagar hooks/statusLine da pessoa e é idempotente", () => {
@@ -323,9 +327,20 @@ test("term-prep (CLI): worktree removida sem integrar é recriada no MESMO camin
     assert.ok(existsSync(join(a.worktree, ".git")), "worktree de volta no mesmo caminho");
     const s = new Store(join(repo, ".cardume", "state.sqlite"));
     try { assert.equal(JSON.parse(s.getTask("livre")!.spec_json).termMode, "terminal", "a tarefa passa a ser de modo terminal"); } finally { s.close(); }
-    const gone = prep("integrada");
-    assert.match(String(gone.error), /apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste/);
-    assert.ok(!existsSync(b.worktree), "mergeada não é recriada pelo terminal");
+    // INTEGRADA: reabre pra CONVERSAR no MESMO caminho, a partir da branch dela (ainda existe local); segue integrada
+    git(b.worktree.replace(/\/\.cardume\/worktrees\/.*$/, ""), "branch", "-f", "agent/integrada", "HEAD");
+    const back = prep("integrada");
+    assert.equal(back.error, undefined, JSON.stringify(back));
+    assert.equal(back.cwd, b.worktree, "mesmo caminho (o --resume acha a sessão pela pasta)");
+    assert.equal(git(b.worktree, "rev-parse", "--abbrev-ref", "HEAD"), "agent/integrada", "a branch da tarefa");
+    assert.ok(existsSync(join(b.worktree, ".cardume", "TASK.yaml")), ".cardume semeado");
+    const s2 = new Store(join(repo, ".cardume", "state.sqlite"));
+    try {
+      const t = s2.getTask("integrada")!;
+      assert.equal(t.status, "merged", "abrir pra conversar não tira de integrada");
+      assert.equal(t.branch, "agent/integrada", "não troca a branch (sem -cont)");
+      assert.ok(s2.eventsForTask("integrada").some((e) => e.text === "tarefa integrada reaberta pra conversa — a pasta foi recriada a partir de branch agent/integrada"));
+    } finally { s2.close(); }
   } finally {
     try { orch.close(); } catch { /* já fechado */ }
     rmSync(root, { recursive: true, force: true });
@@ -336,4 +351,69 @@ test("fim de sessão do Claude Code vira texto em pt-BR, sem o código do motivo
   assert.equal(mapHook("SessionEnd", { reason: "other" }).events[0].text, "terminal: a sessão terminou");
   assert.equal(mapHook("SessionEnd", { reason: "prompt_input_exit" }).events[0].text, "terminal: você saiu do terminal");
   assert.equal(mapHook("SessionEnd", {}).events[0].text, "terminal: a sessão terminou");
+});
+
+test("integrada reaberta: branch apagada → pasta destacada no commit do merge; sem como recriar → erro claro com a saída (tarefa de ajuste)", async () => {
+  const { root, repo } = repoFixture();
+  const orch = new Orchestrator(repo);
+  const cli = join(process.cwd(), "src", "cli.ts");
+  const prep = (id: string) => {
+    let out = "";
+    try { out = execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", cli, "term-prep", id, "--resume", "--repo", repo], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, CARDUME_NOTIFY: "0", CARDUME_GH: "/nao/existe/gh" } }); }
+    catch (e) { out = String((e as { stdout?: string }).stdout ?? ""); }
+    return JSON.parse(out.trim().split("\n").filter((l) => l.startsWith("{")).pop() ?? "{}");
+  };
+  try {
+    const a = await orch.createTask(spec("sq", { autoPr: "no" }));
+    writeFileSync(join(a.worktree, "feito.txt"), "x\n");
+    git(a.worktree, "add", "-A");
+    git(a.worktree, "commit", "-q", "-m", "feito");
+    const sha = git(a.worktree, "rev-parse", "HEAD");
+    orch.store.setStatus("sq", "merged");
+    orch.store.patchSpec("sq", { prMergeCommit: sha, prUrl: "https://github.com/o/r/pull/9" });
+    const b = await orch.createTask(spec("perdida", { autoPr: "no" }));
+    orch.store.setStatus("perdida", "merged");
+    orch.store.db.prepare("UPDATE task SET base='nao-existe-base' WHERE id='perdida'").run();
+    orch.close();
+    for (const [w, br] of [[a.worktree, "agent/sq"], [b.worktree, "agent/perdida"]]) { git(repo, "worktree", "remove", "--force", w); git(repo, "branch", "-D", br); }
+    const ok = prep("sq");
+    assert.equal(ok.error, undefined, JSON.stringify(ok));
+    assert.equal(ok.cwd, a.worktree);
+    assert.equal(git(a.worktree, "rev-parse", "HEAD"), sha, "destacada no commit do merge");
+    assert.ok(existsSync(join(a.worktree, "feito.txt")));
+    const bad = prep("perdida");
+    assert.match(String(bad.error), /não consegui reabrir a pasta desta tarefa integrada \(.+\) — pra mexer de novo, abra uma tarefa de ajuste/);
+    const s = new Store(join(repo, ".cardume", "state.sqlite"));
+    try {
+      assert.equal(s.getTask("sq")!.status, "merged");
+      assert.equal(JSON.parse(s.getTask("sq")!.spec_json).prUrl, "https://github.com/o/r/pull/9", "PR não é arquivado");
+      assert.ok(s.eventsForTask("sq").some((e) => /reaberta pra conversa — a pasta foi recriada a partir de o commit do merge/.test(e.text)));
+    } finally { s.close(); }
+  } finally {
+    try { orch.close(); } catch { /* já fechado */ }
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("integrada nunca sai de integrada: hooks (prompt/Stop), fim de turno (sem commit/gate) e saída da IA", async () => {
+  const { root, repo } = repoFixture();
+  const prev = process.env.CARDUME_NOTIFY;
+  process.env.CARDUME_NOTIFY = "0";
+  const orch = new Orchestrator(repo);
+  try {
+    const t = await orch.createTask(spec("mg", { autoPr: "no" }));
+    orch.store.setStatus("mg", "merged");
+    applyHook(orch.store, "mg", mapHook("UserPromptSubmit", { prompt: "o que foi feito?" }));
+    applyHook(orch.store, "mg", mapHook("Stop", { last_assistant_message: "foi feito X" }));
+    assert.equal(orch.store.getTask("mg")!.status, "merged");
+    writeFileSync(join(t.worktree, "solto.txt"), "x\n");
+    assert.equal(await orch.terminalTurnEnd("mg"), null, "fim de turno não roda gate");
+    assert.ok(git(t.worktree, "status", "--porcelain").includes("solto.txt"), "nada commitado");
+    iaExit(orch.store, "mg", "claude");
+    assert.equal(orch.store.getTask("mg")!.status, "merged");
+  } finally {
+    orch.close();
+    if (prev === undefined) delete process.env.CARDUME_NOTIFY; else process.env.CARDUME_NOTIFY = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

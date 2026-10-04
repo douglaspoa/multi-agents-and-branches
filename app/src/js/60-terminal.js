@@ -10,7 +10,8 @@
 // render); só recebe eventos enquanto está visível (term_attach/term_detach); o histórico só é relido quando o
 // arquivo muda (carimbo tamanho:mtime) e o PTY só é redimensionado quando o tamanho muda (ResizeObserver).
 const TERM = {};
-const TERM_WT_GONE='a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste'; // = WT_GONE (term.rs) // taskId → { term, fit, host, attached, alive, mode:'live'|'hist', hinfo, hstamp, ro, lastSize, opening }
+// tarefa integrada (worktree apagada): o backend recria a pasta e retoma a sessão — dá pra conversar de novo (04/10)
+const TERM_WT_GONE='tarefa integrada · digite pra perguntar sobre o que foi feito'; // taskId → { term, fit, host, attached, alive, mode:'live'|'hist', hinfo, hstamp, ro, lastSize, opening }
 function termModeOf(t){ return !!(t && t.spec && t.spec.termMode === 'terminal'); }
 /** A tarefa mostra a aba Terminal (e não a Conversa)? Modo terminal sempre; senão toda tarefa Claude Code que já rodou. */
 function termViewOf(t){
@@ -21,14 +22,25 @@ function termViewOf(t){
 }
 function termSlotHtml(t){ return `<div class="fwthread fwtermslot" id="fwThread" data-term="${escA(t.id)}"></div>`; }
 function termCss(name, fb){ try{ const v=getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v||fb; }catch(_){ return fb; } }
-// tema a partir dos tokens do app (mesmo fundo/texto/acento da tela)
+// tema a partir dos tokens do app (redesenho F2): o terminal é SEMPRE escuro — marinho no claro (Cartório), verde-quase-
+// preto no escuro — com a paleta ANSI de cada tema (--term-*, --ansi-* em css/10-base.css). Os fallbacks são os do escuro.
+// @cor-dado-inicio — fallbacks do termTheme: os valores do tema escuro, só se o token não existir
 function termTheme(){
-  return { background:termCss('--surface-2','#0e1113'), foreground:termCss('--text','#e9edef'), cursor:termCss('--accent','#3fd68a'),
-    cursorAccent:termCss('--surface-2','#0e1113'), selectionBackground:'rgba(63,214,138,.28)',
-    black:'#1b2024', red:termCss('--crit','#f2685c'), green:termCss('--good','#3fd68a'), yellow:termCss('--warn','#f0b449'),
-    blue:termCss('--info','#5b9df9'), magenta:termCss('--purple','#b47ce0'), cyan:termCss('--cyan','#4fc4c9'), white:termCss('--text-2','#c9d1d6'),
-    brightBlack:termCss('--muted','#8b959b'), brightWhite:termCss('--text','#e9edef') };
+  const c=(n, fb)=>termCss(n, fb);
+  return { background:c('--term-bg','#0A1513'), foreground:c('--term-fg','#DCE8E1'), cursor:c('--term-live','#3FD68A'),
+    cursorAccent:c('--term-bg','#0A1513'), selectionBackground:c('--term-sel','rgba(63,214,138,.28)'),
+    black:c('--ansi-black','#1E332C'), red:c('--ansi-red','#F0A48F'), green:c('--ansi-green','#7FDCA7'), yellow:c('--ansi-yellow','#E0B868'),
+    blue:c('--ansi-blue','#9CD3F5'), magenta:c('--ansi-magenta','#C9A7F0'), cyan:c('--ansi-cyan','#6CCFD3'), white:c('--ansi-white','#DCE8E1'),
+    brightBlack:c('--ansi-bblack','#6F857A'), brightRed:c('--ansi-bred','#F7BBA9'), brightGreen:c('--ansi-bgreen','#3FD68A'), brightYellow:c('--ansi-byellow','#F0D58C'),
+    brightBlue:c('--ansi-bblue','#BCE2FA'), brightMagenta:c('--ansi-bmagenta','#DCC4F7'), brightCyan:c('--ansi-bcyan','#9BE3E6'), brightWhite:c('--ansi-bwhite','#F4FAF6') };
 }
+// @cor-dado-fim
+// trocou o tema (04-tema dispara 'sf-theme'): todo xterm aberto — visível ou guardado — repinta na hora (evento, sem polling)
+function termRetheme(){ const th=termTheme(); for(const k of Object.keys(TERM)){ const x=TERM[k]; if(x && x.term) try{ x.term.options.theme=th; }catch(_){ } } }
+if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('sf-theme', termRetheme);
+// a Martian Mono local terminou de carregar depois de um xterm já aberto: re-mede a célula (senão a grade fica com a
+// largura da fonte reserva) e reencaixa
+try{ if(document.fonts && document.fonts.ready) document.fonts.ready.then(()=>{ for(const k of Object.keys(TERM)){ const x=TERM[k]; if(!x || !x.term) continue; try{ x.term.options.fontFamily=termCss('--mono','ui-monospace, Menlo, monospace'); const h=x.host; if(x.fit && h && h.isConnected && h.offsetWidth>0 && h.offsetHeight>0) x.fit.fit(); }catch(_){ } /* só encaixa o visível: escondido mede 0 e o PTY encolheria à toa */ } }); }catch(_){ }
 function termCtor(){ const T=window.Terminal; return T && (T.Terminal||T); }
 function termFitCtor(){ const F=window.FitAddon; return F && (F.FitAddon||F); }
 
@@ -87,7 +99,7 @@ function thFromEvents(evs){
   const out=[];
   for(const e of evs||[]){
     const tx=String(e.text||''); const ts=thTs(e);
-    if(!tx.trim() || e.type==='papel') continue;
+    if(!tx.trim() || e.type==='papel' || e.type==='suggest') continue; // suggest: vira chip embaixo do terminal
     if(e.agent==='Você' && /^Você:\s/.test(tx)){ out.push({ k:'you', ts, text:tx.replace(/^Você:\s*/,'') }); continue; }
     if(/^humano respondeu:/.test(tx)){ out.push({ k:'you', ts, text:tx.replace(/^humano respondeu:\s*/,'') }); continue; }
     if(e.agent==='Sistema'){ out.push({ k:'note', ts, text:thSysText(tx) }); continue; }
@@ -161,8 +173,12 @@ function termEnsure(taskId){
     scrollback:8000, allowProposedApi:false, convertEol:false, macOptionIsMeta:true, theme:termTheme() });
   const fit=Fit?new Fit():null; if(fit) term.loadAddon(fit);
   term.open(box);
-  term.onData(d=>{ if(st.alive) invokeQuiet('term_write',{ taskId, data:d }).catch(()=>{}); });
+  // vivo: tecla → PTY. Histórico: digitar RETOMA a sessão sozinho (64-terminal-integrado guarda as teclas e escreve
+  // quando o Claude Code abrir) — antes o xterm parado engolia tudo calado
+  // (abertura em voo: TUDO vai pra fila do 64 — mesmo com o PTY já vivo — e sai num único write, em ordem)
+  term.onData(d=>{ if(typeof tiTakeKey==='function' && tiTakeKey(taskId, d)) return; if(st.alive){ invokeQuiet('term_write',{ taskId, data:d }).catch(()=>{}); return; } if(typeof tiHistKey==='function') tiHistKey(taskId, d); });
   st.term=term; st.fit=fit;
+  if(typeof tiHostWire==='function') tiHostWire(taskId, st); // clique retoma · colar/arrastar arquivo = anexo @arquivo
   // redimensiona o PTY só quando o tamanho REAL muda; tamanho zero = escondido → para os eventos
   st.ro=new ResizeObserver(()=>{ clearTimeout(st.rt); st.rt=setTimeout(()=>termFit(taskId), 60); });
   st.ro.observe(box);
@@ -232,7 +248,7 @@ async function termHistLoad(taskId, force){
     const wt=String(h.worktree||(t&&t.worktree)||'').split('/').filter(Boolean).pop()||'';
     const eng=(t&&typeof aiEngineOf==='function')?aiEngineOf(t.engine):'claude';
     const head=`${eng} · ${h.sessionId?'sessão '+String(h.sessionId).slice(0,8):'sem sessão gravada'}${wt?' · worktree '+wt:''} · histórico${h.source==='transcript'?(h.clipped?' (só o fim — a sessão é longa)':''):h.source==='log'?' (log do terminal)':' (eventos da tarefa)'}`;
-    const foot=termGone(h)?TERM_WT_GONE:termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · mande uma mensagem pelo compositor pra retomar esta sessão no terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Configurações → modo das tarefas)';
+    const foot=termGone(h)?'tarefa integrada · digite aqui pra perguntar sobre o que foi feito — a sessão retoma neste terminal':termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · digite aqui pra continuar a conversa — a sessão retoma neste terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Configurações → modo das tarefas)';
     // log cru do PTY: sai da tela alternativa/colagem antes do rodapé (o TUI pode ter deixado ligado)
     const out=st.hraw!==undefined ? st.hraw+'\x1b[?1049l\x1b[?2004l\x1b[?25h\x1b[0m\r\n\r\n'+thC('2','╰─ '+foot)+'\r\n'
       : (st.hlast={ items:st.hitems||thFromEvents(evs), o:{ head, foot, notes:st.hitems?thSysNotes(evs):[] } }, thRender(st.hlast.items, { ...st.hlast.o, cols:st.term.cols }));
@@ -273,23 +289,29 @@ function termSetAlive(taskId, alive){
   const t=(state.tasks||[]).find(x=>x.id===taskId); const h=st.hinfo||{};
   const fresh=t && (t.status==='draft' || t.status==='queued') && (!h.source || h.source==='none');
   let html;
-  if(termGone(h)) html=`<span>integrada · ${esc(TERM_WT_GONE.replace(/^a worktree desta tarefa/,'a worktree'))}</span><span class="cc-sp"></span><button class="btn sm primary" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
+  if(termGone(h)) html=`<span>${esc(TERM_WT_GONE)}</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}" title="retoma a sessão da tarefa (a pasta dela é recriada)">conversar</button><button class="btn sm" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
   else if(termHeadless(t)) html=`<span><span class="pulse" style="--pc:var(--good)"></span> rodando em segundo plano (modo automático) · o histórico se atualiza sozinho</span><span class="cc-sp"></span>`;
   else if(fresh) html=`<span>o terminal desta tarefa ainda não foi aberto</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}">abrir terminal</button>`;
-  else html=`<span>histórico da sessão${h.resumes===false?' · o compositor manda no modo automático':' · mande uma mensagem pelo compositor pra retomar no terminal'}</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
-  st.bar.style.display='flex';
+  // redesenho F1: sem a barra "histórico · digite pra continuar" — digitar ou clicar no terminal já retoma, e o
+  // "retomar sessão" mora na barra de status (tlBarHtml). Fica só o aviso que muda o que acontece: modo automático.
+  else if(h.resumes===false) html=`<span>o compositor manda no modo automático</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
+  else html='';
+  st.bar.style.display=html?'flex':'none';
   if(st.bar.__html!==html){ st.bar.__html=html; st.bar.innerHTML=html; }
 }
 async function termOpen(taskId){
   const st=termEnsure(taskId); if(st.opening) return; st.opening=true;
-  const b=st.bar.querySelector('[data-termopen]'); if(b){ b.disabled=true; b.textContent='abrindo…'; }
+  // o botão pode estar na barra do xterm ou no "retomar sessão" da barra de status (tlBarHtml, redesenho F1)
+  const sel='[data-termopen="'+String(taskId).replace(/["\\]/g,'')+'"]';
+  const b=st.bar.querySelector(sel)||st.bar.querySelector('[data-termopen]')||(typeof document!=='undefined' && document.querySelector ? document.querySelector(sel) : null);
+  if(b){ b.disabled=true; b.textContent='abrindo…'; }
   try{
     const cols=(st.term&&st.term.cols)||120, rows=(st.term&&st.term.rows)||34;
     const info=await invoke('term_open',{ taskId, cols, rows, resume:true });
     st.attached=true; st.pend=null; st.mode='live'; st.term.reset(); if(info && info.data) st.term.write(info.data);
     termSetAlive(taskId, !!(info && info.alive)); st.term.focus();
     lastSig=''; refresh().catch(()=>{});
-  }catch(e){ showErr(e, 'Não consegui abrir o terminal'); termSetAlive(taskId, false); }
+  }catch(e){ showErr(e, 'Não consegui abrir o terminal'); termSetAlive(taskId, false); termSayLine(taskId, 'não consegui abrir o terminal: '+(typeof errShort==='function'?errShort(e):String(e&&e.message||e)), '31'); } // a barra mantém "abrir tarefa de ajuste"
   finally{ st.opening=false; }
 }
 /** Chamado pelo render da tarefa: põe o terminal (já existente) no slot e solta os que saíram da tela. */

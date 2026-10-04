@@ -258,8 +258,17 @@ function memLearnHtml(items, edits){
 function memLearnSigOf(snap){ return (snap&&snap.repo||'')+'|'+((snap&&snap.events)||[]).filter(e=>/^aprendizado/.test(String(e&&e.text||''))).map(e=>e.id).join(','); }
 // @puro-fim
 
-const MEM_COLORS={ 'decisão':'var(--info)', regra:'var(--accent)', gotcha:'var(--warn)', contexto:'var(--muted)', pessoa:'var(--purple)', 'glossário':'var(--cyan)' };
-const MEM_HEX={ 'decisão':'#5b9df9', regra:'#3fd68a', gotcha:'#f0b449', contexto:'#8b959b', pessoa:'#b47ce0', 'glossário':'#4fc4c9' };
+const MEM_COLORS={ 'decisão':'var(--info)', regra:'var(--ok)', gotcha:'var(--warn)', contexto:'var(--muted)', pessoa:'var(--purple)', 'glossário':'var(--cyan)' };
+// cor de cada tipo de nota = token do tema. O canvas não entende var(): memCss resolve o token UMA vez por tema (cache
+// MEM_PAL, limpo no 'sf-theme', quando o grafo também repinta) — nada de getComputedStyle por nó a cada pintura
+// @mem-cor-puro-inicio (testado em app/tests/tema-movimento.test.mjs)
+const MEM_HEX={ 'decisão':'var(--info)', regra:'var(--ok)', gotcha:'var(--warn)', contexto:'var(--muted)', pessoa:'var(--purple)', 'glossário':'var(--cyan)' };
+let MEM_PAL={};
+function memCss(v, a){ const m=String(v||'').match(/^var\((--[\w-]+)\)$/); let c=v;
+  if(m){ c=MEM_PAL[m[1]]; if(c===undefined){ try{ c=getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim()||'gray'; }catch(_){ c='gray'; } MEM_PAL[m[1]]=c; } }
+  const h=String(c).match(/^#([0-9a-f]{6})$/i); if(a==null || !h) return c; const n=parseInt(h[1],16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; }
+// @mem-cor-puro-fim
+if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('sf-theme', ()=>{ MEM_PAL={}; if(typeof memG!=='undefined' && memG) memPaint(); });
 const MEM_IC={
   brain:'<path d="M6 2.8a2 2 0 0 0-2 2 2 2 0 0 0-1.3 3.4A2 2 0 0 0 4.2 12 2 2 0 0 0 8 12.6V3.6A2 2 0 0 0 6 2.8zM10 2.8a2 2 0 0 1 2 2 2 2 0 0 1 1.3 3.4 2 2 0 0 1-1.5 3.8A2 2 0 0 1 8 12.6" stroke-linejoin="round"/>',
   plus:'<path d="M8 3.5v9M3.5 8h9"/>',
@@ -353,42 +362,54 @@ function memCaptureEdit(){
   if(t) e.title=t.value; if(ty) e.type=ty.value; if(tg) e.tags=tg.value.split(/[,\s]+/).map(x=>x.replace(/^#/,'').trim()).filter(Boolean); if(b) e.body=b.value;
 }
 
+// F4 (G1, D16, mesa tela 12): Projeto › Memória — cabeçalho de seção, "onde salvar" numa barra (mora SÓ aqui), e três
+// visões: Notas · Grafo · Pra revisar. "Pra revisar" é a dona ÚNICA de aprendizados, curador, "o que cada agente lembra",
+// "Do time" e esquecidos — as notas não descem mais pra baixo da dobra.
+const MEM_TYPE_PT={ gotcha:'armadilha' }; // o valor gravado continua 'gotcha'; a tela fala português
+function memTypeLabel(t){ return MEM_TYPE_PT[t]||t; }
 function memRender(){
   const body=$id('memBody'); if(!body) return;
   memCaptureEdit();
+  if(MEM.view!=='grafo' && MEM.view!=='revisar') MEM.view='lista';
   const list=memFilter(MEM.notes, MEM.q, MEM.type);
   const nNew=MEM.notes.filter(memIsNew).length;
   const sel=memSelNote();
+  const nRev=(MEM.learn||[]).length;
+  const tabs=(typeof pageTabs==='function')?pageTabs('mview', [['lista','Notas',MEM.notes.length],['grafo','Grafo'],['revisar','Pra revisar',nRev||null,nRev>0]], MEM.view):'';
+  const revisar='<div class="memrev">'+
+      '<div class="pgsh3" style="margin-top:0"><h3>Aprendizados</h3><span>'+(nRev?nRev+' esperando você · ':'')+'nada entra sem o seu sim</span></div>'+
+      (nRev?memLearnHtml(MEM.learn, LEARN_EDIT):'<p class="pgnote">Nenhum aprendizado esperando. Quando a retro de uma tarefa propuser algo, aparece aqui.</p>')+
+      '<div class="pgsh3"><h3>Arrumar a memória</h3><span>sugestões sem IA, revistas no máximo uma vez por dia</span></div>'+
+      (typeof curHtml==='function'?curHtml(null):'')+
+      '<div class="pgsh3"><h3>O que cada agente lembra</h3><span>voltar, esquecer, compartilhar com o time e os esquecidos — por agente</span></div>'+
+      '<div id="memAgHost"></div>'+
+    '</div>';
   body.innerHTML=
     '<div class="memwrap">'+
-    '<div class="memtop">'+
-      '<div class="memtitle">'+memIc('brain',22)+'<div><h1>Memória do projeto</h1><div class="dim memsub">'+memEsc(pathBase(MEM.repo||state.repo))+' · '+MEM.notes.length+' nota'+(MEM.notes.length===1?'':'s')+(nNew?' · <span class="memnewtxt">'+nNew+' nova'+(nNew===1?'':'s')+'</span>':'')+(MEM.syncMsg?' · '+memEsc(MEM.syncMsg):'')+'</div></div></div>'+
-      '<div class="memctl">'+
-        '<span class="memlbl">salvar memórias novas em</span>'+memModeSeg('memMode')+
-        '<div class="memseg" role="tablist"><button class="'+(MEM.view==='lista'?'on':'')+'" data-mview="lista" aria-label="Lista">'+memIc('list')+'Lista</button><button class="'+(MEM.view==='grafo'?'on':'')+'" data-mview="grafo" aria-label="Grafo">'+memIc('graph')+'Grafo</button></div>'+
-        '<button class="btn" id="memObs" title="Abre a pasta .cardume/memoria como cofre do Obsidian (links e grafo funcionam lá também)">'+memIc('ext')+'Abrir no Obsidian</button>'+
-        (MEM.hasTeam?'<button class="btn" id="memSync" title="Sincronizar o cérebro do time agora" aria-label="Sincronizar">'+memIc('sync')+'</button>':'')+
-        '<button class="btn primary" id="memNew">'+memIc('plus')+'Nova nota</button>'+
-      '</div>'+
-    '</div>'+
-    memLearnHtml(MEM.learn, LEARN_EDIT)+
-    (typeof curHtml==='function'?curHtml(null):'')+
+    '<div class="pgsec-h"><div><h2>Memória</h2><p>O que os agentes sabem deste projeto: notas ligadas entre si que eles leem e escrevem. Aprendizados e arrumação só entram com o seu sim.</p></div><span class="grow"></span>'+
+      '<button class="btn sm" id="memObs" title="Abre a pasta .cardume/memoria como cofre do Obsidian (links e grafo funcionam lá também)">'+memIc('ext')+'Abrir no Obsidian</button>'+
+      (MEM.hasTeam?'<button class="btn sm" id="memSync" title="Sincronizar o cérebro do time agora" aria-label="Sincronizar">'+memIc('sync')+'</button>':'')+
+      '<button class="btn primary sm" id="memNew">'+memIc('plus')+'Nova nota</button></div>'+
+    '<div class="pgtool"><span class="memlbl">Memórias novas vão para</span>'+memModeSeg('memMode')+'<span class="grow"></span><span class="dim memsub">'+MEM.notes.length+' nota'+(MEM.notes.length===1?'':'s')+(nNew?' · <span class="memnewtxt">'+nNew+' nova'+(nNew===1?'':'s')+'</span>':'')+(MEM.syncMsg?' · '+memEsc(MEM.syncMsg):'')+'</span></div>'+
+    tabs+
+    (MEM.view==='revisar'?revisar:
     '<div class="memgrid'+(MEM.view==='grafo'?' isgraph':'')+'">'+
       '<aside class="memside">'+
         '<input class="in" id="memQ" placeholder="buscar nas notas…" value="'+memEsc(MEM.q)+'" spellcheck="false" aria-label="Buscar nas notas">'+
-        '<div class="memchips">'+['',...MEM_TYPES].map(t=>'<button class="memchip'+(MEM.type===t?' on':'')+'" data-mtype="'+t+'">'+(t?'<i style="background:'+MEM_COLORS[t]+'"></i>'+t:'todas')+'</button>').join('')+'</div>'+
+        '<div class="memchips">'+['',...MEM_TYPES].map(t=>'<button class="memchip'+(MEM.type===t?' on':'')+'" data-mtype="'+t+'">'+(t?'<i style="background:'+MEM_COLORS[t]+'"></i>'+memTypeLabel(t):'todas')+'</button>').join('')+'</div>'+
         '<div class="memlist" id="memList">'+(list.length?list.map(n=>memRow(n,sel)).join(''):'<div class="memempty">'+(MEM.notes.length?'Nada bate com a busca.':'Ainda sem memória. Os agentes gravam aqui o que aprendem (correções no chat, decisões e armadilhas do fim das tarefas) — ou crie uma nota.')+'</div>')+'</div>'+
       '</aside>'+
-      '<section class="memmain" id="memMain">'+(MEM.view==='grafo'?'<div class="memgraph"><canvas id="memCanvas"></canvas><div class="memlegend">'+MEM_TYPES.map(t=>'<span><i style="background:'+MEM_COLORS[t]+'"></i>'+t+'</span>').join('')+'<span><i class="ghost"></i>link quebrado</span></div></div>':memMainHtml(sel))+'</section>'+
-    '</div></div>';
+      '<section class="memmain" id="memMain">'+(MEM.view==='grafo'?'<div class="memgraph"><canvas id="memCanvas"></canvas><div class="memlegend">'+MEM_TYPES.map(t=>'<span><i style="background:'+MEM_COLORS[t]+'"></i>'+memTypeLabel(t)+'</span>').join('')+'<span><i class="ghost"></i>link quebrado</span></div></div>':memMainHtml(sel))+'</section>'+
+    '</div>')+'</div>';
   memWire(body);
   if(MEM.view==='grafo') memDrawGraph();
+  if(MEM.view==='revisar' && typeof agMemHostRender==='function') agMemHostRender($id('memAgHost'));
 }
 function memRow(n, sel){
   const on=sel && sel.slug===n.slug && sel.scope===n.scope;
   return '<button class="memrow'+(on?' on':'')+'" data-mscope="'+memEsc(n.scope)+'" data-mslug="'+memEsc(n.slug)+'">'+
     '<span class="memrt"><i class="memdot" style="background:'+(MEM_COLORS[n.type]||'var(--muted)')+'"></i><b>'+memEsc(n.title)+'</b>'+(memIsNew(n)?'<span class="membadge new">nova</span>':'')+'</span>'+
-    '<span class="memrm"><span class="membadge '+(n.scope==='time'?'time':'local')+'">'+n.scope+'</span>'+memEsc(n.type)+(n.updated?' · '+memEsc(memDateBR(n.updated)):'')+'</span>'+
+    '<span class="memrm"><span class="membadge '+(n.scope==='time'?'time':'local')+'">'+n.scope+'</span>'+memEsc(memTypeLabel(n.type))+(n.updated?' · '+memEsc(memDateBR(n.updated)):'')+'</span>'+
     (n.summary?'<span class="memrs">'+memEsc(memPlain(n.summary))+'</span>':'')+'</button>';
 }
 function memMainHtml(n){
@@ -403,7 +424,7 @@ function memMainHtml(n){
       '<div class="memacts"><button class="btn" id="memEdit">'+memIc('edit')+'Editar</button>'+
       (canMove?'<button class="btn" id="memMove" title="Mover pro cérebro '+(other==='time'?'do time (sincroniza com todos)':'local (só nesta máquina)')+'">'+memIc('move')+'Mover pro '+(other==='time'?'time':'local')+'</button>':'')+
       '<button class="btn" id="memDel" aria-label="Apagar nota" title="Apagar nota">'+memIc('trash')+'</button></div></div>'+
-    '<div class="memmeta"><span class="membadge type" style="--c:'+(MEM_COLORS[n.type]||'var(--muted)')+'">'+memEsc(n.type)+'</span><span class="membadge '+(n.scope==='time'?'time':'local')+'">'+n.scope+'</span>'+(memIsNew(n)?'<span class="membadge new">nova</span>':'')+
+    '<div class="memmeta"><span class="membadge type" style="--c:'+(MEM_COLORS[n.type]||'var(--muted)')+'">'+memEsc(memTypeLabel(n.type))+'</span><span class="membadge '+(n.scope==='time'?'time':'local')+'">'+n.scope+'</span>'+(memIsNew(n)?'<span class="membadge new">nova</span>':'')+
       (n.secret?'<span class="membadge warn" title="Parece conter chave/senha/.env — não sobe pro time">segredo?</span>':'')+
       (n.tags||[]).map(t=>'<span class="memtag">#'+memEsc(t)+'</span>').join('')+
       '<span class="dim">'+(n.by?'por '+memEsc(n.by):'')+(n.atualizadaPor?' · atualizada por '+memEsc(n.atualizadaPor):'')+(n.updated?' · '+memEsc(memDateBR(n.updated)):'')+'</span></div>'+
@@ -418,7 +439,7 @@ function memEditorHtml(){
   return '<div class="memedit">'+
     '<div class="memnh"><h2>'+(e.slug?'Editar nota':'Nova nota')+'</h2><span class="dim">'+(e.scope==='time'?'cérebro do time':'cérebro local')+'</span></div>'+
     '<label class="memf"><span>Título</span><input class="in" id="meTitle" value="'+memEsc(e.title)+'" placeholder="ex.: Usar pnpm, nunca npm"></label>'+
-    '<div class="memfrow"><label class="memf"><span>Tipo</span><select class="in" id="meType">'+MEM_TYPES.map(t=>'<option'+(t===e.type?' selected':'')+'>'+t+'</option>').join('')+'</select></label>'+
+    '<div class="memfrow"><label class="memf"><span>Tipo</span><select class="in" id="meType">'+MEM_TYPES.map(t=>'<option value="'+t+'"'+(t===e.type?' selected':'')+'>'+memTypeLabel(t)+'</option>').join('')+'</select></label>'+
     '<label class="memf" style="flex:1"><span>Tags</span><input class="in" id="meTags" value="'+memEsc((e.tags||[]).join(', '))+'" placeholder="ferramentas, ci"></label></div>'+
     '<label class="memf"><span>Conteúdo · use [[nome-da-nota]] pra ligar notas</span><textarea class="in ta mono" id="meBody" rows="14">'+memEsc(e.body)+'</textarea></label>'+
     '<div class="memfoot"><span class="dim" id="meMsg"></span><span style="flex:1"></span><button class="btn" id="meCancel">cancelar</button><button class="btn primary" id="meSave">salvar</button></div>'+
@@ -426,7 +447,7 @@ function memEditorHtml(){
 }
 function memWire(body){
   memWireMode(body.querySelector('#memMode'), ()=>MEM.repo);
-  body.querySelectorAll('[data-mview]').forEach(b=>b.onclick=()=>{ MEM.view=b.dataset.mview; memRender(); });
+  body.querySelectorAll('[data-mview],[data-pgtab^="mview:"]').forEach(b=>b.onclick=()=>{ MEM.view=b.dataset.mview||b.dataset.pgtab.split(':')[1]; memRender(); });
   body.querySelectorAll('[data-mtype]').forEach(b=>b.onclick=()=>{ MEM.type=b.dataset.mtype; memRender(); });
   const q=body.querySelector('#memQ'); if(q){ q.oninput=()=>{ MEM.q=q.value; const l=$id('memList'); const sel=memSelNote(); const f=memFilter(MEM.notes,MEM.q,MEM.type); if(l){ l.innerHTML=f.length?f.map(n=>memRow(n,sel)).join(''):'<div class="memempty">Nada bate com a busca.</div>'; memWireLinks(l); } }; }
   memWireLinks(body);
@@ -607,14 +628,14 @@ function memPaint(){
   c.lineWidth=1/g.k;
   for(const e of g.edges){ const a=g.pos[idx[e.from]], b=g.pos[idx[e.to]]; if(!a||!b) continue;
     const hot=g.hover>=0 && (idx[e.from]===g.hover||idx[e.to]===g.hover);
-    c.strokeStyle=hot?'rgba(63,214,138,.7)':'rgba(255,255,255,.14)'; c.setLineDash(g.nodes[idx[e.to]].ghost?[3,3]:[]);
+    c.strokeStyle=hot?memCss('var(--accent)', .7):memCss('var(--text)', .14); c.setLineDash(g.nodes[idx[e.to]].ghost?[3,3]:[]);
     c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
   c.setLineDash([]);
   g.nodes.forEach((nd,i)=>{ const p=g.pos[i]; const r=4+Math.min(8,Math.sqrt(g.deg[nd.id]||0)*2.2);
     c.beginPath(); c.arc(p.x,p.y,r,0,Math.PI*2);
-    if(nd.ghost){ c.strokeStyle='rgba(139,149,155,.7)'; c.stroke(); }
-    else { c.fillStyle=MEM_HEX[nd.n.type]||'#8b959b'; c.fill(); if(nd.id===sel||i===g.hover){ c.strokeStyle='#e9edef'; c.lineWidth=2/g.k; c.stroke(); c.lineWidth=1/g.k; } }
-    if(g.k>.6 || i===g.hover){ c.fillStyle=nd.ghost?'rgba(139,149,155,.8)':'rgba(233,237,239,.88)'; c.font=(11/Math.max(g.k,.8))+'px -apple-system,system-ui,sans-serif'; c.textAlign='center';
+    if(nd.ghost){ c.strokeStyle=memCss('var(--muted)', .7); c.stroke(); }
+    else { c.fillStyle=memCss(MEM_HEX[nd.n.type]||'var(--muted)'); c.fill(); if(nd.id===sel||i===g.hover){ c.strokeStyle=memCss('var(--text)'); c.lineWidth=2/g.k; c.stroke(); c.lineWidth=1/g.k; } }
+    if(g.k>.6 || i===g.hover){ c.fillStyle=nd.ghost?memCss('var(--muted)', .8):memCss('var(--text)', .88); c.font=(11/Math.max(g.k,.8))+'px \'Public Sans\',system-ui,sans-serif'; c.textAlign='center';
       const label=nd.ghost?('+ '+nd.ghost):nd.n.title; c.fillText(label.length>34?label.slice(0,33)+'…':label, p.x, p.y+r+12/Math.max(g.k,.8)); }
   });
 }

@@ -2,7 +2,7 @@
 # E-mails de autenticação do Starfork (código de 6 dígitos, visual do produto).
 #
 #   scripts/supabase-auth-mail.sh check    # mostra o estado atual (templates com {{ .Token }}? SMTP próprio? validade do código)
-#   scripts/supabase-auth-mail.sh apply    # sobe supabase/templates/*.html + assuntos + código válido por 10 min
+#   scripts/supabase-auth-mail.sh apply    # sobe supabase/templates/*.html + assuntos + código válido por 10 min + site_url starfork.com.br
 #   scripts/supabase-auth-mail.sh smtp     # liga SMTP próprio (Resend etc.) — precisa das vars SMTP_* abaixo
 #
 # Precisa de SUPABASE_ACCESS_TOKEN de uma conta OWNER/ADMIN do projeto (https://supabase.com/dashboard/account/tokens).
@@ -33,7 +33,8 @@ for k in ("recovery","confirmation","magic_link","invite"):
     print("%-13s: %s {{ .Token }}  | assunto: %r  | %d bytes" % (k, tok, d.get("mailer_subjects_%s" % k), len(c)))
 print("aviso de senha trocada:", d.get("mailer_notifications_password_changed_enabled"))
 print("SMTP próprio:", d.get("smtp_host") or "NÃO (SMTP padrão do Supabase — só entrega pra membros do projeto, ~2 e-mails/h)")
-print("limite e-mails/h:", d.get("rate_limit_email_sent"), "| site_url:", d.get("site_url"))
+print("limite e-mails/h:", d.get("rate_limit_email_sent"))
+print("site_url:", d.get("site_url"))
 print("redirects:", d.get("uri_allow_list"))
 print("providers: google", d.get("external_google_enabled"), "| github", d.get("external_github_enabled"))
 PY2
@@ -41,11 +42,20 @@ PY2
 }
 
 apply(){
-  python3 - "$DIR" <<'PY' > /tmp/sb-auth-mail.json
+  # lê a config ATUAL: a lista de redirects é MESCLADA (nada que já estava lá some)
+  local cur; cur=$(mktemp); curl -sf "${auth[@]}" "$API" -o "$cur"
+  python3 - "$DIR" "$cur" <<'PY' > /tmp/sb-auth-mail.json
 import json,sys,pathlib
 t=pathlib.Path(sys.argv[1])/"supabase/templates"
 rd=lambda n:(t/f"{n}.html").read_text()
+now=json.load(open(sys.argv[2]))
+want=["https://starfork.com.br/**","https://www.starfork.com.br/**","http://localhost:8788/callback"]
+have=[x.strip() for x in str(now.get("uri_allow_list") or "").split(",") if x.strip()]
+allow=",".join(have+[w for w in want if w not in have])
 print(json.dumps({
+  # o link do e-mail abre o SITE do produto (antes caía no domínio antigo constellation-ai-v1.lovable.app)
+  "site_url": "https://starfork.com.br",
+  "uri_allow_list": allow,
   "mailer_otp_length": 6,
   "mailer_otp_exp": 600,
   "mailer_subjects_recovery": "{{ .Token }} é seu código pra redefinir a senha · Starfork",
@@ -61,8 +71,8 @@ print(json.dumps({
   "mailer_templates_password_changed_notification_content": rd("password_changed"),
 }))
 PY
-  curl -sf -X PATCH "${auth[@]}" "$API" --data-binary @/tmp/sb-auth-mail.json >/dev/null && echo "✓ templates + assuntos + código de 10 min aplicados em $REF"
-  rm -f /tmp/sb-auth-mail.json
+  curl -sf -X PATCH "${auth[@]}" "$API" --data-binary @/tmp/sb-auth-mail.json >/dev/null && echo "✓ templates + assuntos + código de 10 min + site_url aplicados em $REF"
+  rm -f /tmp/sb-auth-mail.json "$cur"
   check
 }
 

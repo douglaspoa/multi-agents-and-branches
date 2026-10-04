@@ -33,12 +33,13 @@ test('o símbolo não é duplicado: só 10-core.js; index.html e icon.svg são c
   assert.ok(html.includes('<span class="logo" aria-hidden="true">' + IC.starfork + '</span>'), 'fallback do logo = IC.starfork');
   assert.equal(html.split(STAR_D).length - 1, 1, 'uma cópia só no index.html');
   assert.match(core, /querySelector\('\.brand \.logo'\)[^\n]*IC\.starfork/);
-  // ícone do app: mesma geometria (todos os d e círculos) e o verde do --accent
+  // ícone do app: mesma geometria (todos os d e círculos) e o verde do logo (--logo, igual nos dois temas)
   const icon = readFileSync(new URL('../src-tauri/icons/icon.svg', import.meta.url), 'utf8');
   for (const d of IC.starfork.match(/\sd="[^"]+"/g)) assert.ok(icon.includes(d.trim()), 'icon.svg: ' + d);
   for (const c of IC.starfork.match(/cx="[^"]+" cy="[^"]+" r="[^"]+"/g)) assert.ok(icon.includes(c), 'icon.svg: ' + c);
-  const accent = (src('css/10-base.css').match(/--accent:(#[0-9a-f]{6})/i) || [])[1];
-  assert.ok(accent && icon.includes(accent), 'icon.svg usa o --accent ' + accent);
+  const logo = (src('css/10-base.css').match(/--logo:(#[0-9a-f]{6})/i) || [])[1];
+  assert.ok(logo && icon.toLowerCase().includes(logo.toLowerCase()), 'icon.svg usa o --logo ' + logo);
+  assert.match(src('css/30-refino-macos.css'), /\.brand \.logo\{[^}]*color:var\(--logo\)/, 'o logo da lateral é sempre o verde da marca');
 });
 
 test('reusado nos pontos de marca: aba Nova demanda, avatar da IA e loader', () => {

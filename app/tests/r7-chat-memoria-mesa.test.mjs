@@ -11,7 +11,7 @@ const Me = new Function(cut(mesa, '// @puro-inicio', '// @puro-fim') + '\nreturn
 const dailyIsoShift = new Function(cut(daily, 'function dailyIsoShift', '\n') + '\nreturn dailyIsoShift;')();
 const pcGate = new Function(cut(daily, 'function pcGate', '// @puro-fim pcGate') + '\nreturn pcGate;')();
 const dailyBtnState = new Function(cut(daily, 'function dailyBtnState', '// @puro-fim dailyBtnState') + '\nreturn dailyBtnState;')();
-const cfgValidate = new Function(cut(rd('15-config-abas-onboarding.js'), 'function cfgValidate', '// @puro-fim cfgValidate') + '\nreturn cfgValidate;')();
+const cfgValidate = new Function(cut(rd('67-ajustes.js'), 'function cfgValidate', '// @puro-fim cfgValidate') + '\nreturn cfgValidate;')();
 
 test('memPlain: resumo da lista sem a marcação do markdown', () => {
   assert.equal(M.memPlain('O projeto usa **pnpm** (lockfile `pnpm-lock.yaml`).'), 'O projeto usa pnpm (lockfile pnpm-lock.yaml).');
@@ -85,8 +85,8 @@ test('pcGate: pergunta e "virar tarefa" nunca juntas no MESMO projeto', () => {
 test('dailyBtnState: escrevendo › carregando › sem atividade › livre (título original volta)', () => {
   assert.deepEqual(dailyBtnState('doc', { busy: true, loading: true, has: true }), { disabled: true, label: 'escrevendo o relatório…', title: '' });
   assert.equal(dailyBtnState('ai', { busy: false, loading: true, has: true }).title, 'espere o dia carregar');
-  assert.deepEqual(dailyBtnState('ai', { busy: false, loading: false, has: false }), { disabled: true, label: 'resumo curto', title: 'dia sem atividade — troque a data' });
-  assert.deepEqual(dailyBtnState('doc', { busy: false, loading: false, has: true }), { disabled: false, label: 'DOC + PDF', title: null });
+  assert.deepEqual(dailyBtnState('ai', { busy: false, loading: false, has: false }), { disabled: true, label: 'Resumo curto', title: 'dia sem atividade — troque a data' });
+  assert.deepEqual(dailyBtnState('doc', { busy: false, loading: false, has: true }), { disabled: false, label: 'Gerar relatório do período', title: null });
 });
 
 test('cfgValidate: faixas com aviso em vez de ajuste silencioso', () => {

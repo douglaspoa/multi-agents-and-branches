@@ -106,8 +106,10 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   ctx.termMount({ id: 't1' }); await tick(); await tick(); await tick();
   const st = ctx.TERM.t1;
   assert.equal(st.mode, 'hist');
-  assert.match(st.bar.innerHTML, /retomar sessão/);
-  assert.match(st.bar.innerHTML, /mande uma mensagem pelo compositor/);
+  // redesenho F1: sem a barra "histórico · digite pra continuar" em cima do terminal (digitar/clicar retoma; o
+  // "retomar sessão" mora na barra de status — tlBarHtml)
+  assert.equal(st.bar.style.display, 'none');
+  assert.equal(st.bar.innerHTML, '');
   const out = st.term.out.join('').replace(/\x1b\[[0-9;]*m/g, '');
   assert.match(out, /╭─ claude · sessão e3f63ca1 · worktree t1/);
   assert.match(out, /● velho/);
@@ -129,10 +131,13 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   await ctx.termHistLoad('t1', false);
   assert.match(st.term.out.join(''), /LOG-ANTIGO/);
   assert.match(st.term.out.join(''), /\x1b\[\?1049l/, 'sai da tela alternativa antes do rodapé');
-  // integrada e sem worktree: a barra oferece a tarefa de ajuste
+  // integrada e sem worktree: dá pra conversar de novo (o backend recria a pasta) e a tarefa de ajuste fica como 2ª opção
   ctx.__answers.term_history = { source: 'transcript', items: [], stamp: '11:1', merged: true, worktreeExists: false };
   await ctx.termHistLoad('t1', true);
+  assert.match(st.bar.innerHTML, /tarefa integrada · digite pra perguntar sobre o que foi feito/);
+  assert.match(st.bar.innerHTML, /data-termopen="t1"[^>]*>conversar</);
   assert.match(st.bar.innerHTML, /abrir tarefa de ajuste/);
+  assert.doesNotMatch(st.bar.innerHTML, /worktree foi apagada/);
   assert.equal(ctx.termWtGone('t1'), true);
   // a mensagem RETOMOU a sessão: o PTY nasceu → o xterm vira o vivo
   ctx.__answers.term_attach = { alive: true, data: 'VIVO' };
@@ -154,17 +159,41 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   // layout A (60-terminal-layout): a coluna inteira vira terminal + painel; o slot do terminal mora no tlChatHtml
   assert.match(ws, /chat\.innerHTML=isTerm \? tlChatHtml\(t, composer\)/);
   assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t, sheetGrab\);[^\n]*\} else termSweep\(\);/);
-  assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}<div id="tlBudget">\$\{tlBudgetHtml\(t\)\}<\/div>\$\{composer\}/);
+  // terminal integrado (64): o dock (sugestões/anexar/botões) entra entre o terminal e o compositor
+  assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}<div id="tlBudget">\$\{tlBudgetHtml\(t\)\}<\/div>\$\{typeof tiDockHtml==='function'\?tiDockHtml\(t\):''\}\$\{composer\}/);
   assert.match(src('34-orquestrador.js'), /termMode:'auto', start:startNow/);
   assert.match(src('59-ideia.js'), /payload\.termMode='auto'/);
   assert.match(src('43-espaco-times.js'), /if\(opts\.auto\) payload\.termMode='auto'/);
   assert.match(src('32-planner.js'), /teamClaimStart\(c\.row, null, \{ auto:true \}\)/);
   assert.match(src('46-epico-time.js'), /teamClaimStart\(ct, null, \{ silent:true, auto:true \}\)/);
-  const cfg = src('15-config-abas-onboarding.js');
-  assert.match(cfg, /id="cfgTaskMode"/);
+  const cfg = src('67-ajustes.js'); // F4 · G3: Ajustes › Como as tarefas rodam
+  assert.match(cfg, /data-ajmode="terminal"/);
   assert.match(cfg, /chave de API/);
-  assert.match(cfg, /w\('taskMode'/);
+  assert.match(cfg, /ajSetting\('taskMode'/);
   const html = readFileSync(new URL('../src/index.html', import.meta.url), 'utf8');
   assert.match(html, /vendor\/xterm\/xterm\.js/);
   assert.doesNotMatch(html, /cdn[^"']*xterm/i, 'xterm local, sem CDN');
+});
+
+// redesenho F1: a barra "histórico" saiu de cima do xterm — "retomar sessão" mora na barra de status (tlBarHtml), só
+// quando há sessão pra retomar
+test('barra de status: "retomar sessão" no histórico; nunca com modo automático (resumes:false) nem em rascunho sem sessão', () => {
+  const lay = src('60-terminal-layout.js');
+  const a = lay.indexOf('function tlBarHtml(t){'), b = lay.indexOf('// teto de custo aberto', a);
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const TERM = {};
+  const bar = new Function('esc', 'escA', 'TERM', 'taskSt', 'stMeta', 'termEvents', 'tiCompOn', 'termHeadless', 'termWtGone', lay.slice(a, b) + '\nreturn tlBarHtml;')(
+    esc, esc, TERM, (t) => t.status, () => ({ c: 'var(--muted)', pt: 'pronta' }), () => [], () => false, () => false, () => false);
+  const t = { id: 't1', status: 'review', engine: 'claude', branch: 'feat/x' };
+  TERM.t1 = { mode: 'hist', alive: false, hinfo: { source: 'transcript', resumes: true } };
+  assert.match(bar(t), /class="lnk tlresume" data-termopen="t1"[^>]*>retomar sessão</);
+  assert.match(bar(t), /class="tlbr mono"[^>]*>feat\/x</);
+  TERM.t1.hinfo.resumes = false;
+  assert.ok(!/retomar sessão/.test(bar(t)), 'modo automático: o compositor manda (aviso fica na barra do xterm)');
+  TERM.t1 = { mode: 'hist', alive: false, hinfo: { source: 'none' } };
+  assert.ok(!/retomar sessão/.test(bar({ ...t, status: 'draft' })), 'rascunho sem sessão: não há o que retomar');
+  TERM.t1 = { mode: 'live', alive: true, hinfo: null };
+  assert.ok(!/retomar sessão/.test(bar(t)), 'vivo: nada a retomar');
+  // o "abrindo…" acha o botão novo (fora da barra do xterm)
+  assert.match(src('60-terminal.js'), /st\.bar\.querySelector\(sel\)\|\|st\.bar\.querySelector\('\[data-termopen\]'\)\|\|\(typeof document!=='undefined' && document\.querySelector \? document\.querySelector\(sel\) : null\)/);
 });

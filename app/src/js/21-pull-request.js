@@ -263,7 +263,9 @@ function approveShowEntrega(t, scrollTo){
 // e vai na descrição do PR). Vale em TODA porta de aprovação: cabeçalho, card da Central, Entrega e resumo.
 // @prova-gate-inicio (testado em app/tests/critica-impeccable.test.mjs)
 // sem prova = não está "feito" OU está "feito" sem nenhum arquivo de evidência
-function proofMissingOf(rows){ return (rows||[]).filter(r=>r.st!=='ok' || !(Array.isArray(r.evidence)&&r.evidence.length)); }
+// adiado por decisão sua (reqIsAdiado, 00-util) conta como RESOLVIDO — igual ao verifyProofs do motor ("done ou deferred");
+// por isso o "pedir a prova" não pede os adiados
+function proofMissingOf(rows){ return (rows||[]).filter(r=>(r.st!=='ok' || !(Array.isArray(r.evidence)&&r.evidence.length)) && !(typeof reqIsAdiado==='function' && reqIsAdiado(r))); }
 function proofSigOf(missing){ return (missing||[]).map(r=>r.text).join('\n'); }
 // st: none (sem requisitos) · loading (provas ainda não lidas) · proven · unproven · override (liberada com motivo)
 // o motivo vale pra ESTE conjunto de requisitos sem prova — apareceu outro, pergunta de novo
@@ -579,7 +581,8 @@ function commitChip(x, agent){
   const av = agent ? `<span class="cav" aria-hidden="true" style="background:${agentColor(agent)}" title="${escA(agent)}">${agentBadge(agent)}</span>` : '';
   return `<button class="fcommit" data-hash="${escA(x.hash)}" title="${escA((agent?agent+' · ':'')+x.subject)}">${av}<span class="chash mono">${esc((x.hash||'').slice(0,7))}</span><span class="csub">${esc(x.subject||'')}</span></button>`;
 }
-const FLOW_PAL=["#3fd68a","#5b9df9","#b47ce0","#f0b449","#f2685c","#4fc4c9","#e07ab4","#7c8792"];
+// cor de identidade do agente sem cor gravada: as séries do tema (--chart-*), legíveis nos dois temas
+const FLOW_PAL=["var(--chart-1)","var(--chart-2)","var(--chart-3)","var(--chart-4)","var(--chart-5)","var(--chart-6)","var(--chart-7)","var(--chart-8)"];
 // Busca o agente no catálogo do projeto (config) POR NOME — é como as tarefas
 // referenciam o agente (só o nome fica gravado). Dá acesso a cor + avatar escolhidos no editor.
 // R5-5: o catálogo só era lido ao abrir "Nova demanda" — até lá toda cor caía no hash (Lyra coral no chat e roxa em

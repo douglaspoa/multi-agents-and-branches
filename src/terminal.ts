@@ -1,4 +1,4 @@
-// MODO TERMINAL — cada tarefa roda o CLI OFICIAL (`claude` / `codex`) num terminal de verdade dentro do app
+// MODO TERMINAL — cada tarefa roda o CLI OFICIAL (`claude` / `codex` / …) num terminal de verdade dentro do app
 // (PTY em app/src-tauri/src/pty.rs). O Starfork continua dono da tarefa, dos requisitos, das provas, do gate e
 // do custo — mas NÃO raspa a tela: tudo o que é estruturado vem de canais que o próprio CLI oferece:
 //
@@ -11,15 +11,25 @@
 //   MCP do Starfork (.cardume/mcp.json, o MESMO do `claude -p`) → ask_human, requisitos, provas, done-when
 //   Codex: hooks via `-c hooks.*` (SessionStart/UserPromptSubmit/Pre/PostToolUse), `notify` = fim de turno,
 //          MCP via `-c mcp_servers.cardume.*`. Sem statusLine → sem custo em US$ (ver CODEX_LIMITS).
+//   DeepSeek: o MESMO `claude` com a API Anthropic-compatível da DeepSeek (ANTHROPIC_BASE_URL/AUTH_TOKEN/MODEL no
+//          env, nunca no argv — ver deepseekClaudeEnv). O custo da statusLine sairia com preço de Claude: não é gravado.
+//   TERMINAL INTEGRADO (src/terminal-integrado.ts): tools suggest_replies/task_status/set_status/open_pr/create_task/
+//          list_skills/use_skill no MCP, /starfork-* em .claude/commands (Claude) e o bloco INTEGRADO_RULE no prompt.
+//
+//   SHELL (macOS/Linux): o PTY é o shell de login da pessoa na worktree; a IA (claude/codex/deepseek/gemini/opencode)
+//          sobe nele por `starfork ia <ia>` (shim em .cardume/term/bin) — ver "preparo do terminal" abaixo.
+//          Gemini: MCP via GEMINI_CLI_SYSTEM_SETTINGS_PATH (arquivo nosso); OpenCode: OPENCODE_CONFIG (arquivo nosso).
 //
 // Os hooks chamam o motor empacotado: `<node> cli.mjs hook <Evento> --starfork-task <id> --repo <repo>`.
 import { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { ClaudeEngine, claudeEnv, mapTool, resolveClaude, adjustRuleOf } from "./engine/claude.ts";
 import { buildPrompt as codexPrompt, loadLlmEnv } from "./engine/codex.ts";
-import { codexResolution, toolPath } from "./engine/bin-resolve.ts";
+import { DSH_FAST_MODEL, DSH_KEY_MSG, dshKey, dshModelFor, isDshLabel } from "./engine/dsh.ts";
+import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
+import { resolveToolCached, toolPath } from "./engine/bin-resolve.ts";
 import { protectArgs, protectEnabled } from "./engine/protect.ts";
 import { engineKind, Orchestrator, deliverPrompt } from "./orchestrator.ts";
 import { Store } from "./store.ts";
@@ -29,8 +39,41 @@ import type { AgentStatus, TaskSpec } from "./types.ts";
 export type TermMode = "terminal" | "auto";
 /** Tarefa antiga (sem o campo) = automático: nada muda pra quem já rodava. */
 export const termModeOf = (spec: { termMode?: string } | null | undefined): TermMode => (spec?.termMode === "terminal" ? "terminal" : "auto");
-/** Só Claude e Codex têm CLI interativo oficial; DeepSeek/gateway seguem no automático. */
-export const terminalCapable = (engine: string | undefined): boolean => ["claude", "codex"].includes(engineKind(engine));
+/** Tem terminal? macOS/Linux: qualquer motor com IA de terminal (o PTY é o shell da pessoa e ela escolhe a IA —
+ * `starfork ia`), MENOS gateway/logcomex (sem CLI: virariam Claude em silêncio) e vazio/mock; Windows (a IA direto no
+ * PTY): Claude, Codex e o DeepSeek DENTRO do `claude`. Mesma regra do Rust (term.rs › wants_terminal_on). */
+export const terminalCapable = (engine: string | undefined, platform: string = process.platform): boolean => {
+  const n = String(engine ?? "").trim().toLowerCase();
+  if (!n || n === "mock" || n.startsWith("gateway") || n.startsWith("logcomex")) return false;
+  return platform === "win32" ? ["claude", "codex", "deepseek"].includes(engineKind(n)) : true;
+};
+
+/** API Anthropic-compatível da DeepSeek (api-docs.deepseek.com › Claude Code, conferido em 04/10/2026). */
+export const DEEPSEEK_ANTHROPIC_URL = "https://api.deepseek.com/anthropic";
+/**
+ * Env do `claude` falando com a DeepSeek: modelo principal = o escolhido na tarefa (vazio/alias do Claude → o capaz,
+ * deepseek-v4-pro), auxiliar/subagente = deepseek-flash. `[1m]` = janela de 1M que a doc oficial usa. A chave vai
+ * SÓ no env (ANTHROPIC_AUTH_TOKEN), nunca no argv; sem tráfego não essencial pra Anthropic.
+ */
+export function deepseekClaudeEnv(model: string | undefined, key: string): Record<string, string> {
+  if (!String(key ?? "").trim()) throw new Error(DSH_KEY_MSG);
+  const main = dshModelFor(model, "capaz");
+  const big = /\[1m\]$/i.test(main) ? main : `${main}[1m]`;
+  return {
+    ANTHROPIC_BASE_URL: DEEPSEEK_ANTHROPIC_URL,
+    ANTHROPIC_AUTH_TOKEN: key.trim(),
+    ANTHROPIC_MODEL: big,
+    ANTHROPIC_DEFAULT_OPUS_MODEL: big,
+    ANTHROPIC_DEFAULT_SONNET_MODEL: big,
+    ANTHROPIC_DEFAULT_HAIKU_MODEL: DSH_FAST_MODEL,
+    ANTHROPIC_SMALL_FAST_MODEL: DSH_FAST_MODEL,
+    CLAUDE_CODE_SUBAGENT_MODEL: DSH_FAST_MODEL,
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    STARFORK_ENGINE: "deepseek",
+  };
+}
+/** Sessão de terminal de motor não-Claude no `claude` (DeepSeek): a statusLine NÃO grava custo (preço seria de Claude). */
+export const skipStatuslineCost = (env: NodeJS.ProcessEnv = process.env) => env.STARFORK_ENGINE === "deepseek";
 
 /** O que o Codex NÃO entrega no terminal (documentado no PR e mostrado no feed ao iniciar). */
 export const CODEX_LIMITS = [
@@ -163,7 +206,14 @@ export function excludeFromGit(worktree: string, paths: string[]): void {
   } catch { /* sem git: nada a excluir */ }
 }
 
-interface TermState { prevStatusLine?: string | null; lastTurnEnd?: number }
+interface TermState {
+  prevStatusLine?: string | null;
+  lastTurnEnd?: number;
+  /** terminal integrado no shell: a última IA aberta, a sessão de cada FAMÍLIA (claude/codex) e quando cada IA rodou */
+  lastAi?: TermAi;
+  sessions?: Record<string, string>;
+  started?: Record<string, number>;
+}
 function readTermState(worktree: string): TermState { try { return JSON.parse(readFileSync(join(termDir(worktree), "state.json"), "utf8")); } catch { return {}; } }
 function writeTermState(worktree: string, s: TermState): void { try { writeJsonAtomic(join(termDir(worktree), "state.json"), s); } catch { /* best-effort */ } }
 
@@ -418,15 +468,82 @@ export function claudeTranscriptExists(sessionId: string, configDir = process.en
 }
 
 // ======================= preparo do terminal (o app spawna o que voltar daqui) =======================
+//
+// TERMINAL INTEGRADO NO SHELL (macOS/Linux): o PTY é o SHELL de login da pessoa na worktree, cujo 1º comando sobe a
+// IA (`starfork ia <ia>`): termina a IA → o prompt do shell volta (dá pra rodar outra IA, git, testes…). O `starfork`
+// é um sh em <worktree>/.cardume/term/bin (no PATH do shell) que pede ao motor o LANÇAMENTO (`starfork ia-prep`:
+// hooks/MCP/instruções/env da IA escolhida, impresso como script) e o roda NO PRÓPRIO sh, com o TTY herdado — sem
+// node no meio: Ctrl+C chega na IA (o `trap ':' INT` só segura o sh) e o fim dela grava term_session.cli = ''.
+// Windows segue no caminho antigo (a IA direto no PTY).
+
+/** IAs que o terminal sabe abrir. DeepSeek = o `claude` falando com a API Anthropic-compatível da DeepSeek. */
+export const TERM_AIS = ["claude", "codex", "deepseek", "gemini", "opencode"] as const;
+export type TermAi = (typeof TERM_AIS)[number];
+export const isTermAi = (x: unknown): x is TermAi => (TERM_AIS as readonly string[]).includes(String(x));
+export const AI_LABEL: Record<TermAi, string> = { claude: "Claude Code", codex: "Codex", deepseek: "DeepSeek (no Claude Code)", gemini: "Gemini CLI", opencode: "OpenCode" };
+const AI_BIN: Record<TermAi, string> = { claude: "claude", codex: "codex", deepseek: "claude", gemini: "gemini", opencode: "opencode" };
+/** Comando de instalação oficial (npm) — vai na mensagem de "não instalado". */
+export const AI_INSTALL: Record<TermAi, string> = {
+  claude: "npm i -g @anthropic-ai/claude-code",
+  codex: "npm i -g @openai/codex",
+  deepseek: "npm i -g @anthropic-ai/claude-code   (o DeepSeek roda dentro do Claude Code; a chave fica em Sua IA)",
+  gemini: "npm i -g @google/gemini-cli",
+  opencode: "npm i -g opencode-ai   (ou: curl -fsSL https://opencode.ai/install | bash)",
+};
+/** IA com hooks de turno (ocupado/livre, fim de turno). Gemini/OpenCode: sem hooks — o app entrega na hora. */
+export const aiHasHooks = (ai: string) => ai === "claude" || ai === "codex" || ai === "deepseek";
+/** Família de sessão: DeepSeek usa o transcript do `claude` (mesmo CLI) — retomar entre os dois vale. */
+const aiFamily = (ai: string) => (ai === "deepseek" ? "claude" : ai);
+
+/** Papel que conversa no terminal (o mesmo do terminalContext): o construtor. */
+const talkRole = (spec: TaskSpec) => spec.roles?.find((r) => r.role === "builder") ?? spec.roles?.[0];
+/** IA "natural" do motor da tarefa: codex/deepseek/gemini/opencode pelo rótulo; o resto (claude, gateway, "opus"…) =
+ * claude. Mesma regra do Rust (term.rs › ai_of_engine) — o comando recomendado sai igual nos dois. */
+export function aiOfEngine(engine: string | undefined): TermAi {
+  const n = String(engine ?? "").trim().toLowerCase();
+  return n.startsWith("gemini") ? "gemini" : n.startsWith("opencode") ? "opencode" : n.startsWith("codex") ? "codex" : isDshLabel(n) ? "deepseek" : "claude";
+}
+/** IA do terminal: a escolhida no app (spec.termAi) ou a do motor da tarefa. */
+export function termAiOf(spec: Pick<TaskSpec, "termAi" | "engine" | "roles">, role = talkRole(spec as TaskSpec)): TermAi {
+  return isTermAi(spec.termAi) ? spec.termAi : aiOfEngine(role?.engine || spec.engine);
+}
+/**
+ * Modelo pra IA `ai`: o escolhido junto no app (termModel) → o do PAPEL da tarefa (o que a criação decidiu — às vezes
+ * um mais leve) quando a IA é a do motor dela → vazio (o padrão da própria IA; modelo do Claude não serve pro Gemini).
+ */
+export function termModelOf(spec: Pick<TaskSpec, "termAi" | "termModel" | "engine" | "model" | "roles">, role = talkRole(spec as TaskSpec), ai: TermAi = termAiOf(spec, role)): string {
+  if (spec.termAi === ai && String(spec.termModel ?? "").trim()) return String(spec.termModel).trim();
+  return aiOfEngine(role?.engine || spec.engine) === ai ? String(role?.model || spec.model || "").trim() : "";
+}
+/** Palavra de shell: sem aspas quando não precisa (o comando recomendado fica legível pra quem vai digitar). */
+export const shArg = (s: string) => (/^[\w.:@/+=-]+$/.test(s) ? s : shqp(s));
+/** Aspas POSIX (o shell do terminal integrado nunca é o cmd do Windows). */
+export const shqp = (s: string) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+export interface Recommended { ai: TermAi; model: string; command: string }
+/** O lançamento RECOMENDADO da tarefa (IA + modelo que a criação decidiu) e a linha exata pro shell. */
+export function recommendedLaunch(spec: TaskSpec, role = talkRole(spec)): Recommended {
+  const ai = termAiOf(spec, role);
+  const model = termModelOf(spec, role, ai);
+  return { ai, model, command: `starfork ia ${ai}${model ? ` --modelo ${shArg(model)}` : ""}` };
+}
+
 export interface LaunchSpec {
   program: string;
   args: string[];
   cwd: string;
   env: Record<string, string>;
   envRemove: string[];
-  engine: "claude" | "codex";
+  /** IA que o terminal abre (rótulo pro pty.rs / term_session.engine) */
+  engine: TermAi;
   resumed: boolean;
   sessionId: string | null;
+  /** modelo com que a IA abre ('' = o padrão dela) — o app compara na troca de IA (mesma IA+modelo = nada a fazer) */
+  model?: string;
+  /** true = o PTY é o SHELL da pessoa (que sobe a IA no 1º comando); false = a IA direto no PTY (Windows) */
+  shell?: boolean;
+  /** nasce ocupado? (IA com hooks levando um pedido/kickoff — o 1º UserPromptSubmit confirma) */
+  busy?: boolean;
+  recommended?: Recommended;
 }
 /**
  * Variáveis que NÃO podem chegar ao CLI do terminal: marcadores de "sessão filha" de outro Claude Code (app
@@ -447,33 +564,82 @@ const toml = (v: unknown): string => {
   return JSON.stringify(String(v));
 };
 
+/** `which` sem shell: o 1º executável com esse nome no PATH. */
+function whichIn(name: string, path = process.env.PATH ?? ""): string | null {
+  for (const d of path.split(process.platform === "win32" ? ";" : ":").filter(Boolean)) {
+    const p = join(d, name);
+    try { if (statSync(p).isFile()) return p; } catch { /* não está aqui */ }
+  }
+  return null;
+}
 /**
- * Monta o comando do terminal da tarefa: grava hooks/statusLine/MCP na worktree, deixa a tarefa "rodando"
- * com o modo FIXO (spec.termMode = "terminal") e devolve programa/args/env pro PTY.
- *  - resume: retoma a sessão gravada (`claude --resume <id>` / `codex resume <id>`); sem sessão → nova.
- *  - message: 1ª mensagem (ex.: follow-up mandado com o terminal fechado).
+ * Binário da IA: CARDUME_AI_BIN_<ia> (override — testes e instalação fora do padrão) → a resolução de sempre
+ * (claude: resolveClaude; codex/gemini/opencode: PATH, nvm, login shell…). null = não instalado.
  */
-export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: boolean; message?: string } = {}): LaunchSpec {
+export function resolveAiBin(ai: TermAi, env: NodeJS.ProcessEnv = process.env): string | null {
+  const ov = env[`CARDUME_AI_BIN_${ai}`]?.trim() || (ai === "deepseek" ? env.CARDUME_AI_BIN_claude?.trim() : "");
+  if (ov) return ov;
+  if (ai === "claude" || ai === "deepseek") {
+    const b = resolveClaude();
+    if (b.includes("/") || b.includes("\\")) return existsSync(b) ? b : null;
+    return whichIn(b);
+  }
+  return resolveToolCached(AI_BIN[ai]).bin;
+}
+/** "Não instalado" em pt-BR, com o comando de instalação. */
+export const aiMissingMsg = (ai: TermAi) => `${AI_LABEL[ai]} não está instalado neste computador (procurei \`${AI_BIN[ai]}\`). Instale com:\n  ${AI_INSTALL[ai]}\ne rode de novo: starfork ia ${ai}`;
+export class AiMissingError extends Error {}
+
+/** Estado do terminal POR IA (.cardume/term/state.json): sessão de cada família e quem rodou por último. */
+function sessionFor(ai: TermAi, st: TermState, cur: string, engineAi: TermAi): string {
+  const fam = aiFamily(ai);
+  if (st.lastAi) return aiFamily(st.lastAi) === fam ? cur || st.sessions?.[fam] || "" : st.sessions?.[fam] ?? "";
+  // terminal de antes da troca de IA: a sessão gravada é da IA do motor da tarefa
+  return aiFamily(engineAi) === fam ? cur : "";
+}
+/** Grava a sessão que estava valendo pra IA anterior (antes de trocar / ao sair). */
+function snapshotSession(st: TermState, cur: string | null | undefined): void {
+  if (st.lastAi && cur) (st.sessions ??= {})[aiFamily(st.lastAi)] = cur;
+}
+
+export interface AiLaunch { ai: TermAi; program: string; args: string[]; env: Record<string, string>; envRemove: string[]; resumed: boolean; sessionId: string | null; cwd: string; busy: boolean }
+/**
+ * Monta o lançamento da IA `ai` pra tarefa: grava hooks/statusLine/MCP/instruções na worktree, deixa a tarefa
+ * "rodando" com o modo FIXO (spec.termMode = "terminal") e devolve programa/args/env.
+ *  - resume: retoma a sessão gravada DESSA IA (`claude --resume <id>` / `codex resume <id>` / `gemini --resume latest`
+ *    / `opencode --continue`); sem sessão → nova.
+ *  - message: 1ª mensagem (ex.: follow-up mandado com a IA fechada).   - model: vazio = termModelOf.
+ */
+export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: { resume?: boolean; message?: string; model?: string } = {}): AiLaunch {
   const { task, spec, role, ctx } = orch.terminalContext(taskId);
-  const kind = engineKind(role.engine || spec.engine);
-  if (kind !== "claude" && kind !== "codex") throw new Error(`o motor "${role.engine || spec.engine}" não tem terminal — use o modo automático`);
+  const model = String(opts.model ?? termModelOf(spec, role, ai)).trim();
+  // DeepSeek: a chave é conferida ANTES de mexer em qualquer coisa (erro claro em vez de um `claude` sem login)
+  const dsEnv = ai === "deepseek" ? deepseekClaudeEnv(model || undefined, dshKey()) : null;
   if (!existsSync(task.worktree)) throw new Error(task.status === "merged" ? "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste" : "a worktree desta tarefa não existe mais");
+  const bin = resolveAiBin(ai);
+  if (!bin) throw new AiMissingError(aiMissingMsg(ai));
   if (spec.termMode !== "terminal") { spec.termMode = "terminal"; orch.store.updateSpec(taskId, JSON.stringify(spec)); }
   const repo = orch.ws.repo;
   const base = engineBase();
-  let sid = opts.resume ? (task.session_id || orch.store.termGet(taskId)?.session_id || "") : "";
+  const st = readTermState(task.worktree);
+  const cur = task.session_id || orch.store.termGet(taskId)?.session_id || "";
+  let sid = opts.resume && aiHasHooks(ai) ? sessionFor(ai, st, cur, aiOfEngine(role.engine || spec.engine)) : "";
+  // gemini/opencode não têm id de sessão pra nós: retomam "a última desta pasta" — só se já rodaram aqui
+  const resumeLast = !!opts.resume && !aiHasHooks(ai) && !!st.started?.[ai];
   let lostSession = false;
   // sessão sem transcript (apagado, outra máquina, gravação desligada): `claude --resume` sairia na hora com
   // "No conversation found" — abre sessão NOVA que continua da worktree
-  if (sid && engineKind(role.engine || spec.engine) === "claude" && !claudeTranscriptExists(sid)) {
+  if (sid && aiFamily(ai) === "claude" && !claudeTranscriptExists(sid)) {
     orch.store.addEvent(taskId, "Sistema", "note", "A sessão anterior do terminal não foi encontrada — abrindo uma sessão nova que continua do que está na worktree.", true);
     sid = "";
     lostSession = true;
   }
   const input = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: orch.ws.dbFile, askTimeoutMin: 0 };
-  // o MESMO preparo do `claude -p` (prompt + .cardume/mcp.json); o Codex reaproveita o mcp.json escrito aqui
+  // o MESMO preparo do `claude -p` (prompt + .cardume/mcp.json); as outras IAs reaproveitam o mcp.json escrito aqui
   const claude = new ClaudeEngine({ model: role.model, approval: spec.autonomy?.approval ?? "ask" });
   const { prompt, mcpConfigPath, protectOn } = claude.prepareTurn(input);
+  let mcp: { command?: string; args?: string[]; env?: Record<string, string> } = {};
+  try { mcp = JSON.parse(readFileSync(mcpConfigPath, "utf8")).mcpServers.cardume; } catch { /* sem MCP: os `starfork …` do shell seguem valendo */ }
   const env: Record<string, string> = {
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
@@ -485,31 +651,54 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
   };
   const CONTINUE = "A sessão anterior deste terminal se perdeu. O trabalho já feito está NESTA worktree: confira git status, git diff e .cardume/artifacts, releia .cardume/TASK.yaml e continue de onde parou.";
   const first = [lostSession ? CONTINUE : "", (opts.message ?? "").trim()].filter(Boolean).join("\n\n");
-  let program: string, args: string[];
-  if (kind === "claude") {
+  let args: string[] = [];
+  let envRemove = envToRemove();
+  // integrada: modo conversa (nada de kickoff "execute a tarefa", nada de status mudando)
+  const merged = task.status === "merged";
+  const mergedNote = merged ? mergedRule(lastPr(spec)) : "";
+  const rules = shellInstructions() + (merged ? `\n${mergedNote}` : "");
+  // .cardume/term/AGENTS.starfork.md: as instruções do terminal SEMPRE num arquivo nosso (fora do git) — a IA que
+  // aceita arquivo de instruções aponta pra ele; AGENTS.md/GEMINI.md da raiz só se forem nossos (nunca o rastreado)
+  const ownRules = join(termDir(task.worktree), "AGENTS.starfork.md");
+  try { mkdirSync(dirname(ownRules), { recursive: true }); writeFileSync(ownRules, rules, "utf8"); } catch { /* segue com a 1ª mensagem */ }
+  let kicked = false;
+  const genericKick = () => merged ? "" : codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
+  if (ai === "claude" || ai === "deepseek") {
+    // a pasta foi criada pelo Starfork a partir do repo da pessoa: sem o "Is this a project you trust?" (padrão = sair)
+    trustClaudeProject(task.worktree, repo);
     writeClaudeSettings(task.worktree, base, taskId, repo);
-    program = resolveClaude();
-    args = [];
+    // /starfork-* do terminal integrado (só os nossos; arquivo de mesmo nome da pessoa fica) — fora do commit
+    try { const c = writeStarforkCommands(task.worktree); excludeFromGit(task.worktree, c.written); } catch { /* sem comandos: as tools seguem */ }
     if (sid) args.push("--resume", sid);
     // as regras do Starfork vão no SYSTEM PROMPT (reenviado a cada abertura, inclusive no --resume): a conversa
     // no terminal começa limpa, com um pedido curto — e não com 10 KB de regra na 1ª mensagem
-    args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}`);
+    args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}\n\n${INTEGRADO_RULE}${INTEGRADO_CLAUDE_CMDS}${INTEGRADO_SHELL}${mergedNote ? `\n${mergedNote}` : ""}`);
     args.push("--mcp-config", mcpConfigPath, ...protectArgs(protectOn), "--permission-mode", "bypassPermissions");
-    if (role.model) args.push("--model", role.model);
-    const kick = first || (sid ? "" : KICKOFF);
+    // DeepSeek: o modelo vai no env (ANTHROPIC_MODEL) — `--model deepseek-…` seria validado como id do Claude
+    if (model && !dsEnv) args.push("--model", model);
+    const kick = first || (sid || merged ? "" : KICKOFF);
     if (kick) args.push(kick);
+    kicked = !!kick;
     const ce = claudeEnv();
     env.PATH = ce.PATH ?? process.env.PATH ?? "";
-  } else {
-    const res = codexResolution();
-    program = res.bin ?? "codex";
-    let mcp: { command?: string; args?: string[]; env?: Record<string, string> } = {};
-    try { mcp = JSON.parse(readFileSync(mcpConfigPath, "utf8")).mcpServers.cardume; } catch { /* sem MCP: segue sem ask_human */ }
+    if (dsEnv) {
+      Object.assign(env, dsEnv);
+      // o pty.rs remove ANTES de aplicar o env, mas a lista não pode nem sugerir que a chave some
+      envRemove = envRemove.filter((k) => !(k in dsEnv));
+      orch.store.addEvent(taskId, "Sistema", "note", `terminal DeepSeek (${dsEnv.ANTHROPIC_MODEL.replace(/\[1m\]$/, "")}) dentro do Claude Code — o custo em US$ da barra não é gravado (seria preço de Claude)`, true);
+    }
+  } else if (ai === "codex") {
     args = sid ? ["resume", sid] : [];
     args.push("-c", 'sandbox_mode="danger-full-access"', "-c", 'approval_policy="never"');
     if (mcp.command) {
       args.push("-c", `mcp_servers.cardume.command=${toml(mcp.command)}`, "-c", `mcp_servers.cardume.args=${toml(mcp.args ?? [])}`, "-c", `mcp_servers.cardume.env=${toml(mcp.env ?? {})}`);
     }
+    // sem o "Do you trust the contents of this directory?": confiança SÓ nesta sessão (-c; o ~/.codex/config.toml
+    // da pessoa não muda). Conferido no codex 0.153: a chave com aspas (projects."<p>".trust_level) não pega — a
+    // tabela inteira sim; ela só vale pra esta sessão, que roda nesta pasta
+    args.push("-c", codexTrustArg(task.worktree, repo));
+    // instruções do terminal como mensagem de "developer" (config do Codex) — valem também no `codex resume`
+    args.push("-c", `developer_instructions=${toml(rules)}`);
     // comandos IGUAIS em toda tarefa (tarefa/banco vêm do env CARDUME_TASK/CARDUME_DB): o Codex pede pra pessoa
     // revisar/confiar em hook NOVO ou ALTERADO — com o id da tarefa no comando seria um "Hooks need review" por
     // tarefa; assim é UMA vez (por instalação do motor)
@@ -517,17 +706,318 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
     for (const ev of CODEX_HOOK_EVENTS) {
       args.push("-c", `hooks.${ev}=${toml([{ hooks: [{ type: "command", command: shellCmd(hookArgv(base, ev, CODEX_ENV_TASK, "")), timeout: 30 }] }])}`);
     }
-    if (role.model) args.push("-m", role.model);
-    const kick = first || (sid ? "" : codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume): use ask_human para dúvidas e add_requirement para pedidos novos.");
+    if (model) args.push("-m", model);
+    const kick = first || (sid ? "" : genericKick());
     if (kick) args.push(kick);
+    kicked = !!kick;
     Object.assign(env, loadLlmEnv());
-    env.PATH = toolPath(program, process.env.PATH);
+    env.PATH = toolPath(bin, process.env.PATH);
+    try { if (writeInstructionsSection(task.worktree, "AGENTS.md", rules)) excludeFromGit(task.worktree, ["AGENTS.md"]); } catch { /* developer_instructions já leva */ }
     orch.store.addEvent(taskId, "Sistema", "note", `terminal Codex — limites: ${CODEX_LIMITS.join("; ")}`, true);
+  } else if (ai === "gemini") {
+    // MCP pelo arquivo de settings de SISTEMA apontado no env (GEMINI_CLI_SYSTEM_SETTINGS_PATH): não toca no
+    // .gemini/settings.json do repo; o de sistema que a pessoa já tenha entra mesclado
+    const path = join(termDir(task.worktree), "gemini-settings.json");
+    writeJsonAtomic(path, geminiSettings(readJson(geminiSystemSettingsPath()), mcp));
+    env.GEMINI_CLI_SYSTEM_SETTINGS_PATH = path;
+    const inFile = (() => { try { const ok = writeInstructionsSection(task.worktree, "GEMINI.md", rules); if (ok) excludeFromGit(task.worktree, ["GEMINI.md"]); return ok; } catch { return false; } })();
+    env.PATH = toolPath(bin, process.env.PATH);
+    // flags conferidas no --help da versão INSTALADA (o Gemini CLI muda rápido: 0.1.x não tem -i nem --resume)
+    const help = cliHelp(bin, env.PATH);
+    const canResume = resumeLast && help.includes("--resume");
+    args.push("--yolo");
+    if (model) args.push("--model", model);
+    if (canResume) args.push("--resume", "latest");
+    // GEMINI.md da pessoa (rastreado) intocado → as regras vão na 1ª mensagem
+    const kick = [canResume ? "" : genericKick(), inFile || canResume ? "" : rules, first].filter(Boolean).join("\n\n");
+    if (kick && help.includes("--prompt-interactive")) args.push("--prompt-interactive", kick);
+    else if (kick) orch.store.addEvent(taskId, "Sistema", "note", `Gemini CLI antigo (sem --prompt-interactive): abri sem a 1ª mensagem do Starfork — atualize com ${AI_INSTALL.gemini}`, false);
+  } else {
+    // OpenCode: config PRÓPRIA no OPENCODE_CONFIG (mescla com a global e a do projeto, sem tocar no opencode.json do repo)
+    const path = join(termDir(task.worktree), "opencode.json");
+    writeJsonAtomic(path, opencodeConfig(mcp, ownRules));
+    env.OPENCODE_CONFIG = path;
+    try { if (writeInstructionsSection(task.worktree, "AGENTS.md", rules)) excludeFromGit(task.worktree, ["AGENTS.md"]); } catch { /* o instructions do config já leva */ }
+    if (model) args.push("--model", model);
+    if (resumeLast) args.push("--continue");
+    const kick = [resumeLast ? "" : genericKick(), first].filter(Boolean).join("\n\n");
+    if (kick) args.push("--prompt", kick);
+    env.PATH = toolPath(bin, process.env.PATH);
   }
-  orch.store.setStage(taskId, role.role);
-  orch.store.setStatus(taskId, "running");
-  orch.store.addEvent(taskId, "Sistema", "status", sid ? `abrindo o terminal (${kind}) e retomando a sessão` : `abrindo o terminal (${kind})`, true);
-  return { program, args, cwd: task.worktree, env, envRemove: envToRemove(), engine: kind, resumed: !!sid, sessionId: sid || null };
+  // integrada NUNCA sai de integrada (abrir o terminal pra perguntar não é voltar a construir)
+  if (!merged) { orch.store.setStage(taskId, role.role); orch.store.setStatus(taskId, "running"); }
+  orch.store.addEvent(taskId, "Sistema", "status", `${sid || resumeLast ? `abrindo o terminal (${ai}) e retomando a sessão` : `abrindo o terminal (${ai})`}${merged ? " — tarefa integrada: só conversa" : ""}`, true);
+  const busy = aiHasHooks(ai) && kicked;
+  return { ai, program: bin, args, env, envRemove, resumed: !!(sid || resumeLast), sessionId: sid || null, cwd: task.worktree, busy };
+}
+
+/** Caminho e o real (macOS: /tmp → /private/tmp) — a IA compara pelo real, a pessoa vê o outro. */
+const bothPaths = (p: string) => { let r = p; try { r = realpathSync(p); } catch { /* não existe */ } return [...new Set([p, r])]; };
+/** Config do Claude Code com as pastas confiadas: $CLAUDE_CONFIG_DIR/.claude.json ou ~/.claude.json. */
+export const claudeJsonPath = (env: NodeJS.ProcessEnv = process.env) => env.CLAUDE_CONFIG_DIR?.trim() ? join(env.CLAUDE_CONFIG_DIR.trim(), ".claude.json") : join(env.HOME?.trim() || homedir(), ".claude.json");
+/**
+ * Marca a worktree da tarefa como confiada no Claude Code (projects[<pasta>].hasTrustDialogAccepted = true; conferido
+ * no ~/.claude.json do Claude Code 2.1). Só pasta nossa (<repo>/.cardume/worktrees/…), arquivo existente (não cria),
+ * gravação atômica preservando o resto; qualquer erro = segue (o diálogo aparece, como antes). Devolve se gravou.
+ */
+export function trustClaudeProject(worktree: string, repo: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
+    const root = join(repo, ".cardume", "worktrees") + "/";
+    if (!worktree.startsWith(root)) return false;
+    const p = claudeJsonPath(env);
+    if (!existsSync(p)) return false;
+    const cfg = JSON.parse(readFileSync(p, "utf8"));
+    if (!cfg || typeof cfg !== "object") return false;
+    const projects = cfg.projects && typeof cfg.projects === "object" ? cfg.projects : (cfg.projects = {});
+    let changed = false;
+    for (const k of bothPaths(worktree)) {
+      const cur = projects[k] && typeof projects[k] === "object" ? projects[k] : (projects[k] = {});
+      if (cur.hasTrustDialogAccepted !== true) { cur.hasTrustDialogAccepted = true; changed = true; }
+    }
+    if (!changed) return false;
+    const tmp = `${p}.starfork-${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(cfg, null, 2), { encoding: "utf8", mode: statSync(p).mode & 0o777 });
+    renameSync(tmp, p);
+    return true;
+  } catch { return false; }
+}
+/** `-c projects={…}` do Codex: a worktree e a raiz do repo (o Codex aplica a confiança à raiz do git) como trusted. */
+export function codexTrustArg(worktree: string, repo: string): string {
+  const t: Record<string, { trust_level: string }> = {};
+  for (const k of [...bothPaths(worktree), ...bothPaths(repo)]) t[k] = { trust_level: "trusted" };
+  return `projects=${toml(t)}`;
+}
+
+/** `<ia> --help` (stdout+stderr) pra conferir flag que muda entre versões. Falhou = "" (usa só o básico). */
+function cliHelp(bin: string, path: string | undefined): string {
+  try {
+    const r = spawnSync(bin, ["--help"], { encoding: "utf8", timeout: 10_000, env: { ...process.env, PATH: path ?? process.env.PATH ?? "", NO_COLOR: "1" }, stdio: ["ignore", "pipe", "pipe"] });
+    return `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
+  } catch { return ""; }
+}
+
+/** Tarefa JÁ INTEGRADA reaberta no terminal: só conversa (perguntas sobre o que foi feito) — mudança vira tarefa de ajuste. */
+export function mergedRule(prUrl?: string): string {
+  return `## Tarefa já integrada — modo conversa\n` +
+    `Esta tarefa JÁ FOI INTEGRADA${prUrl ? ` (PR ${prUrl})` : ""}. Responda perguntas sobre o que foi feito usando o histórico, o diff (git log/diff contra a base) e .cardume/artifacts. ` +
+    `NÃO altere código aqui; se o humano pedir mudança, crie uma tarefa de ajuste com \`starfork tarefa "Ajuste: …"\` (rascunho, mesmo épico) e diga isso a ele.\n` +
+    `Termine TODA resposta chamando \`starfork sugerir\` (ou suggest_replies) com 2–4 próximas perguntas/ações curtas (ex.: "o que mudou no X?", "mostra os testes", "abrir ajuste").\n`;
+}
+const lastPr = (spec: TaskSpec) => spec.prUrl || spec.prHistory?.[spec.prHistory.length - 1];
+
+/** Linha extra do system prompt do Claude: os `starfork …` do shell (fallback quando o MCP cai). */
+const INTEGRADO_SHELL = "- No shell deste terminal também há o comando `starfork` (status, sugerir, etapa, pr, tarefa, skill…) — `starfork ajuda` lista.\n";
+
+const readJson = (p: string | null): Record<string, unknown> | null => { if (!p) return null; try { const v = JSON.parse(readFileSync(p, "utf8")); return v && typeof v === "object" ? v : null; } catch { return null; } };
+/** Onde o Gemini CLI procura o settings de SISTEMA (o env da pessoa vence). */
+export function geminiSystemSettingsPath(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.GEMINI_CLI_SYSTEM_SETTINGS_PATH?.trim()) return env.GEMINI_CLI_SYSTEM_SETTINGS_PATH.trim();
+  return process.platform === "darwin" ? "/Library/Application Support/GeminiCli/settings.json" : process.platform === "win32" ? "C:\\ProgramData\\gemini-cli\\settings.json" : "/etc/gemini-cli/settings.json";
+}
+/** settings do Gemini: o de sistema da pessoa + mcpServers.cardume (trust = sem confirmar cada ferramenta nossa). */
+export function geminiSettings(existing: Record<string, unknown> | null, mcp: { command?: string; args?: string[]; env?: Record<string, string> }): Record<string, unknown> {
+  const out: Record<string, unknown> = existing ? JSON.parse(JSON.stringify(existing)) : {};
+  if (mcp.command) {
+    const servers = (out.mcpServers && typeof out.mcpServers === "object" ? out.mcpServers : {}) as Record<string, unknown>;
+    servers.cardume = { command: mcp.command, args: mcp.args ?? [], env: mcp.env ?? {}, trust: true, description: "Starfork — tarefa, provas, PR" };
+    out.mcpServers = servers;
+  }
+  // Gemini CLI novo: "confiar nesta pasta?" (security.folderTrust) — a pasta é do Starfork; desligado só nesta sessão
+  const sec = (out.security && typeof out.security === "object" ? out.security : {}) as Record<string, unknown>;
+  sec.folderTrust = { ...(sec.folderTrust && typeof sec.folderTrust === "object" ? sec.folderTrust : {}), enabled: false };
+  out.security = sec;
+  return out;
+}
+/** opencode.json do terminal: MCP local (command = argv inteiro) + as instruções do Starfork + sem pedir permissão. */
+export function opencodeConfig(mcp: { command?: string; args?: string[]; env?: Record<string, string> }, rulesFile: string): Record<string, unknown> {
+  const out: Record<string, unknown> = { $schema: "https://opencode.ai/config.json", instructions: [rulesFile], permission: { edit: "allow", bash: "allow", webfetch: "allow" } };
+  if (mcp.command) out.mcp = { cardume: { type: "local", command: [mcp.command, ...(mcp.args ?? [])], environment: mcp.env ?? {}, enabled: true, timeout: 15000 } };
+  return out;
+}
+
+// ---- o shell ----
+export const TERM_BIN_REL = ".cardume/term/bin";
+export const NEXT_MSG_REL = ".cardume/term/next-msg.txt";
+/** O `starfork` do shell: pede o lançamento ao motor e roda a IA NESTE sh (TTY herdado; Ctrl+C vai pra IA). */
+export function shimScript(base: string[]): string {
+  const b = base.map(shqp).join(" ");
+  return "#!/bin/sh\n" +
+    "# Starfork — o comando `starfork` do terminal integrado (regravado a cada abertura do terminal; não edite).\n" +
+    "# `starfork ia <ia>`: o motor imprime o lançamento (env, MCP, hooks, instruções) e ESTE sh o executa com o TTY\n" +
+    "# herdado — Ctrl+C chega na IA (o trap só impede o sh de morrer junto) e, quando ela sai, o prompt do shell volta.\n" +
+    'if [ "$1" = ia ]; then\n' +
+    "  shift\n" +
+    // o ia-prep morreu antes de limpar (crash do node): o `_ia-exit --falha` solta cli/ocupado
+    `  __sf_launch=$(${b} starfork ia-prep "$@") || { ${b} starfork _ia-exit "$1" --falha >/dev/null 2>&1; exit 1; }\n` +
+    "  trap ':' INT\n" +
+    '  eval "$__sf_launch"\n' +
+    "  exit $?\n" +
+    "fi\n" +
+    `exec ${b} starfork "$@"\n`;
+}
+/** Grava <worktree>/.cardume/term/bin/starfork (executável) e devolve a pasta (vai na frente do PATH do shell). */
+export function writeShim(worktree: string, base: string[]): string {
+  const dir = join(worktree, TERM_BIN_REL);
+  mkdirSync(dir, { recursive: true });
+  const p = join(dir, "starfork");
+  const body = shimScript(base);
+  let cur = "";
+  try { cur = readFileSync(p, "utf8"); } catch { /* novo */ }
+  if (cur !== body) writeFileSync(p, body, "utf8");
+  chmodSync(p, 0o755);
+  excludeFromGit(worktree, [".cardume/term/"]);
+  return dir;
+}
+/** Shell de login da pessoa: $SHELL (se for um shell conhecido e existir) → /bin/zsh → /bin/bash. */
+export function userShell(env: NodeJS.ProcessEnv = process.env): string {
+  const s = String(env.SHELL ?? "").trim();
+  if (s.startsWith("/") && /\/(zsh|bash|fish|ksh|sh|dash)$/.test(s) && existsSync(s)) return s;
+  return existsSync("/bin/zsh") ? "/bin/zsh" : "/bin/bash";
+}
+/**
+ * Linha do `-c` do shell: sobe a IA e, quando ela sai, abre o shell interativo de login na worktree. SEM `exec` de
+ * propósito, e o `; :` no fim impede o zsh de dar exec sozinho no último comando: o líder do PTY fica com esta linha
+ * (o caminho do shim) — é por ela que a varredura do boot (pty.rs › looks_like_agent) reconhece um terminal órfão;
+ * `exit` no shell de dentro fecha os dois.
+ */
+export function shellLine(shim: string, shell: string, o: { ai: TermAi; model?: string; resume?: boolean; msgFile?: string }): string {
+  return `${shqp(shim)} ia ${o.ai}${o.model ? ` --modelo ${shArg(o.model)}` : ""}${o.resume ? " --resume" : ""}${o.msgFile ? ` --msg-file ${shqp(o.msgFile)}` : ""}; ${shqp(shell)} -l -i; :`;
+}
+
+/**
+ * Monta o terminal da tarefa. macOS/Linux: o SHELL da pessoa na worktree subindo `starfork ia <ia>` (a escolhida no
+ * app ou a do motor, com o modelo da tarefa); Windows (ou `direct`): a IA direto no PTY, como antes.
+ *  - resume: retoma a sessão gravada; message: 1ª mensagem (vai por arquivo — nada de texto do humano no argv do shell);
+ *  - ai/model: troca de IA pelo app (term_switch_ai) — senão termAiOf/termModelOf.
+ */
+export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: boolean; message?: string; ai?: string; model?: string; direct?: boolean } = {}): LaunchSpec {
+  const task = orch.store.getTask(taskId);
+  if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+  const spec = JSON.parse(task.spec_json) as TaskSpec;
+  const role = talkRole(spec);
+  const ai = isTermAi(opts.ai) ? opts.ai : termAiOf(spec, role);
+  const model = String(opts.model ?? termModelOf(spec, role, ai)).trim();
+  const recommended = recommendedLaunch(spec, role);
+  if (opts.direct || process.platform === "win32") {
+    const L = aiLaunch(orch, taskId, ai, { resume: opts.resume, message: opts.message, model });
+    return { program: L.program, args: L.args, cwd: L.cwd, env: L.env, envRemove: L.envRemove, engine: ai, resumed: L.resumed, sessionId: L.sessionId, model, shell: false, busy: L.busy, recommended };
+  }
+  // DeepSeek sem chave: erro claro ANTES de abrir o PTY (a matriz da spec)
+  if (ai === "deepseek") deepseekClaudeEnv(model || undefined, dshKey());
+  if (!existsSync(task.worktree)) throw new Error(task.status === "merged" ? "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste" : "a worktree desta tarefa não existe mais");
+  if (spec.termMode !== "terminal") { spec.termMode = "terminal"; orch.store.updateSpec(taskId, JSON.stringify(spec)); }
+  const binDir = writeShim(task.worktree, engineBase());
+  const msg = (opts.message ?? "").trim();
+  if (msg) writeFileSync(join(task.worktree, NEXT_MSG_REL), msg, "utf8");
+  const shell = userShell();
+  const st = readTermState(task.worktree);
+  const cur = task.session_id || orch.store.termGet(taskId)?.session_id || "";
+  const sid = opts.resume && aiHasHooks(ai) ? sessionFor(ai, st, cur, aiOfEngine(role?.engine || spec.engine)) : "";
+  const env: Record<string, string> = {
+    TERM: "xterm-256color",
+    COLORTERM: "truecolor",
+    CARDUME_DB: orch.ws.dbFile,
+    CARDUME_TASK: taskId,
+    CARDUME_AGENT: role?.name || spec.agent,
+    CARDUME_ROLE: role?.role ?? "builder",
+    STARFORK_TERMINAL: "1",
+    STARFORK_SHELL: "1",
+    // bash do macOS avisa "o shell padrão agora é o zsh" a cada abertura
+    BASH_SILENCE_DEPRECATION_WARNING: "1",
+    PATH: [binDir, ...(claudeEnv().PATH ?? process.env.PATH ?? "").split(":").filter((d) => d && d !== binDir)].join(":"),
+  };
+  orch.store.addEvent(taskId, "Sistema", "status", `abrindo o terminal (shell ${shell.split("/").pop()} → ${AI_LABEL[ai]}${model ? ` · ${model}` : ""})`, true);
+  return {
+    program: shell,
+    args: ["-l", "-i", "-c", shellLine(join(binDir, "starfork"), shell, { ai, model, resume: opts.resume, msgFile: msg ? NEXT_MSG_REL : undefined })],
+    cwd: task.worktree,
+    env,
+    envRemove: envToRemove(),
+    engine: ai,
+    resumed: !!sid,
+    sessionId: sid || null,
+    model,
+    shell: true,
+    busy: aiHasHooks(ai) && !!(msg || (!sid && task.status !== "merged")),
+    recommended,
+  };
+}
+
+/** Script que o `starfork ia` roda no sh dele: cd na worktree, env da IA (chave da DeepSeek SÓ aqui, nunca no
+ * argv), a IA no TTY e, quando ela sai, `_ia-exit` (term_session.cli = ''). */
+export function launchScript(L: AiLaunch, base: string[]): string {
+  const name = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  const unset = L.envRemove.filter((k) => name.test(k) && !(k in L.env));
+  const out = [`cd ${shqp(L.cwd)} || exit 1`];
+  if (unset.length) out.push(`unset ${unset.join(" ")}`);
+  for (const [k, v] of Object.entries(L.env)) if (name.test(k)) out.push(`export ${k}=${shqp(v)}`);
+  out.push([L.program, ...L.args].map(shqp).join(" "));
+  out.push("__sf_rc=$?");
+  out.push(`${base.map(shqp).join(" ")} starfork _ia-exit ${L.ai} >/dev/null 2>&1`);
+  out.push("exit $__sf_rc");
+  return out.join("\n") + "\n";
+}
+
+/** `starfork ia-prep <ia>` (dentro do shell): prepara a IA, grava que ela está rodando e imprime o script. */
+export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resume?: boolean; msgFile?: string; model?: string }): { script: string; launch: AiLaunch } {
+  let message = "";
+  let msgPath = "";
+  try {
+    const task = orch.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada (CARDUME_TASK)`);
+    if (o.msgFile) {
+      // SÓ o arquivo de mensagem do terminal (é lido e APAGADO): relativo = à worktree (a pessoa pode ter dado cd)
+      msgPath = join(task.worktree, NEXT_MSG_REL);
+      if (resolve(task.worktree, o.msgFile) !== msgPath) { msgPath = ""; throw new Error(`--msg-file só aceita ${NEXT_MSG_REL}`); }
+      try { message = readFileSync(msgPath, "utf8"); rmSync(msgPath, { force: true }); } catch { /* sem arquivo: abre sem mensagem */ }
+    }
+    const st0 = readTermState(task.worktree);
+    snapshotSession(st0, orch.store.termGet(taskId)?.session_id);
+    writeTermState(task.worktree, st0);
+    const launch = aiLaunch(orch, taskId, ai, { resume: o.resume, message, model: o.model });
+    // relê: o aiLaunch grava a barra de status da pessoa (prevStatusLine) no mesmo arquivo
+    const st = readTermState(task.worktree);
+    st.lastAi = ai;
+    (st.started ??= {})[ai] = Date.now();
+    writeTermState(task.worktree, st);
+    orch.store.termSetCli(taskId, ai);
+    orch.store.termSetBusy(taskId, launch.busy);
+    return { script: launchScript(launch, engineBase()), launch };
+  } catch (e) {
+    try { orch.store.termSetCli(taskId, ""); orch.store.termSetBusy(taskId, false); } catch { /* banco fora: o shim chama _ia-exit --falha */ }
+    // mensagem que não foi entregue volta pro arquivo (a próxima `starfork ia` leva)
+    if (message && msgPath) try { writeFileSync(msgPath, message, "utf8"); } catch { /* perdida: o feed tem o texto */ }
+    throw e;
+  }
+}
+/** `starfork _ia-exit <ia>`: a IA saiu e o shell voltou ao prompt. */
+export function iaExit(store: Store, taskId: string, ai: string, o: { failed?: boolean } = {}): void {
+  const task = store.getTask(taskId);
+  if (!task) return;
+  // --falha: a IA nem subiu (ia-prep caiu) — só solta o estado, sem "encerrado" no feed
+  if (o.failed) { store.termSetCli(taskId, ""); store.termSetBusy(taskId, false); return; }
+  const st = readTermState(task.worktree);
+  st.lastAi = isTermAi(ai) ? ai : st.lastAi;
+  snapshotSession(st, store.termGet(taskId)?.session_id);
+  writeTermState(task.worktree, st);
+  store.termSetCli(taskId, "");
+  store.termSetBusy(taskId, false);
+  // saiu no meio de um turno (Ctrl+C duplo, crash): não fica "rodando" pra sempre (mesma regra do fim do PTY)
+  store.db.prepare(`UPDATE task SET status='review' WHERE id=? AND status IN ('running','thinking')`).run(taskId);
+  store.addEvent(taskId, "Sistema", "status", `${AI_LABEL[ai as TermAi] ?? ai} encerrado — o terminal segue no shell (\`starfork ia …\` ou uma mensagem pelo app abre de novo)`, true);
+}
+
+/** `term-ai <id> --ai x [--model m]`: grava a IA (e o modelo) do terminal no spec — reabrir lembra. */
+export function setTermAi(orch: Orchestrator, taskId: string, ai: string, model?: string): Recommended {
+  if (!isTermAi(ai)) throw new Error(`IA desconhecida: ${ai} (use ${TERM_AIS.join(" | ")})`);
+  const task = orch.store.getTask(taskId);
+  if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+  const spec = JSON.parse(task.spec_json) as TaskSpec;
+  spec.termAi = ai;
+  const m = String(model ?? "").trim();
+  if (m) spec.termModel = m; else delete spec.termModel;
+  orch.store.updateSpec(taskId, JSON.stringify(spec));
+  return recommendedLaunch(spec);
 }
 
 /**
@@ -580,12 +1070,27 @@ export function hookCli(event: string, taskArg: string, repoArg: string, argvPay
     const store = new Store(db);
     try {
       const eff = mapHook(event, p);
+      // fala INTEIRA (o feed guarda o começo; as opções ficam no fim)
+      let full = String(p.last_assistant_message ?? p["last-assistant-message"] ?? "");
       if (event === "Stop" && eff.events[0]?.text === "turno concluído") {
         const t = lastAssistantText(p.transcript_path);
-        if (t) eff.events[0].text = clip(t, 2000);
+        if (t) { eff.events[0].text = clip(t, 2000); full = t; }
       }
       const wasBusy = (store.termGet(taskId)?.busy ?? 0) === 1;
       applyHook(store, taskId, eff);
+      // chips de reserva: o agente não chamou suggest_replies, mas a fala termina com opções claras
+      if (eff.turnEnd && full) {
+        try {
+          if (!suggestedSinceUser(store.eventsForTask(taskId))) {
+            const opts = suggestFromText(full);
+            if (opts) {
+              let agent = store.getTask(taskId)?.agent ?? "agente", role: string | undefined;
+              try { const sp = JSON.parse(store.getTask(taskId)!.spec_json) as TaskSpec; const r = sp.roles?.find((x) => x.role === "builder") ?? sp.roles?.[0]; agent = r?.name || agent; role = r?.role; } catch { /* spec ilegível */ }
+              store.addEvent(taskId, agent, "suggest", JSON.stringify(opts), true, role);
+            }
+          }
+        } catch { /* chips são extra */ }
+      }
       // fim de turno: no Stop/notify sempre; no SessionEnd só se a sessão caiu NO MEIO de um turno (senão o
       // fim de turno já rodou no Stop e o gate apareceria duas vezes)
       if (eff.turnEnd || (eff.ended && wasBusy)) spawnTurnEnd(taskId, repo);
@@ -633,7 +1138,8 @@ export function statuslineCli(taskId: string, repo: string): number {
   try {
     const store = new Store(process.env.CARDUME_DB || dbOf(repo));
     try {
-      recordStatuslineCost(store, taskId, j);
+      // DeepSeek dentro do `claude`: o total_cost_usd vem com preço de Claude — não vira custo da tarefa
+      if (!skipStatuslineCost()) recordStatuslineCost(store, taskId, j);
       worktree = store.getTask(taskId)?.worktree ?? "";
       usd = Number((store.db.prepare("SELECT COALESCE(SUM(usd),0) AS u FROM cost WHERE task_id = ?").get(taskId) as { u?: number })?.u ?? 0);
     } finally { store.close(); }

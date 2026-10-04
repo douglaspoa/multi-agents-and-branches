@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../src/js/38-mesa.js', import.meta.url), 'utf8');
 const cut = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b, i); assert.ok(i >= 0 && j > i, 'trecho não encontrado: ' + a); return s.slice(i, j); };
 const pure = cut(src, '// @puro-inicio', '// @puro-fim');
-const M = new Function(pure + '\nreturn { MESA_PERSONAS, MESA_MODEL, mesaParseJson, mesaParsePersonas, mesaParsePosition, mesaCandidates, mesaParseVote, mesaTally, mesaDecision, mesaCost, mesaCapHit, mesaDiff, mesaJustify, mesaNoteBody, mesaR1Prompt, mesaR2Prompt, mesaArgPrompt, mesaAskPrompt, mesaVotesOf, mesaVoteOutcome, mesaNextStep, mesaRoundMissing };')();
+const M = new Function(pure + '\nreturn { MESA_PERSONAS, MESA_MODEL, mesaParseJson, mesaParsePersonas, mesaParsePosition, mesaCandidates, mesaParseVote, mesaTally, mesaDecision, mesaCost, mesaCapHit, mesaCapUsdOf, mesaPersonaMerge, mesaDiff, mesaJustify, mesaNoteBody, mesaR1Prompt, mesaR2Prompt, mesaArgPrompt, mesaAskPrompt, mesaVotesOf, mesaVoteOutcome, mesaNextStep, mesaRoundMissing };')();
 const planner = readFileSync(new URL('../src/js/32-planner.js', import.meta.url), 'utf8');
 const plOriginSuffix = new Function(cut(planner, 'function plOriginSuffix', '\n}') + '\n}\nreturn plOriginSuffix;')();
 
@@ -14,6 +14,15 @@ const cands = ['A', 'B', 'C', 'D', 'E', 'F'].map((t, i) => ({ id: 'F' + (i + 1),
 const ids = cands.map((c) => c.id);
 const P = [{ id: 'bia', nome: 'Bia', papel: 'vibe coder' }, { id: 'rafa', nome: 'Rafa', papel: 'tech lead' }, { id: 'julia', nome: 'Júlia', papel: 'a cética' }];
 const vote = (top, vetos = []) => M.mesaParseVote(JSON.stringify({ fala: 'x', top5: top.map(([id, peso]) => ({ id, peso, porque: 'pq ' + id })), vetos }), ids).vote;
+
+test('personas: editor único (padrão + ajuste deste computador + criadas aqui + geradas pro projeto), ids fixos', () => {
+  const L = M.mesaPersonaMerge(M.MESA_PERSONAS, { julia: { nome: 'Ju', papel: 'cética', desc: 'x', ativa: false } }, [{ id: 'c-1', nome: 'Nova', papel: '', desc: '' }], [{ id: 'g-a', nome: 'Analista', papel: 'gerada', desc: 'y' }, { id: 'bia', nome: 'Bia 2' }]);
+  assert.deepEqual(L.map((p) => p.id), ['bia', 'rafa', 'carla', 'marcos', 'julia', 'c-1', 'g-a'], 'id repetido não duplica; a ordem é padrão → criadas → geradas');
+  const j = L.find((p) => p.id === 'julia');
+  assert.equal(j.nome, 'Ju'); assert.equal(j.ativa, false); assert.equal(j.origem, 'padrao');
+  assert.equal(L.find((p) => p.id === 'g-a').origem, 'gerada');
+  assert.equal(L.find((p) => p.id === 'c-1').ativa, true, 'nova persona entra ativa');
+});
 
 test('personas padrão: as 5 da rodada 2 e Sonnet', () => {
   assert.deepEqual(M.MESA_PERSONAS.map((p) => p.nome), ['Bia', 'Rafa', 'Carla', 'Marcos', 'Júlia']);
@@ -103,9 +112,14 @@ test('custo: personas × rodadas; régua do roughEstimate quando existe', () => 
   const est = (n, m) => (assert.equal(m, 'sonnet'), [n * 0.12, n * 0.5]);
   const [a, b] = M.mesaCost(4, 2, 'claude-sonnet-5', est);
   assert.ok(Math.abs(a - 8.6 * 0.12 * 0.4) < 1e-9 && Math.abs(b - 8.6 * 0.5 * 0.4) < 1e-9, `${a} ${b}`);
-  assert.equal(M.mesaCapHit(1, 5.5, 5.5), true);
-  assert.equal(M.mesaCapHit(0.9, 5.5, 5.5), false);
-  assert.equal(M.mesaCapHit(100, 0, 5.5), false, 'teto 0 = sem teto');
+  // F4 (D13): o teto da mesa é em US$ — antes era R$ na Mesa e US$ na Ideia
+  assert.equal(M.mesaCapHit(1, 1), true);
+  assert.equal(M.mesaCapHit(0.9, 1), false);
+  assert.equal(M.mesaCapHit(100, 0), false, 'mesa antiga sem teto');
+  // mesa antiga em R$ migra pelo câmbio; a nova grava capUsd
+  assert.equal(M.mesaCapUsdOf({ capBrl: 11 }, 5.5), 2);
+  assert.equal(M.mesaCapUsdOf({ capUsd: 3, capBrl: 99 }, 5.5), 3);
+  assert.equal(M.mesaCapUsdOf({}, 5.5), 0);
 });
 
 test('rodada 1: propostas viram features F1..Fn sem duplicar título', () => {
@@ -218,4 +232,45 @@ test('planner: sufixo de origem — originNote "" suprime, ausente mantém o pad
   assert.equal(plOriginSuffix({}), '');
   assert.equal(plOriginSuffix({ origin: { title: 'T' }, originNote: '' }), '');
   assert.match(plOriginSuffix({ origin: { title: 'T' } }), /\(Origem: tarefa "T"/);
+});
+
+// ---------------- revisão F4: personas e teto (38-mesa.js inteiro num contexto mínimo) ----------------
+import vm from 'node:vm';
+function loadMesa(invokeImpl, ls = {}) {
+  const store = Object.assign({}, ls), calls = [];
+  const el = () => ({ style: {}, addEventListener() {}, value: '' });
+  const ctx = { console, Promise, JSON, Date, Math, setTimeout: () => 0, IC: {}, $id: el, bindClick() {}, toast() {}, showErr() {},
+    lsGet: (k) => (k in store ? store[k] : null), lsSet: (k, v) => { store[k] = String(v); }, usdBrlRate: () => 5.5,
+    invoke: async (c, a) => { calls.push([c, a]); return invokeImpl(c, a); }, state: { repo: '/r' }, window: {}, document: { getElementById: el, querySelector: () => null } };
+  vm.createContext(ctx);
+  vm.runInContext(readFileSync(new URL('../src/js/00-util.js', import.meta.url), 'utf8').match(/\/\/ DINHEIRO DIGITADO[\s\S]*?\n}\n/)[0] + src, ctx);
+  return { ctx, calls, store };
+}
+test('persona do projeto: leitura falhou → NÃO grava (nunca regrava personas.json com lista vazia)', async () => {
+  const { ctx, calls } = loadMesa(async (c) => { if (c === 'mesa_read') throw new Error('disco'); return null; });
+  const p = { id: 'g-a', origem: 'gerada', nome: 'A', papel: '', desc: 'x' };
+  await assert.rejects(ctx.mesaPersonaSave(p, '/r'), /disco/);
+  await assert.rejects(ctx.mesaPersonaRemove(p, '/r'), /disco/);
+  ctx.state.repo = ''; await assert.rejects(ctx.mesaPersonaSave(p, ''), /abra o projeto/, 'sem projeto: aborta');
+  assert.ok(!calls.some(([c]) => c === 'mesa_save'), 'nenhuma gravação');
+  const bad = loadMesa(async (c) => (c === 'mesa_read' ? { foo: 1 } : null));
+  await assert.rejects(bad.ctx.mesaPersonaSave(p, '/r'), /nada foi gravado/);
+  assert.ok(!bad.calls.some(([c]) => c === 'mesa_save'));
+  const ok = loadMesa(async (c) => (c === 'mesa_read' ? { personas: [{ id: 'g-a', nome: 'A' }, { id: 'g-b', nome: 'B' }] } : null));
+  await ok.ctx.mesaPersonaSave(Object.assign({}, p, { nome: 'Ana' }), '/r');
+  const saved = ok.calls.find(([c]) => c === 'mesa_save')[1].data.personas;
+  assert.deepEqual(saved.map((x) => x.nome), ['Ana', 'B'], 'a outra persona continua lá');
+});
+test('nova persona entra fora da mesa (ativa:false) até ter nome e voz', () => {
+  const { ctx, store } = loadMesa(async () => null);
+  const id = ctx.mesaPersonaNew();
+  assert.equal(JSON.parse(store['fab:personas']).custom.find((x) => x.id === id).ativa, false);
+});
+test('teto da mesa: migra UMA vez pra US$ (R$ 15 ≈ US$ 2,73); "sem teto" antigo não vira US$ 2; valor guardado vale', () => {
+  assert.equal(loadMesa(async () => null, { mesaCapBrl: '15' }).ctx.mesaCapBase(), 2.73);
+  const m = loadMesa(async () => null, { mesaCapBrl: '15' }); m.ctx.mesaCapBase(); assert.equal(m.store.mesaCapUsd, '2.73', 'gravado em US$ (não reconverte a cada leitura)');
+  assert.equal(loadMesa(async () => null, { mesaCapBrl: '0' }).ctx.mesaCapBase(), 0);
+  assert.equal(loadMesa(async () => null, { mesaCapUsd: '0' }).ctx.mesaCapBase(), 0, 'guardado "0" não vira 2');
+  assert.equal(loadMesa(async () => null, { mesaCapUsd: '4,5' }).ctx.mesaCapBase(), 4.5);
+  assert.equal(loadMesa(async () => null).ctx.mesaCapBase(), 2);
 });

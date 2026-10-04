@@ -29,7 +29,8 @@ function budgetInject(snap){
   for(const t of snap.tasks){
     const hit=(t.spec||{}).budgetHit; if(!hit) continue;
     if(!(t.status==='paused' || t.status==='needs-you' || (hit.mode==='stopped' && t.status==='review'))) continue;
-    pend.push({ id:budgetPendId(t.id), taskId:t.id, agent:'Starfork', kind:'budget', createdAt:+hit.at||0,
+    // F4: aviso do sistema, não pergunta de agente
+    pend.push({ id:budgetPendId(t.id), taskId:t.id, agent:'Aviso do Starfork', kind:'budget', notice:true, createdAt:+hit.at||0,
       prompt:budgetPrompt(t, hit), options:[BUDGET_STOP_TXT] });
   }
 }
@@ -112,6 +113,8 @@ async function budgetAnswer(pendId, answer){
   // a resposta tinha ido — opções travadas e a tarefa parada no teto sem aviso
   finally{ budgetBusy.delete(t.id); lastSig=''; refresh().catch(()=>{}); }
 }
+// teto máximo da política da organização gravado NA TAREFA (fonte única: liberação e aviso usam esta)
+function budgetOrgMax(t){ const p=((t&&t.spec)||{}).orgPolicy; return p&&+p.tetoMaxUsd>0?+p.tetoMaxUsd:null; }
 // LIBERAR MAIS (P6): sobe o teto pelo valor escrito, guarda {valor, motivo} em spec.budgetReleases (vai pro PR) e
 // retoma do jeito que parou: pausada → continua o processo; parada → manda seguir; entre etapas (motor) → ▶.
 // Liberar pouco demais (ainda ≥ 80% do teto novo) só pararia de novo na hora: recusa dizendo o mínimo.
@@ -120,7 +123,7 @@ async function budgetRelease(t, usd, reason){
   const sp=t.spec||{}, hit=sp.budgetHit||null, cap=budgetOf(t), spent=taskCost(t.id).usd;
   const capAfter=+(cap+r.usd).toFixed(2);
   // F5 · P14: o teto máximo da política da organização vale também pra liberação (em palavra, com o valor)
-  { const max=sp.orgPolicy&&+sp.orgPolicy.tetoMaxUsd>0?+sp.orgPolicy.tetoMaxUsd:null;
+  { const max=budgetOrgMax(t);
     if(max!=null && capAfter>max+1e-9) throw new Error('a política da organização limita o teto a '+fmtCost(max,{usdOnly:true})+' por tarefa — dá pra liberar no máximo '+fmtCost(Math.max(0,+(max-cap).toFixed(2)),{usdOnly:true})); }
   if(capCheck(spent, capAfter)!=='ok'){ const min=Math.max(0.01, Math.ceil((spent/CAP_PAUSE_AT-cap)*100+1)/100); throw new Error(`com ${fmtCost(r.usd,{usdOnly:true})} a tarefa ainda fica acima de 80% do teto — libere pelo menos ${fmtCost(min,{usdOnly:true})}`); }
   const rel={ usd:r.usd, reason:r.reason, at:Date.now(), capBefore:cap, capAfter };
@@ -132,6 +135,37 @@ async function budgetRelease(t, usd, reason){
     else if(hit || t.status==='paused') await invoke('resume_task',{ taskId:t.id });
     toast('Liberado: teto agora é '+fmtCost(capAfter,{usdOnly:true})+' — o motivo vai pro PR','ok');
   } finally { budgetBusy.delete(t.id); lastSig=''; refresh().catch(()=>{}); }
+}
+// F4 · G3: o teto atingido aparece como "Aviso do Starfork" (não é pergunta de um agente fictício) — na linha da Central e
+// na tarefa: "Parar aqui" ou "liberar até US$ X" com motivo (vai pro PR). Componente único: budgetNoticeHtml + budgetNoticeWire.
+function budgetNoticeHtml(t){
+  const hit=((t&&t.spec)||{}).budgetHit; if(!hit) return '';
+  const cap=+hit.cap||budgetOf(t), usd=+hit.usd||0, pct=Math.round(usd/(cap||1)*100);
+  const max=budgetOrgMax(t);
+  const sug=Math.max(1, Math.ceil(cap));
+  return `<div class="bnotice" role="status" data-bnotice="${escA(t.id)}"><div class="bn-h">${(typeof IC!=='undefined'&&IC.warn)||''}<b>Aviso do Starfork</b><span class="dim">· não é pergunta de agente</span></div>
+    <p>A tarefa chegou a <b>${pct}% do teto</b>: ${esc(fmtCost(usd,{usdOnly:true}))} de ${esc(fmtCost(cap))}. ${hit.mode==='stopped'?'O agente foi parado':'Ela está pausada'} e nada se perdeu.</p>
+    <div class="bn-a"><button type="button" class="btn sm" data-bn="stop">${BUDGET_STOP_TXT}</button><span class="dim">ou liberar mais</span><span class="ajmoney"><i>US$</i><input class="in" type="number" min="0.5" step="0.5" value="${sug}" data-bn-usd aria-label="quanto liberar, em dólar"></span><input class="in" data-bn-why placeholder="motivo (vai pro PR)" aria-label="motivo"><button type="button" class="btn primary sm" data-bn="go">Liberar e continuar</button></div>
+    <p class="dim bn-f">${max!=null?'A organização permite até '+esc(fmtCost(max,{usdOnly:true}))+' por tarefa (Regras da organização). ':''}O teto padrão fica em Ajustes › Custo e limites.</p><p class="bn-err" role="alert" hidden></p></div>`;
+}
+function budgetNoticeWire(root){
+  if(!root) return;
+  root.querySelectorAll('[data-bnotice]').forEach(box=>{
+    const t=((state&&state.tasks)||[]).find(x=>String(x.id)===box.dataset.bnotice); if(!t) return;
+    const err=m=>{ const e=box.querySelector('.bn-err'); if(e){ e.textContent=m; e.hidden=!m; } };
+    box.querySelectorAll('[data-bn]').forEach(b=>b.onclick=async()=>{
+      b.disabled=true; err('');
+      try{
+        const pend=((state&&state.pending)||[]).find(p=>p.kind==='budget' && String(p.taskId)===String(t.id));
+        if(!pend && !((t.spec||{}).budgetHit)){ err('Este aviso já foi resolvido — a tela vai atualizar.'); b.disabled=false; return; }
+        if(b.dataset.bn==='stop'){ if(pend) await budgetAnswer(pend.id, BUDGET_STOP_TXT); else { err('Este aviso já foi resolvido — a tela vai atualizar.'); b.disabled=false; } }
+        else { const usd=parseFloat(String(box.querySelector('[data-bn-usd]').value).replace(',','.')), why=String(box.querySelector('[data-bn-why]').value||'').trim();
+          if(!(usd>0)){ err('Escreva quanto liberar — um valor em US$ maior que 0.'); b.disabled=false; box.querySelector('[data-bn-usd]').focus(); return; }
+          if(!why){ err('Escreva o motivo — ele vai pro PR.'); b.disabled=false; box.querySelector('[data-bn-why]').focus(); return; }
+          await budgetRelease(t, usd, why); }
+      }catch(e){ err(humanErr(e,'Não deu').msg); b.disabled=false; }
+    });
+  });
 }
 // teto escolhido na criação (planner / Como executar) → vai pro spec depois do new_task
 let ntBudgetPending=null;
@@ -177,8 +211,8 @@ async function protectSet(repo, on){
   await invoke('write_setting',{ key:'protect:'+repo, value:on?'1':'0' });
 }
 function protectTip(on){
-  return on ? 'Modo protegido — o agente NÃO consegue:\n• '+PROTECT_BLOCKS.join('\n• ')+'\nSe precisar, ele pergunta pra você. Troque em Preferências do projeto.'
-            : 'Modo livre — sem regras de bloqueio: o agente pode ler .env e rodar qualquer comando. Troque em Preferências do projeto.';
+  return on ? 'Modo protegido — o agente NÃO consegue:\n• '+PROTECT_BLOCKS.join('\n• ')+'\nSe precisar, ele pergunta pra você. Troque em Projeto › Regras.'
+            : 'Modo livre — sem regras de bloqueio: o agente pode ler .env e rodar qualquer comando. Troque em Projeto › Regras.';
 }
 function protectBadgeHtml(t){
   const on=protectOnFor((t&&t.repo)||(state&&state.repo));

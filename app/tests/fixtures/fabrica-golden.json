@@ -1,0 +1,285 @@
+{
+ "_doc": "Fixture DOURADO da Fábrica: o Rust (fabrica.rs, teste fixture_dourado_igual_ao_front) e o front (65-fabrica.js, app/tests/fabrica.test.mjs) têm que dar o MESMO resultado. Mudou a regra num lado? Mude no outro e aqui.",
+ "sinais": [
+  {
+   "nome": "dois sites, autor repetido",
+   "sinais": [
+    {
+     "tipo": "user",
+     "origem": "reddit.com",
+     "url": "https://reddit.com/r/a/1",
+     "autores": [
+      "ana",
+      "Beto"
+     ]
+    },
+    {
+     "tipo": "user",
+     "origem": "reddit.com",
+     "url": "https://reddit.com/r/a/2",
+     "autores": [
+      "Ana"
+     ]
+    },
+    {
+     "tipo": "user",
+     "origem": "forum.org",
+     "url": "https://forum.org/t/9",
+     "autores": []
+    },
+    {
+     "tipo": "comp",
+     "origem": "agendax.com",
+     "url": "https://agendax.com",
+     "autores": []
+    }
+   ],
+   "autores": 3,
+   "fontes": 2,
+   "ideiaNossa": false,
+   "resumo": "2 pedidos de usuário (3 autores)"
+  },
+  {
+   "nome": "feature: issue + atritos + código",
+   "sinais": [
+    {
+     "tipo": "user",
+     "id": "#212",
+     "origem": "issue #212",
+     "autores": [
+      "a",
+      "b",
+      "c"
+     ]
+    },
+    {
+     "tipo": "int",
+     "id": "D:t1",
+     "origem": "demanda t1",
+     "autores": [
+      "time do projeto"
+     ]
+    },
+    {
+     "tipo": "int",
+     "id": "P:3",
+     "origem": "pedido no chat da demanda t1",
+     "autores": [
+      "time do projeto"
+     ]
+    },
+    {
+     "tipo": "code",
+     "origem": "src/A.tsx:10",
+     "autores": []
+    },
+    {
+     "tipo": "code",
+     "origem": "src/B.tsx",
+     "autores": []
+    },
+    {
+     "tipo": "comp",
+     "origem": "x.com",
+     "url": "https://x.com/changelog",
+     "autores": []
+    }
+   ],
+   "autores": 4,
+   "fontes": 4,
+   "ideiaNossa": false,
+   "resumo": "1 pedido de usuário (3 autores) + 2 atritos internos + 1 evidência técnica"
+  },
+  {
+   "nome": "só código = ideia nossa",
+   "sinais": [
+    {
+     "tipo": "code",
+     "origem": "a.ts",
+     "autores": []
+    },
+    {
+     "tipo": "comp",
+     "origem": "y.com",
+     "url": "https://y.com",
+     "autores": []
+    }
+   ],
+   "autores": 0,
+   "fontes": 1,
+   "ideiaNossa": true,
+   "resumo": "0 pedidos de usuário + 1 evidência técnica"
+  },
+  {
+   "nome": "autor desconhecido conta 1 por fonte",
+   "sinais": [
+    {
+     "tipo": "user",
+     "origem": "a.com",
+     "url": "https://a.com/1",
+     "autores": [
+      "desconhecido",
+      "Anônimo",
+      "n/a"
+     ]
+    },
+    {
+     "tipo": "user",
+     "origem": "a.com",
+     "url": "https://a.com/2",
+     "autores": []
+    }
+   ],
+   "autores": 1,
+   "fontes": 1,
+   "ideiaNossa": false,
+   "resumo": "1 pedido de usuário (1 autor)"
+  }
+ ],
+ "mocks": [
+  {
+   "nome": "kit limpo",
+   "ok": true,
+   "html": "<div class=\"mk-app\"><div class=\"mk-top\">Produto Exemplo</div><ul class=\"mk-list\"><li>Pessoa Exemplo 1<em>confirmou</em></li><li>Pessoa Exemplo 2<em>remarcar</em></li></ul><span class=\"mk-btn pri\">Enviar</span></div>"
+  },
+  {
+   "nome": "e-mail de exemplo é falso óbvio",
+   "ok": true,
+   "html": "<div class=\"mk-app\"><div class=\"mk-card\">contato@exemplo.com.br · Pessoa Exemplo</div></div>"
+  },
+  {
+   "nome": "script",
+   "ok": false,
+   "html": "<div class=\"mk-app\"><script>alert(1)</script>Produto Exemplo aqui</div>"
+  },
+  {
+   "nome": "handler",
+   "ok": false,
+   "html": "<div class=\"mk-app\" onclick=\"x()\">Produto Exemplo aqui dentro</div>"
+  },
+  {
+   "nome": "imagem externa",
+   "ok": false,
+   "html": "<div class=\"mk-app\"><img src=\"https://x.com/a.png\">Produto Exemplo</div>"
+  },
+  {
+   "nome": "url() no style",
+   "ok": false,
+   "html": "<div class=\"mk-app\" style=\"background:url(x.png)\">Produto Exemplo aqui</div>"
+  },
+  {
+   "nome": "fetch",
+   "ok": false,
+   "html": "<div class=\"mk-app\">Produto Exemplo fetch('/api') aqui dentro</div>"
+  },
+  {
+   "nome": "e-mail realista",
+   "ok": false,
+   "html": "<div class=\"mk-app\">maria.silva@gmail.com · Produto Exemplo</div>"
+  },
+  {
+   "nome": "telefone realista",
+   "ok": false,
+   "html": "<div class=\"mk-app\">(11) 98765-4321 · Produto Exemplo</div>"
+  },
+  {
+   "nome": "link",
+   "ok": false,
+   "html": "<div class=\"mk-app\"><a href=\"#x\">Produto Exemplo</a> e mais texto</div>"
+  },
+  {
+   "nome": "vazio",
+   "ok": false,
+   "html": "<div></div>"
+  }
+ ],
+ "mockDoc": {
+  "body": "<div class=\"mk-app\"><div class=\"mk-top\">Produto Exemplo</div><ul class=\"mk-list\"><li>Pessoa Exemplo 1<em>ok</em></li></ul><span class=\"mk-btn pri mk-new\">Avise-me</span></div>",
+  "doc": "<!doctype html><html><head><meta charset=\"utf-8\"><meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'\"><style>*{box-sizing:border-box;margin:0;padding:0}body{font:12px/1.4 -apple-system,system-ui,sans-serif;background:var(--mk-bg,#f3f3f3);color:var(--mk-ink,#222);padding:10px}.mk-app{border:1px solid var(--mk-line,#ccc);border-radius:10px;background:var(--mk-card,#fff);overflow:hidden;max-width:520px;margin:0 auto}.mk-top{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--mk-line,#ccc);font-weight:700}.mk-tabs{display:flex;gap:4px;padding:6px 8px;border-bottom:1px solid var(--mk-line,#ccc);flex-wrap:wrap}.mk-tabs span{padding:2px 7px;border-radius:4px;opacity:.6}.mk-tabs .on{opacity:1;background:var(--mk-bg,#eee);font-weight:700}.mk-h{font-size:14px;font-weight:700;padding:8px 10px 2px}.mk-sub{opacity:.7;padding:0 10px 6px}.mk-card{border:1px solid var(--mk-line,#ccc);border-radius:7px;padding:8px;margin:6px 10px;background:var(--mk-card,#fff)}.mk-list{list-style:none;padding:4px 10px}.mk-list li{display:flex;gap:6px;align-items:center;border:1px solid var(--mk-line,#ccc);border-radius:6px;padding:5px 7px;margin:4px 0}.mk-list li em{margin-left:auto;font-style:normal;font-weight:700}.mk-row{display:flex;gap:6px;align-items:center;padding:4px 10px;flex-wrap:wrap}.mk-btn{display:inline-block;border:1px solid var(--mk-line,#bbb);border-radius:6px;padding:4px 9px;font-weight:600}.mk-btn.pri{background:var(--mk-acc,#333);color:var(--mk-on-acc,#fff);border-color:transparent}.mk-input{border:1px solid var(--mk-line,#bbb);border-radius:6px;padding:4px 8px;opacity:.8;margin:4px 10px}.mk-tag{display:inline-block;font-size:10px;border:1px solid var(--mk-line,#bbb);border-radius:3px;padding:0 5px}.mk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px;padding:6px 10px}.mk-new{outline:2px dashed var(--mk-acc,#333);outline-offset:2px;border-radius:4px}</style></head><body><div class=\"mk-app\"><div class=\"mk-top\">Produto Exemplo</div><ul class=\"mk-list\"><li>Pessoa Exemplo 1<em>ok</em></li></ul><span class=\"mk-btn pri mk-new\">Avise-me</span></div></body></html>"
+ },
+ "featureRaw": {
+  "titulo": "Avise-me",
+  "problema": "p",
+  "sinais": [],
+  "impacto": {
+   "arquivos": [
+    "src/a.tsx",
+    "../etc/x",
+    "src/api/"
+   ],
+   "areas": [
+    "src/"
+   ],
+   "naoToca": [
+    "login"
+   ],
+   "regressao": "ordem dos módulos",
+   "cobertura": "Parcial"
+  },
+  "tarefasPlano": [
+   {
+    "titulo": "",
+    "owns": [
+     "x"
+    ]
+   },
+   {
+    "titulo": "Botão Avise-me",
+    "owns": [
+     "../x",
+     "src/components/Header.tsx"
+    ],
+    "objetivo": "o botão"
+   },
+   {
+    "titulo": "Rota de inscrição",
+    "owns": [
+     "src/api/avisos/"
+    ]
+   }
+  ],
+  "manutencao": {
+   "telas": 1,
+   "rotas": "2",
+   "tabelas": 99
+  }
+ },
+ "featureNorm": {
+  "tarefasPlano": [
+   {
+    "titulo": "Botão Avise-me",
+    "owns": [
+     "src/components/Header.tsx"
+    ],
+    "objetivo": "o botão"
+   },
+   {
+    "titulo": "Rota de inscrição",
+    "owns": [
+     "src/api/avisos/"
+    ],
+    "objetivo": ""
+   }
+  ],
+  "tarefas": 2,
+  "manutencao": {
+   "telas": 1,
+   "rotas": 0,
+   "tabelas": 20
+  },
+  "impacto": {
+   "arquivos": [
+    "src/a.tsx",
+    "src/api/"
+   ],
+   "areas": [
+    "src/"
+   ],
+   "naoToca": [
+    "login"
+   ],
+   "regressao": "ordem dos módulos",
+   "cobertura": "parcial"
+  }
+ }
+}

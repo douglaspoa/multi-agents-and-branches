@@ -27,6 +27,7 @@ mod navexterno;
 mod memoria;
 mod mesa;
 mod ideia;
+mod fabrica;
 mod plan_usage;
 mod projetos_conta;
 mod pty;
@@ -35,6 +36,7 @@ mod term_hist;
 #[cfg(test)]
 mod pty_e2e;
 mod usage_ledger;
+mod task_code;
 #[cfg(target_os = "macos")]
 mod notif_mac;
 #[cfg(test)]
@@ -1178,6 +1180,8 @@ struct Task {
     engine: String,
     model: Option<String>,
     created_at: i64,
+    /// F4 (inventário 01): data de CONCLUSÃO = ts do último evento da tarefa (0 sem eventos) — "concluída hoje" usa esta
+    finished_at: i64,
     sort_order: Option<i64>,
     deliverables: serde_json::Value,
     requirements: serde_json::Value,
@@ -1637,7 +1641,8 @@ fn task_commit_info(state: State<AppState>, task_id: String) -> Result<CommitInf
 fn commit_info_in(repo: &Path, base: &str, branch: &str, wt: Option<&Path>) -> CommitInfo {
     let live = wt.filter(|w| w.join(".git").exists());
     let (dir, tip) = match live { Some(w) => (w.to_path_buf(), "HEAD".to_string()), None => (repo.to_path_buf(), branch.to_string()) };
-    let mb = merge_base_ref(&dir, base, &tip);
+    // sem worktree e branch já dentro da base (merge commit): fork pelo merge commit — senão "0 commits" na mergeada
+    let mb = if live.is_some() { merge_base_ref(&dir, base, &tip) } else { task_code::fork_point(&dir, base, &tip) };
     let mut commits = Vec::new();
     if let Ok(out) = Command::new("git").arg("-C").arg(&dir)
         .args(["log", &format!("{mb}..{tip}"), "--format=%H\u{1f}%s\u{1f}%an\u{1f}%ad", "--date=short"]).output()
@@ -2811,9 +2816,11 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
     };
     let tasks = conn
         .prepare(&format!(
-            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{} \
+            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{}, \
+             {} \
              FROM task ORDER BY created_at",
-            if has_busy { "busy_pid" } else { "NULL" }
+            if has_busy { "busy_pid" } else { "NULL" },
+            finished_at_sql(task_has_col(&conn, "closed_at"))
         ))
         .map_err(|e| e.to_string())?
         .query_map([], |r| {
@@ -2834,6 +2841,7 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                 engine: r.get(10)?,
                 model: r.get(11)?,
                 created_at: r.get(12)?,
+                finished_at: r.get::<_, Option<i64>>(17).unwrap_or(None).unwrap_or(0),
                 sort_order: r.get(14)?,
                 deliverables: spec.get("deliverables").cloned().unwrap_or(serde_json::Value::Array(vec![])),
                 requirements: spec.get("requirements").cloned().unwrap_or(serde_json::Value::Array(vec![])),
@@ -3987,6 +3995,63 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
 
 /// Marca a tarefa como 'blocked' | 'closed' (ou limpa com "" / null). Estado do
 /// usuário, ortogonal ao status do agente — usado pra filtrar/arquivar no Fluxo.
+// ---- F4 (inventário 01): data de CONCLUSÃO ----
+// Encerrar à mão (flag closed, status merged/cancelled) não grava evento — "último evento" não servia de data de
+// conclusão. A coluna task.closed_at (idempotente) guarda o momento do encerramento; reabrir zera. finished_at =
+// closed_at quando existe; senão o último evento (tarefa concluída pelo motor, sem passar por aqui).
+fn task_mark_closed(conn: &Connection, task_id: &str, closed: bool, at: i64) {
+    let _ = conn.execute("ALTER TABLE task ADD COLUMN closed_at INTEGER", []); // idempotente
+    if task_has_col_raw(conn, "closed_at") { task_col_known(conn, "closed_at"); }
+    let v: Option<i64> = if closed { Some(at) } else { None };
+    let _ = conn.execute("UPDATE task SET closed_at=?1 WHERE id=?2", params![v, task_id]);
+}
+static TASK_COL_CACHE: std::sync::OnceLock<Mutex<HashMap<(String, String), (bool, std::time::Instant)>>> = std::sync::OnceLock::new();
+/// Acabou de criar a coluna: o cache passa a saber (sem esperar a revisão de 30s).
+fn task_col_known(conn: &Connection, col: &str) {
+    let key = (conn.path().unwrap_or("").to_string(), col.to_string());
+    TASK_COL_CACHE.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner()).insert(key, (true, std::time::Instant::now()));
+}
+fn task_has_col_raw(conn: &Connection, col: &str) -> bool {
+    conn.query_row("SELECT COUNT(*) FROM pragma_table_info('task') WHERE name=?1", params![col], |r| r.get::<_, i64>(0)).map(|n| n > 0).unwrap_or(false)
+}
+fn task_has_col(conn: &Connection, col: &str) -> bool {
+    // em CACHE por (banco, coluna), igual ao busy_pid do snapshot: ler o esquema também espera o busy_timeout com o
+    // banco travado — sem cache o snapshot ficava preso ~5s (snapshot_perf). "tem" é definitivo; "não tem" revê a cada 30s
+    let key = (conn.path().unwrap_or("").to_string(), col.to_string());
+    let hc = TASK_COL_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    match hc.lock().unwrap_or_else(|e| e.into_inner()).get(&key).copied() {
+        Some((true, _)) => return true,
+        Some((false, at)) if at.elapsed() < std::time::Duration::from_secs(30) => return false,
+        _ => {}
+    }
+    let v = conn.query_row("SELECT COUNT(*) FROM pragma_table_info('task') WHERE name=?1", params![col], |r| r.get::<_, i64>(0)).map(|n| n > 0).unwrap_or(false);
+    hc.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (v, std::time::Instant::now()));
+    v
+}
+/// expressão SQL da data de conclusão (alias da tabela = `task`)
+fn finished_at_sql(has_closed_at: bool) -> &'static str {
+    if has_closed_at { "COALESCE(task.closed_at, (SELECT e.ts FROM event e WHERE e.task_id=task.id ORDER BY e.id DESC LIMIT 1))" }
+    else { "(SELECT e.ts FROM event e WHERE e.task_id=task.id ORDER BY e.id DESC LIMIT 1)" }
+}
+#[cfg(test)]
+mod finished_at_tests {
+    use super::*;
+    #[test]
+    fn encerrar_a_mao_grava_a_data_e_evento_depois_nao_muda() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE task (id TEXT PRIMARY KEY, status TEXT, flag TEXT, created_at INTEGER); CREATE TABLE event (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, ts INTEGER, type TEXT);
+          INSERT INTO task VALUES ('a','review',NULL,1); INSERT INTO event (task_id,ts,type) VALUES ('a',100,'note');").unwrap();
+        let q = |c: &Connection| -> i64 { let sql = format!("SELECT {} FROM task WHERE id='a'", finished_at_sql(task_has_col(c, "closed_at"))); c.query_row(&sql, [], |r| r.get::<_, Option<i64>>(0)).unwrap().unwrap_or(0) };
+        assert_eq!(q(&c), 100, "sem closed_at: último evento");
+        task_mark_closed(&c, "a", true, 500);
+        assert_eq!(q(&c), 500, "encerrada à mão: a data do encerramento");
+        c.execute("INSERT INTO event (task_id,ts,type) VALUES ('a',900,'note')", []).unwrap();
+        assert_eq!(q(&c), 500, "evento depois de encerrar não muda a data de conclusão");
+        task_mark_closed(&c, "a", false, 0);
+        assert_eq!(q(&c), 900, "reaberta: volta pro último evento");
+    }
+}
+
 #[tauri::command(async)]
 fn set_task_flag(state: State<AppState>, task_id: String, flag: Option<String>) -> Result<(), String> {
     let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
@@ -3995,6 +4060,9 @@ fn set_task_flag(state: State<AppState>, task_id: String, flag: Option<String>) 
     let _ = conn.execute("ALTER TABLE task ADD COLUMN flag TEXT", []); // idempotente
     let f = flag.filter(|s| s == "blocked" || s == "closed");
     conn.execute("UPDATE task SET flag=?1 WHERE id=?2", params![f, task_id]).map_err(|e| e.to_string())?;
+    // encerrar grava a data de conclusão; reabrir (flag null) zera — bloquear não mexe
+    if f.as_deref() == Some("closed") { task_mark_closed(&conn, &task_id, true, now_ms()); }
+    else if f.is_none() { task_mark_closed(&conn, &task_id, false, 0); }
     Ok(())
 }
 
@@ -4037,6 +4105,10 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
         }
     }
     set_task_status(&state, &task_id, &status)?;
+    if status != "merged" && status != "cancelled" { // voltou pra fila (review/running/draft): não está mais concluída
+        let p = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(p) = p { if let Ok(c) = Connection::open_with_flags(&p, OpenFlags::SQLITE_OPEN_READ_WRITE) { let _ = c.busy_timeout(std::time::Duration::from_millis(8000)); task_mark_closed(&c, &task_id, false, 0); } }
+    }
     if status == "merged" || status == "cancelled" {
         // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
         let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -4045,6 +4117,7 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
                 let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
                 let _ = conn.execute("DELETE FROM pending WHERE task_id=?1", params![task_id]);
+                task_mark_closed(&conn, &task_id, true, now_ms()); // data de conclusão (mergeada/cancelada à mão)
                 // mergeada: a worktree já não serve — cancelada fica (dá pra retomar/inspecionar; a limpeza manual tira)
                 if status == "merged" { if let Ok(repo) = repo_of(&state) { preview_kill(&state.procs, &task_id); remove_task_worktree(&repo, &conn, &task_id); } }
             }
@@ -6379,6 +6452,47 @@ fn task_diff_base(wt: &PathBuf, base: &str) -> String {
     merge_base_ref(wt, base, "HEAD")
 }
 
+/// Worktree já limpa (tarefa mergeada/encerrada): de onde ler o código dela — cache do patch, branch, merge commit
+/// na base ou `gh pr diff` (ver task_code.rs). None = nada achado (o front segue mostrando vazio, como antes).
+fn task_code_src(state: &State<AppState>, task_id: &str, base: &str) -> Option<(PathBuf, task_code::Fonte)> {
+    let repo = repo_of(state).ok()?;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+    let (branch, spec): (String, String) = open(&db).ok()?
+        .query_row("SELECT branch, spec_json FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .ok()?;
+    let spec: serde_json::Value = serde_json::from_str(&spec).unwrap_or_default();
+    let f = task_code::resolver(&repo, task_id, base, &branch, &spec, true)?;
+    Some((repo, f))
+}
+/// Entregável copiado pro repo no merge: `.cardume/artifacts/<rel>` da worktree → `<repo>/.cardume/artifacts/<tarefa>/<rel>`.
+fn task_artifact_in_repo(state: &State<AppState>, task_id: &str, path: &str) -> Option<PathBuf> {
+    let rel = path.strip_prefix(".cardume/artifacts/")?;
+    Some(repo_of(state).ok()?.join(".cardume").join("artifacts").join(task_id).join(rel)).filter(|p| p.is_file())
+}
+/// Diff de UM arquivo da tarefa (worktree viva ou versão integrada) — fonte única de `file_diff` e `ai_file_why`.
+fn task_file_diff_text(state: &State<AppState>, task_id: &str, path: &str) -> Result<String, String> {
+    let (wt, base) = task_wt_base(state, task_id)?;
+    let as_added = |content: String| -> String { content.lines().map(|l| format!("+{l}\n")).collect() };
+    if !wt.is_dir() {
+        if let Some(p) = task_artifact_in_repo(state, task_id, path) {
+            return Ok(std::fs::read_to_string(p).map(as_added).unwrap_or_default());
+        }
+        return Ok(task_code_src(state, task_id, &base).map(|(repo, f)| task_code::diff_arquivo(&repo, &f, path)).unwrap_or_default());
+    }
+    let base = task_diff_base(&wt, &base);
+    let out = Command::new("git")
+        .arg("-C").arg(&wt)
+        .args(["diff", "--unified=3", &base, "--", path])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+    // arquivo NOVO (untracked) não aparece no diff → mostra o conteúdo como adição
+    if text.trim().is_empty() {
+        if let Ok(content) = std::fs::read_to_string(wt.join(path)) { text = as_added(content); }
+    }
+    Ok(text)
+}
+
 fn safe_rel(path: &str) -> Result<(), String> {
     if path.starts_with('/') || path.contains("..") {
         return Err("caminho inválido".to_string());
@@ -6392,6 +6506,45 @@ struct TaskFile {
     path: String,
     add: i64,
     del: i64,
+    /// só sem worktree: de onde veio ("cache" | "branch" | "merge" | "gh") — o front pode dizer "versão integrada"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<&'static str>,
+}
+
+/// Artefatos de texto editáveis de uma pasta → `.cardume/artifacts/<rel>` (imagem abre pela aba Entregas).
+fn walk_artifacts(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<TaskFile>) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk_artifacts(&p, root, out);
+            } else {
+                let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
+                if ["html", "htm", "md", "txt", "json", "csv", "svg", "yaml", "yml"].contains(&ext.as_str()) {
+                    if let Ok(rel) = p.strip_prefix(root) {
+                        out.push(TaskFile { add: 0, del: 0, path: format!(".cardume/artifacts/{}", rel.to_string_lossy()), source: None });
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Sem worktree (mergeada/limpa): arquivos da versão integrada (task_code) + entregáveis copiados pro repo
+/// (`<repo>/.cardume/artifacts/<tarefa>/`). Antes: lista vazia — "volto na tarefa e não vejo o código".
+fn task_files_integrated(state: &State<AppState>, task_id: &str, base: &str) -> Vec<TaskFile> {
+    let mut files: Vec<TaskFile> = match task_code_src(state, task_id, base) {
+        Some((repo, f)) => {
+            let src = f.origem();
+            task_code::arquivos(&repo, &f).into_iter().map(|(path, add, del)| TaskFile { path, add, del, source: Some(src) }).collect()
+        }
+        None => vec![],
+    };
+    if let Ok(repo) = repo_of(state) {
+        let art = repo.join(".cardume").join("artifacts").join(task_id);
+        if art.is_dir() { walk_artifacts(&art, &art, &mut files); }
+    }
+    files
 }
 
 /// Arquivos alterados pela tarefa (git diff base...HEAD na worktree).
@@ -6403,7 +6556,7 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
         Err(e) if e == TASK_GONE => return Ok(vec![]),
         Err(e) => return Err(e),
     };
-    if !wt.is_dir() { return Ok(vec![]); }
+    if !wt.is_dir() { return Ok(task_files_integrated(&state, &task_id, &base)); }
     // diff da ÁRVORE DE TRABALHO vs base (inclui alterações NÃO-commitadas) —
     // assim os arquivos aparecem ao vivo enquanto o agente edita, antes do commit.
     let base = task_diff_base(&wt, &base);
@@ -6418,7 +6571,7 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
         let p: Vec<&str> = line.split('\t').collect();
         if p.len() >= 3 {
             seen.insert(p[2].to_string());
-            files.push(TaskFile { add: p[0].parse().unwrap_or(0), del: p[1].parse().unwrap_or(0), path: p[2].to_string() });
+            files.push(TaskFile { add: p[0].parse().unwrap_or(0), del: p[1].parse().unwrap_or(0), path: p[2].to_string(), source: None });
         }
     }
     // Arquivos NOVOS ainda não commitados (untracked) — para tarefas de design/criação
@@ -6436,29 +6589,12 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
                         + if b.last().map(|&c| c != b'\n').unwrap_or(false) { 1 } else { 0 })
                 .unwrap_or(0);
             seen.insert(rel.to_string());
-            files.push(TaskFile { add, del: 0, path: rel.to_string() });
+            files.push(TaskFile { add, del: 0, path: rel.to_string(), source: None });
         }
     }
     // Artefatos da worktree: .cardume/ é git-excluded e NUNCA aparece no diff —
     // sem isso, tarefa de design (que só escreve artefatos) mostra árvore vazia.
     // Só arquivos de texto editáveis (imagem abre pela aba Entregas).
-    fn walk_artifacts(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<TaskFile>) {
-        if let Ok(rd) = std::fs::read_dir(dir) {
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    walk_artifacts(&p, root, out);
-                } else {
-                    let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
-                    if ["html", "htm", "md", "txt", "json", "csv", "svg", "yaml", "yml"].contains(&ext.as_str()) {
-                        if let Ok(rel) = p.strip_prefix(root) {
-                            out.push(TaskFile { add: 0, del: 0, path: format!(".cardume/artifacts/{}", rel.to_string_lossy()) });
-                        }
-                    }
-                }
-            }
-        }
-    }
     let art_dir = wt.join(".cardume").join("artifacts");
     if art_dir.is_dir() {
         walk_artifacts(&art_dir, &art_dir, &mut files);
@@ -6489,7 +6625,17 @@ fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<Fi
     safe_rel(&path)?;
     let (wt, base) = task_wt_base(&state, &task_id)?;
     if !wt.is_dir() {
-        // worktree limpa (tarefa mergeada/encerrada): mostra a versão da branch (ou da base) no repo
+        // worktree limpa (tarefa mergeada/encerrada): entregável copiado pro repo → versão integrada da tarefa
+        // (cache/branch/merge commit, com as linhas adicionadas destacadas) → por fim branch/base no repo
+        if let Some(p) = task_artifact_in_repo(&state, &task_id, &path) {
+            return std::fs::read_to_string(p).map(|content| FileContent { content, added_lines: vec![] }).map_err(|e| e.to_string());
+        }
+        if let Some((repo, f)) = task_code_src(&state, &task_id, &base) {
+            let diff = task_code::diff_arquivo(&repo, &f, &path);
+            if let Some(content) = task_code::conteudo(&repo, &f, &path) {
+                return Ok(FileContent { content, added_lines: task_code::linhas_adicionadas(&diff) });
+            }
+        }
         let repo = active_repo(&state)?;
         let branch: String = open(&state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?)?
             .query_row("SELECT branch FROM task WHERE id=?1", params![task_id], |r| r.get(0))
@@ -6587,21 +6733,8 @@ fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String>
 #[tauri::command(async)]
 fn file_diff(state: State<AppState>, task_id: String, path: String) -> Result<String, String> {
     safe_rel(&path)?;
-    let (wt, base) = task_wt_base(&state, &task_id)?;
-    let base = task_diff_base(&wt, &base);
-    let out = Command::new("git")
-        .arg("-C").arg(&wt)
-        .args(["diff", "--unified=3", &base, "--", &path])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
-    // arquivo NOVO (untracked) não aparece no diff → mostra o conteúdo como adição
-    if text.trim().is_empty() {
-        if let Ok(content) = std::fs::read_to_string(wt.join(&path)) {
-            text = content.lines().map(|l| format!("+{l}\n")).collect();
-        }
-    }
-    Ok(text.chars().take(200_000).collect())
+    // sem worktree (mergeada): versão integrada — ver task_file_diff_text
+    Ok(task_file_diff_text(&state, &task_id, &path)?.chars().take(200_000).collect())
 }
 
 /// "Por que este arquivo": explicação REAL do que mudou neste arquivo (funções, libs, por quê),
@@ -6612,13 +6745,8 @@ fn ai_file_why(state: State<AppState>, task_id: String, path: String) -> Result<
     use std::hash::{Hash, Hasher};
     safe_rel(&path)?;
     let repo = repo_of(&state)?;
-    let (wt, base) = task_wt_base(&state, &task_id)?;
-    let base = task_diff_base(&wt, &base);
-    let out = Command::new("git").arg("-C").arg(&wt).args(["diff", "--unified=3", &base, "--", &path]).output().map_err(|e| e.to_string())?;
-    let mut diff = String::from_utf8_lossy(&out.stdout).to_string();
-    if diff.trim().is_empty() {
-        if let Ok(content) = std::fs::read_to_string(wt.join(&path)) { diff = content.lines().map(|l| format!("+{l}\n")).collect(); }
-    }
+    // mesmo diff da Revisão (worktree viva ou versão integrada da tarefa mergeada)
+    let diff = task_file_diff_text(&state, &task_id, &path)?;
     if diff.trim().is_empty() { return Ok(String::new()); }
     let (objective, title): (String, String) = {
         let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
@@ -6836,6 +6964,16 @@ fn ai_avail_refresh() { ai_once::clear_avail_cache(); plan_usage::clear_caches()
 /// a mesma disponibilidade do ai_once/Ambiente, sem cache (o "verificar de novo" vale na hora).
 #[tauri::command(async)]
 fn ai_engines_status() -> Vec<ai_once::EngineStatus> { ai_once::engines_status() }
+/// IAs que só rodam no TERMINAL integrado (`starfork ia gemini|opencode`): instaladas? Mesmo resolvedor único do
+/// terminal (bin_resolve ≡ src/terminal.ts resolveAiBin) — Ajustes › IA e modelos mostra o estado real.
+#[tauri::command(async)]
+fn term_ai_bins() -> serde_json::Value {
+    let f = |n: &str| {
+        let r = bin_resolve::resolve_cached(n, || Some(node_bin()).filter(|x| x != "node"));
+        serde_json::json!({ "id": n, "installed": r.bin.is_some(), "bin": r.bin })
+    };
+    serde_json::json!([f("gemini"), f("opencode")])
+}
 
 /// Barra de status do Claude Code (% real do plano no medidor): liga/desliga pelo interruptor do cartão do Claude
 /// em "Sua IA". Fonte única = CLI `cardume claude-statusline install|uninstall|status` (src/claude-statusline.ts); o
@@ -8375,6 +8513,13 @@ struct ProjOverview {
     active: i64,
     review: i64,
     tasks: Vec<ProjTaskLite>,
+    /// F4: o repositório tem remote (GitHub)? false = "só neste computador · publicar" na tela Projetos
+    has_remote: bool,
+}
+
+/// remote configurado no .git/config da pasta (sem rodar git; pasta sem git = false)
+fn repo_has_remote_cfg(p: &str) -> bool {
+    std::fs::read_to_string(PathBuf::from(p).join(".git").join("config")).map(|c| c.contains("[remote \"")).unwrap_or(false)
 }
 
 /// Visão de TODOS os projetos salvos (sidebar por projeto do redesign):
@@ -8407,7 +8552,7 @@ fn projects_overview() -> Vec<ProjOverview> {
                     }
                 }
             }
-            ProjOverview { path: p.clone(), name, active, review, tasks }
+            ProjOverview { path: p.clone(), name, active, review, tasks, has_remote: repo_has_remote_cfg(p) }
         })
         .collect()
 }
@@ -8423,6 +8568,8 @@ struct AllTask {
     flag: Option<String>,
     engine: String,
     created_at: i64,
+    /// data de conclusão (último evento) — a Central ordena/filtra Concluídas por ela
+    finished_at: i64,
     sort_order: Option<i64>,
     repo: String,
     proj: String,
@@ -8441,7 +8588,7 @@ fn list_all_tasks() -> Vec<AllTask> {
             Err(_) => continue,
         };
         let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
-        let mut st = match conn.prepare("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order FROM task ORDER BY created_at") {
+        let mut st = match conn.prepare(&format!("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,{} FROM task ORDER BY created_at", finished_at_sql(task_has_col(&conn, "closed_at")))) {
             Ok(s) => s,
             Err(_) => continue,
         };
@@ -8455,6 +8602,7 @@ fn list_all_tasks() -> Vec<AllTask> {
                 flag: r.get::<_, Option<String>>(5)?.filter(|s| !s.is_empty()),
                 engine: r.get::<_, Option<String>>(6)?.unwrap_or_default(),
                 created_at: r.get::<_, Option<i64>>(7)?.unwrap_or(0),
+                finished_at: r.get::<_, Option<i64>>(9).unwrap_or(None).unwrap_or(0),
                 sort_order: r.get::<_, Option<i64>>(8)?,
                 repo: p.clone(),
                 proj: name.clone(),
@@ -8594,8 +8742,12 @@ fn remove_worktree_dir(repo: &Path, wt: &Path) -> bool {
 /// qualquer caminho (merge pelo app, merge externo detectado, marcação manual).
 fn remove_task_worktree(repo: &Path, conn: &Connection, task_id: &str) {
     term::kill_task(task_id);
-    if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
-        if !wt.is_empty() { remove_worktree_dir(repo, &PathBuf::from(wt)); }
+    if let Ok((wt, base)) = conn.query_row("SELECT worktree, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+        if !wt.is_empty() {
+            // ANTES de sumir: o código da tarefa vira .cardume/diffs/<tarefa>.patch (aba Código/Revisão depois do merge, offline)
+            task_code::salvar_cache(repo, Path::new(&wt), &base, task_id);
+            remove_worktree_dir(repo, &PathBuf::from(wt));
+        }
     }
 }
 
@@ -8681,7 +8833,7 @@ fn workspace_usage(state: State<AppState>) -> Result<serde_json::Value, String> 
 fn workspace_clean(state: State<AppState>, worktrees: bool, temp: bool, artifacts: bool) -> Result<serde_json::Value, String> {
     let repo = repo_of(&state)?;
     let d = repo.join(".cardume");
-    let usage = workspace_usage(state)?;
+    let usage = workspace_usage(state.clone())?;
     let mut freed: u64 = 0;
     let mut removed: u64 = 0;
     let mut errors: Vec<String> = Vec::new();
@@ -8692,6 +8844,10 @@ fn workspace_clean(state: State<AppState>, worktrees: bool, temp: bool, artifact
             let p = PathBuf::from(it["path"].as_str().unwrap_or(""));
             if p.as_os_str().is_empty() { continue; }
             let b = it["bytes"].as_u64().unwrap_or(0);
+            // tarefa conhecida: guarda o código dela antes (mesma regra do merge)
+            if let Some(id) = it["id"].as_str().filter(|s| !s.is_empty()) {
+                if let Ok((_, base)) = task_wt_base(&state, id) { task_code::salvar_cache(&repo, &p, &base, id); }
+            }
             if remove_worktree_dir(&repo, &p) { freed += b; removed += 1; } else { errors.push(format!("worktree {}", p.display())); }
         }
     }
@@ -9958,6 +10114,12 @@ pub fn run() {
             ideia::reach_install,
             ideia::reach_doctor,
             ideia::reach_remove,
+            fabrica::fabrica_start,
+            fabrica::fabrica_read,
+            fabrica::fabrica_list,
+            fabrica::fabrica_stop,
+            fabrica::fabrica_discard,
+            fabrica::fabrica_choose,
             mesa::mesa_stop,
             mesa::mesa_resume,
             mesa::mesa_save,
@@ -10115,6 +10277,7 @@ pub fn run() {
             env_check,
             ai_avail_refresh,
             ai_engines_status,
+            term_ai_bins,
             ai_test,
             read_artifact_raw,
             ai_decompose,
@@ -10172,7 +10335,9 @@ pub fn run() {
             term::term_send,
             term::term_interrupt,
             term::term_kill,
-            term::term_status
+            term::term_status,
+            term::term_switch_ai,
+            term::term_run_recommended
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o Starfork")

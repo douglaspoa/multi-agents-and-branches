@@ -179,12 +179,15 @@ test('chat do projeto: roda na IA padrão (a escolha mora em Sua IA) → o compo
 test('orquestrador, issues e Nova demanda: a escolha de IA também foi pro composer', () => {
   const orq = read('34-orquestrador.js');
   assert.doesNotMatch(orq, /orq-model/, 'o "IA: …" solto à direita virou a pílula');
-  assert.match(orq, /chatComposerHtml\(\{ cls:'orq-briefcc'[\s\S]*?modelPill:aiChatModelPill\('orqModel'\)/);
-  assert.match(orq, /chatComposer\(\{ input:'orqTa'[^\n]*modelPill:aiChatModelPill\('orqModel'\)/);
+  // F4 (D12): o planejador de etapas usa o SELETOR ÚNICO no composer (iaPickChat: modelo da conversa, motor dos chats)
+  assert.match(orq, /chatComposerHtml\(\{ cls:'orq-briefcc'[\s\S]*?extras:'<span id="orqIa"><\/span>/);
+  assert.match(orq, /iaPickChat\(h, \{ model:orq\.model\|\|null/);
+  assert.doesNotMatch(orq, /modelPill:aiChatModelPill/);
   assert.match(read('14-issues-projeto.js'), /chatComposer\(\{ input:'trkNIInput'[^\n]*modelPill:aiChatModelPill\('trkNIModel'\)/);
   const pl = read('32-planner.js');
-  assert.match(fnSrc(pl, 'plWireComposer'), /modelPill:plModelPill\(\)/);
-  assert.match(fnSrc(pl, 'plModelPill'), /onPick:\(b\)=>plOpenModelPop\(b\)/, 'mesmo popover "IA desta demanda" da prévia');
+  // F4 (D12): na Nova demanda a IA é o SELETOR ÚNICO (iaPick) ao lado do Tipo, não o slot do composer
+  assert.doesNotMatch(fnSrc(pl, 'plWireComposer'), /modelPill:/);
+  assert.match(fnSrc(pl, 'plRenderCtl'), /PL_IA=iaPick\(host, \{ value:\{ engine:eng, model \}, scope:'demanda', recommend:plRecommend/);
   // chatComposer garante a pílula também na marcação estática (index.html) e mantém o rótulo atual
   assert.match(fnSrc(ANEXOS, 'chatComposer'), /if\(cfg\.modelPill\) chatModelPillEnsure\(box, cfg\.modelPill\)/);
 });

@@ -206,28 +206,60 @@ const L = ([r, g, b]) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 const ratio = (a, b) => { const x = L(a), y = L(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 const mix = (fg, a, bg) => fg.map((v, i) => v * a + bg[i] * (1 - a));
 const tok = (name) => { const m = base.match(new RegExp('--' + name + ':\\s*([^;]+);')); assert.ok(m, 'token --' + name); return m[1].trim(); };
-// superfícies onde texto apagado aparece: tokens + o fundo fixo dos terminais do orquestrador (#0b0d0c)
-const surfaces = [...['bg', 'surface', 'surface-2', 'surface-3', 'card-bg'].map((n) => ['--' + n, hex(tok(n))]), ['#0b0d0c', hex('#0b0d0c')]];
+// redesenho F2: DOIS temas — os tokens primitivos moram no bloco do claro (:root{ /* tema: claro …) e no do escuro
+// (:root[data-theme="dark"]); os nomes do app (--muted, --bg…) apontam pra eles. Contraste conferido nos dois.
+const themeBlock = (re) => { const m = base.match(re); assert.ok(m, 'bloco de tema ' + re); return m[1]; };
+const THEMES = { claro: themeBlock(/:root\{ \/\* tema: claro[^\n]*\n([\s\S]*?)\n\}/), escuro: themeBlock(/:root\[data-theme="dark"\]\{[^\n]*\n([\s\S]*?)\n\}/) };
+const tv = (blk, name) => { const m = blk.match(new RegExp('--' + name + ':\\s*([^;]+);')); assert.ok(m, 'token --' + name); return m[1].trim(); };
+const tokHex = (blk, name) => { const v = tv(blk, name); const r = v.match(/^var\(--([\w-]+)\)$/); return hex(r ? tv(blk, r[1]) : v); };
+const SURF = ['ground', 'surf-1', 'surf-2', 'surf-3', 'card'];
 
-test('contraste AA (4,5:1) do texto apagado (--muted/--text-dim e --text-3) em todas as superfícies', () => {
-  const muted = hex(tok('muted'));
-  const t3 = tok('text-3').match(/rgba\((\d+),(\d+),(\d+),([\d.]+)\)/); assert.ok(t3, '--text-3 em rgba');
-  for (const [n, s] of surfaces) {
-    assert.ok(ratio(muted, s) >= 4.5, `--muted sobre ${n}: ${ratio(muted, s).toFixed(2)}`);
-    const c = mix([+t3[1], +t3[2], +t3[3]], +t3[4], s);
-    assert.ok(ratio(c, s) >= 4.5, `--text-3 sobre ${n}: ${ratio(c, s).toFixed(2)}`);
-  }
+test('contraste AA (4,5:1) do texto apagado (--muted/--text-3 = --ink-3) em todas as superfícies, nos dois temas', () => {
+  assert.match(base, /--muted:var\(--ink-3\); --text-3:var\(--ink-3\);/);
   assert.match(base, /--text-dim:var\(--muted\)/);
+  for (const [nome, blk] of Object.entries(THEMES)) {
+    const muted = tokHex(blk, 'ink-3');
+    for (const s of SURF) assert.ok(ratio(muted, tokHex(blk, s)) >= 4.5, `${nome}: --ink-3 sobre --${s}: ${ratio(muted, tokHex(blk, s)).toFixed(2)}`);
+    // terminal (xterm e os do orquestrador) e lateral: a tinta apagada de cada um sobre o próprio fundo
+    for (const t of ['term-fg', 'term-dim', 'term-faint']) assert.ok(ratio(tokHex(blk, t), tokHex(blk, 'term-bg')) >= 4.5, `${nome}: --${t} sobre --term-bg`);
+    for (const s of ['side', 'side-2']) assert.ok(ratio(tokHex(blk, 'on-side-2'), tokHex(blk, s)) >= 4.5, `${nome}: --on-side-2 sobre --${s}`);
+    for (const c of ['tone-ok', 'tone-warn', 'tone-crit', 'tone-info', 'tone-ask', 'live']) for (const s of SURF) assert.ok(ratio(tokHex(blk, c), tokHex(blk, s)) >= 4.5, `${nome}: --${c} como texto sobre --${s} (página e menu "Mais")`);
+    // lateral: as cores de estado viram as claras (--side-*) e precisam ler sobre o marinho/verde-quase-preto
+    for (const c of ['side-ok', 'side-warn', 'side-crit', 'side-info', 'side-ask', 'live-side', 'on-side']) for (const s of ['side', 'side-2']) assert.ok(ratio(tokHex(blk, c), tokHex(blk, s)) >= 4.5, `${nome}: --${c} sobre --${s}`);
+    // terminal: toda cor ANSI (menos o preto) e o "perguntou" sobre o fundo do terminal
+    for (const c of ['ansi-red', 'ansi-green', 'ansi-yellow', 'ansi-blue', 'ansi-magenta', 'ansi-cyan', 'ansi-white', 'ansi-bblack', 'ansi-bred', 'ansi-bgreen', 'ansi-byellow', 'ansi-bblue', 'ansi-bmagenta', 'ansi-bcyan', 'ansi-bwhite', 'term-ask', 'term-live'])
+      assert.ok(ratio(tokHex(blk, c), tokHex(blk, 'term-bg')) >= 4.5, `${nome}: --${c} sobre --term-bg`);
+    // texto sobre botão: primário e acento (inclusive o hover --live-2), e os chips do terminal
+    assert.ok(ratio(tokHex(blk, 'tone-on-primary'), tokHex(blk, 'tone-primary')) >= 4.5, nome + ': --on-primary sobre --primary');
+    for (const b of ['live', 'live-2']) assert.ok(ratio(tokHex(blk, 'on-live'), tokHex(blk, b)) >= 4.5, `${nome}: --on-live sobre --${b}`);
+    for (const b of ['chip-bg', 'chip1-bg']) assert.ok(ratio(tokHex(blk, 'chip-ink'), tokHex(blk, b)) >= 4.5, `${nome}: --chip-ink sobre --${b}`);
+  }
 });
 
-test('anel de foco ≥ 3:1: o anel sobre as superfícies e o vão escuro contra o botão verde (.btn.primary)', () => {
-  const ring = tok('ring');
-  const gap = ring.match(/^0 0 0 2px var\(--bg\),\s*0 0 0 4px color-mix\(in srgb, var\(--accent\) (\d+)%, transparent\)$/);
-  assert.ok(gap, '--ring = vão de 2px na cor do fundo + anel de 4px: ' + ring);
-  const acc = hex(tok('accent')), bg = hex(tok('bg'));
-  for (const [n, s] of surfaces) { const r = ratio(mix(acc, +gap[1] / 100, s), s); assert.ok(r >= 3, `--ring sobre ${n}: ${r.toFixed(2)}`); }
-  assert.ok(ratio(bg, acc) >= 3, 'vão (--bg) contra o verde do botão primário: ' + ratio(bg, acc).toFixed(2));
-  assert.match(tok('ring-inset'), /^inset 0 0 0 2px color-mix\(in srgb, var\(--accent\) (\d+)%, transparent\)$/);
+test('anel de foco ≥ 3:1 nos dois temas: vão na cor do fundo + anel --focus (o acento do tema)', () => {
+  assert.match(base, /--ring:0 0 0 2px var\(--bg\), 0 0 0 4px var\(--focus\);/);
+  assert.match(base, /--ring-inset:inset 0 0 0 2px var\(--focus\);/);
+  for (const [nome, blk] of Object.entries(THEMES)) {
+    const f = tv(blk, 'tone-focus'), live = tokHex(blk, 'live');
+    const pct = /^var\(--live\)$/.test(f) ? 100 : +((f.match(/color-mix\(in srgb, var\(--live\) (\d+)%, transparent\)/) || [])[1]);
+    assert.ok(pct > 0, nome + ': --focus = o acento (cheio ou em color-mix): ' + f);
+    for (const s of SURF) { const bg = tokHex(blk, s), r = ratio(mix(live, pct / 100, bg), bg); assert.ok(r >= 3, `${nome}: anel sobre --${s}: ${r.toFixed(2)}`); }
+    // o vão (--bg = --ground) separa o anel do botão primário (--primary) e do acento cheio
+    for (const b of ['tone-primary', 'live']) assert.ok(ratio(tokHex(blk, 'ground'), tokHex(blk, b)) >= 3, `${nome}: vão contra --${b}`);
+    // nos escopos: o anel da lateral é --live-side (vão --side-3) e o do terminal é --term-live (vão --term-bg)
+    for (const s of ['side', 'side-2', 'side-3']) assert.ok(ratio(tokHex(blk, 'live-side'), tokHex(blk, s)) >= 3, `${nome}: foco da lateral sobre --${s}`);
+    for (const s of ['term-bg', 'term-bg-2']) assert.ok(ratio(tokHex(blk, 'term-live'), tokHex(blk, s)) >= 3, `${nome}: foco do terminal sobre --${s}`);
+  }
+  // os escopos redeclaram o foco e o anel (var() resolve onde é declarado: herdar o --ring da raiz traria o foco da página)
+  const scope = (sel) => { const i = base.indexOf(sel + '{'); assert.ok(i >= 0, sel); return base.slice(i, base.indexOf('\n}', i)); };
+  for (const sel of ['.sidebar', '.fwtermslot,.tltermbar,.tireply,.orq-term,.orq-termbox,.orq-chat,.orq-branch,.vf-log']) {
+    const b = scope(sel);
+    for (const t of ['--focus:', '--ring:0 0 0 2px var(--bg), 0 0 0 4px var(--focus);', '--st-ask:var(--ask)', '--st-done:var(--info)', '--ok:', '--warn:', '--crit:', '--ask:']) assert.ok(b.includes(t), sel + ' redeclara ' + t);
+  }
+  assert.ok(scope('.fwtermslot,.tltermbar,.tireply,.orq-term,.orq-termbox,.orq-chat,.orq-branch,.vf-log').includes('--bg:var(--term-bg)'), 'vão do anel no terminal');
+  // o menu "Mais" (dentro da lateral) volta pro escopo da página: mesmo bloco da raiz, com estado e primário
+  const pg = scope(':root, .sidebar .moremenu');
+  for (const t of ['--ok:var(--tone-ok)', '--warn:var(--tone-warn)', '--crit:var(--tone-crit)', '--info:var(--tone-info)', '--ask:var(--tone-ask)', '--primary:var(--tone-primary)', '--on-primary:var(--tone-on-primary)', '--focus:var(--tone-focus)', '--good:var(--tone-ok)', '--st-run:var(--accent)']) assert.ok(pg.includes(t), 'menu "Mais" repõe ' + t);
 });
 
 // cor clara translúcida em texto (CSS e estilos inline no JS): abaixo de 48% fica < 4,5:1

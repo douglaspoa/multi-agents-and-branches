@@ -241,7 +241,13 @@ test('minimizado = barra fina da IA padrão (maior janela) + rótulo curto, e pe
   const store = { defaultEngine: 'claude' };
   const P = load(store);
   await P.run('pmLoad()');
+  // redesenho F1: começa RECOLHIDO numa linha ("Uso do plano · Claude …"); abrir fica lembrado
+  assert.ok(P.el.classList.contains('min'), 'padrão: recolhido');
+  assert.match(P.el.innerHTML, /<span class="pm-lbl">Uso do plano ·<\/span><span class="pm-title">Claude<\/span>/);
+  click(P, 'toggle');
+  assert.equal(store.planMeterMin, '0');
   assert.equal((P.el.innerHTML.match(/class="pm-ia pm-/g) || []).length, 3, 'expandido: uma por IA');
+  assert.ok(!/id="pmRows" hidden/.test(P.el.innerHTML));
   click(P, 'toggle');
   assert.equal(store.planMeterMin, '1');
   assert.ok(P.el.classList.contains('min'));

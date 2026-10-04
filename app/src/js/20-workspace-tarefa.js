@@ -15,6 +15,11 @@ const fwRpLoading={};  // taskId → leitura do requirements.json em voo (1 por 
 // Invalidação no meio da carga (um envio zera o cache): cada invalidação sobe a geração da tarefa; a carga que
 // termina numa geração velha descarta o resultado e busca de novo (antes gravava o dado velho e travava a nova).
 const fwRpGen={}, fwArtGen={};
+// terminal integrado (64): o compositor pode estar ESCONDIDO embaixo do terminal. Quem precisa do campo (pergunta do
+// plano, trecho da revisão, mudar o rumo) usa fwInputShow — ele aparece nesta tarefa; quem só quer "falar com o
+// agente" usa fwFocusTalk — campo visível ou, sem ele, o próprio terminal.
+function fwInputShow(){ if(typeof fwTask!=='undefined' && fwTask && typeof tiCompShow==='function') tiCompShow(fwTask); return $id('fwInput'); }
+function fwFocusTalk(){ const i=$id('fwInput'); if(i && i.offsetParent){ i.focus(); return; } if(typeof fwTask!=='undefined' && fwTask && typeof tlFocusTerm==='function') tlFocusTerm(fwTask); }
 function fwInvalidate(taskId){ fwRpGen[taskId]=(fwRpGen[taskId]||0)+1; fwArtGen[taskId]=(fwArtGen[taskId]||0)+1; artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; }
 function fwReqProofsEnsure(taskId){
   if(reqProofCache[taskId]!==undefined || fwRpLoading[taskId]) return;
@@ -293,7 +298,7 @@ async function fwLoadFile(){
 function closeWorkspace(){
   // painel da tela dividida (58-canvas): fechar a demanda = sair da divisão (a aba continua lá em cima)
   if(typeof SF_PANE!=='undefined' && SF_PANE){ try{ window.parent.cvPaneRequestClose(window.frameElement&&window.frameElement.dataset.tabid); }catch(_){ } return; }
-  const o=$id('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } if(typeof closeTab==='function' && fwTask) closeTab('task:'+fwTask); }
+  const o=$id('fwOverlay'); if(o){ o.classList.remove('astab'); o.style.display='none'; } fwHeadDock(); if(typeof closeTab==='function' && fwTask) closeTab('task:'+fwTask); }
 function fwSelRange(){ if(!fwSelA) return null; const a=Math.min(fwSelA,fwSelB||fwSelA), b=Math.max(fwSelA,fwSelB||fwSelA); return {a,b}; }
 function fwPlan(t){
   const roles=t.roles||[]; if(!roles.length) return '';
@@ -377,7 +382,7 @@ async function fwLiveUpdate(){
   if((taskPreviewTarget(t)||null)!==fwPvShown){ renderWorkspace(); return; }
   // a fase mudou (rodando → revisão, pergunta chegou…): a ação principal do topo muda junto
   if(((fwPrimaryAction(t)||{}).id||'')!==fwPrimShown){ renderWorkspace(); return; }
-  const now=$id('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=$id('fwSteer'); if(b) b.onclick=()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
+  const now=$id('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=$id('fwSteer'); if(b) b.onclick=()=>{ const inp=fwInputShow(); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   // conversa + requisitos ao vivo (o input não é tocado — foco/texto preservados)
   const th=$id('fwThread');
   if(th && !th.dataset.term){ const atBottom=th.scrollHeight-th.scrollTop-th.clientHeight<80; th.innerHTML=fwThreadHtml(t); if(atBottom) th.scrollTop=th.scrollHeight; }
@@ -571,6 +576,7 @@ function fwOpenMore(t, anchor){
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
   pop.style.top=(r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.right-pop.offsetWidth))+'px';
+  if(typeof mvFromOrigin==='function') mvFromOrigin(pop, anchor); // F3: o menu nasce do botão
   const close=()=>{ pop.remove(); document.removeEventListener('mousedown', out, true); };
   const out=e=>{ if(!pop.contains(e.target) && e.target!==anchor) close(); };
   setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
@@ -603,7 +609,7 @@ async function fwMoreDo(t, k, anchor){
 function fwAskFix(){ if(fwMode!=='conversa'){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } // o chat pode estar escondido (Entrega/PR)
   // modo terminal: a pergunta mora na folha por cima do terminal (60-terminal-layout)
   { const t=fwTaskObj(); if(t && termViewOf(t) && typeof tlAskOf==='function'){ const a=tlAskOf(t); if(a){ a.st.min=false; tlAskPaint(t, true); return; } } }
-  const i=$id('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } }
+  const i=fwInputShow(); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } }
 async function fwTunnelOff(t){
   // falhou ao fechar: diz (antes avisava "acesso fechado" com o túnel ainda aberto pro celular)
   try{ await invoke('tunnel_stop',{ taskId:t.id }); }catch(e){ showErr(e, 'Não consegui fechar o acesso do celular'); return; }
@@ -659,6 +665,10 @@ function fwModesPaint(t){
   const html=FW_HEAD.mode==='menu' ? fwModesMenuBtnHtml(list, fwMode) : fwModesHtml(t);
   if(m.__html!==html){ m.__html=html; m.innerHTML=html; }
   m.classList.toggle('asmenu', FW_HEAD.mode==='menu');
+  if(typeof mvGlide==='function') mvGlide(m); // F3: pílula + sublinhado deslizam até o modo escolhido
+  // F3: o conteúdo entra pelo lado do clique (modo à direita → vem da direita); poll/1ª pintura não animam
+  { const L=list.map(x=>x[0]), pv=FW_HEAD.mvMode; FW_HEAD.mvMode={ task:t.id, mode:fwMode };
+    if(pv && pv.task===t.id && pv.mode!==fwMode && typeof mvSlideIn==='function' && mvUser()) mvSlideIn($id('fwCols'), slideDir(L.indexOf(pv.mode), L.indexOf(fwMode))); }
   m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=()=>fwSetMode(b.dataset.fwmode));
   const dd=$id('fwModeDd'); if(dd) dd.onclick=(e)=>{ e.stopPropagation(); fwModesMenuOpen(t, dd); };
   fwHeadWatch();
@@ -669,6 +679,7 @@ function fwModesMenuOpen(t, anchor){
   pop.innerHTML=fwModesListHtml(fwModesList(t), fwMode);
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect(); pop.style.top=(r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.left))+'px';
+  if(typeof mvFromOrigin==='function') mvFromOrigin(pop, anchor);
   const close=(back)=>{ pop.remove(); anchor.setAttribute('aria-expanded','false'); document.removeEventListener('mousedown', out, true); if(back) try{ anchor.focus(); }catch(_){ } };
   const out=e=>{ if(!pop.contains(e.target) && e.target!==anchor) close(false); };
   setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
@@ -678,10 +689,11 @@ function fwModesMenuOpen(t, anchor){
 // mede e decide (no ResizeObserver do cabeçalho e quando a lista de modos muda)
 function fwHeadFit(){
   const head=FW_HEAD.head; if(!head || !head.isConnected || head.offsetParent===null) return;
+  if(head.classList.contains('docked')){ fwHeadFitDocked(head); return; }
   const headW=head.clientWidth; if(!(headW>0)) return;
   head.classList.toggle('narrow', headW<FW_HEAD_COMPACT);
   const m=$id('fwModes');
-  if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=m.scrollWidth;
+  if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=fwModesW(m);
   const pane=(typeof SF_PANE!=='undefined' && SF_PANE);
   let fixed=(pane?0:140)+32; // título (mínimo legível; no painel o nome mora no cabeçalho do painel) + respiro das bordas
   for(const el of head.children){ if(el===m || el.id==='fwTaskName' || String(el.style.flex||'').startsWith('1') || el.offsetParent===null) continue; fixed+=el.offsetWidth+9; }
@@ -693,15 +705,67 @@ function fwHeadFit(){
   if(!tight && head.scrollWidth>head.clientWidth+1) head.classList.add('tight');
   else if(tight && headW>=FW_HEAD_TIGHT) head.classList.remove('tight');
 }
+// docado: o espaço é o que sobra na barra de abas (o cabeçalho + o vão livre .tabgrow − o que transborda). Primeiro os
+// modos viram o botão "Terminal ▾"; só se nem assim couber a ação principal vira ícone — e volta ao texto assim que cabe.
+function fwHeadFitDocked(head){
+  const bar=$id('tabBar'), g=bar&&bar.querySelector('.tabgrow');
+  const avail=head.offsetWidth+(g?g.offsetWidth:0)-(bar?Math.max(0, bar.scrollWidth-bar.clientWidth):0);
+  if(!(avail>0)) return;
+  const m=$id('fwModes');
+  if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=fwModesW(m);
+  let fixed=8; for(const el of head.children){ if(el===m || el.offsetParent===null) continue; fixed+=el.offsetWidth+6; }
+  const r=fwHeadLayout({ headW:avail, modesW:FW_HEAD.modesW, fixedW:fixed, cur:FW_HEAD.mode });
+  if(r.modes!==FW_HEAD.mode){ FW_HEAD.mode=r.modes; const t=fwTaskObj(); if(t) fwModesPaint(t); }
+  const tight=head.classList.contains('tight');
+  if(!tight && head.offsetWidth>avail+1){ FW_HEAD.tightNeed=head.offsetWidth; head.classList.add('tight'); }
+  else if(tight && avail>=(FW_HEAD.tightNeed||0)+8) head.classList.remove('tight');
+}
 const FW_HEAD_TIGHT=560;
+// largura dos modos = só os botões (a pílula/sublinhado do 05-movimento são absolutos e não entram na conta) + vãos e respiro
+function fwModesW(m){ const bs=[...m.querySelectorAll('[data-fwmode]')]; if(!bs.length) return m.scrollWidth; const cs=getComputedStyle(m); return bs.reduce((a,b)=>a+b.offsetWidth,0)+(bs.length-1)*(parseFloat(cs.columnGap)||0)+(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0); }
 function fwHeadWatch(){
-  const head=document.querySelector('#fwOverlay .fwhead'); if(!head) return;
-  if(FW_HEAD.head!==head){ FW_HEAD.head=head; if(FW_HEAD.ro) try{ FW_HEAD.ro.disconnect(); }catch(_){ }
-    if(typeof ResizeObserver==='function'){ FW_HEAD.ro=new ResizeObserver(()=>{ setTimeout(fwHeadFit, 0); }); FW_HEAD.ro.observe(head); } }
+  const head=fwHeadEl(); if(!head) return;
+  // docado na barra de abas o cabeçalho tem a largura do conteúdo: quem muda de tamanho é a BARRA — observa ela também
+  const bar=head.classList.contains('docked')?$id('tabBar'):null;
+  if(FW_HEAD.head!==head || FW_HEAD.obsBar!==bar){ FW_HEAD.head=head; FW_HEAD.obsBar=bar; if(FW_HEAD.ro) try{ FW_HEAD.ro.disconnect(); }catch(_){ }
+    if(typeof ResizeObserver==='function'){ FW_HEAD.ro=new ResizeObserver(()=>{ setTimeout(fwHeadFit, 0); }); FW_HEAD.ro.observe(head); if(bar) FW_HEAD.ro.observe(bar); } }
   setTimeout(fwHeadFit, 0); // timer: o rAF para com a janela coberta e o cabeçalho ficava com a medida velha
+}
+// ---- redesenho F1 (faixa 1 de 2): o cabeçalho da tarefa mora NA BARRA DE ABAS — abas · modos · ação principal · ⋯ ----
+// É o MESMO nó .fwhead (ids, handlers e o ResizeObserver intactos), movido pra #tabTools quando a aba ativa é esta tarefa
+// sozinha; volta pro .fw na tela dividida, no painel do canvas (SF_PANE, que não tem barra de abas) e fora da tarefa.
+// O título mora na aba (inteiro no tooltip e na Entrega); a faixa 2 é a das etapas (60-ciclo). Só move quando muda.
+// @fw-dock-puro-inicio (testado em app/tests/redesign-f1.test.mjs)
+function fwHeadDockOf(o){ return !!(o && !o.pane && o.visible && o.kind==='task' && !o.split && o.tabTask!=null && o.tabTask===o.fwTask); }
+// @fw-dock-puro-fim
+// o nó guardado vale mesmo solto por um instante (renderTabs tira e devolve); só re-procura se houver OUTRO .fwhead na página
+// (outras telas — #ctPageOverlay, #epicOverlay — têm o próprio .fwhead: só OUTRO cabeçalho da TAREFA substitui o guardado;
+// antes qualquer .fwhead na página fazia o nó solto pelo renderTabs ser trocado e os modos sumiam)
+// @fw-headel-puro-inicio (testado em app/tests/redesign-f1.test.mjs)
+function fwHeadEl(){ const n=FW_HEAD.node; if(n && (n.isConnected || !document.querySelector('#fwOverlay .fwhead'))) return n; return (FW_HEAD.node=document.querySelector('#fwOverlay .fwhead')); }
+// @fw-headel-puro-fim
+// chips do orquestrador: docado, o cabeçalho some da faixa 1 → os chips vão pra faixa 2 (#cicOrq, 60-ciclo); senão voltam
+function fwOrqChipsPlace(){
+  const oc=FW_HEAD.orq||(FW_HEAD.orq=$id('fwOrqChips')); const head=fwHeadEl(); if(!oc || !head) return;
+  const slot=head.classList.contains('docked')?$id('cicOrq'):null;
+  if(slot){ if(oc.parentNode!==slot) slot.appendChild(oc); }
+  else if(oc.parentNode!==head) head.insertBefore(oc, head.querySelector('#fwPhases'));
+}
+function fwHeadDock(){
+  const head=fwHeadEl(); if(!head) return;
+  const slot=$id('tabTools'), home=document.querySelector('#fwOverlay .fw');
+  const tab=(typeof tabById==='function' && typeof activeTab!=='undefined')?tabById(activeTab):null;
+  const want=!!slot && fwHeadDockOf({ pane:typeof SF_PANE!=='undefined' && !!SF_PANE, visible:fwVisible(), kind:tab&&tab.kind,
+    split:!!(tab && typeof cvInSplit==='function' && cvInSplit(tab.id)), tabTask:tab?tab.taskId:null, fwTask });
+  const was=head.classList.contains('docked');
+  if(want){ if(head.parentNode!==slot) slot.appendChild(head); }
+  else if(home && head.parentNode!==home) home.insertBefore(head, home.firstChild);
+  if(was!==want){ head.classList.toggle('docked', want); head.classList.remove('tight','narrow'); FW_HEAD.mode='tabs'; FW_HEAD.tightNeed=0; fwOrqChipsPlace(); const t=fwTaskObj(); if(t) fwModesPaint(t); } // a medida do outro lugar não vale aqui
+  if(want || was) fwHeadWatch();
 }
 function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
+  fwHeadDock(); // faixa 1: abas + modos + ação (só move o nó quando muda)
   // modo que o TIPO esconde (ex.: Código numa investigação, guardado na aba) cai na Entrega
   if(typeof fwModesList==='function' && !fwModesList(t).some(([k])=>k===fwMode)){ fwMode='entrega'; fwRememberTab(); }
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
@@ -924,7 +988,7 @@ function renderWorkspace(){
   chat.dataset.tk=t.id;
   // MODO TERMINAL (60-terminal.js + layout A em 60-terminal-layout.js): terminal, painel de requisitos e folha de pergunta
   if(isTerm){ termMount(t); tlWire(t, sheetGrab); if(termHadFocus && !chat.querySelector('.tlsheet:focus-within')) setTimeout(()=>tlFocusTerm(t.id), 0); } else termSweep();
-  bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
+  bindClick('fwSteer', ()=>{ const inp=fwInputShow(); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
   bindClick('fwCompMore', (e)=>{ e.stopPropagation(); if(typeof tlCompMoreOpen==='function') tlCompMoreOpen(t, e.currentTarget); }); // painel baixo: IA e "vira requisito" num menu
@@ -1144,7 +1208,7 @@ function fwThreadHtml(t){
     { const m=tx.match(/^sessão iniciada · ([^\s·]+)/); if(m) ranBy[e.agent]=aiRunLabel('claude', m[1]);
       const ra=tx.match(/^Route AI: rodando na (.+) \(([^)]+)\)$/); if(ra) ranBy[e.agent]=ra[1]+' · '+ra[2]; }
     // P10: "skills ativas · agente@vN · motor" é medição — fica no "ver detalhes" da faixa, não na conversa
-    if(e.type==='papel') continue;
+    if(e.type==='papel' || e.type==='suggest') continue; // suggest = chips de resposta do terminal (64-terminal-integrado), não é fala
     if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${fwLinkify(tx)}</div>`); continue; }
@@ -1352,9 +1416,7 @@ async function fwSendMsg(queueOnly){
   // modo terminal com pergunta aberta: o texto vira a resposta da pergunta da vez (a folha manda pro hook)
   // (anexo não cabe numa resposta: volta pro compositor e vai depois, quando a pergunta fechar)
   if(typeof termViewOf==='function' && termViewOf(t) && typeof tlAskFromComposer==='function' && typed.trim() && pendingOf(t.id).some(p=>!fwIsBudgetAsk(p)) && tlAskFromComposer(t, typed.trim())){ inp.value=''; fwDraft[t.id]=''; if(atts.length){ (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts); toast('os anexos ficaram no compositor — mande depois que a pergunta fechar','info'); renderWorkspace(); } return; }
-  // aba Terminal de tarefa integrada cuja worktree foi apagada: não há sessão pra retomar — diz numa linha e o
-  // botão da barra abre a tarefa nova de ajuste (o texto e os anexos ficam no compositor)
-  if(typeof termWtGone==='function' && termWtGone(t.id) && !pendingOf(t.id).length){ (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts); termSayLine(t.id, TERM_WT_GONE+' (botão na barra acima)'); toast(TERM_WT_GONE,'warn'); if(atts.length) renderWorkspace(); return; }
+  // tarefa integrada (worktree apagada): a mensagem vai normal — o backend recria a pasta e retoma a sessão (04/10)
   const sel=fwSelRange();
   // só amarra ao arquivo quando o usuário SELECIONOU linhas — mensagem sem seleção vai pura
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';
@@ -1419,15 +1481,14 @@ $id('fwClose').onclick=async()=>{ if(!await fwLeaveEditor()) return; closeWorksp
 $id('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
 $id('sumOverlay').addEventListener('click', e=>{ if(e.target.id==='sumOverlay') e.target.style.display='none'; });
 function fwVisible(){ const o=$id('fwOverlay'); return !!(o && o.style.display!=='none'); }
-// Esc: no editor → cancela a edição (perguntando se há alteração); fora dele só fecha a aba se
-// NADA está sendo digitado e não há rascunho/anexo pendente (antes um Esc perdido fechava a tarefa)
+// Esc: no editor → cancela a edição (perguntando se há alteração); na Prévia desliga a mira. Fecha só o que é passageiro.
 document.addEventListener('keydown', async e=>{ if(e.key==='Escape' && fwVisible()){
   if(fwEditing){ e.preventDefault(); if(await fwLeaveEditor()) renderWorkspace(); return; }
   if(escBusy(e)) return; // digitando no chat ou com modal por cima: o Esc não fecha a aba da tarefa
   if(fwHasDraft()) return;
   // Prévia: Esc desliga a mira; com seleções pendentes não fecha a aba (perderia os prints escolhidos)
   if(fwMode==='previa' && typeof nvEscape==='function' && nvEscape(fwTask)) return;
-  closeWorkspace(); } });
+  /* F4 (D24): Esc NUNCA fecha a aba da tarefa — quem fecha é ⌘W */ } });
 // ⌘B / Ctrl+B com a tarefa na tela: recolhe/mostra a árvore de arquivos (captura: não deixa o atalho
 // global de recolher a barra lateral agir junto)
 document.addEventListener('keydown', e=>{

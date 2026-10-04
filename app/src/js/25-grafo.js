@@ -173,7 +173,8 @@ const ACTIVE_ST = new Set(["running","thinking","queued"]);
 // limite "confortável" de execuções em paralelo (slots) — só orienta/avisa.
 let slotMax = (()=>{ const v=parseInt(lsGet('slotMax')||'4',10); return (v>=1&&v<=12)?v:4; })();
 function setSlotMax(n){ slotMax=Math.max(1,Math.min(12,n)); lsSet('slotMax',String(slotMax)); renderRail(); }
-function lastEventOf(taskId){ const es=eventsOf(taskId); return es.length?es[es.length-1]:null; }
+// o 'suggest' (chips de resposta do terminal, JSON) não é atividade: o card mostrava o JSON cru como "última coisa feita"
+function lastEventOf(taskId){ const es=eventsOf(taskId); for(let i=es.length-1;i>=0;i--){ if(es[i].type!=='suggest') return es[i]; } return null; }
 // Rail = monitor de EXECUÇÃO AO VIVO (não duplica o Fluxo): só o que acontece agora.
 // destaque da barra lateral = o que está NA TELA (crítica Impeccable P1, 02/10): a demanda da aba ativa e, com a
 // tela dividida, TODAS as demandas visíveis nos painéis; aria-current na do painel em foco. Antes vinha de
@@ -200,33 +201,41 @@ function railHi(){
 // @rail-mesa-inicio (testado em app/tests/barra-lateral.test.mjs)
 const RAIL_RANK={ asking:0, 'plan-review':1, 'needs-you':1, error:2, conflict:2, aborted:2, review:3, delivered:3, 'pr-open':4, running:5, thinking:5, queued:6, paused:6, waiting:6, draft:7 };
 function railRank(st){ const r=RAIL_RANK[st]; return r==null?6:r; }
-// "esperando você" = as etapas da Central que pedem o humano: aguardando você + prontas pra revisar
-const RAIL_VOCE=new Set(['aguardando','prontas']);
+// F4 (D14, inventário 02): "aguardando você" é SÓ a etapa aguardando (a mesma regra da Central — taskAguardaVoce);
+// "pronta pra revisar" é contada À PARTE (antes a lateral somava as duas em "esperando você" e o número divergia)
+const RAIL_VOCE=new Set(['aguardando']);
 function railCounts(tasks, bucketOf){
-  const c={ vivas:0, rodando:0, voce:0 };
+  const c={ vivas:0, rodando:0, voce:0, revisar:0 };
   for(const t of (tasks||[])){
     const b=bucketOf(t); if(b==='hoje'||b==='anteriores') continue;
     c.vivas++;
     if(RAIL_VOCE.has(b)) c.voce++;
+    else if(b==='prontas') c.revisar++;
     else if(b==='andamento' && (t.status==='running'||t.status==='thinking')) c.rodando++;
   }
   return c;
 }
-function railSum(list){ return (list||[]).reduce((a,c)=>({ vivas:a.vivas+c.vivas, rodando:a.rodando+c.rodando, voce:a.voce+c.voce }), { vivas:0, rodando:0, voce:0 }); }
+function railSum(list){ return (list||[]).reduce((a,c)=>({ vivas:a.vivas+c.vivas, rodando:a.rodando+c.rodando, voce:a.voce+c.voce, revisar:a.revisar+(c.revisar||0) }), { vivas:0, rodando:0, voce:0, revisar:0 }); }
 function railFootText(c, max){
-  const p=[]; if(c.rodando) p.push(c.rodando+' rodando'); if(c.voce) p.push(c.voce+' esperando você');
+  const p=[]; if(c.rodando) p.push(c.rodando+' rodando'); if(c.voce) p.push(c.voce+' aguardando você'); if(c.revisar) p.push(c.revisar+(c.revisar===1?' pronta':' prontas')+' pra revisar');
   if(!p.length) return 'nada rodando agora';
   if(max && c.rodando>=max) p.push('limite de '+max+' atingido');
   return p.join(' · ');
 }
 function railProjTip(c){
   const p=[c.vivas+(c.vivas===1?' demanda viva':' demandas vivas')];
-  if(c.voce) p.push(c.voce+' esperando você'); if(c.rodando) p.push(c.rodando+' rodando');
+  if(c.voce) p.push(c.voce+' aguardando você'); if(c.revisar) p.push(c.revisar+(c.revisar===1?' pronta':' prontas')+' pra revisar'); if(c.rodando) p.push(c.rodando+' rodando');
   return p.join(' · ');
 }
 // projetos com demanda viva ficam na lista (veto da Júlia: nada vivo atrás de clique); os vazios viram UMA linha
 function railSplitProjects(list){ const vivos=[], vazios=[]; for(const p of (list||[])) ((p.tasks||[]).length?vivos:vazios).push(p); return { vivos, vazios }; }
 function railEmptyText(n){ return '+'+n+(n===1?' projeto sem demanda':' projetos sem demanda'); }
+// redesenho F1 (direção B): selo do projeto = cor estável (projColor) + INICIAL — a cor nunca é o único código.
+// O mesmo selo aparece na Central (66-central-tabela) pra ligar a linha da lateral à linha da tabela.
+function railBadgeHtml(name, color){ const n=String(name||'').replace(/^[^\p{L}\p{N}]+/u,''); const ini=(n.charAt(0)||'?').toUpperCase();
+  return `<span class="rpbadge" style="--pc:${escA(color||'var(--muted)')}" aria-hidden="true">${esc(ini)}</span>`; }
+// título da lista: "Demandas · N em aberto" (a contagem é a do rodapé — railCounts, mesma régua da Central)
+function railHeadHtml(vivas){ return `<div class="rhead"><span>Demandas</span><span class="n">${vivas===1?'1 em aberto':vivas+' em aberto'}</span></div>`; }
 // L14: tooltip da linha = título inteiro · estado · branch · projeto (sem hora relativa: a guarda el.__html continua valendo)
 function railRowTip(t, label, proj){ return [t.title, label, t.branch, proj].filter(Boolean).join(' · '); }
 // ↑/↓/Home/End entre as linhas da lista (L13)
@@ -250,19 +259,23 @@ function renderRail(){
   // a cor do STATUS_META — veto da Bia: o status é SEMPRE palavra, nunca só a bolinha
   const tagOf=(st)=>[stShort(st), stColor(st), stLabel(st)];
   // MESMA regra de visibilidade do quadro (bloqueadas e encerradas ficam fora — o quadro tem o chip pra revelar)
-  const mine=(state.tasks||[]).filter(t=>t.flag!=='closed'&&t.flag!=='blocked'&&!['merged','done'].includes(t.status));
+  const mine=(state.tasks||[]).filter(t=>t.flag!=='blocked'&&!taskEncerrada(t)); // F4: cancelada também sai (taskEncerrada, 00-util)
   const rows=mine.map(t=>({ t, st:taskSt(t) })).sort((a,b)=>railRank(a.st)-railRank(b.st) || taskTs(b.t)-taskTs(a.t)).slice(0,12);
   const hi=railHi();
   const cMine=railCounts(mine, flowBucket);
   const rowHtml=(t, st, proj, other)=>{ const [tg,tc,tl]=tagOf(st); const wait=RAIL_VOCE.has(flowBucket(t));
     const attrs=other?` data-proj="${escA(other)}"${t.id?` data-id="${escA(t.id)}"`:''}`:` data-id="${t.id}"`;
     const sel=!other && hi.ids.includes(t.id);
-    return `<div class="prow2${other?' other':''}${sel?' sel':''}${wait?' wait':''}"${attrs} role="button" tabindex="0"${!other&&hi.cur===t.id?' aria-current="page"':''} title="${escA(railRowTip(t, tl, proj))}"><span class="d" style="background:${tc}"></span><span class="tt">${esc(t.title)}</span>${other?'':sbEpDot(t)}<span class="tg" style="color:${tc}">${esc(tg)}</span></div>`; };
+    return `<div class="prow2${other?' other':''}${sel?' sel':''}${wait?' wait':''}"${attrs} role="button" tabindex="0"${!other&&hi.cur===t.id?' aria-current="page"':''} title="${escA(railRowTip(t, tl, proj))}"><span class="d${st==='running'||st==='thinking'?' run':''}" style="background:${tc}"></span><span class="tt">${esc(t.title)}</span>${other?'':sbEpDot(t)}<span class="tg" style="color:${tc}">${esc(tg)}</span></div>`; };
 
   // ---- PROJETO ATUAL ----
   let html = '';
-  html+=`<div class="rproj on" title="projeto atual"><div class="rph"><b>${esc(curName)}</b><span class="n" title="${escA(railProjTip(cMine))}">${cMine.vivas}</span></div>${gitRailTag()}</div>`;
+  const pcol=(typeof projColor==='function')?projColor:(()=>'');
+  html+=`<div class="rproj on" data-projpage="${escA(curPath)}" role="button" tabindex="0" title="${escA('Abrir Projeto · '+curName)}"><div class="rph">${railBadgeHtml(curName, pcol(curPath))}<b>${esc(curName)}</b><span class="n" title="${escA(railProjTip(cMine))}">${cMine.vivas}</span></div>${gitRailTag()}</div>`;
   if(window.orqRailRows) html+=window.orqRailRows();
+  // F4 (G1, mock): piloto do projeto aberto como linha da lista ("Piloto · nome 3/7") — dado do 56-piloto (G2)
+  { const pr=(typeof pilotoSideRow==='function')?pilotoSideRow():null;
+    if(pr) html+=`<div class="prow2 pilrow" data-pilrow="1" role="button" tabindex="0" title="${escA(pr.label+' · '+(pr.alive?'construindo sozinho':'parado')+' · abrir o progresso')}"><span class="d${pr.alive?' run':''}" style="background:${stColor(pr.alive?'running':'paused')}"></span><span class="tt">${esc(pr.label)}${pr.alive?' · construindo sozinho':''}</span><span class="tg">${esc(pr.count)}</span></div>`; }
   if(rows.length){
     html+=rows.map(r=>rowHtml(r.t, r.st, curName, '')).join('');
     if(mine.length>rows.length) html+=`<div class="prow2 more" data-more="1" role="button" tabindex="0" title="ver todas as demandas deste projeto na Central"><span class="tt dim">+${mine.length-rows.length} na Central</span></div>`;
@@ -277,7 +290,7 @@ function renderRail(){
   vivos.sort((a,b)=> cOf.get(b).voce-cOf.get(a).voce || cOf.get(b).vivas-cOf.get(a).vivas || String(a.name).localeCompare(String(b.name)));
   for(const p of vivos){
     const c=cOf.get(p);
-    html+=`<div class="rproj"><div class="rph"><b>${esc(p.name)}</b><span class="n" title="${escA(railProjTip(c))}">${c.vivas}</span></div></div>`;
+    html+=`<div class="rproj" data-projpage="${escA(p.path)}" role="button" tabindex="0" title="${escA('Abrir Projeto · '+p.name)}"><div class="rph">${railBadgeHtml(p.name, pcol(p.path))}<b>${esc(p.name)}</b><span class="n" title="${escA(railProjTip(c))}">${c.vivas}</span></div></div>`;
     const pt=(p.tasks||[]).slice().sort((x,y)=>railRank(x.status)-railRank(y.status));
     html+=pt.slice(0,3).map(t=>rowHtml(t, t.status, p.name, p.path)).join('');
     if(pt.length>3) html+=`<div class="prow2 other more" data-proj="${escA(p.path)}" role="button" tabindex="0" title="abrir ${escA(p.name)}"><span class="tt dim">+${pt.length-3} neste projeto</span></div>`;
@@ -287,7 +300,8 @@ function renderRail(){
   // de quem são os projetos listados (lista POR CONTA — 40-conta-escopo) e quantos de outras contas ficaram ocultos
   if(typeof projScopeHtml==='function') html+=projScopeHtml();
   const cAll=railSum([cMine, ...vivos.map(p=>cOf.get(p))]);
-  html+=`<div class="rpfoot" title="${escA('Até '+slotMax+' demandas rodando ao mesmo tempo — muda em Configurações › Tarefas ao mesmo tempo')}">${esc(railFootText(cAll, slotMax))}</div>`;
+  html=railHeadHtml(cAll.vivas)+html; // demandas PRIMEIRO na lateral (a navegação mora embaixo — index.html .sbnav2)
+  html+=`<div class="rpfoot" title="${escA('Até '+slotMax+' demandas rodando ao mesmo tempo — muda em Ajustes › Custo e limites')}">${esc(railFootText(cAll, slotMax))}</div>`;
   if(el.__html===html && el.firstChild) return; // nada visível mudou: mantém o DOM (e os handlers) — sem piscar
   // a ordem mudou com o mouse ou o foco na lista: espera sair (senão a linha pula e o clique cai na demanda errada)
   const order=rows.map(r=>r.t.id).join(',')+'|'+vivos.map(p=>p.path).join(',');
@@ -300,15 +314,18 @@ function renderRail(){
   el.querySelectorAll('.prow2:not(.orqrow)').forEach(r=>r.onclick=()=>{
     if(r.dataset.more && !r.dataset.proj){ flowJump({ status:'all', proj:state.repo }); return; }
     if(r.dataset.allproj){ if(window.openTab) window.openTab('projetos'); return; }
+    if(r.dataset.pilrow){ if(window.openTab) window.openTab('pilotorun'); return; }
     if(r.classList.contains('other')){ // demanda de outro projeto: ABRE a tarefa (não é "selecionar projeto")
       if(r.dataset.id) switchToProjectTask(r.dataset.proj, r.dataset.id);
       else switchProject(r.dataset.proj);
       return;
     }
-    if(r.dataset.id) openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
+    if(r.dataset.id){ const go=()=>openTaskById(r.dataset.id); if(typeof mvOpen==='function') mvOpen(r.querySelector('.tt'), go); else go(); } // abre a tarefa (ou o rascunho, via openOrEdit) numa aba; F3: o título voa até a aba
   });
   // linhas pelo teclado: Tab chega, Enter/Espaço abre, ↑/↓/Home/End andam (vale pras linhas de plano também)
   el.querySelectorAll('.prow2[tabindex],.prow2.orqrow').forEach(r=>{ if(!r.hasAttribute('tabindex')) r.tabIndex=0;
+    r.onkeydown=(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); r.click(); } }; });
+  el.querySelectorAll('[data-projpage]').forEach(r=>{ r.onclick=async()=>{ const p=r.dataset.projpage; if(p && p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('projeto'); };
     r.onkeydown=(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); r.click(); } }; });
   el.querySelectorAll('.rpscope').forEach(r=>{ r.onclick=()=>{ if(window.openTab) window.openTab('projetos'); };
     r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); r.click(); } }; });

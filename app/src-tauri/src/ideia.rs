@@ -182,12 +182,27 @@ pub fn ideia_research_mode() -> Result<serde_json::Value, String> {
 pub(crate) const RESEARCH_TOOLS_CLAUDE: &str = "WebSearch,WebFetch";
 /// Argumentos do claude na rodada de pesquisa (stream-json, prompt pelo STDIN). `fix` = só reformatar o JSON (sessão
 /// retomada, SEM ferramentas). PURA — testada.
+#[cfg(test)]
 pub(crate) fn research_args(sys: &str, model: &Option<String>, budget_usd: Option<f64>, resume: Option<&str>, fix: bool) -> Vec<String> {
+    research_args_with(sys, model, budget_usd, resume, if fix { "" } else { RESEARCH_TOOLS_CLAUDE })
+}
+/// O mesmo, com as ferramentas EXPLÍCITAS ("" = nenhuma) — a Fábrica usa leitura de código (Read/Grep/Glob) no projeto.
+/// Nunca Bash. PURA — testada.
+/// As ÚNICAS ferramentas que uma rodada de pesquisa/leitura pode ter.
+pub(crate) const RESEARCH_ALLOWED: [&str; 5] = ["Read", "Grep", "Glob", "WebSearch", "WebFetch"];
+/// Leituras negadas quando há Read (regras de permissão do Claude Code).
+pub(crate) const SECRET_READS: [&str; 7] = ["Read(.env*)", "Read(**/.env*)", "Read(**/*.pem)", "Read(**/*.key)", "Read(**/id_rsa*)", "Read(**/.ssh/**)", "Read(**/secrets/**)"];
+pub(crate) fn research_args_with(sys: &str, model: &Option<String>, budget_usd: Option<f64>, resume: Option<&str>, tools: &str) -> Vec<String> {
     let mut a: Vec<String> = vec!["-p".into(), "--output-format".into(), "stream-json".into(), "--verbose".into(), "--append-system-prompt".into(), sys.into()];
-    if fix {
+    // LISTA DE PERMITIDAS (nunca Write/Edit/Bash/NotebookEdit): o que não está aqui some, com ou sem argumento
+    let tools: String = tools.split(',').map(str::trim).filter(|t| RESEARCH_ALLOWED.contains(t)).collect::<Vec<_>>().join(",");
+    if tools.is_empty() {
         a.extend(["--tools".to_string(), String::new()]);
     } else {
-        a.extend(["--tools".to_string(), RESEARCH_TOOLS_CLAUDE.into(), "--allowedTools".to_string(), RESEARCH_TOOLS_CLAUDE.into()]);
+        let read = tools.contains("Read");
+        a.extend(["--tools".to_string(), tools.clone(), "--allowedTools".to_string(), tools]);
+        // leitura de código: segredos ficam de fora mesmo que um texto injetado peça
+        if read { a.extend(["--disallowedTools".to_string(), SECRET_READS.join(",")]); }
     }
     if let Some(b) = budget_usd.filter(|b| b.is_finite() && *b > 0.0) { a.push("--max-budget-usd".into()); a.push(format!("{b:.2}")); }
     if let Some(s) = resume.filter(|s| !s.trim().is_empty()) { a.push("--resume".into()); a.push(s.trim().into()); }
@@ -234,9 +249,9 @@ pub(crate) fn claude_result_error(v: &serde_json::Value, budget_usd: Option<f64>
 }
 
 /// Ganchos de "parar" pela chave da pesquisa (`<id>-r`), no mesmo registro de processos da mesa.
-struct Keyed<'a> { key: &'a str, killed: RefCell<Option<mesa::Killed>> }
+pub(crate) struct Keyed<'a> { key: &'a str, killed: RefCell<Option<mesa::Killed>> }
 impl<'a> Keyed<'a> {
-    fn new(key: &'a str) -> Self { Keyed { key, killed: RefCell::new(None) } }
+    pub(crate) fn new(key: &'a str) -> Self { Keyed { key, killed: RefCell::new(None) } }
     fn on_start(&self, pid: i32) { *self.killed.borrow_mut() = Some(mesa::track(self.key, pid)); }
     fn on_end(&self, pid: i32) { mesa::untrack(self.key, pid) }
     fn stopped(&self) -> bool { self.killed.borrow().as_ref().is_some_and(|k| k.load(Ordering::SeqCst)) }
@@ -247,19 +262,32 @@ fn emit_line(app: &AppHandle, id: &str, line: &str, url: Option<&str>) {
     let _ = app.emit("ideia-activity", serde_json::json!({ "id": id, "line": line, "url": url }));
 }
 
+/// Onde e com quê roda uma rodada: a Ideia = pasta das ideias + web; a Fábrica (fabrica.rs) = o projeto + leitura de
+/// código, ou rodada sem ferramentas. `source` = etiqueta no livro de uso.
+/// `reach` = junta o material da pesquisa ampliada (Agent Reach) no prompt quando instalada — a Ideia sempre; a Fábrica
+/// só no gateway (com web nativa o material genérico atrapalhava: "use SÓ estas fontes" com vídeos fora do foco).
+pub(crate) struct Run<'a> { pub source: &'a str, pub cwd: &'a Path, pub tools: &'a str, pub secs: u64, pub reach: bool }
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn research_claude(emit: &dyn Fn(&str, Option<&str>), key: &str, sys: &str, prompt: &str, model: &Option<String>, budget_usd: Option<f64>, resume: Option<&str>, fix: bool) -> Result<serde_json::Value, String> {
     let dir = ideias_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let run = Run { source: "ideia", cwd: &dir, tools: if fix { "" } else { RESEARCH_TOOLS_CLAUDE }, secs: if fix { FIX_SECS } else { RESEARCH_SECS }, reach: true };
+    research_claude_in(emit, key, sys, prompt, model, budget_usd, resume, &run)
+}
+/// A rodada do Claude com o `Run` dado (pasta, ferramentas, tempo). Sem ferramentas = sem pesquisa ampliada.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn research_claude_in(emit: &dyn Fn(&str, Option<&str>), key: &str, sys: &str, prompt: &str, model: &Option<String>, budget_usd: Option<f64>, resume: Option<&str>, run: &Run) -> Result<serde_json::Value, String> {
+    let (dir, fix) = (run.cwd, run.tools.trim().is_empty());
     let k = Keyed::new(key);
-    let prompt = &with_reach(prompt, fix, emit, &k)?;
+    let prompt = &with_reach(prompt, fix || !run.reach || !run.tools.contains("WebSearch"), emit, &k)?;
     let mut cmd = claude_cmd(&claude_bin());
-    cmd.args(research_args(sys, model, budget_usd, resume, fix)).current_dir(&dir);
+    cmd.args(research_args_with(sys, model, budget_usd, resume, run.tools)).current_dir(dir);
     let (on_start, on_end, stopped, cancelled) = (|p: i32| k.on_start(p), |p: i32| k.on_end(p), |_p: i32| k.stopped(), || k.cancelled());
     let h = ai_once::ChatHooks { activity: &|_| {}, on_start: &on_start, on_end: &on_end, stopped: &stopped, cancelled: &cancelled, stop_marker: mesa::STOPPED };
     let started = Instant::now();
     let mut fin: Option<(String, String, bool, serde_json::Value)> = None;
-    let r = ai_once::run_proc(cmd, Some(prompt), if fix { FIX_SECS } else { RESEARCH_SECS }, &h, &mut |line| {
+    let r = ai_once::run_proc(cmd, Some(prompt), run.secs, &h, &mut |line| {
         for ev in stream_events(line) {
             match ev {
                 StreamEv::Tool(l, u) => emit(&l, u.as_deref()),
@@ -268,11 +296,11 @@ pub(crate) fn research_claude(emit: &dyn Fn(&str, Option<&str>), key: &str, sys:
         }
     });
     if let Some((_, _, err, v)) = &fin {
-        usage_ledger::record(usage_ledger::claude_entry("ideia", Some(&dir), model.as_deref(), None, v, started.elapsed().as_millis() as i64, !err));
+        usage_ledger::record(usage_ledger::claude_entry(run.source, Some(dir), model.as_deref(), None, v, started.elapsed().as_millis() as i64, !err));
     }
     match r {
         Err(ai_once::ProcErr::Stopped) => return Err(mesa::STOPPED.into()),
-        Err(ai_once::ProcErr::Timeout) => return Err(format!("a pesquisa passou de {} min e foi interrompida", RESEARCH_SECS / 60)),
+        Err(ai_once::ProcErr::Timeout) => return Err(format!("a pesquisa passou de {} min e foi interrompida", (run.secs / 60).max(1))),
         Err(ai_once::ProcErr::Crash) => return Err("o Claude Code foi encerrado no meio da pesquisa — tente de novo".into()),
         Err(ai_once::ProcErr::Spawn(e)) => return Err(format!("não consegui rodar o Claude Code: {e}")),
         Ok(_) => {}
@@ -288,22 +316,29 @@ pub(crate) fn research_claude(emit: &dyn Fn(&str, Option<&str>), key: &str, sys:
 fn research_other(emit: &dyn Fn(&str, Option<&str>), eng: ai_once::AiEngine, key: &str, sys: &str, prompt: &str, resume: Option<&str>, fix: bool) -> Result<serde_json::Value, String> {
     let dir = ideias_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let run = Run { source: "ideia", cwd: &dir, tools: if fix { "" } else { RESEARCH_TOOLS_CLAUDE }, secs: if fix { FIX_SECS } else { RESEARCH_SECS }, reach: true };
+    research_other_in(emit, eng, key, sys, prompt, resume, &run)
+}
+/// Codex/DeepSeek/gateway com o `Run` dado: web ligada quando o Run pede busca; a pasta é lida SÓ-LEITURA.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn research_other_in(emit: &dyn Fn(&str, Option<&str>), eng: ai_once::AiEngine, key: &str, sys: &str, prompt: &str, resume: Option<&str>, run: &Run) -> Result<serde_json::Value, String> {
+    let (dir, fix) = (run.cwd, !run.tools.contains("WebSearch"));
     let k = Keyed::new(key);
     let (on_start, on_end, stopped, cancelled) = (|p: i32| k.on_start(p), |p: i32| k.on_end(p), |_p: i32| k.stopped(), || k.cancelled());
     // "consultando https://…" (leitura de página no DeepSeek) conta como página lida
     let act = |l: String| { let u = url_in(&l); emit(&l, u.as_deref()); };
     let h = ai_once::ChatHooks { activity: &act, on_start: &on_start, on_end: &on_end, stopped: &stopped, cancelled: &cancelled, stop_marker: mesa::STOPPED };
     if eng == ai_once::AiEngine::Gateway && !fix && !reach_installed(&reach_dir()) { return Err(NO_WEB_MSG.into()); }
-    let full = with_reach(prompt, fix, emit, &k)?;
+    let full = with_reach(prompt, fix || !run.reach, emit, &k)?;
     if eng == ai_once::AiEngine::Gateway && !fix && !full.contains(REACH_MARK) {
         return Err("a pesquisa ampliada não achou nenhuma fonte pública pra essa ideia — tente outras palavras ou outra IA".into());
     }
     // gateway não tem sessão: a correção leva a resposta anterior no próprio prompt (o front manda)
     let resume = if eng == ai_once::AiEngine::Gateway { None } else { resume };
-    let t = ai_once::ChatTurn { sys, prompt: &full, session_id: resume, cwd: &dir, secs: if fix { FIX_SECS } else { RESEARCH_SECS }, web: !fix };
+    let t = ai_once::ChatTurn { sys, prompt: &full, session_id: resume, cwd: dir, secs: run.secs, web: !fix };
     let started = Instant::now();
     let r = ai_once::chat_turn(eng, &t, &h);
-    ai_once::record_chat("ideia", eng, &dir, &r, started);
+    ai_once::record_chat(run.source, eng, dir, &r, started);
     let out = r?;
     Ok(serde_json::json!({ "text": out.text, "sessionId": out.session_id, "costUsd": 0.0, "inTok": out.in_tok, "outTok": out.out_tok, "cachedTok": out.cached_tok, "engine": eng.id() }))
 }

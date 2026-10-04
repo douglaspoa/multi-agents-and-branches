@@ -88,13 +88,13 @@ test('outros erros seguem pra tela (erro humano do motor), sem retentar', async 
   assert.equal(b2.calls.length, 1, 'parar não vira retentativa');
 });
 
-test('nenhum motor pronto → erro humano apontando "Sua IA"', () => {
+test('nenhum motor pronto → erro humano apontando a escolha da IA (Ajustes › IA e modelos)', () => {
   const ctx = { window: { addEventListener() {} }, document: { getElementById: () => null, addEventListener() {}, querySelectorAll: () => [] }, localStorage: { getItem: () => null, setItem() {}, removeItem() {} }, navigator: { platform: 'MacIntel', userAgent: '' }, console, invoke: async () => null };
   vm.createContext(ctx);
   vm.runInContext(read('00-util.js'), ctx);
   const h = ctx.humanErr(new Error('Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Configurações → Sua IA).'));
   assert.equal(h.id, 'ai-none');
-  assert.match(h.action.label, /Sua IA/);
+  assert.match(h.action.label, /escolher a IA/);
   let opened = false;
   ctx.window.suaIaOpenCfg = () => { opened = true; };
   h.action.fn();
@@ -250,9 +250,9 @@ test('mesa fora do Claude: TETO POR TOKENS (US$ 0 + tokens → gasto estimado co
   assert.equal(M.mesaTokUsd('codex', 0, 1e6), 10, 'saída do codex: US$ 10/milhão');
   assert.equal(M.mesaTokUsd('codex', 1e6, 0, 1e6), 0.125, 'entrada toda do cache: preço de cache');
   assert.equal(M.mesaTokUsd('desconhecido', 0, 1e6), 15, 'motor sem taxa → o fallback (o mais caro)');
-  const m = { costUsd: 0, tokUsd: M.mesaTokUsd('codex', 0, 120000), capBrl: 5.5 }; // 1,2 US$ ≈ R$ 6,6
-  assert.equal(M.mesaCapHit(m.costUsd, m.capBrl, 5.5), false, 'só pelo custo (US$ 0) nunca dispararia');
-  assert.equal(M.mesaCapHit(M.mesaSpentUsd(m), m.capBrl, 5.5), true, 'com a estimativa por tokens, dispara');
+  const m = { costUsd: 0, tokUsd: M.mesaTokUsd('codex', 0, 120000), capUsd: 1 }; // 1,2 US$ estimados · teto em US$ (F4)
+  assert.equal(M.mesaCapHit(m.costUsd, m.capUsd), false, 'só pelo custo (US$ 0) nunca dispararia');
+  assert.equal(M.mesaCapHit(M.mesaSpentUsd(m), m.capUsd), true, 'com a estimativa por tokens, dispara');
   // a tela soma os tokens do retorno e usa mesaSpentUsd em TODO teto; e mostra "teto por tokens"
   assert.match(src, /m\.tokUsd=\(\+m\.tokUsd\|\|0\)\+mesaTokUsd\(r\.engine, r\.inTok, r\.outTok, r\.cachedTok\)/);
   assert.doesNotMatch(src, /mesaCapHit\(m\.costUsd/);

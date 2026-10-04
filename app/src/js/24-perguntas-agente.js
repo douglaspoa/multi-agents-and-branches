@@ -74,7 +74,7 @@ async function stopTask(taskId){
   catch(e){ showErr(e, 'Falha ao parar'); }
 }
 // openChat: o "chat" da tarefa agora é o próprio workspace (colunas fw*)
-function openChat(taskId){ /* chat agora É o workspace estilo Cursor (arquivos + requisitos + conversa) */ openWorkspace(taskId); setTimeout(()=>{ const i=$id('fwInput'); if(i) i.focus(); },250); }
+function openChat(taskId){ /* chat agora É o workspace estilo Cursor (arquivos + requisitos + conversa) */ openWorkspace(taskId); setTimeout(()=>{ if(typeof fwFocusTalk==='function'){ fwFocusTalk(); return; } const i=$id('fwInput'); if(i) i.focus(); },250); }
 async function rerunTask(taskId){
   const t=state.tasks.find(x=>x.id===taskId);
   if(!await askYes(`Re-rodar "${t?t.title:taskId}" do zero?\n\nDescarta o trabalho parcial na worktree (reset pra base) e roda o time inteiro de novo. O plano/spec são mantidos.`)) return;
@@ -93,7 +93,7 @@ async function taskBackToRunning(taskId){
   return true;
 }
 
-const LANE_COLORS = ["#39d46a","#e5c07b","#56b6c2","#ff6b5f","#b48ead","#5b9dff","#d19a66","#8dd17a"];
+const LANE_COLORS = ["var(--chart-1)","var(--chart-3)","var(--chart-6)","var(--chart-5)","var(--chart-7)","var(--chart-2)","var(--chart-8)","var(--chart-4)"];
 function parseRefs(refs){
   return refs ? refs.split(",").map(s=>s.trim().replace(/^HEAD -> /,"").replace(/^tag: /,"")).filter(Boolean) : [];
 }

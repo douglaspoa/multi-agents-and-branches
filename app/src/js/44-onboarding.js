@@ -7,7 +7,7 @@
 // não some ao errar, Enter envia (é um <form>), botão ocupado não envia 2x, foco vai pro campo com problema.
 const AU_STEPS_ORDER=['signup','confirm','plans','pay','ready'];
 // pra onde o LINK do e-mail leva (alternativa ao código): páginas do site
-const AU_SITE='https://constellation-ai-v1.lovable.app';
+const AU_SITE='https://starfork.com.br'; // era constellation-ai-v1.lovable.app (domínio antigo — bug do inventário)
 const auRedir=path=>'?redirect_to='+encodeURIComponent(AU_SITE+path);
 // Esqueci a senha: pede o CÓDIGO de 6 dígitos e abre a tela pra digitá-lo. O link do e-mail não entra no fluxo —
 // a página /redefinir-senha do site não existe e clicar num link consumiria o código.
@@ -32,17 +32,17 @@ function auOpen(){ return !!auEl() && auEl().style.display!=='none'; }
 const AU_LEFT={
   signup:{ h:'Agentes de IA trabalhando pra você', s:'Você conta o que precisa em português normal; os agentes de IA fazem, cada um numa cópia separada do projeto. Nada some, nada colide.', b:[['g','Descreva o que quer — a IA monta o plano com você'],['c','Vários agentes em paralelo, sem um atrapalhar o outro'],['p','Você revisa e aprova antes de qualquer coisa entrar']], f:'os agentes rodam no seu computador' },
   login:{ h:'Bem-vindo de volta', s:'Suas demandas continuam aqui — entre pra ver o que rodou enquanto você esteve fora.', b:[['g','O time vê o andamento de cada tarefa'],['c','Custo por tarefa, sempre à vista'],['p','Entregas prontas pra revisar num clique']], f:'os agentes rodam no seu computador' },
-  confirm:{ h:'Um passo e a sua estrela acende', s:'O código confirma que o e-mail é seu. Se alguém do seu time te convidou, você já entra no time certo.', b:[['g','O link do e-mail também funciona'],['c','Convite pro seu e-mail entra sozinho'],['p','Dá pra trocar de time depois']], f:'o código vale 10 minutos' },
-  newpass:{ h:'Nova senha, mesma órbita', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres, letras e números'],['c','Vale em todos os seus computadores'],['p','Nada do que você fez se perde']], f:'conexão protegida · a senha vai criptografada' },
+  confirm:{ h:'Só falta confirmar o e-mail', s:'O código confirma que o e-mail é seu. Se alguém do seu time te convidou, você já entra no time certo.', b:[['g','O link do e-mail também funciona'],['c','Convite pro seu e-mail entra sozinho'],['p','Dá pra trocar de time depois']], f:'o código vale 10 minutos' },
+  newpass:{ h:'Defina a senha nova', s:'Defina a senha nova — suas demandas, times e chaves continuam onde estavam.', b:[['g','8+ caracteres, letras e números'],['c','Vale em todos os seus computadores'],['p','Nada do que você fez se perde']], f:'conexão protegida · a senha vai criptografada' },
   ready:{ h:'Conta ativa — agora é com você', s:'Conte o que você quer fazer e a IA monta o plano. Dá pra abrir uma pasta que já existe ou começar do zero.', b:[['g','Escreva o pedido em português normal'],['c','A IA monta o plano e pergunta o que faltar'],['p','Você aprova e acompanha ao vivo']], f:'conta ativa neste computador' },
   ready_repo:{ h:'Tudo pronto — pode começar', s:'Sua conta está ativa e o projeto já está aberto. Escreva a primeira demanda.', b:[['g','Escreva o pedido em português normal'],['c','A IA monta o plano e pergunta o que faltar'],['p','Você aprova e acompanha ao vivo']], f:'conta ativa neste computador' },
 };
-const AU_DOT={ g:'var(--accent)', c:'#5ec8c8', p:'#c493bb' };
+const AU_DOT={ g:'var(--accent)', c:'var(--cyan)', p:'var(--chart-7)' };
 function auLeftHtml(step){
   if(step==='ready' && typeof state!=='undefined' && state && state.repo) step='ready_repo';
   const L=AU_LEFT[step]||AU_LEFT.signup;
   return `<div class="au-lin">
-    <div class="au-brand"><span class="au-logo">S</span><span class="au-brandt">STARFORK</span></div>
+    <div class="au-brand"><span class="au-logo">${(typeof IC!=='undefined'&&IC.starfork)||''}</span><span class="au-brandt">Starfork</span></div>
     <h1 class="au-h1">${esc(L.h)}</h1><p class="au-sub">${esc(L.s)}</p>
     <div class="au-bul">${L.b.map(([c,t])=>`<div class="au-b"><i style="background:${AU_DOT[c]}"></i>${esc(t)}</div>`).join('')}</div>
     <div class="au-foot"><i></i>${esc(L.f)}</div></div>`;
@@ -330,31 +330,20 @@ function auRenderNewpass(R, topbar, dis){
 // Tela "pronto": diz a verdade do estado (projeto aberto? ambiente ok?) e leva pro próximo passo real.
 // Antes: "falta só o repo" mesmo com o projeto aberto, "Abrir o cockpit", "neste Mac" no Windows e o
 // ambiente sempre como "verificar", mesmo já checado.
+// "Conta pronta": diz o plano (se houver) e leva pra aba Primeiros passos — o checklist mora SÓ lá (antes o "Pronto"
+// repetia o 1-2-3 do tour e dizia "Estrela acesa").
 function auRenderReady(R, topbar){
-    const seats=(myBilling&&myBilling.seats)||au.plan.seats||1, planName=(myBilling&&myBilling.plan==='team')?'Time':(myBilling&&myBilling.plan==='enterprise')?'Organização':(myBilling?'Solo':'');
-    const trial=(myBilling&&myBilling.status==='trialing'&&myBilling.trial_end)?Math.max(0,Math.ceil((new Date(myBilling.trial_end)-Date.now())/864e5)):0;
-    const hasRepo=!!(state&&state.repo);
-    const envS=(typeof envSummary==='function'&&envChecks)?envSummary(envChecks):null;
-    const envCell=!envS?'<button class="au-link" id="auEnv">verificar</button>'
-      : envS.reqBad?`<button class="au-link au-warnlink" id="auEnv">${envS.reqBad} pendência${envS.reqBad>1?'s':''} — ver</button>`
-      : '<span class="au-tdone">✓ tudo certo</span>';
-    const where='neste computador';
-    R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Estrela acesa</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativos ${where}.`:`Sua conta está ativa ${where}.`}</p>
-      <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:var(--accent)">1</span><span>${hasRepo?`Projeto aberto: <b>${esc(pathBase(state.repo))}</b>`:'Escolher o projeto — uma pasta sua ou um novo do zero'}</span>${hasRepo?'<span class="au-tdone">✓ aberto</span>':'<button class="au-link" id="auRepo">abrir pasta</button>'}</div>
-        <div class="au-td"><span class="au-tn" style="background:#5ec8c8">2</span><span>Conferir o que o computador precisa (Git e uma IA: Claude Code, Codex ou gateway)</span>${envCell}</div>
-        <div class="au-td"><span class="au-tn" style="background:#c493bb">3</span><span>Convidar o time${seats>1?` — assentos livres: ${Math.max(0,seats-1)}`:' (opcional)'}</span><button class="au-link" id="auTeam">convidar</button></div></div>
-      <button class="au-btn primary big" id="auGo">${hasRepo?'Ir para a Central':'Começar — dizer o que eu quero fazer'}</button></div>`;
-    bindClick('auGo', ()=>{ auHide(); try{ if(window.openTab) window.openTab('flow'); }catch(_){ }
-      if(!hasRepo) setTimeout(()=>{ const t=$id('emWhat'); if(t) t.focus(); }, 120); });
-    bindClick('auRepo', ()=>{ if(window.pickFolder) Promise.resolve(window.pickFolder()).then(()=>auRender()).catch(()=>{}); });
-    bindClick('auEnv', ()=>{ auHide(); if(window.openTab) window.openTab('env'); });
-    bindClick('auTeam', ()=>{ auHide(); if(window.openTab) window.openTab('conta'); });
-    // ambiente ainda não checado: checa em segundo plano e atualiza a linha (sem travar a tela)
-    // (já rodando? runEnvCheck devolve a checagem em andamento — re-renderiza quando ela terminar)
-    if(!envS && typeof runEnvCheck==='function') runEnvCheck().then(()=>{ if(au.step==='ready' && auOpen()) auRender(); }).catch(()=>{});
+  const seats=(myBilling&&myBilling.seats)||au.plan.seats||1, planName=(myBilling&&myBilling.plan==='team')?'Time':(myBilling&&myBilling.plan==='enterprise')?'Enterprise':(myBilling?'Solo':'');
+  const trial=(myBilling&&myBilling.status==='trialing'&&myBilling.trial_end)?Math.max(0,Math.ceil((new Date(myBilling.trial_end)-Date.now())/864e5)):0;
+  R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Conta pronta</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativo neste computador.`:'Sua conta está ativa neste computador.'}</p>
+    <p class="au-p">O próximo passo é deixar o computador e a IA prontos — leva uns minutos e cada item se marca sozinho.</p>
+    <button class="au-btn primary big" id="auGo">Ir pra Primeiros passos</button></div>`;
+  bindClick('auGo', ()=>{ auHide(); if(typeof primeirosPassosOpen==='function') primeirosPassosOpen(); else if(window.openTab) window.openTab('flow'); });
 }
 const AU_GH='<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M8 .4a7.6 7.6 0 0 0-2.4 14.8c.4.1.5-.2.5-.4v-1.3c-2.1.5-2.6-1-2.6-1-.3-.9-.8-1.1-.8-1.1-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.8.8 2.2.6.1-.5.3-.8.5-1-1.7-.2-3.5-.8-3.5-3.7 0-.8.3-1.5.8-2-.1-.2-.3-1 .1-2 0 0 .6-.2 2.1.8a7.3 7.3 0 0 1 3.8 0c1.5-1 2.1-.8 2.1-.8.4 1 .2 1.8.1 2 .5.5.8 1.2.8 2 0 2.9-1.8 3.5-3.5 3.7.3.2.5.7.5 1.4v2.1c0 .2.1.5.5.4A7.6 7.6 0 0 0 8 .4z"/></svg>';
+// @cor-dado-inicio — logo do Google (as 4 cores da marca)
 const AU_GG='<svg viewBox="0 0 18 18" width="14" height="14"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>';
+// @cor-dado-fim
 // Google/GitHub: o botão só aparece se o provider estiver LIGADO no servidor (auBindCommon lê /auth/v1/settings).
 // "cancelar" solta a tela na hora (o navegador pode nunca voltar — antes ficava 3 min em "entrando…").
 async function auOAuth(provider){
@@ -372,13 +361,14 @@ const AU_PLAN_DEFAULTS=[
   { key:'team', name:'Time', who:'squads de 3 a 12', perSeat:true, hot:true, feats:['Tudo do Solo, pra cada pessoa do time','Quadro e backlog compartilhados','Convites, papéis e custo por pessoa','Preferências do projeto sincronizadas'] },
   { key:'enterprise', name:'Organização', who:'vários times e projetos', feats:['Tudo do Time, sem teto de assentos','SSO, auditoria e política por projeto','Chaves de modelo próprias (BYOK)','Suporte dedicado'] },
 ];
-const AU_FALLBACK_PRICE={ individual:{month:4900,year:3900}, team:{month:3900,year:3100} };
 function auPlanRow(key, interval){ return (billingPlans||[]).find(p=>p.plan===key&&p.interval===interval); }
 // preço por assento (per_seat) ou fechado por time (planos antigos: amount = time inteiro, seats = teto)
 function auPerSeat(key, interval){ const p=auPlanRow(key, interval); return p ? !!p.per_seat : key==='team'; }
 function auSeatsOf(key){ const p=auPlanRow(key, au.plan.interval); return (key==='team' && p && !p.per_seat) ? (p.seats||1) : (key==='team' ? au.plan.seats : 1); }
-function auPrice(key, interval){ const p=auPlanRow(key, interval); return p?p.amount_cents:(AU_FALLBACK_PRICE[key]||{})[interval]||0; }
-function auTotal(){ const per=auPrice(au.plan.key, au.plan.interval); return auPerSeat(au.plan.key, au.plan.interval) ? per*auSeatsOf(au.plan.key) : per; }
+// preço SÓ da tabela billing_plans (antes havia preço de reserva fixo no código) — sem a linha, não há número
+function auPrice(key, interval){ const p=auPlanRow(key, interval); return p?p.amount_cents:null; }
+// sem a linha do plano na tabela não há total (null) — nunca "R$ 0"; o botão de seguir fica desligado
+function auTotal(){ const per=auPrice(au.plan.key, au.plan.interval); if(per==null) return null; return auPerSeat(au.plan.key, au.plan.interval) ? per*auSeatsOf(au.plan.key) : per; }
 // TESTE GRÁTIS em destaque (fonte única): dias do plano (billing_plans.trial_days; sem a linha, o padrão da
 // migration 0010) e a data da 1ª cobrança — o cartão é cadastrado agora, mas nada é cobrado antes dela.
 const AU_TRIAL_DEFAULT=7;
@@ -390,24 +380,25 @@ function auTrialBanner(days){
 function auRenderPlans(R, topbar){
   const iv=au.plan.interval, hasPlans=!!(billingPlans&&billingPlans.length);
   const cards=AU_PLAN_DEFAULTS.map(p=>{
-    const on=au.plan.key===p.key; const price=p.key==='enterprise'?null:auPrice(p.key,iv); const ps=auPerSeat(p.key,iv); const row=auPlanRow(p.key,iv);
+    const on=au.plan.key===p.key; const price=p.key==='enterprise'?null:auPrice(p.key,iv); const noPrice=p.key!=='enterprise' && price==null; const ps=auPerSeat(p.key,iv); const row=auPlanRow(p.key,iv);
     return `<button class="au-plan${on?' on':''}${p.hot?' hot':''}" data-plan="${p.key}"><div class="au-plh"><span class="au-pldot"></span><b>${esc(p.name)}</b>${p.hot?'<span class="au-badge">mais usado</span>':''}<span class="au-plwho">${esc(p.who)}</span></div>
       ${price==null?'':`<span class="au-trialchip">${auTrialDays(p.key,iv)} dias grátis</span>`}
-      <div class="au-plprice">${price==null?'<b>sob consulta</b><span>fale com vendas</span>':`<b>${fmtBRL(price).replace(',00','')}</b><span>${p.key==='team'&&!ps?`por time (até ${(row&&row.seats)||6} assentos)`:`por ${p.perSeat?'assento':'pessoa'}`}/${iv==='year'?(ps||p.key!=='team'?'mês, no anual':'ano'):'mês'}</span>`}</div>
+      <div class="au-plprice">${noPrice?'<b>—</b><span>preço indisponível agora</span>':price==null?'<b>sob consulta</b><span>fale com vendas</span>':`<b>${fmtBRL(price).replace(',00','')}</b><span>${p.key==='team'&&!ps?`por time (até ${(row&&row.seats)||6} assentos)`:`por ${p.perSeat?'assento':'pessoa'}`}/${iv==='year'?(ps||p.key!=='team'?'mês, no anual':'ano'):'mês'}</span>`}</div>
       <ul class="au-plf">${p.feats.map(f=>`<li>${esc(f)}</li>`).join('')}</ul></button>`; }).join('');
   const total=auTotal(); const perSeat=auPerSeat(au.plan.key,iv); const seats=auSeatsOf(au.plan.key); const isEnt=au.plan.key==='enterprise';
   const trial=auTrialDays(au.plan.key,iv);
   R.innerHTML=topbar+`<div class="au-form wide">${auProgress(3)}<div class="au-plhead"><div><h2 class="au-h2">Escolha o plano</h2><p class="au-p">Você paga pelos assentos. O custo dos modelos é cobrado à parte, sempre visível na tarefa.</p></div><div class="au-seg"><button class="${iv==='month'?'on':''}" data-iv="month">mensal</button><button class="${iv==='year'?'on':''}" data-iv="year">anual <i>2 meses grátis</i></button></div></div>${auMsg()}
-    ${hasPlans?auTrialBanner(trial):''}
+    ${hasPlans?auTrialBanner(trial):'<div class="au-msg" role="alert">Não consegui carregar a tabela de planos agora — sem ela não mostramos preço. Tente de novo em instantes ou fale com o suporte do Starfork. <button type="button" class="au-link" id="auPlansRetry">tentar de novo</button></div>'}
     <div class="au-plans">${cards}</div>
     <div class="au-plinv"><span class="au-hint">Sua empresa já usa o Starfork? <a id="auInvCheck">procurar convite pro meu e-mail</a> · <a id="auInvite">colar o token de um convite</a></span></div>
     <div class="au-plbar">${isEnt?`<div class="au-plsum"><span class="au-lbl" style="margin:0">Organização</span><b>Vamos montar junto</b><span class="au-hint">SSO, política por projeto e chaves próprias — fale com a gente.</span></div><span style="flex:1"></span><button class="au-btn primary big" id="auSales">Falar com vendas</button>`:
-      `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${fmtBRL(total).replace(',00','')} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans?'':' disabled'}>${hasPlans?`Começar ${trial} dias grátis`:'Continuar para o pagamento'}</button><span class="au-hint">${hasPlans?`sem cobrança hoje · 1ª cobrança em ${auTrialFirstCharge(trial)} · cancele quando quiser`:'o pagamento ainda não está disponível — fale com o suporte do Starfork'}</span></div>`}</div></div>`;
+      `${au.plan.key==='team'&&perSeat?`<div class="au-seats"><span class="au-lbl" style="margin:0">assentos</span><div class="au-step"><button id="auSeatM">−</button><b>${seats}</b><button id="auSeatP">+</button></div></div>`:''}<div class="au-plsum"><span class="au-lbl" style="margin:0">total</span><b>${total!=null?fmtBRL(total).replace(',00',''):'—'} <small>/${iv==='year'&&!perSeat&&au.plan.key==='team'?'ano':'mês'}</small></b><span class="au-hint">${perSeat&&seats>1&&total!=null?`${seats} assentos × ${fmtBRL(auPrice(au.plan.key,iv)).replace(',00','')} por mês · `:(au.plan.key==='team'&&!perSeat?`até ${seats} assentos · `:'')}custo de modelo à parte${iv==='year'?' · cobrado anualmente':''}</span></div><span style="flex:1"></span><div class="au-plcta"><button class="au-btn primary big" id="auGo"${hasPlans&&total!=null?'':' disabled'}>${hasPlans?`Começar ${trial} dias grátis`:'Continuar para o pagamento'}</button><span class="au-hint">${hasPlans?`sem cobrança hoje · 1ª cobrança em ${auTrialFirstCharge(trial)} · cancele quando quiser`:'o pagamento ainda não está disponível — fale com o suporte do Starfork'}</span></div>`}</div></div>`;
   R.querySelectorAll('[data-plan]').forEach(b=>b.onclick=()=>{ au.plan.key=b.dataset.plan; auRender(); });
   R.querySelectorAll('[data-iv]').forEach(b=>b.onclick=()=>{ au.plan.interval=b.dataset.iv; auRender(); });
   bindClick('auSeatM', ()=>{ au.plan.seats=Math.max(1,au.plan.seats-1); auRender(); });
   bindClick('auSeatP', ()=>{ const cap=(auPlanRow('team',iv)||{}).seats||12; au.plan.seats=Math.min(cap,au.plan.seats+1); auRender(); });
-  bindClick('auGo', ()=>auShow('pay'));
+  bindClick('auGo', ()=>{ if(auTotal()==null) return; auShow('pay'); });
+  bindClick('auPlansRetry', async()=>{ try{ await billingSync(); }catch(_){ } auRender(); });
   bindClick('auSales', ()=>openExternal('mailto:vendas@starfork.com.br?subject=Plano%20Organiza%C3%A7%C3%A3o%20Starfork'));
   // Antes: um só link com askText "deixe vazio pra só verificar" — mas o askText devolve null no vazio, igual ao
   // cancelar, então "só verificar" nunca fazia nada. Agora são duas ações.
@@ -465,7 +456,7 @@ function auCheckoutErr(status, body, e){
 async function auCheckout(){
   if(au.busy) return; // 2 cliques = 2 sessões de checkout
   const p=auPlanRow(au.plan.key, au.plan.interval); if(!p){ au.msg='Esse plano não está disponível agora — volte e escolha de novo.'; auRender(); return; }
-  if(au.plan.key==='team' && !cloudTeamId()){ au.msg='Pra assinar o plano Time, crie ou entre num time primeiro (Conta e time › Sua organização).'; auRender(); return; }
+  if(au.plan.key==='team' && !cloudTeamId()){ au.msg='Pra assinar o plano Time, crie ou entre num time primeiro (Ajustes › Times e pessoas).'; auRender(); return; }
   const sess=SB.sess(); if(!sess||!sess.access_token){ au.msg=T('auth.err.session_expired'); auRender(); return; }
   au.busy=true; au.msg=''; auRender();
   let r=null, j=null;

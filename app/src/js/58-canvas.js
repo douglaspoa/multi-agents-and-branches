@@ -138,11 +138,18 @@ function cvShowView(tab){
   let row=ov.querySelector('.cvrow'); if(!row){ row=document.createElement('div'); row.className='cvrow'; ov.appendChild(row); cvWireRow(row); }
   const want=[]; ids.forEach((id,i)=>{ if(i) want.push(cvSplitter(i-1)); want.push(cvPaneEl(id)); });
   const cur=[...row.children];
+  // F3: dividir/juntar por um clique — o painel novo entra deslizando da direita e os que ficam andam até o lugar novo
+  // (FLIP). Painel com webview nativa (Navegador) não anima: a janela nativa segue o retângulo medido.
+  const mv=split && typeof mvUser==='function' && mvUser() && (cur.length!==want.length || cur.some((c,i)=>c!==want[i]));
+  const before=mv?new Map(cur.filter(c=>c.dataset.tabid).map(c=>[c, c.getBoundingClientRect()])):null;
   if(cur.length!==want.length || cur.some((c,i)=>c!==want[i])){
     cur.forEach(c=>{ if(!want.includes(c)){ if(c.dataset.tabid) cvPaneHidden(c); c.remove(); } });
     want.forEach((el,i)=>{ if(row.children[i]!==el) row.insertBefore(el, row.children[i]||null); });
   }
   cvApplyLayout(row, ids);
+  if(before) ids.forEach((id,i)=>{ const el=SPL.panes[id], tb=cvTabOf(id); if(!el || (tb && tb.kind==='web')) return; const b=before.get(el);
+    if(!b){ if(!before.size && !i) return; mvAnim(el, [{ opacity:0, transform:'translateX(40px)' }, { opacity:1, transform:'none' }], { duration:260 }); return; }
+    const d=mvFlipDelta(b, el.getBoundingClientRect()); if(d) mvAnim(el, [{ transform:`translate(${d.dx}px,${d.dy}px)` }, { transform:'none' }], { duration:260 }); });
   if(split) cvRelayout(); // a 1ª medida pode vir antes do layout (área 0): reavalia no próximo quadro
   cvNatSync();
   ids.forEach((id,i)=>{ const el=SPL.panes[id]; el.classList.toggle('focus', split && (SPL.focus|0)===i); el.classList.toggle('split', split); cvRenderPane(cvTabOf(id), el); });
@@ -459,18 +466,22 @@ function cvPlusMenu(anchor, opts){
   const m=document.createElement('div'); m.className='cvmenu'; m.setAttribute('role','menu'); m.setAttribute('aria-label', opts.split?'abrir ao lado':'abrir');
   const items=[
     // ícones do conjunto IC (10-core), mesmo traço do resto do app — antes eram glifos Unicode
-    !opts.split && { k:'nova', label:'Nova demanda', hint:'começar uma demanda (⌘N)', ic:CV_IC_PLUS },
-    !opts.split && { k:'ideia', label:'Ideia nova', hint:'conversar com a mesa, pesquisar se vale a pena e criar o projeto', ic:IC.ideia||CV_IC_PLUS },
-    { k:'task', label:'Abrir demanda', hint:'uma demanda deste projeto', ic:IC.stack, sub:true },
+    // F4 (G1, mesa D8): "Criar" (Nova demanda · Novo projeto… → Fábrica em App novo) separado de "Abrir"; "Ideia nova"
+    // saiu daqui (virou Fábrica › Tenho uma ideia); a Conversa do projeto (⌘J) entra no "Abrir"
+    !opts.split && { k:'nova', label:'Nova demanda', hint:'⌘N', ic:CV_IC_PLUS, grp:'Criar' },
+    !opts.split && { k:'novoproj', label:'Novo projeto…', hint:'Fábrica', ic:IC.fabrica||CV_IC_PLUS },
+    { k:'task', label:'Abrir demanda', hint:'uma demanda deste projeto', ic:IC.stack, sub:true, grp:opts.split?'':'Abrir' },
+    !opts.split && { k:'conversa', label:'Conversa do projeto', hint:'⌘J', ic:IC.chat||IC.q },
     { k:'web', label:'Navegador', hint:'YouTube, documentação, ou o app de uma demanda', ic:IC.globe, sub:true },
     { k:'device', label:'Simulador iOS/Android', hint:'o celular de uma demanda ao vivo', ic:IC.phone, sub:true },
     { k:'doc', label:'Documento', hint:'README, um arquivo ou o que foi entregue', ic:IC.doc, sub:true },
   ].filter(Boolean);
-  m.innerHTML=(opts.split?`<div class="cvmsub"><b>Abrir ao lado</b><span class="dim">vai pra direita da aba atual</span></div>`:'')+`<div class="cvml">${items.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvmi="${i}"><span class="cvmic" aria-hidden="true">${x.ic}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span>${x.sub?'<span class="cvmch" aria-hidden="true">›</span>':''}</button>`).join('')}</div><div class="cvmfoot dim">arraste uma aba pra metade da tela pra dividir · ⌘\\</div>`;
+  m.innerHTML=(opts.split?`<div class="cvmsub"><b>Abrir ao lado</b><span class="dim">vai pra direita da aba atual</span></div>`:'')+`<div class="cvml">${items.map((x,i)=>`${x.grp?`<div class="cvmgrp" role="presentation">${esc(x.grp)}</div>`:''}<button type="button" class="cvmi" role="menuitem" data-cvmi="${i}"><span class="cvmic" aria-hidden="true">${x.ic}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span>${x.sub?'<span class="cvmch" aria-hidden="true">›</span>':''}</button>`).join('')}</div><div class="cvmfoot dim">arraste uma aba pra metade da tela pra dividir · ⌘\\</div>`;
   document.body.appendChild(m); SPL.menu=m;
   const r=anchor?anchor.getBoundingClientRect():{ left:window.innerWidth/2-170, bottom:90 };
   m.style.top=Math.min(window.innerHeight-m.offsetHeight-8, r.bottom+6)+'px';
   m.style.left=Math.max(8, Math.min(window.innerWidth-m.offsetWidth-8, r.left))+'px';
+  if(typeof mvFromOrigin==='function' && anchor) mvFromOrigin(m, anchor); // F3: o menu nasce do botão
   setTimeout(()=>document.addEventListener('mousedown', cvMenuOut, true), 0);
   const split=opts.split||null;
   const open=(desc)=>{ cvCloseMenu(); cvOpenTop(desc, split?{ split }:{}); };
@@ -478,7 +489,8 @@ function cvPlusMenu(anchor, opts){
   m.querySelectorAll('[data-cvmi]').forEach(b=>b.onclick=()=>{
     const x=items[+b.dataset.cvmi];
     if(x.k==='nova'){ cvCloseMenu(); openTab('nova'); return; }
-    if(x.k==='ideia'){ cvCloseMenu(); if(window.ideiaNew) window.ideiaNew(); return; }
+    if(x.k==='novoproj'){ cvCloseMenu(); if(typeof g1NovoProjeto==='function') g1NovoProjeto(); else openTab('fabrica'); return; }
+    if(x.k==='conversa'){ cvCloseMenu(); openTab('projeto',{ sub:'conversa' }); return; }
     if(x.k==='task') return taskList('Abrir demanda', ()=>'a tela da demanda', t=>open({ kind:'task', taskId:t.id }));
     if(x.k==='web') return open({ kind:'web', url:'' }); // abre o navegador JÁ (aba em branco, barra de endereço focada) — sem formulário nem lista
     if(x.k==='device') return taskList('Simulador iOS/Android', t=>{ const i=(typeof DV!=='undefined')?DV.info[t.id]:null; return i&&i.mobile?'app de celular':'o simulador desta demanda'; }, t=>open({ kind:'device', taskId:t.id }));
@@ -694,6 +706,8 @@ function cvShowMsg(o){
 // linhas compactas do overlay de requisitos na Prévia: "requisito 3 ✓ com print"
 function cvReqOverlayRows(rows){
   return (rows||[]).map((r,i)=>{ const shots=r.evidence.filter(e=>/\.(png|jpe?g|gif|webp|mp4|mov|webm)$/i.test(String(e))).length;
+    // adiado com motivo (redesenho F1): tracejado, nunca "✗ falta" (60-terminal-layout reqIsAdiado)
+    if(typeof reqIsAdiado==='function' && reqIsAdiado(r)) return { n:i+1, st:'ad', mark:'◌', tail:'adiado', text:r.text, ev:r.evidence };
     const st=r.st==='ok'?'✓':r.st==='blk'?'✗':'·';
     const tail=r.st==='ok'?(shots?`com ${shots>1?shots+' prints':'print'}`:'sem print'):r.st==='blk'?'falta':'ainda sem prova';
     return { n:i+1, st:r.st, mark:st, tail, text:r.text, ev:r.evidence }; });

@@ -171,8 +171,8 @@ test('divisória em painéis estreitos: nunca negativo nem abaixo dos 12% que o 
 });
 // Configurações ↔ term.rs: o MESMO quadro de casos do teste Rust (modo_padrao_tests)
 test('tela de Configurações mostra o mesmo modo que o term.rs usa (TS≡Rust) e só grava o que foi escolhido', () => {
-  const cfg = read('js/15-config-abas-onboarding.js');
-  const F = new Function(cut(cfg, 'function cfgTaskModeOf', 'function cfgHide') + '\nreturn { cfgTaskModeOf, cfgTaskModeShouldSave };')();
+  const cfg = read('js/67-ajustes.js'); // F4 · G3: Ajustes
+  const F = new Function(cut(cfg, 'function cfgTaskModeOf', '// modelos da retro') + '\nreturn { cfgTaskModeOf, cfgTaskModeShouldSave };')();
   // mode_default(None,None)=terminal · (auto,None)=terminal · (auto,"2")=auto · (terminal,"2")=terminal
   assert.equal(F.cfgTaskModeOf({}), 'terminal');
   assert.equal(F.cfgTaskModeOf({ taskMode: 'auto' }), 'terminal', 'auto da tela antiga não é escolha');

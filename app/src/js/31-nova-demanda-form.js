@@ -27,6 +27,7 @@ function ntGate(){
     ms.textContent=ntMissingText(missing.map(([,l])=>l));
   }
   if($id('ntRight').classList.contains('mdview')) ntMdRender();
+  ntSideRender();
 }
 // ---- vista MARKDOWN do spec (redesign p9): mesma spec, outra representação ----
 function ntMdRender(){
@@ -50,43 +51,8 @@ function ntMdRender(){
   }
   el.innerHTML=h;
 }
-// ---- completar a spec com IA (uma tacada, sem conversa) ----
-async function ntAiComplete(){
-  const b=$id('ntAiFill');
-  // campos do modo atual (build e fix são os que têm requisitos)
-  const F = ntMode==='fix' ? { t:'ntFixTitle', o:'ntFixObj' }
-    : ntMode==='design' ? { t:'ntDzTitle', o:'ntDzObj' }
-    : ntMode==='invest' ? { t:'ntInvTitle', o:'ntInvObj' }
-    : { t:'ntTitle', o:'ntObj' };
-  const tEl=$id(F.t), oEl=$id(F.o);
-  const title=(tEl&&tEl.value.trim())||'', objective=(oEl&&oEl.value.trim())||'';
-  if(!title && !objective){
-    if(oEl){ oEl.placeholder='escreva do seu jeito o que precisa — depois toque em "completar com IA"'; oEl.focus(); }
-    return;
-  }
-  const orig=b?b.innerHTML:''; if(b){ b.disabled=true; b.textContent='completando…'; }
-  try{
-    const r=await invoke('ai_spec',{ title, objective, kind:ntMode, guide:(ntPolicy&&ntPolicy.specGuide)||null });
-    // preenche SÓ o que está vazio — o que você escreveu é seu
-    if(tEl && !tEl.value.trim() && r.title) tEl.value=r.title;
-    if(oEl && !oEl.value.trim() && r.objective) oEl.value=r.objective;
-    if(ntMode==='build'){
-      if(!ntDel.filter(Boolean).length && (r.deliverables||[]).length){ ntDel=r.deliverables.slice(); renderNtList('ntDeliverables',ntDel); }
-      if(!ntReq.filter(Boolean).length && (r.requirements||[]).length){ ntReq=r.requirements.slice(); renderNtList('ntRequirements',ntReq); }
-    } else if(ntMode==='fix'){
-      if(!ntFixReq.filter(Boolean).length && (r.requirements||[]).length){ ntFixReq=r.requirements.slice(); renderNtList('ntFixReqs',ntFixReq); }
-    }
-    ntGate();
-    // no wizard: os requisitos preenchidos moram na etapa 2 — avança pra você VER o resultado
-    if(wizModeOn() && wizN===1){
-      wizN=2; wizRender();
-      const m=$id('wizMiss');
-      if(m){ m.innerHTML=IC.starforkEm+' preenchido pela IA — revise e ajuste'; m.style.color='var(--accent)'; setTimeout(()=>{ if(m){ m.textContent=''; m.style.color='var(--warn)'; } },3500); }
-    }
-  }catch(e){ showErr(e, 'Não consegui completar'); }
-  finally{ if(b){ b.disabled=false; b.innerHTML=orig; } }
-}
-bindClick('ntAiFill', ntAiComplete);
+// (F4: o "completar com IA" #ntAiFill era código morto — o botão não existia no HTML. Removido; quem quer a IA
+// preenchendo usa o modo Conversar, que leva o texto e o tipo junto.)
 // ---- WIZARD por etapas (Entrega/Fix): uma pergunta por vez, sem scroll ----
 // cada campo aparece UMA vez: spec → requisitos → quem executa → avançado → confira
 const WIZ_STEPS={
@@ -130,7 +96,6 @@ function wizRender(){
     $id('wizT').textContent=ntMode==='review'?'Qual PR revisar?':ntMode==='design'?'O que projetar?':'O que investigar?';
     $id('wizH').textContent=($id('ntHint')||{}).textContent||'';
     { const g=$id('wizGuide'); if(g) g.style.display='none'; }
-    const mo=$id('ntMode'); if(mo) mo.style.display='none';
     ['ntTeamRow','ntFixTeamRow'].forEach(id=>{ const e=$id(id); if(e) e.style.display=''; });
     { const hp=$id('ntHowPane'), hf=$id('howFootRow'); if(hp) hp.style.display='none'; if(hf) hf.style.display='flex'; }
     wizShareApply(null);
@@ -140,7 +105,6 @@ function wizRender(){
   const st=steps.find(s=>s.n===wizN)||steps[0];
   head.style.display='block'; foot.style.display='flex'; if(footL) footL.style.display='flex';
   cont.querySelectorAll('.wstep').forEach(e=>{ e.style.display=(st.show||[]).includes(+e.dataset.w)?'':'none'; });
-  { const mo=$id('ntMode'); if(mo) mo.style.display='none'; } // o TIPO vem da tela de início (chip no cabeçalho, "trocar" volta lá)
   // equipe/motor/modelo vivem na etapa "Quem executa?" — não repetem no avançado
   ['ntTeamRow','ntFixTeamRow'].forEach(id=>{ const e=$id(id); if(e) e.style.display='none'; });
   // Time & épico só na etapa marcada (e só se a nuvem liberou — ntShareSync)
@@ -151,15 +115,16 @@ function wizRender(){
     else hp.style.display='none'; }
   if(st.rev){ ntMdRender(); md.style.display='block'; cont.style.display='none'; }
   else if(!st.how){ md.style.display='none'; cont.style.display=''; }
-  $id('wizProg').innerHTML=steps.map(s=>`<span class="${s.n<wizN?'done':s.n===wizN?'cur':''}"></span>`).join('');
-  $id('wizStep').textContent=`etapa ${st.n} de ${steps.length}${st.opt?' · opcional':''}`;
+  // etapas CLICÁVEIS (F4): voltar é livre; avançar só passando pelas obrigatórias (a etapa que falta ganha o foco)
+  $id('wizProg').innerHTML=`<nav class="g2steps" aria-label="Etapas">${steps.map(s=>`<button type="button" class="${s.n<wizN?'done':s.n===wizN?'on':''}" data-wizgo="${s.n}"${s.n===wizN?' aria-current="step"':''}><span class="c">${s.n}</span>${esc(s.t)}${s.opt?'<small>opcional</small>':''}</button>`).join('')}</nav>`;
+  $id('wizProg').querySelectorAll('[data-wizgo]').forEach(b=>b.onclick=()=>{ const to=+b.dataset.wizgo; if(to===wizN) return; if(to>wizN){ const bad=steps.find(x=>x.n<to && x.n>=wizN && !x.ok()); if(bad){ wizN=bad.n; wizRender(); const m=$id('wizMiss'); if(m) m.textContent=bad.miss||'complete esta etapa'; const f=wizMissField(bad); if(f) try{ f.focus(); }catch(_){ } return; } } wizN=to; wizRender(); });
+  $id('wizStep').textContent='';
+  { const m=$id('ntSum'); if(m) m.textContent=`etapa ${st.n} de ${steps.length}${st.opt?' · opcional':''} · campo a campo, sem conversa`; }
   $id('wizT').textContent=st.t;
   $id('wizH').textContent=typeof st.h==='function'?st.h():st.h;
-  // guia do repo (o MESMO texto que a IA segue) nas etapas de conteúdo
+  // guia do repo: agora mora em "Padrões que valem aqui" (coluna da direita) — o <details> antigo fica escondido
   { const g=$id('wizGuide');
-    if(g){ const has=st.guide && ntPolicy.specGuide;
-      g.style.display=has?'block':'none';
-      if(has) $id('wizGuideTx').innerHTML=mdToHtml(String(ntPolicy.specGuide)); } }
+    if(g) g.style.display='none'; }
   const last=wizN===steps[steps.length-1].n;
   if(footL) footL.innerHTML=(wizN>1?`<button class="btn nf-ghost" id="wizBack">← voltar</button>`:'');
   foot.innerHTML=
@@ -272,9 +237,7 @@ function howPopulate(){
   $id('howSlots').value=slotMax;
 }
 function closeHow(){ $id('ntRight').classList.remove('howview'); $id('ntOverlay').classList.remove('howmode'); }
-$id('howClose').onclick=closeHow;
 $id('howCancel').onclick=closeHow;
-$id('howOverlay').addEventListener('click',e=>{ if(e.target.id==='howOverlay') closeHow(); });
 // modelo POR AGENTE do fluxo escolhido (redesign p10) — vira --models no CLI
 let ntModels='';
 // estimativa GROSSA de custo pré-run: nº de agentes × faixa por modelo. Dá noção
@@ -350,6 +313,7 @@ async function policyChain(){
   const og=await orgDefaultsGet();
   const pol={ ...ORG_DEFAULT_POLICY, ...((og&&og.policy)||{}), ...((r&&r.repoPolicy)||{}) };
   pol.specGuide=(r&&r.repoGuide) || (og&&og.spec_template) || DEFAULT_SPEC_TEMPLATE;
+  pol.guideFrom=(r&&r.repoGuide)?'repo':(og&&og.spec_template)?'org':'padrao';
   return pol;
 }
 async function openNewTask(){
@@ -523,7 +487,6 @@ function renderNtLink(){
 function setNtMode(m){
   ntMode=m;
   wizN=1; if(typeof wizRender==='function') setTimeout(wizRender,0); // wizard reinicia ao trocar o tipo
-  document.querySelectorAll("#ntMode .ntmodebtn").forEach(b=>b.classList.toggle('on', b.dataset.mode===m));
   $id("ntBuildFields").style.display = m==='build'?'':'none';
   $id("ntReviewFields").style.display = m==='review'?'':'none';
   $id("ntFixFields").style.display = m==='fix'?'':'none';
@@ -537,8 +500,40 @@ function setNtMode(m){
   const create=$id("ntCreate");
   const tn=[...create.childNodes].reverse().find(n=>n.nodeType===3&&n.textContent.trim());
   if(tn) tn.textContent = m==='review'?' revisar PR':m==='design'?' gerar design':m==='invest'?' investigar':' Iniciar execução';
+  ntTypeTabsPaint();
+  { const sm=$id('ntSum'); if(sm && !wizModeOn()) sm.textContent='página única · '+({ review:'busca o diff do PR e devolve um parecer', design:'não mexe no código — entrega mock e decisões', invest:'só investiga — entrega a causa' }[m]||'campo a campo, sem conversa'); }
   ntGate();
   if(typeof aiPickRender==='function') aiPickRender();
+}
+if(typeof VIEW_META!=='undefined' && VIEW_META.form) VIEW_META.form.title='Nova demanda'; // a aba do Formulário é a Nova demanda (2º modo)
+// F4: os tipos viram ABAS (Documentação = Feature com entrega "Documento"); some o chip + "trocar"
+function ntTypeTabsPaint(){ document.querySelectorAll('#ntTypeTabs [data-nttype]').forEach(b=>{ const t=b.dataset.nttype, on=t==='docs'?(ntDocsPreset&&ntMode==='build'):(t===ntMode && !(t==='build'&&ntDocsPreset)); b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); b.tabIndex=on?0:-1; }); }
+// Documentação = Feature com a entrega "Documento" (branch docs/), como na tela de tipos antiga
+function ntPickType(t){ const docs=t==='docs'; if(docs===ntDocsPreset && (docs?ntMode==='build':t===ntMode)) return; ntDocsPreset=docs; setNtMode(docs?'build':t);
+  { const bt=$id('ntBranchType'); if(bt) bt.value=docs?'docs':(bt.value==='docs'?'feat':bt.value); } if(typeof ntKindPaint==='function'){ if(docs) ntKind='documento'; else if(typeof ntKind!=='undefined' && ntKind==='documento') ntKind='codigo'; ntKindPaint(); } ntTypeTabsPaint(); }
+document.querySelectorAll('#ntTypeTabs [data-nttype]').forEach(b=>b.onclick=()=>ntPickType(b.dataset.nttype));
+{ const tt=$id('ntTypeTabs'); if(tt) tt.onkeydown=e=>{ if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight') return; e.preventDefault(); const bs=[...tt.querySelectorAll('[data-nttype]')], i=Math.max(0, bs.findIndex(x=>x.classList.contains('on'))), n=bs[(i+(e.key==='ArrowRight'?1:bs.length-1))%bs.length]; ntPickType(n.dataset.nttype); n.focus(); }; }
+// ⋯ do cabeçalho: importar .md · recomeçar do zero (folha ancorada confirma)
+bindClick('ntMore', ev=>{ const a=ev.currentTarget; if(typeof g2SheetMenu!=='function') return;
+  g2SheetMenu(a, [ ntMode==='build'?{ label:'Importar .md', hint:'frontmatter + Objetivo / Entregáveis / Requisitos', fn:()=>importTaskMd() }:null,
+    { label:'Recomeçar do zero', hint:'apaga o que está preenchido nesta aba', danger:true, fn:()=>g2SheetConfirm(a, { title:'Recomeçar do zero?', sub:'os campos desta aba são limpos', ok:'Recomeçar', danger:true, onOk:()=>{ resetNewTask(); wizN=1; wizRender(); ntGate(); } }) } ]); });
+// coluna da direita: "Pedido até aqui" + "Padrões que valem aqui" (só leitura)
+function ntSideRender(){
+  const mb=document.querySelector('#ntOverlay .mbody'); if(!mb) return;
+  let el=$id('ntSide'); if(!el){ el=document.createElement('aside'); el.id='ntSide'; el.className='nt-side'; mb.appendChild(el); mb.classList.add('nt-g2');
+    const col=document.createElement('div'); col.id='wizStepsCol'; const wp=$id('wizProg'); if(wp) col.appendChild(wp); mb.insertBefore(col, mb.firstChild); }
+  mb.classList.toggle('nt-steps-on', wizModeOn());
+  const v=id=>{ const e=$id(id); return e?String(e.value||'').trim():''; };
+  const F={ build:['ntTitle','ntObj'], fix:['ntFixTitle','ntFixObj'], design:['ntDzTitle','ntDzObj'], invest:['ntInvTitle','ntInvObj'], review:['ntPr','ntPr'] }[ntMode]||['ntTitle','ntObj'];
+  const min=Math.max(1,+ntPolicy.minRequirements||1), nReq=(ntMode==='build'?ntReq:ntMode==='fix'?ntFixReq:[]).filter(x=>x&&x.trim()).length;
+  const wait='<span class="wait">— aguardando definição —</span>', cut=(t,n)=>t.length>n?t.slice(0,n-1)+'…':t;
+  const pick=document.querySelector('input[name="howflow"]:checked'), whoEl=pick&&pick.closest('label'), who=whoEl?((whoEl.querySelector('.ht')||{}).textContent||''):'';
+  const html=`<div class="g2k">Pedido até aqui</div><div class="g2mdprev"><h4>${v(F[0])?esc(cut(v(F[0]),80)):wait}</h4>`+
+    (ntMode==='review'?'':`<h5>${ntMode==='invest'?'Sintoma':'Objetivo'}</h5><span>${v(F[1])?esc(cut(v(F[1]),180)):wait}</span>`)+
+    ((ntMode==='build'||ntMode==='fix')?`<h5>Requisitos</h5><span>${nReq} — a política pede ${min}${nReq>=min?' ✓':''}</span>`:'')+
+    `<h5>Quem executa</h5><span class="${who?'':'wait'}">${who?esc(who):'recomendação do projeto'}</span></div>`+
+    (typeof ndPadroesHtml==='function'?ndPadroesHtml(ntPolicy, 'ntStd', ND_STD_OPEN.ntStd!==false):'');
+  if(el.__html!==html){ el.innerHTML=html; el.__html=html; }
 }
 // "trocar" o tipo: um popover aqui mesmo (repaginada B — não existe mais a tela de tipos; com nd:legacy volta pra ela)
 { const sw=$id('ntTypeSwap'); if(sw) sw.onclick=()=>{

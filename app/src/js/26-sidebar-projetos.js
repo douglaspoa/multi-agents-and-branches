@@ -16,7 +16,7 @@ function setHtmlGuarded(el, html){
 }
 function renderFeed(){
   const el = $id("feed");
-  const evs = state.events.slice(-200);
+  const evs = state.events.slice(-200).filter(e=>e.type!=='suggest'); // chips do terminal não são atividade
   let html;
   if(evs.length===0) html = '<div class="empty">aguardando eventos…</div>';
   else html = evs.map(e=>{
@@ -141,6 +141,8 @@ function renderBus(){
   if(el.title!==tip) el.title=tip;
 }
 
+// redesenho F1: "Fábrica" na navegação da lateral (a tela é do 65-fabrica.js — enquanto não carrega, só avisa)
+{ const fb=$id('fabricaBtn'); if(fb) fb.onclick=()=>{ typeof fabOpen==='function' ? fabOpen() : toast('Fábrica chegando'); }; }
 // clique numa contagem da barra de status → Central (Execução) filtrada naquela etapa
 { const bs=$id('busSummary'); if(bs) bs.addEventListener('click', e=>{
   const b=e.target.closest('[data-busst]'); if(!b) return;

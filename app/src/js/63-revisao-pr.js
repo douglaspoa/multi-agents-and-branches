@@ -336,7 +336,7 @@ async function rvClick(taskId, e){
     if(d.rvcode!=null){ fwMode='codigo'; fwCodeView='diff'; fwRememberTab(); fwLoadFile(); renderWorkspace();
       setTimeout(()=>{ const ln=document.querySelector(`#fwCode [data-ln="${ref.a}"]`); if(ln) ln.scrollIntoView(scrollOpts('center')); }, 350); return; }
     fwMode='conversa'; fwRememberTab(); renderWorkspace();
-    const i=$id('fwInput'); if(i){ i.placeholder=`pergunte sobre ${ref.path.split('/').pop()}:${ref.a}${ref.b>ref.a?'–'+ref.b:''} — vai pro agente com o trecho`; i.focus(); } return; }
+    const i=(typeof fwInputShow==='function')?fwInputShow():$id('fwInput'); if(i){ i.placeholder=`pergunte sobre ${ref.path.split('/').pop()}:${ref.a}${ref.b>ref.a?'–'+ref.b:''} — vai pro agente com o trecho`; i.focus(); } return; }
   if(d.rvpin!=null){ const { m:mm, ref }=rvRefByKey(t, d.rvpin); const it=((mm.pins.pins||{})[d.rvpin]||[])[+d.rvpinj]; if(!ref||!it) return;
     b.disabled=true; b.textContent='enviando…';
     if(await fwSendText(t.id, `O revisor (rodada ${mm.pins.round}) pediu neste trecho — ${rvRefsTx([ref])}:\n"""\n${it}\n"""\nCorrija, rode os testes e, se os trechos mudarem, atualize o requirements.json (did/code/tests).`)) toast('mandado pro agente','ok');
