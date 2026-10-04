@@ -429,7 +429,8 @@ button.row{cursor:pointer}button.row:hover{background:var(--surface-2)}
 #wizProg .g2steps .c{width:18px;height:18px;border-radius:50%;background:none}
 #wizProg .g2steps button.done .c{background:var(--accent)}
 .g2starts.feat{grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(0,1fr)}
-.g2start.big .g2g2{grid-template-columns:minmax(0,1fr) 110px;align-items:end}
+.g2start.big .g2g2{grid-template-columns:minmax(0,1fr);align-items:start} /* IA em cima, teto embaixo: o texto de ajuda da IA não invade o campo do teto */
+.g2start.big .g2g2 #fabMesaCap{max-width:140px}
 .g2start .iapill{max-width:100%}
 @media (max-width: 1100px){ .g2starts.feat{grid-template-columns:1fr 1fr} }
 @media (max-width: 820px){ .g2starts.feat{grid-template-columns:1fr} }
