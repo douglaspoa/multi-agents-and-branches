@@ -279,7 +279,7 @@ function termSetAlive(taskId, alive){
   if(termGone(h)) html=`<span>integrada · ${esc(TERM_WT_GONE.replace(/^a worktree desta tarefa/,'a worktree'))}</span><span class="cc-sp"></span><button class="btn sm primary" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
   else if(termHeadless(t)) html=`<span><span class="pulse" style="--pc:var(--good)"></span> rodando em segundo plano (modo automático) · o histórico se atualiza sozinho</span><span class="cc-sp"></span>`;
   else if(fresh) html=`<span>o terminal desta tarefa ainda não foi aberto</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}">abrir terminal</button>`;
-  else html=`<span>histórico da sessão${h.resumes===false?' · o compositor manda no modo automático':' · digite no terminal pra continuar a conversa'}</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
+  else html=`<span>histórico${h.resumes===false?' · o compositor manda no modo automático':' · digite pra continuar'}</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
   st.bar.style.display='flex';
   if(st.bar.__html!==html){ st.bar.__html=html; st.bar.innerHTML=html; }
 }

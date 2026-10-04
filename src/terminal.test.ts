@@ -29,8 +29,9 @@ test("modo da tarefa: antigo = automático; claude/codex/deepseek têm terminal 
   assert.ok(terminalCapable("claude") && terminalCapable("codex"));
   assert.ok(terminalCapable("deepseek"), "DeepSeek roda dentro do claude");
   assert.ok(!terminalCapable("gateway", "win32"), "Windows: a IA direto no PTY — gateway não tem CLI");
-  assert.ok(terminalCapable("gateway", "darwin") && terminalCapable("gemini", "linux"), "shell: qualquer motor real (a pessoa escolhe a IA)");
-  assert.ok(!terminalCapable("", "darwin") && !terminalCapable("mock", "darwin"));
+  assert.ok(terminalCapable("gemini", "linux") && terminalCapable("codex", "darwin"), "shell: a pessoa escolhe a IA");
+  assert.ok(!terminalCapable("gateway", "darwin") && !terminalCapable("logcomex", "linux"), "gateway/logcomex não viram Claude em silêncio");
+  assert.ok(!terminalCapable("", "darwin") && !terminalCapable("mock", "darwin") && !terminalCapable(undefined, "win32"));
 });
 
 test("settings.local.json: funde sem apagar hooks/statusLine da pessoa e é idempotente", () => {

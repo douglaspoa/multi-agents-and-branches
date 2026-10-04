@@ -5,11 +5,10 @@
 //   slash commands do Claude Code (.claude/commands/starfork-*.md, escritos pelo termPrep) e o equivalente em
 //     linguagem natural (naturalCommand) pros motores sem slash command (Codex);
 //   o bloco curto de instruções que vai no system prompt (INTEGRADO_RULE).
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { evidenceExists, type Orchestrator } from "./orchestrator.ts";
 import { parseSkillMd, skillsDir } from "./learn.ts";
 import { norm } from "./req-map.ts";
@@ -243,14 +242,8 @@ export function freeTaskId(title: string, taken: (id: string) => boolean): strin
   for (let i = 2; i < 1000; i++) if (!taken(`${base}-${i}`)) return `${base}-${i}`;
   return `${base}-${Date.now().toString(36)}`;
 }
-/** Motor do Starfork pra disparar `start` destacado (dev: src/cli.ts; app: Resources/engine/cli.mjs ao lado de mcp/). */
-export function engineCliPath(): string | null {
-  for (const rel of ["./cli.ts", "../engine/cli.mjs", "./cli.mjs"]) {
-    try { const p = fileURLToPath(new URL(rel, import.meta.url)); if (existsSync(p)) return p; } catch { /* url inválida */ }
-  }
-  return null;
-}
-export async function createChildTask(orch: Orchestrator, curId: string, input: ChildInput & { start?: boolean }, by: string): Promise<{ id: string; title: string; status: AgentStatus; note: string }> {
+/** Tarefa NOVA pedida pelo agente: SEMPRE rascunho — iniciar gasta (assinatura/API), então é o humano que inicia. */
+export async function createChildTask(orch: Orchestrator, curId: string, input: ChildInput, by: string): Promise<{ id: string; title: string; status: AgentStatus; note: string }> {
   const cur = orch.store.getTask(curId);
   if (!cur) throw new Error(`tarefa ${curId} não encontrada`);
   const title = String(input.title ?? "").trim();
@@ -261,23 +254,7 @@ export async function createChildTask(orch: Orchestrator, curId: string, input: 
   await orch.createTask(spec);
   orch.store.setStatus(id, "draft");
   orch.store.addEvent(id, "Sistema", "status", `criada por ${by} a partir da tarefa "${cur.title}"${spec.epicId ? " (mesmo épico)" : ""}`, true);
-  let status: AgentStatus = "draft";
-  let note = "criada como RASCUNHO — o humano inicia quando quiser";
-  if (input.start) {
-    const cli = engineCliPath();
-    if (spec.termMode === "terminal") note = "criada como rascunho: tarefa de terminal abre pelo app (o humano clica em iniciar)";
-    else if (!cli) note = "criada como rascunho: não achei o motor pra iniciar sozinho";
-    else {
-      try {
-        const c = spawn(process.execPath, [...process.execArgv.filter((a) => a === "--experimental-sqlite"), "--disable-warning=ExperimentalWarning", cli, "start", id, "--repo", orch.ws.repo], { cwd: orch.ws.repo, detached: true, stdio: "ignore", env: { ...process.env, CARDUME_TASK: "", CARDUME_AGENT: "" } });
-        c.unref();
-        orch.store.setStatus(id, "queued");
-        status = "queued";
-        note = "iniciada (o agente dela já está subindo)";
-      } catch (e) { note = `criada como rascunho: falhou ao iniciar (${(e as Error).message})`; }
-    }
-  }
-  return { id, title, status, note };
+  return { id, title, status: "draft", note: "rascunho criado — inicie pelo quadro quando quiser" };
 }
 
 // ======================= slash commands (/starfork-*) =======================
@@ -297,7 +274,7 @@ export const STARFORK_COMMANDS: StarforkCommand[] = [
       `- provar: rode os testes do projeto; produza as provas que faltam em .cardume/artifacts (saídas e prints REAIS, nada mockado); ` +
       `atualize .cardume/artifacts/requirements.json (status "done" + evidence com os arquivos) e chame map_requirement pra cada requisito; ` +
       `chame task_status de novo e, se não faltar nada, set_status com status "review" e uma nota do que foi provado. Se faltar algo que você não consegue provar, diga exatamente o quê.\n` +
-      `- entregar: confirme com task_status que está provado e chame open_pr. Se ainda faltar prova, NÃO force: diga o que falta (rascunho só se o humano pedir).\n` +
+      `- entregar: confira as provas (starfork status); se tudo provado, abra o PR (starfork pr); senão diga o que falta.\n` +
       `Sem etapa ou etapa desconhecida: mostre o task_status resumido e pergunte qual etapa com suggest_replies.`,
   },
   {
@@ -398,7 +375,7 @@ export const SHELL_COMMANDS: { cmd: string; tool: string; desc: string }[] = [
   { cmd: "starfork etapa review|needs-you|running [--nota \"…\"]", tool: "set_status", desc: "pronta pra revisão · esperando o humano · construindo" },
   { cmd: "starfork skills", tool: "list_skills", desc: "skills do projeto e pessoais" },
   { cmd: "starfork skill <nome>", tool: "use_skill", desc: "imprime as instruções da skill pra você seguir" },
-  { cmd: "starfork tarefa \"<título>\" [--objetivo …] [--requisito …]… [--fora-do-epico] [--iniciar]", tool: "create_task", desc: "tarefa NOVA no projeto (rascunho)" },
+  { cmd: "starfork tarefa \"<título>\" [--objetivo …] [--requisito …]… [--fora-do-epico]", tool: "create_task", desc: "tarefa NOVA no projeto (rascunho — o humano inicia pelo quadro)" },
   { cmd: "starfork pr [--rascunho] [--titulo …] [--corpo …]", tool: "open_pr", desc: "abre o PR (exige provas, a não ser --rascunho)" },
   { cmd: "starfork requisito \"<texto>\"", tool: "add_requirement", desc: "registra um requisito novo pedido pelo humano" },
   { cmd: "starfork entregavel \"<item>\"", tool: "add_deliverable", desc: "registra um entregável novo" },

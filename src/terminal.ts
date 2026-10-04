@@ -24,7 +24,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { ClaudeEngine, claudeEnv, mapTool, resolveClaude, adjustRuleOf } from "./engine/claude.ts";
 import { buildPrompt as codexPrompt, loadLlmEnv } from "./engine/codex.ts";
 import { DSH_FAST_MODEL, DSH_KEY_MSG, dshKey, dshModelFor, isDshLabel } from "./engine/dsh.ts";
@@ -39,10 +39,14 @@ import type { AgentStatus, TaskSpec } from "./types.ts";
 export type TermMode = "terminal" | "auto";
 /** Tarefa antiga (sem o campo) = automático: nada muda pra quem já rodava. */
 export const termModeOf = (spec: { termMode?: string } | null | undefined): TermMode => (spec?.termMode === "terminal" ? "terminal" : "auto");
-/** Tem terminal? macOS/Linux: QUALQUER motor real (o terminal é o shell da pessoa e ela escolhe a IA — `starfork ia`);
- * Windows (a IA direto no PTY): Claude e Codex com CLI oficial e o DeepSeek DENTRO do `claude`; gateway no automático. */
-export const terminalCapable = (engine: string | undefined, platform: string = process.platform): boolean =>
-  platform === "win32" ? ["claude", "codex", "deepseek"].includes(engineKind(engine)) : engineKind(engine) !== "mock";
+/** Tem terminal? macOS/Linux: qualquer motor com IA de terminal (o PTY é o shell da pessoa e ela escolhe a IA —
+ * `starfork ia`), MENOS gateway/logcomex (sem CLI: virariam Claude em silêncio) e vazio/mock; Windows (a IA direto no
+ * PTY): Claude, Codex e o DeepSeek DENTRO do `claude`. Mesma regra do Rust (term.rs › wants_terminal_on). */
+export const terminalCapable = (engine: string | undefined, platform: string = process.platform): boolean => {
+  const n = String(engine ?? "").trim().toLowerCase();
+  if (!n || n === "mock" || n.startsWith("gateway") || n.startsWith("logcomex")) return false;
+  return platform === "win32" ? ["claude", "codex", "deepseek"].includes(engineKind(n)) : true;
+};
 
 /** API Anthropic-compatível da DeepSeek (api-docs.deepseek.com › Claude Code, conferido em 04/10/2026). */
 export const DEEPSEEK_ANTHROPIC_URL = "https://api.deepseek.com/anthropic";
@@ -533,6 +537,8 @@ export interface LaunchSpec {
   engine: TermAi;
   resumed: boolean;
   sessionId: string | null;
+  /** modelo com que a IA abre ('' = o padrão dela) — o app compara na troca de IA (mesma IA+modelo = nada a fazer) */
+  model?: string;
   /** true = o PTY é o SHELL da pessoa (que sobe a IA no 1º comando); false = a IA direto no PTY (Windows) */
   shell?: boolean;
   /** nasce ocupado? (IA com hooks levando um pedido/kickoff — o 1º UserPromptSubmit confirma) */
@@ -779,7 +785,8 @@ export function shimScript(base: string[]): string {
     "# herdado — Ctrl+C chega na IA (o trap só impede o sh de morrer junto) e, quando ela sai, o prompt do shell volta.\n" +
     'if [ "$1" = ia ]; then\n' +
     "  shift\n" +
-    `  __sf_launch=$(${b} starfork ia-prep "$@") || exit $?\n` +
+    // o ia-prep morreu antes de limpar (crash do node): o `_ia-exit --falha` solta cli/ocupado
+    `  __sf_launch=$(${b} starfork ia-prep "$@") || { ${b} starfork _ia-exit "$1" --falha >/dev/null 2>&1; exit 1; }\n` +
     "  trap ':' INT\n" +
     '  eval "$__sf_launch"\n' +
     "  exit $?\n" +
@@ -807,11 +814,12 @@ export function userShell(env: NodeJS.ProcessEnv = process.env): string {
 }
 /**
  * Linha do `-c` do shell: sobe a IA e, quando ela sai, abre o shell interativo de login na worktree. SEM `exec` de
- * propósito: o líder do PTY fica com esta linha (o caminho do shim) — é por ela que a varredura do boot (pty.rs ›
- * looks_like_agent) reconhece um terminal órfão; `exit` no shell de dentro fecha os dois.
+ * propósito, e o `; :` no fim impede o zsh de dar exec sozinho no último comando: o líder do PTY fica com esta linha
+ * (o caminho do shim) — é por ela que a varredura do boot (pty.rs › looks_like_agent) reconhece um terminal órfão;
+ * `exit` no shell de dentro fecha os dois.
  */
 export function shellLine(shim: string, shell: string, o: { ai: TermAi; model?: string; resume?: boolean; msgFile?: string }): string {
-  return `${shqp(shim)} ia ${o.ai}${o.model ? ` --modelo ${shArg(o.model)}` : ""}${o.resume ? " --resume" : ""}${o.msgFile ? ` --msg-file ${shqp(o.msgFile)}` : ""}; ${shqp(shell)} -l -i`;
+  return `${shqp(shim)} ia ${o.ai}${o.model ? ` --modelo ${shArg(o.model)}` : ""}${o.resume ? " --resume" : ""}${o.msgFile ? ` --msg-file ${shqp(o.msgFile)}` : ""}; ${shqp(shell)} -l -i; :`;
 }
 
 /**
@@ -830,7 +838,7 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
   const recommended = recommendedLaunch(spec, role);
   if (opts.direct || process.platform === "win32") {
     const L = aiLaunch(orch, taskId, ai, { resume: opts.resume, message: opts.message, model });
-    return { program: L.program, args: L.args, cwd: L.cwd, env: L.env, envRemove: L.envRemove, engine: ai, resumed: L.resumed, sessionId: L.sessionId, shell: false, busy: L.busy, recommended };
+    return { program: L.program, args: L.args, cwd: L.cwd, env: L.env, envRemove: L.envRemove, engine: ai, resumed: L.resumed, sessionId: L.sessionId, model, shell: false, busy: L.busy, recommended };
   }
   // DeepSeek sem chave: erro claro ANTES de abrir o PTY (a matriz da spec)
   if (ai === "deepseek") deepseekClaudeEnv(model || undefined, dshKey());
@@ -866,6 +874,7 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
     engine: ai,
     resumed: !!sid,
     sessionId: sid || null,
+    model,
     shell: true,
     busy: aiHasHooks(ai) && !!(msg || !sid),
     recommended,
@@ -889,18 +898,20 @@ export function launchScript(L: AiLaunch, base: string[]): string {
 
 /** `starfork ia-prep <ia>` (dentro do shell): prepara a IA, grava que ela está rodando e imprime o script. */
 export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resume?: boolean; msgFile?: string; model?: string }): { script: string; launch: AiLaunch } {
-  const task = orch.store.getTask(taskId);
-  if (!task) throw new Error(`tarefa ${taskId} não encontrada (CARDUME_TASK)`);
   let message = "";
-  if (o.msgFile) {
-    // relativo = à worktree (a pessoa pode ter dado cd); lido e apagado (é de uso único)
-    const p = o.msgFile.startsWith("/") ? o.msgFile : existsSync(o.msgFile) ? o.msgFile : join(task.worktree, o.msgFile);
-    try { message = readFileSync(p, "utf8"); rmSync(p, { force: true }); } catch { /* sem arquivo: abre sem mensagem */ }
-  }
-  const st0 = readTermState(task.worktree);
-  snapshotSession(st0, orch.store.termGet(taskId)?.session_id);
-  writeTermState(task.worktree, st0);
+  let msgPath = "";
   try {
+    const task = orch.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada (CARDUME_TASK)`);
+    if (o.msgFile) {
+      // SÓ o arquivo de mensagem do terminal (é lido e APAGADO): relativo = à worktree (a pessoa pode ter dado cd)
+      msgPath = join(task.worktree, NEXT_MSG_REL);
+      if (resolve(task.worktree, o.msgFile) !== msgPath) { msgPath = ""; throw new Error(`--msg-file só aceita ${NEXT_MSG_REL}`); }
+      try { message = readFileSync(msgPath, "utf8"); rmSync(msgPath, { force: true }); } catch { /* sem arquivo: abre sem mensagem */ }
+    }
+    const st0 = readTermState(task.worktree);
+    snapshotSession(st0, orch.store.termGet(taskId)?.session_id);
+    writeTermState(task.worktree, st0);
     const launch = aiLaunch(orch, taskId, ai, { resume: o.resume, message, model: o.model });
     // relê: o aiLaunch grava a barra de status da pessoa (prevStatusLine) no mesmo arquivo
     const st = readTermState(task.worktree);
@@ -911,16 +922,18 @@ export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resu
     orch.store.termSetBusy(taskId, launch.busy);
     return { script: launchScript(launch, engineBase()), launch };
   } catch (e) {
-    orch.store.termSetCli(taskId, "");
+    try { orch.store.termSetCli(taskId, ""); orch.store.termSetBusy(taskId, false); } catch { /* banco fora: o shim chama _ia-exit --falha */ }
     // mensagem que não foi entregue volta pro arquivo (a próxima `starfork ia` leva)
-    if (message) try { writeFileSync(join(task.worktree, NEXT_MSG_REL), message, "utf8"); } catch { /* perdida: o feed tem o texto */ }
+    if (message && msgPath) try { writeFileSync(msgPath, message, "utf8"); } catch { /* perdida: o feed tem o texto */ }
     throw e;
   }
 }
 /** `starfork _ia-exit <ia>`: a IA saiu e o shell voltou ao prompt. */
-export function iaExit(store: Store, taskId: string, ai: string): void {
+export function iaExit(store: Store, taskId: string, ai: string, o: { failed?: boolean } = {}): void {
   const task = store.getTask(taskId);
   if (!task) return;
+  // --falha: a IA nem subiu (ia-prep caiu) — só solta o estado, sem "encerrado" no feed
+  if (o.failed) { store.termSetCli(taskId, ""); store.termSetBusy(taskId, false); return; }
   const st = readTermState(task.worktree);
   st.lastAi = isTermAi(ai) ? ai : st.lastAi;
   snapshotSession(st, store.termGet(taskId)?.session_id);

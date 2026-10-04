@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 struct Sink { n: Mutex<usize>, bytes: Mutex<usize> }
 impl PtySink for Sink {
     fn data(&self, _t: &str, c: &str) { *self.n.lock().unwrap() += 1; *self.bytes.lock().unwrap() += c.len(); }
-    fn exit(&self, t: &str, code: Option<u32>) { eprintln!("[e2e] {t} saiu: {code:?}"); }
+    fn exit(&self, t: &str, _pid: u32, code: Option<u32>) { eprintln!("[e2e] {t} saiu: {code:?}"); }
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -162,7 +162,7 @@ fn pty_e2e() {
 #[test]
 #[ignore]
 fn shell_e2e() {
-    use crate::term::{recommended_of, route_action, shell_launch_line, RouteAction, NEXT_MSG_REL};
+    use crate::term::{foreground_comm, recommended_of, route_action, shell_at_prompt, shell_launch_line, shim_path, RouteAction, NEXT_MSG_REL};
     let repo = PathBuf::from(std::env::var("SF_E2E_REPO").expect("SF_E2E_REPO"));
     let task = std::env::var("SF_E2E_TASK").expect("SF_E2E_TASK");
     let cli = std::env::var("SF_E2E_CLI").expect("SF_E2E_CLI");
@@ -213,14 +213,22 @@ fn shell_e2e() {
     let rec = recommended_of(&spec);
     assert_eq!(rec.command, v["recommended"]["command"].as_str().unwrap(), "Rust e TS recomendam a MESMA linha");
     std::thread::sleep(Duration::from_millis(800)); // o prompt do shell voltar
+    assert_eq!(shell_at_prompt(foreground_comm(s.pid).as_deref()), Ok(()), "o shell está no prompt (primeiro plano = shell): {:?}", foreground_comm(s.pid));
     std::fs::write(PathBuf::from(v["cwd"].as_str().unwrap()).join(NEXT_MSG_REL), "segunda mensagem").unwrap();
-    s.write_bytes(shell_launch_line(&rec, true).as_bytes()).unwrap();
+    s.write_bytes(shell_launch_line(&rec, &shim_path(&PathBuf::from(v["cwd"].as_str().unwrap())), true).as_bytes()).unwrap();
     assert!(wait_n("FAKE-AI ", 2, 40), "a linha digitada no prompt sobe a IA de novo:\n{}", tail());
     assert!(wait("LAST=segunda mensagem", 5), "com a mensagem do arquivo:\n{}", tail());
     s.write_bytes(b"sair\r").unwrap();
     let w = Instant::now();
     while w.elapsed() < Duration::from_secs(20) && !cli_now().is_empty() { std::thread::sleep(Duration::from_millis(100)); }
     std::thread::sleep(Duration::from_millis(800));
+    // um comando qualquer em primeiro plano no shell (cli = ''): o app NÃO pode digitar nele
+    s.write_bytes(b"sleep 30\r").unwrap();
+    std::thread::sleep(Duration::from_millis(700));
+    assert!(shell_at_prompt(foreground_comm(s.pid).as_deref()).is_err(), "`sleep` em primeiro plano: não é o prompt ({:?})", foreground_comm(s.pid));
+    s.write_bytes(b"\x03").unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(shell_at_prompt(foreground_comm(s.pid).as_deref()), Ok(()), "Ctrl+C: de volta ao prompt");
     s.write_bytes(b"starfork status\r").unwrap();
     assert!(wait("Falta para ENTREGUE", 40), "`starfork status` funciona no shell:\n{}", tail());
     s.write_bytes(b"exit\r").unwrap();

@@ -56,7 +56,7 @@ function tiTitleClean(s){ return String(s==null?'':s).replace(/[\x00-\x1f\x7f"�
 // roda no shell (o CLI do Starfork está no PATH do terminal pra qualquer IA)
 const TI_NL={
   'etapa:provar':'Starfork: avance esta tarefa para Provar — rode os testes, junte as provas que faltam e mapeie os requisitos; use `starfork status` e, no fim, `starfork etapa review`.',
-  'etapa:entregar':'Starfork: avance esta tarefa para Entregar — confira com `starfork status` que cada requisito tem prova, resuma o que foi feito e rode `starfork etapa review`.',
+  'etapa:entregar':'Starfork: confira as provas desta tarefa (`starfork status`); se todos os requisitos estiverem provados, abra o PR (`starfork pr`); senão me diga o que falta.',
   'etapa:construir':'Starfork: volte esta tarefa para Construir — retome a implementação do que falta, diga numa linha o motivo da volta e rode `starfork etapa running`.',
   'tarefa-quebrar:':'Starfork: quebre o que falta desta tarefa em sub-tarefas paralelas — uma por vez com `starfork tarefa "<título>" --objetivo "<objetivo>"`.',
   'revisao:':'Starfork: peça a revisão desta tarefa — confira com `starfork status`, rode `starfork etapa review` e me mostre o que falta corrigir.',
@@ -81,19 +81,21 @@ function tiCmdText(engineKind, cmd, arg){
   return '';
 }
 // ---- IA que roda no terminal (o PTY é um shell; `starfork ia <nome>` liga uma IA nele) ----
-const TI_AIS=[ { id:'claude', label:'Claude Code' }, { id:'codex', label:'Codex' }, { id:'deepseek', label:'DeepSeek (via Claude Code)' }, { id:'gemini', label:'Gemini CLI' }, { id:'opencode', label:'opencode' } ];
+const TI_AIS=[ { id:'claude', label:'Claude Code', short:'Claude' }, { id:'codex', label:'Codex', short:'Codex' }, { id:'deepseek', label:'DeepSeek (via Claude Code)', short:'DeepSeek' },
+  { id:'gemini', label:'Gemini CLI', short:'Gemini', exp:true }, { id:'opencode', label:'opencode', short:'opencode', exp:true } ];
 // modelo → nome curto pro `--modelo` ("claude-sonnet-4-5" → "sonnet"; o resto vai como veio)
 function tiModelShort(m){ const s=String(m||'').trim(); const k=s.match(/\b(opus|sonnet|haiku)\b/i); return k?k[1].toLowerCase():s.replace(/[^\w.:/-]/g,''); }
 /** Comando recomendado pra esta tarefa: o do backend (TermInfo.recommended) ou montado do motor/modelo da tarefa. */
 function tiRecommended(rec, engineKind, model){
-  if(rec && rec.command) return { ai:String(rec.ai||engineKind||'claude'), model:rec.model||'', command:String(rec.command) };
+  if(rec && rec.command) return { ai:String(rec.ai||engineKind||'claude'), model:tiModelShort(rec.model), command:String(rec.command) };
   const ai=TI_AIS.some(x=>x.id===engineKind)?engineKind:'claude'; const m=tiModelShort(model);
   return { ai, model:m, command:'starfork ia '+ai+(m?' --modelo '+m:'') };
 }
-// seletor da IA: a que está rodando (cli; '' = shell sem IA) com o modelo da tarefa na opção do motor dela
-function tiAiSelHtml(cli, taskAi, model){
-  const m=tiModelShort(model);
-  const opts=TI_AIS.map(x=>`<option value="${x.id}"${x.id===cli?' selected':''}>${esc(x.label+(x.id===taskAi && m?' · '+m:''))}</option>`).join('');
+// "Claude · sonnet" — o MESMO formato no seletor e no recomendado (o modelo vem só do recomendado)
+function tiAiLabel(ai, model){ const x=TI_AIS.find(a=>a.id===ai); return (x?x.short:String(ai||''))+(model?' · '+model:''); }
+// seletor da IA: a que está rodando (cli; '' = shell sem IA). Só a IA do recomendado leva o modelo (uma fonte só).
+function tiAiSelHtml(cli, rec){
+  const opts=TI_AIS.map(x=>`<option value="${x.id}"${x.id===cli?' selected':''}>${esc(tiAiLabel(x.id, x.id===rec.ai?rec.model:'')+(x.exp?' (experimental)':''))}</option>`).join('');
   const odd=cli && !TI_AIS.some(x=>x.id===cli) ? `<option value="${escA(cli)}" selected>${esc(cli)}</option>` : '';
   return `<select class="tiai" data-ti="ai" aria-label="IA rodando no terminal — trocar">${cli===''?'<option value="" selected disabled>shell (sem IA)</option>':''}${odd}${opts}<option value="__cmd">Outro comando…</option></select>`;
 }
@@ -151,7 +153,7 @@ function tiSheetHtml(def, st, engineKind){
     (def.filter?`<div class="tiin tifilter"><input class="in" data-ti="q" placeholder="filtrar skills" aria-label="filtrar skills" value="${escA(st.q||'')}"></div>`:'')+
     `<div class="tlopts" role="radiogroup" aria-labelledby="tiShT">${opts||'<div class="tiempty">nada com esse filtro</div>'}</div>`+
     `<div class="ticmd"><em>vai ser digitado no terminal</em><code>${esc(prev)}</code></div>`+
-    `<div class="tlsf"><span class="tlkeys"><span class="kbd">↑↓</span> escolher <span class="kbd">Enter</span> manda <span class="kbd">Esc</span> fecha</span><span class="sp"></span>`+
+    `<div class="tlsf"><span class="tlkeys tikeys">↑↓ escolhe · Enter manda · Esc fecha</span><span class="sp"></span>`+
     `<button type="button" class="btn sm" data-ti="close">cancelar</button><button type="button" class="btn sm primary" data-ti="ok"${txt?'':' disabled'}>mandar pro terminal</button></div></div>`;
 }
 // teclado da folha (puro): ↑↓ andam nas opções visíveis, 1–9 escolhem, Enter manda, Esc fecha
@@ -162,7 +164,7 @@ function tiSheetKey(def, st, key, inInput){
   if(inInput) return { st:s, act:null, pass:true };
   const at=vis.indexOf(s.sel);
   if(key==='ArrowDown' && vis.length){ s.sel=vis[(at+1+vis.length)%vis.length]; return { st:s, act:null }; }
-  if(key==='ArrowUp' && vis.length){ s.sel=vis[(at-1+vis.length*2)%vis.length]; return { st:s, act:null }; }
+  if(key==='ArrowUp' && vis.length){ s.sel=at<0 ? vis[vis.length-1] : vis[(at-1+vis.length)%vis.length]; return { st:s, act:null }; }
   if(/^[1-9]$/.test(key) && +key<=vis.length){ s.sel=vis[+key-1]; return { st:s, act:null }; }
   return { st:s, act:null, pass:true };
 }
@@ -182,13 +184,19 @@ function tiDelivHtml1(d, o){
   const todo=d.todo.length?`<div class="tidlc"><span>combinado</span>${d.todo.slice(0,6).map(x=>`<div>◆ ${esc(x)}</div>`).join('')}</div>`:'';
   return `<section class="tidl" aria-label="Entregáveis"><div class="tidlh">Entregáveis${d.files.length?` <span class="n">${d.files.length}</span>`:''}</div>${rows}${more}${empty}${todo}</section>`;
 }
-/** A linha da IA no dock. o: { cli ('' = shell sem IA · null = não sei ainda), taskAi, model, rec:{ai,model,command}, shell (PTY vivo no shell) } */
+/** A linha da IA no dock. o: { cli ('' = shell sem IA · null = não sei ainda), taskAi, rec:{ai,model,command}, shell (PTY vivo no shell sem IA) } */
 function tiAiRowHtml(o){
-  const cli=o.cli==null?o.taskAi:o.cli;
-  const rec=`<span class="tirecg"><code class="tirec" title="${escA(o.rec.command)}">${esc(o.rec.command)}</code><button type="button" class="btn sm${o.shell?' primary':''}" data-ti="rec" title="${escA('roda no terminal: '+o.rec.command)}">rodar</button></span>`;
-  if(o.shell) return `<div class="tiairow shell" role="status"><span class="tidot" aria-hidden="true"></span><span class="tishell">o terminal está no shell · rodar o recomendado:</span>${rec}<span class="sp"></span>${tiAiSelHtml('', o.taskAi, o.model)}</div>`;
-  return `<div class="tiairow">${tiAiSelHtml(cli, o.taskAi, o.model)}<span class="tireck">recomendado:</span>${rec}<span class="sp"></span><span class="tiaihint">ou digite <code>starfork ia &lt;nome&gt;</code> no terminal</span></div>`;
+  const cli=o.cli==null?o.taskAi:o.cli; const rl=tiAiLabel(o.rec.ai, o.rec.model);
+  const cmd=`<span class="tirecd">ou digite: <code title="${escA(o.rec.command)}">${esc(o.rec.command)}</code></span>`;
+  if(o.shell) return `<div class="tiairow shell" role="status"><span class="tishell">a IA parou</span><button type="button" class="btn sm primary" data-ti="rec" title="${escA('roda no terminal: '+o.rec.command)}">Continuar com ${esc(rl)}</button>${cmd}<span class="sp"></span>${tiAiSelHtml('', o.rec)}</div>`;
+  const exp=TI_AIS.some(x=>x.id===cli && x.exp) ? `<span class="tiaiexp">sem chips automáticos nem custo — a IA usa os comandos starfork</span>` : '';
+  const recBtn=(cli===o.rec.ai) ? '' : `<span class="tireck">recomendado:</span><button type="button" class="btn sm" data-ti="rec" title="${escA('roda no terminal: '+o.rec.command)}">${esc(rl)}</button>`;
+  return `<div class="tiairow">${tiAiSelHtml(cli, o.rec)}${recBtn}${exp}<span class="sp"></span><span class="tiaihint">ou digite <code>starfork ia &lt;nome&gt;</code> no terminal</span></div>`;
 }
+/** Chips da vez pra mostrar: some com a IA no meio de um turno (busy) e depois do clique (usedId). */
+function tiChipsFor(evs, usedId, busy){ if(busy) return null; const s=tiSuggest(evs); return (!s || s.id===usedId) ? null : s; }
+/** O compositor de texto aparece? o: { pref (localStorage tiComp), tmp (alguém pediu o campo), budget (teto aberto), pend (anexos esperando), draft } */
+function tiCompVisible(o){ o=o||{}; return o.pref==='1' || !!o.tmp || !!o.budget || !!(o.pend && o.pend.length) || !!String(o.draft||'').trim(); }
 // @ti-puro-fim
 
 // ---------------------------------------------------------------- estado
@@ -196,25 +204,44 @@ const TI={ stat:{}, statAt:{}, buf:{}, going:{}, hintAt:{}, used:{}, lastData:{}
 function tiTask(id){ return (state.tasks||[]).find(x=>x.id===id)||null; }
 function tiTaskAi(t){ return typeof aiEngineOf==='function'?aiEngineOf(t&&t.engine):'claude'; }
 function tiTaskModel(t){ if(!t) return ''; if(t.model) return t.model; const r=(t.roles||[]).find(x=>x.role==='builder')||(t.roles||[])[0]; return (r&&r.model)||''; }
-// motor que vai LER o comando: a IA rodando no terminal (term_status.cli); shell sem IA ou sem saber → o da tarefa
-// (o backend liga a IA da tarefa com a mensagem)
-function tiEngine(t){ const s=t&&TI.stat[t.id]; return (s && s.cli) ? String(s.cli) : tiTaskAi(t); }
+// motor que vai LER o comando: a IA rodando no terminal (term_status.cli); shell parado → a que o backend vai ligar
+// (o recomendado); sem saber → o da tarefa
+function tiEngine(t){ const s=t&&TI.stat[t.id]; return String((s && s.cli) || (s && s.recommended && s.recommended.ai) || tiTaskAi(t)); }
 function tiRec(t){ const s=TI.stat[t.id]; return tiRecommended(s&&s.recommended, tiTaskAi(t), tiTaskModel(t)); }
 function tiAiRow(t){ const s=TI.stat[t.id]; const st=TERM[t.id]; const live=!!(st && st.alive);
-  return tiAiRowHtml({ cli:(s && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), model:tiTaskModel(t), rec:tiRec(t), shell:live && !!s && s.cli==='' }); }
+  return tiAiRowHtml({ cli:(s && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:live && !!s && s.cli==='' }); }
+function tiAiRowReset(t){ const box=$id('tiAiRow'); if(box) box.__html=''; tiAiRowPaint(t); } // o <select> ficou na opção escolhida: volta pro real
+// trocar/rodar com a IA no meio de um turno interrompe o trabalho: pergunta antes
+async function tiBusyOk(taskId){
+  let s=null; try{ s=await invokeQuiet('term_status', { taskId }); if(s) TI.stat[taskId]=s; }catch(_){ }
+  if(!s || !s.busy) return true;
+  return askYes('A IA está no meio de um turno. Trocar agora interrompe o que ela está fazendo. Trocar mesmo?');
+}
+/** "Continuar com…"/recomendado: o backend roda o comando recomendado (não fixa a escolha como faria o seletor). */
+async function tiRunRec(taskId){
+  const t=tiTask(taskId); if(!t) return;
+  const st=TERM[taskId]; if(st && termGone(st.hinfo)){ toast(TERM_WT_GONE, 'warn'); return; }
+  if(!await tiBusyOk(taskId)) return;
+  try{ await invoke('term_run_recommended', { taskId }); }
+  catch(e){ showErr(e, 'Não consegui rodar o recomendado no terminal'); tiAiRowReset(t); return; }
+  if(typeof termGoLive==='function') termGoLive(taskId);
+  setTimeout(()=>tiStatRefresh(t, true), 1500);
+  tlFocusTerm(taskId);
+}
 /** Status do terminal (IA rodando, recomendado): no máx. 1x a cada 2,5s, só da tarefa na tela. */
 async function tiStatRefresh(t, force){
   const id=t.id; if(!force && Date.now()-(TI.statAt[id]||0)<2500) return; TI.statAt[id]=Date.now();
-  try{ const s=await invokeQuiet('term_status', { taskId:id }); if(s){ TI.stat[id]=s; tiAiRowPaint(tiTask(id)); } }catch(_){ }
+  try{ const s=await invokeQuiet('term_status', { taskId:id }); if(s){ TI.stat[id]=s; const t2=tiTask(id); tiAiRowPaint(t2); tiChipsPaint(t2); } }catch(_){ }
 }
 function tiAiRowPaint(t){ const box=$id('tiAiRow'), dock=$id('tiDock'); if(!t || !box || !dock || dock.dataset.task!==t.id || box.contains(document.activeElement)) return; const h=tiAiRow(t); if(box.__html!==h){ box.__html=h; box.innerHTML=h; } }
 /** Troca a IA do terminal (term_switch_ai: o backend fecha a IA/shell e reabre o shell já ligando a escolhida). */
 async function tiSwitchAi(taskId, ai, model){
   const t=tiTask(taskId); if(!t) return;
-  if(ai==='__cmd'){ tiAiRowPaint(t); tlFocusTerm(taskId); termSayLine(taskId, 'digite o comando no terminal — ex.: starfork ia gemini, starfork ia codex, ou qualquer comando do shell', '36'); return; }
-  const st=TERM[taskId]; if(st && termGone(st.hinfo)){ toast(TERM_WT_GONE, 'warn'); tiAiRowPaint(t); return; }
+  if(ai==='__cmd'){ tiAiRowReset(t); tlFocusTerm(taskId); termSayLine(taskId, 'digite o comando no terminal — ex.: starfork ia gemini, starfork ia codex, ou qualquer comando do shell', '36'); return; }
+  const st=TERM[taskId]; if(st && termGone(st.hinfo)){ toast(TERM_WT_GONE, 'warn'); tiAiRowReset(t); return; }
+  if(!await tiBusyOk(taskId)){ tiAiRowReset(t); return; }
   try{ await invoke('term_switch_ai', { taskId, ai, model:model||null }); }
-  catch(e){ showErr(e, 'Não consegui trocar a IA do terminal'); tiAiRowPaint(t); return; }
+  catch(e){ showErr(e, 'Não consegui trocar a IA do terminal'); tiAiRowReset(t); return; }
   toast('abrindo '+((TI_AIS.find(x=>x.id===ai)||{}).label||ai)+' no terminal…', 'info');
   if(typeof termGoLive==='function') termGoLive(taskId);
   setTimeout(()=>tiStatRefresh(t, true), 1500);
@@ -223,10 +250,8 @@ async function tiSwitchAi(taskId, ai, model){
 function tiBudgetOpen(t){ return !!t && pendingOf(t.id).some(p=>typeof fwIsBudgetAsk==='function' && fwIsBudgetAsk(p)); }
 /** O compositor de texto aparece? (escolha lembrada · teto de custo · algo já esperando nele · alguém pediu o campo) */
 function tiCompOn(t){
-  if(lsGet('tiComp')==='1' || !t) return true;
-  if(TI.compTmp[t.id] || tiBudgetOpen(t)) return true;
-  const pend=(typeof fwPend!=='undefined' && fwPend[t.id])||[]; const draft=(typeof fwDraft!=='undefined' && fwDraft[t.id])||'';
-  return !!(pend.length || String(draft).trim());
+  if(!t) return true;
+  return tiCompVisible({ pref:lsGet('tiComp'), tmp:TI.compTmp[t.id], budget:tiBudgetOpen(t), pend:(typeof fwPend!=='undefined' && fwPend[t.id])||[], draft:(typeof fwDraft!=='undefined' && fwDraft[t.id])||'' });
 }
 /** Quem precisa do campo de texto (pergunta do plano, trecho da revisão, mudar o rumo): mostra o compositor desta tarefa. */
 function tiCompShow(taskId){
@@ -266,9 +291,15 @@ async function tiGoLive(taskId){
     TI.lastData[taskId]=0;
     await termOpen(taskId);
     if(!st.alive){ delete TI.buf[taskId]; return false; } // termOpen já mostrou o erro
-    // o Claude Code desenha em rajadas: espera o 1º dado e ~0,7s de silêncio (máx. 8s) — antes disso a tecla se perde
-    const t0=Date.now();
-    while(Date.now()-t0<8000){ const ld=TI.lastData[taskId]||0; if(ld && Date.now()-ld>700) break; await new Promise(r=>setTimeout(r, 150)); }
+    // o PTY é um SHELL que roda `starfork ia …` antes de a IA desenhar: espera o term_status dizer que a IA subiu
+    // (cli) e ~0,7s de silêncio depois disso (máx. ~12s) — antes disso a tecla iria pro shell ou se perderia
+    const t0=Date.now(), wait=(ms)=>new Promise(r=>setTimeout(r, ms)); let up=0;
+    while(Date.now()-t0<12000){
+      if(!up){ try{ const s=await invokeQuiet('term_status', { taskId }); if(s){ TI.stat[taskId]=s; if(s.cli) up=Date.now(); } }catch(_){ } }
+      if(up){ const ld=Math.max(TI.lastData[taskId]||0, up); if(Date.now()-ld>700) break; }
+      await wait(250);
+    }
+    if(!up && TI.buf[taskId]) termSayLine(taskId, 'a IA não subiu a tempo — o que você digitou foi pro shell do terminal', '33');
     tiFlush(taskId);
     return true;
   }finally{ delete TI.going[taskId]; }
@@ -299,7 +330,7 @@ function tiHostWire(taskId, st){
     tiAttachFiles(taskId, files);
   }, true);
   const drop=document.createElement('div'); drop.className='tidrop'; drop.hidden=true;
-  drop.innerHTML='<b>solte pra anexar</b><small>vai pra .cardume/refs e entra como @arquivo no prompt</small>';
+  drop.innerHTML='<b>solte pra anexar à conversa</b><small>o agente recebe o arquivo</small>';
   host.appendChild(drop);
   const hasFiles=(e)=>{ const ty=e.dataTransfer && e.dataTransfer.types; return !!ty && [...ty].includes('Files'); };
   host.addEventListener('dragenter', (e)=>{ if(!hasFiles(e)) return; e.preventDefault(); st.tiDrag=(st.tiDrag||0)+1; drop.hidden=false; });
@@ -325,15 +356,15 @@ function tiAttached(taskId, atts){
 
 // ---------------------------------------------------------------- dock embaixo do terminal
 function tiChipsHtml(t){
-  const s=tiSuggest(termEvents(t.id)); if(!s || TI.used[t.id]===s.id) return '';
+  const st=TI.stat[t.id]; const s=tiChipsFor(termEvents(t.id), TI.used[t.id], !!(st && st.busy)); if(!s) return '';
   return `<div class="tichips" role="group" aria-label="respostas sugeridas pelo agente">${s.list.map((c,i)=>`<button type="button" class="tichip${i?'':' pri'}" data-tichip="${i}" data-sid="${escA(String(s.id))}" title="${escA('manda pro terminal: '+c)}">${esc(c)}</button>`).join('')}</div>`;
 }
 function tiDockHtml(t){
   const comp=tiCompOn(t);
   const act=(k, label)=>`<button type="button" class="tiact" data-tisheet="${k}" aria-haspopup="dialog">${TI_IC[k]}<span>${esc(label)}</span></button>`;
   return `<div class="tidock" id="tiDock" data-task="${escA(t.id)}"><div id="tiAiRow">${tiAiRow(t)}</div><div id="tiChips">${tiChipsHtml(t)}</div>`+
-    `<div class="tiacts"><button type="button" class="tiact ticlip" data-ti="att" title="anexar print, PDF ou arquivo — ou arraste/cole (⌘V) no terminal">${TI_IC.clip}<span>anexar</span></button><span class="tisep" aria-hidden="true"></span>`+
-    act('etapa','Etapa / status')+act('skill','Skills')+act('tarefa','Tarefa / épico')+act('pr','Revisão / PR')+
+    `<div class="tiacts"><button type="button" class="tiact ticlip" data-ti="att" title="anexar print, PDF ou arquivo — ou arraste/cole (⌘V) no terminal">${TI_IC.clip}<span>Anexar</span></button><span class="tisep" aria-hidden="true"></span>`+
+    act('etapa','Etapa')+act('skill','Skills')+act('tarefa','Tarefa')+act('pr','Revisão/PR')+
     `<span class="sp"></span><span class="tihint">botão = comando no terminal</span>`+
     `<button type="button" class="lnk ticomp" data-ti="comp" aria-pressed="${comp}" title="${comp?'esconder o compositor de texto':'mostrar o compositor de texto (anexos, vira requisito, IA da tarefa)'}">compositor</button></div></div>`;
 }
@@ -341,7 +372,7 @@ function tiDockHtml(t){
 function tiWire(t){
   const dock=$id('tiDock'); if(dock){ dock.__chips=tiChipsHtml(t); dock.onclick=(e)=>tiDockClick(t.id, e);
     const row=$id('tiAiRow'); if(row) row.__html=tiAiRow(t);
-    dock.onchange=(e)=>{ const sel=e.target.closest('[data-ti="ai"]'); if(!sel) return; const ai=sel.value; sel.blur(); tiSwitchAi(t.id, ai, ai===tiTaskAi(t)?tiModelShort(tiTaskModel(t)):null); };
+    dock.onchange=(e)=>{ const sel=e.target.closest('[data-ti="ai"]'); if(!sel) return; const ai=sel.value; sel.blur(); const r=tiRec(t); tiSwitchAi(t.id, ai, ai===r.ai?r.model:null); };
     if(TI.stat[t.id]===undefined) tiStatRefresh(t, true); }
   const col=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"] .tlcol`);
   if(TI.sheet && TI.sheet.taskId===t.id && col){ const el=TI.sheet.el; if(el.parentNode!==col){ const back=!document.activeElement || document.activeElement===document.body; col.appendChild(el); if(back) tiSheetFocus(); } }
@@ -355,7 +386,7 @@ function tiDockClick(taskId, e){
   const s=e.target.closest('[data-tisheet]'); if(s){ tiSheetOpen(taskId, s.dataset.tisheet, s); return; }
   const b=e.target.closest('[data-ti]'); if(!b) return;
   if(b.dataset.ti==='att'){ tiAttachPick(taskId); return; }
-  if(b.dataset.ti==='rec'){ const t=tiTask(taskId); if(!t) return; const r=tiRec(t); tiSwitchAi(taskId, r.ai, r.model); return; }
+  if(b.dataset.ti==='rec'){ tiRunRec(taskId); return; }
   if(b.dataset.ti==='comp'){ const t=tiTask(taskId); const on=!tiCompOn(t); lsSet('tiComp', on?'1':'0'); if(!on) delete TI.compTmp[taskId];
     if(typeof renderWorkspace==='function') renderWorkspace();
     if(on){ const i=$id('fwInput'); if(i) i.focus(); } else tlFocusTerm(taskId); }

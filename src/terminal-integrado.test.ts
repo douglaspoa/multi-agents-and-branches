@@ -178,7 +178,7 @@ test("create_task: tarefa nova em RASCUNHO no mesmo projeto, herda épico/equipe
       { name: "create_task", arguments: { title: "Fora do épico", objective: "y", same_epic: false } },
     ]);
     assert.equal(ok.isError, false, ok.text);
-    assert.match(ok.text, /tarefa criada: exportar-csv-2 — "Exportar CSV" · criada como RASCUNHO/);
+    assert.match(ok.text, /tarefa criada: exportar-csv-2 — "Exportar CSV" · rascunho criado — inicie pelo quadro quando quiser/);
     assert.equal(empty.isError, true);
     assert.equal(other.isError, false, other.text);
     const s = new Store(f.db);
@@ -334,7 +334,7 @@ test("shell (macOS/Linux): PTY = shell de login na worktree subindo `starfork ia
     assert.equal(L.program, "/bin/bash", "o shell da pessoa ($SHELL)");
     assert.deepEqual(L.args.slice(0, 3), ["-l", "-i", "-c"], "login + interativo");
     const shim = join(t.worktree, TERM_BIN_REL, "starfork");
-    assert.equal(L.args[3], `'${shim}' ia claude --modelo sonnet --resume --msg-file '${NEXT_MSG_REL}'; '/bin/bash' -l -i`, "sobe a IA da tarefa com o modelo dela e, ao sair, vira o shell");
+    assert.equal(L.args[3], `'${shim}' ia claude --modelo sonnet --resume --msg-file '${NEXT_MSG_REL}'; '/bin/bash' -l -i; :`, "sobe a IA da tarefa com o modelo dela e, ao sair, vira o shell");
     assert.ok(!L.args[3].includes("oi do app"), "texto do humano NUNCA no argv do shell");
     assert.equal(readFileSync(join(t.worktree, NEXT_MSG_REL), "utf8"), "oi do app 'com aspas'");
     assert.equal(L.env.PATH.split(":")[0], join(t.worktree, TERM_BIN_REL), "`starfork` na frente do PATH");
@@ -347,7 +347,7 @@ test("shell (macOS/Linux): PTY = shell de login na worktree subindo `starfork ia
     assert.ok(statSync(shim).mode & 0o100, "shim executável");
     const body = readFileSync(shim, "utf8");
     assert.match(body, /^#!\/bin\/sh\n/);
-    assert.match(body, /starfork ia-prep "\$@"\) \|\| exit \$\?/, "ia: o motor imprime o lançamento");
+    assert.match(body, /starfork ia-prep "\$@"\) \|\| \{ .* starfork _ia-exit "\$1" --falha >\/dev\/null 2>&1; exit 1; \}/, "ia: o motor imprime o lançamento; se ele morrer, solta o estado");
     assert.match(body, /trap ':' INT\n  eval "\$__sf_launch"/, "Ctrl+C não mata o sh; a IA roda nele");
     assert.match(body, /exec .* starfork "\$@"\n$/, "os outros subcomandos vão direto pro motor");
     assert.equal(git(t.worktree, "status", "--porcelain"), "", "shim e mensagem fora do git");
@@ -513,3 +513,110 @@ test("script de lançamento: só nomes de env válidos, unset sem tirar o que ex
   assert.equal(launchScript(L, ["/n", "/c.mjs"]), "cd '/w t' || exit 1\nunset CLAUDECODE\nexport A='1'\nexport ANTHROPIC_AUTH_TOKEN='k'\n'/x/claude' '--a' 'it'\\''s'\n__sf_rc=$?\n'/n' '/c.mjs' starfork _ia-exit claude >/dev/null 2>&1\nexit $__sf_rc\n");
   assert.match(shimScript(["/n", "/c d.mjs"]), /'\/n' '\/c d\.mjs' starfork ia-prep "\$@"/);
 });
+
+/** `cli.ts <args>` (o motor, como o app chama) → última linha JSON. */
+function cliJson(args: string[], env: Record<string, string> = {}, input?: string): any {
+  const r = spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, ...args], { encoding: "utf8", input, env: { ...process.env, CARDUME_NOTIFY: "0", ...env } });
+  const l = r.stdout.trim().split("\n").filter((x) => x.startsWith("{")).pop();
+  return l ? JSON.parse(l) : { stdout: r.stdout, stderr: r.stderr };
+}
+
+test("term-ai (CLI): grava termAi/termModel, modelo vazio apaga, recomendado segue; term-msg devolve a worktree", async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    const t = await orch.createTask(spec("st", { roles: [{ role: "builder", name: "Vega", engine: "claude", model: "sonnet" }] }));
+    orch.close();
+    const sp = () => { const s = new Store(f.db); try { return JSON.parse(s.getTask("st")!.spec_json) as TaskSpec; } finally { s.close(); } };
+    const a = cliJson(["term-ai", "st", "--ai", "gemini", "--model", "gemini-2.5-flash", "--repo", f.repo], { HOME: f.home });
+    assert.deepEqual(a.recommended, { ai: "gemini", model: "gemini-2.5-flash", command: "starfork ia gemini --modelo gemini-2.5-flash" });
+    assert.equal(sp().termAi, "gemini");
+    assert.equal(sp().termModel, "gemini-2.5-flash");
+    const b = cliJson(["term-ai", "st", "--ai", "claude", "--repo", f.repo], { HOME: f.home });
+    assert.equal(sp().termModel, undefined, "sem --model: apaga o modelo escolhido antes");
+    assert.deepEqual(b.recommended, recommendedLaunch(sp()), "o recomendado do CLI = recommendedLaunch do spec gravado");
+    assert.equal(b.recommended.command, "starfork ia claude --modelo sonnet", "voltou pra IA da tarefa: o modelo do papel");
+    assert.match(String(cliJson(["term-ai", "st", "--ai", "nada", "--repo", f.repo], { HOME: f.home }).error), /IA desconhecida/);
+    const m = cliJson(["term-msg", "st", "--kind", "talk", "--msg", "oi", "--repo", f.repo], { HOME: f.home });
+    assert.deepEqual(m, { text: "oi", worktree: t.worktree });
+  } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
+});
+
+test("statusline com STARFORK_ENGINE=deepseek: não grava custo (seria preço de Claude)", async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    await orch.createTask(spec("ds"));
+    orch.close();
+    const j = JSON.stringify({ session_id: "sess-ds-1", cost: { total_cost_usd: 1.25 }, model: { id: "deepseek-v4-pro", display_name: "DeepSeek" } });
+    const run = (extra: Record<string, string>) => spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, "statusline", "--starfork-task", "ds", "--repo", f.repo], { encoding: "utf8", input: j, env: { ...process.env, HOME: f.home, CLAUDE_CONFIG_DIR: f.cfg, CARDUME_DB: f.db, ...extra } });
+    const cost = () => { const s = new Store(f.db); try { return (s.db.prepare("SELECT COUNT(*) AS n FROM cost WHERE task_id='ds'").get() as { n: number }).n; } finally { s.close(); } };
+    assert.match(run({ STARFORK_ENGINE: "deepseek" }).stdout, /US\$ 0\.00/);
+    assert.equal(cost(), 0, "DeepSeek: nenhuma linha de custo");
+    run({ STARFORK_ENGINE: "" });
+    assert.equal(cost(), 1, "Claude: grava (prova que o caminho é o mesmo)");
+  } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
+});
+
+test("--msg-file fora de .cardume/term/next-msg.txt é recusado (o arquivo seria APAGADO)", { skip: process.platform === "win32" }, async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    const t = await orch.createTask(spec("mf"));
+    orch.close();
+    const env = { CARDUME_AI_BIN_claude: fakeBin(join(f.root, "bins"), "claude") };
+    writeFileSync(join(t.worktree, "importante.txt"), "não apague");
+    const r = sf(f, "mf", ["ia-prep", "claude", "--msg-file", "importante.txt"], env);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /--msg-file só aceita \.cardume\/term\/next-msg\.txt/);
+    assert.equal(readFileSync(join(t.worktree, "importante.txt"), "utf8"), "não apague");
+    assert.equal(sf(f, "mf", ["ia-prep", "claude", "--msg-file", "../../../../README.md"], env).code, 1);
+    assert.ok(existsSync(join(f.repo, "README.md")));
+    const s = new Store(f.db);
+    try { assert.equal(s.termCli("mf"), ""); assert.equal(s.termGet("mf")?.busy ?? 0, 0, "recusa solta cli/ocupado"); } finally { s.close(); }
+    assert.equal(sf(f, "mf", ["ia-prep", "claude", "--msg-file", join(t.worktree, NEXT_MSG_REL)], env).code, 0, "o caminho absoluto do arquivo certo vale");
+  } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
+});
+
+test("openPr: rascunho com gh falso (--draft, prUrl/prNumber gravados, solto commitado); PR aberto = só push; gh sem URL = erro", { skip: process.platform === "win32" }, async () => {
+  const f = fixture();
+  const origin = join(f.root, "origin.git");
+  execFileSync("git", ["init", "--bare", "-q", "-b", "main", origin]);
+  git(f.repo, "remote", "add", "origin", origin);
+  git(f.repo, "push", "-q", "origin", "main");
+  const argvFile = join(f.root, "gh-argv.txt");
+  const gh = join(f.root, "gh-falso.sh");
+  writeFileSync(gh, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argvFile}'\n[ -n "$GH_SEM_URL" ] && { echo "criado"; exit 0; }\necho "https://github.com/o/r/pull/77"\n`);
+  chmodSync(gh, 0o755);
+  const orch = new Orchestrator(f.repo);
+  try {
+    const t = await orch.createTask(spec("pr", { requirements: ["r1"], prBase: "main" }));
+    writeFileSync(join(t.worktree, "solto.txt"), "x\n");
+    const r = await withEnvAsync({ CARDUME_GH: gh, GH_SEM_URL: undefined }, () => orch.openPr("pr", { draft: true, title: "Meu PR" }));
+    assert.deepEqual(r, { ok: true, url: "https://github.com/o/r/pull/77" });
+    const argv = readFileSync(argvFile, "utf8").split("\n");
+    assert.ok(argv.includes("--draft") && argv.includes("Meu PR"), argv.join(" "));
+    const sp = JSON.parse(orch.store.getTask("pr")!.spec_json) as TaskSpec;
+    assert.equal(sp.prUrl, "https://github.com/o/r/pull/77");
+    assert.equal(sp.prNumber, 77);
+    assert.equal(git(t.worktree, "status", "--porcelain", "--", "solto.txt"), "", "arquivo solto commitado");
+    assert.ok(git(origin, "log", "--oneline", t.branch).length > 0, "branch no remoto");
+    // PR já aberto: "atualizar" = commit + push, sem gate (r1 sem prova) e sem gh
+    rmSync(argvFile);
+    writeFileSync(join(t.worktree, "mais.txt"), "y\n");
+    const u = await withEnvAsync({ CARDUME_GH: gh }, () => orch.openPr("pr"));
+    assert.deepEqual(u, { ok: true, url: "https://github.com/o/r/pull/77" });
+    assert.ok(!existsSync(argvFile), "não chamou o gh");
+    assert.equal(git(origin, "rev-parse", t.branch), git(t.worktree, "rev-parse", "HEAD"), "push com o novo commit");
+    // gh sem URL
+    orch.store.patchSpec("pr", { prUrl: undefined, prNumber: undefined });
+    const n = await withEnvAsync({ CARDUME_GH: gh, GH_SEM_URL: "1" }, () => orch.openPr("pr", { draft: true }));
+    assert.equal(n.ok, false);
+    assert.match(String(n.error), /gh não devolveu a URL do PR/);
+  } finally { orch.close(); f.done(); }
+});
+async function withEnvAsync<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const old = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  try { return await fn(); } finally { for (const [k, v] of Object.entries(old)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
+}

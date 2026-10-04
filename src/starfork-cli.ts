@@ -1,7 +1,7 @@
 // `starfork …` — o comando do SHELL do terminal integrado (o sh em <worktree>/.cardume/term/bin/starfork chama o
 // motor com `starfork <sub> …`). Serve QUALQUER IA (até a que não fala MCP) e a pessoa que digita no shell:
 //   ia-prep <ia> [--modelo m] [--resume] [--msg-file p]  — lançamento da IA como script de sh (o shim roda; ver terminal.ts)
-//   _ia-start <ia> / _ia-exit <ia>                         — term_session.cli (qual IA está rodando no shell)
+//   _ia-exit <ia> [--falha]                                — a IA saiu: term_session.cli = '' (--falha: nem subiu)
 //   status · sugerir · etapa · skills · skill · tarefa · pr · requisito · entregavel · perguntar · mapa · ajuda
 // Os comandos de tarefa são as MESMAS ferramentas do MCP (src/mcp/tools.ts › callTool) com o contexto do ambiente
 // (CARDUME_DB/CARDUME_TASK/CARDUME_AGENT/CARDUME_ROLE, que o terminal exporta). Saída em texto; erro → código 1.
@@ -14,7 +14,7 @@ export interface Io { out: (s: string) => void; err: (s: string) => void }
 const stdio: Io = { out: (s) => process.stdout.write(s.endsWith("\n") ? s : s + "\n"), err: (s) => process.stderr.write(s.endsWith("\n") ? s : s + "\n") };
 
 /** Flags sem valor. As outras levam o próximo argumento (ou `--x=valor`); repetir acumula (--requisito a --requisito b). */
-const BOOL = new Set(["resume", "rascunho", "fora-do-epico", "iniciar", "help"]);
+const BOOL = new Set(["resume", "rascunho", "fora-do-epico", "falha", "help"]);
 export interface SfArgs { pos: string[]; flags: Record<string, string[]> }
 export function parseSf(argv: string[]): SfArgs {
   const a: SfArgs = { pos: [], flags: {} };
@@ -89,15 +89,13 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
         return 1;
       } finally { orch.close(); }
     }
-    case "_ia-start":
     case "_ia-exit": {
       const db = process.env.CARDUME_DB ?? "", task = process.env.CARDUME_TASK ?? "";
       if (!db || !task) return 0;
       const { Store } = await import("./store.ts");
       const store = new Store(db);
       try {
-        if (sub === "_ia-exit") iaExit(store, task, String(a.pos[0] ?? ""));
-        else store.termSetCli(task, isTermAi(a.pos[0]) ? a.pos[0] : "");
+        iaExit(store, task, String(a.pos[0] ?? ""), { failed: has(a, "falha") });
       } catch (e) { io.err(`starfork ${sub}: ${(e as Error)?.message ?? e}`); } finally { store.close(); }
       return 0;
     }
@@ -120,7 +118,7 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
       return tool(io, "create_task", {
         title: text, objective: one(a, "objetivo", "objective") ?? text, requirements: many(a, "requisito", "requirement"),
         ...(many(a, "entregavel", "deliverable").length ? { deliverables: many(a, "entregavel", "deliverable") } : {}),
-        same_epic: !has(a, "fora-do-epico"), start: has(a, "iniciar"),
+        same_epic: !has(a, "fora-do-epico"),
       });
     case "pr":
       return tool(io, "open_pr", { draft: has(a, "rascunho"), ...(one(a, "titulo", "title") ? { title: one(a, "titulo", "title") } : {}), ...(one(a, "corpo", "body") ? { body: one(a, "corpo", "body") } : {}) });

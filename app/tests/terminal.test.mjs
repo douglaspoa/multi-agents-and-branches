@@ -107,7 +107,7 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   const st = ctx.TERM.t1;
   assert.equal(st.mode, 'hist');
   assert.match(st.bar.innerHTML, /retomar sessão/);
-  assert.match(st.bar.innerHTML, /digite no terminal pra continuar a conversa/); // terminal integrado: digitar retoma
+  assert.match(st.bar.innerHTML, /histórico · digite pra continuar/); // terminal integrado: digitar retoma
   const out = st.term.out.join('').replace(/\x1b\[[0-9;]*m/g, '');
   assert.match(out, /╭─ claude · sessão e3f63ca1 · worktree t1/);
   assert.match(out, /● velho/);

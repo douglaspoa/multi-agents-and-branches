@@ -205,7 +205,7 @@ export const TOOLS = [
   {
     name: "create_task",
     description:
-      "Cria uma tarefa NOVA no mesmo projeto do Starfork (quando o humano pedir uma tarefa nova ou pra quebrar esta). Nasce como RASCUNHO (start=false) e no mesmo épico desta (same_epic=true), com a mesma equipe/motor. Devolve o id. Não use pra mudar ESTA tarefa (isso é add_requirement/edit_task).",
+      "Cria uma tarefa NOVA no mesmo projeto do Starfork (quando o humano pedir uma tarefa nova ou pra quebrar esta). Nasce SEMPRE como RASCUNHO (o humano inicia pelo quadro — tarefa custa) e no mesmo épico desta (same_epic=true), com a mesma equipe/motor. Devolve o id. Não use pra mudar ESTA tarefa (isso é add_requirement/edit_task).",
     inputSchema: {
       type: "object",
       properties: {
@@ -214,7 +214,6 @@ export const TOOLS = [
         requirements: { type: "array", items: { type: "string" }, description: "Requisitos curtos e VERIFICÁVEIS." },
         deliverables: { type: "array", items: { type: "string" } },
         same_epic: { type: "boolean", default: true },
-        start: { type: "boolean", default: false, description: "Só true se o humano pediu pra já sair rodando." },
       },
       required: ["title", "objective"],
     },
@@ -519,7 +518,7 @@ export async function callTool(ctx: ToolCtx, name: string, args: any): Promise<T
     const r = await createChildTask(await orch(), TASK, {
       title: String(args?.title ?? ""), objective: typeof args?.objective === "string" ? args.objective : undefined,
       requirements: Array.isArray(args?.requirements) ? args.requirements : undefined, deliverables: Array.isArray(args?.deliverables) ? args.deliverables : undefined,
-      same_epic: args?.same_epic !== false, start: args?.start === true,
+      same_epic: args?.same_epic !== false,
     }, AGENT);
     store.addEvent(TASK, AGENT, "note", `criou a tarefa "${r.title}" (${r.id})`, true, ROLE || undefined);
     return { text: `tarefa criada: ${r.id} — "${r.title}" · ${r.note}` };

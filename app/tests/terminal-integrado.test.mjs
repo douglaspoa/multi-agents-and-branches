@@ -9,7 +9,7 @@ const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8'
 const cut = (src, from, to) => { const a = src.indexOf(from); const b = src.indexOf(to, a + from.length); assert.ok(a >= 0 && b > a, 'trecho não encontrado: ' + from); return src.slice(a, b); };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TI = new Function('esc', 'escA', cut(read('js/64-terminal-integrado.js'), '// @ti-puro-inicio', '// @ti-puro-fim') +
-  '\nreturn { TI_AIS, tiModelShort, tiRecommended, tiAiSelHtml, tiAiRowHtml, tiKeyOpens, tiIsUserEv, tiParseSuggest, tiSuggest, tiCmdText, tiAtRef, tiSheetDef, tiSheetVisible, tiSheetText, tiSheetHtml, tiSheetKey, tiKindLabel, tiDelivList, tiDelivHtml1 };')(esc, esc);
+  '\nreturn { TI_AIS, tiModelShort, tiRecommended, tiAiLabel, tiAiSelHtml, tiAiRowHtml, tiChipsFor, tiCompVisible, tiKeyOpens, tiIsUserEv, tiParseSuggest, tiSuggest, tiCmdText, tiAtRef, tiSheetDef, tiSheetVisible, tiSheetText, tiSheetHtml, tiSheetKey, tiKindLabel, tiDelivList, tiDelivHtml1 };')(esc, esc);
 const TL = new Function('esc', 'escA', cut(read('js/60-terminal-layout.js'), '// @tl-puro-inicio', '// @tl-puro-fim') + '\nreturn { tlPanelHtml, tlReqView };')(esc, esc);
 
 // ---------------- chips de resposta ----------------
@@ -78,7 +78,7 @@ test('folhas: etapa, tarefa e PR com o comando de cada opção; prévia e "manda
   const h1 = TI.tiSheetHtml(tk, { sel: 0, title: 'Ajuste <b>' }, 'claude');
   assert.ok(!/data-ti="ok" disabled/.test(h1)); assert.match(h1, /\/starfork-tarefa nova &quot;Ajuste &lt;b&gt;&quot;/, 'escapado');
   assert.match(h1, /role="dialog" aria-modal="true" aria-labelledby="tiShT"/);
-  assert.match(TI.tiSheetHtml(et, { sel: 1 }, 'codex'), /Starfork: avance esta tarefa para Entregar/, 'a prévia mostra a frase no Codex');
+  assert.match(TI.tiSheetHtml(et, { sel: 1 }, 'codex'), /Starfork: confira as provas desta tarefa/, 'a prévia mostra a frase no Codex');
   assert.equal(TI.tiSheetDef('nada'), null);
 });
 test('skills: as do projeto primeiro, depois os atalhos do Starfork (mandam o prompt), depois as desligadas; filtro', () => {
@@ -97,6 +97,8 @@ test('teclado da folha: ↑↓ andam nas visíveis, 1–9 escolhem, Enter manda,
   const d = TI.tiSheetDef('pr'); const st = { sel: 0 };
   assert.equal(TI.tiSheetKey(d, st, 'ArrowDown').st.sel, 1);
   assert.equal(TI.tiSheetKey(d, st, 'ArrowUp').st.sel, 3, 'dá a volta');
+  assert.equal(TI.tiSheetKey(d, { sel: -1 }, 'ArrowUp').st.sel, 3, 'sem escolha: ↑ vai pra ÚLTIMA (não a penúltima)');
+  assert.equal(TI.tiSheetKey(d, { sel: -1 }, 'ArrowDown').st.sel, 0);
   assert.equal(TI.tiSheetKey(d, st, '3').st.sel, 2);
   assert.equal(TI.tiSheetKey(d, st, 'Enter').act, 'send');
   assert.equal(TI.tiSheetKey(d, st, 'Escape').act, 'close');
@@ -141,7 +143,7 @@ test('ganchos: arquivos registrados, suggest fora de todo feed, xterm do histór
   const term = read('js/60-terminal.js');
   assert.match(term, /if\(st\.alive\)\{ invokeQuiet\('term_write'[^\n]*tiHistKey\(taskId, d\)/);
   assert.match(term, /tiHostWire\(taskId, st\)/);
-  assert.match(term, /digite no terminal pra continuar a conversa/);
+  assert.match(term, /histórico\$\{[^\n]*digite pra continuar/);
   const lay = read('js/60-terminal-layout.js');
   assert.match(lay, /tiDockHtml\(t\):''\}\$\{composer\}/);
   assert.match(lay, /ti-nocomp/); assert.match(lay, /tiWire\(t\)/); assert.match(lay, /tiSideClick\(taskId, e\)/); assert.match(lay, /tiLivePaint\(t\)/);
@@ -163,15 +165,45 @@ test('IA do terminal: recomendado do backend ou montado do motor/modelo; seletor
   assert.equal(TI.tiRecommended(null, 'claude', 'claude-sonnet-4-5').command, 'starfork ia claude --modelo sonnet');
   assert.equal(TI.tiRecommended(null, 'codex', '').command, 'starfork ia codex');
   assert.equal(TI.tiRecommended(null, 'gateway', '').ai, 'claude', 'motor sem CLI no terminal cai no Claude Code');
-  const sel = TI.tiAiSelHtml('codex', 'claude', 'opus');
-  assert.match(sel, /<option value="codex" selected>Codex<\/option>/); assert.match(sel, /Claude Code · opus/); assert.match(sel, /value="__cmd">Outro comando…/);
-  assert.match(TI.tiAiSelHtml('', 'claude', ''), /value="" selected disabled>shell \(sem IA\)/);
-  assert.match(TI.tiAiSelHtml('aider', 'claude', ''), /value="aider" selected/);
+  assert.equal(TI.tiRecommended({ ai: 'claude', model: 'claude-sonnet-4-5', command: 'x' }).model, 'sonnet', 'modelo no mesmo formato');
   const rec = { ai: 'claude', model: 'sonnet', command: 'starfork ia claude --modelo sonnet' };
-  const row = TI.tiAiRowHtml({ cli: null, taskAi: 'claude', model: 'sonnet', rec });
-  assert.match(row, /recomendado:/); assert.match(row, /starfork ia claude --modelo sonnet/); assert.match(row, /data-ti="rec"/); assert.match(row, /starfork ia &lt;nome&gt;/);
-  assert.match(row, /<option value="claude" selected>/, 'sem o campo cli: a IA da tarefa');
-  const sh = TI.tiAiRowHtml({ cli: '', taskAi: 'claude', model: '', rec, shell: true });
-  assert.match(sh, /class="tiairow shell"/); assert.match(sh, /o terminal está no shell/); assert.match(sh, /btn sm primary" data-ti="rec"/);
+  assert.equal(TI.tiAiLabel('claude', 'sonnet'), 'Claude · sonnet');
+  const sel = TI.tiAiSelHtml('codex', rec);
+  assert.match(sel, /<option value="codex" selected>Codex<\/option>/); assert.match(sel, />Claude · sonnet</, 'o modelo vem do recomendado (uma fonte só)'); assert.match(sel, /value="__cmd">Outro comando…/);
+  assert.match(sel, /Gemini \(experimental\)/); assert.match(sel, /opencode \(experimental\)/);
+  assert.match(TI.tiAiSelHtml('', rec), /value="" selected disabled>shell \(sem IA\)/);
+  assert.match(TI.tiAiSelHtml('aider', rec), /value="aider" selected/);
+  const row = TI.tiAiRowHtml({ cli: null, taskAi: 'claude', rec });
+  assert.match(row, /<option value="claude" selected>Claude · sonnet</, 'sem o campo cli: a IA da tarefa, com o modelo do recomendado');
+  assert.ok(!/data-ti="rec"/.test(row), 'já roda o recomendado: sem botão repetido'); assert.match(row, /starfork ia &lt;nome&gt;/);
+  const other = TI.tiAiRowHtml({ cli: 'codex', taskAi: 'claude', rec });
+  assert.match(other, /recomendado:<\/span><button type="button" class="btn sm" data-ti="rec"[^>]*>Claude · sonnet</);
+  assert.match(TI.tiAiRowHtml({ cli: 'gemini', taskAi: 'claude', rec }), /sem chips automáticos nem custo — a IA usa os comandos starfork/);
+  assert.ok(!/sem chips automáticos/.test(other));
+  const sh = TI.tiAiRowHtml({ cli: '', taskAi: 'claude', rec, shell: true });
+  assert.match(sh, /class="tiairow shell"/); assert.match(sh, /a IA parou/); assert.match(sh, /btn sm primary" data-ti="rec"[^>]*>Continuar com Claude · sonnet</);
+  assert.match(sh, /class="tirecd">ou digite: <code[^>]*>starfork ia claude --modelo sonnet</, 'o comando vira detalhe');
+  assert.ok(!/está no shell/.test(sh), 'não parece erro');
   assert.equal(TI.TI_AIS.map((x) => x.id).join(','), 'claude,codex,deepseek,gemini,opencode');
+});
+
+test('chips somem com a IA no meio de um turno (busy) e depois do clique; a regra "depois da sua fala" continua', () => {
+  const evs = [ev(1, { agent: 'Você', text: 'Você: oi' }), ev(2, { type: 'suggest', text: JSON.stringify(['a', 'b']) })];
+  assert.deepEqual(TI.tiChipsFor(evs, null, false).list, ['a', 'b']);
+  assert.equal(TI.tiChipsFor(evs, null, true), null, 'busy: some');
+  assert.equal(TI.tiChipsFor(evs, 2, false), null, 'clicado: some');
+  assert.equal(TI.tiChipsFor([...evs, ev(3, { agent: 'Você', text: 'Você: b' })], null, false), null, 'falou depois: some');
+});
+test('compositor: escondido por padrão; aparece com a escolha, quando alguém pede o campo, com anexo/rascunho esperando e com o teto aberto', () => {
+  assert.equal(TI.tiCompVisible({}), false);
+  assert.equal(TI.tiCompVisible({ pref: '0', pend: [], draft: '  ' }), false);
+  assert.equal(TI.tiCompVisible({ pref: '1' }), true);
+  assert.equal(TI.tiCompVisible({ tmp: 1 }), true);
+  assert.equal(TI.tiCompVisible({ pend: [{ rel: 'x' }] }), true);
+  assert.equal(TI.tiCompVisible({ draft: 'oi' }), true);
+  assert.equal(TI.tiCompVisible({ budget: true }), true);
+});
+test('textos: Entregar = conferir provas e abrir PR (igual ao /comando); nada de --iniciar', () => {
+  assert.equal(TI.tiCmdText('codex', 'etapa', 'entregar'), 'Starfork: confira as provas desta tarefa (`starfork status`); se todos os requisitos estiverem provados, abra o PR (`starfork pr`); senão me diga o que falta.');
+  assert.ok(!/--iniciar/.test(read('js/64-terminal-integrado.js')));
 });

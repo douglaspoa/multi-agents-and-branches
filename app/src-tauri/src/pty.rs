@@ -35,7 +35,8 @@ pub const PASTE_ENTER_MS: u64 = 150;
 /// Para onde vai o que o terminal produz. O app implementa com eventos Tauri; os testes, com canais.
 pub trait PtySink: Send + Sync + 'static {
     fn data(&self, task_id: &str, chunk: &str);
-    fn exit(&self, task_id: &str, code: Option<u32>);
+    /// `pid` = o líder que saiu (a sessão pode já ter sido trocada por outra — quem recebe compara)
+    fn exit(&self, task_id: &str, pid: u32, code: Option<u32>);
 }
 
 #[derive(Clone, Debug)]
@@ -364,7 +365,7 @@ impl PtyManager {
             kill_group(s2.pid, true);
             persist_scroll(&sc, lp.as_deref());
             if let Some(r) = &reg { r.remove(s2.pid); }
-            sink.exit(&tid, code);
+            sink.exit(&tid, s2.pid, code);
         }).map_err(|e| e.to_string())?;
         Ok(sess)
     }
@@ -424,6 +425,10 @@ impl PtyManager {
         });
         Ok(n)
     }
+    /// Tira (e devolve) o que estava na fila — reabrir o terminal (troca de IA) leva junto, nada se perde.
+    pub fn take_queue(&self, task_id: &str) -> Vec<String> {
+        self.get(task_id).map(|s| s.queue.lock().unwrap_or_else(|e| e.into_inner()).drain(..).collect()).unwrap_or_default()
+    }
     pub fn queued(&self, task_id: &str) -> usize {
         self.get(task_id).map(|s| s.queue.lock().unwrap_or_else(|e| e.into_inner()).len()).unwrap_or(0)
     }
@@ -441,7 +446,7 @@ mod tests {
     struct TestSink { out: Mutex<HashMap<String, String>>, exits: Mutex<Vec<(String, Option<u32>)>>, events: Mutex<usize> }
     impl PtySink for TestSink {
         fn data(&self, t: &str, c: &str) { self.out.lock().unwrap().entry(t.into()).or_default().push_str(c); *self.events.lock().unwrap() += 1; }
-        fn exit(&self, t: &str, code: Option<u32>) { self.exits.lock().unwrap().push((t.into(), code)); }
+        fn exit(&self, t: &str, _pid: u32, code: Option<u32>) { self.exits.lock().unwrap().push((t.into(), code)); }
     }
     impl TestSink {
         fn text(&self, t: &str) -> String { self.out.lock().unwrap().get(t).cloned().unwrap_or_default() }
@@ -588,6 +593,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn shell_do_terminal_integrado_e_reconhecido_na_varredura() {
         assert!(command_is_ours("/bin/zsh -l -i -c '/Users/a/repo/.cardume/worktrees/t/.cardume/term/bin/starfork' ia claude; '/bin/zsh' -l -i"));
         assert!(!command_is_ours("/bin/zsh -l -i"), "shell qualquer (pid reciclado) não é nosso");

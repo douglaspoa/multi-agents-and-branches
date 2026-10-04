@@ -1518,12 +1518,13 @@ export class Orchestrator {
 
   /**
    * ABRE O PR desta tarefa (o mesmo caminho do PR automático e da tool open_pr do terminal integrado):
-   *  1) GATE (verifyProofs) — reprovou e não é `force`/rascunho → NÃO abre e devolve os motivos;
+   *  0) PR já aberto (spec.prUrl) → "atualizar": commita o solto, push e devolve a URL dele (sem gate, sem gh);
+   *  1) GATE (verifyProofs) — reprovou e não é rascunho → NÃO abre e devolve os motivos;
    *  2) commita o que ficou solto, `git push -u origin <branch>`, `gh pr create` (--draft se pedido);
    *  3) PR já aberto pra branch → a URL vem do erro do gh; grava spec.prUrl/prNumber (como o app faz no pr_status).
    * `auto` = chamado pelo fim do pipeline (textos/notificações de sempre). Nunca lança: erro vem em `error`.
    */
-  async openPr(taskId: string, o: { force?: boolean; draft?: boolean; title?: string; body?: string; auto?: boolean; task?: TaskRow; spec?: TaskSpec } = {}): Promise<{ ok: boolean; url?: string; reasons?: string[]; error?: string }> {
+  async openPr(taskId: string, o: { draft?: boolean; title?: string; body?: string; auto?: boolean; task?: TaskRow; spec?: TaskSpec } = {}): Promise<{ ok: boolean; url?: string; reasons?: string[]; error?: string }> {
     const task = o.task ?? this.store.getTask(taskId);
     if (!task) return { ok: false, error: `tarefa ${taskId} não encontrada` };
     const spec = o.spec ?? this.freshSpec(taskId) ?? (JSON.parse(task.spec_json) as TaskSpec);
@@ -1531,7 +1532,29 @@ export class Orchestrator {
     const agent = o.auto ? spec.agent : role?.name || spec.agent;
     if (["merged", "aborted"].includes(task.status)) return { ok: false, error: `a tarefa já está ${task.status === "merged" ? "integrada" : "cancelada"} — não há PR a abrir` };
     if (spec.kind === "review") return { ok: false, error: "esta tarefa é uma revisão de PR — não tem branch própria pra abrir PR" };
-    if (!o.force && !o.draft) {
+    const commitLoose = async () => {
+      try {
+        if (await this.git.commitAll(task.worktree, `starfork(pr): ${task.title}`)) {
+          this.store.addEvent(taskId, agent, "note", "mudanças soltas commitadas antes do PR ✓", true);
+          const d = await this.git.diffStat(task.worktree, task.base);
+          this.store.setDiff(taskId, d.files, d.add, d.del);
+        }
+      } catch { /* sem nada a commitar / hook recusou: o push leva o que já está commitado */ }
+    };
+    if (spec.prUrl && !o.auto) {
+      // PR já aberto: "atualizar" = commit + push (o PR se atualiza sozinho) — o gate vale na hora de ABRIR
+      try {
+        await commitLoose();
+        await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
+        this.store.addEvent(taskId, agent, "note", `PR atualizado (push): ${spec.prUrl}`, true);
+        return { ok: true, url: spec.prUrl };
+      } catch (err) {
+        const msg = String((err as { stderr?: string }).stderr || (err as Error).message || err).trim().slice(0, 300);
+        this.store.addEvent(taskId, agent, "note", `falha ao atualizar o PR: ${msg.slice(0, 140)}`, false);
+        return { ok: false, error: msg };
+      }
+    }
+    if (!o.draft) {
       const gate = await this.verifyProofs(taskId, task, spec);
       if (!gate.ok) {
         const why = gate.reasons.slice(0, 3).join(" · ");
@@ -1542,13 +1565,7 @@ export class Orchestrator {
     }
     const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
     try {
-      try {
-        if (await this.git.commitAll(task.worktree, `starfork(pr): ${task.title}`)) {
-          this.store.addEvent(taskId, agent, "note", "mudanças soltas commitadas antes do PR ✓", true);
-          const d = await this.git.diffStat(task.worktree, task.base);
-          this.store.setDiff(taskId, d.files, d.add, d.del);
-        }
-      } catch { /* sem nada a commitar / hook recusou: o push leva o que já está commitado */ }
+      await commitLoose();
       await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
       const title = String(o.title ?? "").trim() || spec.title;
       const head = String(o.body ?? "").trim()
@@ -1562,17 +1579,17 @@ export class Orchestrator {
       let url = "";
       try {
         const { stdout } = await run(ghBin(), args, { cwd: task.worktree, env: ghEnvFor(this.ws.repo), timeout: netTimeoutMs() });
-        url = prUrlFrom(stdout) || (stdout.trim().split("\n").pop() ?? "");
+        const last = stdout.trim().split("\n").pop()?.trim() ?? "";
+        url = prUrlFrom(stdout) || (/^https?:\/\//.test(last) ? last : "");
       } catch (e) {
         // PR já aberto pra esta branch (retry, ou o humano abriu antes): o gh FALHA mas cita a URL —
         // antes virava "falha ao abrir o PR" com o PR existindo
         url = /already exists/i.test(String((e as { stderr?: string }).stderr ?? "")) ? prUrlFrom(String((e as { stderr?: string }).stderr)) : "";
         if (!url) throw e;
       }
-      if (url) {
-        const n = Number(url.match(/\/pull\/(\d+)/)?.[1] ?? 0);
-        try { this.store.patchSpec(taskId, { prUrl: url, ...(n ? { prNumber: n } : {}) }); } catch { /* banco ocupado: o app grava no próximo pr_status */ }
-      }
+      if (!url) throw new Error("gh não devolveu a URL do PR");
+      const n = Number(url.match(/\/pull\/(\d+)/)?.[1] ?? 0);
+      try { this.store.patchSpec(taskId, { prUrl: url, ...(n ? { prNumber: n } : {}) }); } catch { /* banco ocupado: o app grava no próximo pr_status */ }
       this.store.addEvent(taskId, agent, "note", o.auto ? `PR aberto automaticamente: ${url}` : `${o.draft ? "PR rascunho aberto" : "PR aberto"}: ${url}`, true);
       notify("Starfork", "PR aberto ✓", task.title);
       return { ok: true, url };
