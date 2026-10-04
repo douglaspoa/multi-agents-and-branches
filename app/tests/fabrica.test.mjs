@@ -216,7 +216,7 @@ test('rotas antigas → lugares novos: lista de mesas vai pra Fábrica › Sess�
   // o motor de abas da casca conhece os apelidos (VIEW_ROUTES) e o openTab passa pelo fabRoute
   const abas = read('js/15-config-abas-onboarding.js');
   assert.match(abas, /mesas:\['fabrica','sessoes'\], ideias:\['fabrica','sessoes'\], novoprojeto:\['fabrica','nova'\]/);
-  assert.match(SRC, /openTab=function\(kind, opts\)\{ const r=fabRoute\(kind/);
+  assert.match(SRC, /openTab=function\(kind, opts\)\{ if\(kind==='nova' && window\.ndLegacy && window\.ndLegacy\(\)\) return ot\.call\(this, kind, opts\);[^\n]*\n    const r=fabRoute\(kind/, 'nd:legacy chega na tela antiga');
   // as portas antigas: menu "Mais › Mesa" e o seletor de 5 modos não existem mais
   assert.match(read('js/38-mesa.js'), /bindClick\('mesaBtn', \(\)=>\{[^\n]*fabOpen\('sessoes', \{ filter:'m' \}\)/);
   assert.doesNotMatch(read('js/14-nova-demanda-inicio.js'), /tab:'(orq|piloto|ideia)'/);

@@ -92,7 +92,7 @@ function errorHtml(err, retryId, ctx, o){
     +`${raw?`<p class="ld-raw" title="${ldA(raw)}">${esc(raw.split('\n')[0].slice(0,160))}</p>`:''}`
     +`<div class="ld-acts">${h.action&&h.action.label?`<button class="btn primary sm" data-ldfix>${esc(h.action.label)}</button>`:''}`
     +`<button class="btn sm" ${retryId?`id="${ldA(retryId)}"`:''} data-ldretry>${ldIcon('retry')}tentar de novo</button></div>`
-    +(raw?`<details class="ld-det"><summary>ver detalhes</summary><pre class="ld-pre">${esc(raw)}</pre><span class="ld-detacts"><span data-ldcopy role="button" tabindex="0">copiar</span> · <span data-ldtab role="button" tabindex="0">abrir em aba</span></span></details>`:'')
+    +(raw?`<details class="ld-det"><summary>ver detalhes</summary><pre class="ld-pre">${esc(raw)}</pre><span class="ld-detacts"><button type="button" class="btn sm quiet" data-ldcopy>copiar</button><button type="button" class="btn sm quiet" data-ldtab>abrir em aba</button></span></details>`:'')
     +`</div>`;
 }
 // liga os botões do erro dentro de root: a ação do catálogo, o "tentar de novo" (retry) e os detalhes (copiar · abrir em aba)

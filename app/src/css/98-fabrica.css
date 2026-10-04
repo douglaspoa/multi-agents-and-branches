@@ -251,7 +251,7 @@ button.row{cursor:pointer}button.row:hover{background:var(--surface-2)}
 .g2fc{height:30px;padding:0 11px;border:1px solid var(--border-strong);border-radius:15px;background:var(--surface);color:var(--text-2);font:inherit;font-size:var(--fs-xs);font-weight:650;cursor:pointer}
 .g2fc b{color:var(--text-3);margin-left:3px}.g2fc.on{background:var(--accent-soft);border-color:var(--accent-line);color:var(--text)}
 .g2search{display:inline-flex;align-items:center;gap:6px;margin-left:auto;height:30px;padding:0 10px;border:1px solid var(--border-strong);border-radius:7px;background:var(--surface)}
-.g2search svg{width:14px;height:14px;color:var(--text-3)}.g2search input{border:0;background:none;color:var(--text);font:inherit;font-size:var(--fs-sm);outline:none;width:180px}
+.g2search svg{width:14px;height:14px;color:var(--text-3)}.g2search input{border:0;background:none;color:var(--text);font:inherit;font-size:var(--fs-sm);width:180px}
 .g2tblw{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}
 .g2trw{display:grid;grid-template-columns:88px minmax(160px,1fr) 130px 150px 70px 52px 36px;gap:10px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border);font-size:var(--fs-sm);cursor:pointer}
 .g2trw:last-child{border-bottom:0}.g2trw:hover:not(.th){background:var(--surface-2)}
@@ -279,7 +279,7 @@ button.row{cursor:pointer}button.row:hover{background:var(--surface-2)}
 .g2end .g2pfoot{margin:4px calc(-1 * var(--page-pad,26px)) 0;position:sticky;bottom:0}
 .g2h3{margin:0;font-size:var(--fs-lg);font-weight:800}
 .g2endopts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.g2eopt{border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:14px 16px;display:grid;gap:6px;cursor:pointer}
+.g2eopt{position:relative;border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:14px 16px;display:grid;gap:6px;cursor:pointer}
 .g2eopt h4{display:flex;align-items:center;gap:8px;margin:0;font-size:var(--fs-md)}
 .g2eopt p{margin:0;font-size:var(--fs-sm);color:var(--text-2)}
 .g2eopt .ias-rd{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--border-strong);box-sizing:border-box;flex:none}
@@ -357,7 +357,7 @@ button.row{cursor:pointer}button.row:hover{background:var(--surface-2)}
 .g2ndhead .pgh-title{font-size:22px}
 .g2scopebtn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 4px 0 10px;border:1px solid var(--border-strong);border-radius:14px;background:var(--surface);font-size:var(--fs-sm);color:var(--text-2);white-space:nowrap}
 .g2scopebtn b{color:var(--text);padding-right:6px}
-.g2scopebtn select{border:0;background:transparent;color:var(--text);font:inherit;font-weight:650;padding-right:4px;outline:none;cursor:pointer}
+.g2scopebtn select{border:0;background:transparent;color:var(--text);font:inherit;font-weight:650;padding-right:4px;cursor:pointer}
 .nt-types{padding:0 var(--page-pad,26px)}
 #ntOverlay .mbody.nt-g2{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:0;padding:0!important}
 #ntOverlay .mbody.nt-g2>#ntRight{padding:18px var(--page-pad,26px);min-width:0;overflow:auto}
@@ -444,3 +444,13 @@ button.row{cursor:pointer}button.row:hover{background:var(--surface-2)}
 .g2mesa>.g2scroll>*,.g2rp-b>*,.g2pil-main>*{flex:none;min-height:auto}
 .g2std-b[hidden]{display:none}
 #plTitle{font:800 22px/1.15 var(--ui)!important;letter-spacing:-.02em;color:var(--text)}
+
+/* a11y (revisão F4): foco visível pelo anel do app; o campo de dentro mostra o anel no contêiner */
+.g2search:focus-within,.g2scopebtn:focus-within{box-shadow:var(--ring)}
+.g2search input:focus-visible,.g2scopebtn select:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+/* fim de caminho: rádios de verdade (rótulo clicável), o checkbox do GitHub fica fora do rótulo */
+.g2eol{display:grid;gap:6px;cursor:pointer;margin:0}
+.g2eor{position:absolute;opacity:0;width:1px;height:1px;pointer-events:none}
+.g2eopt:focus-within{box-shadow:var(--ring)}
+.g2eopt:has(.g2eor:focus-visible){outline:2px solid transparent;box-shadow:var(--ring)}
+.mbody label.g2eol{text-transform:none;letter-spacing:0;margin-top:0;color:var(--text);font-size:inherit;font-weight:inherit}

@@ -284,8 +284,13 @@ function mesaEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/
 const MESA={ forceRepo:'', forceId:'', tab:'dec', repo:'', list:[], cur:null, view:'lista', gen:[], pick:null, tema:'', genBusy:false, runs:{}, open:{}, target:'mesa', draft:'', chatBusy:false, creating:false };
 function mesaVisible(){ const o=$id('mesaOverlay'); return !!(o && o.style.display!=='none'); }
 // teto padrão da mesa em US$ (o antigo "mesaCapBrl" migra uma vez pelo câmbio de Ajustes)
-function mesaCapBase(){ let v=parseFloat(String(lsGet('mesaCapUsd')||'').replace(',','.'));
-  if(!(v>0)){ const b=parseFloat(String(lsGet('mesaCapBrl')||'').replace(',','.')); v=b>0?Math.round(b/usdBrlRate()*100)/100:2; try{ lsSet('mesaCapUsd', String(v)); }catch(_){ } }
+// migra UMA vez e grava em US$: R$ 15 (o padrão antigo) ≈ US$ 2,73 no câmbio de Ajustes. "0" antigo era "sem teto": vira 0
+// aqui (o campo vem vazio e pede um valor — toda mesa nova tem teto); nada guardado → US$ 2
+function mesaCapBase(){
+  const u=lsGet('mesaCapUsd'); if(u!=null && u!==''){ const v=parseUsd(u); return v>=0?v:2; }
+  const b=lsGet('mesaCapBrl'); let v=2;
+  if(b!=null && b!==''){ const n=parseUsd(b); v=n>0?Math.round(n/usdBrlRate()*100)/100:0; }
+  try{ lsSet('mesaCapUsd', String(v)); }catch(_){ }
   return v; }
 function mesaCapOf(m){ return mesaCapUsdOf(m, usdBrlRate()); }
 // personas (editor único em Fábrica › Personas): padrão + ajustes deste computador + criadas aqui + geradas pro projeto
@@ -297,8 +302,8 @@ async function mesaPersonaSave(p, repo){
   const st=mesaPersonaStore(), clean={ nome:String(p.nome||'').trim().slice(0,30)||'Persona', papel:String(p.papel||'').trim().slice(0,60), desc:String(p.desc||'').trim().slice(0,600), ativa:p.ativa!==false };
   if(p.origem==='gerada'){
     const r=repo||MESA.repo||(typeof state!=='undefined'&&state.repo); if(!r) throw new Error('abra o projeto da persona pra editar');
-    const cur=await invoke('mesa_read',{ repo:r, id:'personas' }).catch(()=>null)||{ personas:[] };
-    const list=(cur.personas||[]).map(x=>x.id===p.id?Object.assign({}, x, clean):x);
+    const cur=await mesaPersonasRead(r); // falhou a leitura → ABORTA (nunca regrava o arquivo com uma lista vazia)
+    const list=cur.personas.map(x=>x.id===p.id?Object.assign({}, x, clean):x);
     await invoke('mesa_save',{ repo:r, id:'personas', data:Object.assign({}, cur, { personas:list, at:Date.now() }) });
     if(MESA.repo===r) MESA.gen=list; return;
   }
@@ -306,12 +311,21 @@ async function mesaPersonaSave(p, repo){
   else st.over[p.id]=clean;
   lsSet('fab:personas', JSON.stringify(st));
 }
-function mesaPersonaNew(){ const st=mesaPersonaStore(); const id='c-'+Date.now().toString(36); st.custom.push({ id, nome:'Nova persona', papel:'', desc:'', ativa:true }); lsSet('fab:personas', JSON.stringify(st)); return id; }
+// nova persona entra FORA da mesa (ativa:false) até ter nome e voz — senão sentaria em toda sessão sem jeito de falar
+function mesaPersonaNew(){ const st=mesaPersonaStore(); const id='c-'+Date.now().toString(36); st.custom.push({ id, nome:'Nova persona', papel:'', desc:'', ativa:false }); lsSet('fab:personas', JSON.stringify(st)); return id; }
+// lê o personas.json do projeto; QUALQUER falha (sem projeto, erro do Rust, formato estranho) lança — quem grava não grava
+async function mesaPersonasRead(repo){
+  if(!repo) throw new Error('abra o projeto da persona pra editar');
+  const cur=await invoke('mesa_read',{ repo, id:'personas' });
+  if(cur==null) return { personas:[] }; // arquivo ainda não existe: lista vazia é a verdade
+  if(typeof cur!=='object' || !Array.isArray(cur.personas)) throw new Error('não consegui ler as personas do projeto — nada foi gravado');
+  return cur;
+}
 async function mesaPersonaRemove(p, repo){
   if(p.origem==='padrao') return;
   if(p.origem==='custom'){ const st=mesaPersonaStore(); st.custom=st.custom.filter(x=>x.id!==p.id); lsSet('fab:personas', JSON.stringify(st)); return; }
-  const r=repo||MESA.repo; const cur=await invoke('mesa_read',{ repo:r, id:'personas' }).catch(()=>null)||{ personas:[] };
-  const list=(cur.personas||[]).filter(x=>x.id!==p.id); await invoke('mesa_save',{ repo:r, id:'personas', data:Object.assign({}, cur, { personas:list, at:Date.now() }) }); if(MESA.repo===r) MESA.gen=list;
+  const r=repo||MESA.repo; const cur=await mesaPersonasRead(r);
+  const list=cur.personas.filter(x=>x.id!==p.id); await invoke('mesa_save',{ repo:r, id:'personas', data:Object.assign({}, cur, { personas:list, at:Date.now() }) }); if(MESA.repo===r) MESA.gen=list;
 }
 window.mesaPersonaSave=mesaPersonaSave; window.mesaPersonaNew=mesaPersonaNew; window.mesaPersonaRemove=mesaPersonaRemove;
 function mesaRunning(m){ return !!(m && MESA.runs[m.id]); }
@@ -366,6 +380,7 @@ async function mesaOpenOne(id){
   if(!m){ try{ m=await invoke('mesa_read',{ repo:MESA.repo, id }); }catch(e){ showErr(e,'Não consegui abrir a mesa'); return; } }
   if(!m){ toast('Essa mesa não existe mais.','warn'); await mesaLoadList(); mesaRender(); return; }
   if(!live) m.repo=MESA.repo; // o caminho gravado no JSON pode estar velho (pasta movida): vale a pasta de onde foi lida
+  if(m.capUsd==null){ m.capUsd=mesaCapUsdOf(m, usdBrlRate()); if(m.capBase!=null && +m.capBrl>0) m.capBase=Math.round(+m.capBase/usdBrlRate()*100)/100; mesaSave(m); } // mesa antiga em R$: migra UMA vez (capBrl 0 = "sem teto" segue sem teto)
   MESA.cur=m; MESA.view='mesa'; MESA.target='mesa'; MESA.draft='';
   mesaRender();
 }
@@ -502,7 +517,7 @@ async function mesaStartWith(o){
   if(personas.length<2){ toast('Escolha pelo menos 2 personas pra mesa.','warn'); return false; }
   let cap=+o.capUsd; if(!(cap>0)){ toast('Defina o teto da mesa em US$ (maior que 0).','warn'); return false; }
   try{ lsSet('mesaCapUsd', String(cap)); }catch(_){ }
-  const m={ id:mesaNewId(), v:1, repo, tema, model:o.model||null, engine:o.engine||null, capUsd:cap, capBase:cap, createdAt:Date.now(), updatedAt:Date.now(), status:'rodando',
+  const m={ id:mesaNewId(), v:1, repo, tema, model:o.model||null, capUsd:cap, // o MOTOR é a IA dos chats (mesa_ask); aqui só o modelo capBase:cap, createdAt:Date.now(), updatedAt:Date.now(), status:'rodando',
     personas:personas.map(p=>({ id:p.id, nome:p.nome, papel:p.papel, desc:p.desc, gerada:!!p.gerada })),
     rounds:[{ n:1, tipo:'posicao', titulo:'Posições', resp:{}, avisos:[] }], cands:[], chats:{}, escolhas:{}, criadas:null, costUsd:0 };
   MESA.repo=repo; MESA.cur=m; MESA.view='mesa'; MESA.target='mesa'; MESA.draft=''; MESA.tab='dec';
@@ -511,9 +526,9 @@ async function mesaStartWith(o){
   return true;
 }
 window.mesaStartWith=mesaStartWith;
-async function mesaGenerate(){
+async function mesaGenerate(temaArg){
   if(MESA.genBusy) return;
-  const tema=String(($id('mesaTema')||{}).value||'').trim(); MESA.tema=tema;
+  const tema=String(temaArg!=null?temaArg:(MESA.tema||'')).trim(); MESA.tema=tema;
   const repo=MESA.repo; // trocar de projeto no meio não pode gravar as personas no projeto errado
   MESA.genBusy=true; mesaRender();
   const tmp={ id:'personas', repo, model:(typeof aiClaudeModel==='function'?aiClaudeModel():null), costUsd:0 };
@@ -547,7 +562,7 @@ async function mesaArgue(){
   }
   const p=(m.personas||[]).find(x=>x.id===MESA.target); if(!p) return;
   if(MESA.chatBusy) return;
-  if(mesaCapHit(mesaSpentUsd(m), mesaCapOf(m))){ m.capAviso={ what:'perguntar pra '+p.nome, base:m.capBase||mesaCapBase(), at:Date.now() }; mesaRender(); return; }
+  if(mesaCapHit(mesaSpentUsd(m), mesaCapOf(m))){ m.capAviso={ what:'perguntar pra '+p.nome, kind:'ask', base:m.capBase||mesaCapBase()||2, at:Date.now() }; mesaRender(); return; }
   MESA.draft=''; if(inp) inp.value='';
   const chat=(m.chats[p.id]=m.chats[p.id]||[]);
   const vr=mesaVoteRounds(m), last=vr[vr.length-1], r1=(m.rounds[0].resp||{})[p.id]||{}, lr=(last&&last.resp[p.id])||{};
@@ -809,7 +824,8 @@ function mesaWire(body){
   bindClick('mesaStop', ()=>MESA.cur&&mesaStop(MESA.cur));
   bindClick('mesaCont', ()=>MESA.cur&&mesaRun(MESA.cur, { retryFailed:true }));
   bindClick('mesaCreate', mesaCreate);
-  bindClick('mesaCapUp', async()=>{ const m=MESA.cur; if(!m||!m.capAviso) return; m.capUsd=mesaCapOf(m)+(+m.capAviso.base||mesaCapBase()); m.capAviso=null; await mesaSave(m); mesaRun(m); });
+  bindClick('mesaCapUp', async()=>{ const m=MESA.cur; if(!m||!m.capAviso) return; const kind=m.capAviso.kind; m.capUsd=mesaCapOf(m)+(+m.capAviso.base||mesaCapBase()||2); m.capAviso=null; await mesaSave(m);
+    if(kind==='ask') mesaArgue(); else mesaRun(m); }); // pergunta a UMA persona: refaz só a pergunta (o texto continua na caixa), não a mesa inteira
   bindClick('mesaCapNo', async()=>{ const m=MESA.cur; if(!m) return; m.capAviso=null; await mesaSave(m); mesaRender(); });
   bindClick('mesaMore', ev=>{ const m=MESA.cur; if(!m||typeof g2SheetMenu!=='function') return; const f=mesaFailed(m);
     g2SheetMenu(ev.currentTarget, [

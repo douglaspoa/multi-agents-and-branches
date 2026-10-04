@@ -273,7 +273,7 @@ test('errorHtml: aspas do erro cru não viram atributo; a ação do catálogo vi
   const e = new Error('JWT expired');
   const html = L.errorHtml(e, null, 'Falha');
   assert.match(html, /data-ldfix>entrar de novo</);
-  assert.equal((html.match(/<button/g) || []).length, 2);
+  assert.equal((html.replace(/<details[\s\S]*<\/details>/, '').match(/<button/g) || []).length, 2, 'ação + tentar de novo (copiar/abrir em aba ficam dentro de "ver detalhes")');
   const el = mkEl(html); let retried = 0;
   L.ldWireErr(el, e, 'Falha', () => { retried++; });
   fixed = 0; el.fix.onclick(); el.btn.onclick();

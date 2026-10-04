@@ -273,7 +273,7 @@ function renderFlowFilters(){
     `<select class="sel" id="ffAgent">${agOpts}</select>`+
     `<select class="sel" id="ffGroup"><option value="none"${flowGroupBy==='none'?' selected':''}>Sem agrupar</option><option value="day"${flowGroupBy==='day'?' selected':''}>Por dia</option></select></div>`;
   const resumo=isDone && centralDoneSub==='res';
-  { const h=resumo ? tabsHtml+`<div class="ffrow" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">${filterRow.match(/<div class="seg2 cdseg"[\s\S]*?<\/div>/)[0]}</div>` : tabsHtml + filterRow + advHtml;
+  { const h=resumo ? tabsHtml.replace(/<button class="fvic[^"]*" id="ffMore"[\s\S]*?<\/button>/,'')+`<div class="ffrow" style="display:flex;gap:8px;align-items:center;margin-bottom:10px">${filterRow.match(/<div class="seg2 cdseg"[\s\S]*?<\/div>/)[0]}</div>` : tabsHtml + filterRow + advHtml;
     if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; } // sem mudança: mantém DOM/handlers (e o foco da busca)
   el.querySelectorAll('[data-cdsub]').forEach(b=>b.onclick=()=>{ centralDoneSub=b.dataset.cdsub; lsSet('centralDone', centralDoneSub); lastSig=''; renderFlow(); });
   if(resumo){ el.querySelectorAll('[data-ftab]').forEach(b=>b.onclick=()=>{ flowScope=b.dataset.ftab; lsSet('flowScope',flowScope); lastSig=''; renderFlow(); }); return; }
@@ -384,8 +384,10 @@ function flowLiveTasks(src){
 // A CONTAGEM ÚNICA: quantas tarefas em cada etapa (chaves = FLOW_SECS + 'fila'). `rodando` = subconjunto de
 // andamento que está de fato executando agora (running/thinking) — só pra detalhe/tooltip.
 function flowCounts(tasks){
-  const c={ aguardando:0, andamento:0, prontas:0, praberto:0, rascunho:0, fila:0, hoje:0, anteriores:0, rodando:0, total:0 };
-  for(const t of (tasks||[])){ const b=flowBucket(t); c[b]=(c[b]||0)+1; c.total++; if(b==='andamento' && ['running','thinking'].includes(t.status)) c.rodando++; }
+  const c={ aguardando:0, andamento:0, prontas:0, praberto:0, rascunho:0, fila:0, hoje:0, anteriores:0, canceladas:0, rodando:0, total:0 };
+  for(const t of (tasks||[])){ const b=flowBucket(t); c.total++;
+    if((b==='hoje'||b==='anteriores') && t.status==='cancelled'){ c.canceladas++; continue; } // em Concluídas, mas não é entrega
+    c[b]=(c[b]||0)+1; if(b==='andamento' && ['running','thinking'].includes(t.status)) c.rodando++; }
   return c;
 }
 const FLOW_SECS=[
@@ -405,7 +407,7 @@ const FLOW_SEC_TIP={
   prontas:'Prontas pra revisar: o agente terminou — confira e abra o PR (ou conclua).',
   praberto:'PR aberto: esperando revisão/merge no GitHub.',
   rascunho:'Rascunhos: ainda não começaram — ▶ inicia.',
-  fila:'Na fila: rascunhos e tarefas assumidas que ainda não começaram.',
+  fila:'Na fila: cartões do time no backlog (ou pedidos) que ainda não começaram — assuma pra trazer pra cá.',
   hoje:'Concluídas hoje: mergeadas ou concluídas por você.',
   anteriores:'Concluídas antes de hoje.',
   epativos:'Épicos em andamento: épicos cujas tarefas já começaram todas — o resumo mostra quantas foram entregues, a onda atual e um ponto por tarefa (clique pra abrir).',
@@ -472,8 +474,9 @@ function renderFlowHead(){
   let sum;
   if(flowScope==='done'){
     let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
-    const done=flowVisible(src); const prs=done.filter(t=>t.prUrl).length;
-    sum=`<b>${done.length}</b> ${done.length===1?'entrega':'entregas'}${prs?` · <b>${prs}</b> ${prs===1?'PR':'PRs'}`:''}`;
+    const all=flowVisible(src), canc=all.filter(t=>t.status==='cancelled').length, done=all.filter(t=>t.status!=='cancelled'); const prs=done.filter(t=>t.prUrl).length;
+    // cancelada mora em Concluídas, mas NÃO é entrega (contada à parte)
+    sum=`<b>${done.length}</b> ${done.length===1?'entrega':'entregas'}${prs?` · <b>${prs}</b> ${prs===1?'PR':'PRs'}`:''}${canc?` · ${canc} ${canc===1?'cancelada':'canceladas'}`:''}`;
   } else sum=centralSumHtml(fc);
   const scope=(typeof projList==='function' && projList().length>1 && projFilter==='all')?'todos os projetos':(projFilter!=='all'?projShort(projFilter):pathBase(state.repo||''));
   put(pageHead({ title:'Central', scope:'computador', scopeLabel:scope, sum, right:'<span id="coordChip" class="coordchip"></span>' }));

@@ -174,6 +174,10 @@ function timeHeadPaint(){
   const head=pageHead({ title:'Time', scope:'time', scopeLabel:i.team?i.team.name:(i.org?i.org.name:''), sum });
   const h=$id('timeHead'); if(h && h.__html!==head){ h.__html=head; h.innerHTML=head; }
 }
+if(typeof showActiveView==='function' && !showActiveView.__g1){ const sa=showActiveView; showActiveView=function(){ const r=sa.apply(this, arguments);
+    try{ const t=tabById(activeTab); if(t && t.kind==='projeto' && t.loaded) projShowSub(projSub); }catch(e){ console.error('g1 projeto', e); } return r; }; showActiveView.__g1=true; }
+// "cancelar" dos agentes dentro da página Projeto: descarta e relê (não há aba 'agents' pra fechar)
+if(typeof closeAgents==='function' && !closeAgents.__g1){ const ca=closeAgents; closeAgents=function(){ const o=$id('agOverlay'); if(o && o.classList.contains('inproj')){ agBase=''; if(window.openAgents) window.openAgents(); return; } return ca.apply(this, arguments); }; closeAgents.__g1=true; }
 function g1TabOn(kind){ const t=tabById(activeTab); return !!(t && t.kind===kind); }
 // a Central não tem mais a vista "Time": setView('team') (atalhos antigos, "assumir"…) abre a página; grafo/atividade antigos → lista
 if(typeof setView==='function' && !setView.__g1){ const sv=setView; setView=function(v){ if(v==='team'){ openTab('time'); return; } if(v==='graph'||v==='feed') v='flow'; return sv.call(this, v); }; setView.__g1=true; }
@@ -199,22 +203,36 @@ function projPageRender(){
   const repo=state.repo||'', name=pathBase(repo);
   projRepoShown=repo;
   { const t=tabsOfKind('projeto')[0]; if(t){ const tt=name?('Projeto · '+name).slice(0,28):'Projeto'; if(t.title!==tt){ t.title=tt; renderTabs(); } } }
-  if(!repo){ head.innerHTML=pageHead({ title:'Projeto', scope:'projeto' }); nav.innerHTML=''; return; }
+  if(!repo){ head.innerHTML=pageHead({ title:'Projeto', scope:'projeto' }); head.__html=''; nav.innerHTML=''; nav.__html=''; return; }
   const c=projCounts();
-  head.innerHTML=pageHead({ title:'Projeto · '+name, scope:'projeto', sum:`${c.vivas} em aberto · <b>${c.aguardando}</b> aguardando você · <b>${c.prontas}</b> ${c.prontas===1?'pronta':'prontas'} pra revisar`, more:{ id:'projMoreBtn', title:'Mostrar no Finder · ver na Central' } });
+  const hh=pageHead({ title:'Projeto · '+name, scope:'projeto', sum:`${c.vivas} em aberto · <b>${c.aguardando}</b> aguardando você · <b>${c.prontas}</b> ${c.prontas===1?'pronta':'prontas'} pra revisar`, more:{ id:'projPageMore', title:'Mostrar no Finder · ver na Central' } });
   const learnN=+(window.memLearnN||0);
-  nav.innerHTML=`<div class="sn-h">Este projeto</div>`+PROJ_SECS.map(([k,l,ic])=>`<button role="tab" class="${k===projSub?'on':''}" aria-selected="${k===projSub}" tabindex="${k===projSub?0:-1}" data-projsub="${k}"><span class="g1ic" aria-hidden="true">${IC[ic]||''}</span>${esc(l)}${k==='memoria'&&learnN?`<b title="${learnN} aprendizado(s) pra revisar">${learnN}</b>`:''}</button>`).join('')
+  const nh=`<div class="sn-h">Este projeto</div>`+PROJ_SECS.map(([k,l,ic])=>`<button role="tab" class="${k===projSub?'on':''}" aria-selected="${k===projSub}" tabindex="${k===projSub?0:-1}" data-projsub="${k}"><span class="g1ic" aria-hidden="true">${IC[ic]||''}</span>${esc(l)}${k==='memoria'&&learnN?`<b title="${learnN} aprendizado(s) pra revisar">${learnN}</b>`:''}</button>`).join('')
     +`<div class="sn-card"><b>${c.vivas} em aberto</b><span><i style="background:var(--st-ask)"></i>${c.aguardando} aguardando você</span><span><i style="background:var(--st-review)"></i>${c.prontas} ${c.prontas===1?'pronta':'prontas'} pra revisar</span><button class="lnk" id="projSeeCentral">Ver na Central</button><code>${esc(repo.replace(/^\/Users\/[^/]+/,'~'))}</code></div>`;
+  if(head.__html===hh && nav.__html===nh) return; // nada mudou: mantém o DOM (foco e handlers)
+  head.__html=hh; head.innerHTML=hh; nav.__html=nh; nav.innerHTML=nh;
   nav.querySelectorAll('[data-projsub]').forEach(b=>{ b.onclick=()=>projGo(b.dataset.projsub);
     b.onkeydown=(e)=>{ const d={ ArrowDown:1, ArrowUp:-1, ArrowRight:1, ArrowLeft:-1 }[e.key]; if(!d) return; e.preventDefault();
       const l=[...nav.querySelectorAll('[data-projsub]')], i=l.indexOf(b), n=l[(i+d+l.length)%l.length]; projGo(n.dataset.projsub); const f=nav.querySelector(`[data-projsub="${n.dataset.projsub}"]`); if(f) f.focus(); }; });
-  bindClick('projSeeCentral', ()=>flowJump({ status:'all', proj:state.repo }));
-  bindClick('projMoreBtn', ()=>g1Menu($id('projMoreBtn'), [
+  { const b=nav.querySelector('#projSeeCentral'); if(b) b.onclick=()=>flowJump({ status:'all', proj:state.repo }); }
+  { const mb=head.querySelector('#projPageMore'); if(mb) mb.onclick=()=>g1Menu(mb, [
     { label:(typeof osKind!=='function'||osKind()==='mac')?'Mostrar no Finder':'Abrir a pasta', act:()=>invoke('reveal_project',{ path:state.repo }) },
     { label:'Ver na Central', act:()=>flowJump({ status:'all', proj:state.repo }) },
-    { label:'Todos os projetos', act:()=>openTab('projetos') } ]));
+    { label:'Todos os projetos', act:()=>openTab('projetos') } ]); }
 }
-function projGo(sub){ projSub=projSubNorm(sub); lsSet('projSub', projSub); if(!g1TabOn('projeto')){ openTab('projeto',{ sub:projSub }); return; } projPageRender(); projShowSub(projSub); const pb=$id('projHost'); if(pb) pb.scrollTop=0; }
+// rascunho na seção que vai sair de cena? (agentes: agDirty · convenções do time: prefsDirty) → pergunta; true = pode sair.
+// `to` = seção de destino (null = fechando a página). Descartar zera o rascunho.
+async function g1ProjLeaveOk(to){
+  const cur=projSub;
+  if(to===cur) return true;
+  if((to===null||cur==='agentes') && typeof agDirty==='function' && agDirty()){
+    if(!await askYes('Descartar as mudanças nos agentes e equipes?\n\nNada foi salvo ainda.')) return false; agBase=''; }
+  if((to===null||cur==='regras') && typeof prefsDirty==='function' && prefsDirty()){
+    if(!await askYes('Descartar as mudanças nas convenções do time?\n\nNada foi salvo ainda.')) return false; prefsLoaded=($id('prefsText')||{}).value||''; if(typeof prefsBarSync==='function') prefsBarSync(); }
+  return true;
+}
+window.g1ProjLeaveOk=g1ProjLeaveOk;
+async function projGo(sub){ sub=projSubNorm(sub); if(g1TabOn('projeto') && !await g1ProjLeaveOk(sub)) return; projSub=sub; lsSet('projSub', projSub); if(!g1TabOn('projeto')){ openTab('projeto',{ sub:projSub }); return; } projPageRender(); projShowSub(projSub); const pb=$id('projHost'); if(pb) pb.scrollTop=0; }
 window.projGo=projGo;
 // a seção vive DENTRO da página: o overlay antigo é movido pro #projHost e vira "aba" (astab) — os abridores de sempre
 // (openPc, openMemoria…) pintam como sempre pintaram. Sem projeto: o estado padrão "Esta página é de um projeto".
@@ -236,7 +254,8 @@ function projShowSub(sub){
   const o=$id(PROJ_OV[sub]); if(!o) return;
   if(o.parentElement!==host) host.appendChild(o);
   o.classList.add('astab','inproj'); o.style.display='block';
-  const open={ conversa:()=>openPc(), memoria:()=>window.openMemoria&&window.openMemoria(), agentes:()=>window.openAgents&&window.openAgents(), skills:()=>openSkills(), regras:()=>openPrefs() }[sub];
+  const keep=(sub==='agentes' && typeof agDirty==='function' && agDirty()); // rascunho de agentes: só mostra (openAgents relê o catálogo)
+  const open=keep?null:{ conversa:()=>openPc(), memoria:()=>window.openMemoria&&window.openMemoria(), agentes:()=>window.openAgents&&window.openAgents(), skills:()=>openSkills(), regras:()=>openPrefs() }[sub];
   try{ if(open) open(); }catch(e){ console.error('projShowSub', e); }
   o.style.display='block'; // os abridores antigos punham 'flex' (modal)
 }
@@ -263,13 +282,16 @@ function centralResumoMount(host){
   const body=$id('dailyBody'); if(!body) return;
   if(body.parentElement!==host) host.appendChild(body);
   const inp=$id('dailyDate'); if(inp && !inp.value){ const d=new Date(); inp.value=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-  if(typeof dailyIso!=='undefined' && inp && dailyIso!==inp.value && !dailyLoading && typeof loadDaily==='function'){ if(host.__iso!==inp.value || !body.firstChild){ host.__iso=inp.value; loadDaily(); } }
+  // o digest é do projeto ABERTO: trocou de projeto → relê; senão mantém o que está na tela
+  const repo=(state&&state.repo)||'';
+  if(typeof loadDaily==='function' && inp && !dailyLoading && (host.__repo!==repo || !body.firstChild)){ host.__repo=repo; loadDaily(); } // (trocar o dia é do próprio seletor: wireDaily)
 }
 window.centralResumoMount=centralResumoMount;
 // estado vazio (ex-"Início sem projeto"): os projetos recentes deste computador viram 1 clique
-let emRecentAt=0;
+let emRecentDone=false;
+window.addEventListener('focus', ()=>{ emRecentDone=false; if(typeof state!=='undefined' && !state.repo) emRecentPaint(); });
 async function emRecentPaint(){
-  const el=$id('emRecent'); if(!el || Date.now()-emRecentAt<20000) return; emRecentAt=Date.now();
+  const el=$id('emRecent'); if(!el || emRecentDone) return; emRecentDone=true;
   let list=[]; try{ list=(await invoke('list_projects', { user:(typeof cloudUserId==='function'?cloudUserId():undefined) }))||[]; }catch(_){ list=[]; }
   if(!list.length){ el.innerHTML=''; return; }
   el.innerHTML=`<h3>Projetos recentes neste computador</h3><div class="pgcard rows">${list.slice(0,5).map(p=>`<div class="li">${typeof railBadgeHtml==='function'?railBadgeHtml(p.name, projColor(p.path)):''}<b>${esc(p.name||pathBase(p.path))}</b><span class="dim mono">${esc(String(p.path||'').replace(/^\/Users\/[^/]+/,'~'))}</span><span class="grow"></span><button class="btn sm" data-emopen="${escA(p.path)}">Abrir</button></div>`).join('')}</div>`;
@@ -279,25 +301,11 @@ async function emRecentPaint(){
 // ===================== render: as páginas novas acompanham o estado (sem timer novo) =====================
 if(typeof render==='function' && !render.__g1){ const r0=render; render=function(){ const out=r0.apply(this, arguments);
     try{
-      if(!state.repo){ emRecentPaint(); centralBandPaint(); }
+      if(!state.repo){ emRecentPaint(); centralBandPaint(); } else emRecentDone=false; // a próxima vez que o vazio aparecer, relê
       if(g1TabOn('time') && typeof renderTeamBoard==='function'){ safe(renderTeamBoard); timeHeadPaint(); }
-      if(g1TabOn('projeto') && projRepoShown!==(state.repo||'')){ projPageRender(); projShowSub(projSub); }
+      if(g1TabOn('projeto')){ const ch=projRepoShown!==(state.repo||''); projPageRender(); if(ch) projShowSub(projSub); }
       meSync();
     }catch(e){ console.error('g1 render', e); }
     return out; }; render.__g1=true; }
 
-// ===================== migração de preferências antigas (nada se perde) =====================
-// @puro-migra-inicio (testado em app/tests/redesign-f4-g1.test.mjs)
-// get/set = localStorage. Devolve a lista do que mudou. A escolha antiga fica guardada com sufixo ":f4".
-function g1MigratePrefs(get, set){
-  const done=[]; if(get('g1:migrado')==='1') return done;
-  const mv=(k, from, to)=>{ const v=get(k); if(v!=null && from.includes(v)){ set(k+':f4', v); set(k, to); done.push(k); } };
-  mv('flowView', ['grid'], 'table');          // D22: a grade saiu
-  mv('flowScope', ['team','all','mine'], 'exec'); // "Time" virou página; escopos antigos da Central
-  mv('tmView', ['grafo','feed'], 'overview');
-  if(get('agTab')==='aprendizados'){ set('agTab:f4','aprendizados'); set('agTab','desempenho'); done.push('agTab'); }
-  set('g1:migrado','1');
-  return done;
-}
-// @puro-migra-fim
-try{ g1MigratePrefs(lsGet, lsSet); }catch(_){ }
+// migração de preferências antigas: g1MigratePrefs mora no 00-util (roda na carga, antes de quem lê as chaves)

@@ -71,3 +71,36 @@ test('UM seletor nas telas do G2: os 4 formatos antigos saíram', () => {
   // a folha fecha no Esc (nunca a aba) e devolve o foco
   assert.match(SRC, /if\(e\.key==='Escape'\)\{ e\.preventDefault\(\); e\.stopPropagation\(\); close\(true\); \}/);
 });
+
+test('"Usar esta": só dispara quando muda (ou "usar como padrão")', () => {
+  const C = vm.runInContext('iaPickCommit', ctx);
+  assert.equal(C({ engine: 'claude', model: 'a' }, { engine: 'claude', model: 'a' }, false).fire, false);
+  assert.equal(C({ engine: 'claude', model: 'a' }, { engine: 'claude', model: 'a' }, true).fire, true);
+  assert.deepEqual(plain(C({ engine: 'claude', model: 'a' }, { engine: 'logcomex', model: 'b' }, false)), { value: { engine: 'gateway', model: 'b' }, fire: true });
+});
+
+test('Formulário: a pílula grava nos selects escondidos (#ntEngine/#ntModel/#howModel); "logcomex" antigo vira gateway', () => {
+  const sel = (v) => ({ value: v, options: [], add(o) { this.options.push(o); } });
+  const els = { ntEngine: sel('logcomex'), ntModel: sel('m0'), howModel: sel('') };
+  const picks = [];
+  const host = { innerHTML: '', contains: () => false, querySelector: () => null };
+  const c2 = { console, esc: String, escA: String, IC: {}, lsGet: () => null, lsSet() {}, invoke: async () => '', window: {},
+    $id: (id) => els[id] || null, document: { querySelectorAll: (q) => (q === '.aipick' ? [host] : []) },
+    Option: function (t, v) { this.text = t; this.value = v; }, iaPick: (el, o) => { picks.push(o); return { set() {}, pill: null }; } };
+  c2.window = c2; vm.createContext(c2);
+  vm.runInContext(SRC.replace(/\naiApplyDefaults\(\);[\s\S]*$/, '\n'), c2);
+  // a pílula NÃO começa com o rótulo velho: o select já vira gateway antes de montar
+  vm.runInContext('aiPickRender()', c2);
+  assert.equal(els.ntEngine.value, 'gateway');
+  assert.deepEqual(plain(picks[0].value), { engine: 'gateway', model: 'm0' });
+  picks[0].onChange({ engine: 'claude', model: 'claude-opus-5-5' });
+  assert.equal(els.ntEngine.value, 'claude'); assert.equal(els.ntModel.value, 'claude-opus-5-5'); assert.equal(els.howModel.value, 'claude-opus-5-5');
+  assert.equal(picks[0].scope, 'demanda'); assert.equal(typeof picks[0].recommend, 'function');
+});
+
+test('folhas do seletor e do ⋯: aria-modal, foco preso (Tab dá a volta), setas no menu, Esc fecha e devolve o foco', () => {
+  assert.match(SRC, /sh\.setAttribute\('aria-modal','true'\); sh\.setAttribute\('aria-label','Com qual IA\?'\)/);
+  assert.match(SRC, /function g2Trap\(sh, e\)\{\n  if\(e\.key!=='Tab'/);
+  assert.match(SRC, /\['ArrowDown','ArrowUp','Home','End'\]\.includes\(e\.key\)/);
+  assert.match(SRC, /if\(refocus\) try\{ p\.focus\(\{ preventScroll:true \}\); \}catch\(_\)\{ \}/);
+});

@@ -443,7 +443,7 @@ function agFichaWire(host, a, i){
   tabs.forEach((b,k)=>{ b.onclick=()=>{ AGF.tab=b.dataset.agftab; agFichaRender(); const n=$id('agft-'+AGF.tab); if(n) n.focus(); };
     b.onkeydown=e=>{ if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return; e.preventDefault(); const n=tabs[(k+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length]; n.click(); }; });
   host.querySelectorAll('[data-agtask]').forEach(b=>b.onclick=()=>{ if(typeof openWorkspace==='function') openWorkspace(b.dataset.agtask); });
-  host.querySelectorAll('[data-agmem]').forEach(b=>b.onclick=()=>{ if(typeof MEM!=='undefined') MEM.view='revisar'; if(typeof AGM!=='undefined') AGM.id=a.id; if(window.projGo) window.projGo('memoria'); else if(window.openTab) window.openTab('memoria'); });
+  host.querySelectorAll('[data-agmem]').forEach(b=>b.onclick=()=>{ if(typeof MEM!=='undefined') MEM.view='revisar'; if(typeof AGM!=='undefined'){ if(AGM.repo!==(state.repo||'')){ AGM.agents=null; AGM.card=null; } AGM.repo=state.repo||''; AGM.id=a.id; } if(window.projGo) window.projGo('memoria'); else if(window.openTab) window.openTab('memoria'); });
   // aprendizados: os 4 botões do cartão (mesmo caminho da Memória) + voltar/esquecer do que ele já lembra
   const repo=state.repo||'';
   // persona aceita/desfeita (F5) muda o cardume.config.json: o catálogo em edição é relido — senão um "salvar" depois

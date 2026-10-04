@@ -326,13 +326,15 @@ function plWireResult(root){
 }
 // PURA: o épico proposto na conversa → plano LOCAL do orquestrador (etapas coordenadas por prova, "aqui neste computador").
 // Os motores continuam separados (veto do Rafa): só o vocabulário e a porta são os mesmos.
-function plPlanToOrq(plan, briefing, repo, now){
+// ai = { engine, model, kind } da conversa (a IA escolhida e o tipo valem pras etapas; o tipo vira o papel da etapa)
+function plPlanToOrq(plan, briefing, repo, now, ai){
+  ai=ai||{}; const KIND={ invest:'invest', design:'design', review:'review' }[ai.kind]||'build', AGENT={ invest:'Investigador', design:'Designer', review:'Revisor', build:'Construtor' }[KIND];
   const on=(plan&&plan.tasks||[]).filter(t=>t.on!==false), key=t=>'n'+(on.indexOf(t)+1), byIdx={}; on.forEach(t=>{ byIdx[t.idx]=t; });
-  const phases=on.map(t=>({ key:key(t), name:String(t.title||'Etapa').slice(0,60), kind:'build', agent:'Construtor', objective:String(t.objective||''),
+  const phases=on.map(t=>({ key:key(t), name:String(t.title||'Etapa').slice(0,60), kind:t.kind||KIND, agent:t.agent||AGENT, objective:String(t.objective||''),
     objectives:(t.requirements||[]).concat(t.verify?['prova: '+t.verify]:[]).map(String).filter(Boolean).slice(0,6), autonomy:t.risk==='high'?'ask':'free',
     dependsOn:(t.after||[]).map(a=>byIdx[a]).filter(Boolean).map(key), taskId:null }));
   const ts=now||Date.now();
-  return { id:'orq-'+ts.toString(36)+'p', title:String((plan&&plan.epic)||'Plano').slice(0,80), summary:String((plan&&plan.outcome)||''), briefing:String(briefing||''), createdAt:ts, status:'planned', model:'', engine:'claude', phases, repo:repo||'' };
+  return { id:'orq-'+ts.toString(36)+'p', title:String((plan&&plan.epic)||'Plano').slice(0,80), summary:String((plan&&plan.outcome)||''), briefing:String(briefing||''), createdAt:ts, status:'planned', model:String(ai.model||''), engine:String(ai.engine||'claude'), phases, repo:repo||'' };
 }
 // a MESMA IA que o plCreate vai usar (motor do plano; modelo escolhido ou o padrão do usuário)
 function plModelNow(){ return { eng:String(plFields.engine||'claude'), model:plFields.model||aiDefaults().model||'' }; }
@@ -554,10 +556,17 @@ async function plApproveLocal(btn){
   const P=PLP(); if(!P) return;
   plWaves(P.tasks); plSortWaves(P.tasks);
   if(!P.tasks.some(t=>t.on)){ toast('Marque pelo menos uma etapa.','warn'); return; }
-  const op=plPlanToOrq(P, [plFields.title, plFields.objective].filter(Boolean).join('\n\n'), state.repo);
+  const ai=plModelNow();
+  const op=plPlanToOrq(P, [plFields.title, plFields.objective].filter(Boolean).join('\n\n'), state.repo, Date.now(), { engine:plEngineNorm(ai.eng), model:ai.model, kind:plEffKind() });
+  if(typeof orqOpenPlan!=='function'){ toast('Não consegui abrir o planejador de etapas agora — o épico continua aqui.','warn'); return; }
   try{ await invoke('orch_save',{ id:op.id, data:op, repo:op.repo||null }); }catch(e){ showErr(e,'Não consegui guardar o plano'); return; }
+  // a lista do orquestrador pode estar em cache: põe o plano nela antes de abrir; o rascunho só some depois que abriu
+  try{ if(typeof orqLoadList==='function') await orqLoadList(); }catch(_){ }
+  if(typeof orq!=='undefined' && orq && !(orq.list||[]).some(x=>x.id===op.id)) orq.list=[op].concat(orq.list||[]);
+  if(window.openTab) window.openTab('orq', { replace:true }); // ESTA aba vira o plano (o orqOpenPlan reaproveita a aba ativa que já mostra ele)
+  if(typeof orq!=='undefined' && orq) orq.plan=(orq.list||[]).find(x=>x.id===op.id)||op;
+  await orqOpenPlan(op.id);
   plPlan=null; plAfterEdit=new Set(); await plClearDraft();
-  if(typeof orqOpenPlan==='function'){ if(window.openTab) window.openTab('orq', { replace:true }); setTimeout(()=>orqOpenPlan(op.id), 80); }
   toast('Etapas montadas neste computador — confira o grafo e aprove pra rodar.','ok');
 }
 async function plCreateEpic(){

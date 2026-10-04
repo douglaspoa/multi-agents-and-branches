@@ -82,7 +82,7 @@ function ctPageRender(){
   // US$ (≈ R$) como no resto; revisar com agente (PR aberto) é a ação primária; ↻ no ⋯; Esc não fecha a aba
   const proj=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||'';
   main.innerHTML=`<div class="enpage">${pageHead({ title:ct.title||'Tarefa do colega', scope:'time', scopeLabel:'leitura', sum:`${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''} · tarefa de ${esc(tmName(who))}${proj?' · '+esc(proj):''}`,
-      primary:(prN&&!done)?{ id:'ctpReview', label:'Revisar com agente' }:null, more:{ id:'ctPageRefresh', title:'Recarregar da nuvem' } })}
+      primary:(prN&&!done)?{ id:'ctpReview', label:'Revisar com agente' }:null, more:{ id:'ctPageMore', title:'Atualizar · editar · cancelar' } })}
     <div class="en-head">
       <div class="en-ht">
         ${sp.objective?`<p class="en-obj">${esc(sp.objective)}</p>`:''}
@@ -113,7 +113,11 @@ function ctPageRender(){
     if(prev && !await askYes('Atenção: este PR já foi revisado '+(prev.mine?'por VOCÊ':'por '+prev.name)+' ('+prev.when+') pelo Starfork.\n\nRodar OUTRA revisão mesmo assim?')){ if(b){ b.disabled=false; b.textContent='Revisar com agente'; } return; }
     invoke('review_pr',{ prUrl:ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); toast('Revisão criada — está na sua Central','ok'); if(b) b.textContent='revisão criada ✓'; })
       .catch(err=>{ showErr(err, 'Não consegui criar a revisão'); if(b){ b.disabled=false; b.textContent='Revisar com agente'; } }); });
-  bindClick('ctPageRefresh', ()=>{ const b=$id('ctPageRefresh'); if(b) b.disabled=true; ctPageLoad(ct.id, true).then(()=>{ if(ctpTask&&ctpTask.id===ct.id) ctPageRender(); }); });
+  // ⋯ = menu de verdade: atualizar (não trava), editar/cancelar o cartão (só no backlog, criador ou admin), abrir o PR
+  { const mb=main.querySelector('#ctPageMore'); if(mb && typeof g1Menu==='function') mb.onclick=()=>g1Menu(mb, [
+      { label:'Atualizar', hint:'da nuvem', act:()=>ctPageLoad(ct.id, true).then(()=>{ if(ctpTask&&ctpTask.id===ct.id) ctPageRender(); }) },
+      ...(ct.pr_url?[{ label:'Abrir o PR', hint:prN?'#'+prN:'', act:()=>openExternal(ct.pr_url) }]:[]),
+      ...(canEdit?[{ label:'Editar cartão', act:()=>openCloudTask(ct) }, { label:'Cancelar cartão…', danger:true, act:()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); } }]:[]) ]); }
   bindClick('ctpStart', ()=>{ if(window.epCardStart) epCardStart(ct, $id('ctpStart')); else teamClaimStart(ct, $id('ctpStart')); });
   bindClick('ctpCancel', ()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); });
   { const h=$id('ctPageName'); if(h) h.textContent=ct.title; const s=$id('ctPageSub'); if(s) s.textContent=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||''; }
@@ -133,6 +137,4 @@ async function openCloudArtifact(storagePath, name){
     if(h){ const x=h.querySelector('#artClose'); const bx=document.createElement('button'); bx.id='artOpenExt'; bx.className='btn sm'; bx.style.marginRight='8px'; bx.textContent='↗ abrir no navegador'; bx.onclick=()=>openExternal(url); h.insertBefore(bx, x); } }
   $id('artOverlay').style.display='flex';
 }
-bindClick('ctPageClose', ()=>closeTabOfKind('cttask'));
-bindClick('ctPageRefresh', ()=>{ if(ctpTask){ const b=$id('ctPageRefresh'); if(b) b.disabled=true; ctPageLoad(ctpTask.id, true).then(()=>{ ctPageRender(); if(b) b.disabled=false; }); } });
 // F4 (D24): Esc NUNCA fecha a aba da tarefa do colega — quem fecha é ⌘W (o Esc continua dos modais por cima)

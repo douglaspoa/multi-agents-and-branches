@@ -14,6 +14,10 @@
 const IDEIA_PESQ={ id:'pesq', nome:'Pesquisadora', papel:'pesquisa de mercado', desc:'Pesquisadora de produto. Só acredita no que tem fonte: busca sinais de demanda, concorrentes, reclamações de usuários e tendências recentes. Separa fato (com link) de inferência e de palpite, e nunca inventa número.' };
 // a mesa da ideia: a Pesquisadora + as 5 vozes da Mesa (MESA_PERSONAS, 38-mesa.js)
 function ideiaPanel(){ return [IDEIA_PESQ].concat(typeof mesaPersonaList==='function'?mesaPersonaList([]).filter(p=>p.ativa!==false):(typeof MESA_PERSONAS!=='undefined'?MESA_PERSONAS:[])); } // personas ATIVAS do editor único (Fábrica › Personas)
+// a mesa DESTA ideia fica congelada nela (m.panel, como a Mesa guarda as personas): editar personas depois não muda
+// o histórico nem a apuração de uma ideia que já rodou
+function ideiaPanelOf(m){ return (m&&Array.isArray(m.panel)&&m.panel.length)?m.panel:ideiaPanel(); }
+function ideiaPanelSnap(){ return ideiaPanel().map(p=>({ id:p.id, nome:p.nome, papel:p.papel, desc:p.desc })); }
 const IDEIA_PLATS=[['web','Web'],['ios','iOS'],['android','Android'],['mobile','iOS + Android']];
 const IDEIA_SECS=[['demanda','Sinais de demanda'],['tendencias','Tendências e por que agora'],['concorrentes','Concorrentes e alternativas'],['reclamacoes','Do que os usuários reclamam'],['publico','Público-alvo'],['riscos','Riscos']];
 const IDEIA_ROT={ fato:'fato', inferencia:'dedução', suposicao:'suposição' }; // F4: "inferência" → "dedução" (sem jargão)
@@ -58,7 +62,7 @@ function ideiaReportBrief(r){
 // a conversa até aqui (últimas rodadas), pro prompt
 function ideiaHistory(idea, max){
   const turns=(idea&&idea.turns||[]).slice(-(max||IDEIA_HIST_TURNS));
-  const nome=pid=>(ideiaPanel().find(p=>p.id===pid)||{}).nome||pid;
+  const nome=pid=>(ideiaPanelOf(idea).find(p=>p.id===pid)||{}).nome||pid;
   return turns.map(t=>{
     const r=Object.keys(t.resp||{}).filter(k=>t.resp[k]&&t.resp[k].st==='ok').map(k=>`${nome(k)}: ${ideiaCut(t.resp[k].text,360)}`);
     return `Dono da ideia: ${ideiaCut(t.you,600)}${r.length?'\n'+r.join('\n'):''}`;
@@ -273,7 +277,7 @@ function ideiaVisible(id){ const o=$id('ideiaOverlay'); return !!(o && o.style.d
 function ideiaNewId(){ return 'i-'+Date.now().toString(36)+'-'+(Math.random().toString(36).slice(2)+'0000').slice(0,4)+'x'; } // sufixo fixo: nunca termina em "-r"/"-d" (chaves de parar)
 function ideiaCall(){ return typeof invokeQuiet==='function'?invokeQuiet:invoke; }
 function ideiaErr(e, what){ try{ return humanErr(e, what).msg; }catch(_){ return String(e&&e.message||e); } }
-function ideiaClaudeModel(){ return typeof aiClaudeModel==='function'?aiClaudeModel():null; }
+function ideiaClaudeModel(){ if(IDEIA.chatModel && typeof aiEngineOf==='function' && typeof aiDefaults==='function' && aiEngineOf(aiDefaults().eng)==='claude') return IDEIA.chatModel; return typeof aiClaudeModel==='function'?aiClaudeModel():null; } // modelo da pílula da ideia (iaPickChat), senão o padrão
 function ideiaEngine(){ return (IDEIA.mode&&IDEIA.mode.engine)||(typeof defaultAiEngine==='function'?defaultAiEngine():'claude'); }
 
 // ---- disco: grava a cada passo (fila por ideia: nunca duas escritas cruzadas) ----
@@ -290,6 +294,7 @@ async function ideiaGet(id){
   if(IDEIA.mem[id]) return IDEIA.mem[id];
   const m=await ideiaCall()('ideia_read',{ id });
   if(!m) return null;
+  if(!Array.isArray(m.panel) || !m.panel.length) m.panel=ideiaPanelSnap(); // ideia de antes do congelamento: congela agora
   IDEIA.mem[id]=ideiaRevive(m);
   return IDEIA.mem[id];
 }
@@ -327,7 +332,7 @@ window.ideiaNew=ideiaNew; window.ideiaOpenTab=ideiaOpenTab;
 async function ideiaStart(){
   const inp=$id('ideiaNewIn'); const text=String(inp&&inp.value||IDEIA.newDraft||'').trim();
   if(text.length<6){ toast('Conte a ideia numa frase (ex.: "um app de rotina de skincare com lembretes").','warn'); if(inp) inp.focus(); return; }
-  const m={ id:ideiaNewId(), v:1, titulo:ideiaTitle(text), createdAt:Date.now(), updatedAt:Date.now(), turns:[], report:null, decision:null, project:null, costUsd:0, tokUsd:0, tokens:0 };
+  const m={ id:ideiaNewId(), v:1, titulo:ideiaTitle(text), createdAt:Date.now(), updatedAt:Date.now(), turns:[], report:null, decision:null, project:null, costUsd:0, tokUsd:0, tokens:0, panel:ideiaPanelSnap() };
   IDEIA.mem[m.id]=m; IDEIA.cur=m; IDEIA.newDraft=''; IDEIA.draft='';
   if(inp) inp.value='';
   await ideiaSave(m);
@@ -345,7 +350,7 @@ async function ideiaSendFromInput(){
 // uma mensagem → a mesa inteira responde (Pesquisadora + personas), no máximo IDEIA_POOL por vez
 async function ideiaSend(m, text){
   const turn={ you:text, at:Date.now(), resp:{} };
-  ideiaPanel().forEach(p=>{ turn.resp[p.id]={ st:'na fila' }; });
+  ideiaPanelOf(m).forEach(p=>{ turn.resp[p.id]={ st:'na fila' }; });
   m.turns.push(turn);
   if(typeof chatPinBottom==='function') chatPinBottom('ideiaThread');
   await ideiaSave(m); ideiaPaint(m);
@@ -363,7 +368,7 @@ async function ideiaRunTurn(m, turn){
   const L=ideiaLive(m.id); if(L.turn) return;
   L.turn=true; L.stop=false; L.paused=false;
   try{ await ideiaCall()('mesa_resume',{ id:m.id }); }catch(_){ }
-  const todo=ideiaPanel().filter(p=>{ const x=turn.resp[p.id]; return !x || ['na fila','interrompida','parada','falhou'].includes(x.st); });
+  const todo=ideiaPanelOf(m).filter(p=>{ const x=turn.resp[p.id]; return !x || ['na fila','interrompida','parada','falhou'].includes(x.st); });
   todo.forEach(p=>{ turn.resp[p.id]={ st:'na fila' }; });
   ideiaPaint(m);
   const one=async p=>{
@@ -449,7 +454,7 @@ async function ideiaDecide(m, resuming){
   if(L.turn){ toast('Espere a mesa responder a conversa antes de decidir.','warn'); return; }
   if(!resuming && !(m.turns||[]).length){ toast('Converse um pouco com a mesa antes de decidir.','warn'); return; }
   const key=m.id+'-d'; // chave de parar própria: parar a conversa não derruba a votação (e vice-versa)
-  const ps=ideiaPanel();
+  const ps=ideiaPanelOf(m);
   if(!resuming || !m.decision || !m.decision.rounds){ m.decision={ status:'rodando', rounds:[{ n:1, tipo:'posicao', resp:{} }], cands:[], escolhas:{}, plataforma:'', at:Date.now() }; }
   m.decision.status='rodando';
   L.decide=true; L.dstop=false; L.dpaused=false;
@@ -491,15 +496,24 @@ async function ideiaDecide(m, resuming){
 async function ideiaStopDecide(m){ const L=ideiaLive(m.id); L.dstop=true; ideiaPaint(m); try{ await ideiaCall()('mesa_stop',{ id:m.id+'-d' }); }catch(_){ } }
 
 // ---- criar o projeto ----
-async function ideiaCreate(m, mode){
+async function ideiaCreate(m, mode, opts){
   const L=ideiaLive(m.id); if(L.creating) return;
-  const view=m.decision&&ideiaDecisionView(m.decision, ideiaPanel()); if(!view || !view.mvp.length){ toast('Decida o MVP com a mesa antes de criar o projeto.','warn'); return; }
+  const view=m.decision&&ideiaDecisionView(m.decision, ideiaPanelOf(m)); if(!view || !view.mvp.length){ toast('Decida o MVP com a mesa antes de criar o projeto.','warn'); return; }
   const md=m.report&&m.report.status==='ok'?m.report.md:'';
   const plan=ideiaBuildPlan(m, view, md), slug=ideiaSlug(m.titulo);
-  const E=ideiaEndForm(m);
+  const E=ideiaEndForm(m); // o clique em "Criar" já leu os campos (ideiaEndRead)
   if(mode==='piloto'){ const c=typeof pilotoCapCheck==='function'?pilotoCapCheck(E.budget, 0):{ ok:+String(E.budget).replace(',','.')>0, cap:+String(E.budget).replace(',','.') };
-    if(!c.ok){ IDEIA.endErr=c.err||'Defina um teto: o piloto para sozinho quando chegar nele.'; ideiaPaint(m); const i=$id('pilBudget'); if(i) try{ i.focus(); }catch(_){ } return; } E.cap=c.cap; }
+    if(!c.ok){ IDEIA.endErr=c.err||'Defina um teto: o piloto para sozinho quando chegar nele.'; ideiaPaint(m); const i=$id('ipilBudget'); if(i) try{ i.focus(); }catch(_){ } return; } E.cap=c.cap; }
+  if(mode==='piloto' && m.partial && m.partial.dir){ IDEIA.endErr='A criação já começou numa pasta — continue com "Seguir à mão" (construir sozinho criaria um segundo projeto).'; ideiaPaint(m); return; }
   IDEIA.endErr='';
+  if(!opts || !opts.confirmed){
+    const a=$id('ipilGo'), name=E.name||slug, part=m.partial&&m.partial.dir;
+    const body=mode==='piloto'
+      ? `<span>Projeto <b>${iEsc(name)}</b> em Documentos › Starfork · ${plan.tasks.length} tarefas · ${iEsc(ideiaPlatName(plan.platform))}</span><span>Constrói sozinho, sem perguntar, até o teto de <b>${iEsc(fmtCost(E.cap,{ usdOnly:true }))}</b>.</span><span class="g2help">Só no seu computador (sem GitHub)${md?' · a pesquisa vai em docs/':''}.</span>`
+      : `<span>${part?'Continua a criação em':'Projeto'} <b>${iEsc(part?String(m.partial.dir).replace(/^\/Users\/[^/]+/,'~'):name)}</b> com o épico e ${plan.tasks.length} tarefas em rascunho — nenhuma começa sozinha.</span><span>${E.gh?'Também cria o repositório <b>privado</b> no GitHub.':'Sem GitHub (só no seu computador).'}</span>`;
+    if(a && typeof g2SheetConfirm==='function'){ g2SheetConfirm(a, { title:mode==='piloto'?'Construir sozinho?':'Criar o projeto?', sub:mode==='piloto'?'gasta até o teto':'nada roda até você iniciar', ok:mode==='piloto'?'Criar e construir':'Criar', body, onOk:()=>ideiaCreate(m, mode, { confirmed:true }) }); return; }
+    if(typeof askYes==='function' && !await askYes(body.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim(), mode==='piloto'?'Construir sozinho':'Criar projeto')) return;
+  }
   L.creating=true; ideiaPaint(m);
   try{
     if(mode==='piloto'){
@@ -562,19 +576,20 @@ function ideiaCapture(){
   const a=$id('ideiaIn'); if(a) IDEIA.draft=a.value;
   const n=$id('ideiaNewIn'); if(n) IDEIA.newDraft=n.value;
   const c=$id('ideiaCap'); if(c){ const v=parseFloat(String(c.value).replace(',','.')); if(v>0) IDEIA.capUsd=v; }
-  if(IDEIA.cur && $id('pilBudget')) ideiaEndRead(IDEIA.cur);
+  if(IDEIA.cur && $id('ipilBudget')) ideiaEndRead(IDEIA.cur);
 }
 // fim de caminho (aba Projeto): o MESMO formulário do "construir sozinho" (56-piloto), por ideia
 function ideiaEndForm(m){
   const k=m&&m.id; IDEIA.end=IDEIA.end||{};
-  if(!IDEIA.end[k]){ const v=m&&m.decision&&ideiaDecisionView(m.decision, ideiaPanel()); const d=(typeof aiDefaults==='function')?aiDefaults():{ eng:'claude', model:'' };
-    IDEIA.end[k]={ end:'auto', name:m?ideiaSlug(m.titulo):'', platform:(v&&v.plataforma)||'web', engine:(()=>{ const e=typeof aiEngineOf==='function'?aiEngineOf(d.eng):'claude'; return e==='mock'?'claude':e; })(), model:d.model||'', parallel:2, attempts:3, budget:'', gh:true }; }
+  if(!IDEIA.end[k]){ const v=m&&m.decision&&ideiaDecisionView(m.decision, ideiaPanelOf(m)); const d=(typeof aiDefaults==='function')?aiDefaults():{ eng:'claude', model:'' };
+    IDEIA.end[k]={ end:'auto', name:m?ideiaSlug(m.titulo):'', platform:(v&&v.plataforma)||'web', engine:(()=>{ const e=typeof aiEngineOf==='function'?aiEngineOf(d.eng):'claude'; return e==='mock'?'claude':e; })(), model:d.model||'', parallel:2, attempts:3, budget:'', gh:typeof pilGhDefault==='function'?pilGhDefault():false, ghTouched:false };
+    if(typeof pilGhLoad==='function') pilGhLoad(IDEIA.end[k], ()=>ideiaPaint(m)); }
   return IDEIA.end[k];
 }
 function ideiaEndRead(m){
   const E=ideiaEndForm(m), v=id=>{ const e=$id(id); return e?e.value:undefined; };
-  [['name','pilName'],['parallel','pilPar'],['attempts','pilAtt'],['budget','pilBudget']].forEach(([k,id])=>{ const x=v(id); if(x!==undefined) E[k]=x; });
-  const g=$id('pilGh'); if(g) E.gh=!!g.checked;
+  [['name','ipilName'],['parallel','ipilPar'],['attempts','ipilAtt'],['budget','ipilBudget']].forEach(([k,id])=>{ const x=v(id); if(x!==undefined) E[k]=x; });
+  const g=$id('ipilGh'); if(g && g.checked!==E.gh){ E.gh=!!g.checked; E.ghTouched=true; }
   if(IDEIA.endIa && IDEIA.endIa.get){ const x=IDEIA.endIa.get(); E.engine=x.engine; E.model=x.model; }
   return E;
 }
@@ -608,7 +623,7 @@ function ideiaStartHtml(){
   const names=ideiaPanel().map(p=>p.nome).join(', ');
   const head=ideiaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Tenho uma ideia', scope:'computador', sub:'Conte a ideia como contaria pra um amigo. A mesa responde, a Pesquisadora busca na web se teria procura agora e a mesa vota o MVP.' }):'<h1>Tenho uma ideia</h1>');
   return head+`<div class="g2scroll"><div class="ideiastart"><div class="g2explain"><b>Mesa:</b> ${ideiaPanel().length} pontos de vista que respondem, debatem e votam — ${iEsc(names)}. Você decide. Os nomes são personas simuladas, não pessoas reais.</div>`+
-    chatComposerHtml({ input:'ideiaNewIn', send:'ideiaNewGo', rows:3, cls:'card', value:IDEIA.newDraft, sendHtml:'começar', modelPill:aiChatModelPill('ideiaNewModel'), placeholder:'ex.: um app de rotina de skincare com lembretes — quero saber se faria sucesso agora' })+
+    chatComposerHtml({ input:'ideiaNewIn', send:'ideiaNewGo', rows:3, cls:'card', value:IDEIA.newDraft, sendHtml:'começar', extras:'<span id="ideiaIaNew"></span>', placeholder:'ex.: um app de rotina de skincare com lembretes — quero saber se faria sucesso agora' })+
     (IDEIA.list===null?`<div class="g2help">lendo as ideias…</div>`:ideiaRecentHtml(4))+`</div></div>`;
 }
 function ideiaStagesItems(m){
@@ -622,7 +637,7 @@ function ideiaSteps(m){
 }
 function ideiaAvatar(p){ return `<span class="g2pav" aria-hidden="true">${iEsc(p.nome.charAt(0))}</span>`; }
 function ideiaTurnHtml(m, t, last){
-  const L=ideiaLive(m.id), ps=ideiaPanel();
+  const L=ideiaLive(m.id), ps=ideiaPanelOf(m);
   const you=`<div class="plmsg you chatmsg"><div class="plbub">${iEsc(t.you)}</div></div>`;
   const rs=ps.map(p=>{
     const x=t.resp[p.id]||{ st:'na fila' };
@@ -667,7 +682,7 @@ function ideiaPaintActs(m){
   if(s){ const n=L.research.sites.length, k=L.research.acts.length; s.textContent=`${n} página${n===1?'':'s'} lida${n===1?'':'s'} · ${k} passo${k===1?'':'s'}`; }
 }
 function ideiaDecisionHtml(m){
-  const L=ideiaLive(m.id), dc=m.decision, ps=ideiaPanel();
+  const L=ideiaLive(m.id), dc=m.decision, ps=ideiaPanelOf(m);
   const n=ps.length, [lo,hi]=typeof mesaCost==='function'?mesaCost(n, 2, ideiaClaudeModel()||'sonnet', typeof roughEstimate==='function'?roughEstimate:null):[0,0];
   const go=`<div class="g2row"><button type="button" class="btn sm${!dc||dc.status!=='ok'?' primary':''}" id="ideiaDecGo"${!(m.turns||[]).length||L.decide||L.turn?' disabled':''}>${dc&&dc.status==='ok'?'Decidir de novo':'Decidir com a mesa'}</button><span class="g2help">a mesa (${n} vozes) dá a posição e depois debate e vota · deve custar ${iEsc(fmtCostRange(lo*0.6,hi*0.6))}</span></div>`;
   if(!dc) return `<p class="g2help">Converse com a mesa e, quando quiser, deixe ela votar: sai o MVP, o que fica de fora e a plataforma.</p>${go}`;
@@ -697,22 +712,22 @@ function ideiaCreateHtml(m){
       `<div class="g2row"><button type="button" class="btn primary" id="ideiaOpenProj">${p.mode==='piloto'?'Ver o progresso do piloto':'Abrir o quadro do projeto'}</button>${m.report&&m.report.status==='ok'&&p.mode==='manual'&&m.report.at>p.at?'<button type="button" class="btn" id="ideiaSaveDoc">Atualizar a pesquisa no projeto</button>':''}</div>`;
   }
   if(stage!=='criar') return `<p class="g2help">Depois que a mesa decidir o MVP, o Starfork monta o épico e você escolhe como construir: seguir à mão ou construir sozinho (com teto).</p>`;
-  const v=ideiaDecisionView(m.decision, ideiaPanel()), plan=ideiaBuildPlan(m, v, '');
+  const v=ideiaDecisionView(m.decision, ideiaPanelOf(m)), plan=ideiaBuildPlan(m, v, '');
   const part=m.partial&&m.partial.dir, E=ideiaEndForm(m);
   E.platform=v.plataforma||E.platform;
   const summary=`Vai criar <b>1 projeto + 1 épico com ${plan.tasks.length} tarefas em 2 etapas</b>${m.report&&m.report.status==='ok'?' · a pesquisa e o MVP vão em <code>docs/</code>':''} · o progresso aparece na lateral e na página do projeto.`;
   return (part?`<div class="g2err">A criação parou no meio — a pasta ${iEsc(String(m.partial.dir).replace(/^\/Users\/[^/]+/,'~'))} já existe com ${m.partial.tasks.length} tarefa${m.partial.tasks.length===1?'':'s'}. Escolha "Seguir à mão" pra continuar a criação dali, sem repetir.</div>`:'')+
-    (typeof pilotoEndHtml==='function'?pilotoEndHtml({ f:E, busy:L.creating, err:IDEIA.endErr||'', src:'ideia', nTasks:plan.tasks.length, summary, ideaEditable:false, votada:v.plataformaVotada, back:{ label:'← voltar ao MVP', id:'ideiaBackMvp' } }):'');
+    (typeof pilotoEndHtml==='function'?pilotoEndHtml({ idp:'ipil', f:E, busy:L.creating, err:IDEIA.endErr||'', src:'ideia', nTasks:plan.tasks.length, summary, ideaEditable:false, votada:v.plataformaVotada, back:{ label:'← voltar ao MVP', id:'ideiaBackMvp' } }):'');
 }
 function ideiaIdeaHtml(m){
   const L=ideiaLive(m.id), turns=m.turns||[];
   const spent=(+m.costUsd||0)+(+m.tokUsd||0), stage=ideiaStage(m);
   if(!IDEIA.tab || IDEIA.tabFor!==m.id){ IDEIA.tab=stage==='criar'||stage==='criado'?'proj':(m.decision?'mvp':'pes'); IDEIA.tabFor=m.id; }
   const head=ideiaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Ideia: '+m.titulo, scope:'computador', sum:`<span>gastou <b>${iEsc(fmtCost(spent,{ usdOnly:true }))}</b> (≈ R$ ${iEsc(fmtNumBR(spent*usdBrlRate(), true))})${+m.tokUsd>0?' · parte estimada pelos tokens':''}</span>`, right:ideiaSteps(m) }):`<h1>Ideia: ${iEsc(m.titulo)}</h1>${ideiaSteps(m)}`);
-  const thread=`<div class="ideiathread plthread" id="ideiaThread"><div class="g2explain"><b>Mesa:</b> ${ideiaPanel().length} pontos de vista que respondem, debatem e votam. Você decide. Os nomes são personas simuladas, não pessoas reais.</div>${turns.map((t,i)=>ideiaTurnHtml(m, t, i===turns.length-1)).join('')||'<div class="g2help">Escreva a ideia abaixo — a mesa responde.</div>'}</div>`;
-  const comp=chatComposerHtml({ input:'ideiaIn', send:'ideiaSend', stop:'ideiaStop', stopTitle:'para a mesa', rows:2, value:IDEIA.draft, modelPill:aiChatModelPill('ideiaModel'),
+  const thread=`<div class="ideiathread plthread" id="ideiaThread"><div class="g2explain"><b>Mesa:</b> ${ideiaPanelOf(m).length} pontos de vista que respondem, debatem e votam. Você decide. Os nomes são personas simuladas, não pessoas reais.</div>${turns.map((t,i)=>ideiaTurnHtml(m, t, i===turns.length-1)).join('')||'<div class="g2help">Escreva a ideia abaixo — a mesa responde.</div>'}</div>`;
+  const comp=chatComposerHtml({ input:'ideiaIn', send:'ideiaSend', stop:'ideiaStop', stopTitle:'para a mesa', rows:2, value:IDEIA.draft, extras:'<span id="ideiaIa"></span>',
     placeholder:'continue a conversa com a mesa…', sendHtml:'enviar' });
-  const rep=m.report, dc=m.decision, v=dc&&dc.status==='ok'&&ideiaDecisionView(dc, ideiaPanel());
+  const rep=m.report, dc=m.decision, v=dc&&dc.status==='ok'&&ideiaDecisionView(dc, ideiaPanelOf(m));
   const tab=(k,l,small)=>`<button type="button" role="tab" data-itab="${k}" class="${IDEIA.tab===k?'on':''}" aria-selected="${IDEIA.tab===k}">${l}${small?`<small>${small}</small>`:''}</button>`;
   const panes=`<div class="g2htabs" role="tablist">${tab('pes','Pesquisa',rep&&rep.status==='ok'?'pronta':(L.research&&L.research.running?'rodando':''))}${tab('mvp','MVP',v?'votado':(L.decide?'votando':''))}${tab('proj','Projeto',m.project?'criado':'')}</div>`+
     `<div class="g2rp-b"${IDEIA.tab==='pes'?'':' hidden'}>${ideiaResearchHtml(m)}</div><div class="g2rp-b"${IDEIA.tab==='mvp'?'':' hidden'}>${ideiaDecisionHtml(m)}</div><div class="g2rp-b"${IDEIA.tab==='proj'?'':' hidden'}>${ideiaCreateHtml(m)}</div>`;
@@ -721,13 +736,14 @@ function ideiaIdeaHtml(m){
 }
 function ideiaWire(body){
   const m=IDEIA.cur;
+  ['ideiaIaNew','ideiaIa'].forEach(id=>{ const h=$id(id); if(h && typeof iaPickChat==='function') iaPickChat(h, { model:IDEIA.chatModel||null, onChange:v=>{ IDEIA.chatModel=v.model||''; } }); });
   body.querySelectorAll('[data-igo]').forEach(b=>b.onclick=()=>{ if(window.fabOpen) window.fabOpen(b.dataset.igo, b.dataset.igo==='sessoes'?{ filter:'i' }:{ mode:'app' }); });
   if(!m){
-    if($id('ideiaNewIn')) chatComposer({ input:'ideiaNewIn', attach:null, pend:()=>[], taskId:()=>null, rerender:()=>{}, send:'ideiaNewGo', onSend:ideiaStart, modelPill:aiChatModelPill('ideiaNewModel'), hint:'Enter começa · ⇧Enter quebra linha' });
+    if($id('ideiaNewIn')) chatComposer({ input:'ideiaNewIn', attach:null, pend:()=>[], taskId:()=>null, rerender:()=>{}, send:'ideiaNewGo', onSend:ideiaStart, hint:'Enter começa · ⇧Enter quebra linha' });
     bindClick('ideiaNewGo', ideiaStart);
   } else {
     const L=ideiaLive(m.id);
-    if($id('ideiaIn')) chatComposer({ input:'ideiaIn', attach:null, pend:()=>[], taskId:()=>null, rerender:()=>{}, send:'ideiaSend', onSend:ideiaSendFromInput, modelPill:aiChatModelPill('ideiaModel'),
+    if($id('ideiaIn')) chatComposer({ input:'ideiaIn', attach:null, pend:()=>[], taskId:()=>null, rerender:()=>{}, send:'ideiaSend', onSend:ideiaSendFromInput,
       stop:{ btn:'ideiaStop', busy:()=>L.turn, fn:()=>ideiaStopTurn(m) }, hint:'Enter envia · a mesa responde em paralelo', busyHint:'a mesa está respondendo…' });
     bindClick('ideiaSend', ideiaSendFromInput);
     body.querySelectorAll('[data-itab]').forEach(b=>b.onclick=()=>{ IDEIA.tab=b.dataset.itab; ideiaRender(); });
@@ -739,13 +755,13 @@ function ideiaWire(body){
     bindClick('ideiaDecCont', ()=>ideiaDecide(m, true));
     bindClick('ideiaDecStop', ()=>ideiaStopDecide(m));
     // fim de caminho (o formulário do 56-piloto, aqui dentro da ideia)
-    { const E=ideiaEndForm(m), h=$id('pilIa'); if(h && typeof iaPick==='function') IDEIA.endIa=iaPick(h, { value:{ engine:E.engine, model:E.model }, scope:'piloto', onChange:v=>{ E.engine=v.engine; E.model=v.model; } }); }
-    body.querySelectorAll('[data-pil-eo]').forEach(b=>{ b.onclick=e=>{ if(e.target.closest('input,label')) return; ideiaEndRead(m).end=b.dataset.pilEo; ideiaRender(); }; b.onkeydown=e=>{ if((e.key==='Enter'||e.key===' ')&&e.target===b){ e.preventDefault(); b.click(); } }; });
+    { const E=ideiaEndForm(m), h=$id('ipilIa'); if(h && typeof iaPick==='function') IDEIA.endIa=iaPick(h, { value:{ engine:E.engine, model:E.model }, scope:'piloto', onChange:v=>{ E.engine=v.engine; E.model=v.model; } }); }
+    body.querySelectorAll('[data-pil-eor]').forEach(r=>{ r.onchange=()=>{ ideiaEndRead(m).end=r.dataset.pilEor; ideiaRender(); }; });
     body.querySelectorAll('[data-pil-plat]').forEach(b=>b.onclick=async()=>{ ideiaEndRead(m); if(m.decision){ m.decision.plataforma=b.dataset.pilPlat; await ideiaSave(m); } ideiaRender(); });
     body.querySelectorAll('[data-iplat]').forEach(b=>b.onclick=async()=>{ if(m.decision){ m.decision.plataforma=b.dataset.iplat; await ideiaSave(m); } ideiaRender(); });
-    { const i=$id('pilBudget'); if(i) i.oninput=()=>{ const E=ideiaEndRead(m), c=typeof pilotoCapCheck==='function'?pilotoCapCheck(i.value,0):{ ok:true }; i.classList.toggle('err',!c.ok); const er=$id('pilCapErr'); if(er){ er.hidden=c.ok; er.textContent=c.ok?'':c.err; } const g=$id('pilGo'); if(g) g.disabled=!!(L.creating||(E.end!=='hand'&&!c.ok)); const ms=$id('pilCapMsg'); if(ms) ms.textContent=E.end!=='hand'?(c.ok?'pronto pra construir':'falta o teto'):'cria o projeto e o épico em rascunho'; }; }
-    bindClick('pilCapSug', ev=>{ const i=$id('pilBudget'); if(i){ i.value=ev.currentTarget.dataset.cap+',00'; i.oninput&&i.oninput(); i.focus(); } });
-    bindClick('pilGo', ()=>{ const E=ideiaEndRead(m); ideiaCreate(m, E.end==='hand'?'manual':'piloto'); });
+    { const i=$id('ipilBudget'); if(i) i.oninput=()=>{ const E=ideiaEndRead(m), c=typeof pilotoCapCheck==='function'?pilotoCapCheck(i.value,0):{ ok:true }; i.classList.toggle('err',!c.ok); const er=$id('ipilCapErr'); if(er){ er.hidden=c.ok; er.textContent=c.ok?'':c.err; } const g=$id('ipilGo'); if(g) g.disabled=!!(L.creating||(E.end!=='hand'&&!c.ok)); const ms=$id('ipilCapMsg'); if(ms) ms.textContent=E.end!=='hand'?(c.ok?'pronto pra construir':'falta o teto'):'cria o projeto e o épico em rascunho'; }; }
+    bindClick('ipilCapSug', ev=>{ const i=$id('ipilBudget'); if(i){ i.value=ev.currentTarget.dataset.cap+',00'; i.oninput&&i.oninput(); i.focus(); } });
+    bindClick('ipilGo', ()=>{ const E=ideiaEndRead(m); ideiaCreate(m, E.end==='hand'?'manual':'piloto'); });
     bindClick('ideiaMkManual', ()=>ideiaCreate(m, 'manual'));
     bindClick('ideiaMkPiloto', ()=>ideiaCreate(m, 'piloto'));
     bindClick('ideiaGoCfg', ()=>{ if(typeof suaIaOpenCfg==='function') suaIaOpenCfg(); else if(window.openTab) window.openTab('cfg'); });

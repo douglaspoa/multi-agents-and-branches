@@ -71,6 +71,20 @@ function bindClick(id, fn, ev){ const el=$id(id); if(el) el[ev||'onclick']=fn; r
 // localStorage tolerante (webview em modo privado / sem permissão não derruba o app)
 function lsGet(k){ try{ return localStorage.getItem(k); }catch(e){ return null; } }
 function lsSet(k,v){ try{ localStorage.setItem(k,v); }catch(e){} }
+// @puro-migra-inicio (F4 G1 — testado em app/tests/redesign-f4-g1.test.mjs)
+// preferências antigas → lugar novo, UMA vez e ANTES de quem lê (roda aqui, na carga do 00-util). Nada se perde:
+// o valor antigo fica com sufixo ":f4". get/set = localStorage. Devolve as chaves que mudaram.
+function g1MigratePrefs(get, set){
+  const done=[]; if(get('g1:migrado')==='1') return done;
+  const mv=(k, from, to)=>{ const v=get(k); if(v!=null && from.includes(v)){ set(k+':f4', v); set(k, to); done.push(k); } };
+  mv('flowView', ['grid'], 'table');              // D22: a grade saiu
+  mv('flowScope', ['team','all','mine'], 'exec'); // "Time" virou página; escopos antigos da Central
+  mv('tmView', ['grafo'], 'overview');            // só a vista que não existe mais ('feed' = Atividade continua válida)
+  set('g1:migrado','1');
+  return done;
+}
+// @puro-migra-fim
+try{ g1MigratePrefs(lsGet, lsSet); }catch(_){ }
 // Chats (planner, projeto, issues, orquestrador): o que a tela guarda depois de uma rodada é o sid DEVOLVIDO —
 // vazio LIMPA o guardado (a próxima rodada leva o histórico; aiCallResumeSafe em 10-core.js).
 function aiKeepSid(r, set){ set(String((r&&r.sessionId)||'')); }
@@ -101,7 +115,7 @@ function syncChromeH(){ const tb=$id('tabBar'); if(tb && tb.style.display!=='non
 // @puro-dialogos-inicio (testado em app/tests/acessibilidade.test.mjs)
 // UMA lista de janelas (modais) do app: o Esc é delas (escBusy) e o 54-acessibilidade.js dá role=dialog, foco preso e
 // devolvido. Janela nova entra AQUI — antes o escBusy tinha a própria lista e esquecia as mais novas.
-const A11Y_DIALOGS=['artOverlay','lbOverlay','sumOverlay','cmOverlay','ctOverlay','goOverlay','pubOverlay','orgTplOverlay','repOverlay','txOverlay','errOverlay','prepOverlay','bdOverlay','howOverlay','payOverlay','kbdOverlay'];
+const A11Y_DIALOGS=['artOverlay','lbOverlay','sumOverlay','cmOverlay','ctOverlay','goOverlay','pubOverlay','repOverlay','txOverlay','errOverlay','prepOverlay','bdOverlay','payOverlay','kbdOverlay']; // F4: orgTplOverlay e howOverlay saíram (viraram página/aba)
 // @puro-dialogos-fim
 function escBusy(e){
   if(e && e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return true;
@@ -453,18 +467,22 @@ function taskProntaRevisar(t, pend){ return !!t && !taskEncerrada(t) && !t.prUrl
 function aguardaSrc(tasks){ if(tasks) return tasks; try{ return flowLiveTasks(); }catch(_){ return (typeof state!=='undefined'&&state.tasks)||[]; } }
 function aguardandoVoceCount(tasks, pend){ return aguardaSrc(tasks).filter(t=>taskAguardaVoce(t, pend)).length; }
 function prontasRevisarCount(tasks, pend){ return aguardaSrc(tasks).filter(t=>taskProntaRevisar(t, pend)).length; }
+// escape de atributo/texto dos helpers de página (independe do escA do 33 — mesmo resultado, sempre seguro)
+function phEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+// attrs da ação primária: pares { nome:valor } (escapados; nome só [a-z0-9-]) — nunca HTML cru
+function phAttrs(a){ return Object.keys(a||{}).filter(k=>/^[a-z][a-z0-9-]*$/i.test(k)).map(k=>` ${k}="${phEsc(a[k])}"`).join(''); }
 // PADRÃO DE PÁGINA (D25, mesa-ia §6): UM cabeçalho pra toda aba que não é Tarefa. Título (= título da aba) · selo de
 // escopo ("pra quem vale") · resumo de 1 linha · no máximo 1 ação primária · ⋯ · subtítulo de 1 linha · abas/visões.
 // Sem X nem "fechar esc" (⌘W fecha a aba). `scope`: 'projeto'|'computador'|'conta'|'org'|'time' + `scopeLabel`,
 // ou texto livre. `sum`/`right`/`tabs` são HTML (já escapado por quem chama); `title`/`sub`/rótulos são texto.
 const PH_SCOPE={ projeto:['folder','Este projeto'], computador:['pc','Este computador'], conta:['user','Sua conta'], org:['team','Organização'], time:['team','Time'] };
 function pageHead(o){
-  o=o||{}; const E=(typeof escA==='function')?escA:(s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'));
+  o=o||{}; const E=phEsc;
   const icn=(k)=>(typeof IC!=='undefined'&&IC[k])||'';
   const sc=o.scope ? (PH_SCOPE[o.scope]||[o.scopeIcon||'folder', o.scope]) : null;
   const scLabel=sc ? (o.scopeLabel ? (PH_SCOPE[o.scope] ? sc[1]+' · '+o.scopeLabel : o.scopeLabel) : sc[1]) : '';
   const p=o.primary;
-  const prim=p ? `<button class="btn primary pgh-primary"${p.id?` id="${E(p.id)}"`:''}${p.title?` title="${E(p.title)}"`:''} ${p.attrs||''}>${p.icon?icn(p.icon):''}${E(p.label)}</button>` : '';
+  const prim=p ? `<button class="btn primary pgh-primary"${p.id?` id="${E(p.id)}"`:''}${p.title?` title="${E(p.title)}"`:''}${phAttrs(p.attrs)}>${p.icon?icn(p.icon):''}${E(p.label)}</button>` : '';
   const m=o.more; const more=m ? `<button class="btn icon quiet pgh-more"${m.id?` id="${E(m.id)}"`:''} title="${E(m.title||'Mais ações')}" aria-label="${E(m.title||'Mais ações')}" aria-haspopup="menu">${icn('dots')}</button>` : '';
   return `<header class="pghead"${o.id?` id="${E(o.id)}"`:''}><div class="pgh-t"><h1 class="pgh-title">${E(o.title||'')}</h1>`
     + (sc?`<span class="pgh-scope" title="Pra quem vale o que está nesta página">${icn(sc[0])}${E(scLabel)}</span>`:'')
@@ -473,8 +491,18 @@ function pageHead(o){
 }
 // abas horizontais (visões do mesmo dado) no padrão da página: [[chave, rótulo, contagem?, quente?]], role=tablist
 function pageTabs(set, items, act){
-  const E=(typeof escA==='function')?escA:(s=>String(s));
+  const E=phEsc;
   return `<div class="pgtabs" role="tablist" data-pgtabs="${E(set)}">`+items.map(([k,l,n,hot])=>`<button role="tab" class="${k===act?'on':''}${hot?' hot':''}" aria-selected="${k===act}" tabindex="${k===act?0:-1}" data-pgtab="${E(set)}:${E(k)}">${E(l)}${n!=null&&n!==''?` <b>${E(String(n))}</b>`:''}</button>`).join('')+`</div>`;
+}
+// DINHEIRO DIGITADO (G2, F4): UM parser pra todo campo de teto/valor em US$. "2,5" e "2.5" → 2,5; "1.000" → 1000;
+// "1.234,50" → 1234,5; "US$ 40" → 40. Vazio → null; lixo → NaN. Já arredonda nos centavos (valida o que vai ser gravado).
+function parseUsd(v){
+  let b=String(v==null?'':v).trim().replace(/^US\$\s*/i,'').replace(/\s/g,'');
+  if(!b) return null;
+  if(b.includes(',')) b=b.replace(/\./g,'').replace(',','.');
+  else if(/^\d{1,3}(\.\d{3})+$/.test(b)) b=b.replace(/\./g,'');
+  if(!/^-?\d*\.?\d+$/.test(b)) return NaN;
+  return Math.round(Number(b)*100)/100;
 }
 // @helpers-comuns-fim
 // teto padrão por tarefa (US$; 0 = sem teto) — Configurações

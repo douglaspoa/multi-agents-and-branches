@@ -162,7 +162,7 @@
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
     <div class="mhead nf-head g2ndhead" data-tauri-drag-region><h1 class="pgh-title nf-title">Nova demanda</h1><label class="g2scopebtn" title="a demanda cai no projeto que você escolher aqui">em <select class="nd-projsel" id="ntProj" aria-label="projeto onde a demanda vai abrir"></select></label><span class="pgh-sum nf-sum" id="ntSum">campo a campo, sem conversa · rascunho salvo</span><span style="flex:1" data-tauri-drag-region></span><div class="g2seg ndseg" role="tablist" aria-label="Modo"><button type="button" role="tab" id="ntAI" class="" data-ndseg="planner" aria-selected="false" title="a IA pergunta só o essencial e monta a demanda">Conversar</button><button type="button" role="tab" class="on" data-ndseg="form" aria-selected="true" title="campo a campo, sem conversa">Formulário</button></div><button type="button" class="btn icon quiet" id="ntMore" title="Mais: importar .md · recomeçar do zero" aria-label="Mais ações" aria-haspopup="menu"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/></svg></button><span hidden><span id="ntTypeChip"><span id="ntTypeName">Feature</span><a id="ntTypeSwap">trocar</a></span><button id="ntImport" type="button">importar .md</button><button id="ntClose" type="button" aria-label="Fechar">fechar</button></span></div>
-    <div class="g2htabs nt-types" id="ntTypeTabs" role="tablist" aria-label="Tipo de demanda"><button type="button" role="tab" data-nttype="build">Feature</button><button type="button" role="tab" data-nttype="fix">Correção</button><button type="button" role="tab" data-nttype="invest">Investigação</button><button type="button" role="tab" data-nttype="design">Design</button><button type="button" role="tab" data-nttype="review">Revisar PR</button></div>
+    <div class="g2htabs nt-types" id="ntTypeTabs" role="tablist" aria-label="Tipo de demanda"><button type="button" role="tab" data-nttype="build">Feature</button><button type="button" role="tab" data-nttype="docs">Documentação</button><button type="button" role="tab" data-nttype="fix">Correção</button><button type="button" role="tab" data-nttype="invest">Investigação</button><button type="button" role="tab" data-nttype="design">Design</button><button type="button" role="tab" data-nttype="review">Revisar PR</button></div>
     <div class="mbody">
       <div id="ntRight">
       <div class="ntviewbar"><span class="dim" style="font-size:var(--fs-xs)">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
@@ -553,15 +553,8 @@
   </div>
 </div>
 
-<!-- Conta e time (Supabase): login → org/time → convites → seletor -->
 <!-- entrada e assinatura (design onboarding-planos): criar conta · entrar · confirmar · planos · pagamento · pronto -->
 <div class="au" id="authOverlay" style="display:none"><div class="au-wrap"><aside class="au-left" id="auLeft"></aside><main class="au-right" id="auRight"></main></div></div>
-<div class="overlay" id="cloudOverlay" style="display:none">
-  <div class="modal" style="width:min(780px,100%)">
-    <div class="mhead"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:15px;height:15px"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><b id="cloudHead">Conta e time</b><span style="flex:1"></span><button class="btn sm" id="sbLogoutTop" style="display:none" title="deslogar desta máquina">sair da conta</button><button class="x" id="cloudClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="cloudBody"></div>
-  </div>
-</div>
 
 <!-- desdobrar tarefa em épico (IA propõe as sub-tarefas) -->
 <div class="overlay" id="bdOverlay" style="display:none">
@@ -651,13 +644,6 @@
   </div>
 </div>
 
-<!-- preflight: o ambiente que o app precisa, com correção copiável -->
-<div class="overlay" id="envOverlay" style="display:none">
-  <div class="modal" style="width:min(620px,100%)">
-    <div class="mhead"><b>Ambiente</b><span style="flex:1"></span><button class="btn sm" id="envRecheck">verificar de novo</button><button class="x" id="envClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="envBody"></div>
-  </div>
-</div>
 
 <!-- detalhe/edição de um cartão compartilhado do time -->
 <!-- tarefa de um colega do time: página de ENTREGA (aba), com o que ele publicou -->

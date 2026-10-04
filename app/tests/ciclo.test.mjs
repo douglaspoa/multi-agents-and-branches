@@ -83,7 +83,7 @@ test('a liberação é uma SEÇÃO da aba (não modal): valor + motivo, gasto at
 
 test('budgetRelease: sem motivo nada muda; pouco demais recusa dizendo o mínimo; ok grava valor+motivo e retoma do jeito certo', async () => {
   const m = teto.match(/async function budgetRelease\([^)]*\)\{[\s\S]*?\n\}\n/); assert.ok(m);
-  const mk = (t, spent) => { const c = ctx({ budgetOf: () => 2, taskCost: () => ({ usd: spent }) }); run(c, m[0] + '\nthis.budgetRelease=budgetRelease;'); return c; };
+  const mk = (t, spent) => { const c = ctx({ budgetOf: () => 2, taskCost: () => ({ usd: spent }) }); run(c, teto.match(/function budgetOrgMax\(t\)\{[^\n]*\n/)[0] + m[0] + '\nthis.budgetRelease=budgetRelease;'); return c; };
   const t = { id: 't', status: 'needs-you', spec: { budgetUsd: 2, budgetHit: { usd: 1.6, cap: 2, mode: 'etapa' }, budgetReleases: [{ usd: 1, reason: 'antes', at: 1, capBefore: 1, capAfter: 2 }] } };
   let c = mk(t, 1.6);
   await assert.rejects(c.budgetRelease(t, '2', 'sim'), /motivo/);

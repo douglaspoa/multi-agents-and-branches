@@ -32,8 +32,6 @@ export const AP_MAX_PARALLEL = 4;
  * (autopilot.rs `cap_check`) e o app (56-piloto.js `pilotoCapCheck`). Estados antigos com teto 0 ("sem teto") só
  * continuam com um teto novo. */
 export const AP_CAP_REQUIRED = "defina um teto de custo em US$ (maior que 0): o piloto automático não roda sem teto";
-/** Mantido só pra compatibilidade de importação — o teto não tem mais padrão (é obrigatório). */
-export const AP_DEFAULT_BUDGET_USD = 0;
 /** O teto que vai valer nesta rodada, ou o motivo da recusa. `next` = o teto pedido agora (undefined = manter o do estado). */
 export function apCapCheck(next: number | undefined, prev: { budgetUsd?: number; costUsd?: number } | null): { ok: true; cap: number } | { ok: false; err: string } {
   const given = next !== undefined && next !== null;
@@ -41,7 +39,7 @@ export function apCapCheck(next: number | undefined, prev: { budgetUsd?: number;
   const cap = given ? (next as number) : Number(prev?.budgetUsd) || 0;
   if (!(cap > 0)) return { ok: false, err: AP_CAP_REQUIRED };
   const spent = Number(prev?.costUsd) || 0;
-  if (prev && cap <= spent) return { ok: false, err: `o teto de ${fmtUsd(cap)} já foi gasto (${fmtUsd(spent)}) — pra continuar, aumente o teto (--budget-usd maior que o gasto)` };
+  if (prev && cap <= spent) return { ok: false, err: `o teto de ${fmtUsd(cap)} já foi gasto (${fmtUsd(spent)}) — pra continuar, aumente o teto (maior que o já gasto)` };
   return { ok: true, cap };
 }
 export const AP_MAX_ATTEMPTS = 5;

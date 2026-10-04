@@ -157,7 +157,10 @@ async function openProjetos(){
 // publicar e remover moram no ⋯ do cartão; abrir pasta e Fábrica no ⋯ do cabeçalho; o botão "skills" saiu (Projeto › Skills)
 function projCountsOf(p){
   const mine=p.path===state.repo ? (state.tasks||[]) : (typeof allTasksCache!=='undefined'?allTasksCache:[]).filter(t=>t.repo===p.path).map(t=>typeof normAgg==='function'?normAgg(t):t);
-  return (typeof flowCounts==='function' && mine.length) ? flowCounts(typeof flowLiveTasks==='function'?flowLiveTasks(mine):mine) : { aguardando:0, prontas:p.review||0, andamento:p.active||0, rodando:0, praberto:0, fila:0 };
+  if(typeof flowCounts==='function' && mine.length) return flowCounts(typeof flowLiveTasks==='function'?flowLiveTasks(mine):mine);
+  // sem o cache ainda: classifica a amostra do backend pelos MESMOS predicados (D14) — nunca "active" cru (que soma erro/plano)
+  const lite=(p.tasks||[]).map(t=>({ id:t.id, status:t.status }));
+  return lite.length ? flowCounts(lite) : { aguardando:0, prontas:0, andamento:0, rodando:0, praberto:0, fila:0, pending:true };
 }
 function projCountsHtml(fc){
   const c=(n,col,l)=>`<span class="pjc"><i style="background:${col}"></i><b>${n}</b> ${l}</span>`;
@@ -167,7 +170,7 @@ function projCountsHtml(fc){
   if(fc.praberto) bits.push(c(fc.praberto,'var(--info)',fc.praberto===1?'PR aberto':'PRs abertos'));
   if(fc.andamento) bits.push(c(fc.andamento,'var(--st-run)','em andamento'));
   if(fc.fila) bits.push(c(fc.fila,'var(--muted)','na fila'));
-  return bits.length?bits.join(''):'<span class="dim">nada em andamento</span>';
+  return bits.length?bits.join(''):'<span class="dim">nada em andamento</span>'; // (sem cache e sem amostra = nada vivo: o backend só manda as vivas)
 }
 function projetosRender(ov){
   const body=$id('projetosBody'); if(!body) return;
@@ -181,11 +184,11 @@ function projetosRender(ov){
   const mac=(typeof osKind!=='function'||osKind()==='mac');
   const cards=all.map(({p, fc})=>{
     const cur=p.path===state.repo;
-    const local=cur ? (typeof repoHasRemote==='function' && !repoHasRemote()) : (p.remote===false || p.hasRemote===false);
+    const local=cur ? (typeof repoHasRemote==='function' && !repoHasRemote()) : p.hasRemote===false; // projects_overview.hasRemote (F4)
     const gh=local?`<div class="pjgh warn">só neste computador · <button class="lnk" data-pjpub="${escA(p.path)}">publicar no GitHub</button></div>`
-      :(p.remote||p.hasRemote||cur)?`<div class="pjgh">no GitHub${typeof p.remote==='string'?' · '+esc(p.remote):''}</div>`:'';
+      :`<div class="pjgh">no GitHub</div>`;
     return `<div class="projcard2 as-card${cur?' cur':''}">
-      <div class="pc2name">${typeof railBadgeHtml==='function'?railBadgeHtml(p.name, projColor(p.path)):`<span class="pc2d" style="background:${projColor(p.path)}"></span>`}<b>${esc(p.name)}</b>${cur?' <span class="as-badge">aberto</span>':''}<span style="flex:1"></span><button class="btn sm icon quiet" data-pjmore="${escA(p.path)}" title="Mais: ${mac?'mostrar no Finder':'abrir a pasta'}, publicar no GitHub, remover da lista" aria-label="Mais ações do projeto" aria-haspopup="menu">${(typeof IC!=='undefined'&&IC.dots)||'⋯'}</button></div>
+      <div class="pc2name" data-pjlocal="${local?1:0}">${typeof railBadgeHtml==='function'?railBadgeHtml(p.name, projColor(p.path)):`<span class="pc2d" style="background:${projColor(p.path)}"></span>`}<b>${esc(p.name)}</b>${cur?' <span class="as-badge">aberto</span>':''}<span style="flex:1"></span><button class="btn sm icon quiet" data-pjmore="${escA(p.path)}" title="Mais: ${mac?'mostrar no Finder':'abrir a pasta'}, publicar no GitHub, remover da lista" aria-label="Mais ações do projeto" aria-haspopup="menu">${(typeof IC!=='undefined'&&IC.dots)||'⋯'}</button></div>
       <div class="pc2meta">${projCountsHtml(fc)}</div>
       <div class="pc2path mono">${esc(p.path)}</div>${gh}
       <div class="pc2acts"><button class="btn sm primary" data-pjpage="${escA(p.path)}">Abrir projeto</button><button class="btn sm" data-pjopen="${escA(p.path)}">Ver na Central</button></div>
@@ -202,11 +205,12 @@ function projetosRender(ov){
   if(projNewOpen) projNewWire(ov);
   body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; projFilter=p; lsSet('projFilter',p); if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('flow'); });
   body.querySelectorAll('[data-pjpage]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjpage; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('projeto'); });
-  const pub=async(p, b)=>{ // qualquer projeto só local: troca pra ele (publishGithub age no projeto aberto) e publica
+  const pub=async(p, b)=>{ // projeto só local: publishGithub age no projeto ABERTO — troca, publica e VOLTA pro que estava aberto
     if(typeof publishGithub!=='function') return;
-    if(p!==state.repo && window.switchProject) await window.switchProject(p);
+    const back=state.repo; if(p!==state.repo && window.switchProject) await window.switchProject(p);
     if(b) b.disabled=true; let ok=false;
     try{ ok=await publishGithub(); }catch(e){ showErr(e, 'Não consegui publicar no GitHub'); }
+    if(back && back!==state.repo && window.switchProject) await window.switchProject(back); // cancelou, falhou ou deu certo: nada de trocar de projeto em silêncio
     if(ok) openProjetos(); else if(b) b.disabled=false; };
   body.querySelectorAll('[data-pjpub]').forEach(b=>b.onclick=()=>pub(b.dataset.pjpub, b));
   // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
@@ -218,7 +222,7 @@ function projetosRender(ov){
     g1Menu(b, [
       // BUG-15: open_url só aceita http(s) — o Finder abre pela reveal_project (e o erro aparece, não some calado)
       { label:mac?'Mostrar no Finder':'Abrir a pasta', act:()=>invoke('reveal_project',{path:p}).catch(e=>showErr(e, 'Não deu pra abrir a pasta')) },
-      { label:'Publicar no GitHub', hint:'cria o repositório e envia', act:()=>pub(p, null) },
+      ...(body.querySelector(`[data-pjmore="${CSS.escape(p)}"]`).closest('.pc2name').dataset.pjlocal==='1'?[{ label:'Publicar no GitHub', hint:'cria o repositório e envia', act:()=>pub(p, null) }]:[]),
       { label:'Remover da lista…', hint:'não apaga arquivos', danger:true, act:()=>rm(p) } ]); });
 }
 // ---- donos do GitHub de TODAS as contas logadas (gh_owners) ----

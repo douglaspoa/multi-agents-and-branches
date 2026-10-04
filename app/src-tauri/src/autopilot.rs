@@ -213,7 +213,8 @@ pub(crate) fn cap_check(next: Option<f64>, prev: Option<(f64, f64)>) -> Result<f
     Ok(cap)
 }
 
-/// Recusa de "Continuar": piloto rodando/começando, ou teto ausente/já gasto (teto obrigatório). PURA no disco.
+/// "Continuar": recusa piloto rodando/começando ou teto ausente/já gasto (teto obrigatório) e devolve o teto que vai
+/// valer na rodada (o pedido, ou o do state.json quando `budget_usd` é None). Só lê o disco.
 pub(crate) fn resume_check(dir: &Path, budget_usd: Option<f64>) -> Result<f64, String> {
     let st = read_status(dir)?;
     if st.get("alive").and_then(|a| a.as_bool()).unwrap_or(false) { return Err("o piloto já está rodando".into()); }

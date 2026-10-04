@@ -212,7 +212,7 @@ function viewRoute(kind, opts){
 }
 // @puro-rotas-fim
 function openTab(kind, opts){
-  { const r=viewRoute(kind, opts); kind=r.kind; opts=r.opts; }
+  { const r=viewRoute(kind, opts); kind=r.kind; opts=r.opts; if(r.from && opts.from==null) opts.from=r.from; }
   // criar demanda/plano exige um projeto aberto: sem projeto, leva pra Projetos em vez de abrir um formulário sem destino
   if(['nova','form','planner','orq'].includes(kind) && typeof state!=='undefined' && !state.repo){
     // "Começar sem portões": a tela inicial já cria o projeto a partir do pedido — leva pra lá, não pra Projetos
@@ -235,6 +235,7 @@ function openTab(kind, opts){
     tab=tabById(kind); if(!tab){ tab={id:kind, kind, title:(VIEW_META[kind]||{}).title||kind}; TABS.push(tab); }
     tab.loaded=false; // aberto pelo menu/atalho: recarrega a tela
     if(opts.sub!=null) tab.sub=opts.sub; // seção pedida (Projeto › Memória, Issues › Nova issue…)
+    tab.from=opts.from||null; // de qual tela antiga veio (ex.: 'mesas' → Fábrica › Sessões filtrada)
   }
   activateTab(tab.id);
 }
@@ -251,7 +252,9 @@ function closeTab(id){
   const i=TABS.findIndex(t=>t.id===id); if(i<0||TABS[i].pin) return;
   const kind=TABS[i].kind;
   // Agentes & Equipes com edição não salva: o X da aba passa pelo mesmo "descartar?" do cancelar (33 cancelAgents)
-  if((kind==='agents'||kind==='projeto') && typeof agDirty==='function' && agDirty() && typeof cancelAgents==='function'){ cancelAgents(); return; }
+  if(kind==='agents' && typeof agDirty==='function' && agDirty() && typeof cancelAgents==='function'){ cancelAgents(); return; }
+  // F4: a página Projeto tem rascunho (agentes ou convenções)? pergunta antes de fechar (68-casca: g1ProjLeaveOk)
+  if(kind==='projeto' && typeof g1ProjLeaveOk==='function' && !closeTab.__projOk){ g1ProjLeaveOk(null).then(ok=>{ if(!ok) return; closeTab.__projOk=true; try{ closeTab(id); }finally{ closeTab.__projOk=false; } }); return; }
   // grupo de abas (58-canvas): a aba sai do grupo junto; se o grupo estava na tela, devolve quem fica (os painéis se rearranjam)
   const grpNext=(typeof cvOnTabClosed==='function') ? cvOnTabClosed(TABS[i]) : null;
   if(kind==='task' && typeof nvOnTaskTabClose==='function') nvOnTaskTabClose(TABS[i].taskId); // Prévia: o proxy da tarefa morre com a aba

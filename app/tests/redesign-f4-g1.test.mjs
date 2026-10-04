@@ -78,17 +78,18 @@ test('Central (inventário 01): cancelada vai pra Concluídas; "concluída hoje"
   assert.match(read('js/23-kanban-artefatos-editor.js'), /\['fila','Na fila'\]/, 'Kanban com a coluna da fila');
   // o Rust manda a data de conclusão (último evento) no snapshot e na lista de todos os projetos
   const rs = readFileSync(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
-  assert.equal((rs.match(/\(SELECT e\.ts FROM event e WHERE e\.task_id=task\.id ORDER BY e\.id DESC LIMIT 1\)/g) || []).length, 2);
+  assert.equal((rs.match(/finished_at_sql\(task_has_col\(&conn, "closed_at"\)\)/g) || []).length, 2, 'snapshot e lista de todos os projetos');
+  assert.match(rs, /if f\.as_deref\(\) == Some\("closed"\) \{ task_mark_closed\(&conn, &task_id, true, now_ms\(\)\); \}/, 'encerrar à mão grava a data (teste Rust: finished_at_tests)');
   assert.equal((rs.match(/finished_at: r\.get::<_, Option<i64>>\((17|9)\)\.unwrap_or\(None\)\.unwrap_or\(0\)/g) || []).length, 2);
 });
 
 // ---------------- padrão de página (D25) ----------------
 test('pageHead: título · selo de escopo · resumo · 1 primária · ⋯ · subtítulo · abas; sem X nem "fechar esc"', () => {
   const h = H.pageHead({ title: 'Projeto · <x>', scope: 'projeto', scopeLabel: 'logcomex', sum: '<b>2</b> aguardando você', sub: 'O que "os" agentes', primary: { id: 'pp', label: 'Novo', icon: 'plus' }, more: { id: 'mm' }, tabs: '<div class="pgtabs"></div>' });
-  assert.match(h, /^<header class="pghead"><div class="pgh-t"><h1 class="pgh-title">Projeto · &lt;x><\/h1>/);
+  assert.match(h, /^<header class="pghead"><div class="pgh-t"><h1 class="pgh-title">Projeto · &lt;x&gt;<\/h1>/);
   assert.match(h, /<span class="pgh-scope" title="Pra quem vale o que está nesta página"><svg>f<\/svg>Este projeto · logcomex<\/span>/);
   assert.match(h, /<span class="pgh-sum"><b>2<\/b> aguardando você<\/span>/);
-  assert.match(h, /<button class="btn primary pgh-primary" id="pp" ><svg>\+<\/svg>Novo<\/button>/);
+  assert.match(h, /<button class="btn primary pgh-primary" id="pp"><svg>\+<\/svg>Novo<\/button>/);
   assert.match(h, /<button class="btn icon quiet pgh-more" id="mm" title="Mais ações" aria-label="Mais ações" aria-haspopup="menu"><svg>d<\/svg><\/button>/);
   assert.match(h, /<p class="pgh-sub">O que &quot;os&quot; agentes<\/p><div class="pgtabs"><\/div><\/header>$/);
   assert.ok(!/fechar|esc<|kbd/.test(h));
@@ -120,7 +121,7 @@ test('rotas: Chat/Memória/Meu time/Skills/Preferências → Projeto; Daily → 
   assert.deepEqual(r('memoria', { sub: 'revisar' }), ['projeto', 'revisar'], 'quem pede seção mantém a dela');
   assert.deepEqual(r('fabrica'), ['fabrica', null], 'o resto passa direto');
   assert.deepEqual(r('task', { x: 1 }), ['task', null]);
-  assert.match(abas, /function openTab\(kind, opts\)\{\n  \{ const r=viewRoute\(kind, opts\); kind=r\.kind; opts=r\.opts; \}/);
+  assert.match(abas, /function openTab\(kind, opts\)\{\n  \{ const r=viewRoute\(kind, opts\); kind=r\.kind; opts=r\.opts; if\(r\.from && opts\.from==null\) opts\.from=r\.from; \}/, 'de onde veio segue junto (mesas → Sessões filtrada)');
   assert.match(abas, /if\(k==='j' && !e\.shiftKey\)\{ e\.preventDefault\(\); openTab\('projeto',\{ sub:'conversa' \}\); \}/, '⌘J = Projeto › Conversa');
   assert.match(abas, /if\(k===',' && !e\.shiftKey\)\{ e\.preventDefault\(\); if\(typeof ajustesOpen==='function'\) ajustesOpen\(\); else openTab\('cfg'\); \}/);
   assert.match(abas, /if\(o && tgtEl && tgtEl!==o && tgtEl\.contains\(o\)\) return;/, 'a seção dentro da página Projeto não some ao trocar de aba');
@@ -160,15 +161,18 @@ test('Projeto: sub-nav Conversa · Memória · Agentes · Skills · Regras · Es
 });
 
 // ---------------- migração de preferências ----------------
-const MG = new Function(cut(casca, '// @puro-migra-inicio', '// @puro-migra-fim') + '\nreturn g1MigratePrefs;')();
-test('migração: grade → lista, escopo "Time" → Em andamento, aba antiga da ficha → Desempenho; o valor antigo fica guardado; roda uma vez', () => {
-  const ls = { flowView: 'grid', flowScope: 'team', agTab: 'aprendizados', tmView: 'board', outra: 'x' };
+const MG = new Function(cut(util, '// @puro-migra-inicio', '// @puro-migra-fim') + '\nreturn g1MigratePrefs;')();
+test('migração (00-util, roda antes de quem lê): grade → lista, escopo "Time" → Em andamento; Atividade (feed) continua; valor antigo guardado; uma vez só', () => {
+  const ls = { flowView: 'grid', flowScope: 'team', tmView: 'feed', outra: 'x' };
   const get = (k) => (k in ls ? ls[k] : null), set = (k, v) => { ls[k] = v; };
-  assert.deepEqual(MG(get, set), ['flowView', 'flowScope', 'agTab']);
+  assert.deepEqual(MG(get, set), ['flowView', 'flowScope']);
   assert.equal(ls.flowView, 'table'); assert.equal(ls['flowView:f4'], 'grid');
   assert.equal(ls.flowScope, 'exec'); assert.equal(ls['flowScope:f4'], 'team');
-  assert.equal(ls.agTab, 'desempenho'); assert.equal(ls.tmView, 'board', 'valor válido não muda'); assert.equal(ls.outra, 'x');
+  assert.equal(ls.tmView, 'feed', 'Atividade é vista válida'); assert.equal(ls.outra, 'x');
+  const l2 = { tmView: 'grafo' }; MG((k) => (k in l2 ? l2[k] : null), (k, v) => { l2[k] = v; }); assert.equal(l2.tmView, 'overview');
   ls.flowView = 'grid'; assert.deepEqual(MG(get, set), [], 'já migrado: não mexe de novo');
+  assert.ok(util.indexOf('try{ g1MigratePrefs(lsGet, lsSet); }catch(_){ }') > 0 && util.indexOf('g1MigratePrefs(lsGet') < util.indexOf('function fmtCost'), 'roda na carga do 00-util');
+  assert.ok(!/g1MigratePrefs\(get, set\)/.test(casca), 'uma definição só');
 });
 
 // ---------------- ganchos estruturais ----------------
@@ -218,4 +222,31 @@ test('99-paginas.css: só tokens do tema (nenhuma cor literal), registrado depoi
   assert.match(html, /<link rel="stylesheet" href="css\/98-fabrica\.css">\n<link rel="stylesheet" href="css\/99-paginas\.css">/);
   assert.match(html, /<script src="js\/68-casca-g1\.js"><\/script>\n<\/body>/);
   assert.ok(!/#[0-9a-fA-F]{6}\b/.test(casca), 'sem cor fixa no JS da casca');
+});
+
+// ---------------- revisão F4 (correções) ----------------
+test('Projeto: voltar pra aba mostra a seção de novo (KEEP_ON_SWITCH não chama viewOpen) e o ⋯ da página tem id próprio', () => {
+  assert.match(casca, /showActiveView=function\(\)\{ const r=sa\.apply\(this, arguments\);\n\s*try\{ const t=tabById\(activeTab\); if\(t && t\.kind==='projeto' && t\.loaded\) projShowSub\(projSub\);/);
+  assert.match(casca, /more:\{ id:'projPageMore'/); assert.match(casca, /head\.querySelector\('#projPageMore'\)/);
+  assert.ok(!/projMoreBtn/.test(casca), 'o id projMoreBtn é só da página Projetos');
+  assert.equal((read('js/13-skills-projetos.js').match(/projMoreBtn/g) || []).length, 2);
+  assert.match(casca, /if\(head\.__html===hh && nav\.__html===nh\) return;/, 'contagens vivas sem trocar o DOM à toa');
+  assert.match(casca, /if\(g1TabOn\('projeto'\)\)\{ const ch=projRepoShown!==\(state\.repo\|\|''\); projPageRender\(\);/);
+});
+test('Regras/Agentes: rascunho não some (trocar de seção, fechar a aba, reabrir) e as convenções gravam no projeto CARREGADO', () => {
+  const p = read('js/12-chat-prefs-daily.js');
+  assert.match(p, /function prefsDirty\(\)\{ const ta=\$id\('prefsText'\); return !!\(prefsK && ta && ta\.value!==prefsLoaded\); \}/);
+  assert.match(p, /if\(prefsDirty\(\) && prefsK\.path===repoPath\)\{ ovShow\(ov\); prefsBarSync\(\); return; \}/, 'reabrir mantém o rascunho');
+  assert.match(p, /prefsK=k\?Object\.assign\(\{ path:repoPath \}, k\):null;/, 'chave presa ao projeto carregado');
+  assert.match(cut(p, "$id('prefsSave').onclick=async()=>{", '\n};\n'), /const k=prefsK; if\(!k\) return;/, 'salvar não recalcula pro projeto aberto agora');
+  assert.match(casca, /async function g1ProjLeaveOk\(to\)\{[\s\S]*agDirty\(\)[\s\S]*prefsDirty\(\)/);
+  assert.match(casca, /async function projGo\(sub\)\{ sub=projSubNorm\(sub\); if\(g1TabOn\('projeto'\) && !await g1ProjLeaveOk\(sub\)\) return;/);
+  assert.match(abas, /if\(kind==='projeto' && typeof g1ProjLeaveOk==='function' && !closeTab\.__projOk\)\{ g1ProjLeaveOk\(null\)/, 'fechar a aba Projeto pergunta');
+  assert.match(casca, /const keep=\(sub==='agentes' && typeof agDirty==='function' && agDirty\(\)\);/, 'voltar pra Agentes não relê por cima do rascunho');
+  assert.match(casca, /closeAgents=function\(\)\{ const o=\$id\('agOverlay'\); if\(o && o\.classList\.contains\('inproj'\)\)\{ agBase='';/);
+});
+test('padrão de página: attrs viram pares escapados; pageTabs escapa sem depender do escA', () => {
+  const h = H.pageHead({ title: 'X', primary: { label: 'Ir', attrs: { 'data-to': 'a"b', 'on click': 'x' } } });
+  assert.match(h, / data-to="a&quot;b">Ir<\/button>/); assert.ok(!/on click/.test(h), 'nome inválido some');
+  assert.match(H.pageTabs('s', [['k', '<b>']], 'k'), /&lt;b&gt;/);
 });

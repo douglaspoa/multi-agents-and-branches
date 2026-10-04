@@ -98,7 +98,7 @@ const NOPROJ_TIP='abra ou crie um projeto primeiro';
 function noProjSync(){
   const none=!(typeof state!=='undefined' && state && state.repo);
   // tour terminado sem projeto: as dicas de primeira vez começam quando o 1º projeto abrir
-  if(!none && lsGet('coachPending')==='1'){ lsSet('coachPending',''); if(typeof coachStart==='function') setTimeout(coachStart, 800); }
+  if(!none && lsGet('coachPending')==='1') lsSet('coachPending',''); // F4: as dicas de 1ª vez viraram Primeiros passos (aba) — nada de coach marks
   NOPROJ_IDS.forEach(id=>{ const b=$id(id); if(!b) return;
     if(b.dataset.tip0===undefined) b.dataset.tip0=b.getAttribute('title')||'';
     b.classList.toggle('noproj', none);

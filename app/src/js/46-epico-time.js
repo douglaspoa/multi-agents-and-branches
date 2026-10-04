@@ -164,7 +164,7 @@ function epicPageRender(){
   // F4 (G1, mesa tela 24): padrão de página — título UMA vez (= título da aba), selo do time, status no resumo, ↻ no ⋯;
   // sem "fechar esc" (⌘W fecha a aba); "onda" virou "etapa" na interface
   const tmNm=(((typeof cloudData!=='undefined'&&cloudData&&cloudData.teams)||[]).find(x=>x.id===(typeof cloudTeamId==='function'?cloudTeamId():''))||{}).name;
-  main.innerHTML=`<div class="enpage">${pageHead({ title:'Épico · '+(ep.name||'Épico'), scope:'time', scopeLabel:tmNm||'', sum:`<span class="ep-st ep-st-${escA(ep.status||'open')}">${esc(EP_ST_PT[ep.status]||ep.status||'')}</span>${typeof aeEpicBadge==='function'?' · '+aeEpicBadge(sp):''}`, more:{ id:'epicPageRefresh', title:'Recarregar da nuvem' } })}
+  main.innerHTML=`<div class="enpage">${pageHead({ title:'Épico · '+(ep.name||'Épico'), scope:'time', scopeLabel:tmNm||'', sum:`<span class="ep-st ep-st-${escA(ep.status||'open')}">${esc(EP_ST_PT[ep.status]||ep.status||'')}</span>${typeof aeEpicBadge==='function'?' · '+aeEpicBadge(sp):''}`, more:{ id:'epicPageMore', title:'Atualizar · abrir no Time · issue' } })}
     <div class="en-head">
       <div class="en-ht">
         ${sp.outcome?`<p class="en-obj">${esc(sp.outcome)}</p>`:''}
@@ -203,7 +203,11 @@ function epicPageRender(){
   main.querySelectorAll('[data-epundo]').forEach(b=>b.onclick=()=>{ if(window.aeEpicUndo) aeEpicUndo(ep, b.dataset.epundo); });
   bindClick('epLegacyDone', ()=>epicSetStatus(ep,'done'));
   bindClick('epAutoOn', ()=>epicAutoOn(ep));
-  bindClick('epicPageRefresh', ()=>{ const b=$id('epicPageRefresh'); if(b) b.disabled=true; epicPageLoad(ep.id).then(()=>{ if(epTab&&epTab.id===ep.id) epicPageRender(); }); });
+  // ⋯ = menu de verdade (aria-haspopup=menu): atualizar não trava o botão (a página é redesenhada inteira)
+  { const mb=main.querySelector('#epicPageMore'); if(mb && typeof g1Menu==='function') mb.onclick=()=>g1Menu(mb, [
+      { label:'Atualizar', hint:'da nuvem', act:()=>epicPageLoad(ep.id).then(()=>{ if(epTab&&epTab.id===ep.id) epicPageRender(); }) },
+      { label:'Abrir no Time', hint:'quadro do time', act:()=>{ lsSet('tmEpic', ep.id); if(typeof tmView!=='undefined'){ tmView='board'; lsSet('tmView','board'); } openTab('time'); } },
+      ...(sp.issue&&sp.issue.url?[{ label:'Abrir a issue do épico', hint:sp.issue.code||'', act:()=>openExternal(sp.issue.url) }]:[]) ]); }
   { const h=$id('epicPageName'); if(h) h.textContent=ep.name||'Épico'; const s=$id('epicPageSub'); if(s) s.textContent=''; } // status já está no sobretítulo da página
 }
 async function epicPatch(ep, body){
@@ -335,8 +339,6 @@ async function epicMirrorChecks(t){
   finally{ epMirrorInFlight.delete(t.id); }
 }
 window.epicMirrorChecks=epicMirrorChecks;
-bindClick('epicPageClose', ()=>closeTabOfKind('epic'));
-bindClick('epicPageRefresh', ()=>{ if(epTab){ const b=$id('epicPageRefresh'); if(b) b.disabled=true; epicPageLoad(epTab.id).then(()=>{ epicPageRender(); if(b) b.disabled=false; }); } });
 // F4 (D24): Esc NUNCA fecha a aba do épico — quem fecha é ⌘W (antes o Esc fechava a aba inteira)
 
 // ---- FILA DOS ÉPICOS: aparece no quadro de Tarefas + ondas seguintes começam sozinhas ----

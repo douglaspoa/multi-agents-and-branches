@@ -415,7 +415,7 @@ function trkConnHtml(){
   return `<div class="trk-card"><div class="trk-ct">1 · Documentação da API</div>
       <p class="trk-rs">Cole a doc do painel e/ou anexe os PDFs/Markdown (pode ser mais de um — eles se somam). A IA lê e monta a conexão: endpoints, campos, status e quais chaves precisa. Funciona com qualquer tracker que tenha API HTTP.</p>
       <div class="trk-grid2"><label class="trk-f">Nome do painel<input class="in" id="trkName" value="${escA(trk.name||'')}" placeholder="ex.: Demands · Foundation"></label>
-      <label class="trk-f">Endereço base das issues <span class="dim">· saiu de Ajustes · <span id="trkIssueBaseOk"></span></span><input class="in mono" id="trkIssueBase" value="${escA(lsGet('issueBase')||'')}" placeholder="ex.: https://linear.app/sua-empresa/issue" title="com ele, um código como FND-853 na tarefa vira link pra base/FND-853"></label></div>
+      <label class="trk-f">Endereço base das issues <span class="dim">· vira link do código da issue nas tarefas · <span id="trkIssueBaseOk"></span></span><input class="in mono" id="trkIssueBase" value="${escA(lsGet('issueBase')||'')}" placeholder="ex.: https://linear.app/sua-empresa/issue" title="com ele, um código como FND-853 na tarefa vira link pra base/FND-853"></label></div>
       <label class="trk-f">Documentação<textarea class="in mono" id="trkDocs" rows="7" style="font-size:var(--fs-xs)" placeholder="cole aqui a documentação da API (endpoints, autenticação, campos, status)…">${esc(trk.docs||'')}</textarea></label>
       <div class="trk-bar"><button class="btn" id="trkPick">${ic('doc')}anexar arquivo${trkDocFiles.length?'s':''}</button>${trkDocFiles.map((f,k)=>`<span class="trk-op">${esc(pathBase(f))} <a data-trkunpick="${k}" style="cursor:pointer;opacity:.6">${IC.x}</a></span>`).join('')}<span style="flex:1"></span>
         <button class="btn primary" id="trkBuild"${trkBusy==='build'?' disabled':''}>${trkBusy==='build'?'lendo a doc…':(c?IC.starforkEm+' gerar de novo':IC.starforkEm+' gerar conexão')}</button></div></div>
@@ -614,7 +614,7 @@ function trkBoardHtml(){
   const first=!trkIssuesAt;
   const area = first && trkBusy==='load' ? skeletonHtml('kanban', { cols:Math.min(5, Math.max(3, cols.length)), inline:true, label:'buscando issues' })
     : first && trkErr ? errorHtml(trkErr, 'trkRetry', null, { human:true }) // trkErr já é texto humano (trkErrText)
-    : !first && !trkIssues.length && !trkErr ? emptyHtml({ icon:'search', title:'Nenhuma issue no painel', help:'Os projetos escolhidos não têm issues — ou o conector não trouxe nenhuma. '+(c.ops.create?'Crie a primeira por aqui.':'Confira os projetos e as regras no passo 2.'), action:{ id:'trkEmptyAct', label:c.ops.create?'+ nova issue':'atualizar' } })
+    : !first && !trkIssues.length && !trkErr ? emptyHtml({ icon:'search', title:'Nenhuma issue no painel', help:'Os projetos escolhidos não têm issues — ou o conector não trouxe nenhuma. '+(c.ops.create?'Crie a primeira por aqui.':'Confira os projetos e as regras em Conexão.'), action:{ id:'trkEmptyAct', label:c.ops.create?'+ nova issue':'atualizar' } })
     // o detalhe aberto (e o comentário sendo digitado) continua ao lado do vazio; emptyHtml escapa título e ajuda
     : filteredOut ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${emptyHtml(Object.assign({ icon:'search', action:{ id:'trkClearFilter', label:'mostrar todas', primary:false } }, trkEmptyFilterText(trkQ, trkFilter)))}</div>${trkSel?trkDetailHtml():''}</div>`
     : trkLayout==='lista' ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${trkListHtml(list.concat(trkIssues.filter(i=>shownKids.has(i.code)&&!list.includes(i))))}</div>${trkSel?trkDetailHtml():''}</div>`
@@ -826,10 +826,7 @@ function trkNIRender(){
   const o=$id('issuesBulkBody'), n=trkNI; if(!o||!n) return;
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   if(!trkReady()||!trk.connector.ops.create){ o.innerHTML='<div class="sk-screen trk"><h1 class="sk-h1">Nova issue</h1>'+emptyHtml({ icon:'doc', title:trkReady()?'Este painel não deixa criar issues':'Conecte o painel de issues primeiro', help:trkReady()?'A documentação da API não tem como criar issue — dá pra gerar a conexão de novo com uma doc mais completa.':'Em Issues → Conexão você cola a documentação da API e a IA monta a conexão.', action:{ id:'trkNIGoConn', label:'abrir a Conexão' } })+'</div>';
-    const g=$id('trkNIGoConn'); if(g) g.onclick=()=>{ trkView='conn'; trkMsg=''; trkSel=null; issRender(); return;
-      trkWantView='conn'; if(window.openTab) window.openTab('issues'); else openIssues();
-      // aba já aberta e só focada (sem recarregar): aplica direto e não deixa o pedido pendurado
-      if(trkWantView && trk && $id('issuesOverlay') && $id('issuesOverlay').style.display!=='none'){ trkWantView=''; trkView='conn'; trkMsg=''; trkSel=null; issRender(); } }; return; }
+    const g=$id('trkNIGoConn'); if(g) g.onclick=()=>{ trkView='conn'; trkMsg=''; trkSel=null; issRender(); }; return; }
   const keep=document.activeElement&&document.activeElement.id==='trkNIInput', iv=$id('trkNIInput')?$id('trkNIInput').value:'';
   const todo=trkNITodo(), made=n.items.filter(i=>i.state==='ok').length, openQ=todo.reduce((a,i)=>a+i.open.length,0);
   const canAssign=JSON.stringify((trkOp('create')||{}).body||{}).includes('{{assignee}}');

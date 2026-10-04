@@ -204,7 +204,8 @@ if(typeof VIEW_META!=='undefined'){ VIEW_META.fabrica={ title:'Fábrica', icon:'
 if(typeof KEEP_ON_SWITCH!=='undefined'){ KEEP_ON_SWITCH.add('fabrica'); KEEP_ON_SWITCH.add('varredura'); } // voltar pela aba só mostra (a sessão segue na memória)
 if(typeof viewOpen==='function' && !viewOpen.__fab){ const vo=viewOpen; viewOpen=function(kind, tab){ if(kind==='fabrica'){ if(tab){ tab.fresh=false; if(tab.sub){ FAB.view=tab.sub; if(tab.sub==='sessoes'&&tab.from==='mesas') FAB.sf.k='m'; tab.sub=null; } } return openFabrica(); } if(kind==='varredura'){ if(tab) tab.fresh=false; return openVarredura(); } return vo.apply(this, arguments); }; viewOpen.__fab=true; }
 // rotas antigas (Mais › Mesa, "Ideias recentes", seletor de 5 modos): openTab passa pelo fabRoute
-if(typeof openTab==='function' && !openTab.__g2){ const ot=openTab; openTab=function(kind, opts){ const r=fabRoute(kind, Object.assign({ mesaId:(opts&&opts.mesaId)||(typeof MESA!=='undefined'&&MESA.forceId)||'' }, opts||{}));
+if(typeof openTab==='function' && !openTab.__g2){ const ot=openTab; openTab=function(kind, opts){ if(kind==='nova' && window.ndLegacy && window.ndLegacy()) return ot.call(this, kind, opts); // tela legada (nd:legacy) intacta
+    const r=fabRoute(kind, Object.assign({ mesaId:(opts&&opts.mesaId)||(typeof MESA!=='undefined'&&MESA.forceId)||'' }, opts||{}));
     if(r.kind==='fabrica' && kind!=='fabrica'){ FAB.view=r.view||'nova'; if(r.filter) FAB.sf.k=r.filter; if(r.mode) FAB.mode=r.mode==='feature'?'feature':'app'; return ot.call(this, 'fabrica', {}); }
     return ot.call(this, r.kind, opts); }; openTab.__g2=true; window.openTab=openTab; }
 // fabOpen('nova'|'sessoes'|'personas', { mode?, filter? }) — a porta da Fábrica pra quem está fora dela
@@ -548,9 +549,12 @@ async function fabLoadSessions(){
     src.ideias=ids||[];
     src.varreduras=(await Promise.all((vl||[]).slice(0,24).map(x=>call('fabrica_read',{ id:x.id }).catch(()=>null)))).filter(Boolean);
     const repos=[...new Set(((typeof projects!=='undefined'&&Array.isArray(projects))?projects.map(p=>p&&p.path):[]).concat([(typeof state!=='undefined'&&state.repo)||'']).filter(Boolean))].slice(0,12);
-    for(const repo of repos){ try{ const l=await call('mesa_list',{ repo }); (l||[]).forEach(x=>src.mesas.push(Object.assign({ repo }, x))); }catch(_){ } }
-    const dirs=[...new Set([(typeof lsGet==='function'&&lsGet('piloto:dir'))||''].concat(src.ideias.map(x=>x.projeto||'')).filter(Boolean))].slice(0,10);
-    for(const dir of dirs){ try{ const st=await call('autopilot_status',{ dir }); if(st && st.phase) src.pilotos.push(Object.assign({ dir }, st)); }catch(_){ } }
+    // TODAS as pastas de piloto lembradas (não só a última) + as das ideias; mesas e pilotos lidos em paralelo
+    const dirs=[...new Set((typeof pilotoDirs==='function'?pilotoDirs():[(typeof lsGet==='function'&&lsGet('piloto:dir'))||'']).concat(src.ideias.map(x=>x.projeto||'')).filter(Boolean))].slice(0,30);
+    const [ms, ps]=await Promise.all([
+      Promise.all(repos.map(repo=>call('mesa_list',{ repo }).then(l=>(l||[]).map(x=>Object.assign({ repo }, x))).catch(()=>[]))),
+      Promise.all(dirs.map(dir=>call('autopilot_status',{ dir }).then(st=>st&&st.phase?Object.assign({ dir }, st):null).catch(()=>null))) ]);
+    src.mesas=ms.flat(); src.pilotos=ps.filter(Boolean);
     if(typeof MESA!=='undefined') src.liveMesas=Object.values(MESA.runs||{}).map(r=>r.m&&r.m.id).filter(Boolean);
     FAB.sess=fabSessRows(src); FAB.sessErr='';
   }catch(e){ FAB.sessErr=(typeof humanErr==='function'?humanErr(e,'Não consegui ler as sessões').msg:'Não consegui ler as sessões'); FAB.sessRaw=String(e&&e.message||e); }
@@ -593,13 +597,13 @@ function fabStartsHtml(){
   const ps=fabPersonas(); if(!FAB_HUB.pick) FAB_HUB.pick=new Set(ps.filter(p=>p.ativa!==false).map(p=>p.id));
   const n=ps.filter(p=>FAB_HUB.pick.has(p.id)).length;
   const [lo,hi]=typeof mesaCost==='function'?mesaCost(n, 2, (FAB_HUB.mesaIa&&FAB_HUB.mesaIa.get().model)||'sonnet', typeof roughEstimate==='function'?roughEstimate:null):[0,0];
-  const cap=FAB_HUB.cap||String(typeof mesaCapBase==='function'?mesaCapBase():2).replace('.',',');
+  const cb=typeof mesaCapBase==='function'?mesaCapBase():2, cap=FAB_HUB.cap||(cb>0?String(cb).replace('.',','):''); // "sem teto" antigo → campo vazio (toda mesa nova tem teto)
   return `<div class="g2starts feat">`
     +`<button type="button" class="g2start" id="fabToNova"><h3><span class="nn">1</span>Já sei o que quero</h3><p>Abre a <b>Nova demanda</b> com ${fabEsc(fabProjName(repo))} preenchido. A Fábrica não repete o planejador.</p><span class="g2ft"><span class="btn sm">Abrir Nova demanda ${IC.arrow||'→'}</span></span></button>`
     +`<div class="g2start big"><h3><span class="nn">2</span>Discutir um tema</h3><p>Mesa: pontos de vista que debatem e votam features. Você aprova e elas viram demandas.</p>`
       +`<div class="g2fld"><label for="fabTema">Tema</label><input class="in" id="fabTema" value="${fabEsc(FAB_HUB.tema)}" placeholder="ex.: o que fazer com os módulos Em breve?"></div>`
       +`<div class="g2fld"><span class="g2lb">Quem senta <small>— clique pra tirar ou pôr</small></span><div class="g2persrow">${ps.map(p=>`<button type="button" class="g2pers${FAB_HUB.pick.has(p.id)?' on':''}" data-fpick="${fabEsc(p.id)}" aria-pressed="${FAB_HUB.pick.has(p.id)}" title="${fabEsc(p.papel)}"><span class="g2pav">${fabEsc(p.nome.charAt(0))}</span>${fabEsc(p.nome)}</button>`).join('')}</div></div>`
-      +`<div class="g2g2"><div class="g2fld"><span class="g2lb">IA</span><span id="fabMesaIa"></span></div><div class="g2fld"><label for="fabMesaCap">Teto (US$)</label><input class="in" id="fabMesaCap" inputmode="decimal" value="${fabEsc(cap)}"></div></div>`
+      +`<div class="g2g2"><div class="g2fld"><span class="g2lb">IA</span><span id="fabMesaIa"></span><span class="g2help">a mesa roda na IA dos chats (Ajustes › IA e modelos); aqui você escolhe o modelo</span></div><div class="g2fld"><label for="fabMesaCap">Teto (US$)</label><input class="in" id="fabMesaCap" inputmode="decimal" value="${fabEsc(cap)}"></div></div>`
       +`<div class="g2ft"><button type="button" class="btn primary" id="fabMesaGo"${n<2?' disabled title="escolha pelo menos 2 personas"':''}>Rodar a mesa</button><span class="g2help">deve custar ${fabEsc(typeof fmtCostRange==='function'?fmtCostRange(lo,hi):'')} · ${n} personas × 2 rodadas</span></div></div>`
     +`<button type="button" class="g2start" id="fabVarFeat"><h3><span class="nn">3</span>Me mostre opções</h3><p>Lê as issues, o chat do projeto, demandas passadas e o código. Traz 3 opções com mock sobre a sua tela e os arquivos que cada uma toca.</p><span class="g2ft"><span class="btn sm">Varrer este projeto ${IC.arrow||'→'}</span></span></button>`
     +`</div><div class="g2endstrip">${IC.stack||''}<span>No fim: <b>épico criado só com confirmação</b>, neste projeto. Nada roda até você iniciar.</span></div>`;
@@ -695,7 +699,7 @@ function fabHubWire(body){
   { const h=$id('fabMesaIa'); if(h && typeof iaPick==='function'){ const chat=typeof aiEngineOf==='function'?aiEngineOf(aiDefaults().eng):'claude'; const eng=chat==='mock'?'claude':chat;
       const prev=FAB_HUB.mesaIa?FAB_HUB.mesaIa.get():{ engine:eng, model:eng==='claude'?(aiClaudeModel()||''):'' };
       FAB_HUB.mesaIa=iaPick(h, { value:prev, scope:'mesa', engines:[eng], allowDefault:false, title:'a mesa roda na IA dos chats; aqui você escolhe o modelo', onChange:()=>fabHubRender() }); } }
-  bindClick('fabMesaGo', async()=>{ fabHubCapture(); const ia=FAB_HUB.mesaIa?FAB_HUB.mesaIa.get():{ engine:'claude', model:'' }; const cap=parseFloat(String(FAB_HUB.cap||($id('fabMesaCap')||{}).value||'').replace(/\./g,'').replace(',','.'));
+  bindClick('fabMesaGo', async()=>{ fabHubCapture(); const ia=FAB_HUB.mesaIa?FAB_HUB.mesaIa.get():{ engine:'claude', model:'' }; const cap=parseUsd(FAB_HUB.cap||($id('fabMesaCap')||{}).value||''); // o parser único: "2.5" é 2,5 (antes virava 25)
     if(typeof mesaStartWith==='function' && await mesaStartWith({ repo:state.repo, tema:FAB_HUB.tema, ids:[...FAB_HUB.pick], gen:FAB_HUB.gen, engine:ia.engine, model:ia.engine==='claude'?(ia.model||null):null, capUsd:cap })){ FAB_HUB.tema=''; } });
   bindClick('fabSessRetry', ()=>{ FAB.sess=null; FAB.sessErr=''; fabHubRender(); fabLoadSessions(); });
   body.querySelectorAll('[data-fsf]').forEach(b=>b.onclick=()=>{ FAB.sf.k=b.dataset.fsf; fabHubRender(); });
@@ -708,5 +712,5 @@ function fabHubWire(body){
   { const a=$id('fabPAtiva'); if(a) a.onchange=fabPSaveSoon; }
   bindClick('fabPNew', ()=>{ if(typeof mesaPersonaNew!=='function') return; FAB.psel=mesaPersonaNew(); FAB_HUB.saved=''; fabHubRender(); const n=$id('fabPNome'); if(n){ n.focus(); n.select(); } });
   bindClick('fabPDel', ev=>{ const p=fabPersonas().find(x=>x.id===FAB.psel); if(!p) return; g2SheetConfirm(ev.currentTarget, { title:'Remover '+p.nome+'?', sub:'as mesas e ideias que já rodaram não mudam', ok:'Remover', danger:true, onOk:async()=>{ try{ await mesaPersonaRemove(p, state.repo); if(p.origem==='gerada'){ FAB_HUB.genRepo=''; await fabLoadGen(); } FAB.psel=null; fabHubRender(); }catch(e){ showErr(e,'Não consegui remover'); } } }); });
-  bindClick('fabGenP', async()=>{ if(typeof mesaGenerate!=='function' || !state.repo) return; MESA.repo=state.repo; const b=$id('fabGenP'); if(b){ b.disabled=true; b.textContent='gerando personas…'; } const ok=await mesaGenerate(); FAB_HUB.genRepo=''; await fabLoadGen(); if(!ok) fabHubRender(); });
+  bindClick('fabGenP', async()=>{ if(typeof mesaGenerate!=='function' || !state.repo) return; MESA.repo=state.repo; const b=$id('fabGenP'); if(b){ b.disabled=true; b.textContent='gerando personas…'; } const ok=await mesaGenerate(FAB_HUB.tema||''); FAB_HUB.genRepo=''; await fabLoadGen(); if(!ok) fabHubRender(); });
 }

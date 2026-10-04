@@ -13,7 +13,7 @@ const cut = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b, i); assert.o
 const MESA_PURE = cut(read('js/38-mesa.js'), '// @puro-inicio', '// @puro-fim');
 const IDEIA_SRC = read('js/59-ideia.js');
 // F4: o fim de caminho da ideia (aba Projeto) é o MESMO formulário do "construir sozinho" (56-piloto)
-const PILOTO_PURE = cut(read('js/56-piloto.js'), '// @piloto-puro-inicio', '// @piloto-puro-fim');
+const PILOTO_PURE = cut(read('js/00-util.js'), '// DINHEIRO DIGITADO', '// @helpers-comuns-fim') + cut(read('js/56-piloto.js'), '// @piloto-puro-inicio', '// @piloto-puro-fim');
 const P = new Function(MESA_PURE + cut(IDEIA_SRC, '// @ideia-puro-inicio', '// @ideia-puro-fim') +
   '\nreturn { IDEIA_PESQ, ideiaPanel, ideiaTitle, ideiaSlug, ideiaPlat, ideiaCheckReport, ideiaSanitize, ideiaReportMd, ideiaResearchCost, ideiaTurnPrompt, ideiaHistory, ideiaPersonaSys, ideiaResearchPrompt, ideiaFixPrompt, ideiaPickPlatform, ideiaDecisionView, ideiaBuildPlan, ideiaEpicMd, ideiaTaskPayloads, ideiaStage, ideiaRevive, ideiaR1Prompt, ideiaR2Prompt };')();
 const plain = (v) => JSON.parse(JSON.stringify(v)); // valores de outro contexto do vm
@@ -318,9 +318,9 @@ test('passos e botões: pesquisar (com custo previsto e teto) → decidir → cr
   // aba Projeto = fim de caminho: seguir à mão | construir sozinho (teto OBRIGATÓRIO) — mesmo formulário do 56-piloto
   assert.match(h, /data-pil-eo="hand"/);
   assert.match(h, /data-pil-eo="auto"/);
-  assert.match(h, /id="pilGh"/, 'GitHub opcional, como no projeto novo');
-  assert.match(h, /id="pilBudget"/);
-  assert.match(h, /id="pilGo" disabled>Construir sozinho/, 'sem teto o botão fica desligado');
+  assert.match(h, /id="ipilGh"/, 'GitHub opcional, como no projeto novo');
+  assert.match(h, /id="ipilBudget"/);
+  assert.match(h, /id="ipilGo" disabled>Construir sozinho/, 'sem teto o botão fica desligado');
   assert.match(h, /data-itab="pes"[\s\S]*data-itab="mvp"[\s\S]*data-itab="proj"/, 'painel com abas Pesquisa · MVP · Projeto');
   h = html(idea0({ project: { dir: '/Users/x/Documents/Starfork/skincare', mode: 'piloto', at: 1 } }));
   assert.match(text(h), /Entregue pro piloto \(construir sozinho\) ~\/Documents\/Starfork\/skincare/);
@@ -515,4 +515,34 @@ test('revisão: criar que parou no meio CONTINUA na mesma pasta, sem repetir tar
   assert.equal(tasks.length, 4, '1 ok + 1 que falhou + as 2 que faltavam');
   assert.equal(run('IDEIA.cur.project.tasks.length'), 3);
   assert.equal(run('IDEIA.cur.partial'), undefined);
+});
+
+// ---------------- revisão F4 ----------------
+test('a mesa da ideia fica CONGELADA nela (m.panel): editar personas depois não muda histórico nem apuração', () => {
+  const { run } = load();
+  run(`IDEIA.cur=${JSON.stringify(idea0({ panel: [{ id: 'pesq', nome: 'Pesquisadora', papel: 'p', desc: '' }, { id: 'zeca', nome: 'Zeca', papel: 'z', desc: '' }], turns: [{ you: 'oi', resp: { zeca: { st: 'ok', text: 'opa' } } }] }))};`);
+  const h = run('ideiaIdeaHtml(IDEIA.cur)');
+  assert.match(h, /Zeca/); assert.doesNotMatch(h, />Bia </, 'quem não estava na mesa não aparece');
+  assert.equal(run('ideiaPanelOf(IDEIA.cur).length'), 2);
+  assert.ok(run('ideiaPanelSnap().length') >= 6, 'ideia nova congela a mesa do momento');
+});
+
+test('criação parcial + "Construir sozinho" NÃO cria um 2º projeto; criar pede confirmação (projeto, GitHub, teto)', async () => {
+  const r = P.ideiaCheckReport(json(good())).report;
+  const ps = P.ideiaPanel(), v = (top) => ({ st: 'ok', plataforma: 'web', voto: { fala: '', top: top.map(([id, peso]) => ({ id, peso })), vetos: [] } });
+  const decision = { status: 'ok', rounds: [{ n: 1, resp: {} }, { n: 2, resp: Object.fromEntries(ps.map((p) => [p.id, v([['F1', 2]])])) }], cands: [{ id: 'F1', titulo: 'Rotina', descricao: 'd' }], escolhas: {} };
+  const asked = [];
+  const { run, calls, ctx } = load({ invoke: async (c) => c === 'autopilot_start' ? { dir: '/x' } : null });
+  ctx.askYes = async (q) => { asked.push(q); return false; };
+  run(`IDEIA.cur=${JSON.stringify(idea0({ turns: [{ you: 'oi', resp: {} }], report: { status: 'ok', data: r, md: '# P' }, decision, partial: { mode: 'manual', dir: '/x/rotina', tasks: [] } }))}; IDEIA.mem['i-test-1']=IDEIA.cur;`);
+  run('ideiaEndForm(IDEIA.cur).budget="30"');
+  await run('ideiaCreate(IDEIA.cur, "piloto")');
+  assert.ok(!calls.some(([c]) => c === 'autopilot_start'));
+  assert.match(run('IDEIA.endErr'), /Seguir à mão/);
+  run('delete IDEIA.cur.partial; ideiaEndForm(IDEIA.cur).budget="30"');
+  await run('ideiaCreate(IDEIA.cur, "piloto")');
+  assert.equal(asked.length, 1, 'confirmação antes de gastar');
+  assert.match(asked[0], /Constrói sozinho[\s\S]*US\$ 30/);
+  assert.ok(!calls.some(([c]) => c === 'autopilot_start'), 'recusou: nada começa');
+  assert.equal(run('ideiaEndForm(IDEIA.cur).gh'), false, 'GitHub só vem marcado com conta conectada');
 });

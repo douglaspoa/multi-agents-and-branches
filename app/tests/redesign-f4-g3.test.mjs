@@ -125,7 +125,7 @@ test('bug: "trocar" a chave do gateway apagava a chave sem perguntar — agora f
   assert.match(edit, /sheetAsk\(\{ anchor:b, title:'Trocar a chave do gateway'/);
   assert.match(edit, /await save\('ALT_AI_KEY', String\(v\)\.trim\(\)\)/);
   const del = cut(w, "const b=$('raKeyDel');", '{ const b=$(\'raModel\')');
-  assert.match(del, /Remover a chave do gateway\?[\s\S]*danger:true[\s\S]*if\(!ok\) return; await secretDel\('ALT_AI_KEY'\)/);
+  assert.match(del, /Remover a chave do gateway\?[\s\S]*danger:true[\s\S]*if\(!ok\) return; await secretDel\(name\)/);
 });
 
 test('bug: link do e-mail ia pro domínio antigo (constellation-ai-v1.lovable.app) → starfork.com.br', () => {
@@ -134,7 +134,9 @@ test('bug: link do e-mail ia pro domínio antigo (constellation-ai-v1.lovable.ap
   assert.doesNotMatch(onb.replace(/\/\/.*$/gm, ''), /lovable/);
   const sh = root('scripts/supabase-auth-mail.sh');
   assert.match(sh, /"site_url": "https:\/\/starfork\.com\.br"/);
-  assert.match(sh, /"uri_allow_list": "https:\/\/starfork\.com\.br\/\*\*/);
+  assert.match(sh, /"uri_allow_list": allow,/);
+  assert.match(sh, /have=\[x\.strip\(\) for x in str\(now\.get\("uri_allow_list"\)/, 'mescla com a lista atual (nada some)');
+  assert.match(sh, /want=\["https:\/\/starfork\.com\.br\/\*\*"/);
 });
 
 test('bug: id "permission" duplicado no catálogo de erros — um id só, e o lock sem permissão continua em "permission"', () => {
@@ -170,8 +172,13 @@ test('Regras da organização: cada salvar vira uma versão (histórico no próp
 // ---------------------------------------------------------------- Primeiros passos
 test('Primeiros passos: computador → IA → projeto → 1ª demanda → convite (opcional); cada passo se marca sozinho', () => {
   const P0 = A.ppSteps({});
-  assert.deepEqual(P0.steps.map((s) => s.id), ['pc', 'ia', 'proj', 'dem', 'conv']);
-  assert.equal(P0.done, 0); assert.equal(P0.next, 'pc');
+  assert.deepEqual(P0.steps.map((s) => s.id), ['pc', 'ia', 'proj', 'dem'], 'fora de uma organização o convite nem aparece');
+  assert.equal(P0.done, 0); assert.equal(P0.total, 4); assert.equal(P0.next, 'pc');
+  // o convite (opcional) só aparece numa organização e NUNCA entra no progresso
+  const Po = A.ppSteps({ inOrg: true, invited: true });
+  assert.deepEqual(Po.steps.map((s) => s.id), ['pc', 'ia', 'proj', 'dem', 'conv']);
+  assert.equal(Po.total, 4); assert.equal(Po.done, 0, 'convidar não conta como feito');
+  assert.equal(A.ppSteps({ envOk: true, iaReady: true, hasRepo: true, tasks: 1, inOrg: true }).done, 4);
   const P1 = A.ppSteps({ envOk: true, iaReady: true, hasRepo: false, tasks: 0 });
   assert.equal(P1.done, 2); assert.equal(P1.next, 'proj');
   const P2 = A.ppSteps({ envOk: true, iaReady: true, hasRepo: true, tasks: 3 });
@@ -205,7 +212,7 @@ test('erro: diz o que fazer (passos), "ver detalhes" inline com copiar e abrir e
   const h = L.errorHtml(new Error('Failed to fetch\nstack linha 2'));
   assert.match(h, /<span>O que fazer<\/span><ol><li>Confira a internet ou a VPN\.<\/li><li>Tente de novo\.<\/li><\/ol>/);
   assert.match(h, /<details class="ld-det"><summary>ver detalhes<\/summary><pre class="ld-pre">Failed to fetch\nstack linha 2<\/pre>/);
-  assert.match(h, /data-ldcopy[^>]*>copiar<\/span> · <span data-ldtab[^>]*>abrir em aba/);
+  assert.match(h, /<button type="button" class="btn sm quiet" data-ldcopy>copiar<\/button><button type="button" class="btn sm quiet" data-ldtab>abrir em aba<\/button>/);
   for (const k of ['semprojeto', 'semconta', 'semorg', 'semperm']) assert.match(L.ldStateHtml(k, 'x'), /ld-empty/);
   assert.match(read('js/00-util.js'), /function errDetails\(h\)\{\n  if\(typeof errTabOpen==='function'\)\{ errTabOpen\(h\); return; \}/);
   assert.match(aj, /VIEW_OVERLAY\.errtab='errTabOverlay'/);
@@ -223,7 +230,8 @@ test('teto atingido = "Aviso do Starfork" (não pergunta de agente fictício): p
 test('Verificação não abre mais sozinha no boot: faixa na Central + selo na sub-navegação', () => {
   const amb = read('js/11-ambiente-updater.js');
   assert.doesNotMatch(amb, /window\.openTab\('env'\)/);
-  assert.match(amb, /setTimeout\(async\(\)=>\{ await runEnvCheck\(\); if\(typeof ajEnvBand==='function'\) ajEnvBand\(\); \}, 2500\);/);
+  assert.match(amb, /setTimeout\(\(\)=>\{ runEnvCheck\(\)\.catch\(\(\)=>\{\}\); \}, 2500\);/);
+  assert.match(amb, /if\(typeof ajEnvBand==='function'\) try\{ ajEnvBand\(\); \}catch\(_\)\{ \}/, 'a faixa sai de dentro da checagem (uma vez)');
   assert.match(aj, /function ajEnvBand\(\)\{[\s\S]*pendência[\s\S]*resolver/);
   assert.match(aj, /if\(id==='verificacao' && typeof envChecks!=='undefined'/, 'selo na sub-nav');
 });
@@ -233,7 +241,10 @@ test('chaves de modelo: só em Ajustes › IA e modelos (Conta e Issues não tê
   assert.doesNotMatch(k, /function secretsRenderCloud|sbSecretAdd|sbSecretDs/);
   assert.match(k, /async function secretSet\(name, value\)\{\n  await sbFetch\('\/rest\/v1\/user_secrets\?on_conflict=user_id,name'/, 'armazenamento igual (compatível)');
   assert.match(aj, /<b>Outras chaves da conta<\/b>/);
-  assert.match(aj, /\{ id:'gemini'[\s\S]*\{ id:'opencode'/, 'Gemini e opencode aparecem como novos');
+  assert.match(aj, /\{ id:'gemini'[\s\S]*\{ id:'opencode'/, 'Gemini e OpenCode têm cartão');
+  assert.match(aj, /invoke\('term_ai_bins'\)/, 'estado real pelo mesmo resolvedor do terminal');
+  assert.doesNotMatch(aj, /ainda não existe no app|a confirmar|Seletor de IA único<\/h3>/, 'sem conteúdo de mock em produção');
+  assert.match(read('../src-tauri/src/lib.rs'), /fn term_ai_bins\(\) -> serde_json::Value \{[\s\S]*bin_resolve::resolve_cached\(n,/);
 });
 
 test('index.html: carrega 67-ajustes.js depois da Central e o 99-ajustes.css; o modal "Padrões de demanda" saiu', () => {
@@ -259,4 +270,102 @@ test('Uso: filtro por IA vai pro Rust (usage_report engine) e o total do cabeça
   assert.match(h, /<option value="codex" selected>Codex<\/option>/);
   assert.match(h, /Fábrica de apps e features/);
   assert.match(read('../src-tauri/src/usage_ledger.rs'), /pub\(crate\) fn usage_report\(period: String, project: Option<String>, since: Option<i64>, engine: Option<String>\)/);
+});
+
+// ---------------------------------------------------------------- correções da revisão
+test('teto: a pendência do aviso leva createdAt (o comentário engolia o campo)', () => {
+  const t = read('js/53-teto-protecao.js');
+  const ctx = { BUDGET_STOP_TXT: 'Parar aqui', budgetPrompt: () => 'p', budgetPendId: () => -1 };
+  const f = new Function('ctx', 'with(ctx){ ' + cut(t, 'function budgetInject(snap){', '\nconst budgetBusy') + '\n return budgetInject; }')(ctx);
+  const snap = { tasks: [{ id: 't1', status: 'paused', spec: { budgetHit: { at: 1234, usd: 4, cap: 5 } } }] };
+  f(snap);
+  assert.equal(snap.pending[0].createdAt, 1234);
+  assert.equal(snap.pending[0].agent, 'Aviso do Starfork');
+  assert.match(cut(t, 'function budgetNoticeWire(root){', '// teto escolhido'), /if\(!\(usd>0\)\)\{ err\('Escreva quanto liberar/);
+  assert.match(t, /function budgetOrgMax\(t\)/); assert.match(cut(t, 'async function budgetRelease(', '\n}\n'), /const max=budgetOrgMax\(t\);/);
+});
+
+// folha: DOM falso mínimo (só o que sheetOpen usa)
+function sheetEnv() {
+  const listeners = { mousedown: [], keydown: [] }, made = [];
+  const mkKid = (tag, attrs) => { const k = { tag, value: '', dataset: {}, disabled: false, onclick: null, attrs,
+    getAttribute: (a) => (attrs.includes(a + '="true"') ? 'true' : null), matches: (sel) => attrs.includes(sel.replace(/[\[\]]/g, '')),
+    focus() { doc.activeElement = k; }, closest(sel) { return sel === '[data-sh-i]' && 'shI' in k.dataset ? k : null }, classList: { toggle() {} }, setAttribute() {} };
+    const m = attrs.match(/data-sh-i="(\d+)"/); if (m) k.dataset.shI = m[1]; return k; };
+  const mkEl = () => { const kids = []; const el = { kids, style: { setProperty() {} }, classList: { add() {} }, setAttribute() {}, offsetWidth: 380, offsetHeight: 160, removed: false,
+    remove() { el.removed = true; }, contains: (x) => x === el || kids.includes(x),
+    set innerHTML(h) { for (const m of h.matchAll(/<(button|input)([^>]*)>/g)) if (/data-sh-/.test(m[2])) kids.push(mkKid(m[1], m[2])); },
+    querySelector: (sel) => kids.find((k) => k.attrs.includes(sel.replace(/[\[\]]/g, ''))) || null,
+    querySelectorAll: (sel) => kids.filter((k) => sel.split(',').some((x) => k.attrs.includes(x.replace(/[\[\]]/g, '').replace(/:not.*/, '')) || x.startsWith(k.tag))) };
+    made.push(el); return el; };
+  const doc = { activeElement: null, body: { appendChild() {} }, createElement: mkEl,
+    addEventListener: (t, f) => listeners[t].push(f), removeEventListener: (t, f) => { listeners[t] = listeners[t].filter((x) => x !== f); } };
+  const e = read('js/52-erros.js');
+  const S = new Function('document', 'window', cut(e, '// @folha-puro-inicio', 'window.sheetAsk=sheetAsk;') + '\nreturn { sheetAsk, sheetCancelValue, sheetPlace };')(doc, { innerWidth: 1280, innerHeight: 800 });
+  const key = (k, target) => listeners.keydown.slice().forEach((f) => f({ key: k, target: target || made[made.length - 1].kids[0], preventDefault() {}, stopPropagation() {} }));
+  return { S, made, listeners, key, doc };
+}
+const tick = () => new Promise((r) => setTimeout(r, 5));
+test('folha (askYes): ok → true; cancelar/Esc/clique fora → false; campo cancelado → null; a 2ª espera a 1ª (não cancela a pendente)', async () => {
+  const E = sheetEnv();
+  assert.equal(E.S.sheetCancelValue({}), false); assert.equal(E.S.sheetCancelValue({ field: {} }), null); assert.equal(E.S.sheetCancelValue({ choices: [] }), null);
+  let p = E.S.sheetAsk({ title: 'a' }); await tick();
+  E.made.at(-1).querySelector('[data-sh-ok]').onclick(); assert.equal(await p, true);
+  p = E.S.sheetAsk({ title: 'b' }); await tick(); E.made.at(-1).querySelector('[data-sh-no]').onclick(); assert.equal(await p, false);
+  p = E.S.sheetAsk({ title: 'c' }); await tick(); E.key('Escape'); assert.equal(await p, false);
+  p = E.S.sheetAsk({ title: 'd' }); await tick(); E.listeners.mousedown.slice().forEach((f) => f({ target: {} })); assert.equal(await p, false);
+  p = E.S.sheetAsk({ title: 'e', field: {} }); await tick(); E.key('Escape'); assert.equal(await p, null, 'campo cancelado = null');
+  assert.equal(E.listeners.keydown.length + E.listeners.mousedown.length, 0, 'sem ouvinte pendurado');
+  // fila: a 1ª (confirmação) continua aberta quando a 2ª (campo) é pedida
+  const p1 = E.S.sheetAsk({ title: 'primeira' }); const p2 = E.S.sheetAsk({ title: 'segunda', field: {} }); await tick();
+  const n = E.made.length; assert.ok(!E.made.at(-1).removed);
+  E.made.at(-1).querySelector('[data-sh-ok]').onclick(); assert.equal(await p1, true, 'a 1ª não foi cancelada');
+  await tick(); assert.equal(E.made.length, n + 1, 'a 2ª só abriu depois');
+  E.key('Escape'); assert.equal(await p2, null, 'cancelar da 2ª usa o tipo DELA (campo → null)');
+  // Enter numa opção focada escolhe ESSA opção
+  const p3 = E.S.sheetAsk({ title: 'f', choices: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] }); await tick();
+  const optB = E.made.at(-1).kids.find((k) => k.dataset.shI === '1'); E.key('Enter', optB); assert.equal(await p3, 'b');
+  // topo nunca sai da tela
+  assert.ok(E.S.sheetPlace({ top: 5, bottom: 10, left: 10, width: 10 }, 380, 900, 1280, 800).top >= 8);
+});
+
+test('Regras da organização: salvar = versão N+1 com histórico, a partir da política RELIDA; erro transitório nunca tira o histórico', () => {
+  const pol = read('js/63-politica-org.js');
+  const R = new Function(cut(aj, '// @ajustes-puro-inicio', '// @ajustes-puro-fim') + cut(pol, '// @politica-puro-inicio', '// @politica-puro-fim') + cut(pol, '// @regras-puro-inicio', '// @regras-puro-fim') + '\nreturn { orgRulesSaveBody, orgRulesFlat, orgRulesHistFatal };')();
+  const fresh = { minRequirements: 2, costWarn: 10, version: 3, savedAt: 1, savedBy: 'u0', history: [{ version: 2 }, { version: 1 }], extra: 'de outra pessoa' };
+  const draft = Object.assign(R.orgRulesFlat(fresh, ''), { minRequirements: 4, tpl: '## guia' });
+  const b = R.orgRulesSaveBody(fresh, draft, 'u1', 99, true);
+  assert.equal(b.policy.version, 4); assert.equal(b.policy.history.length, 3); assert.equal(b.policy.history.at(-1).version, 3);
+  assert.equal(b.policy.minRequirements, 4); assert.equal(b.policy.extra, 'de outra pessoa', 'mescla o que outra pessoa salvou'); assert.equal(b.spec_template, '## guia');
+  const plain = R.orgRulesSaveBody(fresh, draft, 'u1', 99, false);
+  assert.equal(plain.policy.history.length, 2, 'sem versão nova, mas o histórico fica intacto'); assert.equal(plain.policy.version, 3);
+  assert.equal(R.orgRulesHistFatal(new Error('Failed to fetch')), false); assert.equal(R.orgRulesHistFatal(new Error('value too long for type')), true);
+  const save = cut(pol, "bindClick('orgrSave'", '\n  sync();\n}');
+  assert.match(save, /const rows=await sbGet\('orgs\?select=policy&id=eq\.'\+org\.id\)/, 'relê antes de gravar');
+  assert.match(save, /catch\(e\)\{ if\(!orgRulesHistFatal\(e\)\) throw e;/, 'transitório: erro + rascunho fica');
+  assert.match(pol, /canEdit=d\.meRole==='owner'\|\|d\.meRole==='admin'/);
+  assert.match(pol, /orgPlanOf\(org, Date\.now\(\)\)!=='empresa'/, 'portão do plano Enterprise');
+  assert.match(pol, /AJ\.sec!=='regras'\) return;/); assert.match(pol, /falha NÃO vira cache/);
+  assert.match(pol, /sb\.disabled=ORGR\.bad\|\|ORGR\.saving/, 'teto inválido desliga o salvar');
+});
+
+test('chaves: "Outras chaves" esconde as dos motores; "trocar" nunca apaga antes de salvar; remover do gateway apaga a chave EM USO (LGCX_API_KEY)', () => {
+  const rows = new Function('secretsCache', cut(aj, 'function ajSecretsRows(){', '\nfunction ajTermLoad') + '\nreturn ajSecretsRows();')([{ name: 'LGCX_API_KEY', value: 'x' }, { name: 'ALT_AI_KEY', value: 'y' }, { name: 'DEEPSEEK_API_KEY', value: 'z' }, { name: 'OPENAI_API_KEY', value: 'w' }]);
+  assert.deepEqual(rows.map((r) => r.name), ['LGCX_API_KEY']);
+  const edit = cut(aj, "host.querySelectorAll('[data-ajkedit]')", "host.querySelectorAll('[data-ajkdel]')");
+  assert.doesNotMatch(edit, /secretDel/); assert.match(edit, /await secretSet\(b\.dataset\.ajkedit, v\)/);
+  const k = read('js/41-assinatura-chaves.js');
+  const name = new Function('secretsCache', cut(k, 'function raGet(n){', '\nfunction routeAiCfgHtml') + '\nreturn raKeyName();');
+  assert.equal(name([{ name: 'LGCX_API_KEY', value: 'k' }]), 'LGCX_API_KEY');
+  assert.equal(name([{ name: 'LGCX_API_KEY', value: 'k' }, { name: 'ALT_AI_KEY', value: 'a' }]), 'ALT_AI_KEY');
+  assert.match(cut(k, "const b=$('raKeyDel');", "{ const b=$('raModel')"), /await secretDel\(name\)/);
+});
+
+test('planos: sem a linha do plano o total é null (nunca R$ 0) e o botão fica desligado', () => {
+  const onb = read('js/44-onboarding.js');
+  const F = new Function('au', 'billingPlans', cut(onb, 'function auPlanRow(key, interval){', '// TESTE GRÁTIS') + '\nreturn auTotal();');
+  assert.equal(F({ plan: { key: 'team', interval: 'month', seats: 5 } }, []), null);
+  assert.equal(F({ plan: { key: 'team', interval: 'month', seats: 5 } }, [{ plan: 'team', interval: 'month', amount_cents: 3900, per_seat: true }]), 19500);
+  assert.match(onb, /id="auGo"\$\{hasPlans&&total!=null\?'':' disabled'\}/);
+  assert.match(onb, /<button type="button" class="au-link" id="auPlansRetry">/);
 });

@@ -925,6 +925,12 @@ async function cmdAutopilot(a: Args) {
     return;
   }
   const num = (k: string) => (a.flags[k] !== undefined && a.flags[k] !== "" && Number.isFinite(Number(a.flags[k])) ? Number(a.flags[k]) : undefined);
+  // teto: dado e inválido/vazio ("--budget-usd" sem número, "abc") é erro — nunca "sem teto" por engano
+  if (a.flags["budget-usd"] !== undefined && num("budget-usd") === undefined) {
+    console.error(c.red("✕ teto inválido: use --budget-usd com um valor em US$ maior que 0"));
+    process.exitCode = 1;
+    return;
+  }
   const platform = a.flags.platform;
   if (platform && !AP_PLATFORMS.includes(platform as ApPlatform)) {
     console.error(c.red(`✕ --platform deve ser ${AP_PLATFORMS.join("|")}`));

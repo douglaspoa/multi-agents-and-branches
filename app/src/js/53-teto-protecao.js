@@ -29,7 +29,8 @@ function budgetInject(snap){
   for(const t of snap.tasks){
     const hit=(t.spec||{}).budgetHit; if(!hit) continue;
     if(!(t.status==='paused' || t.status==='needs-you' || (hit.mode==='stopped' && t.status==='review'))) continue;
-    pend.push({ id:budgetPendId(t.id), taskId:t.id, agent:'Aviso do Starfork', kind:'budget', notice:true, // F4: aviso do sistema, não pergunta de agente createdAt:+hit.at||0,
+    // F4: aviso do sistema, não pergunta de agente
+    pend.push({ id:budgetPendId(t.id), taskId:t.id, agent:'Aviso do Starfork', kind:'budget', notice:true, createdAt:+hit.at||0,
       prompt:budgetPrompt(t, hit), options:[BUDGET_STOP_TXT] });
   }
 }
@@ -112,6 +113,8 @@ async function budgetAnswer(pendId, answer){
   // a resposta tinha ido — opções travadas e a tarefa parada no teto sem aviso
   finally{ budgetBusy.delete(t.id); lastSig=''; refresh().catch(()=>{}); }
 }
+// teto máximo da política da organização gravado NA TAREFA (fonte única: liberação e aviso usam esta)
+function budgetOrgMax(t){ const p=((t&&t.spec)||{}).orgPolicy; return p&&+p.tetoMaxUsd>0?+p.tetoMaxUsd:null; }
 // LIBERAR MAIS (P6): sobe o teto pelo valor escrito, guarda {valor, motivo} em spec.budgetReleases (vai pro PR) e
 // retoma do jeito que parou: pausada → continua o processo; parada → manda seguir; entre etapas (motor) → ▶.
 // Liberar pouco demais (ainda ≥ 80% do teto novo) só pararia de novo na hora: recusa dizendo o mínimo.
@@ -120,7 +123,7 @@ async function budgetRelease(t, usd, reason){
   const sp=t.spec||{}, hit=sp.budgetHit||null, cap=budgetOf(t), spent=taskCost(t.id).usd;
   const capAfter=+(cap+r.usd).toFixed(2);
   // F5 · P14: o teto máximo da política da organização vale também pra liberação (em palavra, com o valor)
-  { const max=sp.orgPolicy&&+sp.orgPolicy.tetoMaxUsd>0?+sp.orgPolicy.tetoMaxUsd:null;
+  { const max=budgetOrgMax(t);
     if(max!=null && capAfter>max+1e-9) throw new Error('a política da organização limita o teto a '+fmtCost(max,{usdOnly:true})+' por tarefa — dá pra liberar no máximo '+fmtCost(Math.max(0,+(max-cap).toFixed(2)),{usdOnly:true})); }
   if(capCheck(spent, capAfter)!=='ok'){ const min=Math.max(0.01, Math.ceil((spent/CAP_PAUSE_AT-cap)*100+1)/100); throw new Error(`com ${fmtCost(r.usd,{usdOnly:true})} a tarefa ainda fica acima de 80% do teto — libere pelo menos ${fmtCost(min,{usdOnly:true})}`); }
   const rel={ usd:r.usd, reason:r.reason, at:Date.now(), capBefore:cap, capAfter };
@@ -138,7 +141,7 @@ async function budgetRelease(t, usd, reason){
 function budgetNoticeHtml(t){
   const hit=((t&&t.spec)||{}).budgetHit; if(!hit) return '';
   const cap=+hit.cap||budgetOf(t), usd=+hit.usd||0, pct=Math.round(usd/(cap||1)*100);
-  const max=typeof orgPolMaxUsd==='function'?orgPolMaxUsd():null;
+  const max=budgetOrgMax(t);
   const sug=Math.max(1, Math.ceil(cap));
   return `<div class="bnotice" role="status" data-bnotice="${escA(t.id)}"><div class="bn-h">${(typeof IC!=='undefined'&&IC.warn)||''}<b>Aviso do Starfork</b><span class="dim">· não é pergunta de agente</span></div>
     <p>A tarefa chegou a <b>${pct}% do teto</b>: ${esc(fmtCost(usd,{usdOnly:true}))} de ${esc(fmtCost(cap))}. ${hit.mode==='stopped'?'O agente foi parado':'Ela está pausada'} e nada se perdeu.</p>
@@ -154,8 +157,10 @@ function budgetNoticeWire(root){
       b.disabled=true; err('');
       try{
         const pend=((state&&state.pending)||[]).find(p=>p.kind==='budget' && String(p.taskId)===String(t.id));
-        if(b.dataset.bn==='stop'){ if(pend) await budgetAnswer(pend.id, BUDGET_STOP_TXT); }
+        if(!pend && !((t.spec||{}).budgetHit)){ err('Este aviso já foi resolvido — a tela vai atualizar.'); b.disabled=false; return; }
+        if(b.dataset.bn==='stop'){ if(pend) await budgetAnswer(pend.id, BUDGET_STOP_TXT); else { err('Este aviso já foi resolvido — a tela vai atualizar.'); b.disabled=false; } }
         else { const usd=parseFloat(String(box.querySelector('[data-bn-usd]').value).replace(',','.')), why=String(box.querySelector('[data-bn-why]').value||'').trim();
+          if(!(usd>0)){ err('Escreva quanto liberar — um valor em US$ maior que 0.'); b.disabled=false; box.querySelector('[data-bn-usd]').focus(); return; }
           if(!why){ err('Escreva o motivo — ele vai pro PR.'); b.disabled=false; box.querySelector('[data-bn-why]').focus(); return; }
           await budgetRelease(t, usd, why); }
       }catch(e){ err(humanErr(e,'Não deu').msg); b.disabled=false; }

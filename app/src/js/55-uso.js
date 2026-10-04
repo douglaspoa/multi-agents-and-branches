@@ -69,8 +69,10 @@ function usoProjectSel(projects, cur){
     `<option value="${escA(p.project)}"${p.project===cur?' selected':''}>${esc(p.name||p.project)}</option>`));
   return `<select class="uso-proj" data-uso-project aria-label="Projeto">${opts.join('')}</select>`;
 }
-function usoEngineSel(cur){
-  return `<select class="uso-proj" data-uso-engine aria-label="IA"><option value="">todas as IAs</option>${Object.keys(USO_ENGINES).map(k=>`<option value="${k}"${k===cur?' selected':''}>${esc(USO_ENGINES[k])}</option>`).join('')}</select>`;
+// opções do filtro de IA: as IAs que APARECEM nos dados (ids normalizados do byEngine) + a escolhida
+function usoEngineIds(list, cur){ const ids=[]; (list||[]).forEach(x=>{ const e=x&&x.engine; if(e && !ids.includes(e)) ids.push(e); }); if(cur && !ids.includes(cur)) ids.push(cur); return ids; }
+function usoEngineSel(cur, ids){
+  return `<select class="uso-proj" data-uso-engine aria-label="IA"><option value="">todas as IAs</option>${(ids||[]).map(k=>`<option value="${escA(k)}"${k===cur?' selected':''}>${esc(usoEngineLabel(k))}</option>`).join('')}</select>`;
 }
 // cabeçalho padrão da página (pageHead, G1) com o total "US$ X (≈ R$ Y)"
 function usoHead(t, st){
@@ -82,11 +84,13 @@ function usoHead(t, st){
 // estado vazio / erro / relatório
 function usoHtml(d, st){
   st=st||{};
-  const bar=`<div class="uso-top">${usoPeriodSeg(st.period||'7d')}${usoProjectSel(st.projects||[], st.project||'')}${usoEngineSel(st.engine||'')}<span style="flex:1"></span>`
+  const bar=`<div class="uso-top">${usoPeriodSeg(st.period||'7d')}${usoProjectSel(st.projects||[], st.project||'')}${usoEngineSel(st.engine||'', usoEngineIds(st.engines, st.engine))}<span style="flex:1"></span>`
     +`<button type="button" class="ajlink" data-uso-tech aria-pressed="${!!st.tech}">${st.tech?'esconder detalhes':'ver detalhes (tokens, cache, informado × estimado)'}</button></div>`;
   const t=(d&&d.totals)||{};
   const head=usoHead(t, st)+bar;
-  if(st.err) return head+`<div class="ld-empty ld-err" role="alert"><b>${esc(st.err)}</b><div class="ld-do"><span>O que fazer</span><ol><li>Feche outra janela do Starfork, se houver.</li><li>Tente de novo.</li></ol></div><div class="ld-acts"><button type="button" class="btn sm" data-uso-reload>tentar de novo</button></div></div>`;
+  if(st.err){ // passos pelo MESMO catálogo dos erros (ldStepsOf/LD_STEPS pelo id do humanErr)
+    const steps=(typeof ldStepsOf==='function' && st.errH)?ldStepsOf(st.errH):[];
+    return head+`<div class="ld-empty ld-err" role="alert"><b>${esc(st.err)}</b>${steps.length?`<div class="ld-do"><span>O que fazer</span><ol>${steps.map(x=>`<li>${esc(x)}</li>`).join('')}</ol></div>`:''}<div class="ld-acts"><button type="button" class="btn sm" data-uso-reload>tentar de novo</button></div></div>`; }
   if(!d) return head+((typeof skeletonHtml==='function')?skeletonHtml('cards',{ n:4, inline:true, label:'carregando o uso' }):'<div class="dim uso-none">carregando…</div>');
   const tests=d.tests||{};
   const testsLine=(+tests.calls>0)?`<p class="uso-note dim">Testes de conexão (fora do total): ${usoUsd(tests.usd)} em ${tests.calls} chamada${tests.calls===1?'':'s'}.</p>`:'';
@@ -139,15 +143,17 @@ function usoDetailHtml(d){
 // @uso-puro-fim
 
 const USO_PERIOD_KEY='usoPeriod';
-const USO={ period:(typeof lsGet==='function'&&lsGet(USO_PERIOD_KEY))||'7d', project:'', engine:'', tech:false, data:null, err:'', projects:[], detail:null, detailErr:'', seq:0, at:0 };
+const USO_ENGINE_KEY='usoEngine';
+const USO={ period:(typeof lsGet==='function'&&lsGet(USO_PERIOD_KEY))||'7d', project:'', engine:(typeof lsGet==='function'&&lsGet(USO_ENGINE_KEY))||'', engines:[], errH:null, tech:false, data:null, err:'', projects:[], detail:null, detailErr:'', seq:0, at:0 };
 function usoBody(){ return document.getElementById('usoBody'); }
 function usoLimits(){ try{ return (typeof pmRows==='function' && typeof pmData!=='undefined' && pmData)?pmRows(pmData, Date.now()):[]; }catch(_){ return []; } }
 function usoRender(){
   const el=usoBody(); if(!el) return;
   if(el.classList) el.classList.toggle('showtech', !!USO.tech);
-  el.innerHTML=usoHtml(USO.data, { period:USO.period, project:USO.project, engine:USO.engine, tech:USO.tech, err:USO.err, projects:USO.projects,
+  el.innerHTML=usoHtml(USO.data, { period:USO.period, project:USO.project, engine:USO.engine, tech:USO.tech, err:USO.err, errH:USO.errH, engines:USO.engines, projects:USO.projects,
     open:USO.detail?USO.detail.taskId:'', detail:USO.detail&&USO.detail.data, detailErr:USO.detailErr, limits:usoLimits() });
 }
+function usoErrH(e){ if(typeof humanErr!=='function') return null; try{ return humanErr(e, 'Não consegui ler o uso'); }catch(_){ return null; } }
 function usoErrText(e){
   if(typeof humanErr==='function'){ try{ const h=humanErr(e, 'Não consegui ler o uso'); if(h&&h.msg) return h.msg; }catch(_){ } }
   return String((e&&e.message)||e||'Não consegui ler o uso');
@@ -157,11 +163,12 @@ function usoCall(){ return typeof invokeQuiet==='function'?invokeQuiet:invoke; }
 async function usoLoad(){
   const seq=++USO.seq;
   USO.err='';
-  let d=null, err='';
+  let d=null, err='', errH=null;
   try{ d=await usoCall()('usage_report', { period:USO.period, project:USO.project||null, since:usoSinceFor(USO.period, Date.now()), engine:USO.engine||null }); }
-  catch(e){ err=usoErrText(e); }
+  catch(e){ err=usoErrText(e); errH=usoErrH(e); }
   if(seq!==USO.seq) return; // chegou uma resposta velha
-  USO.data=err?null:(d||null); USO.err=err; USO.at=Date.now();
+  USO.data=err?null:(d||null); USO.err=err; USO.errH=errH; USO.at=Date.now();
+  if(d && !USO.engine && Array.isArray(d.byEngine)) USO.engines=usoEngineIds(d.byEngine); // sem filtro = todas as IAs que gastaram
   if(d && Array.isArray(d.projects)) USO.projects=d.projects; // todos os projetos conhecidos, não só os que gastaram
   usoRender();
 }
@@ -186,7 +193,7 @@ function usoWire(){
   });
   el.addEventListener('change', ev=>{
     const s=ev.target.closest&&ev.target.closest('[data-uso-project],[data-uso-engine]'); if(!s) return;
-    if(s.hasAttribute('data-uso-engine')) USO.engine=s.value||''; else USO.project=s.value||'';
+    if(s.hasAttribute('data-uso-engine')){ USO.engine=s.value||''; if(typeof lsSet==='function') lsSet(USO_ENGINE_KEY, USO.engine); } else USO.project=s.value||'';
     USO.data=null; USO.detail=null; usoRender(); usoLoad();
   });
 }

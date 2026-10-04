@@ -133,6 +133,8 @@ async function secretDel(name){
 // "retomar após limite". Config individual (user_secrets), não é do time.
 const RA_MODELS=[['logcomex-v2','DeepSeek V4 Flash · 1M contexto'],['qwen3.8-27b','Qwen 3.8 27B · 3× mais rápido']];
 function raGet(n){ const r=(secretsCache||[]).find(x=>x.name===n); return r?String(r.value):''; }
+// a chave que o gateway usa: ALT_AI_KEY, ou a antiga LGCX_API_KEY quando só ela existe
+function raKeyName(){ return raGet('ALT_AI_KEY')?'ALT_AI_KEY':raGet('LGCX_API_KEY')?'LGCX_API_KEY':''; }
 function routeAiCfgHtml(){
   const logged=!!SB.sess();
   const key=raGet('ALT_AI_KEY')||raGet('LGCX_API_KEY'); const hasKey=!!key;
@@ -181,8 +183,9 @@ function wireRouteAiCfg(root){
       const v=(typeof sheetAsk==='function')?await sheetAsk({ anchor:b, title:'Trocar a chave do gateway', text:'A chave atual (••••'+String(cur).slice(-4)+') continua valendo até você salvar a nova. Nada é apagado antes.', field:{ type:'password', placeholder:'cole a chave nova' }, ok:'salvar nova chave' }):await askText('Trocar a chave do gateway','cole a chave nova');
       if(!v) return; await save('ALT_AI_KEY', String(v).trim()); rerender(); }; }
   { const b=$('raKeyDel'); if(b) b.onclick=async()=>{
-      const ok=(typeof sheetAsk==='function')?await sheetAsk({ anchor:b, title:'Remover a chave do gateway?', text:'As tarefas que usam a IA da sua empresa param até você pôr outra chave. A chave sai da sua conta em todos os computadores.', ok:'remover chave', danger:true }):await askYes('Remover a chave do gateway?');
-      if(!ok) return; await secretDel('ALT_AI_KEY'); relSuaIa(); rerender(); }; }
+      const name=raKeyName(); if(!name) return; // remove a chave que está DE FATO em uso (ALT_AI_KEY ou, na falta dela, LGCX_API_KEY)
+      const ok=(typeof sheetAsk==='function')?await sheetAsk({ anchor:b, title:'Remover a chave do gateway?', text:'Remove '+name+'. As tarefas que usam a IA da sua empresa param até você pôr outra chave. A chave sai da sua conta em todos os computadores.', ok:'remover chave', danger:true }):await askYes('Remover a chave do gateway ('+name+')?');
+      if(!ok) return; await secretDel(name); relSuaIa(); rerender(); }; }
   { const b=$('raModel'); if(b) b.onchange=e=>save('ALT_AI_MODEL',e.target.value); }
   { const b=$('raBase'); if(b) b.onchange=e=>save('ALT_AI_BASE_URL',e.target.value.trim()); }
   { const b=$('raLabel'); if(b) b.onchange=e=>save('ALT_AI_LABEL',e.target.value.trim()); }
@@ -232,6 +235,5 @@ setInterval(billingSync, 30*60*1000);
 setTimeout(userRepoSync, 15000);
 setInterval(userRepoSync, 10*60*1000);
 bindClick('cloudBtn', ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('perfil'); else openCloud(); });
-bindClick('cloudClose', closeCloud);
 // boot: sincroniza o rótulo do botão (e renova o token se já havia sessão)
 if(SB.configured() && SB.sess()){ sbRefresh().then(()=>cloudLoad()).then(cloudBtnSync).catch(()=>cloudBtnSync()); } else cloudBtnSync();

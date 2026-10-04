@@ -209,7 +209,9 @@ function cloudUserId(){ const s=SB.sess(); return s && s.user ? s.user.id : ''; 
 let cloudCfgOpen=false; // compat: o servidor da conta agora mora em Ajustes › Sistema
 // "Conta e time" virou Ajustes › Conta e time (67-ajustes, F4 · G3): abrir/fechar/redesenhar delegam pra lá
 function openCloud(){ if(typeof ajustesOpen==='function') ajustesOpen(cloudCfgOpen?'sistema':'perfil'); cloudCfgOpen=false; }
-function closeCloud(){ cloudMsg=''; if(window.closeTabOfKind) closeTabOfKind('cfg'); }
+// "fechar" da conta: sem sessão o login é obrigatório (a tela de entrada fica); com sessão volta à seção anterior de
+// Ajustes — nunca fecha a aba inteira
+function closeCloud(){ cloudMsg=''; if(!SB.sess()){ if(typeof auShow==='function') auShow(lsGet('sb:email')?'login':'signup'); return; } if(typeof ajustesBack==='function') ajustesBack(); }
 
 let cloudAutoInvTried=false;
 async function cloudLoad(){

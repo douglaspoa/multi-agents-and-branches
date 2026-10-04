@@ -157,7 +157,8 @@ function aiPickRender(target){
   // F4 · D12: no Formulário (e onde mais usar o alvo do formulário) o seletor completo virou a PÍLULA ÚNICA (iaPick):
   // a fonte da verdade continua nos selects escondidos #ntEngine/#ntModel; a recomendação pela demanda segue valendo
   if(target===AI_TARGET_FORM && typeof iaPick==='function'){
-    const cur=target.get();
+    let cur=target.get();
+    if(cur.eng==='logcomex'){ target.set('gateway', cur.model); cur=target.get(); } // rótulo antigo: o select escondido também vira 'gateway'
     hosts.forEach(h=>{ if(!h.__ia || !h.contains(h.__ia.pill)){ h.innerHTML=''; h.__ia=iaPick(h, { value:{ engine:cur.eng, model:cur.model }, scope:'demanda', recommend:()=>aiRecommend(aiSpecSnapshot()),
         onChange:(v)=>{ target.set(v.engine, v.model); hosts.forEach(o=>{ if(o!==h && o.__ia) o.__ia.set(v); }); } }); h.__ia.pill=h.querySelector('.iapill'); }
       else h.__ia.set({ engine:cur.eng, model:cur.model }); });
@@ -285,6 +286,8 @@ function iaPickOptions(stateOf, engines, gw){
 // a recomendação vem em alias (opus/sonnet/haiku); a folha mostra ids fixos — o mesmo modelo, versão travada
 const IA_PICK_ALIAS={ opus:'claude-opus-5-5', sonnet:'claude-sonnet-5', haiku:'claude-haiku-4-5-20251001' };
 function iaPickSame(a, b){ const x=iaPickNorm(a), y=iaPickNorm(b); return x.engine===y.engine && x.model===y.model; }
+// "Usar esta": o valor que fica e se o onChange dispara (só quando mudou, ou quando marcou "usar como padrão")
+function iaPickCommit(cur, pick, asDef){ const v=iaPickNorm(pick); return { value:v, fire:!iaPickSame(v, cur)||!!asDef }; }
 // @ia-pick-puro-fim
 let _iaPickOpen=null; // { sheet, close }
 function iaPick(el, opts){
@@ -300,7 +303,7 @@ function iaPick(el, opts){
     if(typeof suaIaStale==='function' && suaIaStale() && typeof suaIaLoad==='function') suaIaLoad().then(()=>{ if(_iaPickOpen && _iaPickOpen.ctl===ctl) draw(); }).catch(()=>{});
     if(!_aiGw) aiGatewayInfo().then(()=>{ if(_iaPickOpen && _iaPickOpen.ctl===ctl) draw(); }).catch(()=>{});
     const pill=el.querySelector('.iapill');
-    const sh=document.createElement('div'); sh.className='iasheet'; sh.setAttribute('role','dialog'); sh.setAttribute('aria-label','Com qual IA?'); sh.tabIndex=-1;
+    const sh=document.createElement('div'); sh.className='iasheet'; sh.setAttribute('role','dialog'); sh.setAttribute('aria-modal','true'); sh.setAttribute('aria-label','Com qual IA?'); sh.tabIndex=-1;
     let pick=Object.assign({}, ctl.v), custom=false, asDef=false;
     function draw(){
       const list=iaPickOptions(typeof suaIaOf==='function'?suaIaOf:null, opts.engines, _aiGw);
@@ -325,10 +328,10 @@ function iaPick(el, opts){
       place();
     }
     function commit(){
-      const nv=iaPickNorm(pick), changed=!iaPickSame(nv, ctl.v);
-      ctl.v=nv; if(asDef) aiSaveDefaults(nv.engine, nv.model);
+      const r=iaPickCommit(ctl.v, pick, asDef);
+      ctl.v=r.value; if(asDef) aiSaveDefaults(r.value.engine, r.value.model);
       close(true); paint();
-      if((changed||asDef) && typeof opts.onChange==='function') opts.onChange(ctl.get(), { asDefault:asDef });
+      if(r.fire && typeof opts.onChange==='function') opts.onChange(ctl.get(), { asDefault:asDef });
     }
     function place(){
       const r=pill.getBoundingClientRect(), w=sh.offsetWidth, h=sh.offsetHeight;
@@ -338,7 +341,7 @@ function iaPick(el, opts){
       sh.classList.toggle('up', y<r.top);
     }
     const onOut=e=>{ if(!sh.contains(e.target) && !el.contains(e.target)) close(false); };
-    const onKey=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); } };
+    const onKey=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); return; } g2Trap(sh, e); };
     function close(refocus){ sh.remove(); document.removeEventListener('mousedown', onOut, true); document.removeEventListener('keydown', onKey, true); window.removeEventListener('resize', place);
       if(_iaPickOpen && _iaPickOpen.sheet===sh) _iaPickOpen=null; const p=el.querySelector('.iapill'); if(p){ p.setAttribute('aria-expanded','false'); if(refocus) try{ p.focus({ preventScroll:true }); }catch(_){ } } }
     document.body.appendChild(sh); pill.setAttribute('aria-expanded','true');
@@ -352,20 +355,36 @@ function iaPick(el, opts){
   return ctl;
 }
 window.iaPick=iaPick;
+// chats de várias rodadas (planejador de etapas, ideia): rodam na IA DOS CHATS (o motor é o do painel Sua IA); a pílula é a
+// MESMA do app e escolhe o modelo daquela conversa. value.model vazio = o padrão do motor.
+function iaPickChat(el, o){ o=o||{}; const d=aiDefaults(); let e=aiEngineOf(d.eng); if(e==='mock') e='claude';
+  return iaPick(el, { value:{ engine:e, model:o.model!=null?o.model:(e===aiEngineOf(d.eng)?d.model:'') }, engines:[e], scope:'sessao', allowDefault:false, title:'a IA dos chats (motor em Ajustes › IA e modelos) — aqui você escolhe o modelo desta conversa', onChange:o.onChange }); }
+window.iaPickChat=iaPickChat;
 
+// foco PRESO na folha aberta (Tab/⇧Tab dão a volta dentro dela) — as folhas são aria-modal
+function g2Trap(sh, e){
+  if(e.key!=='Tab' || !sh.isConnected) return;
+  const f=[...sh.querySelectorAll('button:not([disabled]),input:not([disabled]),select,textarea,a[href],[tabindex]:not([tabindex="-1"])')].filter(x=>x.offsetParent!==null||x===document.activeElement);
+  if(!f.length){ e.preventDefault(); sh.focus(); return; }
+  const i=f.indexOf(document.activeElement), n=e.shiftKey?(i<=0?f.length-1:i-1):(i<0||i===f.length-1?0:i+1);
+  e.preventDefault(); f[n].focus();
+}
 // ---- folha ancorada genérica (menu ⋯ e confirmação) — o MESMO visual do seletor de IA; Esc/clique fora fecham ----
 // g2Sheet(anchor, html, wire) → { el, close }. g2SheetMenu(anchor, [{label, hint?, fn, danger?, disabled?}]).
 // g2SheetConfirm(anchor, { title, sub?, body?, ok, cancel?, onOk, danger? }) → confirmação ancorada no botão (D23).
 let _g2Sheet=null;
 function g2Sheet(anchor, html, wire, cls){
   if(_g2Sheet){ const same=_g2Sheet.anchor===anchor; _g2Sheet.close(false); if(same) return null; }
-  const sh=document.createElement('div'); sh.className='iasheet g2sheet'+(cls?' '+cls:''); sh.setAttribute('role','dialog'); sh.tabIndex=-1; sh.innerHTML=html;
+  const sh=document.createElement('div'); sh.className='iasheet g2sheet'+(cls?' '+cls:''); sh.setAttribute('role','dialog'); sh.setAttribute('aria-modal','true'); sh.tabIndex=-1; sh.innerHTML=html;
   document.body.appendChild(sh);
   const place=()=>{ const r=anchor.getBoundingClientRect(), w=sh.offsetWidth, h=sh.offsetHeight;
     const x=Math.min(Math.max(8, r.right-w), innerWidth-w-8); let y=r.bottom+8; if(y+h>innerHeight-8) y=Math.max(8, r.top-h-8);
     sh.style.left=x+'px'; sh.style.top=y+'px'; sh.style.setProperty('--ax', Math.max(12, Math.min(w-24, r.left+r.width/2-x-6))+'px'); sh.classList.toggle('up', y<r.top); };
   const onOut=e=>{ if(!sh.contains(e.target) && !anchor.contains(e.target)) close(false); };
-  const onKey=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); } };
+  const onKey=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); return; }
+    const mi=[...sh.querySelectorAll('[role=menuitem]:not([disabled])')]; // menu: ↓/↑/Home/End andam entre os itens
+    if(mi.length && ['ArrowDown','ArrowUp','Home','End'].includes(e.key)){ e.preventDefault(); const i=mi.indexOf(document.activeElement); const n=e.key==='Home'?0:e.key==='End'?mi.length-1:e.key==='ArrowDown'?(i+1)%mi.length:(i<=0?mi.length-1:i-1); mi[n].focus(); return; }
+    g2Trap(sh, e); };
   function close(refocus){ sh.remove(); document.removeEventListener('mousedown', onOut, true); document.removeEventListener('keydown', onKey, true); window.removeEventListener('resize', place); if(_g2Sheet&&_g2Sheet.el===sh) _g2Sheet=null; try{ anchor.setAttribute('aria-expanded','false'); if(refocus&&anchor.isConnected) anchor.focus({ preventScroll:true }); }catch(_){ } }
   _g2Sheet={ el:sh, anchor, close };
   try{ anchor.setAttribute('aria-expanded','true'); }catch(_){ }

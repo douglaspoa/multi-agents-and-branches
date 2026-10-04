@@ -362,7 +362,8 @@ function cicloStripHtml(t){
     (ep?`<span class="cicst-epic">${ep}</span>`:'')+(t.orchestration?'<span class="cicst-orq" id="cicOrq"></span>':'')+
     (t.branch?`<span class="cicst-br mono" title="${escA(br)}">${esc(t.branch)}</span>`:'')+
     ((typeof enStampEntregue==='function')?enStampEntregue(t):''); // integrada: o carimbo "entregue" (27-entregas)
-  return stageStripHtml(st, sum, { open, color:(typeof agentColor==='function')?agentColor:null, gate:cicGateHtml(x.gate), pill })+(open!=null&&st[open]?cicloStageDetail(t, st[open]):'');
+  return stageStripHtml(st, sum, { open, color:(typeof agentColor==='function')?agentColor:null, gate:cicGateHtml(x.gate), pill })+(open!=null&&st[open]?cicloStageDetail(t, st[open]):'')
+    +((typeof budgetNoticeHtml==='function')?budgetNoticeHtml(t):''); // F4: teto de custo atingido → "Aviso do Starfork" logo abaixo das etapas (G3)
 }
 // o que a etapa entregou, em linguagem normal; o log fica em "ver detalhes"
 function cicloStageDetail(t, s){
@@ -389,6 +390,7 @@ function cicloStageDetail(t, s){
   return `<div class="cicst-panel" role="region" aria-label="${escA(s.label+': o que entregou')}"><div class="cicst-ph"><b>${esc(s.label)}</b>${s.who?` · ${esc(s.who)}`:''} — ${esc(s.word)}</div>${body}${det}</div>`;
 }
 function cicloStripWire(host, t){
+  if(typeof budgetNoticeWire==='function') budgetNoticeWire(host);
   host.querySelectorAll('[data-cicst]').forEach(b=>{
     b.onclick=()=>{ const i=+b.dataset.cicst; cicOpen[t.id]=cicOpen[t.id]===i?undefined:i; host.__sig=''; cicloPaint(t); const nb=host.querySelector(`[data-cicst="${i}"]`); if(nb) nb.focus(); };
     // ←/→ entre as etapas (padrão de 54-acessibilidade: setas movem o foco, Enter abre)

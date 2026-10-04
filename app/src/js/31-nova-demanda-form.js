@@ -124,9 +124,7 @@ function wizRender(){
   $id('wizH').textContent=typeof st.h==='function'?st.h():st.h;
   // guia do repo: agora mora em "Padrões que valem aqui" (coluna da direita) — o <details> antigo fica escondido
   { const g=$id('wizGuide');
-    if(g){ const has=false && st.guide && ntPolicy.specGuide;
-      g.style.display=has?'block':'none';
-      if(has) $id('wizGuideTx').innerHTML=mdToHtml(String(ntPolicy.specGuide)); } }
+    if(g) g.style.display='none'; }
   const last=wizN===steps[steps.length-1].n;
   if(footL) footL.innerHTML=(wizN>1?`<button class="btn nf-ghost" id="wizBack">← voltar</button>`:'');
   foot.innerHTML=
@@ -509,9 +507,12 @@ function setNtMode(m){
 }
 if(typeof VIEW_META!=='undefined' && VIEW_META.form) VIEW_META.form.title='Nova demanda'; // a aba do Formulário é a Nova demanda (2º modo)
 // F4: os tipos viram ABAS (Documentação = Feature com entrega "Documento"); some o chip + "trocar"
-function ntTypeTabsPaint(){ document.querySelectorAll('#ntTypeTabs [data-nttype]').forEach(b=>{ const on=b.dataset.nttype===ntMode; b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); b.tabIndex=on?0:-1; }); }
-document.querySelectorAll('#ntTypeTabs [data-nttype]').forEach(b=>b.onclick=()=>{ if(b.dataset.nttype===ntMode) return; ntDocsPreset=false; setNtMode(b.dataset.nttype); });
-{ const tt=$id('ntTypeTabs'); if(tt) tt.onkeydown=e=>{ if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight') return; e.preventDefault(); const bs=[...tt.querySelectorAll('[data-nttype]')], i=bs.findIndex(x=>x.dataset.nttype===ntMode), n=bs[(i+(e.key==='ArrowRight'?1:bs.length-1))%bs.length]; ntDocsPreset=false; setNtMode(n.dataset.nttype); n.focus(); }; }
+function ntTypeTabsPaint(){ document.querySelectorAll('#ntTypeTabs [data-nttype]').forEach(b=>{ const t=b.dataset.nttype, on=t==='docs'?(ntDocsPreset&&ntMode==='build'):(t===ntMode && !(t==='build'&&ntDocsPreset)); b.classList.toggle('on', on); b.setAttribute('aria-selected', String(on)); b.tabIndex=on?0:-1; }); }
+// Documentação = Feature com a entrega "Documento" (branch docs/), como na tela de tipos antiga
+function ntPickType(t){ const docs=t==='docs'; if(docs===ntDocsPreset && (docs?ntMode==='build':t===ntMode)) return; ntDocsPreset=docs; setNtMode(docs?'build':t);
+  { const bt=$id('ntBranchType'); if(bt) bt.value=docs?'docs':(bt.value==='docs'?'feat':bt.value); } if(typeof ntKindPaint==='function'){ if(docs) ntKind='documento'; else if(typeof ntKind!=='undefined' && ntKind==='documento') ntKind='codigo'; ntKindPaint(); } ntTypeTabsPaint(); }
+document.querySelectorAll('#ntTypeTabs [data-nttype]').forEach(b=>b.onclick=()=>ntPickType(b.dataset.nttype));
+{ const tt=$id('ntTypeTabs'); if(tt) tt.onkeydown=e=>{ if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight') return; e.preventDefault(); const bs=[...tt.querySelectorAll('[data-nttype]')], i=Math.max(0, bs.findIndex(x=>x.classList.contains('on'))), n=bs[(i+(e.key==='ArrowRight'?1:bs.length-1))%bs.length]; ntPickType(n.dataset.nttype); n.focus(); }; }
 // ⋯ do cabeçalho: importar .md · recomeçar do zero (folha ancorada confirma)
 bindClick('ntMore', ev=>{ const a=ev.currentTarget; if(typeof g2SheetMenu!=='function') return;
   g2SheetMenu(a, [ ntMode==='build'?{ label:'Importar .md', hint:'frontmatter + Objetivo / Entregáveis / Requisitos', fn:()=>importTaskMd() }:null,
@@ -526,7 +527,7 @@ function ntSideRender(){
   const F={ build:['ntTitle','ntObj'], fix:['ntFixTitle','ntFixObj'], design:['ntDzTitle','ntDzObj'], invest:['ntInvTitle','ntInvObj'], review:['ntPr','ntPr'] }[ntMode]||['ntTitle','ntObj'];
   const min=Math.max(1,+ntPolicy.minRequirements||1), nReq=(ntMode==='build'?ntReq:ntMode==='fix'?ntFixReq:[]).filter(x=>x&&x.trim()).length;
   const wait='<span class="wait">— aguardando definição —</span>', cut=(t,n)=>t.length>n?t.slice(0,n-1)+'…':t;
-  const pick=document.querySelector('input[name="howflow"]:checked'), who=pick?(pick.closest('label').querySelector('.ht')||{}).textContent:'';
+  const pick=document.querySelector('input[name="howflow"]:checked'), whoEl=pick&&pick.closest('label'), who=whoEl?((whoEl.querySelector('.ht')||{}).textContent||''):'';
   const html=`<div class="g2k">Pedido até aqui</div><div class="g2mdprev"><h4>${v(F[0])?esc(cut(v(F[0]),80)):wait}</h4>`+
     (ntMode==='review'?'':`<h5>${ntMode==='invest'?'Sintoma':'Objetivo'}</h5><span>${v(F[1])?esc(cut(v(F[1]),180)):wait}</span>`)+
     ((ntMode==='build'||ntMode==='fix')?`<h5>Requisitos</h5><span>${nReq} — a política pede ${min}${nReq>=min?' ✓':''}</span>`:'')+

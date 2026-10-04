@@ -69,7 +69,8 @@ test('validação: ideia, plataforma, limites e teto viram os argumentos do auto
 test('fim de caminho: seguir à mão | construir sozinho, 4 plataformas, IA, teto OBRIGATÓRIO, erro visível e a ideia escapada', () => {
   const { ctx } = load();
   const h = ctx.pilotoFormHtml({ idea: 'jogo <script>', platform: 'ios' }, false, 'falhou');
-  assert.match(h, /data-pil-eo="hand"/); assert.match(h, /data-pil-eo="auto" aria-pressed="true"/, 'construir sozinho vem marcado');
+  assert.match(h, /data-pil-eo="hand"/); assert.match(h, /type="radio" class="g2eor" name="pilEnd" value="auto" data-pil-eor="auto" checked/, 'construir sozinho vem marcado — rádio de verdade');
+  assert.match(h, /<\/label><label class="ias-chk g2ghrow"><input type="checkbox" id="pilGh">/, 'o checkbox do GitHub fica FORA do rótulo do rádio e desmarcado sem conta conectada');
   assert.match(h, /id="pilGo" disabled>Construir sozinho/, 'sem teto o botão fica desligado');
   assert.match(h, /id="pilBudget" class="in err"/);
   assert.match(text(h), /Defina um teto: o piloto para sozinho quando chegar nele\./);
@@ -228,13 +229,15 @@ test('teto: Continuar pede um teto novo (maior que o gasto; 0 não é mais "sem 
   const h = ctx.pilotoProgHtml(B());
   assert.match(h, /id="pilNewBudget"/);
   assert.match(text(h), /maior que o já gasto · obrigatório/);
-  // parado por VOCÊ também oferece o teto (já vem com o atual)
-  assert.match(ctx.pilotoProgHtml(Object.assign(B(), { phase: 'stopped' })), /id="pilNewBudget" type="text" inputmode="decimal" value="3"/);
+  // parado por VOCÊ também oferece o teto (já vem com o atual, se ainda sobra)
+  assert.match(ctx.pilotoProgHtml(Object.assign(B(), { phase: 'stopped', costUsd: 2 })), /id="pilNewBudget" type="text" inputmode="decimal" value="3"/);
+  assert.match(ctx.pilotoProgHtml(Object.assign(B(), { phase: 'stopped' })), /id="pilNewBudget" type="text" inputmode="decimal" value=""/, 'teto já gasto: campo vazio, pede um maior');
   assert.match(ctx.pilotoResumeArgs(B(), '').err, /novo teto/);
   assert.match(ctx.pilotoResumeArgs(B(), '3').err, /maior que o já gasto/);
   assert.match(ctx.pilotoResumeArgs(B(), '0').err, /maior que 0/);
   assert.equal(ctx.pilotoResumeArgs(B(), '5,5').args.budgetUsd, 5.5);
-  assert.equal(JSON.stringify(ctx.pilotoResumeArgs(Object.assign(B(), { phase: 'stopped' }), '').args), '{}');
+  assert.equal(JSON.stringify(ctx.pilotoResumeArgs(Object.assign(B(), { phase: 'stopped', costUsd: 2 }), '').args), '{}', 'parado com teto sobrando: mantém');
+  assert.match(ctx.pilotoResumeArgs(Object.assign(B(), { phase: 'stopped' }), '').err, /já foi gasto/, 'parado com o teto gasto: exige um maior');
   const L = load({ repo: '/p', invoke: (cmd) => (cmd === 'autopilot_status' ? Promise.resolve(B()) : Promise.resolve(null)) });
   await L.ctx.openPilotoRun(); await tick();
   L.el('pilNewBudget').value = '2';
@@ -286,4 +289,42 @@ test('Construir sozinho com aviso de demora (CLI vivo, ainda preparando): abre a
   assert.match(L.toasts[0][0], /ainda está preparando/);
   assert.doesNotMatch(L.el('pilBody').innerHTML, /role="alert"/);
   assert.match(L.ctx.pilotoFormHtml({}, false, ''), /Teto de custo \(US\$\) <small>— obrigatório/);
+});
+
+// ---------------- revisão F4: dinheiro, retomada sem beco, ids por aba ----------------
+test('parseUsd (o parser ÚNICO de dinheiro): "2.5" = "2,5"; milhar BR; arredonda ANTES de validar', () => {
+  const { ctx } = load();
+  for (const [x, v] of [['2.5', 2.5], ['2,5', 2.5], ['1.000', 1000], ['1.234,50', 1234.5], ['US$ 40', 40], ['40,00', 40]]) assert.equal(ctx.parseUsd(x), v, x);
+  assert.equal(ctx.parseUsd(''), null);
+  assert.ok(Number.isNaN(ctx.parseUsd('abc')));
+  assert.match(ctx.pilotoCapCheck('0,004', 0).err, /maior que 0/, '0,004 arredonda pra 0 → recusa (antes passava e virava teto 0)');
+  assert.match(ctx.pilotoCapCheck('1,204', 1.2).err, /maior que o já gasto/, '1,204 vira 1,20 = o gasto → recusa');
+  assert.deepEqual(JSON.parse(JSON.stringify(ctx.pilotoCapCheck('2.5', 0))), { ok: true, cap: 2.5 });
+  assert.match(read('js/65-fabrica.js'), /const cap=parseUsd\(FAB_HUB\.cap/, 'a Mesa usa o mesmo parser (2.5 não vira 25)');
+});
+
+test('retomada sem beco: processo morreu no meio, falhou com o teto gasto — sempre há caixa de teto e Continuar', () => {
+  const { ctx } = load();
+  for (const phase of ['building', 'planning', 'final']) {
+    const h = ctx.pilotoProgHtml(Object.assign(ST(), { phase, alive: false }));
+    assert.match(h, /id="pilNewBudget"/, phase); assert.match(h, /data-pil-act="resume"/, phase);
+    assert.match(text(h), /O processo do piloto parou no meio/, phase);
+  }
+  const f = ctx.pilotoProgHtml(Object.assign(ST(), { phase: 'failed', alive: false, costUsd: 10, budgetUsd: 10 }));
+  assert.match(f, /id="pilNewBudget"/); assert.match(text(f), /o teto já foi gasto/);
+  assert.match(ctx.pilotoResumeArgs(Object.assign(ST(), { phase: 'failed', costUsd: 10, budgetUsd: 10 }), '').err, /já foi gasto/);
+  assert.equal(ctx.pilotoResumeArgs(Object.assign(ST(), { phase: 'failed', costUsd: 10, budgetUsd: 10 }), '15').args.budgetUsd, 15);
+  assert.equal(JSON.stringify(ctx.pilotoResumeArgs(Object.assign(ST(), { phase: 'building', costUsd: 3, budgetUsd: 10 }), '').args), '{}');
+  assert.doesNotMatch(ctx.pilotoProgHtml(Object.assign(ST(), { phase: 'done', alive: false })), /pilNewBudget/);
+  assert.doesNotMatch(ctx.pilotoProgHtml(ST()), /pilNewBudget/, 'rodando: sem caixa');
+});
+
+test('o mesmo formulário em duas abas NÃO repete id: Construir usa "pil", a Ideia › Projeto usa "ipil"', () => {
+  const { ctx } = load();
+  const ids = (h) => [...h.matchAll(/ id="([^"]+)"/g)].map((m) => m[1]);
+  const a = ids(ctx.pilotoEndHtml({ f: { idea: 'recriar o Pou' } })), b = ids(ctx.pilotoEndHtml({ idp: 'ipil', f: {}, ideaEditable: false }));
+  assert.ok(a.length > 8 && b.length > 8);
+  assert.deepEqual(a.filter((x) => b.includes(x)), [], 'nenhum id em comum');
+  assert.ok(b.every((x) => x.startsWith('ipil')), b.join(' '));
+  assert.ok(!/['"#]pil[A-Z]/.test(read('js/59-ideia.js').replace(/data-pil-\w+/g, '')), 'a Ideia não procura ids da aba Construir');
 });

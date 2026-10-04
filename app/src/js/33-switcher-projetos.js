@@ -414,7 +414,7 @@ function agTopSync(){
   [['agTabAg','ag'],['agTabEq','eq']].forEach(([id,k])=>{ const b=$id(id); if(b){ b.classList.toggle('on', agTop===k); b.setAttribute('aria-selected', agTop===k); b.tabIndex=agTop===k?0:-1; } });
   const na=$id('agTabAgN'), ne=$id('agTabEqN');
   if(na) na.textContent=String((cfgEdit&&cfgEdit.agents||[]).length||'');
-  if(ne) ne.textContent=String(((cfgEdit&&cfgEdit.workflows||[]).length+3)||'');
+  if(ne){ const prontas=($id('agTeams')?$id('agTeams').querySelectorAll('.agteam').length:0); ne.textContent=String((prontas+(cfgEdit&&cfgEdit.workflows||[]).length)||''); } // o que a aba Equipes MOSTRA (prontas + minhas)
 }
 document.querySelectorAll('[data-agtop]').forEach(b=>{ b.onclick=()=>{ agTop=b.dataset.agtop; lsSet('agTop', agTop); agShowFicha(false); agTopSync(); };
   b.onkeydown=e=>{ if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return; e.preventDefault(); agTop=agTop==='ag'?'eq':'ag'; lsSet('agTop',agTop); agTopSync(); const n=$id(agTop==='ag'?'agTabAg':'agTabEq'); if(n) n.focus(); }; });

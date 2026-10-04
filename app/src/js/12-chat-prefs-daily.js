@@ -148,10 +148,14 @@ async function prefsPull(){ // nuvem → .cardume/PREFS.md local (todo mundo peg
 // .cardume/checks.json — inventário 13: antes só com login + org + remote) e convenções (só essas pedem conta + remote).
 // "Salvar pro time" mora na barra fixa, só aparece com mudança e NÃO fecha a aba.
 let prefsK=null, prefsLoaded='';
-function prefsBarSync(){ const ta=$id('prefsText'), bar=$id('prefsBar'); if(bar) bar.hidden=!(prefsK && ta && ta.value!==prefsLoaded); }
+// rascunho das convenções ainda não salvo (vale pro projeto em que foi CARREGADO — prefsK.path)
+function prefsDirty(){ const ta=$id('prefsText'); return !!(prefsK && ta && ta.value!==prefsLoaded); }
+function prefsBarSync(){ const bar=$id('prefsBar'); if(bar) bar.hidden=!prefsDirty(); }
 async function openPrefs(){
   const ov=$id('prefsOverlay');
   const repoPath=(state&&state.repo)||'';
+  // rascunho não salvo DESTE projeto: reabrir (voltar pra seção/aba) não joga fora o que foi digitado
+  if(prefsDirty() && prefsK.path===repoPath){ ovShow(ov); prefsBarSync(); return; }
   ovShow(ov); // nunca aba em branco: sem projeto a página Projeto mostra o estado "Esta página é de um projeto"
   if(!repoPath) return;
   // Proteção dos agentes é LOCAL (vale nesta máquina, por pasta do projeto) — não depende de conta/nuvem
@@ -159,7 +163,7 @@ async function openPrefs(){
   if(typeof prefsChecksRender==='function') prefsChecksRender(); // checagens: sem conta e sem GitHub também
   $id('prefsRepo').textContent=pathBase(repoPath);
   const cloudOk=!!(SB.sess()&&cloudData&&cloudData.org);
-  const k=cloudOk?await prefsKey():null; prefsK=k;
+  const k=cloudOk?await prefsKey():null; prefsK=k?Object.assign({ path:repoPath }, k):null; // a chave (org+repo) fica presa ao projeto carregado
   const ta=$id('prefsText'), off=$id('prefsConvOff'); const box=ta&&(ta.closest('.ceditor')||ta);
   if(box) box.style.display=k?'':'none';
   { const sc=$id('prefsConvScope'); if(sc){ const tm=cloudData&&cloudData.teams&&cloudData.teams.find(t=>t.id===(typeof cloudTeamId==='function'?cloudTeamId():'')); sc.textContent=tm?'Time '+tm.name:'Time'; } }
@@ -185,13 +189,13 @@ $id('prefsClose').onclick=()=>{ ovHide('prefsOverlay'); };
 bindClick('prefsGoMem', ()=>{ if(window.projGo) window.projGo('memoria'); else if(window.openTab) window.openTab('memoria'); });
 $id('prefsCancel').onclick=()=>{ const ta=$id('prefsText'); if(ta){ editorSet(ta, prefsLoaded); } prefsBarSync(); };
 $id('prefsSave').onclick=async()=>{
-  const k=await prefsKey(); if(!k) return;
+  const k=prefsK; if(!k) return; // grava no projeto que foi CARREGADO (nunca no que estiver aberto agora)
   const b=$id('prefsSave'); b.disabled=true; b.textContent='salvando…';
   const content=$id('prefsText').value;
   try{
     await sbFetch('/rest/v1/project_prefs?on_conflict=org_id,repo',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
       body: JSON.stringify({ org_id:k.orgId, repo:k.repo, content, updated_by:cloudUserId(), updated_at:new Date().toISOString() }) });
-    await invoke('repo_doc_write',{ doc:'PREFS.md', content }).catch(()=>{}); // desce pro repo já
+    if(k.path===((state&&state.repo)||'')) await invoke('repo_doc_write',{ doc:'PREFS.md', content }).catch(()=>{}); // desce pro repo já (só se ainda é o aberto; senão o prefsPull do outro projeto traz)
     prefsLoaded=content; $id('prefsMeta').textContent='✓ salvo pro time · aplica nas próximas tarefas';
   }catch(e){ $id('prefsMeta').textContent=humanErr(e,'Não consegui salvar as convenções').msg; }
   finally{ b.disabled=false; b.textContent='Salvar pro time'; prefsBarSync(); }

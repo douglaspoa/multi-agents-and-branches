@@ -107,7 +107,8 @@ function ctExpHtml(r){
   const miss=r.nreq-r.ok;
   if(r.canAskProof && r.loaded && miss>0) acts.push(`<button type="button" class="btn sm" data-rowproof="${escA(r.id)}">Pedir ${miss===1?'a prova que falta':'as '+miss+' provas'}</button>`);
   const ring=r.nreq&&r.loaded&&!r.cross?`<span class="ctring" aria-hidden="true">${r.ok}</span>`:'';
-  return `<tr class="ctexp" data-ctexp="${escA(r.id)}"><td colspan="${CT_COLS.length+1}"><div class="ctexpb">${ring}<p class="ctsent">${ctSentence(r)}</p><span class="sp"></span>${acts.join('')}</div></td></tr>`;
+  // F4: aviso do teto de custo (G3, 53-teto-protecao budgetNoticeHtml — já escapado lá) dentro da linha aberta
+  return `<tr class="ctexp" data-ctexp="${escA(r.id)}"><td colspan="${CT_COLS.length+1}"><div class="ctexpb">${ring}<p class="ctsent">${ctSentence(r)}</p><span class="sp"></span>${acts.join('')}</div>${r.budget||''}</td></tr>`;
 }
 // o: { sort:{key,dir}, open:Set|[] ids abertas }
 function ctTableHtml(rows, o){
@@ -145,6 +146,7 @@ function ctRow(t){
     nreq, ok, ad, loaded, cross, gateSt:g.st, canAskProof:!cross && ['review','delivered'].includes(t.status) && g.st==='unproven' && !t.prUrl,
     pr:(typeof prNumOf==='function')?prNumOf(t):'', prUrl:t.prUrl||'', status:t.status, blocked:t.flag==='blocked', asking,
     needsYou:asking || CT_NEEDS_ST.has(t.status), // a barra de "precisa de você" — rascunho e "Revisar" não ganham
+    budget:(typeof budgetNoticeHtml==='function' && !cross)?budgetNoticeHtml(t):'',
     bucket:b, st, stLabel:stShort(st), stColor:stColor(st), rank:(typeof railRank==='function')?(6-railRank(st)):0, ts, ago:(typeof agoShort==='function')?agoShort(ts):'' };
 }
 /** HTML da tabela pras tarefas visíveis (renderFlow chama na Execução quando a vista é "tabela"). */
@@ -156,6 +158,7 @@ function ctSyncLast(){ const L=CT.last; if(!L) return; flowLastHtml=L.pre+ctTabl
  *  de ação reaproveitam os data-* que a Central liga; linha recém-inserida cai na delegação daqui. */
 function ctWire(el, src){
   const table=el.querySelector('.cttable'); if(!table) return;
+  if(typeof budgetNoticeWire==='function') budgetNoticeWire(table); // aviso do teto nas linhas abertas
   const taskOf=(id)=>(src||[]).find(x=>x.id===id)||(state.tasks||[]).find(x=>x.id===id);
   const open=(id)=>{ const t=taskOf(id); if(!t) return;
     if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; }
@@ -166,7 +169,7 @@ function ctWire(el, src){
     const tr=table.querySelector(`tr[data-ctrow="${CSS.escape(id)}"]`), r=CT.rows.get(id); if(!tr || !r) return;
     const op=!CT.open.has(id); if(op) CT.open.add(id); else CT.open.delete(id);
     const nx=tr.nextElementSibling; if(nx && nx.classList.contains('ctexp')) nx.remove();
-    if(op){ tr.insertAdjacentHTML('afterend', ctExpHtml(r)); const ex=tr.nextElementSibling; if(ex && ex.classList.contains('ctexp') && typeof mvExpand==='function' && mvUser()) mvExpand(ex.querySelector('.ctexpb')); } // F3: a linha abre crescendo
+    if(op){ tr.insertAdjacentHTML('afterend', ctExpHtml(r)); const ex=tr.nextElementSibling; if(ex && typeof budgetNoticeWire==='function') budgetNoticeWire(ex); if(ex && ex.classList.contains('ctexp') && typeof mvExpand==='function' && mvUser()) mvExpand(ex.querySelector('.ctexpb')); } // F3: a linha abre crescendo
     tr.classList.toggle('open', op);
     const ch=tr.querySelector('[data-cttog]'); if(ch){ ch.setAttribute('aria-expanded', String(op)); ch.textContent=op?'▾':'▸'; }
     ctSyncLast();

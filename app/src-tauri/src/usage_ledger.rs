@@ -540,7 +540,8 @@ pub(crate) fn report_in(ledger: &Path, repos: &[String], period: &str, since: i6
 /// Mesmo relatório filtrado por IA (página Uso, filtro "todas as IAs" / uma IA): só as linhas daquele motor contam.
 pub(crate) fn report_engine_in(ledger: &Path, repos: &[String], period: &str, since: i64, project: Option<&str>, engine: Option<&str>, default_engine: &str) -> Result<Value, String> {
     let (mut rows, titles) = report_rows(ledger, repos, since, project, None, default_engine)?;
-    if let Some(e) = engine.map(str::trim).filter(|e| !e.is_empty()) { rows.retain(|r| r.engine == e); }
+    // compara pelos ids NORMALIZADOS (os mesmos do byEngine): "logcomex"/"codex-mini" casam com gateway/codex
+    if let Some(e) = engine.map(str::trim).filter(|e| !e.is_empty()).map(norm_engine) { rows.retain(|r| norm_engine(&r.engine) == e); }
     Ok(build_report(period, since, &rows, &titles, repos))
 }
 

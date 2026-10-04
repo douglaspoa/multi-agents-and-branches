@@ -76,9 +76,9 @@ test('a política: em Agentes › Equipes só os AVISOS (o formulário mora em A
   assert.match(r, /await orgPolGet\(\)/);
   // F4 · G3: a página única (Ajustes › Regras da organização) — salvar explícito cria versão e mescla o jsonb
   const g = cut(pol, 'async function orgRulesRender(host, d){', '\nwindow.orgRulesRender');
-  assert.match(g, /const org=d\.org, owner=d\.meRole==='owner';/, 'a RLS de orgs só deixa o dono gravar');
-  assert.match(g, /ajPolicyNext\(ORGR\.saved, patch, me, Date\.now\(\)\)/, 'versão + histórico no próprio jsonb (mescla o que já existia)');
-  assert.match(g, /await orgWrite\('\/rest\/v1\/orgs\?id=eq\.'\+org\.id, 'PATCH'/);
+  assert.match(g, /const org=d\.org, canEdit=d\.meRole==='owner'\|\|d\.meRole==='admin';/, 'dono e admins editam');
+  assert.match(pol, /ajPolicyNext\(fresh\|\|\{\}, patch, me, now\)/, 'versão + histórico no próprio jsonb (mescla a política relida)');
+  assert.match(g, /await orgWrite\('\/rest\/v1\/orgs\?id=eq\.'\+org\.id, 'PATCH', body\)/);
   assert.match(g, /Só leitura\. Quem muda estas regras/, 'membro vê em modo leitura');
   assert.match(mt, /orgPolIssuesHtml\(roles\)/);
   assert.match(sw, /orgPolIssuesHtml\(roles\)/);

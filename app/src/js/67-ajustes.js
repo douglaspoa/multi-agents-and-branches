@@ -125,10 +125,12 @@ function ppSteps(c){
     { id:'ia', t:'Escolher a IA', d:'quem faz o trabalho nas suas demandas', done:!!c.iaReady },
     { id:'proj', t:'Abrir um projeto', d:'uma pasta com git, ou um projeto novo na Fábrica', done:!!c.hasRepo },
     { id:'dem', t:'Fazer a primeira demanda', d:'descreva em 1 ou 2 frases e converse com o planejador', done:(c.tasks||0)>0 },
-    { id:'conv', t:'Convidar o time', d:'só aparece pra quem está numa organização', done:!!c.invited, opt:true },
   ];
-  const next=L.find(s=>!s.done && !s.opt) || null;
-  return { steps:L, done:L.filter(s=>s.done).length, total:L.length, next:next&&next.id };
+  // convite: opcional e só pra quem está numa organização — nunca conta no progresso ("N de 4 feitos")
+  if(c.inOrg) L.push({ id:'conv', t:'Convidar o time', d:'quem ainda não tem conta entra pelo convite', done:!!c.invited, opt:true });
+  const req=L.filter(s=>!s.opt);
+  const next=req.find(s=>!s.done) || null;
+  return { steps:L, done:req.filter(s=>s.done).length, total:req.length, next:next&&next.id };
 }
 // @ajustes-puro-fim
 
@@ -185,11 +187,11 @@ function ajIcon(k){
 })();
 function ajustesOpen(section){
   if(section) AJ.sec=ajSecId(section);
-  AJ.q='';
+  AJ.q=''; AJ.secTried=false;
   if(window.openTab) window.openTab('cfg'); else ajustesRender();
 }
 window.ajustesOpen=ajustesOpen;
-window.openCloud=()=>ajustesOpen('perfil');
+window.openCloud=()=>{ const srv=typeof cloudCfgOpen!=='undefined'&&cloudCfgOpen; try{ cloudCfgOpen=false; }catch(_){ } ajustesOpen(srv?'sistema':'perfil'); };
 function ajActiveIsCfg(){ try{ const t=typeof tabById==='function'&&tabById(activeTab); return !t || t.kind==='cfg' || typeof TABS==='undefined'; }catch(_){ return true; } }
 // chamado por openCfg (15): pinta a página inteira. Chamado fora da aba (link direto) → abre a aba.
 function ajustesRender(){
@@ -227,7 +229,10 @@ function ajNavPaint(){
   nav.querySelectorAll('[data-ajelse]').forEach(b=>b.onclick=()=>ajGoElsewhere(r.elsewhere[+b.dataset.ajelse].go));
   nav.querySelectorAll('[data-ajelse-go]').forEach(b=>b.onclick=()=>ajGoElsewhere(b.dataset.ajelseGo));
 }
-function ajGo(id){ AJ.sec=ajSecId(id); ajNavPaint(); ajSectionPaint(); ajHeadScope(); const c=$id('ajContent'); if(c){ c.scrollTop=0; } }
+// volta à seção anterior (closeCloud e afins) — sem fechar a aba
+function ajustesBack(){ if(AJ.prev && AJ.prev!==AJ.sec) ajGo(AJ.prev); }
+window.ajustesBack=ajustesBack;
+function ajGo(id){ const nx=ajSecId(id); if(nx!==AJ.sec) AJ.prev=AJ.sec; AJ.sec=nx; ajNavPaint(); ajSectionPaint(); ajHeadScope(); const c=$id('ajContent'); if(c){ c.scrollTop=0; } }
 function ajHeadScope(){
   const h=$id('ajHead'); if(!h || typeof pageHead!=='function') return;
   const orgName=(typeof cloudData!=='undefined'&&cloudData&&cloudData.org&&cloudData.org.name)||'';
@@ -257,7 +262,9 @@ function ajSectionPaint(){
   const host=$id('ajContent'); if(!host) return;
   host.classList.toggle('wide', AJ.sec==='motores'||AJ.sec==='times');
   const f=AJ_RENDER[AJ.sec]||AJ_RENDER.motores;
-  try{ f(host); }catch(e){ console.error('ajustes: '+AJ.sec, e); host.innerHTML=errorHtml(e, null, 'Não consegui mostrar esta seção'); ldWireErr(host, e, 'Não consegui mostrar esta seção', ajSectionPaint); }
+  const fail=e=>{ console.error('ajustes: '+sec, e); if(AJ.sec!==sec) return; host.innerHTML=errorHtml(e, null, 'Não consegui mostrar esta seção'); ldWireErr(host, e, 'Não consegui mostrar esta seção', ajSectionPaint); };
+  const sec=AJ.sec;
+  try{ const p=f(host); if(p && typeof p.catch==='function') p.catch(fail); }catch(e){ fail(e); }
   if(typeof mvViewIn==='function'){ try{ mvViewIn(host); }catch(_){ } }
 }
 
@@ -268,20 +275,34 @@ function ajDefaultPill(){
   const ready=!(typeof suaIaOf==='function') || !Array.isArray(suaIaList) || !suaIaList.length || !!(suaIaOf(d.eng)||{}).ready;
   return `<button type="button" class="ajpill" id="ajDefPill" title="IA padrão das demandas novas"><i class="${ready?'on':''}"></i>${esc(lbl)}<span aria-hidden="true">▾</span></button>`;
 }
-const AJ_NEW_ENGINES=[
-  { id:'gemini', mb:'GM', name:'Gemini', who:'Google · Gemini CLI no terminal', cmd:'npm i -g @google/gemini-cli', access:'login do Google ou chave, depois de instalar' },
-  { id:'opencode', mb:'OC', name:'opencode', who:'terminal aberto a vários provedores', cmd:'npm i -g opencode-ai', access:'usa as chaves desta página' },
+// IAs que rodam no TERMINAL integrado (`starfork ia gemini|opencode`, src/terminal.ts): o estado vem do mesmo resolvedor
+// de binário do terminal (comando term_ai_bins); o comando de instalar só aparece quando falta (≡ AI_INSTALL do terminal)
+const AJ_TERM_ENGINES=[
+  { id:'gemini', mb:'GM', name:'Gemini CLI', who:'Google · roda no terminal da tarefa', cmd:'npm i -g @google/gemini-cli', access:'login do Google na 1ª vez que abrir no terminal' },
+  { id:'opencode', mb:'OC', name:'OpenCode', who:'terminal aberto a vários provedores', cmd:'npm i -g opencode-ai', access:'usa as chaves desta página e a config do OpenCode' },
 ];
+let ajTermBins=null;
+function ajTermCardHtml(e, st){
+  const known=!!st, ok=known&&st.installed;
+  return `<article class="ajeng" data-ajterm="${e.id}"><header><span class="ajmb">${e.mb}</span><div class="ajnm"><b>${esc(e.name)}</b><small>${esc(e.who)}</small></div><span class="ajst ${!known?'':ok?'ok':'off'}">${!known?'verificando…':ok?'pronto':'falta instalar'}</span></header>
+      <dl>${ok?`<div><dt>Instalado</dt><dd class="mono dim">${esc(st.bin||'')}</dd></div>`:known?`<div><dt>Instalar no Terminal</dt><dd><code class="ajcmd">${esc(e.cmd)}</code><button type="button" class="btn sm" data-envfix="${escA(e.cmd)}">copiar</button></dd></div>`:''}<div><dt>Acesso</dt><dd>${esc(e.access)}</dd></div></dl>
+      <footer><span class="dim">no terminal da tarefa: <code class="mono">starfork ia ${e.id}</code></span>${known&&!ok?`<span class="sp"></span><button type="button" class="btn sm" data-ajtermre>verificar de novo</button>`:''}</footer></article>`;
+}
 function ajSecretsRows(){
   const rows=(typeof secretsCache!=='undefined'&&secretsCache)||[];
   const engKeys=new Set(['OPENAI_API_KEY','DEEPSEEK_API_KEY','ALT_AI_KEY','ALT_AI_BASE_URL','ALT_AI_MODEL','ALT_AI_LABEL','ALT_AI_MODELS','ALT_AI_FALLBACK','ALT_AI_ALWAYS']);
   return rows.filter(r=>!engKeys.has(r.name));
 }
+function ajTermLoad(){
+  ajTermBins=undefined; // lendo
+  Promise.resolve().then(()=>invoke('term_ai_bins')).then(r=>{ ajTermBins=Array.isArray(r)?r:[]; }).catch(()=>{ ajTermBins=[]; })
+    .then(()=>{ AJ_TERM_ENGINES.forEach(e=>{ const el=document.querySelector('[data-ajterm="'+e.id+'"]'); if(!el) return; const t=document.createElement('div'); t.innerHTML=ajTermCardHtml(e, (ajTermBins||[]).find(x=>x.id===e.id)||{ id:e.id, installed:false }); el.replaceWith(t.firstElementChild); });
+      const host=$id('ajContent'); if(host){ host.querySelectorAll('[data-ajterm] [data-envfix]').forEach(b=>b.onclick=()=>{ if(typeof envCopy==='function') envCopy(b); }); host.querySelectorAll('[data-ajtermre]').forEach(b=>b.onclick=()=>{ ajTermBins=null; ajTermLoad(); }); } });
+}
 function ajRenderMotores(host){
   const logged=typeof SB!=='undefined' && !!SB.sess();
-  const extra=AJ_NEW_ENGINES.map(e=>`<article class="ajeng ajeng-new" data-ajnew="${e.id}"><header><span class="ajmb">${e.mb}</span><div class="ajnm"><b>${esc(e.name)}</b><small>${esc(e.who)}</small></div><span class="ajtag new">novo</span><span class="ajst off">falta instalar</span></header>
-      <dl><div><dt>Instalar no Terminal</dt><dd><code class="ajcmd">${esc(e.cmd)}</code><button type="button" class="btn sm" data-envfix="${escA(e.cmd)}">copiar</button></dd></div><div><dt>Acesso</dt><dd>${esc(e.access)}</dd></div></dl>
-      <footer><span class="dim">ainda não existe no app de hoje — aparece aqui quando o Starfork souber rodar</span></footer></article>`).join('');
+  const binOf=id=>Array.isArray(ajTermBins)?(ajTermBins.find(x=>x.id===id)||{ id, installed:false }):null;
+  const extra=AJ_TERM_ENGINES.map(e=>ajTermCardHtml(e, binOf(e.id))).join('');
   const sec=ajSecretsRows();
   const other=`<article class="ajeng" id="ajOtherKeys"><header><span class="ajmb">OK</span><div class="ajnm"><b>Outras chaves da conta</b><small>chaves extras que seguem a sua conta (ex.: a do LLM da sua empresa)</small></div></header>
       <div class="ajkeys">${!logged?'<p class="dim">Entre na sua conta pra guardar chaves — elas ficam no cofre da conta e valem em qualquer computador.</p>':(sec.length?sec.map(r=>`<div class="ajkey"><span class="mono">${esc(r.name)}</span><span class="dim mono">••••${esc(String(r.value).slice(-4))}</span><span class="sp"></span><button type="button" class="btn sm" data-ajkedit="${escA(r.name)}">trocar</button><button type="button" class="btn sm" data-ajkdel="${escA(r.name)}">remover</button></div>`).join(''):'<p class="dim">nenhuma chave extra ainda</p>')}</div>
@@ -289,10 +310,11 @@ function ajRenderMotores(host){
   host.innerHTML=ajSecHead('motores', 'Qual IA roda as demandas novas. Este é o <b>único lugar das chaves</b>: cada chave fica salva na sua conta e vale em qualquer computador. O que é instalado (Claude Code, Codex…) é deste computador.')
     +`<div class="ajdefl"><b>Padrão das demandas novas</b><span id="ajDefHost">${ajDefaultPill()}</span><span class="dim">vale na Nova demanda, no Formulário, no terminal, na Conversa, na Fábrica, em Agentes e no Aprendizado</span></div>`
     +`<div id="suaIaCfg" class="ajia"></div><div class="ajeng-grid">${extra}${other}</div>`
-    +`<section class="ajcomp"><h3><span class="ajk">componente</span> Seletor de IA único</h3><div class="ajcg"><div class="ajdemo"><div id="ajPickDemo">${ajDefaultPill()}</div><small>Pílula: ponto cheio = pronta, contorno = falta algo · motor · modelo ▾. Nunca é campo de texto livre.</small></div>
-      <ul><li><b>Folha ancorada:</b> as IAs prontas vêm primeiro, com os modelos; as que faltam algo aparecem com o motivo e “resolver em Ajustes”. Esc fecha.</li><li><b>Escopo:</b> escolher na pílula vale só para aquela demanda; “usar como padrão” muda o padrão daqui.</li><li><b>Uma implementação só</b>, em: Nova demanda · Formulário · doca do terminal · Conversa do projeto · Fábrica · Mesa · Agentes · Aprendizado · Primeiros passos.</li></ul></div></section>`;
+    ;
   if(typeof suaIaMount==='function') suaIaMount($id('suaIaCfg'), { ctx:'ajustes', fresh:true }); // o gateway (IA da sua empresa) se configura dentro do cartão dele
-  ajPickWire($id('ajDefHost'), true); ajPickWire($id('ajPickDemo'), false);
+  ajPickWire($id('ajDefHost'), true);
+  host.querySelectorAll('[data-ajtermre]').forEach(b=>b.onclick=()=>{ ajTermBins=null; ajTermLoad(); });
+  if(ajTermBins===null) ajTermLoad();
   host.querySelectorAll('[data-envfix]').forEach(b=>b.onclick=()=>{ if(typeof envCopy==='function') envCopy(b); });
   host.querySelectorAll('[data-ajkedit]').forEach(b=>b.onclick=async()=>{ const v=await sheetAsk({ anchor:b, title:'Trocar '+b.dataset.ajkedit, text:'A chave atual continua valendo até você salvar a nova.', field:{ type:'password', placeholder:'cole a chave nova' }, ok:'salvar nova chave' }); if(!v) return; try{ await secretSet(b.dataset.ajkedit, v); ajSaved(); ajSectionPaint(); }catch(e){ showErr(e,'Não consegui salvar a chave'); } });
   host.querySelectorAll('[data-ajkdel]').forEach(b=>b.onclick=async()=>{ if(!await sheetAsk({ anchor:b, title:'Remover '+b.dataset.ajkdel+'?', text:'Sai da sua conta e deste computador.', ok:'remover', danger:true })) return; try{ await secretDel(b.dataset.ajkdel); ajSaved('removida ✓'); ajSectionPaint(); }catch(e){ showErr(e,'Não consegui remover a chave'); } });
@@ -302,7 +324,7 @@ function ajRenderMotores(host){
     if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(name)){ toast('Nome inválido — use MAIÚSCULAS_COM_TRAÇO (ex.: MINHA_API_KEY).','warn'); return; }
     const v=await sheetAsk({ anchor:b, title:'Valor de '+name, field:{ type:'password', placeholder:'cole a chave' }, ok:'salvar' }); if(!v) return;
     try{ await secretSet(name, v); ajSaved(); ajSectionPaint(); }catch(e){ showErr(e,'Não consegui salvar a chave'); } });
-  if(logged && typeof secretsCache!=='undefined' && secretsCache===null && typeof secretsSync==='function') secretsSync().then(()=>{ if(AJ.sec==='motores') ajSectionPaint(); }).catch(()=>{});
+  if(logged && !AJ.secTried && typeof secretsCache!=='undefined' && secretsCache===null && typeof secretsSync==='function'){ AJ.secTried=true; secretsSync().then(()=>{ if(AJ.sec==='motores' && secretsCache!==null) ajSectionPaint(); }).catch(()=>{}); }
 }
 // a pílula: com o seletor único do G2 (iaPick) quando ele existe; sem ele, um menu simples dos motores prontos
 function ajPickWire(host, isDefault){
@@ -363,17 +385,16 @@ function ajRenderCusto(host){
 function ajRenderModo(host){
   host.innerHTML=ajSecHead('modo', 'Vale para as tarefas novas. As que já estão rodando continuam do jeito que começaram.')
     +`<div class="ajrc" role="radiogroup" aria-label="como as tarefas novas rodam" id="ajModeRc">
-      <button type="button" class="ajrcard" role="radio" data-ajmode="terminal" aria-checked="false"><span class="rd"></span><b>Terminal <span class="ajtag">padrão</span></b><span>O Claude Code oficial num terminal dentro da tarefa. Você conversa direto com a IA.</span></button>
-      <button type="button" class="ajrcard" role="radio" data-ajmode="auto" aria-checked="false"><span class="rd"></span><b>Automático</b><span>O agente roda em segundo plano e conversa pelo chat da tarefa.</span></button></div>
+      <button type="button" class="ajrcard" role="radio" data-ajmode="terminal" aria-checked="false" disabled><span class="rd"></span><b>Terminal <span class="ajtag">padrão</span></b><span>O Claude Code oficial num terminal dentro da tarefa. Você conversa direto com a IA.</span></button>
+      <button type="button" class="ajrcard" role="radio" data-ajmode="auto" aria-checked="false" disabled><span class="rd"></span><b>Automático</b><span>O agente roda em segundo plano e conversa pelo chat da tarefa.</span></button></div>
     <p class="ajhint">Motores sem terminal (DeepSeek, gateway) rodam no automático. Construir sozinho, etapas e épicos que iniciam sozinhos sempre usam o automático. Pra rodar sem ninguém olhando, o caminho mais seguro é uma chave de API.</p>
     <div class="ajrows">`
-    +ajRow('Aprovação no modo Terminal <span class="ajtag new">a confirmar</span>', 'O que a IA pode fazer sem perguntar. Não existe no app de hoje: proposta pra mesa decidir.', '<span class="dim">perguntar antes de comandos e edições</span>')
     +ajRow('Navegador dos agentes', 'Quando o agente abre um site pra testar ou tirar print. Por padrão roda em segundo plano, sem janela; ligue pra acompanhar ou fazer login.', ajSw('cfgBrowserVisible', false, 'mostrar a janela'))
     +ajRow('Previsão de tempo e custo antes de rodar', 'Custa uma chamada curta de IA por demanda (aparece em Uso › Previsão). Desligado: nenhuma chamada extra.', ajSw('cfgEstimate', true, 'prever'))
     +`</div>`;
   let loaded, stored;
   const paint=v=>host.querySelectorAll('[data-ajmode]').forEach(b=>{ const on=b.dataset.ajmode===v; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
-  ajSettingsRead().then(o=>{ loaded=cfgTaskModeOf(o); stored=o.taskMode||''; paint(loaded);
+  ajSettingsRead().then(o=>{ loaded=cfgTaskModeOf(o); stored=o.taskMode||''; paint(loaded); host.querySelectorAll('[data-ajmode]').forEach(b=>{ b.disabled=false; }); // só depois de ler (antes gravaria uma escolha que ninguém fez)
     const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true');
     const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false'); });
   host.querySelectorAll('[data-ajmode]').forEach(b=>b.onclick=async()=>{
@@ -444,7 +465,8 @@ async function ajRenderDisco(host){
   el.querySelectorAll('[data-ajdisk]').forEach(b=>b.onclick=async()=>{ const r=b.dataset.ajdisk; if(r!==cur && typeof window.switchProject==='function'){ try{ await window.switchProject(r); }catch(_){ } } ajGoElsewhere('projeto-disco'); });
 }
 function ajRenderSistema(host){
-  const dev=(typeof canSeeDevTools==='function'&&canSeeDevTools())||!!lsGet('sb:url');
+  const unconf=typeof SB!=='undefined' && !SB.configured(); // sem servidor configurado, qualquer pessoa precisa do formulário
+  const dev=unconf||(typeof canSeeDevTools==='function'&&canSeeDevTools())||!!lsGet('sb:url');
   const isLocal=typeof SB!=='undefined' && /127\.0\.0\.1|localhost/.test(SB.url());
   host.innerHTML=ajSecHead('sistema','')
     +`<div class="ajrows">`
@@ -452,7 +474,7 @@ function ajRenderSistema(host){
     +ajRow('Atalhos do teclado', 'Também abre com ?.', '<button type="button" class="btn sm" id="ajKbd">abrir</button><kbd>?</kbd>')
     +(dev?ajRow('Servidor da conta <span class="ajtag">avançado · só dev e admin</span>', 'Pra apontar o app para outro servidor de contas. Trocar derruba a sessão neste computador.', '<button type="button" class="btn sm" id="ajSrvShow" aria-expanded="false">mostrar</button>'):'')
     +`</div>`
-    +(dev?`<div class="ajsrv" id="ajSrv" hidden><p class="ajhint">Servidor atual: <b>${isLocal?'servidor local (dev)':(lsGet('sb:url')?esc(SB.url()):'nuvem do Starfork (padrão)')}</b></p>
+    +(dev?`<div class="ajsrv" id="ajSrv"${unconf?'':' hidden'}><p class="ajhint">Servidor atual: <b>${isLocal?'servidor local (dev)':(lsGet('sb:url')?esc(SB.url()):'nuvem do Starfork (padrão)')}</b></p>
       <label class="ajlbl" for="sbUrl">Endereço do servidor</label><input class="in" id="sbUrl" placeholder="https://xxxx.supabase.co" value="${escA(lsGet('sb:url')||'')}">
       <label class="ajlbl" for="sbKey">Chave pública do servidor</label><input class="in mono" id="sbKey" value="${escA(lsGet('sb:key')||'')}">
       <div class="ajacts"><button type="button" class="btn sm" id="sbCfgLocal">usar servidor local (dev)</button><button type="button" class="btn sm" id="sbCfgCloud">usar a nuvem (padrão)</button><span class="sp"></span><button type="button" class="btn primary sm" id="sbSaveCfg">salvar e entrar de novo</button></div></div>`:'');
@@ -470,6 +492,7 @@ function ajRenderSistema(host){
 function ajStateHtml(kind, o){
   o=o||{};
   const S={
+    semserv:['warn','Falta configurar o servidor da conta','Sem servidor de contas este computador não entra na conta. Configure em Sistema › Servidor da conta.','configurar o servidor','ajGoSrv'],
     semconta:['perfil','Entre na sua conta','Organização, times, convites, chaves e assinatura seguem a sua conta. Os ajustes deste computador continuam valendo sem conta.','entrar ou criar conta','ajSignIn'],
     semorg:['org','Você ainda não está numa organização','Crie uma organização com o primeiro time, ou entre num time com o convite que recebeu.','criar organização','ajGoTimes'],
     semperm:['warn','Só quem administra vê isto','Peça pra um admin da organização'+(o.who?' ('+o.who+')':'')+' fazer isso, ou te dar a permissão.','',''],
@@ -479,9 +502,11 @@ function ajStateHtml(kind, o){
 function ajStateWire(){
   bindClick('ajSignIn', ()=>{ if(typeof auShow==='function') auShow(lsGet('sb:email')?'login':'signup', { backTo:()=>ajustesOpen(AJ.sec) }); });
   bindClick('ajGoTimes', ()=>ajGo('times'));
+  bindClick('ajGoSrv', ()=>ajGo('sistema'));
 }
 // garante cloudData (carrega uma vez); falha vira erro padrão com "tentar de novo"
 async function ajCloudReady(host, id, lead){
+  if(typeof SB!=='undefined' && !SB.configured()){ host.innerHTML=ajSecHead(id, lead)+ajStateHtml('semserv'); ajStateWire(); return null; }
   if(typeof SB==='undefined' || !SB.sess()){ host.innerHTML=ajSecHead(id, lead)+ajStateHtml('semconta'); ajStateWire(); return null; }
   if(!cloudData){
     host.innerHTML=ajSecHead(id, lead)+skeletonHtml('lista',{ n:4, label:'buscando a conta' });
@@ -497,6 +522,7 @@ function ajMe(){ return (typeof cloudUserId==='function')?cloudUserId():''; }
 function ajPName(d, uid){ const p=(d.profileByUser||{})[uid]||{}; return p.name||p.email||String(uid).slice(0,8); }
 function ajInitials(n){ return String(n||'?').split(/[\s@.]+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase()||'?'; }
 async function ajRenderPerfil(host){
+  if(typeof SB!=='undefined' && !SB.configured()){ host.innerHTML=ajSecHead('perfil','')+ajStateHtml('semserv'); ajStateWire(); return; }
   if(typeof SB==='undefined' || !SB.sess()){ host.innerHTML=ajSecHead('perfil','')+ajStateHtml('semconta'); ajStateWire(); return; }
   const s=SB.sess(), meta=(s.user&&s.user.user_metadata)||{};
   const prof=cloudData&&cloudData.profileByUser&&cloudData.profileByUser[ajMe()];
@@ -531,7 +557,7 @@ async function ajRenderOrg(host){
     +`</div>`;
   bindClick('ajOrgView', ()=>ajGoElsewhere('time'));
   bindClick('ajOrgCat', ()=>ajGoElsewhere('projeto-agentes'));
-  bindClick('ajLic', async()=>{ const b=$id('ajLic'); const k=await sheetAsk({ anchor:b, title:'Trocar a chave de licença', field:{ placeholder:'cole a chave de licença', value:d.org.license_key||'' }, ok:'salvar', allowEmpty:true }); if(k===null) return;
+  bindClick('ajLic', async()=>{ const b=$id('ajLic'); const k=await sheetAsk({ anchor:b, title:'Trocar a chave de licença', field:{ placeholder:d.org.license_key?'cole a chave nova (a atual continua até salvar)':'cole a chave de licença', value:'' }, ok:'salvar' }); if(!k) return;
     try{ await sbFetch('/rest/v1/orgs?id=eq.'+d.org.id, { method:'PATCH', body:JSON.stringify({ license_key:String(k).trim()||null }) }); cloudData=null; cloudMsg='✓ licença atualizada'; }catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui salvar a licença'); } ajSectionPaint(); });
 }
 async function ajRenderTimes(host){
@@ -612,11 +638,11 @@ async function ajRenderConvites(host){
     host.querySelectorAll('[data-ajgo]').forEach(b=>b.onclick=()=>ajGo(b.dataset.ajgo)); return;
   }
   const teamId=cloudTeamId();
-  const days=iv=>Math.max(0,Math.round((new Date(iv.expires_at)-Date.now())/86400e3));
+  const expTxt=iv=>{ if(!iv.expires_at) return 'sem validade'; const ms=new Date(iv.expires_at)-Date.now(); if(!(ms>0)) return 'vencido'; const n=Math.max(1,Math.round(ms/86400e3)); return 'expira em '+n+(n===1?' dia':' dias'); };
   host.innerHTML=ajSecHead('convites', lead)+ajCloudMsg()
     +`<div class="ajinv"><input class="in" id="sbInvEmail" type="email" aria-label="e-mail do convidado" placeholder="email@empresa.com"><select class="in" id="sbInvTeam" aria-label="time do convite">${invTeams.map(t=>`<option value="${escA(t.id)}"${t.id===teamId?' selected':''}>${esc(t.name)}</option>`).join('')}</select><select class="in" id="sbInvRole" aria-label="papel do convidado"><option value="member">membro</option><option value="lead">lead</option></select><button type="button" class="btn primary sm" id="sbInvite">gerar convite</button></div>
     <div id="sbInvOut"></div>`
-    +((d.invites||[]).length?`<h3 class="ajh3">Pendentes (${d.invites.length})</h3><div class="ajlist">${d.invites.map(iv=>`<div class="ajli"><span class="ajav">@</span><div class="l"><b>${esc(iv.email)}</b><small>${esc((d.teams.find(x=>x.id===iv.team_id)||{}).name||'?')} · ${iv.role==='lead'?'lead':'membro'} · expira em ${days(iv)} ${days(iv)===1?'dia':'dias'}</small></div><span class="r"><button type="button" class="btn sm" data-ajiv="copy" data-iv="${escA(iv.id)}">copiar mensagem</button><button type="button" class="btn sm" data-ajiv="rev" data-iv="${escA(iv.id)}">revogar</button></span></div>`).join('')}</div>`:'');
+    +((d.invites||[]).length?`<h3 class="ajh3">Pendentes (${d.invites.length})</h3><div class="ajlist">${d.invites.map(iv=>`<div class="ajli"><span class="ajav">@</span><div class="l"><b>${esc(iv.email)}</b><small>${esc((d.teams.find(x=>x.id===iv.team_id)||{}).name||'?')} · ${iv.role==='lead'?'lead':'membro'} · ${expTxt(iv)}</small></div><span class="r"><button type="button" class="btn sm" data-ajiv="copy" data-iv="${escA(iv.id)}">copiar mensagem</button><button type="button" class="btn sm" data-ajiv="rev" data-iv="${escA(iv.id)}">revogar</button></span></div>`).join('')}</div>`:'');
   const out=$id('sbInvOut');
   const invErr=m=>{ out.innerHTML=`<div class="ajband warn" role="alert">${esc(m)}</div>`; const i=$id('sbInvEmail'); if(i) i.focus(); };
   if(ajInvLast){ const { mail, msg }=ajInvLast; ajInvLast=null; out.innerHTML=`<div class="ajband ok">Convite gerado pra <b>${esc(mail)}</b>. Mande a mensagem pronta:</div><pre class="ajmsg">${esc(msg)}</pre><button type="button" class="btn sm" id="sbInvCopy">copiar mensagem</button>`; bindClick('sbInvCopy', function(){ cloudCopy(msg, this); }); }
@@ -709,7 +735,7 @@ function ppRender(){
     :`<header class="pghead"><h1 class="pgh-title">Primeiros passos</h1></header>`;
   const stepHtml=(s,i)=>{ const open=PP.open===s.id;
     return `<article class="ppst${s.done?' done':''}${open?' open':''}" data-ppst="${s.id}"><button type="button" class="pph" aria-expanded="${open}" data-pptog="${s.id}"><span class="ppn">${s.done?ajIcon('ok'):i+1}</span><span class="l"><b>${esc(s.t)}${s.opt?' <span class="ajtag">opcional</span>':''}</b><small>${esc(ppStepSub(s,c))}</small></span><span class="ppchev" aria-hidden="true">▾</span></button>${open?`<div class="ppb" id="ppB-${s.id}"></div>`:''}</article>`; };
-  body.innerHTML=head+`<div class="ppgrid"><div class="ppsteps">${P.steps.filter(s=>s.id!=='conv'||c.inOrg||true).map(stepHtml).join('')}</div>
+  body.innerHTML=head+`<div class="ppgrid"><div class="ppsteps">${P.steps.map(stepHtml).join('')}</div>
     <aside class="ppside"><section class="ajcard"><h3 class="ajh3">O que é o Starfork</h3><p>Agentes de IA trabalham nas suas demandas, cada uma numa cópia isolada do projeto.</p><p>Cada requisito precisa de uma prova real (print, vídeo, teste) antes de entregar.</p><p>O time vê o andamento e o custo na nuvem. A conversa com a IA fica neste computador.</p></section>
       <section class="ajcard"><h3 class="ajh3">Conhecer o app</h3>${PP_TOUR.map(([id,t,d],i)=>`<div class="pptour"><div class="l"><b>${esc(t)}</b><small>${esc(d)}</small></div>${id?`<button type="button" class="btn sm" data-ppshow="${i}">mostrar</button>`:'<kbd>⌘K</kbd>'}</div>`).join('')}</section></aside></div>`;
   body.querySelectorAll('[data-pptog]').forEach(b=>b.onclick=()=>{ PP.open=PP.open===b.dataset.pptog?'':b.dataset.pptog; ppRender(); });
@@ -774,8 +800,8 @@ setTimeout(ppMaybeStart, 3800);
 function errTabOpen(h){
   h=h||{}; const body=$id('errTabBody'); if(!body) return;
   const head=(typeof pageHead==='function')?pageHead({ title:'Detalhes do erro', sub:h.msg||'' }):`<h1>Detalhes do erro</h1>`;
-  body.innerHTML=head+`<div class="errtab"><pre class="ajraw" id="errTabRaw">${esc(h.raw||'(sem detalhe)')}</pre><div class="ajacts">${h.action?'<button type="button" class="btn primary sm" id="errTabFix"></button>':''}<button type="button" class="btn sm" id="errTabCopy">copiar</button></div></div>`;
-  if(h.action){ const b=$id('errTabFix'); b.textContent=h.action.label; b.onclick=()=>h.action.fn(); }
+  body.innerHTML=head+`<div class="errtab"><pre class="ajraw" id="errTabRaw">${esc(h.raw||'(sem detalhe)')}</pre><div class="ajacts">${h.action&&h.action.label?'<button type="button" class="btn primary sm" id="errTabFix"></button>':''}<button type="button" class="btn sm" id="errTabCopy">copiar</button></div></div>`;
+  if(h.action&&h.action.label){ const b=$id('errTabFix'); b.textContent=h.action.label; b.onclick=()=>{ if(typeof h.action.fn==='function') h.action.fn(); }; }
   bindClick('errTabCopy', function(){ const b=this; try{ navigator.clipboard.writeText(h.raw||'').then(()=>{ b.textContent='copiado ✓'; },()=>{ b.textContent='selecione e copie'; }); }catch(_){ b.textContent='selecione e copie'; } });
   if(window.openTab) window.openTab('errtab'); else { const o=$id('errTabOverlay'); if(o) o.style.display='flex'; }
 }

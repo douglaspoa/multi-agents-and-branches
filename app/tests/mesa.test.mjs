@@ -233,3 +233,44 @@ test('planner: sufixo de origem — originNote "" suprime, ausente mantém o pad
   assert.equal(plOriginSuffix({ origin: { title: 'T' }, originNote: '' }), '');
   assert.match(plOriginSuffix({ origin: { title: 'T' } }), /\(Origem: tarefa "T"/);
 });
+
+// ---------------- revisão F4: personas e teto (38-mesa.js inteiro num contexto mínimo) ----------------
+import vm from 'node:vm';
+function loadMesa(invokeImpl, ls = {}) {
+  const store = Object.assign({}, ls), calls = [];
+  const el = () => ({ style: {}, addEventListener() {}, value: '' });
+  const ctx = { console, Promise, JSON, Date, Math, setTimeout: () => 0, IC: {}, $id: el, bindClick() {}, toast() {}, showErr() {},
+    lsGet: (k) => (k in store ? store[k] : null), lsSet: (k, v) => { store[k] = String(v); }, usdBrlRate: () => 5.5,
+    invoke: async (c, a) => { calls.push([c, a]); return invokeImpl(c, a); }, state: { repo: '/r' }, window: {}, document: { getElementById: el, querySelector: () => null } };
+  vm.createContext(ctx);
+  vm.runInContext(readFileSync(new URL('../src/js/00-util.js', import.meta.url), 'utf8').match(/\/\/ DINHEIRO DIGITADO[\s\S]*?\n}\n/)[0] + src, ctx);
+  return { ctx, calls, store };
+}
+test('persona do projeto: leitura falhou → NÃO grava (nunca regrava personas.json com lista vazia)', async () => {
+  const { ctx, calls } = loadMesa(async (c) => { if (c === 'mesa_read') throw new Error('disco'); return null; });
+  const p = { id: 'g-a', origem: 'gerada', nome: 'A', papel: '', desc: 'x' };
+  await assert.rejects(ctx.mesaPersonaSave(p, '/r'), /disco/);
+  await assert.rejects(ctx.mesaPersonaRemove(p, '/r'), /disco/);
+  ctx.state.repo = ''; await assert.rejects(ctx.mesaPersonaSave(p, ''), /abra o projeto/, 'sem projeto: aborta');
+  assert.ok(!calls.some(([c]) => c === 'mesa_save'), 'nenhuma gravação');
+  const bad = loadMesa(async (c) => (c === 'mesa_read' ? { foo: 1 } : null));
+  await assert.rejects(bad.ctx.mesaPersonaSave(p, '/r'), /nada foi gravado/);
+  assert.ok(!bad.calls.some(([c]) => c === 'mesa_save'));
+  const ok = loadMesa(async (c) => (c === 'mesa_read' ? { personas: [{ id: 'g-a', nome: 'A' }, { id: 'g-b', nome: 'B' }] } : null));
+  await ok.ctx.mesaPersonaSave(Object.assign({}, p, { nome: 'Ana' }), '/r');
+  const saved = ok.calls.find(([c]) => c === 'mesa_save')[1].data.personas;
+  assert.deepEqual(saved.map((x) => x.nome), ['Ana', 'B'], 'a outra persona continua lá');
+});
+test('nova persona entra fora da mesa (ativa:false) até ter nome e voz', () => {
+  const { ctx, store } = loadMesa(async () => null);
+  const id = ctx.mesaPersonaNew();
+  assert.equal(JSON.parse(store['fab:personas']).custom.find((x) => x.id === id).ativa, false);
+});
+test('teto da mesa: migra UMA vez pra US$ (R$ 15 ≈ US$ 2,73); "sem teto" antigo não vira US$ 2; valor guardado vale', () => {
+  assert.equal(loadMesa(async () => null, { mesaCapBrl: '15' }).ctx.mesaCapBase(), 2.73);
+  const m = loadMesa(async () => null, { mesaCapBrl: '15' }); m.ctx.mesaCapBase(); assert.equal(m.store.mesaCapUsd, '2.73', 'gravado em US$ (não reconverte a cada leitura)');
+  assert.equal(loadMesa(async () => null, { mesaCapBrl: '0' }).ctx.mesaCapBase(), 0);
+  assert.equal(loadMesa(async () => null, { mesaCapUsd: '0' }).ctx.mesaCapBase(), 0, 'guardado "0" não vira 2');
+  assert.equal(loadMesa(async () => null, { mesaCapUsd: '4,5' }).ctx.mesaCapBase(), 4.5);
+  assert.equal(loadMesa(async () => null).ctx.mesaCapBase(), 2);
+});

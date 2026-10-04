@@ -86,7 +86,7 @@ function envAgo(){ if(!envCheckedAt) return '—'; const s=Math.round((Date.now(
 function openEnv(){ if(typeof ajustesOpen==='function') ajustesOpen('verificacao'); }
 bindClick('envBtn', openEnv);
 // boot: valida em segundo plano. Faltou algo obrigatório → faixa na Central + selo na sub-navegação de Ajustes (não abre mais sozinha)
-setTimeout(async()=>{ await runEnvCheck(); if(typeof ajEnvBand==='function') ajEnvBand(); }, 2500);
+setTimeout(()=>{ runEnvCheck().catch(()=>{}); }, 2500); // a faixa (ajEnvBand) sai de dentro da checagem — uma vez só
 
 // prompt() do WebView do Tauri é mudo — modal próprio, promise-based
 // askText: folha ancorada com campo (52-erros: sheetAsk) — o modal #txOverlay só sobra como reserva sem a folha
