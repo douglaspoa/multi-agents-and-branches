@@ -3,6 +3,10 @@
 //!
 //! Quem MONTA o comando é o motor (`cli.mjs term-prep`, src/terminal.ts — prompt, hooks, MCP, PATH); aqui só
 //! se spawna o que ele devolve. Estado ocupado/livre vem dos hooks (tabela term_session no state.sqlite).
+//!
+//! TERMINAL INTEGRADO NO SHELL (macOS/Linux): o PTY é o shell de login da pessoa na worktree e a IA sobe DENTRO dele
+//! (`starfork ia <ia>`). `term_session.cli` diz qual IA está rodando ('' = shell no prompt): mensagem do app com IA
+//! rodando entra na fila de sempre; com o shell no prompt vira `starfork ia … --resume --msg-file …` digitado nele.
 use crate::pty::{self, PidRegistry, PtyManager, PtySink, SpawnSpec};
 use crate::{cli_path, node_cmd, repo_of, setting_get, web_log, AppState};
 use rusqlite::{params, Connection, OpenFlags};
@@ -25,10 +29,14 @@ impl PtySink for TauriSink {
     }
     fn exit(&self, task_id: &str, code: Option<u32>) {
         let db = dbs().lock().unwrap_or_else(|e| e.into_inner()).get(task_id).cloned();
-        if let Some(db) = db {
+        // troca de IA (term_switch_ai) já reabriu o terminal: o fim do processo VELHO não mexe no estado do novo
+        let replaced = mgr().and_then(|m| m.live(task_id)).is_some();
+        if !replaced { shells().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id); }
+        if let Some(db) = db.filter(|_| !replaced) {
             if let Ok(c) = open_rw(&db) {
                 let pid: Option<i64> = c.query_row("SELECT pid FROM term_session WHERE task_id=?1", params![task_id], |r| r.get(0)).ok().flatten();
                 let _ = c.execute("UPDATE term_session SET busy=0, pid=NULL, updated_at=?2 WHERE task_id=?1", params![task_id, now_ms()]);
+                let _ = c.execute("UPDATE term_session SET cli='' WHERE task_id=?1", params![task_id]);
                 if let Some(p) = pid { let _ = c.execute("UPDATE task SET busy_pid=NULL WHERE id=?1 AND busy_pid=?2", params![task_id, p]); }
                 // processo saiu no meio de um turno (crash, /exit com trabalho rodando): não fica "rodando" pra sempre
                 let _ = c.execute("UPDATE task SET status='review' WHERE id=?1 AND status IN ('running','thinking')", params![task_id]);
@@ -93,15 +101,57 @@ pub fn default_mode() -> &'static str { mode_default(setting_get("taskMode").as_
 pub fn mode_default(task_mode: Option<&str>, set: Option<&str>) -> &'static str {
     if set == Some("2") && task_mode == Some("auto") { "auto" } else { "terminal" }
 }
-/// A tarefa nova roda no terminal? Pedido explícito (terminal|auto) vence; sem pedido, o padrão. Terminal exige CLI
-/// interativo oficial: Claude Code sempre; Codex só quando a pessoa ESCOLHEU terminal (o padrão novo é do Claude);
-/// DeepSeek/gateway seguem no automático.
+/// A tarefa nova roda no terminal? Pedido explícito (terminal|auto) vence; sem pedido, o padrão. Claude Code sempre;
+/// os outros motores só quando a pessoa ESCOLHEU terminal (o padrão novo é do Claude). macOS/Linux: qualquer motor
+/// real (o terminal é o shell da pessoa e ela escolhe a IA — `starfork ia`); Windows (a IA direto no PTY): só Codex e
+/// DeepSeek (dentro do `claude`) — gateway segue no automático.
 pub fn wants_terminal(explicit: Option<&str>, default: &str, chosen: bool, engine: &str) -> bool {
-    let e = engine.to_lowercase();
+    wants_terminal_on(explicit, default, chosen, engine, cfg!(windows))
+}
+pub fn wants_terminal_on(explicit: Option<&str>, default: &str, chosen: bool, engine: &str, windows: bool) -> bool {
+    let e = engine.trim().to_lowercase();
     let mode = explicit.filter(|m| *m == "terminal" || *m == "auto").unwrap_or(default);
     if mode != "terminal" { return false; }
     if e.contains("claude") { return true; }
-    e == "codex" && (explicit == Some("terminal") || chosen)
+    let capable = if windows { e == "codex" || dsh_engine(&e) } else { !(e.is_empty() || e == "mock") };
+    capable && (explicit == Some("terminal") || chosen)
+}
+/// IAs que o terminal sabe abrir (a mesma lista do TS: TERM_AIS em src/terminal.ts).
+pub const TERM_AIS: [&str; 5] = ["claude", "codex", "deepseek", "gemini", "opencode"];
+/// IA "natural" do motor da tarefa — mesma regra do TS (aiOfEngine).
+pub fn ai_of_engine(engine: &str) -> &'static str {
+    let e = engine.trim().to_lowercase();
+    if e.starts_with("gemini") { "gemini" } else if e.starts_with("opencode") { "opencode" } else if e.starts_with("codex") { "codex" } else if dsh_engine(&e) { "deepseek" } else { "claude" }
+}
+/// IA com hooks de turno (ocupado/livre). Gemini/OpenCode não têm: o app entrega o texto na hora (o CLI guarda).
+pub fn ai_has_hooks(ai: &str) -> bool { matches!(ai, "claude" | "codex" | "deepseek") }
+/// O lançamento RECOMENDADO (IA + modelo que a criação da tarefa decidiu, ou o escolhido no app) e a linha do shell.
+#[derive(Serialize, Default, Debug, Clone, PartialEq)]
+pub struct Recommended { pub ai: String, pub model: String, pub command: String }
+/// Palavra de shell sem aspas quando não precisa (mesma regra do shArg do TS).
+fn sh_arg(s: &str) -> String {
+    if !s.is_empty() && s.chars().all(|c| c.is_alphanumeric() || "_.:@/+=-".contains(c)) { s.to_string() } else { format!("'{}'", s.replace('\'', "'\\''")) }
+}
+/// PURA (espelho do recommendedLaunch do TS): spec.termAi/termModel → senão a IA do motor do construtor + o modelo do papel.
+pub fn recommended_of(spec: &serde_json::Value) -> Recommended {
+    let st = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    let roles = spec.get("roles").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let role = roles.iter().find(|r| r.get("role").and_then(|x| x.as_str()) == Some("builder")).or(roles.first());
+    let engine = role.map(|r| st(r.get("engine"))).filter(|e| !e.is_empty()).unwrap_or_else(|| st(spec.get("engine")));
+    let natural = ai_of_engine(&engine);
+    let term_ai = st(spec.get("termAi"));
+    let ai = if TERM_AIS.contains(&term_ai.as_str()) { term_ai.clone() } else { natural.to_string() };
+    let term_model = st(spec.get("termModel"));
+    let model = if term_ai == ai && !term_model.is_empty() { term_model }
+        else if natural == ai { role.map(|r| st(r.get("model"))).filter(|m| !m.is_empty()).unwrap_or_else(|| st(spec.get("model"))) }
+        else { String::new() };
+    let command = format!("starfork ia {ai}{}", if model.is_empty() { String::new() } else { format!(" --modelo {}", sh_arg(&model)) });
+    Recommended { ai, model, command }
+}
+/// Rótulo do DeepSeek — mesma regra do TS (isDshLabel): "deepseek…" ou "dsh" como palavra ("dsh-flash", "dsh:x").
+pub fn dsh_engine(engine: &str) -> bool {
+    let e = engine.trim().to_lowercase();
+    e.starts_with("deepseek") || (e.starts_with("dsh") && !e[3..].chars().next().map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false))
 }
 /// Livre? (hook Stop gravou busy=0). None = sem linha (sessão ainda subindo).
 fn idle_probe(db: PathBuf, task_id: String) -> Arc<dyn Fn() -> Option<bool> + Send + Sync> {
@@ -109,6 +159,21 @@ fn idle_probe(db: PathBuf, task_id: String) -> Arc<dyn Fn() -> Option<bool> + Se
         let c = open_rw(&db).ok()?;
         c.query_row("SELECT busy FROM term_session WHERE task_id=?1", params![task_id], |r| r.get::<_, i64>(0)).ok().map(|b| b == 0)
     })
+}
+/// Tarefas cujo PTY vivo é o SHELL (terminal integrado) — não a IA direto (Windows / motor antigo).
+static SHELLS: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+fn shells() -> &'static Mutex<std::collections::HashSet<String>> { SHELLS.get_or_init(|| Mutex::new(Default::default())) }
+fn is_shell(task_id: &str) -> bool { shells().lock().unwrap_or_else(|e| e.into_inner()).contains(task_id) }
+/// IA rodando no shell agora ('' = shell no prompt; sem coluna/linha = '').
+fn cli_of(db: &Path, task_id: &str) -> String {
+    open_rw(db).ok().and_then(|c| c.query_row("SELECT cli FROM term_session WHERE task_id=?1", params![task_id], |r| r.get::<_, Option<String>>(0)).ok().flatten()).unwrap_or_default()
+}
+/// Banco de antes do terminal integrado: a coluna `cli` não existe (o motor também cria; aqui é só garantia).
+fn ensure_cli_col(c: &Connection) {
+    let _ = c.execute(
+        "CREATE TABLE IF NOT EXISTS term_session (task_id TEXT PRIMARY KEY, pid INTEGER, engine TEXT, busy INTEGER NOT NULL DEFAULT 0, session_id TEXT, started_at INTEGER, updated_at INTEGER, cli TEXT)", [],
+    );
+    let _ = c.execute("ALTER TABLE term_session ADD COLUMN cli TEXT", []);
 }
 fn log_path(repo: &Path, task_id: &str) -> PathBuf { repo.join(".cardume").join("term").join(format!("{task_id}.log")) }
 
@@ -147,16 +212,20 @@ pub fn open_task(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, re
     };
     dbs().lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.to_string(), db.to_path_buf());
     let sess = m.spawn(task_id, spec)?;
+    {
+        let mut sh = shells().lock().unwrap_or_else(|e| e.into_inner());
+        if v.get("shell").and_then(|x| x.as_bool()).unwrap_or(false) { sh.insert(task_id.to_string()); } else { sh.remove(task_id); }
+    }
     if let Ok(c) = open_rw(db) {
-        let _ = c.execute(
-            "CREATE TABLE IF NOT EXISTS term_session (task_id TEXT PRIMARY KEY, pid INTEGER, engine TEXT, busy INTEGER NOT NULL DEFAULT 0, session_id TEXT, started_at INTEGER, updated_at INTEGER)", [],
-        );
-        // nasce OCUPADO quando já leva um pedido (o 1º UserPromptSubmit confirma; sem pedido, nasce livre)
+        ensure_cli_col(&c);
+        // nasce OCUPADO quando já leva um pedido (o 1º UserPromptSubmit confirma; sem pedido, nasce livre). O motor diz
+        // (`busy`: IA sem hooks nunca nasce ocupada — ninguém marcaria livre depois); motor antigo: a regra de sempre
         let resumed = v.get("resumed").and_then(|x| x.as_bool()).unwrap_or(false);
-        let busy = if resumed && message.is_none() { 0 } else { 1 };
+        let busy = match v.get("busy").and_then(|x| x.as_bool()) { Some(b) => b as i64, None => if resumed && message.is_none() { 0 } else { 1 } };
+        // a IA sobe no 1º comando do shell: já conta como rodando (mensagem que chega antes vai pra fila, não pro prompt)
         let _ = c.execute(
-            "INSERT INTO term_session (task_id, pid, engine, busy, started_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?5) \
-             ON CONFLICT(task_id) DO UPDATE SET pid=excluded.pid, engine=excluded.engine, busy=excluded.busy, started_at=excluded.started_at, updated_at=excluded.updated_at",
+            "INSERT INTO term_session (task_id, pid, engine, busy, started_at, updated_at, cli) VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?3) \
+             ON CONFLICT(task_id) DO UPDATE SET pid=excluded.pid, engine=excluded.engine, busy=excluded.busy, started_at=excluded.started_at, updated_at=excluded.updated_at, cli=excluded.cli",
             params![task_id, sess.pid as i64, sess.engine, busy, now_ms()],
         );
         if busy == 1 { let _ = c.execute("UPDATE task SET busy_pid=?2, busy_since=?3 WHERE id=?1", params![task_id, sess.pid as i64, now_ms()]); }
@@ -174,10 +243,29 @@ pub fn route(state: &State<AppState>, task_id: &str, kind: &str, msg: &str, as_r
     if !msg.trim().is_empty() { a.push("--msg".into()); a.push(msg.to_string()); }
     if as_req { a.push("--as-req".into()); }
     if let Some(d) = deliver { a.push("--deliver".into()); a.push(d.to_string()); }
-    let text = engine_json(&repo, &a)?.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    let v = engine_json(&repo, &a)?;
+    let text = v.get("text").and_then(|t| t.as_str()).unwrap_or("").to_string();
     if text.trim().is_empty() { return Err("nada pra mandar ao terminal".into()); }
     let m = mgr().ok_or("terminal indisponível")?;
-    if m.live(task_id).is_some() {
+    let live = m.live(task_id).is_some();
+    let cli = if live { cli_of(&db, task_id) } else { String::new() };
+    match route_action(live, is_shell(task_id), &cli) {
+        RouteAction::Open => {}
+        RouteAction::Direct => {
+            // Gemini/OpenCode: sem hook de ocupado/livre — entrega já (o CLI guarda o que chega no meio do turno)
+            let tid = task_id.to_string();
+            std::thread::spawn(move || { if let Some(m) = mgr() { let _ = m.send_text(&tid, &text); } });
+            return Ok(());
+        }
+        RouteAction::ShellLaunch => {
+            // shell no prompt: a mensagem vai por ARQUIVO e o shell ganha a linha que sobe a IA da tarefa com ela
+            let wt = v.get("worktree").and_then(|x| x.as_str()).filter(|w| !w.is_empty()).map(PathBuf::from).ok_or("worktree da tarefa não encontrada")?;
+            let rec = spec_of(&db, task_id).map(|s| recommended_of(&s)).unwrap_or_default();
+            return shell_launch(&db, task_id, &wt, &rec, Some(&text));
+        }
+        RouteAction::Queue => {}
+    }
+    if live {
         let n = m.enqueue(task_id, text, idle_probe(db.clone(), task_id.to_string()))?;
         if n > 1 || idle_probe(db.clone(), task_id.to_string())() == Some(false) {
             if let Ok(c) = open_rw(&db) {
@@ -189,6 +277,39 @@ pub fn route(state: &State<AppState>, task_id: &str, kind: &str, msg: &str, as_r
     }
     let (cols, rows) = last_size(task_id);
     open_task(&repo, &db, task_id, cols, rows, true, Some(&text)).map(|_| ())
+}
+/// O que fazer com um pedido do app pro terminal da tarefa.
+#[derive(Debug, PartialEq)]
+pub enum RouteAction { Open, Queue, Direct, ShellLaunch }
+/// PURA: sem PTY → abre (retomando, com a mensagem); IA com hooks rodando → fila (entrega quando livre); IA sem hooks
+/// (gemini/opencode) → na hora; shell no PROMPT (terminal integrado, cli '') → digita `starfork ia … --msg-file …`;
+/// PTY que é a própria IA (Windows / motor antigo) → fila, como sempre.
+pub fn route_action(live: bool, shell: bool, cli: &str) -> RouteAction {
+    if !live { return RouteAction::Open; }
+    if !cli.is_empty() { return if ai_has_hooks(cli) { RouteAction::Queue } else { RouteAction::Direct }; }
+    if shell { RouteAction::ShellLaunch } else { RouteAction::Queue }
+}
+/// Linha que o app digita no shell no prompt pra subir a IA recomendada (retomando; com a mensagem por arquivo).
+pub const NEXT_MSG_REL: &str = ".cardume/term/next-msg.txt";
+pub fn shell_launch_line(rec: &Recommended, with_msg: bool) -> String {
+    // Ctrl+U antes: limpa o que estiver meio digitado no prompt
+    format!("\x15{} --resume{}\r", rec.command, if with_msg { format!(" --msg-file {NEXT_MSG_REL}") } else { String::new() })
+}
+/// Shell no prompt → grava a mensagem (se houver) e digita a linha que sobe a IA. Já marca a IA como rodando (o
+/// `starfork ia` confirma; se falhar, ele mesmo volta pra '') — um 2º pedido no meio vai pra fila, não pro prompt.
+fn shell_launch(db: &Path, task_id: &str, worktree: &Path, rec: &Recommended, msg: Option<&str>) -> Result<(), String> {
+    let s = mgr().and_then(|m| m.live(task_id)).ok_or("o terminal desta tarefa não está aberto")?;
+    if let Some(t) = msg {
+        let p = worktree.join(NEXT_MSG_REL);
+        if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
+        std::fs::write(&p, t).map_err(|e| format!("não consegui gravar a mensagem pro terminal: {e}"))?;
+    }
+    if let Ok(c) = open_rw(db) {
+        ensure_cli_col(&c);
+        let busy = if ai_has_hooks(&rec.ai) && msg.is_some() { 1 } else { 0 };
+        let _ = c.execute("UPDATE term_session SET cli=?2, busy=?3, updated_at=?4 WHERE task_id=?1", params![task_id, rec.ai, busy, now_ms()]);
+    }
+    s.write_bytes(shell_launch_line(rec, msg.is_some()).as_bytes())
 }
 /// "■ parar" no modo terminal = Esc no CLI (interrompe o turno, a sessão segue aberta).
 pub fn interrupt(state: &State<AppState>, task_id: &str) -> Result<(), String> {
@@ -236,6 +357,8 @@ fn task_row(db: &Path, task_id: &str) -> Option<TaskRow> {
 /// nos dois casos abrir `claude --resume` em paralelo poria dois escritores no mesmo transcript.
 fn headless_busy(t: &TaskRow) -> bool { t.busy_pid.is_some() || ["running", "thinking", "queued"].contains(&t.status.as_str()) }
 /// PURA: o compositor desta tarefa (sem terminal aberto) retoma a sessão no PTY? Err = não dá pra mandar.
+/// Tarefa DeepSeek em modo terminal cai no `is_term` (a sessão é do `claude` com a API da DeepSeek); DeepSeek
+/// headless (dsh) nunca vira terminal sozinha — a sessão do dsh não se retoma no `claude`.
 pub fn talk_decision(t: &TaskRow, is_term: bool, live: bool, default: &str) -> Result<bool, String> {
     if is_term || live { return Ok(true); }
     if !talk_in_terminal(false, &t.engine, default, headless_busy(t)) { return Ok(false); }
@@ -337,7 +460,15 @@ pub fn term_history(state: State<AppState>, task_id: String, since: Option<Strin
 // ============================ comandos Tauri ============================
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TermInfo { alive: bool, data: String, cols: u16, rows: u16, engine: String, busy: bool, queued: usize, session_id: Option<String> }
+pub struct TermInfo {
+    alive: bool, data: String, cols: u16, rows: u16, engine: String, busy: bool, queued: usize, session_id: Option<String>,
+    /// IA rodando DENTRO do shell agora: claude|codex|deepseek|gemini|opencode; '' = shell no prompt (ou sem terminal)
+    cli: String,
+    /// o PTY vivo é o shell da pessoa (terminal integrado); false = a IA direto (Windows) ou sem terminal
+    shell: bool,
+    /// lançamento recomendado da tarefa (IA + modelo da criação, ou o escolhido no app) + a linha exata do shell
+    recommended: Recommended,
+}
 
 fn info(state: &State<AppState>, task_id: &str, data: String) -> TermInfo {
     let m = mgr();
@@ -346,7 +477,12 @@ fn info(state: &State<AppState>, task_id: &str, data: String) -> TermInfo {
     let (busy, sid) = db_of(state).ok().and_then(|db| open_rw(&db).ok()).and_then(|c| {
         c.query_row("SELECT busy, session_id FROM term_session WHERE task_id=?1", params![task_id], |r| Ok((r.get::<_, i64>(0)? == 1, r.get::<_, Option<String>>(1)?))).ok()
     }).unwrap_or((false, None));
-    TermInfo { alive: s.is_some(), data, cols, rows, engine: s.map(|s| s.engine.clone()).unwrap_or_default(), busy, queued: m.map(|m| m.queued(task_id)).unwrap_or(0), session_id: sid }
+    let db = db_of(state).ok();
+    let alive = s.is_some();
+    let cli = if alive { db.as_ref().map(|d| cli_of(d, task_id)).unwrap_or_default() } else { String::new() };
+    let recommended = db.as_ref().and_then(|d| spec_of(d, task_id)).map(|sp| recommended_of(&sp)).unwrap_or_default();
+    TermInfo { alive, data, cols, rows, engine: s.map(|s| s.engine.clone()).unwrap_or_default(), busy, queued: m.map(|m| m.queued(task_id)).unwrap_or(0), session_id: sid,
+        cli, shell: alive && is_shell(task_id), recommended }
 }
 
 /// Abre o terminal (novo ou retomando a sessão gravada) e já devolve o histórico pra pintar.
@@ -411,9 +547,59 @@ pub fn term_kill(task_id: String) -> Result<(), String> { kill_task(&task_id); O
 #[tauri::command(async)]
 pub fn term_status(state: State<AppState>, task_id: String) -> Result<TermInfo, String> { Ok(info(&state, &task_id, String::new())) }
 
+/// O que fazer ao pedir uma IA pro terminal (troca pelo seletor / "rodar o recomendado").
+#[derive(Debug, PartialEq)]
+pub enum LaunchAction { Open, Type, Restart }
+/// PURA: sem terminal → abre (o shell já sobe a IA gravada); shell no prompt → digita o comando; IA rodando (ou PTY
+/// que é a própria IA) → reinicia o terminal com a IA nova (retomando a sessão DELA).
+pub fn launch_action(live: bool, shell: bool, cli: &str) -> LaunchAction {
+    if !live { LaunchAction::Open } else if shell && cli.is_empty() { LaunchAction::Type } else { LaunchAction::Restart }
+}
+fn run_launch(state: &State<AppState>, task_id: &str) -> Result<TermInfo, String> {
+    let repo = repo_of(state)?;
+    let db = db_of(state)?;
+    let live = mgr().and_then(|m| m.live(task_id)).is_some();
+    let rec = spec_of(&db, task_id).map(|s| recommended_of(&s)).ok_or("tarefa não encontrada")?;
+    match launch_action(live, is_shell(task_id), &cli_of(&db, task_id)) {
+        LaunchAction::Type => {
+            let wt: String = open_rw(&db)?.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get(0)).map_err(|e| e.to_string())?;
+            shell_launch(&db, task_id, Path::new(&wt), &rec, None)?;
+        }
+        LaunchAction::Restart => {
+            kill_task(task_id);
+            let (cols, rows) = last_size(task_id);
+            open_task(&repo, &db, task_id, cols, rows, true, None)?;
+        }
+        LaunchAction::Open => {
+            let (cols, rows) = last_size(task_id);
+            open_task(&repo, &db, task_id, cols, rows, true, None)?;
+        }
+    }
+    let data = mgr().and_then(|m| m.get(task_id)).map(|s| s.attach()).unwrap_or_default();
+    Ok(info(state, task_id, data))
+}
+/// Seletor de IA do terminal (não-dev clica, dev digita `starfork ia …` — o MESMO caminho): grava a IA/modelo no spec
+/// (spec.termAi/termModel — reabrir lembra) e sobe ela: shell no prompt → digita `starfork ia <ia> --resume`; IA
+/// rodando → reinicia o terminal com a nova (retomando a sessão dela, se houver). `model` vazio = o da tarefa/da IA.
+#[tauri::command(async)]
+pub fn term_switch_ai(state: State<AppState>, task_id: String, ai: String, model: Option<String>) -> Result<TermInfo, String> {
+    let ai = ai.trim().to_lowercase();
+    if !TERM_AIS.contains(&ai.as_str()) { return Err(format!("IA desconhecida: {ai} (use {})", TERM_AIS.join(", "))); }
+    let repo = repo_of(&state)?;
+    let mut a = vec!["term-ai".to_string(), task_id.clone(), "--ai".into(), ai];
+    if let Some(m) = model.filter(|m| !m.trim().is_empty()) { a.push("--model".into()); a.push(m.trim().to_string()); }
+    engine_json(&repo, &a)?;
+    run_launch(&state, &task_id)
+}
+/// "Rodar o recomendado": a IA + modelo que a tarefa decidiu (TermInfo.recommended) — digitado no shell no prompt, ou
+/// reiniciando o terminal se outra IA estiver rodando.
+#[tauri::command(async)]
+pub fn term_run_recommended(state: State<AppState>, task_id: String) -> Result<TermInfo, String> { run_launch(&state, &task_id) }
+
 #[cfg(test)]
 mod modo_padrao_tests {
-    use super::{exit_note, history_for, mode_default, talk_decision, talk_in_terminal, wants_terminal, worktree_gone_after_merge, TaskRow, WT_GONE};
+    use super::{ai_of_engine, launch_action, recommended_of, route_action, shell_launch_line, wants_terminal_on, LaunchAction, Recommended, RouteAction};
+    use super::{dsh_engine, exit_note, history_for, mode_default, talk_decision, talk_in_terminal, wants_terminal, worktree_gone_after_merge, TaskRow, WT_GONE};
     fn row(status: &str, busy: Option<i64>, wt: &str) -> TaskRow { TaskRow { engine: "claude".into(), status: status.into(), worktree: wt.into(), busy_pid: busy, session_id: None, term_sid: None } }
     #[test]
     fn nota_de_fim_sem_codigo_cru() {
@@ -480,6 +666,16 @@ mod modo_padrao_tests {
         assert!(!worktree_gone_after_merge("merged", "/"));
     }
     #[test]
+    fn deepseek_no_terminal() {
+        assert!(dsh_engine("deepseek") && dsh_engine("DeepSeek · V4 Pro") && dsh_engine("dsh") && dsh_engine("dsh-flash") && dsh_engine("dsh:x"));
+        assert!(!dsh_engine("dshx") && !dsh_engine("claude") && !dsh_engine(""));
+        let mut r = row("review", None, "/");
+        r.engine = "deepseek".into();
+        assert_eq!(talk_decision(&r, true, false, "terminal"), Ok(true), "DeepSeek em modo terminal: compositor vai pro PTY");
+        assert_eq!(talk_decision(&r, false, true, "auto"), Ok(true), "PTY vivo vence");
+        assert_eq!(talk_decision(&r, false, false, "terminal"), Ok(false), "DeepSeek headless (dsh) não retoma no claude");
+    }
+    #[test]
     fn terminal_e_o_padrao_do_claude() {
         assert_eq!(mode_default(None, None), "terminal", "sem setting = terminal");
         assert_eq!(mode_default(Some("auto"), None), "terminal", "auto da tela antiga não é escolha");
@@ -489,9 +685,55 @@ mod modo_padrao_tests {
         assert!(!wants_terminal(None, "terminal", false, "codex"), "codex só se escolher terminal");
         assert!(wants_terminal(None, "terminal", true, "codex"));
         assert!(wants_terminal(Some("terminal"), "auto", false, "codex"));
-        assert!(!wants_terminal(None, "terminal", false, "deepseek"), "sem CLI interativo = automático");
-        assert!(!wants_terminal(Some("terminal"), "terminal", true, "gateway"));
+        assert!(!wants_terminal(None, "terminal", false, "deepseek"), "DeepSeek: padrão segue automático");
+        assert!(wants_terminal(Some("terminal"), "auto", false, "deepseek"), "DeepSeek escolhido no terminal (dentro do claude)");
+        assert!(wants_terminal(None, "terminal", true, "deepseek-v4-pro"));
+        assert!(wants_terminal(Some("terminal"), "terminal", false, "dsh-flash"));
+        assert!(!wants_terminal(Some("auto"), "terminal", true, "deepseek"), "pedido explícito vence");
+        assert!(!wants_terminal_on(Some("terminal"), "terminal", true, "gateway", true), "Windows: gateway sem CLI segue no automático");
+        assert!(wants_terminal_on(Some("terminal"), "terminal", true, "gateway", false), "shell: qualquer motor real (a pessoa escolhe a IA)");
+        assert!(!wants_terminal_on(None, "terminal", false, "gateway", false), "sem escolher terminal: só o Claude é padrão");
+        assert!(!wants_terminal_on(Some("terminal"), "terminal", true, "", false) && !wants_terminal_on(Some("terminal"), "terminal", true, "mock", false));
         assert!(!wants_terminal(Some("auto"), "terminal", false, "claude"), "pedido explícito vence");
         assert!(!wants_terminal(None, "auto", false, "claude"));
+    }
+    #[test]
+    fn rota_no_shell_integrado() {
+        assert_eq!(route_action(false, true, ""), RouteAction::Open, "sem PTY: abre retomando, com a mensagem");
+        assert_eq!(route_action(true, true, "claude"), RouteAction::Queue, "IA com hooks rodando: fila (entrega quando livre)");
+        assert_eq!(route_action(true, true, "codex"), RouteAction::Queue);
+        assert_eq!(route_action(true, true, "deepseek"), RouteAction::Queue);
+        assert_eq!(route_action(true, true, "gemini"), RouteAction::Direct, "sem hooks: entrega na hora");
+        assert_eq!(route_action(true, true, "opencode"), RouteAction::Direct);
+        assert_eq!(route_action(true, true, ""), RouteAction::ShellLaunch, "shell no prompt: NÃO digita a mensagem no shell cru");
+        assert_eq!(route_action(true, false, ""), RouteAction::Queue, "PTY = a própria IA (Windows / motor antigo): como sempre");
+        let rec = Recommended { ai: "claude".into(), model: "sonnet".into(), command: "starfork ia claude --modelo sonnet".into() };
+        assert_eq!(shell_launch_line(&rec, true), "\x15starfork ia claude --modelo sonnet --resume --msg-file .cardume/term/next-msg.txt\r");
+        assert_eq!(shell_launch_line(&rec, false), "\x15starfork ia claude --modelo sonnet --resume\r");
+        assert_eq!(launch_action(false, false, ""), LaunchAction::Open);
+        assert_eq!(launch_action(true, true, ""), LaunchAction::Type, "shell no prompt: digita o comando");
+        assert_eq!(launch_action(true, true, "claude"), LaunchAction::Restart, "outra IA rodando: reinicia com a nova");
+        assert_eq!(launch_action(true, false, ""), LaunchAction::Restart, "PTY que é a IA: reinicia");
+    }
+    #[test]
+    fn recomendado_igual_ao_ts() {
+        // os MESMOS casos do teste do TS (src/terminal-integrado.test.ts › "recomendado")
+        let j = |v: &str| serde_json::from_str::<serde_json::Value>(v).unwrap();
+        let base = r#"{"engine":"claude","roles":[{"role":"builder","name":"Vega","engine":"claude","model":"sonnet"}]"#;
+        let r = recommended_of(&j(&format!("{base}}}")));
+        assert_eq!((r.ai.as_str(), r.model.as_str(), r.command.as_str()), ("claude", "sonnet", "starfork ia claude --modelo sonnet"));
+        assert_eq!(recommended_of(&j(&format!(r#"{base},"termAi":"gemini"}}"#))).command, "starfork ia gemini", "modelo do Claude não vai pro Gemini");
+        assert_eq!(recommended_of(&j(&format!(r#"{base},"termAi":"gemini","termModel":"gemini-2.5-flash"}}"#))).command, "starfork ia gemini --modelo gemini-2.5-flash");
+        assert_eq!(recommended_of(&j(&format!(r#"{base},"termAi":"claude"}}"#))).model, "sonnet");
+        assert_eq!(recommended_of(&j(&format!(r#"{base},"termAi":"nada"}}"#))).ai, "claude");
+        assert_eq!(recommended_of(&j(r#"{"roles":[{"role":"builder","engine":"claude","model":"claude opus 4"}]}"#)).command, "starfork ia claude --modelo 'claude opus 4'");
+        assert_eq!(recommended_of(&j(r#"{"engine":"codex","roles":[{"role":"builder","engine":"codex"}]}"#)).command, "starfork ia codex");
+        assert_eq!(recommended_of(&j(r#"{"engine":"deepseek","roles":[{"role":"planner","engine":"claude"},{"role":"builder","engine":"deepseek","model":"deepseek-flash"}]}"#)).command, "starfork ia deepseek --modelo deepseek-flash", "o construtor manda");
+        assert_eq!(recommended_of(&j(r#"{"engine":"claude","model":"haiku"}"#)).command, "starfork ia claude --modelo haiku", "sem papéis: o motor/modelo da tarefa");
+        assert_eq!(ai_of_engine("DeepSeek · V4 Pro"), "deepseek");
+        assert_eq!(ai_of_engine("dsh-flash"), "deepseek");
+        assert_eq!(ai_of_engine("gateway"), "claude");
+        assert_eq!(ai_of_engine("opus"), "claude");
+        assert_eq!(ai_of_engine("gemini-2.5"), "gemini");
     }
 }

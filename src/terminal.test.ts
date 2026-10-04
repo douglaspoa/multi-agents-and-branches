@@ -22,12 +22,15 @@ function withStore(fn: (s: Store, dir: string) => void) {
   try { fn(store, dir); } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 }
 
-test("modo da tarefa: antigo = automático; só claude/codex têm terminal", () => {
+test("modo da tarefa: antigo = automático; claude/codex/deepseek têm terminal (no shell, qualquer motor)", () => {
   assert.equal(termModeOf({}), "auto");
   assert.equal(termModeOf({ termMode: "terminal" }), "terminal");
   assert.equal(termModeOf(null), "auto");
   assert.ok(terminalCapable("claude") && terminalCapable("codex"));
-  assert.ok(!terminalCapable("deepseek"));
+  assert.ok(terminalCapable("deepseek"), "DeepSeek roda dentro do claude");
+  assert.ok(!terminalCapable("gateway", "win32"), "Windows: a IA direto no PTY — gateway não tem CLI");
+  assert.ok(terminalCapable("gateway", "darwin") && terminalCapable("gemini", "linux"), "shell: qualquer motor real (a pessoa escolhe a IA)");
+  assert.ok(!terminalCapable("", "darwin") && !terminalCapable("mock", "darwin"));
 });
 
 test("settings.local.json: funde sem apagar hooks/statusLine da pessoa e é idempotente", () => {

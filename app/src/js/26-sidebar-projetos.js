@@ -16,7 +16,7 @@ function setHtmlGuarded(el, html){
 }
 function renderFeed(){
   const el = $id("feed");
-  const evs = state.events.slice(-200);
+  const evs = state.events.slice(-200).filter(e=>e.type!=='suggest'); // chips do terminal não são atividade
   let html;
   if(evs.length===0) html = '<div class="empty">aguardando eventos…</div>';
   else html = evs.map(e=>{

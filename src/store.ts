@@ -156,7 +156,8 @@ export class Store {
         busy INTEGER NOT NULL DEFAULT 0,      -- 1 entre UserPromptSubmit e Stop (hooks do próprio CLI)
         session_id TEXT,
         started_at INTEGER,
-        updated_at INTEGER
+        updated_at INTEGER,
+        cli TEXT                              -- IA rodando no shell do terminal ('' = shell no prompt) — starfork ia
       );
       CREATE TABLE IF NOT EXISTS session_cost (
         session_id TEXT PRIMARY KEY,
@@ -192,6 +193,8 @@ export class Store {
       // modo terminal (layout A): pergunta do AskUserQuestion do Claude Code = 1 linha por pergunta, agrupadas
       // (meta JSON: { src:"auq", group, idx, n, header, desc[], multi }). ask_human segue sem meta.
       "ALTER TABLE pending ADD COLUMN meta TEXT",
+      // terminal integrado (shell): qual IA está rodando DENTRO do shell agora ('' = só o shell, no prompt)
+      "ALTER TABLE term_session ADD COLUMN cli TEXT",
     ]) {
       try {
         this.db.exec(stmt);
@@ -480,6 +483,11 @@ export class Store {
     this.db.prepare(`INSERT INTO term_session (task_id, session_id, updated_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at`).run(taskId, sessionId, Date.now());
     this.setSession(taskId, sessionId);
   }
+  /** IA rodando no shell do terminal (`starfork ia` grava ao abrir; '' ao sair). */
+  termSetCli(taskId: string, cli: string): void {
+    this.db.prepare(`INSERT INTO term_session (task_id, cli, updated_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET cli = excluded.cli, updated_at = excluded.updated_at`).run(taskId, cli, Date.now());
+  }
+  termCli(taskId: string): string { return String((this.db.prepare(`SELECT cli FROM term_session WHERE task_id = ?`).get(taskId) as { cli?: string } | undefined)?.cli ?? ""); }
   termSetPid(taskId: string, pid: number | null, engine: string): void {
     const now = Date.now();
     this.db.prepare(`INSERT INTO term_session (task_id, pid, engine, busy, started_at, updated_at) VALUES (?, ?, ?, 0, ?, ?) ON CONFLICT(task_id) DO UPDATE SET pid = excluded.pid, engine = excluded.engine, busy = 0, started_at = excluded.started_at, updated_at = excluded.updated_at`).run(taskId, pid, engine, now, now);

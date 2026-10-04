@@ -87,7 +87,7 @@ function thFromEvents(evs){
   const out=[];
   for(const e of evs||[]){
     const tx=String(e.text||''); const ts=thTs(e);
-    if(!tx.trim() || e.type==='papel') continue;
+    if(!tx.trim() || e.type==='papel' || e.type==='suggest') continue; // suggest: vira chip embaixo do terminal
     if(e.agent==='Você' && /^Você:\s/.test(tx)){ out.push({ k:'you', ts, text:tx.replace(/^Você:\s*/,'') }); continue; }
     if(/^humano respondeu:/.test(tx)){ out.push({ k:'you', ts, text:tx.replace(/^humano respondeu:\s*/,'') }); continue; }
     if(e.agent==='Sistema'){ out.push({ k:'note', ts, text:thSysText(tx) }); continue; }
@@ -161,8 +161,11 @@ function termEnsure(taskId){
     scrollback:8000, allowProposedApi:false, convertEol:false, macOptionIsMeta:true, theme:termTheme() });
   const fit=Fit?new Fit():null; if(fit) term.loadAddon(fit);
   term.open(box);
-  term.onData(d=>{ if(st.alive) invokeQuiet('term_write',{ taskId, data:d }).catch(()=>{}); });
+  // vivo: tecla → PTY. Histórico: digitar RETOMA a sessão sozinho (64-terminal-integrado guarda as teclas e escreve
+  // quando o Claude Code abrir) — antes o xterm parado engolia tudo calado
+  term.onData(d=>{ if(st.alive){ invokeQuiet('term_write',{ taskId, data:d }).catch(()=>{}); return; } if(typeof tiHistKey==='function') tiHistKey(taskId, d); });
   st.term=term; st.fit=fit;
+  if(typeof tiHostWire==='function') tiHostWire(taskId, st); // clique retoma · colar/arrastar arquivo = anexo @arquivo
   // redimensiona o PTY só quando o tamanho REAL muda; tamanho zero = escondido → para os eventos
   st.ro=new ResizeObserver(()=>{ clearTimeout(st.rt); st.rt=setTimeout(()=>termFit(taskId), 60); });
   st.ro.observe(box);
@@ -232,7 +235,7 @@ async function termHistLoad(taskId, force){
     const wt=String(h.worktree||(t&&t.worktree)||'').split('/').filter(Boolean).pop()||'';
     const eng=(t&&typeof aiEngineOf==='function')?aiEngineOf(t.engine):'claude';
     const head=`${eng} · ${h.sessionId?'sessão '+String(h.sessionId).slice(0,8):'sem sessão gravada'}${wt?' · worktree '+wt:''} · histórico${h.source==='transcript'?(h.clipped?' (só o fim — a sessão é longa)':''):h.source==='log'?' (log do terminal)':' (eventos da tarefa)'}`;
-    const foot=termGone(h)?TERM_WT_GONE:termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · mande uma mensagem pelo compositor pra retomar esta sessão no terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Configurações → modo das tarefas)';
+    const foot=termGone(h)?TERM_WT_GONE:termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · digite aqui pra continuar a conversa — a sessão retoma neste terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Configurações → modo das tarefas)';
     // log cru do PTY: sai da tela alternativa/colagem antes do rodapé (o TUI pode ter deixado ligado)
     const out=st.hraw!==undefined ? st.hraw+'\x1b[?1049l\x1b[?2004l\x1b[?25h\x1b[0m\r\n\r\n'+thC('2','╰─ '+foot)+'\r\n'
       : (st.hlast={ items:st.hitems||thFromEvents(evs), o:{ head, foot, notes:st.hitems?thSysNotes(evs):[] } }, thRender(st.hlast.items, { ...st.hlast.o, cols:st.term.cols }));
@@ -276,7 +279,7 @@ function termSetAlive(taskId, alive){
   if(termGone(h)) html=`<span>integrada · ${esc(TERM_WT_GONE.replace(/^a worktree desta tarefa/,'a worktree'))}</span><span class="cc-sp"></span><button class="btn sm primary" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
   else if(termHeadless(t)) html=`<span><span class="pulse" style="--pc:var(--good)"></span> rodando em segundo plano (modo automático) · o histórico se atualiza sozinho</span><span class="cc-sp"></span>`;
   else if(fresh) html=`<span>o terminal desta tarefa ainda não foi aberto</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}">abrir terminal</button>`;
-  else html=`<span>histórico da sessão${h.resumes===false?' · o compositor manda no modo automático':' · mande uma mensagem pelo compositor pra retomar no terminal'}</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
+  else html=`<span>histórico da sessão${h.resumes===false?' · o compositor manda no modo automático':' · digite no terminal pra continuar a conversa'}</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
   st.bar.style.display='flex';
   if(st.bar.__html!==html){ st.bar.__html=html; st.bar.innerHTML=html; }
 }

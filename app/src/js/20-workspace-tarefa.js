@@ -15,6 +15,11 @@ const fwRpLoading={};  // taskId → leitura do requirements.json em voo (1 por 
 // Invalidação no meio da carga (um envio zera o cache): cada invalidação sobe a geração da tarefa; a carga que
 // termina numa geração velha descarta o resultado e busca de novo (antes gravava o dado velho e travava a nova).
 const fwRpGen={}, fwArtGen={};
+// terminal integrado (64): o compositor pode estar ESCONDIDO embaixo do terminal. Quem precisa do campo (pergunta do
+// plano, trecho da revisão, mudar o rumo) usa fwInputShow — ele aparece nesta tarefa; quem só quer "falar com o
+// agente" usa fwFocusTalk — campo visível ou, sem ele, o próprio terminal.
+function fwInputShow(){ if(typeof fwTask!=='undefined' && fwTask && typeof tiCompShow==='function') tiCompShow(fwTask); return $id('fwInput'); }
+function fwFocusTalk(){ const i=$id('fwInput'); if(i && i.offsetParent){ i.focus(); return; } if(typeof fwTask!=='undefined' && fwTask && typeof tlFocusTerm==='function') tlFocusTerm(fwTask); }
 function fwInvalidate(taskId){ fwRpGen[taskId]=(fwRpGen[taskId]||0)+1; fwArtGen[taskId]=(fwArtGen[taskId]||0)+1; artifactsCache[taskId]=undefined; reqProofCache[taskId]=undefined; }
 function fwReqProofsEnsure(taskId){
   if(reqProofCache[taskId]!==undefined || fwRpLoading[taskId]) return;
@@ -377,7 +382,7 @@ async function fwLiveUpdate(){
   if((taskPreviewTarget(t)||null)!==fwPvShown){ renderWorkspace(); return; }
   // a fase mudou (rodando → revisão, pergunta chegou…): a ação principal do topo muda junto
   if(((fwPrimaryAction(t)||{}).id||'')!==fwPrimShown){ renderWorkspace(); return; }
-  const now=$id('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=$id('fwSteer'); if(b) b.onclick=()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
+  const now=$id('fwNow'); if(now){ now.className='fwnow'+(ACTIVE_ST.has(t.status)?'':' done'); now.innerHTML=fwNowHtml(t); const b=$id('fwSteer'); if(b) b.onclick=()=>{ const inp=fwInputShow(); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } }; }
   // conversa + requisitos ao vivo (o input não é tocado — foco/texto preservados)
   const th=$id('fwThread');
   if(th && !th.dataset.term){ const atBottom=th.scrollHeight-th.scrollTop-th.clientHeight<80; th.innerHTML=fwThreadHtml(t); if(atBottom) th.scrollTop=th.scrollHeight; }
@@ -603,7 +608,7 @@ async function fwMoreDo(t, k, anchor){
 function fwAskFix(){ if(fwMode!=='conversa'){ fwMode='conversa'; fwRememberTab(); renderWorkspace(); } // o chat pode estar escondido (Entrega/PR)
   // modo terminal: a pergunta mora na folha por cima do terminal (60-terminal-layout)
   { const t=fwTaskObj(); if(t && termViewOf(t) && typeof tlAskOf==='function'){ const a=tlAskOf(t); if(a){ a.st.min=false; tlAskPaint(t, true); return; } } }
-  const i=$id('fwInput'); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } }
+  const i=fwInputShow(); if(i){ i.placeholder='descreva o ajuste — vira instrução direta pro agente'; i.focus(); } }
 async function fwTunnelOff(t){
   // falhou ao fechar: diz (antes avisava "acesso fechado" com o túnel ainda aberto pro celular)
   try{ await invoke('tunnel_stop',{ taskId:t.id }); }catch(e){ showErr(e, 'Não consegui fechar o acesso do celular'); return; }
@@ -924,7 +929,7 @@ function renderWorkspace(){
   chat.dataset.tk=t.id;
   // MODO TERMINAL (60-terminal.js + layout A em 60-terminal-layout.js): terminal, painel de requisitos e folha de pergunta
   if(isTerm){ termMount(t); tlWire(t, sheetGrab); if(termHadFocus && !chat.querySelector('.tlsheet:focus-within')) setTimeout(()=>tlFocusTerm(t.id), 0); } else termSweep();
-  bindClick('fwSteer', ()=>{ const inp=$id('fwInput'); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
+  bindClick('fwSteer', ()=>{ const inp=fwInputShow(); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
   bindClick('fwCompMore', (e)=>{ e.stopPropagation(); if(typeof tlCompMoreOpen==='function') tlCompMoreOpen(t, e.currentTarget); }); // painel baixo: IA e "vira requisito" num menu
@@ -1144,7 +1149,7 @@ function fwThreadHtml(t){
     { const m=tx.match(/^sessão iniciada · ([^\s·]+)/); if(m) ranBy[e.agent]=aiRunLabel('claude', m[1]);
       const ra=tx.match(/^Route AI: rodando na (.+) \(([^)]+)\)$/); if(ra) ranBy[e.agent]=ra[1]+' · '+ra[2]; }
     // P10: "skills ativas · agente@vN · motor" é medição — fica no "ver detalhes" da faixa, não na conversa
-    if(e.type==='papel') continue;
+    if(e.type==='papel' || e.type==='suggest') continue; // suggest = chips de resposta do terminal (64-terminal-integrado), não é fala
     if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${fwLinkify(tx)}</div>`); continue; }

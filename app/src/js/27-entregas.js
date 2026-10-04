@@ -472,7 +472,7 @@ function fwRenderEntrega(t, main){
   const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(n)]||'ARQ');
   const listed=nonCode?arts:docs;
   const pvSel=enPvPick(t, nonCode?arts:docs);
-  const docsHtml = listed.length ? listed.map(a=>`<div class="en-doc${a.name===pvSel?' on':''}"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-pvsel="${escA(a.name)}" title="mostra na prévia abaixo">ver</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
+  const docsHtml = listed.length ? listed.map(a=>`<div class="en-doc${a.name===pvSel?' on':''}"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${typeof tiOpenDoc==='function'?`<button type="button" class="tilink en-dlink" data-tidoc="${escA(a.name)}" title="${escA('abrir '+a.name+' na aba Documento, ao lado')}">${esc(a.name)}</button>`:esc(a.name)}<span class="en-dd">${artDate(a.created)}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-pvsel="${escA(a.name)}" title="mostra na prévia abaixo">ver</button><button class="btn sm ghost" data-tiapp="${escA(a.name)}" title="abrir no app padrão do computador">${IC.extlink||'↗'} app</button>${/\.md$/i.test(a.name)?`<button class="btn sm ghost" data-docpdf="${escA(a.name)}">PDF</button>`:''}<button class="btn sm ghost" data-docslack="${escA(a.name)}">Slack</button></span></div>`).join('') : '<div class="en-empty">nenhum documento ainda</div>';
   const dels=(t.deliverables||[]).filter(Boolean);
   const timeline=stageStepper(t).replace('<div class="seclbl" style="margin-top:13px">Etapas</div>','');
   const dur=fmtDurKnown(taskDurationMs(t));
@@ -518,6 +518,9 @@ function fwRenderEntrega(t, main){
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
   main.querySelectorAll('[data-docpdf]').forEach(b=>b.onclick=()=>entregaDocPdf(t, b.dataset.docpdf, b));
   main.querySelectorAll('[data-docslack]').forEach(b=>b.onclick=()=>sendArtifactSlack(t.id, b.dataset.docslack));
+  // arquivo entregue = link (64-terminal-integrado): abre na aba Documento ao lado, ou no app padrão
+  main.querySelectorAll('.en-doc [data-tidoc]').forEach(b=>b.onclick=()=>tiOpenDoc(t.id, b.dataset.tidoc));
+  main.querySelectorAll('.en-doc [data-tiapp]').forEach(b=>b.onclick=()=>invoke('open_artifact',{ taskId:t.id, name:b.dataset.tiapp }).catch(e=>showErr(e, 'Não consegui abrir no app padrão')));
   main.querySelectorAll('.en-doc [data-pvsel]').forEach(b=>b.onclick=()=>{ enPvSel[t.id]=b.dataset.pvsel; renderWorkspace(); setTimeout(()=>{ const p=$id('enPv'); if(p) p.scrollIntoView(scrollOpts('start')); }, 40); });
   main.querySelectorAll('.fcommit').forEach(b=>b.onclick=()=>{ if(b.dataset.hash&&typeof openCommit==='function') openCommit(b.dataset.hash); });
   main.querySelectorAll('[data-enopendir]').forEach(b=>b.onclick=()=>invoke('open_folder',{ path:b.dataset.enopendir }).catch(e=>showErr(e, 'Não abriu a pasta')));

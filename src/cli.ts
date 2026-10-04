@@ -17,7 +17,8 @@ import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
 import { mobileCli } from "./mobile.ts";
-import { askHookCli, AUQ_TOOL, hookCli, HOOK_MARK, statuslineCli, termMessage, termPrep, turnEndCli } from "./terminal.ts";
+import { askHookCli, AUQ_TOOL, hookCli, HOOK_MARK, setTermAi, statuslineCli, termMessage, termPrep, turnEndCli } from "./terminal.ts";
+import { starforkCli } from "./starfork-cli.ts";
 import { browserProxyCli } from "./browser-proxy.ts";
 import { envCli } from "./env-up.ts";
 import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
@@ -1035,17 +1036,31 @@ async function main() {
         // (oferece uma tarefa nova de ajuste).
         const t0 = orch.store.getTask(a._[1]);
         if (t0 && t0.status !== "merged" && t0.worktree && !existsSync(t0.worktree)) await orch.ensureTaskWorktree(a._[1]);
-        console.log(JSON.stringify(termPrep(orch, a._[1], { resume: !!a.flags.resume, message: a.flags.msg })));
+        console.log(JSON.stringify(termPrep(orch, a._[1], { resume: !!a.flags.resume, message: a.flags.msg, ai: a.flags.ai || undefined, model: a.flags.ai ? a.flags.model : undefined })));
       } catch (e) {
         console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));
         process.exitCode = 1;
       } finally { orch.close(); }
       break;
     }
+    case "term-ai": {
+      // troca de IA pelo app (term_switch_ai): grava spec.termAi/termModel — reabrir o terminal lembra
+      const orch = new Orchestrator(repo);
+      try { console.log(JSON.stringify({ ok: true, recommended: setTermAi(orch, a._[1], a.flags.ai ?? "", a.flags.model) })); }
+      catch (e) { console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) })); process.exitCode = 1; }
+      finally { orch.close(); }
+      break;
+    }
+    case "starfork":
+      // o `starfork` do shell do terminal integrado (src/starfork-cli.ts) — argv cru: as flags são dele
+      process.exitCode = await starforkCli(argv.slice(1));
+      break;
     case "term-msg": {
       const orch = new Orchestrator(repo);
       try {
-        console.log(JSON.stringify({ text: await termMessage(orch, a._[1], a.flags.kind ?? "talk", { msg: a.flags.msg, asReq: !!a.flags["as-req"], deliver: a.flags.deliver }) }));
+        const text = await termMessage(orch, a._[1], a.flags.kind ?? "talk", { msg: a.flags.msg, asReq: !!a.flags["as-req"], deliver: a.flags.deliver });
+        // worktree: o app grava a mensagem em .cardume/term/next-msg.txt quando o shell está no prompt (sem IA)
+        console.log(JSON.stringify({ text, worktree: orch.store.getTask(a._[1])?.worktree ?? "" }));
       } catch (e) {
         console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));
         process.exitCode = 1;

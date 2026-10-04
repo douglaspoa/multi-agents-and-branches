@@ -176,6 +176,23 @@ const noAskTool = (engine: string | undefined) => ["codex", "gateway", "logcomex
 /** Papel capaz de conversar/retomar sessão (qualquer motor real — Claude, Codex, gateway). */
 const canTalk = (engine: string | undefined) => engineKind(engine) !== "mock";
 
+/**
+ * Ambiente do `gh` agindo como a conta do GitHub DESTE repositório (a mesma regra do app, gh_contas.rs): o
+ * `.git/config` guarda `credential.https://github.com.username` quando o app escolheu a conta; aí o token dela vai
+ * só no GH_TOKEN do filho (nunca no disco/log). Sem conta gravada (ou gh sem ela) → a conta ativa, como antes.
+ */
+export function ghEnvFor(repo: string): NodeJS.ProcessEnv {
+  const env = netEnv();
+  try {
+    const acc = execFileSync("git", ["-C", repo, "config", "--get", "credential.https://github.com.username"], { encoding: "utf8", timeout: 5000 }).trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(acc)) return env;
+    const clean = { ...env }; delete clean.GH_TOKEN; delete clean.GITHUB_TOKEN;
+    const tok = execFileSync(ghBin(), ["auth", "token", "-h", "github.com", "-u", acc], { encoding: "utf8", timeout: 10_000, env: clean, stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (tok && !/\s/.test(tok)) return { ...clean, GH_TOKEN: tok };
+  } catch { /* sem conta gravada / gh sem essa conta: segue com a ativa */ }
+  return env;
+}
+
 export class Orchestrator {
   ws: Workspace;
   git: GitService;
@@ -840,7 +857,7 @@ export class Orchestrator {
    *     de verdade e precisam passar.
    * Retorna { ok, reasons } — `reasons` descreve o que reprovou.
    */
-  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec): Promise<{ ok: boolean; reasons: string[] }> {
+  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec, opts: { runTests?: boolean } = {}): Promise<{ ok: boolean; reasons: string[] }> {
     const reasons: string[] = [];
     const artDir = join(task.worktree, ".cardume", "artifacts");
     let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
@@ -873,7 +890,8 @@ export class Orchestrator {
       }
     } catch { /* sem detecção/diff: fica só a regra geral */ }
     const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
-    if (wantsTests) {
+    // runTests:false = consulta SEM efeito colateral (task_status no terminal): não roda a suíte (até 180s)
+    if (wantsTests && opts.runTests !== false) {
       const t = await this.runRepoTests(task.worktree);
       if (t.ran && !t.passed) reasons.push(`os testes falharam: ${t.detail}`);
     }
@@ -1495,24 +1513,55 @@ export class Orchestrator {
       return;
     }
     // mode === "auto": GATE MECÂNICO antes de abrir (evidência existe + testes passam)
-    const gate = await this.verifyProofs(taskId, task, spec);
-    if (!gate.ok) {
-      const why = gate.reasons.slice(0, 3).join(" · ");
-      this.store.addEvent(taskId, spec.agent, "note", `PR NÃO aberto (gate de verificação): ${why}`, false);
-      notify("Starfork", "PR não aberto — verificação falhou", task.title);
-      return;
+    await this.openPr(taskId, { auto: true, task, spec });
+  }
+
+  /**
+   * ABRE O PR desta tarefa (o mesmo caminho do PR automático e da tool open_pr do terminal integrado):
+   *  1) GATE (verifyProofs) — reprovou e não é `force`/rascunho → NÃO abre e devolve os motivos;
+   *  2) commita o que ficou solto, `git push -u origin <branch>`, `gh pr create` (--draft se pedido);
+   *  3) PR já aberto pra branch → a URL vem do erro do gh; grava spec.prUrl/prNumber (como o app faz no pr_status).
+   * `auto` = chamado pelo fim do pipeline (textos/notificações de sempre). Nunca lança: erro vem em `error`.
+   */
+  async openPr(taskId: string, o: { force?: boolean; draft?: boolean; title?: string; body?: string; auto?: boolean; task?: TaskRow; spec?: TaskSpec } = {}): Promise<{ ok: boolean; url?: string; reasons?: string[]; error?: string }> {
+    const task = o.task ?? this.store.getTask(taskId);
+    if (!task) return { ok: false, error: `tarefa ${taskId} não encontrada` };
+    const spec = o.spec ?? this.freshSpec(taskId) ?? (JSON.parse(task.spec_json) as TaskSpec);
+    const role = spec.roles?.find((r) => r.role === "builder") ?? spec.roles?.[0];
+    const agent = o.auto ? spec.agent : role?.name || spec.agent;
+    if (["merged", "aborted"].includes(task.status)) return { ok: false, error: `a tarefa já está ${task.status === "merged" ? "integrada" : "cancelada"} — não há PR a abrir` };
+    if (spec.kind === "review") return { ok: false, error: "esta tarefa é uma revisão de PR — não tem branch própria pra abrir PR" };
+    if (!o.force && !o.draft) {
+      const gate = await this.verifyProofs(taskId, task, spec);
+      if (!gate.ok) {
+        const why = gate.reasons.slice(0, 3).join(" · ");
+        this.store.addEvent(taskId, agent, "note", `PR NÃO aberto (gate de verificação): ${why}`, false);
+        if (o.auto) notify("Starfork", "PR não aberto — verificação falhou", task.title);
+        return { ok: false, reasons: gate.reasons };
+      }
     }
     const base = spec.prBase?.trim() || (await this.git.defaultBase()).replace(/^origin\//, "");
     try {
+      try {
+        if (await this.git.commitAll(task.worktree, `starfork(pr): ${task.title}`)) {
+          this.store.addEvent(taskId, agent, "note", "mudanças soltas commitadas antes do PR ✓", true);
+          const d = await this.git.diffStat(task.worktree, task.base);
+          this.store.setDiff(taskId, d.files, d.add, d.del);
+        }
+      } catch { /* sem nada a commitar / hook recusou: o push leva o que já está commitado */ }
       await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
-      const body =
-        `## O quê\n${spec.objective || spec.title}\n\n` +
-        ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "") +
-        (await this.reportFor(taskId, task)) + "\n" +
-        `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._`;
+      const title = String(o.title ?? "").trim() || spec.title;
+      const head = String(o.body ?? "").trim()
+        ? `${String(o.body).trim()}\n\n`
+        : `## O quê\n${spec.objective || spec.title}\n\n` +
+          ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "");
+      const body = head + (await this.reportFor(taskId, task)) + "\n" +
+        (o.auto ? `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._` : o.draft ? `_Rascunho aberto pelo agente no terminal do Starfork._` : `_Aberto pelo agente no terminal do Starfork (requisitos provados)._`);
+      // --draft no FIM: o gh falso dos testes lê a branch pela posição ($6)
+      const args = ["pr", "create", "--base", base, "--head", task.branch, "--title", title, "--body", body, ...(o.draft ? ["--draft"] : [])];
       let url = "";
       try {
-        const { stdout } = await run(ghBin(), ["pr", "create", "--base", base, "--head", task.branch, "--title", spec.title, "--body", body], { cwd: task.worktree, env: netEnv(), timeout: netTimeoutMs() });
+        const { stdout } = await run(ghBin(), args, { cwd: task.worktree, env: ghEnvFor(this.ws.repo), timeout: netTimeoutMs() });
         url = prUrlFrom(stdout) || (stdout.trim().split("\n").pop() ?? "");
       } catch (e) {
         // PR já aberto pra esta branch (retry, ou o humano abriu antes): o gh FALHA mas cita a URL —
@@ -1520,10 +1569,17 @@ export class Orchestrator {
         url = /already exists/i.test(String((e as { stderr?: string }).stderr ?? "")) ? prUrlFrom(String((e as { stderr?: string }).stderr)) : "";
         if (!url) throw e;
       }
-      this.store.addEvent(taskId, spec.agent, "note", `PR aberto automaticamente: ${url}`, true);
+      if (url) {
+        const n = Number(url.match(/\/pull\/(\d+)/)?.[1] ?? 0);
+        try { this.store.patchSpec(taskId, { prUrl: url, ...(n ? { prNumber: n } : {}) }); } catch { /* banco ocupado: o app grava no próximo pr_status */ }
+      }
+      this.store.addEvent(taskId, agent, "note", o.auto ? `PR aberto automaticamente: ${url}` : `${o.draft ? "PR rascunho aberto" : "PR aberto"}: ${url}`, true);
       notify("Starfork", "PR aberto ✓", task.title);
+      return { ok: true, url };
     } catch (err) {
-      this.store.addEvent(taskId, spec.agent, "note", `falha ao abrir o PR automaticamente: ${(err as Error).message?.slice(0, 140)}`, false);
+      const msg = String((err as { stderr?: string }).stderr || (err as Error).message || err).trim().slice(0, 300);
+      this.store.addEvent(taskId, agent, "note", `falha ao abrir o PR${o.auto ? " automaticamente" : ""}: ${msg.slice(0, 140)}`, false);
+      return { ok: false, error: msg };
     }
   }
 

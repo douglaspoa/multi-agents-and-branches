@@ -107,7 +107,7 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   const st = ctx.TERM.t1;
   assert.equal(st.mode, 'hist');
   assert.match(st.bar.innerHTML, /retomar sessão/);
-  assert.match(st.bar.innerHTML, /mande uma mensagem pelo compositor/);
+  assert.match(st.bar.innerHTML, /digite no terminal pra continuar a conversa/); // terminal integrado: digitar retoma
   const out = st.term.out.join('').replace(/\x1b\[[0-9;]*m/g, '');
   assert.match(out, /╭─ claude · sessão e3f63ca1 · worktree t1/);
   assert.match(out, /● velho/);
@@ -154,7 +154,8 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   // layout A (60-terminal-layout): a coluna inteira vira terminal + painel; o slot do terminal mora no tlChatHtml
   assert.match(ws, /chat\.innerHTML=isTerm \? tlChatHtml\(t, composer\)/);
   assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t, sheetGrab\);[^\n]*\} else termSweep\(\);/);
-  assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}<div id="tlBudget">\$\{tlBudgetHtml\(t\)\}<\/div>\$\{composer\}/);
+  // terminal integrado (64): o dock (sugestões/anexar/botões) entra entre o terminal e o compositor
+  assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}<div id="tlBudget">\$\{tlBudgetHtml\(t\)\}<\/div>\$\{typeof tiDockHtml==='function'\?tiDockHtml\(t\):''\}\$\{composer\}/);
   assert.match(src('34-orquestrador.js'), /termMode:'auto', start:startNow/);
   assert.match(src('59-ideia.js'), /payload\.termMode='auto'/);
   assert.match(src('43-espaco-times.js'), /if\(opts\.auto\) payload\.termMode='auto'/);

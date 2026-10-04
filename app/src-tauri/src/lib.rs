@@ -10172,7 +10172,9 @@ pub fn run() {
             term::term_send,
             term::term_interrupt,
             term::term_kill,
-            term::term_status
+            term::term_status,
+            term::term_switch_ai,
+            term::term_run_recommended
         ])
         .build(tauri::generate_context!())
         .expect("erro ao iniciar o Starfork")

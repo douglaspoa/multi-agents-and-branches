@@ -202,7 +202,7 @@ const ERR_ACTIONS={
   conta:   ()=>{ if(window.openTab) window.openTab('conta'); },
   suaia:   ()=>{ if(window.suaIaOpenCfg) window.suaIaOpenCfg(); else if(window.openTab) window.openTab('cfg'); },
   // wt-gone: abre a conversa da tarefa aberta (mandar uma mensagem recria a cópia) e põe o foco na caixa
-  conversa:()=>{ if(typeof fwTask!=='undefined' && fwTask && typeof renderWorkspace==='function'){ fwMode='conversa'; renderWorkspace(); setTimeout(()=>{ const i=document.getElementById('fwInput'); if(i) i.focus(); },60); } },
+  conversa:()=>{ if(typeof fwTask!=='undefined' && fwTask && typeof renderWorkspace==='function'){ fwMode='conversa'; renderWorkspace(); setTimeout(()=>{ if(typeof fwFocusTalk==='function'){ fwFocusTalk(); return; } const i=document.getElementById('fwInput'); if(i) i.focus(); },60); } }, // compositor escondido (terminal integrado): o foco vai pro terminal
 };
 // ORDEM importa: o primeiro que casa vence (ex.: "'origin' does not appear… Could not read from remote"
 // é SEM REMOTE, não rede; "Permission denied (publickey)… Could not read from remote" é permissão).

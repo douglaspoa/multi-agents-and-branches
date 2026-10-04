@@ -173,7 +173,8 @@ const ACTIVE_ST = new Set(["running","thinking","queued"]);
 // limite "confortável" de execuções em paralelo (slots) — só orienta/avisa.
 let slotMax = (()=>{ const v=parseInt(lsGet('slotMax')||'4',10); return (v>=1&&v<=12)?v:4; })();
 function setSlotMax(n){ slotMax=Math.max(1,Math.min(12,n)); lsSet('slotMax',String(slotMax)); renderRail(); }
-function lastEventOf(taskId){ const es=eventsOf(taskId); return es.length?es[es.length-1]:null; }
+// o 'suggest' (chips de resposta do terminal, JSON) não é atividade: o card mostrava o JSON cru como "última coisa feita"
+function lastEventOf(taskId){ const es=eventsOf(taskId); for(let i=es.length-1;i>=0;i--){ if(es[i].type!=='suggest') return es[i]; } return null; }
 // Rail = monitor de EXECUÇÃO AO VIVO (não duplica o Fluxo): só o que acontece agora.
 // destaque da barra lateral = o que está NA TELA (crítica Impeccable P1, 02/10): a demanda da aba ativa e, com a
 // tela dividida, TODAS as demandas visíveis nos painéis; aria-current na do painel em foco. Antes vinha de

@@ -74,7 +74,7 @@ async function stopTask(taskId){
   catch(e){ showErr(e, 'Falha ao parar'); }
 }
 // openChat: o "chat" da tarefa agora é o próprio workspace (colunas fw*)
-function openChat(taskId){ /* chat agora É o workspace estilo Cursor (arquivos + requisitos + conversa) */ openWorkspace(taskId); setTimeout(()=>{ const i=$id('fwInput'); if(i) i.focus(); },250); }
+function openChat(taskId){ /* chat agora É o workspace estilo Cursor (arquivos + requisitos + conversa) */ openWorkspace(taskId); setTimeout(()=>{ if(typeof fwFocusTalk==='function'){ fwFocusTalk(); return; } const i=$id('fwInput'); if(i) i.focus(); },250); }
 async function rerunTask(taskId){
   const t=state.tasks.find(x=>x.id===taskId);
   if(!await askYes(`Re-rodar "${t?t.title:taskId}" do zero?\n\nDescarta o trabalho parcial na worktree (reset pra base) e roda o time inteiro de novo. O plano/spec são mantidos.`)) return;

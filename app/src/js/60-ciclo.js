@@ -347,7 +347,7 @@ function cicloStripWire(host, t){
     b.onkeydown=e=>{ if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return; e.preventDefault(); const all=[...host.querySelectorAll('[data-cicst]')]; const i=all.indexOf(b); const n=all[(i+(e.key==='ArrowRight'?1:-1)+all.length)%all.length]; if(n) n.focus(); };
   });
   const g=host.querySelector('#cicGate'); if(g) g.onclick=()=>{ if(typeof approveGate==='function') approveGate(t); };
-  const pa=host.querySelector('#cicPlanAsk'); if(pa) pa.onclick=()=>{ const i=$id('fwInput'); if(i){ i.focus(); i.placeholder='o que ajustar no plano?'; } };
+  const pa=host.querySelector('#cicPlanAsk'); if(pa) pa.onclick=()=>{ const i=(typeof fwInputShow==='function')?fwInputShow():$id('fwInput'); if(i){ i.focus(); i.placeholder='o que ajustar no plano?'; } };
 }
 
 // ---------- rodadas (P3): a decisão quando a revisão não fecha ----------

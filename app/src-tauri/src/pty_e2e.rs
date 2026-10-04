@@ -150,3 +150,82 @@ fn pty_e2e() {
     if s.alive() && std::env::var("E2E_KEEP").is_err() { m.kill(&task); }
     eprintln!("[e2e] fim em {:.1}s", t0.elapsed().as_secs_f32());
 }
+
+/// TERMINAL INTEGRADO NO SHELL — e2e REAL com uma IA FALSA (não gasta crédito): `cli term-prep` monta o shell de
+/// login, o pty.rs spawna, o 1º comando (`starfork ia claude`) sobe a IA falsa (CARDUME_AI_BIN_claude) e se confere:
+/// a IA tem o TTY (grupo em primeiro plano), o texto digitado chega nela, Ctrl+C chega nela (e NÃO mata o shell),
+/// term_session.cli = claude → '' ao sair, a decisão de rota (fila → shell no prompt), a linha que o app digita no
+/// shell (`starfork ia … --resume --msg-file …`) sobe a IA de novo com a mensagem, e `starfork status` no shell.
+///
+///   SF_E2E_REPO=<repo> SF_E2E_TASK=<id> SF_E2E_CLI=<src/cli.ts> SF_E2E_FAKE=<ia falsa> \
+///     cargo test --lib shell_e2e -- --ignored --nocapture
+#[test]
+#[ignore]
+fn shell_e2e() {
+    use crate::term::{recommended_of, route_action, shell_launch_line, RouteAction, NEXT_MSG_REL};
+    let repo = PathBuf::from(std::env::var("SF_E2E_REPO").expect("SF_E2E_REPO"));
+    let task = std::env::var("SF_E2E_TASK").expect("SF_E2E_TASK");
+    let cli = std::env::var("SF_E2E_CLI").expect("SF_E2E_CLI");
+    let fake = std::env::var("SF_E2E_FAKE").expect("SF_E2E_FAKE");
+    let db = repo.join(".cardume").join("state.sqlite");
+    let out = std::process::Command::new("node").args(["--disable-warning=ExperimentalWarning", &cli, "term-prep", &task, "--resume", "--msg", "primeira mensagem", "--repo"]).arg(&repo).current_dir(&repo).output().unwrap();
+    let so = String::from_utf8_lossy(&out.stdout);
+    let line = so.lines().rev().find(|l| l.starts_with('{')).unwrap_or_else(|| panic!("prep: {}", String::from_utf8_lossy(&out.stderr)));
+    let v: serde_json::Value = serde_json::from_str(line).unwrap();
+    assert!(v.get("error").is_none(), "{v}");
+    assert_eq!(v["shell"].as_bool(), Some(true), "macOS/Linux: o PTY é o shell");
+    let list = |k: &str| v[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_else(Vec::new);
+    let mut env: Vec<(String, String)> = v["env"].as_object().unwrap().iter().map(|(k, x)| (k.clone(), x.as_str().unwrap_or("").to_string())).collect();
+    env.push(("CARDUME_AI_BIN_claude".into(), fake.clone()));
+    env.push(("CARDUME_NOTIFY".into(), "0".into()));
+    let m = Arc::new(PtyManager::new(Arc::new(Sink { n: Mutex::new(0), bytes: Mutex::new(0) }), None));
+    let s = m.spawn(&task, SpawnSpec {
+        program: v["program"].as_str().unwrap().into(), args: list("args"), cwd: PathBuf::from(v["cwd"].as_str().unwrap()), env, env_remove: list("envRemove"),
+        cols: 120, rows: 34, log_path: None, scroll_cap: SCROLL_CAP, engine: v["engine"].as_str().unwrap_or("").into(),
+    }).unwrap();
+    s.attach();
+    let screen = || strip_ansi(&s.snapshot());
+    let wait = |needle: &str, secs: u64| { let w = Instant::now(); while w.elapsed() < Duration::from_secs(secs) { if screen().matches(needle).count() > 0 { return true; } std::thread::sleep(Duration::from_millis(50)); } false };
+    let count = |needle: &str| screen().matches(needle).count();
+    let wait_n = |needle: &str, n: usize, secs: u64| { let w = Instant::now(); while w.elapsed() < Duration::from_secs(secs) { if count(needle) >= n { return true; } std::thread::sleep(Duration::from_millis(50)); } false };
+    let cli_now = || Connection::open(&db).ok().and_then(|c| c.query_row("SELECT cli FROM term_session WHERE task_id=?1", params![task], |r| r.get::<_, Option<String>>(0)).ok().flatten()).unwrap_or_default();
+    let tail = || { let t = screen(); t.chars().rev().take(3000).collect::<Vec<_>>().into_iter().rev().collect::<String>() };
+
+    assert!(wait("FAKE-AI ", 40), "a IA falsa subiu no 1º comando do shell:\n{}", tail());
+    assert!(screen().contains("TTY=sim"), "a IA é o grupo em PRIMEIRO PLANO do terminal:\n{}", tail());
+    assert!(screen().contains("LAST=primeira mensagem"), "a mensagem do app chegou como 1ª mensagem (por arquivo):\n{}", tail());
+    assert_eq!(cli_now(), "claude", "term_session.cli = a IA rodando");
+    assert_eq!(route_action(true, true, &cli_now()), RouteAction::Queue, "IA com hooks rodando: pedido do app vai pra fila");
+    s.write_bytes(b"ola\r").unwrap();
+    assert!(wait("FAKE-ECO:ola", 10), "texto digitado chega na IA:\n{}", tail());
+    s.write_bytes(b"\x03").unwrap();
+    assert!(wait("FAKE-GOT-INT", 10), "Ctrl+C chega na IA:\n{}", tail());
+    s.write_bytes(b"segue\r").unwrap();
+    assert!(wait("FAKE-ECO:segue", 10), "depois do Ctrl+C a IA (e o shell) seguem vivos:\n{}", tail());
+    s.write_bytes(b"sair\r").unwrap();
+    let w = Instant::now();
+    while w.elapsed() < Duration::from_secs(20) && !cli_now().is_empty() { std::thread::sleep(Duration::from_millis(100)); }
+    assert_eq!(cli_now(), "", "a IA saiu → `_ia-exit` gravou cli = ''");
+    assert!(s.alive(), "o shell continua vivo depois da IA");
+    assert_eq!(route_action(true, true, ""), RouteAction::ShellLaunch, "shell no prompt: o app digita o comando que sobe a IA");
+    // o MESMO que term.rs › shell_launch faz: mensagem por arquivo + a linha recomendada digitada no prompt
+    let spec: serde_json::Value = Connection::open(&db).unwrap().query_row("SELECT spec_json FROM task WHERE id=?1", params![task], |r| r.get::<_, String>(0)).map(|t| serde_json::from_str(&t).unwrap()).unwrap();
+    let rec = recommended_of(&spec);
+    assert_eq!(rec.command, v["recommended"]["command"].as_str().unwrap(), "Rust e TS recomendam a MESMA linha");
+    std::thread::sleep(Duration::from_millis(800)); // o prompt do shell voltar
+    std::fs::write(PathBuf::from(v["cwd"].as_str().unwrap()).join(NEXT_MSG_REL), "segunda mensagem").unwrap();
+    s.write_bytes(shell_launch_line(&rec, true).as_bytes()).unwrap();
+    assert!(wait_n("FAKE-AI ", 2, 40), "a linha digitada no prompt sobe a IA de novo:\n{}", tail());
+    assert!(wait("LAST=segunda mensagem", 5), "com a mensagem do arquivo:\n{}", tail());
+    s.write_bytes(b"sair\r").unwrap();
+    let w = Instant::now();
+    while w.elapsed() < Duration::from_secs(20) && !cli_now().is_empty() { std::thread::sleep(Duration::from_millis(100)); }
+    std::thread::sleep(Duration::from_millis(800));
+    s.write_bytes(b"starfork status\r").unwrap();
+    assert!(wait("Falta para ENTREGUE", 40), "`starfork status` funciona no shell:\n{}", tail());
+    s.write_bytes(b"exit\r").unwrap();
+    let w = Instant::now();
+    while w.elapsed() < Duration::from_secs(10) && s.alive() { std::thread::sleep(Duration::from_millis(100)); }
+    assert!(!s.alive(), "`exit` no shell fecha o terminal");
+    eprintln!("[shell_e2e] ok — tela final:\n{}", tail());
+}

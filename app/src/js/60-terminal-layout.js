@@ -41,12 +41,13 @@ function tlRailHtml(view, o){
     `<span class="tlnum">${esc(label)}</span></aside>`;
 }
 // o painel inteiro: requisitos (com miniaturas das provas) + o portão
-// o: { view, gate:{st,missing}, gateHtml, phase:'working'|'review'|'pr'|'idle', thumbs:(ev)=>html, overlay, loading }
+// o: { view, gate:{st,missing}, gateHtml, phase:'working'|'review'|'pr'|'idle', thumbs:(ev)=>html, overlay, loading,
+//      subHtml:(v,i)=>html (linha de baixo do requisito com os nomes das provas virando link), extra:html (Entregáveis) }
 function tlPanelHtml(o){
   const view=o.view||[]; const n=tlCount(view), m=view.length;
   const items=!m
     ? `<div class="tlempty"><b>Sem requisitos ainda</b><span>Marque <b>vira requisito</b> no compositor pra transformar um pedido em requisito com prova.</span></div>`
-    : view.map((v,i)=>`<div class="tlreq"><span class="tlck ${v.ck}" aria-label="${escA(v.ck==='ok'?'com prova':v.ck==='no'?'sem prova':v.ck==='go'?'em andamento':'não começou')}"></span><span class="tlrt"><span class="tlrtx">${esc(v.text)}</span><small>${esc(v.sub)}</small>${v.ck==='ok'&&o.thumbs?o.thumbs(v.ev, i):''}</span></div>`).join('');
+    : view.map((v,i)=>`<div class="tlreq"><span class="tlck ${v.ck}" aria-label="${escA(v.ck==='ok'?'com prova':v.ck==='no'?'sem prova':v.ck==='go'?'em andamento':'não começou')}"></span><span class="tlrt"><span class="tlrtx">${esc(v.text)}</span><small>${o.subHtml?o.subHtml(v, i):esc(v.sub)}</small>${v.ck==='ok'&&o.thumbs?o.thumbs(v.ev, i):''}</span></div>`).join('');
   const pct=m?Math.round(n/m*100):0;
   let acts='';
   if(m){
@@ -59,7 +60,7 @@ function tlPanelHtml(o){
     else acts='<span class="tlgh">aprovar exige a prova de cada requisito ou um motivo</span>';
   }
   const gate=m?`<div class="tlgate"><div class="tlgr"><b>Portão de provas</b><span>${n}/${m} com prova</span></div><div class="tlbar" role="progressbar" aria-valuemin="0" aria-valuemax="${m}" aria-valuenow="${n}" aria-label="requisitos com prova"><i style="transform:scaleX(${(pct/100).toFixed(3)})"></i></div>${acts}</div>`:'';
-  return `<aside class="tlpanel${o.overlay?' overlay':''}" aria-label="Requisitos e provas"><div class="tlph"><span>Requisitos e provas</span><button type="button" class="tltog" data-tl="fold" title="${o.overlay?'fechar':'recolher (fica uma faixa com o progresso)'}" aria-label="${o.overlay?'fechar requisitos e provas':'recolher requisitos e provas'}">${TL_IC.fold}</button></div><div class="tlpb">${items}${gate}</div></aside>`;
+  return `<aside class="tlpanel${o.overlay?' overlay':''}" aria-label="Requisitos e provas"><div class="tlph"><span>Requisitos e provas</span><button type="button" class="tltog" data-tl="fold" title="${o.overlay?'fechar':'recolher (fica uma faixa com o progresso)'}" aria-label="${o.overlay?'fechar requisitos e provas':'recolher requisitos e provas'}">${TL_IC.fold}</button></div><div class="tlpb">${items}${gate}${o.extra||''}</div></aside>`;
 }
 
 // ---- pergunta do agente ----
@@ -152,7 +153,8 @@ function tlSideHtml(t){
   const folded=narrow || tlFolded(t.id);
   if(folded && !(narrow && TL.peek[t.id])) return tlRailHtml(view, { forced:narrow });
   const gate=(typeof proofGate==='function')?proofGate(t):{ st:'none', missing:[] };
-  return (narrow?tlRailHtml(view, { forced:true }):'')+tlPanelHtml({ view, gate, phase, thumbs:tlThumbs(t), overlay:narrow, loading:gate.st==='loading' });
+  return (narrow?tlRailHtml(view, { forced:true }):'')+tlPanelHtml({ view, gate, phase, thumbs:tlThumbs(t), overlay:narrow, loading:gate.st==='loading',
+    subHtml:(typeof tiProofSubHtml==='function')?(v)=>tiProofSubHtml(t, v):null, extra:(typeof tiDelivHtml==='function')?tiDelivHtml(t):'' }); // 64-terminal-integrado: provas e entregáveis viram link
 }
 function tlBarHtml(t){
   const st=taskSt(t), m=stMeta(st);
@@ -160,7 +162,9 @@ function tlBarHtml(t){
   const q=+t.queued||0;
   const ts=TERM[t.id]; const live=!!(ts && ts.mode==='live' && ts.alive);
   const gone=!live && typeof termWtGone==='function' && termWtGone(t.id);
-  const hint=live ? 'Enter no compositor entra na fila · ⌘Enter interrompe'
+  const comp=typeof tiCompOn!=='function' || tiCompOn(t); // compositor escondido (terminal integrado): digita-se no próprio terminal
+  const hint=!comp ? (live ? 'digite direto no terminal' : gone ? '' : (typeof termHeadless==='function' && termHeadless(t)) ? 'rodando em segundo plano · as sugestões e os botões entram na fila' : 'digite no terminal pra retomar a sessão')
+    : live ? 'Enter no compositor entra na fila · ⌘Enter interrompe'
     : gone ? '' : (typeof termHeadless==='function' && termHeadless(t)) ? 'Enter entra na fila · ⌘Enter interrompe e retoma no terminal'
     : (ts && ts.hinfo && ts.hinfo.resumes===false) ? 'Enter manda no modo automático' : 'Enter no compositor retoma a sessão no terminal';
   const note=tlSysNote(t);
@@ -188,7 +192,7 @@ function tlBudgetHtml(t){
 }
 /** O HTML da coluna da tarefa em modo terminal (renderWorkspace chama; o composer vem pronto de lá). */
 function tlChatHtml(t, composer){
-  return `<div class="tlwrap" data-tlwrap="${escA(t.id)}"><div class="tlcol"><div class="tltermbar" id="tlBar">${tlBarHtml(t)}</div>${termSlotHtml(t)}<div id="tlBudget">${tlBudgetHtml(t)}</div>${composer}</div><div class="tlside" id="tlSide">${tlSideHtml(t)}</div></div>`;
+  return `<div class="tlwrap" data-tlwrap="${escA(t.id)}"><div class="tlcol${typeof tiCompOn==='function'&&!tiCompOn(t)?' ti-nocomp':''}"><div class="tltermbar" id="tlBar">${tlBarHtml(t)}</div>${termSlotHtml(t)}<div id="tlBudget">${tlBudgetHtml(t)}</div>${typeof tiDockHtml==='function'?tiDockHtml(t):''}${composer}</div><div class="tlside" id="tlSide">${tlSideHtml(t)}</div></div>`;
 }
 /** Depois do innerHTML: liga o painel, mede a largura e põe a folha (se houver pergunta). */
 function tlWire(t, grab){
@@ -200,8 +204,10 @@ function tlWire(t, grab){
       finally{ delete TL.budSending[t.id]; const bd=$id('tlBudget'); if(bd){ bd.__html=''; } } }; }
   tlWatchWidth(t.id, wrap);
   tlAskPaint(t, false, grab);
+  if(typeof tiWire==='function') tiWire(t); // terminal integrado: dock (sugestões, anexar, botões → comando)
 }
 function tlSideClick(taskId, e){
+  if(typeof tiSideClick==='function' && tiSideClick(taskId, e)) return; // prova/entregável → aba Documento ou app padrão
   const lb=e.target.closest('[data-tllb]'); if(lb){ try{ const [names, i]=JSON.parse(lb.dataset.tllb); if(typeof lbOpen==='function') lbOpen(taskId, names, i); }catch(_){ } return; }
   const b=e.target.closest('[data-tl]'); if(!b) return; tlSideAct(taskId, b.dataset.tl, b);
 }
@@ -235,6 +241,7 @@ function tlLivePaint(t){
   const bar=$id('tlBar'); if(bar){ const h=tlBarHtml(t); if(bar.__html!==h){ bar.__html=h; bar.innerHTML=h; } }
   tlSidePaint(t);
   tlAskPaint(t);
+  if(typeof tiLivePaint==='function') tiLivePaint(t);
 }
 
 // ---------------------------------------------------------------- folha de pergunta
@@ -263,7 +270,7 @@ function tlAskPaint(t, focus, grab){
 }
 // a folha sobe do topo do compositor; sem espaço (pane pequeno do canvas) ela cobre o compositor também
 function tlSheetPlace(col, el){
-  const comp=col.querySelector(':scope > .fwinput'); const ch=comp?comp.offsetHeight:0; const H=col.clientHeight;
+  const comp=col.querySelector(':scope > .fwinput'), dock=col.querySelector(':scope > .tidock'); const ch=(comp?comp.offsetHeight:0)+(dock?dock.offsetHeight:0); const H=col.clientHeight; // compositor escondido = 0
   const room=H-ch; const tight=room<320;
   el.style.bottom=(tight?8:ch+12)+'px';
   el.classList.toggle('tight', H<300 || room<200);

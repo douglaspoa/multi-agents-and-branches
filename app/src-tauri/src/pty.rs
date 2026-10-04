@@ -243,13 +243,22 @@ impl PidRegistry {
     }
 }
 
-/// O processo `pid` é um CLI de agente (claude/codex/node)? Sem `ps` (Windows) → só pelo registro.
+/// O processo `pid` é um CLI de agente (claude/codex/node) ou o SHELL do terminal integrado (a linha dele leva o
+/// caminho do `starfork` da worktree: `zsh -l -i -c '…/.cardume/term/bin/starfork' ia …; zsh -l -i`)? Sem `ps`
+/// (Windows) → só pelo registro.
 pub fn looks_like_agent(pid: u32) -> bool {
     if cfg!(windows) { return true; }
-    std::process::Command::new("ps").args(["-o", "command=", "-p", &pid.to_string()]).output()
-        .map(|o| { let s = String::from_utf8_lossy(&o.stdout).to_lowercase(); s.contains("claude") || s.contains("codex") || s.contains("node") || s.contains("starfork-fake-cli") })
+    std::process::Command::new("ps").args(["-ww", "-o", "command=", "-p", &pid.to_string()]).output()
+        .map(|o| command_is_ours(&String::from_utf8_lossy(&o.stdout)))
         .unwrap_or(false)
 }
+/// PURA: a linha de comando é de um processo nosso?
+pub fn command_is_ours(cmd: &str) -> bool {
+    let s = cmd.to_lowercase();
+    s.contains("claude") || s.contains("codex") || s.contains("node") || s.contains("starfork-fake-cli") || s.contains(SHELL_MARK)
+}
+/// Marca do shell do terminal integrado na linha de comando (o shim da worktree).
+pub const SHELL_MARK: &str = ".cardume/term/bin/starfork";
 
 pub struct PtyManager {
     sessions: Mutex<HashMap<String, Arc<PtySession>>>,
@@ -576,6 +585,16 @@ mod tests {
         assert!(sink.wait_for("t5", "segunda", 5000));
         assert_eq!(m.queued("t5"), 0);
         m.kill("t5");
+    }
+
+    #[test]
+    fn shell_do_terminal_integrado_e_reconhecido_na_varredura() {
+        assert!(command_is_ours("/bin/zsh -l -i -c '/Users/a/repo/.cardume/worktrees/t/.cardume/term/bin/starfork' ia claude; '/bin/zsh' -l -i"));
+        assert!(!command_is_ours("/bin/zsh -l -i"), "shell qualquer (pid reciclado) não é nosso");
+        let mut ch = std::process::Command::new("/bin/sh").args(["-c", "sleep 30; : /x/.cardume/term/bin/starfork"]).spawn().unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(looks_like_agent(ch.id()), "a varredura do boot reconhece o shell pela linha (ps -ww: sem cortar)");
+        let _ = ch.kill(); let _ = ch.wait();
     }
 
     #[test]
