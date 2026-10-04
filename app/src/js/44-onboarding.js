@@ -37,7 +37,7 @@ const AU_LEFT={
   ready:{ h:'Conta ativa — agora é com você', s:'Conte o que você quer fazer e a IA monta o plano. Dá pra abrir uma pasta que já existe ou começar do zero.', b:[['g','Escreva o pedido em português normal'],['c','A IA monta o plano e pergunta o que faltar'],['p','Você aprova e acompanha ao vivo']], f:'conta ativa neste computador' },
   ready_repo:{ h:'Tudo pronto — pode começar', s:'Sua conta está ativa e o projeto já está aberto. Escreva a primeira demanda.', b:[['g','Escreva o pedido em português normal'],['c','A IA monta o plano e pergunta o que faltar'],['p','Você aprova e acompanha ao vivo']], f:'conta ativa neste computador' },
 };
-const AU_DOT={ g:'var(--accent)', c:'#5ec8c8', p:'#c493bb' };
+const AU_DOT={ g:'var(--accent)', c:'var(--cyan)', p:'var(--chart-7)' };
 function auLeftHtml(step){
   if(step==='ready' && typeof state!=='undefined' && state && state.repo) step='ready_repo';
   const L=AU_LEFT[step]||AU_LEFT.signup;
@@ -341,8 +341,8 @@ function auRenderReady(R, topbar){
     const where='neste computador';
     R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Estrela acesa</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativos ${where}.`:`Sua conta está ativa ${where}.`}</p>
       <div class="au-todo"><div class="au-td"><span class="au-tn" style="background:var(--accent)">1</span><span>${hasRepo?`Projeto aberto: <b>${esc(pathBase(state.repo))}</b>`:'Escolher o projeto — uma pasta sua ou um novo do zero'}</span>${hasRepo?'<span class="au-tdone">✓ aberto</span>':'<button class="au-link" id="auRepo">abrir pasta</button>'}</div>
-        <div class="au-td"><span class="au-tn" style="background:#5ec8c8">2</span><span>Conferir o que o computador precisa (Git e uma IA: Claude Code, Codex ou gateway)</span>${envCell}</div>
-        <div class="au-td"><span class="au-tn" style="background:#c493bb">3</span><span>Convidar o time${seats>1?` — assentos livres: ${Math.max(0,seats-1)}`:' (opcional)'}</span><button class="au-link" id="auTeam">convidar</button></div></div>
+        <div class="au-td"><span class="au-tn" style="background:var(--cyan)">2</span><span>Conferir o que o computador precisa (Git e uma IA: Claude Code, Codex ou gateway)</span>${envCell}</div>
+        <div class="au-td"><span class="au-tn" style="background:var(--chart-7)">3</span><span>Convidar o time${seats>1?` — assentos livres: ${Math.max(0,seats-1)}`:' (opcional)'}</span><button class="au-link" id="auTeam">convidar</button></div></div>
       <button class="au-btn primary big" id="auGo">${hasRepo?'Ir para a Central':'Começar — dizer o que eu quero fazer'}</button></div>`;
     bindClick('auGo', ()=>{ auHide(); try{ if(window.openTab) window.openTab('flow'); }catch(_){ }
       if(!hasRepo) setTimeout(()=>{ const t=$id('emWhat'); if(t) t.focus(); }, 120); });
@@ -354,7 +354,9 @@ function auRenderReady(R, topbar){
     if(!envS && typeof runEnvCheck==='function') runEnvCheck().then(()=>{ if(au.step==='ready' && auOpen()) auRender(); }).catch(()=>{});
 }
 const AU_GH='<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M8 .4a7.6 7.6 0 0 0-2.4 14.8c.4.1.5-.2.5-.4v-1.3c-2.1.5-2.6-1-2.6-1-.3-.9-.8-1.1-.8-1.1-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.8.8 2.2.6.1-.5.3-.8.5-1-1.7-.2-3.5-.8-3.5-3.7 0-.8.3-1.5.8-2-.1-.2-.3-1 .1-2 0 0 .6-.2 2.1.8a7.3 7.3 0 0 1 3.8 0c1.5-1 2.1-.8 2.1-.8.4 1 .2 1.8.1 2 .5.5.8 1.2.8 2 0 2.9-1.8 3.5-3.5 3.7.3.2.5.7.5 1.4v2.1c0 .2.1.5.5.4A7.6 7.6 0 0 0 8 .4z"/></svg>';
+// @cor-dado-inicio — logo do Google (as 4 cores da marca)
 const AU_GG='<svg viewBox="0 0 18 18" width="14" height="14"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>';
+// @cor-dado-fim
 // Google/GitHub: o botão só aparece se o provider estiver LIGADO no servidor (auBindCommon lê /auth/v1/settings).
 // "cancelar" solta a tela na hora (o navegador pode nunca voltar — antes ficava 3 min em "entrando…").
 async function auOAuth(provider){

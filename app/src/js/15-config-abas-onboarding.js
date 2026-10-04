@@ -29,7 +29,10 @@ function retroModelSelect(sel, v){
 function openCfg(){
   const body=$id('cfgBody');
   body.innerHTML=`
-    <div class="seclbl2">Custo <span class="dim cfgsecd">· quanto cada tarefa pode gastar e como o valor aparece</span></div>
+    <div class="seclbl2">Aparência <span class="dim cfgsecd">· claro (papel e tinta azul) ou escuro (verde do logo) — Sistema: segue o sistema</span></div>
+    <div class="cfgf"><div id="temaHost" style="margin-top:8px"></div>
+      <p class="cfghint">Vale na hora, inclusive nos terminais. Salva sozinho.</p></div>
+    <div class="seclbl2" style="margin-top:22px">Custo <span class="dim cfgsecd">· quanto cada tarefa pode gastar e como o valor aparece</span></div>
     <div class="cfggrid">
       <div class="cfgf"><label for="cfgCap">Teto por tarefa</label>
         <div class="cfgin"><span class="dim">US$</span><input class="in" id="cfgCap" type="number" min="0.5" step="0.5" value="${escA(String(costCapDefault()))}"><span class="dim" id="cfgCapBrl"></span></div>
@@ -98,7 +101,8 @@ function openCfg(){
     cap.oninput=upd; brl.oninput=upd; upd(); }
   // "alterações não salvas" só pros campos que dependem do botão salvar: IA padrão, gateway, GitHub, versão e
   // disco se salvam sozinhos — antes mexer neles acendia o aviso (e o salvar não fazia nada com eles)
-  { const SELF='#suaIaCfg,#raHost,#ghHost,#updHost,#wsHost,#notifHost';
+  if(typeof temaCfgMount==='function') temaCfgMount($id('temaHost')); // tema: Sistema · Claro · Escuro (04-tema) — salva sozinho
+  { const SELF='#temaHost,#suaIaCfg,#raHost,#ghHost,#updHost,#wsHost,#notifHost';
     const mark=e=>{ if(e && e.target && e.target.closest && e.target.closest(SELF)) return; const d=$id('cfgDirty'); if(d) d.textContent='alterações não salvas'; };
     body.oninput=mark; body.onchange=mark; }
   $id('cfgSave').onclick=async()=>{
@@ -320,10 +324,11 @@ function ovShow(o){
 }
 function tabsOfKind(kind){ return TABS.filter(t=>t.kind===kind); }
 function tabIcon(kind){ if(kind==='flow') return '<rect x="2.5" y="3" width="11" height="10" rx="1.4"/><path d="M2.5 6h11"/>'; return (VIEW_META[kind]||{}).icon||''; }
-function activateTab(id){ if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id;
+function activateTab(id){ const mvChanged=id!==activeTab; if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id;
   // a demanda da aba ativa vira a "selecionada" (Central/grafo) e a barra lateral repinta o destaque (railHi, 25)
   { const at=tabById(id); if(at && at.taskId) selected=at.taskId; }
   renderTabs(); showActiveView(); if(typeof renderRail==='function') renderRail();
+  if(mvChanged && typeof mvViewIn==='function' && tabById(id)){ const at=tabById(id); mvViewIn(at.kind!=='flow' ? $id((typeof cvViewTarget==='function' && cvViewTarget(at)) || VIEW_OVERLAY[at.kind]) : $id('flowPane')); } // F3: a tela nova entra
   if(typeof cvOnViewChange==='function') cvOnViewChange(); } // canvas: stream/webview reavaliam (sem laço)
 // openTab(kind, opts): views únicas reaproveitam a aba; views múltiplas abrem uma NOVA aba,
 // salvo opts.replace (a aba ativa de "Nova demanda" vira o método escolhido, mantendo o id)
@@ -495,6 +500,7 @@ function renderTabs(){
   if(typeof fwHeadDock==='function') fwHeadDock(); // faixa 1 = abas + modos + ação da tarefa (ou o cabeçalho volta pro .fw)
   requestAnimationFrame(syncChromeH);
   tabsFit();
+  if(typeof mvTabsPainted==='function') mvTabsPainted(bar); // F3: aba nova desliza pra dentro (só depois de um clique)
 }
 // R7: barra de abas lotada → modo compacto (menos respiro; o X das abas de fundo só no hover, como no navegador) e
 // rola até a ativa. Recalcula no render e ao redimensionar a janela.
@@ -624,7 +630,7 @@ function coachStart(){
   if(lsGet('coached')) return;
   let i=0;
   const tipEl=document.createElement('div'); tipEl.id='coachTip';
-  tipEl.style.cssText='position:fixed;z-index:9999;max-width:260px;background:var(--surface);border:1px solid var(--accent);border-radius:10px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.35)';
+  tipEl.style.cssText='position:fixed;z-index:9999;max-width:260px;background:var(--surface);border:1px solid var(--accent);border-radius:10px;padding:12px 14px;box-shadow:var(--shadow-pop)';
   document.body.appendChild(tipEl);
   const show=()=>{
     if(i>=COACH.length){ done(); return; }

@@ -3,10 +3,10 @@
 // fase vira uma TAREFA REAL (branch + worktree) e o grafo é só uma visão sobre elas.
 // Plano fica em .cardume/orchestrations/<id>.json; a coordenação (iniciar uma fase
 // quando as anteriores PROVARAM o resultado) roda aqui, no app, a cada refresh.
-const ORQ_KINDS={ invest:{label:'Investigar', badge:'IN', color:'#b47ce0', branch:'invest', doc:'INVESTIGATION.md', agent:'Investigador'},
+const ORQ_KINDS={ invest:{label:'Investigar', badge:'IN', color:'var(--purple)', branch:'invest', doc:'INVESTIGATION.md', agent:'Investigador'},
                   design:{label:'Desenhar',   badge:'DS', color:'var(--info)', branch:'design', doc:'DESIGN.md', agent:'Designer'},
-                  build: {label:'Implementar',badge:'IM', color:'#3fd68a', branch:'feat',   doc:null, agent:'Coder'},
-                  review:{label:'Revisar',    badge:'CR', color:'#4fc4c9', branch:'review', doc:'REVIEW.md', agent:'Revisor'} };
+                  build: {label:'Implementar',badge:'IM', color:'var(--ok)', branch:'feat',   doc:null, agent:'Coder'},
+                  review:{label:'Revisar',    badge:'CR', color:'var(--cyan)', branch:'review', doc:'REVIEW.md', agent:'Revisor'} };
 function orqNewState(){ return { step:'brief', briefing:'', atts:[], plan:null, sel:null, zoom:1, pan:{x:40,y:40}, busy:false, msg:'', list:null, addOpen:false, model:'', chatDraft:'', chatBusy:false, chatAtts:[] }; }
 let orq=orqNewState();
 window.orqFresh=()=>{ const l=orq.list; orq=orqNewState(); orq.list=l; };
@@ -138,7 +138,7 @@ function orqPlanStats(p){ const ph=p.phases||[]; const st=ph.map(orqPhaseState);
 // cor/rótulo do plano inteiro pra sidebar e quadro: pergunta pendente > erro > pra revisar > rodando > esperando
 function orqPlanTone(p, s){ if(p.status==='planned') return { col:'var(--muted)', label:'plano proposto · aguardando aprovação' }; if(p.status==='done') return { col:ORQ_ST.done, label:'concluído' };
   if(s.ask) return { col:ORQ_ST.asking, label:`${s.ask} fase${s.ask===1?'':'s'} esperando sua resposta` }; if(s.err) return { col:ORQ_ST.error, label:`${s.err} fase(s) com erro` }; if(s.rev) return { col:ORQ_ST.review, label:`${s.rev} entrega${s.rev===1?'':'s'} pra revisar` };
-  if(s.run) return { col:ORQ_ST.running, label:`${s.run} rodando · ${s.done}/${s.total} prontas` }; return { col:'rgba(255,255,255,.5)', label:`esperando · ${s.done}/${s.total} prontas` }; }
+  if(s.run) return { col:ORQ_ST.running, label:`${s.run} rodando · ${s.done}/${s.total} prontas` }; return { col:'var(--muted)', label:`esperando · ${s.done}/${s.total} prontas` }; }
 // sidebar: uma linha por plano vivo, acima das tarefas do projeto
 function orqRailRows(){
   const list=(orq.list||[]).filter(p=>p.status!=='done'&&!orqOtherRepo(p));
@@ -203,9 +203,9 @@ function orqRenderBrief(body){
     ${orq.msg?`<div class="orq-msg${orq.msgErr?' err':''}" role="${orq.msgErr?'alert':'status'}"><span>${esc(orq.msg)}</span>${orq.msgErr&&orq.briefing.trim().length>=12?'<button class="btn sm" id="orqRetry">tentar de novo</button>':''}</div>`:''}
     <div class="ndeyebrow" style="margin-top:26px">o orquestrador pode</div>
     <div class="orq-can">
-      <div><i style="background:#3fd68a"></i>Quebrar em fases com dependência: uma só começa quando a anterior provar o resultado</div>
-      <div><i style="background:#4fc4c9"></i>Abrir um subagente por fase, cada um numa cópia isolada do projeto</div>
-      <div><i style="background:#b47ce0"></i>Rodar em paralelo o que não depende de ninguém</div>
+      <div><i style="background:var(--ok)"></i>Quebrar em fases com dependência: uma só começa quando a anterior provar o resultado</div>
+      <div><i style="background:var(--cyan)"></i>Abrir um subagente por fase, cada um numa cópia isolada do projeto</div>
+      <div><i style="background:var(--purple)"></i>Rodar em paralelo o que não depende de ninguém</div>
       <div><i style="background:var(--st-ask)"></i>Parar e te perguntar sempre que a decisão for sua</div>
     </div>
 `}
@@ -320,7 +320,7 @@ function orqRenderPlan(body){
   <div class="orq-main">
     <div class="orq-canvaswrap">
       <div class="orq-tools"><button class="as-btn" id="orqAdd">+ subagente</button>
-        <span class="orq-leg"><i style="background:${ORQ_ST.running}"></i>rodando <i style="background:${ORQ_ST.asking}"></i>perguntou · responda <i style="background:${ORQ_ST.review}"></i>entregou · revise <i style="background:${ORQ_ST.done}"></i>pronto <i style="background:${ORQ_ST.error}"></i>erro <i style="background:rgba(255,255,255,.35)"></i>esperando</span>
+        <span class="orq-leg"><i style="background:${ORQ_ST.running}"></i>rodando <i style="background:${ORQ_ST.asking}"></i>perguntou · responda <i style="background:${ORQ_ST.review}"></i>entregou · revise <i style="background:${ORQ_ST.done}"></i>pronto <i style="background:${ORQ_ST.error}"></i>erro <i style="background:var(--border-strong)"></i>esperando</span>
         <span style="flex:1"></span><span class="mono dim" style="font-size:var(--fs-xs)">arraste o fundo</span>
         <span class="orq-zoom"><button data-orqz="-">−</button><button data-orqz="fit">ajustado</button><button data-orqz="+">+</button></span></div>
       <div class="orq-canvas" id="orqCanvas">

@@ -101,6 +101,7 @@ function cicloPaint(t){
   { const oc=(typeof FW_HEAD!=='undefined' && FW_HEAD.orq)||null; if(oc && host.contains(oc)) oc.remove(); } // o nó dos chips do orquestrador sobrevive ao innerHTML
   host.innerHTML=strip+(d?cicloDecisionHtml(t, d, ui):plan)+learn;
   host.hidden=!host.innerHTML;
+  cicMotion(t, host);
   ['cicUsd','cicWhy'].forEach(id=>{ const el=$id(id); if(el) el.oninput=()=>{ const u=cicUi[t.id]=cicUi[t.id]||{}; u[id==='cicUsd'?'usd':'why']=el.value; }; });
   const on=(id, k)=>{ const b=$id(id); if(b) b.onclick=()=>cicloAct(t, k); };
   on('cicRelease','release'); on('cicStop','stop'); on('cicGo','go'); on('cicRound','round');
@@ -109,6 +110,18 @@ function cicloPaint(t){
   if(typeof fwOrqChipsPlace==='function') fwOrqChipsPlace();
   if(learn && typeof learnWire==='function') learnWire(host, { repo:()=>state.repo, items:()=>(cicLearn[t.id]||{}).items||[], repaint:()=>{ host.__sig=''; cicloPaint(t); }, after:async()=>{ delete cicLearn[t.id]; host.__sig=''; cicloPaint(t); } });
   if(keep){ const el=$id(keep); if(el){ el.focus(); try{ el.setSelectionRange(el.value.length, el.value.length); }catch(_){ } } }
+}
+
+// F3 (movimento): etapa que acabou de ser FEITA enche a estação (a bolinha "assenta") e o contador do portão rola —
+// só quando muda em relação à pintura anterior desta tarefa (1ª pintura, troca de tarefa e poll igual: nada)
+const CIC_MV={};
+function cicMotion(t, host){
+  const st=[...host.querySelectorAll('.cicst')], feito={}, by={}; st.forEach((li,i)=>{ const k=li.dataset.st||String(i); feito[k]=li.classList.contains('s-feito'); by[k]=li; }); // chave = id da etapa (estável)
+  const b=host.querySelector('.cicgate-tx b'), ok=b?parseInt(b.textContent,10):null;
+  const prev=CIC_MV[t.id]; CIC_MV[t.id]={ feito, ok };
+  if(!prev || typeof mvNewlyTrue!=='function') return;
+  mvNewlyTrue(prev.feito, feito).forEach(k=>{ const av=by[k] && by[k].querySelector('.cicst-av'); mvAnim(av, [{ transform:'scale(.4)', opacity:.4 }, { transform:'scale(1.12)', opacity:1, offset:.6 }, { transform:'none' }], { duration:300 }); });
+  if(mvTicked(prev.ok, ok)){ mvTick(b); mvAnim(host.querySelector('.cicgate-ring'), [{ transform:'scale(.8)' }, { transform:'scale(1.12)', offset:.6 }, { transform:'none' }], { duration:300 }); }
 }
 
 // ---------- P9: os aprendizados que a retro DESTA tarefa propôs, em frase, logo abaixo da faixa ----------
@@ -251,7 +264,7 @@ function stageStripHtml(stages, sum, o){
     const cost=s.usd>0?`<span class="cicst-c">${esc(usd(s.usd))}</span>`:'';
     const lock=s.lock?`<span class="cicst-k" title="${s.lock===1?'Cadeado 1: você aprova o plano':'Cadeado 2: você aprova a entrega (portão)'}">${CIC_LOCK}<span class="sr-only">cadeado ${s.lock}</span></span>`:'';
     const cur=(s.state==='agora'||s.state==='precisa'||s.state==='sua-vez');
-    return `<li class="cicst s-${s.state}${o.open===i?' open':''}"><button class="cicst-b" data-cicst="${i}"${cur?' aria-current="step"':''} aria-expanded="${o.open===i?'true':'false'}" title="${escA(s.label+(s.who?' · '+s.who:'')+': '+s.word)}">${face}<span class="cicst-tx"><span class="cicst-l">${esc(s.label)}${lock}</span><span class="cicst-w">${esc(s.word)}</span></span>${cost}</button></li>`;
+    return `<li class="cicst s-${s.state}${o.open===i?' open':''}" data-st="${escA(String(s.id||s.role||i))}"><button class="cicst-b" data-cicst="${i}"${cur?' aria-current="step"':''} aria-expanded="${o.open===i?'true':'false'}" title="${escA(s.label+(s.who?' · '+s.who:'')+': '+s.word)}">${face}<span class="cicst-tx"><span class="cicst-l">${esc(s.label)}${lock}</span><span class="cicst-w">${esc(s.word)}</span></span>${cost}</button></li>`;
   }).join('<li class="cicst-sep" aria-hidden="true"></li>');
   const capTx=sum.cap>0?` de ${esc(usd(sum.cap))}`:'';
   // o.foot: rodapé próprio (a prévia da equipe em "Meu time" mostra o custo médio, não o "gasto até agora")
@@ -347,7 +360,8 @@ function cicloStripHtml(t){
   const ep=(typeof epTaskBadge==='function')?epTaskBadge(t):'';
   const pill=((typeof phasesHtml==='function')?`<span class="cicst-pill"${br?` title="${escA(br)}"`:''}>${phasesHtml(t)}</span>`:'')+
     (ep?`<span class="cicst-epic">${ep}</span>`:'')+(t.orchestration?'<span class="cicst-orq" id="cicOrq"></span>':'')+
-    (t.branch?`<span class="cicst-br mono" title="${escA(br)}">${esc(t.branch)}</span>`:'');
+    (t.branch?`<span class="cicst-br mono" title="${escA(br)}">${esc(t.branch)}</span>`:'')+
+    ((typeof enStampEntregue==='function')?enStampEntregue(t):''); // integrada: o carimbo "entregue" (27-entregas)
   return stageStripHtml(st, sum, { open, color:(typeof agentColor==='function')?agentColor:null, gate:cicGateHtml(x.gate), pill })+(open!=null&&st[open]?cicloStageDetail(t, st[open]):'');
 }
 // o que a etapa entregou, em linguagem normal; o log fica em "ver detalhes"

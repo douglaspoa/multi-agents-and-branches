@@ -55,7 +55,7 @@ function tlPanelHtml(o){
   // linha do tempo (direção B): uma estação por requisito, R1…Rn, com as miniaturas das provas e o carimbo
   const items=!m
     ? `<div class="tlempty"><b>Sem requisitos ainda</b><span>Marque <b>vira requisito</b> no compositor pra transformar um pedido em requisito com prova.</span></div>`
-    : `<ol class="tltl" aria-label="requisitos">`+view.map((v,i)=>`<li class="tlreq ck-${v.ck||'na'}"><span class="tlck ${v.ck}" aria-label="${escA(TL_CK_TXT[v.ck]||'não começou')}"></span><span class="tlrt"><span class="tlrtx"><b class="tlrn">R${i+1}</b> ${esc(v.text)}</span><small>${o.subHtml?o.subHtml(v, i):esc(v.sub)}</small>${v.ck==='ok'&&o.thumbs?o.thumbs(v.ev, i):''}</span>${tlStampHtml(v.ck)}</li>`).join('')+`</ol>`;
+    : `<ol class="tltl" aria-label="requisitos">`+view.map((v,i)=>`<li class="tlreq ck-${v.ck||'na'}" data-rk="${escA(v.text)}"><span class="tlck ${v.ck}" aria-label="${escA(TL_CK_TXT[v.ck]||'não começou')}"></span><span class="tlrt"><span class="tlrtx"><b class="tlrn">R${i+1}</b> ${esc(v.text)}</span><small>${o.subHtml?o.subHtml(v, i):esc(v.sub)}</small>${v.ck==='ok'&&o.thumbs?o.thumbs(v.ev, i):''}</span>${tlStampHtml(v.ck)}</li>`).join('')+`</ol>`;
   const req=m-ad; // exigidos: adiado com motivo conta como resolvido (o portão não pede prova dele)
   const pct=req?Math.round(n/req*100):(m?100:0);
   let acts='';
@@ -240,7 +240,25 @@ async function tlSideAct(taskId, k, btn){
 function tlSidePaint(t, force){
   const side=$id('tlSide'); if(!side || !side.isConnected) return;
   const h=tlSideHtml(t); if(!force && side.__html===h) return;
+  const bar0=side.querySelector('.tlbar i'), sc0=bar0?tlBarScale(bar0):null;
   side.__html=h; side.innerHTML=h;
+  tlMotion(t, side, sc0);
+}
+// F3 (movimento): só o que MUDOU desde a última pintura desta tarefa anima — requisito que acabou de ser provado (o
+// carimbo cai e a estação enche), o contador do portão rola e a barra anda do valor velho pro novo. 1ª pintura, troca de
+// tarefa e poll sem mudança: nada. A comparação é pelo TEXTO do requisito (data-rk) — reordenar/inserir não engana —, por tarefa.
+const TL_MV={};
+function tlBarScale(i){ const m=String(i.style.transform||'').match(/scaleX\(([\d.]+)\)/); return m?+m[1]:null; }
+function tlMotion(t, side, sc0){
+  const items=[...side.querySelectorAll('.tltl .tlreq')]; if(!items.length) return; // faixa recolhida: guarda o que havia
+  const ok={}, by={}; items.forEach((li,i)=>{ const k=li.dataset.rk||String(i); ok[k]=li.classList.contains('ck-ok'); by[k]=li; }); // chave = o texto do requisito (estável)
+  const n=items.filter(li=>li.classList.contains('ck-ok')).length;
+  const prev=TL_MV[t.id]; TL_MV[t.id]={ ok, n };
+  if(!prev || typeof mvNewlyTrue!=='function') return;
+  mvNewlyTrue(prev.ok, ok).forEach(k=>{ const li=by[k]; if(!li) return; stampLand(li.querySelector('.tlstamp')); mvAnim(li.querySelector('.tlck'), [{ transform:'scale(.3)' }, { transform:'none' }], { duration:260 }); });
+  if(mvTicked(prev.n, n)){ mvTick(side.querySelector('.tlgr span'));
+    const bar=side.querySelector('.tlbar i'), sc=bar?tlBarScale(bar):null;
+    if(bar && sc0!=null && sc!=null && sc!==sc0) mvAnim(bar, [{ transform:`scaleX(${sc0})` }, { transform:`scaleX(${sc})` }], { duration:280 }); }
 }
 // largura da coluna: abaixo de TL_NARROW o painel vira faixa (canvas com 2–3 tarefas, janela estreita)
 function tlWatchWidth(taskId, wrap){

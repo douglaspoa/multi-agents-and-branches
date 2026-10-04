@@ -5,7 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Starfork</title>
 <script>/* marca a plataforma no <html> ANTES do CSS: só o macOS tem semáforos à esquerda */try{var ua=navigator.userAgent;document.documentElement.classList.add(/Mac/i.test(ua)?'os-mac':/Windows/i.test(ua)?'os-win':'os-linux');}catch(e){document.documentElement.classList.add('os-mac');}</script>
+<meta name="color-scheme" content="light dark">
+<script>/* tema ANTES da 1ª pintura (sem piscar): preferência salva (Sistema/Claro/Escuro) → html[data-theme]; o 04-tema.js assume depois. Sem localStorage (bloqueado), ainda segue o sistema */(function(d){var p=null,dk=false;try{p=localStorage.getItem('theme');}catch(e){}try{dk=!!(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);}catch(e){}d.dataset.theme=(p==='light'||p==='dark')?p:(dk?'dark':'light');})(document.documentElement);</script>
 <link rel="stylesheet" href="css/10-base.css">
+<link rel="stylesheet" href="css/15-movimento.css">
 <link rel="stylesheet" href="css/20-abas-e-telas.css">
 <link rel="stylesheet" href="css/30-refino-macos.css">
 <link rel="stylesheet" href="css/40-sidebar-quadro.css">
@@ -36,10 +39,6 @@
 <link rel="stylesheet" href="css/97-revisao-pr.css">
 <link rel="stylesheet" href="css/98-terminal-integrado.css">
 <link rel="stylesheet" href="css/98-fabrica.css">
-<!-- fontes da interface (Instrument Sans / JetBrains Mono) carregadas UMA vez no boot, sem bloquear a pintura:
-     offline, as pilhas var(--display)/var(--code) caem nas fontes do sistema -->
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link id="ndFonts" rel="stylesheet" media="print" onload="this.media='all'" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 </head>
 <body>
 <div class="app">
@@ -732,6 +731,8 @@
   </div>
 </div>
 <script src="js/00-util.js"></script>
+<script src="js/04-tema.js"></script>
+<script src="js/05-movimento.js"></script>
 <script src="js/06-carregamento.js"></script>
 <script src="js/09-remote-id.js"></script>
 <script src="js/10-core.js"></script>

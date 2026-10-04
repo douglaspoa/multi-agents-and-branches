@@ -1,3 +1,6 @@
+// @cor-dado-inicio — cor padrão do agente (gravada; o <input type=color> exige hex — mesma do PALETTE[0] de 33)
+const AG_COLOR0='#1e9e4a';
+// @cor-dado-fim
 // Starfork — 61-meu-time
 // "MEU TIME" (F3 da decisão da mesa de 03/10/2026): a aba Agentes & Equipes vira a página do time.
 //  - cartões com rosto, "o que faz" numa frase e CONTAGENS CRUAS com o n à vista ("3 de 7 de primeira");
@@ -211,7 +214,7 @@ function agCardHtml(a, i){
   const v=AGS.rows?agViewOf(a):null;
   const stats=v?`<span class="agc-s">${esc(v.line)}</span>${v.note?`<span class="agc-k">${esc(v.note)}</span>`:''}`:`<span class="agc-s ld">lendo o que ${esc(a.name||'ele')} já fez…</span>`;
   return `<li class="agcard"><button class="agcard-b" data-open="${i}" data-agtile="${i}" draggable="true" title="${escA(agRunLabel(a)+' · arraste pra dentro de uma equipe')}">
-    <span class="av" style="background:${escA(a.color||'#1e9e4a')}">${avatarInner(a)}</span>
+    <span class="av" style="background:${escA(a.color||AG_COLOR0)}">${avatarInner(a)}</span>
     <span class="agc-tx"><span class="agc-n">${esc(a.name||'—')}<span class="agc-r">${esc(roleLabel(a.role))}</span></span>
     <span class="agc-d">${esc(agDoes(a))}</span>${stats}</span></button></li>`;
 }
@@ -255,7 +258,7 @@ function agFichaRender(){
   const TABS=[['historico','Histórico'],['aprendizados','Aprendizados'+(learnN||pendN?` (${learnN}${pendN?` + ${pendN} pra decidir`:''})`:'')],['editar','Editar (avançado)']];
   host.innerHTML=`<div class="agf">
     <button class="lnk agf-back" id="agfBack">${IC.chevL||'←'} Meu time</button>
-    <header class="agf-h"><span class="av big" style="background:${escA(a.color||'#1e9e4a')}">${avatarInner(a)}</span>
+    <header class="agf-h"><span class="av big" style="background:${escA(a.color||AG_COLOR0)}">${avatarInner(a)}</span>
       <div class="agf-ht"><h2 class="agf-n">${esc(a.name||'—')}</h2><p class="agf-d">${esc(agDoes(a))}</p>
       <p class="agf-meta"><span>${esc(agRunLabel(a))}</span>${ver!=null?`<span class="agf-v" title="cada mudança aceita por você vira uma versão (guardamos as últimas 5)">v${ver}</span>`:''}</p></div></header>
     ${v?`<p class="agf-s">${esc(v.line)}</p>${v.note?`<p class="agf-k">${esc(v.note)} — os números só viram porcentagem a partir de ${AG_MIN_N} tarefas no portão.</p>`:''}`:''}
@@ -390,7 +393,7 @@ function agEditTabHtml(a, i){
     <p class="dim agf-hint">Motor e modelo valem pra este agente em todas as equipes. Salvar cria uma versão nova dele — dá pra voltar com 1 clique.</p>
     <label for="agfPersona" style="display:block;margin-top:10px">Persona (as instruções dele)</label>
     <textarea class="agpersona" id="agfPersona" data-i="${i}" data-k="persona" placeholder="o que este agente faz e como pensa">${esc(a.persona||'')}</textarea>
-    <div class="pickrow"><span class="lbl3">Cor</span>${PALETTE.map(c=>`<button class="colorsw${(a.color||'').toLowerCase()===c?' on':''}" style="background:${c}" data-color="${i}" data-c="${c}" aria-label="cor ${c}"></button>`).join("")}<input class="swatch" type="color" value="${escA(a.color||'#1e9e4a')}" data-i="${i}" data-k="color" title="cor personalizada"></div>
+    <div class="pickrow"><span class="lbl3">Cor</span>${PALETTE.map(c=>`<button class="colorsw${(a.color||'').toLowerCase()===c?' on':''}" style="background:${c}" data-color="${i}" data-c="${c}" aria-label="cor ${c}"></button>`).join("")}<input class="swatch" type="color" value="${escA(a.color||AG_COLOR0)}" data-i="${i}" data-k="color" title="cor personalizada"></div>
     <div class="pickrow"><span class="lbl3">Avatar</span><button class="glyph ini${!a.avatar?' on':''}" data-glyph="${i}" data-g="">Aa</button>${GLYPHS.map(gp=>`<button class="glyph${a.avatar===gp?' on':''}" data-glyph="${i}" data-g="${escA(gp)}">${gp}</button>`).join("")}</div>
     <datalist id="catList">${allCats().map(c=>`<option value="${escA(c)}"></option>`).join("")}</datalist>
     <section class="agf-sec"><h3 class="agf-h3">Versões</h3>${verH}</section>

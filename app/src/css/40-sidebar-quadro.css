@@ -53,7 +53,7 @@
 .frow .seg5 i.warn{background:var(--warn)}
 .frow .msg{font-size:var(--fs-sm);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:60px}
 .frow .tm{font:500 var(--fs-xs) var(--ui);font-variant-numeric:tabular-nums;color:var(--muted);flex:none}
-.frow .ini2{width:20px;height:20px;border-radius:var(--r-pill);display:grid;place-items:center;font-size:var(--fs-ini);font-weight:800;color:#08110c;flex:none}
+.frow .ini2{width:20px;height:20px;border-radius:var(--r-pill);display:grid;place-items:center;font-size:var(--fs-ini);font-weight:800;color:var(--on-tone);flex:none}
 .frow.done{opacity:.55}
 /* barra de % de conclusão (linha e card) — clique abre o resumo */
 .pctwrap{width:88px;height:5px;border-radius:var(--r-pill);background:var(--border-strong);overflow:hidden;flex:none;cursor:pointer}
@@ -178,9 +178,9 @@
 .step.done:not(:last-child)::before{background:var(--good)}
 .smark{width:17px;height:17px;border-radius:50%;display:grid;place-items:center;font-size:var(--fs-xs);font-weight:700;border:1.5px solid var(--border);color:var(--muted);background:var(--surface);z-index:1}
 .smark svg{width:10px;height:10px}
-.step.done .smark{background:var(--good);border-color:var(--good);color:#fff}
+.step.done .smark{background:var(--good);border-color:var(--good);color:var(--on-tone)}
 .step.cur .smark{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,var(--surface))}
-.step.err .smark{background:var(--crit);border-color:var(--crit);color:#fff}
+.step.err .smark{background:var(--crit);border-color:var(--crit);color:var(--on-tone)}
 .step.wait .smark{opacity:.65}
 .spin{width:8px;height:8px;border-radius:50%;background:var(--accent);--pc:var(--accent);position:relative}
 .stx{display:flex;flex-direction:column;gap:0;padding-top:1px;min-width:0}
@@ -209,7 +209,7 @@
 .kplay{flex:none;width:20px;height:20px;border-radius:6px;border:none;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;cursor:pointer}
 .kplay svg{width:11px;height:11px}
 .kcrew{display:flex;gap:4px;margin-top:8px}
-.kav{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:var(--fs-ini);font-weight:700;color:#fff}
+.kav{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-size:var(--fs-ini);font-weight:700;color:var(--on-tone)}
 .kav.cur{box-shadow:0 0 0 1.5px var(--surface),0 0 0 3px var(--text-2)} /* R5-5: quem está na vez = anel, a cor continua a do agente (catálogo) */
 .knote{margin-top:8px;font-size:var(--fs-xs);color:var(--muted);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .knote.amber{color:var(--warn)}

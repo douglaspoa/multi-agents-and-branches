@@ -107,7 +107,7 @@ test('requisitos: adiado é tracejado com "adiado — motivo: …" (nunca riscad
   assert.match(p, /1 de 2 exigidos com prova · 2 adiados/);
   assert.match(p, /aria-valuemax="2" aria-valuenow="1"/);
   assert.match(p, /<span class="tlphn">4 requisitos<\/span>/);
-  assert.match(p, /<li class="tlreq ck-ok"><span class="tlck ok"[^>]*><\/span><span class="tlrt"><span class="tlrtx"><b class="tlrn">R1<\/b> r1/);
+  assert.match(p, /<li class="tlreq ck-ok" data-rk="r1"><span class="tlck ok"[^>]*><\/span><span class="tlrt"><span class="tlrtx"><b class="tlrn">R1<\/b> r1/);
   assert.equal((p.match(/class="tlstamp ok"/g) || []).length, 1);
   assert.equal((p.match(/class="tlstamp ad"/g) || []).length, 2);
   assert.equal(TL.tlStampHtml('no'), '', 'só provado e adiado carimbam');
@@ -117,7 +117,9 @@ test('requisitos: adiado é tracejado com "adiado — motivo: …" (nunca riscad
   assert.match(rail, /<i class="ad"><\/i>/);
   const css = read('css/95-terminal.css');
   const f1 = css.slice(css.indexOf('redesenho F1: requisitos como LINHA DO TEMPO'));
-  assert.ok(!/rotate|animation|transition/.test(f1), 'carimbo estático');
+  // F2/F3: o carimbo ganhou a leve rotação do protótipo (componente .stamp), mas segue ESTÁTICO no CSS — a queda é do
+  // 05-movimento (stampLand), só quando o requisito acaba de ser provado
+  assert.ok(!/animation|transition/.test(f1), 'carimbo estático');
   // Entrega usa os mesmos carimbos e o mesmo "adiado — motivo"
   const en = read('js/27-entregas.js');
   assert.match(en, /tlStampHtml\(ck\)/); assert.match(en, /tlAdiadoSub\(r\.note\)/); assert.match(en, /<b class="tlrn">R\$\{i\+1\}<\/b>/);
@@ -219,7 +221,7 @@ test('Central: tabela é a vista padrão (uma vez pra todo mundo), cartões/grad
   assert.match(q, /if\(lsGet\('flowViewF1'\)!=='1'\)\{ lsSet\('flowViewF1','1'\); if\(!v \|\| v==='list'\)\{ lsSet\('flowView','table'\); return 'table'; \} \}/, 'só migra lista ou nada escolhido (grade fica)');
   assert.match(q, /function flowTableOk\(\)\{ return flowScope!=='done' && flowGroupBy!=='day'; \}/);
   assert.match(q, /Tabela só na Execução sem agrupar por dia[^`]*\$\{flowTableOk\(\)\?'':' disabled'\}/);
-  assert.match(q, /selected=t\.id; render\(\); openOrEdit\(t\); \}\);/, 'data-dcopen = mesmo caminho do Enter (rascunho abre o editor)');
+  assert.match(q, /const go=\(\)=>\{ selected=t\.id; render\(\); openOrEdit\(t\); \};[^\n]*\n\s*if\(typeof mvOpen==='function'\) mvOpen\(ti, go\); else go\(\); \}\);/, 'data-dcopen = mesmo caminho do Enter (rascunho abre o editor); F3: com o voo do título');
   // abrir a linha e ordenar mexem NO LUGAR (sem refazer a Central a cada clique)
   const wire = cut(ct, 'function ctWire(el, src){', '\n}\n');
   assert.ok(!/renderFlow\(/.test(wire), 'nada de renderFlow no clique');
@@ -278,4 +280,24 @@ test('F1 é só estrutura: as seções novas de CSS usam tokens (sem cor fixa) e
     assert.ok(!/#[0-9a-f]{3,8}\b(?![^{]*\{)/i.test(s.replace(/#fw\w+|#tab\w+|#tlBar|#fwCiclo/g, '')), 'sem cor fixa: ' + mark);
     assert.ok(!/@keyframes|animation:|transition:/.test(s), 'sem animação nova: ' + mark);
   }
+});
+
+// bug dos modos que sumiam: o renderTabs tira o cabeçalho DOCADO da barra (nó solto) e o fwHeadDock devolve o MESMO nó.
+// Outras telas (#ctPageOverlay, #epicOverlay) têm o próprio .fwhead — antes isso fazia o fwHeadEl trocar o nó guardado
+// pelo de #fwOverlay (que não existe mais: o nosso estava solto) e os modos sumiam.
+test('fwHeadEl: dock → renderTabs (nó solto) → dock mantém o MESMO cabeçalho, mesmo com outro .fwhead na página', () => {
+  const ws = read('js/20-workspace-tarefa.js');
+  const src = ws.slice(ws.indexOf('// @fw-headel-puro-inicio'), ws.indexOf('// @fw-headel-puro-fim'));
+  const head = { isConnected: true, cls: 'fwhead docked' }, other = { isConnected: true, cls: 'fwhead (épico)' };
+  let inFw = null, anyFw = other; // #fwOverlay .fwhead: nenhum (o nosso estava docado); outro .fwhead na página: o do épico
+  const document = { querySelector: (sel) => sel === '#fwOverlay .fwhead' ? inFw : sel === '.fwhead' ? anyFw : null };
+  const FW_HEAD = { node: head };
+  const fwHeadEl = new Function('document', 'FW_HEAD', src + '\nreturn fwHeadEl;')(document, FW_HEAD);
+  assert.equal(fwHeadEl(), head, 'docado e conectado');
+  head.isConnected = false; // renderTabs: bar.querySelector('.fwhead').remove()
+  assert.equal(fwHeadEl(), head, 'solto pelo renderTabs: continua o mesmo nó (o .fwhead do épico não conta)');
+  head.isConnected = true; assert.equal(fwHeadEl(), head, 'devolvido pelo fwHeadDock');
+  // só OUTRO cabeçalho da TAREFA substitui (a tela da tarefa remontada)
+  head.isConnected = false; const fresh = { isConnected: true }; inFw = fresh;
+  assert.equal(fwHeadEl(), fresh); assert.equal(FW_HEAD.node, fresh);
 });

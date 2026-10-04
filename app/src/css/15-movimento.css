@@ -1,0 +1,27 @@
+/* Starfork — 15-movimento (redesenho F3): o CSS do movimento. Os helpers estão em js/05-movimento.js.
+   150–300 ms, só transform/opacity; "reduzir movimento" já vira corte instantâneo pela regra global do 10-base.
+   Nada infinito além do ponto "rodando" visível — e ele pausa com a janela escondida. */
+:root{ --ease:cubic-bezier(.2,.8,.2,1); }
+/* janela escondida/minimizada (05-movimento marca html.sf-hidden): o que é infinito para de gastar */
+html.sf-hidden *,html.sf-hidden *::before,html.sf-hidden *::after{animation-play-state:paused!important}
+/* troca de tema / View Transitions: corte curto */
+::view-transition-old(root),::view-transition-new(root){animation-duration:.22s}
+/* abrir demanda: o título clicado voa até a aba (05-movimento, mvOpen) */
+::view-transition-group(sf-open){animation-duration:.26s;animation-timing-function:var(--ease)}
+
+/* modos da tarefa: a pílula e o sublinhado DESLIZAM até o modo escolhido (posicionados pelo 05-movimento, mvGlide) */
+.fwmodes{position:relative}
+.fwmodes .fwmode{position:relative;z-index:1}
+.fwmodes.has-ind .fwmode.on{background:transparent;box-shadow:none}
+.fwmodes .mvind,.fwmodes .mvul{position:absolute;left:0;width:0;pointer-events:none;transition:transform .24s var(--ease),width .24s var(--ease)} /* largura (não escala): cantos redondos ficam redondos */
+.fwmodes .mvind{z-index:0;top:2px;bottom:2px;border-radius:6px;background:var(--surface);box-shadow:0 1px 2px color-mix(in srgb,var(--shade) 20%,transparent)}
+.fwmodes .mvul{z-index:2;bottom:-1px;height:2px;border-radius:1px;background:var(--accent)}
+.fwmodes.asmenu .mvind,.fwmodes.asmenu .mvul{display:none}
+.fwmodes.mv-instant .mvind,.fwmodes.mv-instant .mvul{transition:none}
+
+/* o ÚNICO infinito do app: o ponto "rodando" da lateral pulsa um anel (transform/opacity). Lateral recolhida = display
+   none = não roda; janela escondida = pausado (html.sf-hidden). Reduzir movimento: sem anel. */
+.prow2 .d.run{position:relative}
+.prow2 .d.run::after{content:"";position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--accent);opacity:0;animation:mvpulse 1.8s ease-out infinite}
+@keyframes mvpulse{0%{transform:scale(.6);opacity:.7}100%{transform:scale(1.35);opacity:0}}
+@media (prefers-reduced-motion: reduce){ .prow2 .d.run::after{animation:none;display:none} }

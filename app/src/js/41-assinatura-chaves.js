@@ -194,7 +194,7 @@ function routeAiCfgHtml(){
     <div id="raPanel" style="margin-top:12px;border:1px solid var(--border);border-radius:var(--r-sm);padding:13px 14px;background:var(--surface-2)">
       <label style="margin:0">Chave do gateway <span class="dim" style="text-transform:none;letter-spacing:0">(fica só no seu cofre)</span></label>
       ${hasKey
-        ? `<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="color:var(--ok,#3fb950)">✓ configurada</span><span class="dim mono" style="font-size:var(--fs-xs)">••••${esc(key.slice(-4))}</span><span style="flex:1"></span><button class="btn sm" id="raKeyEdit">trocar</button></div>`
+        ? `<div style="display:flex;align-items:center;gap:8px;margin-top:6px"><span style="color:var(--ok)">✓ configurada</span><span class="dim mono" style="font-size:var(--fs-xs)">••••${esc(key.slice(-4))}</span><span style="flex:1"></span><button class="btn sm" id="raKeyEdit">trocar</button></div>`
         : `<div style="display:flex;gap:8px;margin-top:6px"><input class="in mono" id="raKey" type="password" placeholder="cole a chave do gateway" style="flex:1"><button class="btn sm" id="raKeySave">salvar</button></div>`}
       <label style="margin-top:14px">Modelo</label>
       <select class="sel" id="raModel" aria-label="modelo do gateway" style="width:100%;margin-top:6px"${hasKey?'':' disabled'}>${RA_MODELS.map(m=>`<option value="${escA(m[0])}"${m[0]===model?' selected':''}>${esc(m[1])}</option>`).join('')}${known?'':`<option value="${escA(model)}" selected>${esc(model)} (custom)</option>`}</select>
@@ -212,7 +212,7 @@ function routeAiCfgHtml(){
         <div class="rin"><b>Usar sempre <span class="dim" style="font-weight:400">(modo teste)</span></b><div class="dim" style="margin-top:2px">Todas as tarefas novas rodam na alternativa. Desligue pra voltar ao Claude.</div></div>
         ${sw('raAlways',always,!hasKey)}
       </div>
-      ${always?'<div class="rawarn" style="margin-top:10px;border-color:var(--warn,#9e6a03);color:var(--warn,#d29922)">${IC.warn} Modo teste ligado — tudo está rodando na alternativa, não no Claude.</div>':''}
+      ${always?'<div class="rawarn" style="margin-top:10px;border-color:var(--warn);color:var(--warn)">${IC.warn} Modo teste ligado — tudo está rodando na alternativa, não no Claude.</div>':''}
       <div style="display:flex;gap:9px;align-items:center;margin-top:13px">
         <button class="btn sm" id="raTest"${hasKey?'':' disabled'}>testar conexão</button>
         <span class="dim" id="raTestMsg" style="font-size:var(--fs-xs)"></span>
@@ -243,7 +243,7 @@ function wireRouteAiCfg(root){
   { const b=$('raAlways'); if(b) b.onchange=e=>save('ALT_AI_ALWAYS',e.target.checked?'1':'0').then(rerender); }
   { const tb=$('raTest'); if(tb) tb.onclick=async()=>{
       const msg=$('raTestMsg'); msg.style.color='var(--muted)'; msg.textContent='testando…'; tb.disabled=true;
-      try{ const r=await invoke('route_ai_ping'); msg.textContent='✓ '+r; msg.style.color='var(--ok,#3fb950)'; }
+      try{ const r=await invoke('route_ai_ping'); msg.textContent='✓ '+r; msg.style.color='var(--ok)'; }
       catch(e){ const h=humanErr(e,'O teste falhou'); msg.textContent='✕ '+h.msg; msg.title=h.raw||''; msg.style.color='var(--crit)'; }
       tb.disabled=false;
     }; }

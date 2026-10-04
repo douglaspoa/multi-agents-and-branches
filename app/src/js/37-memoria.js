@@ -258,8 +258,17 @@ function memLearnHtml(items, edits){
 function memLearnSigOf(snap){ return (snap&&snap.repo||'')+'|'+((snap&&snap.events)||[]).filter(e=>/^aprendizado/.test(String(e&&e.text||''))).map(e=>e.id).join(','); }
 // @puro-fim
 
-const MEM_COLORS={ 'decisão':'var(--info)', regra:'var(--accent)', gotcha:'var(--warn)', contexto:'var(--muted)', pessoa:'var(--purple)', 'glossário':'var(--cyan)' };
-const MEM_HEX={ 'decisão':'#5b9df9', regra:'#3fd68a', gotcha:'#f0b449', contexto:'#8b959b', pessoa:'#b47ce0', 'glossário':'#4fc4c9' };
+const MEM_COLORS={ 'decisão':'var(--info)', regra:'var(--ok)', gotcha:'var(--warn)', contexto:'var(--muted)', pessoa:'var(--purple)', 'glossário':'var(--cyan)' };
+// cor de cada tipo de nota = token do tema. O canvas não entende var(): memCss resolve o token UMA vez por tema (cache
+// MEM_PAL, limpo no 'sf-theme', quando o grafo também repinta) — nada de getComputedStyle por nó a cada pintura
+// @mem-cor-puro-inicio (testado em app/tests/tema-movimento.test.mjs)
+const MEM_HEX={ 'decisão':'var(--info)', regra:'var(--ok)', gotcha:'var(--warn)', contexto:'var(--muted)', pessoa:'var(--purple)', 'glossário':'var(--cyan)' };
+let MEM_PAL={};
+function memCss(v, a){ const m=String(v||'').match(/^var\((--[\w-]+)\)$/); let c=v;
+  if(m){ c=MEM_PAL[m[1]]; if(c===undefined){ try{ c=getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim()||'gray'; }catch(_){ c='gray'; } MEM_PAL[m[1]]=c; } }
+  const h=String(c).match(/^#([0-9a-f]{6})$/i); if(a==null || !h) return c; const n=parseInt(h[1],16); return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`; }
+// @mem-cor-puro-fim
+if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('sf-theme', ()=>{ MEM_PAL={}; if(typeof memG!=='undefined' && memG) memPaint(); });
 const MEM_IC={
   brain:'<path d="M6 2.8a2 2 0 0 0-2 2 2 2 0 0 0-1.3 3.4A2 2 0 0 0 4.2 12 2 2 0 0 0 8 12.6V3.6A2 2 0 0 0 6 2.8zM10 2.8a2 2 0 0 1 2 2 2 2 0 0 1 1.3 3.4 2 2 0 0 1-1.5 3.8A2 2 0 0 1 8 12.6" stroke-linejoin="round"/>',
   plus:'<path d="M8 3.5v9M3.5 8h9"/>',
@@ -607,14 +616,14 @@ function memPaint(){
   c.lineWidth=1/g.k;
   for(const e of g.edges){ const a=g.pos[idx[e.from]], b=g.pos[idx[e.to]]; if(!a||!b) continue;
     const hot=g.hover>=0 && (idx[e.from]===g.hover||idx[e.to]===g.hover);
-    c.strokeStyle=hot?'rgba(63,214,138,.7)':'rgba(255,255,255,.14)'; c.setLineDash(g.nodes[idx[e.to]].ghost?[3,3]:[]);
+    c.strokeStyle=hot?memCss('var(--accent)', .7):memCss('var(--text)', .14); c.setLineDash(g.nodes[idx[e.to]].ghost?[3,3]:[]);
     c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
   c.setLineDash([]);
   g.nodes.forEach((nd,i)=>{ const p=g.pos[i]; const r=4+Math.min(8,Math.sqrt(g.deg[nd.id]||0)*2.2);
     c.beginPath(); c.arc(p.x,p.y,r,0,Math.PI*2);
-    if(nd.ghost){ c.strokeStyle='rgba(139,149,155,.7)'; c.stroke(); }
-    else { c.fillStyle=MEM_HEX[nd.n.type]||'#8b959b'; c.fill(); if(nd.id===sel||i===g.hover){ c.strokeStyle='#e9edef'; c.lineWidth=2/g.k; c.stroke(); c.lineWidth=1/g.k; } }
-    if(g.k>.6 || i===g.hover){ c.fillStyle=nd.ghost?'rgba(139,149,155,.8)':'rgba(233,237,239,.88)'; c.font=(11/Math.max(g.k,.8))+'px -apple-system,system-ui,sans-serif'; c.textAlign='center';
+    if(nd.ghost){ c.strokeStyle=memCss('var(--muted)', .7); c.stroke(); }
+    else { c.fillStyle=memCss(MEM_HEX[nd.n.type]||'var(--muted)'); c.fill(); if(nd.id===sel||i===g.hover){ c.strokeStyle=memCss('var(--text)'); c.lineWidth=2/g.k; c.stroke(); c.lineWidth=1/g.k; } }
+    if(g.k>.6 || i===g.hover){ c.fillStyle=nd.ghost?memCss('var(--muted)', .8):memCss('var(--text)', .88); c.font=(11/Math.max(g.k,.8))+'px \'Public Sans\',system-ui,sans-serif'; c.textAlign='center';
       const label=nd.ghost?('+ '+nd.ghost):nd.n.title; c.fillText(label.length>34?label.slice(0,33)+'…':label, p.x, p.y+r+12/Math.max(g.k,.8)); }
   });
 }

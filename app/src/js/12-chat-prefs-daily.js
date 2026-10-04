@@ -293,15 +293,15 @@ function renderDaily(){
   const kpiRow=`<div class="as-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:22px 0 24px">${kpis.map(k=>`<div class="as-card"><div style="font:600 var(--fs-xl)/1 var(--display);color:${k[2]||'var(--text)'}">${k[0]}</div><div style="margin-top:8px;font:500 var(--fs-xs) var(--code);letter-spacing:.12em;color:var(--text-3)">${esc(k[1])}</div></div>`).join('')}</div>`;
   const cards=dailyData.map(t=>{
     const cs=dailyCommits[t.id]||[];
-    const commits=cs.length?cs.slice(0,6).map(c=>`<div style="display:flex;gap:10px;padding:5px 0;font:400 var(--fs-sm)/1.45 var(--code);min-width:0"><span style="color:var(--accent);flex:none">${esc((c.hash||'').slice(0,7))}</span><span style="color:rgba(234,242,238,.62);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.subject||'')}</span></div>`).join('')+(cs.length>6?`<div style="margin-top:6px;font:500 var(--fs-sm) var(--display);color:var(--text-3)">+${cs.length-6} commits</div>`:''):'<div class="dim" style="font-size:var(--fs-sm)">sem commits</div>';
-    const log=(t.notes||[]).slice(0,6).map(n=>`<div style="display:flex;gap:9px;padding:4px 0;font:400 var(--fs-sm)/1.45 var(--display);color:rgba(234,242,238,.5)"><span aria-hidden="true" style="color:var(--text-3)">·</span>${esc(n)}</div>`).join('')||'<div class="dim" style="font-size:var(--fs-sm)">—</div>';
+    const commits=cs.length?cs.slice(0,6).map(c=>`<div style="display:flex;gap:10px;padding:5px 0;font:400 var(--fs-sm)/1.45 var(--code);min-width:0"><span style="color:var(--accent);flex:none">${esc((c.hash||'').slice(0,7))}</span><span style="color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.subject||'')}</span></div>`).join('')+(cs.length>6?`<div style="margin-top:6px;font:500 var(--fs-sm) var(--display);color:var(--text-3)">+${cs.length-6} commits</div>`:''):'<div class="dim" style="font-size:var(--fs-sm)">sem commits</div>';
+    const log=(t.notes||[]).slice(0,6).map(n=>`<div style="display:flex;gap:9px;padding:4px 0;font:400 var(--fs-sm)/1.45 var(--display);color:var(--muted)"><span aria-hidden="true" style="color:var(--text-3)">·</span>${esc(n)}</div>`).join('')||'<div class="dim" style="font-size:var(--fs-sm)">—</div>';
     return `<div class="as-card" style="padding:0;overflow:hidden">
-      <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid rgba(255,255,255,.06);flex-wrap:wrap">
+      <div style="display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <div style="flex:1;min-width:260px"><div style="font:600 16px/1.3 var(--display)">${esc(t.title)}</div><div style="margin-top:7px;font:400 var(--fs-xs) var(--code);color:var(--text-3)">${esc(t.branch||'')}</div></div>
-        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 var(--fs-sm) var(--code);color:rgba(255,255,255,.5)">${t.usd?fmtCost(t.usd):''}</span></div>
+        <div style="display:flex;align-items:center;gap:14px">${stBadge(taskSt(t))}<span style="font:500 var(--fs-sm) var(--code);color:var(--muted)">${t.usd?fmtCost(t.usd):''}</span></div>
       </div>
       <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr)">
-        <div style="padding:14px 18px;border-right:1px solid rgba(255,255,255,.06)"><div class="as-sect" style="margin:0 0 10px">COMMITS · ${cs.length}</div>${commits}</div>
+        <div style="padding:14px 18px;border-right:1px solid var(--border)"><div class="as-sect" style="margin:0 0 10px">COMMITS · ${cs.length}</div>${commits}</div>
         <div style="padding:14px 18px"><div class="as-sect" style="margin:0 0 10px">O QUE O AGENTE FEZ NO DIA</div>${log}</div>
       </div></div>`;
   }).join('');
@@ -369,6 +369,7 @@ function dailyReportFacts(){
     return `ENTREGA: ${t.title}\ncontexto/objetivo: ${obj||'—'}\nmudanças: ${cs.join(' | ')||'—'}\nescopo: ${scope||'—'}\nnotas: ${marcos.join(' | ')||'—'}`;
   }).join('\n\n---\n\n');
 }
+// @cor-dado-inicio — Daily EXPORTADO: documento HTML próprio pra imprimir/PDF (papel branco), fora dos temas do app
 function dailyPdfHtml(md, date){
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     @page{margin:2cm}
@@ -382,6 +383,7 @@ function dailyPdfHtml(md, date){
     .foot{margin-top:34px;padding-top:10px;border-top:1px solid #e5e7eb;color:#94a3b8;font-size:var(--fs-xs)}
   </style></head><body>${mdToHtml(md)}<div class="foot">Gerado pelo Starfork · ${esc(date||'')}</div></body></html>`;
 }
+// @cor-dado-fim
 function dailyOut(html){ const el=$id('dailyAIOut'); if(el) el.innerHTML=html; }
 async function dailyGenDoc(){
   const out=$id('dailyAIOut');

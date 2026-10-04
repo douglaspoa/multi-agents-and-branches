@@ -576,6 +576,7 @@ function fwOpenMore(t, anchor){
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
   pop.style.top=(r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.right-pop.offsetWidth))+'px';
+  if(typeof mvFromOrigin==='function') mvFromOrigin(pop, anchor); // F3: o menu nasce do botão
   const close=()=>{ pop.remove(); document.removeEventListener('mousedown', out, true); };
   const out=e=>{ if(!pop.contains(e.target) && e.target!==anchor) close(); };
   setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
@@ -664,6 +665,10 @@ function fwModesPaint(t){
   const html=FW_HEAD.mode==='menu' ? fwModesMenuBtnHtml(list, fwMode) : fwModesHtml(t);
   if(m.__html!==html){ m.__html=html; m.innerHTML=html; }
   m.classList.toggle('asmenu', FW_HEAD.mode==='menu');
+  if(typeof mvGlide==='function') mvGlide(m); // F3: pílula + sublinhado deslizam até o modo escolhido
+  // F3: o conteúdo entra pelo lado do clique (modo à direita → vem da direita); poll/1ª pintura não animam
+  { const L=list.map(x=>x[0]), pv=FW_HEAD.mvMode; FW_HEAD.mvMode={ task:t.id, mode:fwMode };
+    if(pv && pv.task===t.id && pv.mode!==fwMode && typeof mvSlideIn==='function' && mvUser()) mvSlideIn($id('fwCols'), slideDir(L.indexOf(pv.mode), L.indexOf(fwMode))); }
   m.querySelectorAll('[data-fwmode]').forEach(b=>b.onclick=()=>fwSetMode(b.dataset.fwmode));
   const dd=$id('fwModeDd'); if(dd) dd.onclick=(e)=>{ e.stopPropagation(); fwModesMenuOpen(t, dd); };
   fwHeadWatch();
@@ -674,6 +679,7 @@ function fwModesMenuOpen(t, anchor){
   pop.innerHTML=fwModesListHtml(fwModesList(t), fwMode);
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect(); pop.style.top=(r.bottom+6)+'px'; pop.style.left=Math.max(8, Math.min(window.innerWidth-pop.offsetWidth-8, r.left))+'px';
+  if(typeof mvFromOrigin==='function') mvFromOrigin(pop, anchor);
   const close=(back)=>{ pop.remove(); anchor.setAttribute('aria-expanded','false'); document.removeEventListener('mousedown', out, true); if(back) try{ anchor.focus(); }catch(_){ } };
   const out=e=>{ if(!pop.contains(e.target) && e.target!==anchor) close(false); };
   setTimeout(()=>document.addEventListener('mousedown', out, true), 0);
@@ -687,7 +693,7 @@ function fwHeadFit(){
   const headW=head.clientWidth; if(!(headW>0)) return;
   head.classList.toggle('narrow', headW<FW_HEAD_COMPACT);
   const m=$id('fwModes');
-  if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=m.scrollWidth;
+  if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=fwModesW(m);
   const pane=(typeof SF_PANE!=='undefined' && SF_PANE);
   let fixed=(pane?0:140)+32; // título (mínimo legível; no painel o nome mora no cabeçalho do painel) + respiro das bordas
   for(const el of head.children){ if(el===m || el.id==='fwTaskName' || String(el.style.flex||'').startsWith('1') || el.offsetParent===null) continue; fixed+=el.offsetWidth+9; }
@@ -706,7 +712,7 @@ function fwHeadFitDocked(head){
   const avail=head.offsetWidth+(g?g.offsetWidth:0)-(bar?Math.max(0, bar.scrollWidth-bar.clientWidth):0);
   if(!(avail>0)) return;
   const m=$id('fwModes');
-  if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=m.scrollWidth;
+  if(FW_HEAD.mode==='tabs' && m && m.scrollWidth>0) FW_HEAD.modesW=fwModesW(m);
   let fixed=8; for(const el of head.children){ if(el===m || el.offsetParent===null) continue; fixed+=el.offsetWidth+6; }
   const r=fwHeadLayout({ headW:avail, modesW:FW_HEAD.modesW, fixedW:fixed, cur:FW_HEAD.mode });
   if(r.modes!==FW_HEAD.mode){ FW_HEAD.mode=r.modes; const t=fwTaskObj(); if(t) fwModesPaint(t); }
@@ -715,6 +721,8 @@ function fwHeadFitDocked(head){
   else if(tight && avail>=(FW_HEAD.tightNeed||0)+8) head.classList.remove('tight');
 }
 const FW_HEAD_TIGHT=560;
+// largura dos modos = só os botões (a pílula/sublinhado do 05-movimento são absolutos e não entram na conta) + vãos e respiro
+function fwModesW(m){ const bs=[...m.querySelectorAll('[data-fwmode]')]; if(!bs.length) return m.scrollWidth; const cs=getComputedStyle(m); return bs.reduce((a,b)=>a+b.offsetWidth,0)+(bs.length-1)*(parseFloat(cs.columnGap)||0)+(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0); }
 function fwHeadWatch(){
   const head=fwHeadEl(); if(!head) return;
   // docado na barra de abas o cabeçalho tem a largura do conteúdo: quem muda de tamanho é a BARRA — observa ela também
@@ -731,7 +739,11 @@ function fwHeadWatch(){
 function fwHeadDockOf(o){ return !!(o && !o.pane && o.visible && o.kind==='task' && !o.split && o.tabTask!=null && o.tabTask===o.fwTask); }
 // @fw-dock-puro-fim
 // o nó guardado vale mesmo solto por um instante (renderTabs tira e devolve); só re-procura se houver OUTRO .fwhead na página
-function fwHeadEl(){ const n=FW_HEAD.node; if(n && (n.isConnected || !document.querySelector('.fwhead'))) return n; return (FW_HEAD.node=document.querySelector('#fwOverlay .fwhead')); }
+// (outras telas — #ctPageOverlay, #epicOverlay — têm o próprio .fwhead: só OUTRO cabeçalho da TAREFA substitui o guardado;
+// antes qualquer .fwhead na página fazia o nó solto pelo renderTabs ser trocado e os modos sumiam)
+// @fw-headel-puro-inicio (testado em app/tests/redesign-f1.test.mjs)
+function fwHeadEl(){ const n=FW_HEAD.node; if(n && (n.isConnected || !document.querySelector('#fwOverlay .fwhead'))) return n; return (FW_HEAD.node=document.querySelector('#fwOverlay .fwhead')); }
+// @fw-headel-puro-fim
 // chips do orquestrador: docado, o cabeçalho some da faixa 1 → os chips vão pra faixa 2 (#cicOrq, 60-ciclo); senão voltam
 function fwOrqChipsPlace(){
   const oc=FW_HEAD.orq||(FW_HEAD.orq=$id('fwOrqChips')); const head=fwHeadEl(); if(!oc || !head) return;

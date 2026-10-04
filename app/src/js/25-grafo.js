@@ -264,7 +264,7 @@ function renderRail(){
   const rowHtml=(t, st, proj, other)=>{ const [tg,tc,tl]=tagOf(st); const wait=RAIL_VOCE.has(flowBucket(t));
     const attrs=other?` data-proj="${escA(other)}"${t.id?` data-id="${escA(t.id)}"`:''}`:` data-id="${t.id}"`;
     const sel=!other && hi.ids.includes(t.id);
-    return `<div class="prow2${other?' other':''}${sel?' sel':''}${wait?' wait':''}"${attrs} role="button" tabindex="0"${!other&&hi.cur===t.id?' aria-current="page"':''} title="${escA(railRowTip(t, tl, proj))}"><span class="d" style="background:${tc}"></span><span class="tt">${esc(t.title)}</span>${other?'':sbEpDot(t)}<span class="tg" style="color:${tc}">${esc(tg)}</span></div>`; };
+    return `<div class="prow2${other?' other':''}${sel?' sel':''}${wait?' wait':''}"${attrs} role="button" tabindex="0"${!other&&hi.cur===t.id?' aria-current="page"':''} title="${escA(railRowTip(t, tl, proj))}"><span class="d${st==='running'||st==='thinking'?' run':''}" style="background:${tc}"></span><span class="tt">${esc(t.title)}</span>${other?'':sbEpDot(t)}<span class="tg" style="color:${tc}">${esc(tg)}</span></div>`; };
 
   // ---- PROJETO ATUAL ----
   let html = '';
@@ -314,7 +314,7 @@ function renderRail(){
       else switchProject(r.dataset.proj);
       return;
     }
-    if(r.dataset.id) openTaskById(r.dataset.id); // abre a tarefa (ou o rascunho, via openOrEdit) numa aba
+    if(r.dataset.id){ const go=()=>openTaskById(r.dataset.id); if(typeof mvOpen==='function') mvOpen(r.querySelector('.tt'), go); else go(); } // abre a tarefa (ou o rascunho, via openOrEdit) numa aba; F3: o título voa até a aba
   });
   // linhas pelo teclado: Tab chega, Enter/Espaço abre, ↑/↓/Home/End andam (vale pras linhas de plano também)
   el.querySelectorAll('.prow2[tabindex],.prow2.orqrow').forEach(r=>{ if(!r.hasAttribute('tabindex')) r.tabIndex=0;

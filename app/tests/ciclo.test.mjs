@@ -212,7 +212,7 @@ test('faixa (P1) larga e estreita: rótulos, palavra, custo ao lado do ✓, cade
   const h = run(c, `stageStripHtml(taskStages(${JSON.stringify(t)}, ${JSON.stringify(x)}), stagesSummary(taskStages(${JSON.stringify(t)}, ${JSON.stringify(x)}), { spent:0.1, cap:2 }), {})`);
   assert.match(h, /^<div class="cicstrip" role="group" aria-label="Etapas da tarefa">/);
   for (const w of ['Plano', 'Construir', 'Revisar', 'Provar', 'Entregar', 'Retro', 'pronto', 'construindo', 'depois']) assert.match(h, new RegExp(w));
-  assert.match(h, /<li class="cicst s-feito"><button[^>]*>.*Plano.*US\$ 0,10/s, 'custo ao lado do ✓');
+  assert.match(h, /<li class="cicst s-feito"[^>]*><button[^>]*>.*Plano.*US\$ 0,10/s, 'custo ao lado do ✓');
   assert.equal((h.match(/class="cicst-k"/g) || []).length, 2, 'Cadeado 1 e Cadeado 2');
   assert.equal((h.match(/aria-current="step"/g) || []).length, 1);
   assert.match(h, /gasto <b>US\$ 0,10<\/b> de US\$ 2,00/); // redesenho F1: "gasto" curto, na mesma faixa das etapas

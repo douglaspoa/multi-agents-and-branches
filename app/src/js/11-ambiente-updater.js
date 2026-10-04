@@ -215,7 +215,7 @@ async function ghMount(){
 function ghRender(){
   const h=$id('ghHost'); if(!h) return;
   const rows=(ghAccs||[]).map(a=>`<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid ${a.active?'color-mix(in srgb,var(--accent) 45%,transparent)':'var(--border)'};border-radius:10px;background:${a.active?'color-mix(in srgb,var(--accent) 6%,transparent)':'var(--surface-2)'}">
-      <span style="width:8px;height:8px;border-radius:50%;background:${a.active?'var(--accent)':'rgba(255,255,255,.2)'}"></span>
+      <span style="width:8px;height:8px;border-radius:50%;background:${a.active?'var(--accent)':'var(--border-strong)'}"></span>
       <b style="font-size:var(--fs-base)">${esc(a.user)}</b><span class="dim mono" style="font-size:var(--fs-xs)">${a.active?'ativa · PRs e push usam esta':'git via '+esc(a.protocol)}</span>
       <span style="flex:1"></span>${a.active?'':`<button class="btn sm" data-ghuse="${escA(a.user)}">usar esta conta</button>`}
     </div>`).join('');
@@ -223,7 +223,7 @@ function ghRender(){
       ? `<div style="font-size:var(--fs-sm);color:${ghLogin.ok?'var(--accent)':'var(--warn)'}">${ghLogin.ok?'✓ conta adicionada e ativa':'não concluiu: '+esc((ghLogin.log||'').trim().split('\n').slice(-2).join(' '))}</div>`
       : `<div class="as-card" style="padding:12px 14px;display:flex;flex-direction:column;gap:8px">
           <div style="font-size:var(--fs-sm)">1) copie o código · 2) autorize no github.com (abre sozinho) · 3) volte aqui — o app reconhece na hora</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><code class="mono" style="font-size:var(--fs-lg);letter-spacing:.12em;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:#141817">${esc(ghLogin.code)}</code><button class="btn sm" id="ghCopy">copiar</button><button class="btn sm" id="ghOpen">abrir github.com/login/device</button><span class="dim" style="font-size:var(--fs-sm)">esperando autorização…</span></div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><code class="mono" style="font-size:var(--fs-lg);letter-spacing:.12em;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-3)">${esc(ghLogin.code)}</code><button class="btn sm" id="ghCopy">copiar</button><button class="btn sm" id="ghOpen">abrir github.com/login/device</button><span class="dim" style="font-size:var(--fs-sm)">esperando autorização…</span></div>
         </div>`) : '';
   h.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="dim" style="font-size:var(--fs-sm)">nenhuma conta logada no gh.</div>'}
     ${ghMsg?`<div style="font-size:var(--fs-sm);color:var(--warn)">${esc(ghMsg)}</div>`:''}${login}

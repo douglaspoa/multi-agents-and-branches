@@ -40,7 +40,7 @@
   line-height: 1.6;
   box-shadow: none;
 }
-.cmsg.you .cbub code { background: rgba(255,255,255,.08); }
+.cmsg.you .cbub code { background: color-mix(in srgb,var(--text) 8%,transparent); }
 
 /* ---------- avatar: quadrado arredondado, um pouco maior ---------- */
 .cav { width: 28px; height: 28px; font-size: var(--fs-xs); border-radius: 9px; margin-top: 1px; }

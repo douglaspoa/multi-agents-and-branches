@@ -438,7 +438,9 @@ async function tiChip(taskId, btn){
   const ok=await tiSend(taskId, s.list[i]);
   if(!ok){ delete TI.used[taskId]; tiChipsPaint(tiTask(taskId)); }
 }
-function tiChipsPaint(t){ const box=$id('tiChips'), dock=$id('tiDock'); if(!t || !box || !dock || dock.dataset.task!==t.id) return; const h=tiChipsHtml(t); if(dock.__chips!==h){ dock.__chips=h; box.innerHTML=h; } }
+function tiChipsPaint(t){ const box=$id('tiChips'), dock=$id('tiDock'); if(!t || !box || !dock || dock.dataset.task!==t.id) return; const h=tiChipsHtml(t); if(dock.__chips!==h){ const had=dock.__chips; dock.__chips=h; box.innerHTML=h;
+  // F3: respostas NOVAS depois de um turno entram com mola (a dock recém-montada e o poll igual não animam)
+  if(had!=null && typeof springIn==='function'){ const sid=(x)=>{ const m=String(x||'').match(/data-sid="([^"]*)"/); return m?m[1]:''; }; if(sid(h) && sid(h)!==sid(had)) springIn(box.querySelectorAll('.tichip')); } } }
 /**
  * Manda um texto pro terminal (chip, comando de botão). Vivo/retomável: term_send (entra na fila se ele estiver no meio
  * de um turno; sem PTY, abre a sessão já com o texto). Rodando em segundo plano: o mesmo caminho do compositor (talk_task).
@@ -474,6 +476,7 @@ function tiSheetOpen(taskId, kind, opener){
   el.innerHTML='<div class="tiscrim" data-ti="close"></div><div class="tisheetbox"></div>';
   col.appendChild(el); tiSheetWire(el);
   tiSheetPaint(); tiSheetFocus();
+  if(typeof mvFromOrigin==='function'){ mvFromOrigin(el.querySelector('.tisheetbox'), opener); mvAnim(el.querySelector('.tiscrim'), [{ opacity:0 }, { opacity:1 }], { duration:180 }); } // F3: a folha nasce do botão
   if(kind==='skill' && (!TI.skills || Date.now()-TI.skillsAt>=60000)) tiSkillsLoad().then(()=>{ const s=TI.sheet; if(!s || s.kind!=='skill' || s.el!==el) return; s.def=tiSheetDef('skill', tiSheetCtx()); if(s.st.sel<0 && s.def.opts.length) s.st.sel=0; tiSheetPaint(); tiSheetFocus(); });
 }
 function tiSheetPaint(){

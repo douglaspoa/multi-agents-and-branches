@@ -130,7 +130,8 @@ document.addEventListener('click', e=>{
   { const t=(typeof tabById==='function')?tabById(activeTab):null; if(!t || t.kind!==kind){ ndCarryText=''; ndCarryExtra=null; } }
 });
 window.TAB_STATE_nova={ get:()=>({ ndType, ndMethod, ndIntent }), set:(st)=>{ ndType=st.ndType||'build'; ndMethod=st.ndMethod||'chat'; ndIntent=st.ndIntent||''; } };
-function ndInjectFonts(){ if($id('ndFonts')) return; const l=document.createElement('link'); l.id='ndFonts'; l.rel='stylesheet'; l.href='https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap'; document.head.appendChild(l); }
+// fontes agora são locais (vendor/fonts via @font-face no 10-base.css): nada a injetar — fica o nome pros chamadores antigos
+function ndInjectFonts(){}
 window.ndInjectFonts=ndInjectFonts;
 // sem a flag legada, a aba "nova" nem chega aqui (openTab troca por 'planner'); aba restaurada cai no planner
 function openNovaStart(){ ndInjectFonts(); if(!ndLegacy() && window.openTab){ window.openTab('planner', { replace:true }); return; } $id('ndOverlay').style.display='flex'; ndRenderStart(); }
@@ -166,7 +167,7 @@ function ndRenderStart(){
     <div class="ndmethods">
       <button class="ndm ndm-primary${ndMethod==='chat'?' on':''}" id="ndChat" data-ndm="chat"><span class="ndmtop"><span class="ndmt">Montar conversando</span><span class="ndmbadge">recomendado</span></span><span class="ndmd">A IA pergunta só o essencial e monta a demanda na sua frente. Você revisa e aprova.</span><span class="ndmeta">~7 perguntas · 2 min</span></button>
       <button class="ndm${ndMethod==='form'?' on':''}" id="ndForm" data-ndm="form"><span class="ndmt2">Preencher eu mesmo</span><span class="ndmd">Formulário com todos os campos da demanda. Controle total, sem conversa.</span><span class="ndmeta">~10 campos, um de cada vez</span></button>
-      <button class="ndm ndm-orq${ndMethod==='orq'?' on':''}" id="ndOrq" data-ndm="orq"><span class="ndmtop"><span class="ndmt2">Dividir entre vários agentes</span><span class="ndmbadge" style="background:rgba(180,124,224,.2);color:#d9b8f2">problemas grandes</span></span><span class="ndmd">Você descreve o problema inteiro. Um agente coordenador divide em etapas, abre uma tarefa por etapa e acompanha a execução — você aprova o plano antes.</span><span class="ndmeta">1 campo · plano visual das etapas</span></button>
+      <button class="ndm ndm-orq${ndMethod==='orq'?' on':''}" id="ndOrq" data-ndm="orq"><span class="ndmtop"><span class="ndmt2">Dividir entre vários agentes</span><span class="ndmbadge" style="background:color-mix(in srgb,var(--purple) 18%,transparent);color:var(--purple)">problemas grandes</span></span><span class="ndmd">Você descreve o problema inteiro. Um agente coordenador divide em etapas, abre uma tarefa por etapa e acompanha a execução — você aprova o plano antes.</span><span class="ndmeta">1 campo · plano visual das etapas</span></button>
     </div>
     <div class="ndcta"><button class="as-btn primary big" id="ndGo">Continuar${ndMethod==='chat'?' · montar conversando':ndMethod==='form'?' · preencher eu mesmo':' · dividir entre vários agentes'} →</button><span class="dim" style="font-size:var(--fs-sm)">tipo <b style="color:var(--text)">${esc(cur.name)}</b> · o caminho escolhido abre nesta mesma aba</span></div>
     <div class="ndfoot"><div class="ndfl">já tem um .md? <a id="ndImport">importar</a> · guia de demanda deste repo: <span class="mono" title="arquivo SPEC.md na pasta de trabalho do Starfork (.cardume/)">SPEC.md</span></div></div>

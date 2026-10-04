@@ -134,7 +134,7 @@
 .orq-briefin{max-width:var(--page-max);padding-left:var(--page-pad);padding-right:var(--page-pad)}
 .orq-briefin>*{max-width:860px}
 .as-head,.sk-head,.pc-head{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
-.as-sub,.sk-sub{margin-top:7px;font:400 var(--fs-base)/1.5 var(--display);color:rgba(255,255,255,.48);max-width:600px}
+.as-sub,.sk-sub{margin-top:7px;font:400 var(--fs-base)/1.5 var(--display);color:var(--muted);max-width:600px}
 .pc-head .as-actions,.as-head .as-actions{margin-left:auto}
 /* botões secundários no título de seção herdavam a fonte mono do rótulo ("+ novo agente", "+ novo time",
    "gerar relatório da entrega") — botão é botão: mesma fonte do .btn em todo lugar */
@@ -155,7 +155,7 @@
 .plraw pre{margin:8px 0 2px;white-space:pre-wrap;word-break:break-word;font-size:var(--fs-xs);line-height:1.5;color:var(--text-2);max-height:260px;overflow:auto;-webkit-user-select:text;user-select:text}
 /* a ação principal do épico ("✓ Aprovar e criar · N tarefas") fica SEMPRE à vista: rodapé grudado no fim da conversa
    (antes ficava escondido atrás das sugestões e do fim do card) */
-.plthread .plplan .ppfoot{position:sticky;bottom:-8px;z-index:3;margin:11px -12px -11px;padding:10px 12px;background:var(--surface-2);border-top:1px solid var(--border);border-radius:0 0 11px 11px;box-shadow:0 -10px 14px -10px rgba(0,0,0,.55)}
+.plthread .plplan .ppfoot{position:sticky;bottom:-8px;z-index:3;margin:11px -12px -11px;padding:10px 12px;background:var(--surface-2);border-top:1px solid var(--border);border-radius:0 0 11px 11px;box-shadow:0 -10px 14px -10px color-mix(in srgb,var(--shade) 55%,transparent)}
 .plchips{padding-top:6px}
 
 /* ===== Sem projeto aberto (R3-D #20): bloco no centro da área, sem a coluna vazia da direita ===== */
@@ -183,4 +183,4 @@
 .fwchat .fwthread{padding-top:12px} /* sem máscara de fade no topo: a linha cortada parecia texto por baixo da barra "aguardando você" */
 /* R5-10: o canvas do orquestrador termina ANTES do chat (borda + fade): a fase que não cabe "continua →" em vez de
    parecer escondida embaixo do painel — arraste o fundo ou use − pra ver o resto */
-.orq-canvas{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 56px),transparent)}
+.orq-canvas{-webkit-mask-image:linear-gradient(to right,black calc(100% - 56px),transparent);mask-image:linear-gradient(to right,black calc(100% - 56px),transparent)}

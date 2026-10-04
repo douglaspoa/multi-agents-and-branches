@@ -581,7 +581,8 @@ function commitChip(x, agent){
   const av = agent ? `<span class="cav" aria-hidden="true" style="background:${agentColor(agent)}" title="${escA(agent)}">${agentBadge(agent)}</span>` : '';
   return `<button class="fcommit" data-hash="${escA(x.hash)}" title="${escA((agent?agent+' · ':'')+x.subject)}">${av}<span class="chash mono">${esc((x.hash||'').slice(0,7))}</span><span class="csub">${esc(x.subject||'')}</span></button>`;
 }
-const FLOW_PAL=["#3fd68a","#5b9df9","#b47ce0","#f0b449","#f2685c","#4fc4c9","#e07ab4","#7c8792"];
+// cor de identidade do agente sem cor gravada: as séries do tema (--chart-*), legíveis nos dois temas
+const FLOW_PAL=["var(--chart-1)","var(--chart-2)","var(--chart-3)","var(--chart-4)","var(--chart-5)","var(--chart-6)","var(--chart-7)","var(--chart-8)"];
 // Busca o agente no catálogo do projeto (config) POR NOME — é como as tarefas
 // referenciam o agente (só o nome fica gravado). Dá acesso a cor + avatar escolhidos no editor.
 // R5-5: o catálogo só era lido ao abrir "Nova demanda" — até lá toda cor caía no hash (Lyra coral no chat e roxa em

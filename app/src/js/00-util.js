@@ -165,19 +165,25 @@ function toast(msg, kind, action, extra){
   el.className='apptoast '+(kind||'info'); el.textContent='';
   a11yAnnounce(msg, toastUrgent(kind));
   const tx=document.createElement('span'); tx.className='apptoast-t'; tx.textContent=String(msg); el.appendChild(tx);
-  const hide=()=>{ el.style.display='none'; };
+  // F3: some descendo (o token impede que o fade de um toast velho esconda o novo que chegou no meio)
+  // (_hiding: o fade em curso; um toast novo ou o mouse em cima cancelam o fade — e o "esconder" atrasado não vale mais)
+  const tok=el._tok=(el._tok||0)+1; const fading=!!el._hiding; mvToastStop(el);
+  const hide=()=>{ el._hiding=true; const go=()=>{ if(el._tok===tok && el._hiding){ el._hiding=false; el.style.display='none'; } }; if(typeof mvToast==='function') mvToast(el, true).then(go); else go(); };
   const btns=[action, extra].filter(a=>a && a.label && typeof a.fn==='function');
   if(btns.length){ const row=document.createElement('div'); row.className='apptoast-acts';
     btns.forEach((a,i)=>{ const b=document.createElement('button'); b.type='button'; b.className='apptoast-btn'+(i?' ghost':''); b.textContent=a.label;
       b.onclick=(ev)=>{ ev.stopPropagation(); hide(); try{ const r=a.fn(); if(r&&r.catch) r.catch(err=>console.warn('toast action', err)); }catch(err){ console.warn('toast action', err); } };
       row.appendChild(b); });
     el.appendChild(row); }
-  el.style.display='block'; clearTimeout(el._t);
+  const was=el.style.display==='block' && !fading; el.style.display='block'; clearTimeout(el._t);
+  if(!was && typeof mvToast==='function') mvToast(el); // F3: sobe ao aparecer (inclusive por cima de um que sumia)
   // com botão, dá tempo de ler e clicar; o mouse em cima segura o toast
   const ms=btns.length?12000:(kind==='err'?7000:4200);
   el._t=setTimeout(hide, ms);
-  el.onmouseenter=()=>clearTimeout(el._t); el.onmouseleave=()=>{ clearTimeout(el._t); el._t=setTimeout(hide, 4000); };
+  el.onmouseenter=()=>{ clearTimeout(el._t); if(el._hiding) mvToastStop(el); }; el.onmouseleave=()=>{ clearTimeout(el._t); el._t=setTimeout(hide, 4000); };
 }
+// para o fade de saída em curso (e o "esconder" que viria no fim dele)
+function mvToastStop(el){ el._hiding=false; try{ if(el.getAnimations) el.getAnimations().forEach(a=>a.cancel()); }catch(_){ } }
 window.toast=toast;
 // R8 a11y: DUAS regiões vivas fixas (criadas uma vez, sempre no DOM — trocar o role de um nó não é anunciado de forma
 // confiável). Erro e aviso (warn = algo foi barrado, ex.: "não dá pra aprovar: …" do chkBlockWhy) vão pro alert; o resto, status.
@@ -371,7 +377,7 @@ function humanErr(e, ctx){
 function errDetails(h){
   document.getElementById('errOverlay')?.remove();
   const ov=document.createElement('div'); ov.id='errOverlay';
-  ov.style.cssText='position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.style.cssText='position:fixed;inset:0;z-index:10000;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:16px';
   const box=document.createElement('div');
   box.style.cssText='background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;max-width:620px;width:100%;padding:16px 18px;box-shadow:var(--shadow);color:var(--text)';
   const t=document.createElement('div'); t.style.cssText='font-size:var(--fs-base);font-weight:600;margin-bottom:8px'; t.textContent=h.msg;

@@ -12,7 +12,7 @@ function projShort(p){ return pathBase(p); } // E10: aceita C:\… também
 function projList(){ const m=new Map(); if(state.repo) m.set(state.repo, projShort(state.repo)); (allTasksCache||[]).forEach(t=>{ if(t.repo) m.set(t.repo, t.proj||projShort(t.repo)); }); return [...m.entries()]; }
 function projColor(p){ // cor estável por projeto (hash → hue)
   let h=0; const s=String(p||''); for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0;
-  const hues=[145,210,265,32,190,330,95]; return `hsl(${hues[h%hues.length]} 62% 60%)`;
+  return `var(--chart-${h%8+1})`; // série do tema (o hsl fixo lia mal no claro)
 }
 // normaliza uma tarefa agregada (de outro projeto) pro formato que o board espera
 function normAgg(t){ return Object.assign({}, t, { created_at: t.createdAt, roles: [], _cross: true }); }
@@ -128,7 +128,7 @@ function taskType(t){
   return 'feat';
 }
 const TYPE_PT={ feat:'Feature', fix:'Fix', docs:'Docs', chore:'Chore', refactor:'Refactor', perf:'Perf', design:'Design', invest:'Investigação', review:'Review', build:'Entrega' };
-const TYPE_COLOR={ feat:'var(--accent)', fix:'var(--crit)', docs:'var(--info)', chore:'var(--muted)', refactor:'var(--warn)', perf:'#c99cdb', design:'#7cd0b8', invest:'var(--warn)', review:'var(--info)' };
+const TYPE_COLOR={ feat:'var(--accent)', fix:'var(--crit)', docs:'var(--info)', chore:'var(--muted)', refactor:'var(--warn)', perf:'var(--chart-7)', design:'var(--chart-6)', invest:'var(--warn)', review:'var(--info)' };
 const TYPE_ORDER=['feat','fix','docs','refactor','perf','chore','design','invest','review'];
 // código da issue (FND-853) direto da branch; link usa a base configurada nas configurações
 function issueCodeOf(t){ const m=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/); return m?m[1]:null; }
@@ -576,7 +576,7 @@ function openTaskMenu(taskId, anchor){
   menuClose($id('tmenuPop'));
   const pop=document.createElement('div');
   pop.id='tmenuPop';
-  pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
+  pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-pop);padding:5px';
   // R8: ícone SVG (IC) + rótulo; antes o glifo ia colado no texto (✓ ◆ ⌥ ❙❙ ▶ ↻ ✕)
   // o slot .mnic existe SEMPRE (vazio quando o item não tem ícone) — senão o rótulo sai desalinhado dos outros.
   // o.stay: o item abre outro menu (trocar modelo) — fecha este e não recarrega o quadro
@@ -663,7 +663,7 @@ function openStatusMenu(taskId, anchor){
   if(!taskOffersMerge(t)){ const i=opts.findIndex(o=>o.key==='merged'); if(i>=0) opts.splice(i,1); }
   const pop=document.createElement('div');
   pop.id='stmenuPop';
-  pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
+  pop.style.cssText='position:fixed;z-index:9000;min-width:210px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-pop);padding:5px';
   opts.forEach(o=>{ const b=document.createElement('button');
     const on=(o.key===cur);
     b.setAttribute('role','menuitemradio'); b.setAttribute('aria-checked', on?'true':'false');
@@ -855,7 +855,8 @@ function renderFlow(){
     lastSig=''; renderFlow();
   });
   el.querySelectorAll('[data-sum]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.sum; crossRun(id, ()=>openTaskSummary(id)); });
-  el.querySelectorAll('[data-dcopen]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=src.find(x=>x.id===b.dataset.dcopen); if(!t) return; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } selected=t.id; render(); openOrEdit(t); }); // rascunho abre o editor (igual ao Enter da linha da tabela)
+  el.querySelectorAll('[data-dcopen]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=src.find(x=>x.id===b.dataset.dcopen); if(!t) return; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } const go=()=>{ selected=t.id; render(); openOrEdit(t); }; const src0=b.closest('tr[data-ctrow],.fcard,.dcard'); const ti=src0&&src0.querySelector('.cttx,.ftitle,.dc-title');
+    if(typeof mvOpen==='function') mvOpen(ti, go); else go(); }); // rascunho abre o editor (igual ao Enter da linha da tabela); F3: o título voa até a aba
   el.querySelectorAll('[data-tmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openTaskMenu(b.dataset.tmenu, b); });
   el.querySelectorAll('[data-stmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); openStatusMenu(b.dataset.stmenu, b); });
   el.querySelectorAll('.fcard:not(.ghost)').forEach(card=>{

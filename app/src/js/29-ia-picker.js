@@ -9,6 +9,7 @@ const AI_CLAUDE_MODELS=[
   {id:'claude-fable-5-1',name:'Fable 5.1',tag:'id fixo'}, {id:'claude-opus-5-5',name:'Opus 5.5',tag:'id fixo · mais novo'}, {id:'claude-opus-5',name:'Opus 5',tag:'id fixo'}, {id:'claude-sonnet-5',name:'Sonnet 5',tag:'id fixo'},
   {id:'claude-opus-4-8',name:'Opus 4.8',tag:'id fixo'}, {id:'claude-haiku-4-5-20251001',name:'Haiku 4.5',tag:'id fixo'},
 ];
+// @cor-dado-inicio — cor de MARCA de cada fornecedor de IA (identidade do produto deles, igual nos dois temas)
 const AI_ENGINES=[
   { id:'claude', name:'Claude', vendor:'Anthropic · assinatura', color:'#d97757', custom:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 1.8v12.4M1.8 8h12.4M3.6 3.6l8.8 8.8M12.4 3.6l-8.8 8.8"/></svg>',
@@ -27,10 +28,11 @@ const AI_ENGINES=[
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 9.2c1.6 2.9 5 4.1 8 2.7 2-.9 3.3-2.9 3.5-5-1 .9-2.2 1.2-3.4.9"/><path d="M2.2 9.2C2 6.4 4 4 6.8 3.6c1.6-.2 3.1.4 4.1 1.5"/><circle cx="10.6" cy="6.3" r=".6" fill="currentColor"/></svg>',
     desc:'BETA — DeepSeek Harness (open source, dsh) com a chave da DeepSeek da sua conta (Configurações → Sua IA). Instale com: npm i -g @deepseek-ai/dsh. Os logs das sessões NÃO são enviados à DeepSeek.',
     models:[ {id:'',name:'Padrão (capaz)',tag:'auto · v4-pro'}, {id:'deepseek-v4-pro',name:'DeepSeek V4 Pro',tag:'mais capaz'}, {id:'deepseek-flash',name:'DeepSeek Flash',tag:'mais veloz'} ] },
-  { id:'mock', name:'Mock', vendor:'sem IA', color:'#8b959b',
+  { id:'mock', name:'Mock', vendor:'sem IA', color:'var(--muted)',
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.4" stroke-dasharray="2.6 2.2"/></svg>',
     desc:'Simula a execução sem chamar modelo — só pra testar o fluxo.', models:[] },
 ];
+// @cor-dado-fim
 const AI_TIER_LABEL={ opus:'Claude Opus', sonnet:'Claude Sonnet', haiku:'Claude Haiku' };
 // gateway configurado na conta (~/.constellation/llm.env): nome, endpoint e modelos
 let _aiGw=null, _aiGwAt=0;
@@ -190,7 +192,7 @@ function openModelMenu(taskId, anchor){
   const old=$id('tmenuPop');
   if(old){ const same=old.__anchor===anchor; if(old.__close) old.__close(false); else old.remove(); if(same) return; }
   const pop=document.createElement('div'); pop.id='tmenuPop'; pop.__anchor=anchor;
-  pop.style.cssText='position:fixed;z-index:9000;min-width:240px;max-width:min(360px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow-y:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:5px';
+  pop.style.cssText='position:fixed;z-index:9000;min-width:240px;max-width:min(360px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow-y:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:var(--shadow-pop);padding:5px';
   const cur=t.model||'';
   // lista do MOTOR desta tarefa (antes: sempre a do Claude — numa tarefa Codex dava pra pôr "opus" no codex)
   const ek=aiEngineOf(t.engine), eng=AI_ENGINES.find(x=>x.id===ek)||AI_ENGINES[0];

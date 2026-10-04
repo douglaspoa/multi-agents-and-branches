@@ -39,7 +39,7 @@ function suaIaObSuggest(list, defEng){
 }
 // @sua-ia-puro-fim
 function suaIaOf(id){ const k=typeof aiEngineOf==='function'?aiEngineOf(id):id; return (suaIaList||[]).find(s=>s.id===k)||null; }
-function suaIaEngine(id){ return (typeof AI_ENGINES!=='undefined'?AI_ENGINES:[]).find(e=>e.id===id)||{ id, name:id, color:'#8b959b', icon:'', models:[] }; }
+function suaIaEngine(id){ return (typeof AI_ENGINES!=='undefined'?AI_ENGINES:[]).find(e=>e.id===id)||{ id, name:id, color:'var(--muted)', icon:'', models:[] }; }
 function suaIaDefEng(){ return aiEngineOf(aiDefaults().eng); }
 // modelos do cartão: catálogo do seletor (29-ia-picker); gateway = os da config da conta (vêm no status; o 1º é o padrão = '')
 function suaIaModels(s){

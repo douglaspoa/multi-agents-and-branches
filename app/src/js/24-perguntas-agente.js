@@ -93,7 +93,7 @@ async function taskBackToRunning(taskId){
   return true;
 }
 
-const LANE_COLORS = ["#39d46a","#e5c07b","#56b6c2","#ff6b5f","#b48ead","#5b9dff","#d19a66","#8dd17a"];
+const LANE_COLORS = ["var(--chart-1)","var(--chart-3)","var(--chart-6)","var(--chart-5)","var(--chart-7)","var(--chart-2)","var(--chart-8)","var(--chart-4)"];
 function parseRefs(refs){
   return refs ? refs.split(",").map(s=>s.trim().replace(/^HEAD -> /,"").replace(/^tag: /,"")).filter(Boolean) : [];
 }

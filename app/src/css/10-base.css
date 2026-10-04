@@ -1,29 +1,126 @@
 /* Starfork — 10-base (fatia 1/6; a ORDEM dos arquivos importa: cascata) */
-:root{
-  /* Starfork — paleta esfriada (dark-only, redesign 2026-08) */
-  --bg:#0b0d0f; --surface:#13171a; --surface-2:#0e1113; --surface-3:#1b2024;
-  --border:rgba(255,255,255,.08); --border-strong:rgba(255,255,255,.14);
-  --text:#e9edef; --text-2:#c9d1d6; --muted:#8b959b;
-  --accent:#3fd68a; --accent-2:#34c07b; --on-accent:#04241a;
-  --c-main:#5b6469; --good:#3fd68a; --warn:#f0b449; --crit:#f2685c; --info:#5b9df9;
-  --cyan:#4fc4c9; --purple:#b47ce0;
-  --ui:-apple-system,"SF Pro Text","SF Pro",system-ui,"Helvetica Neue",Arial,sans-serif;
-  --mono:ui-monospace,"SF Mono",Menlo,monospace;
-  --r:12px; --r-sm:8px; --r-xs:6px;
-  --shadow:0 0 0 .5px rgba(0,0,0,.55), 0 16px 44px rgba(0,0,0,.62);
-  --shadow-sm:0 1px 2px rgba(0,0,0,.45);
-  /* R8 a11y: o anel de foco era 30% do verde (1,9:1 sobre o fundo — abaixo dos 3:1 do WCAG 1.4.11 pra indicador
-     de foco). 55% dá ~3,6:1 em todas as superfícies (bg/surface/surface-3) sem mudar a cor da marca. */
-  --ring:0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--accent) 55%, transparent);
-  /* com o vão escuro de 2px o anel aparece até em botão verde (.btn.primary): o vão separa verde de verde */
-  /* versão por dentro, pra onde a borda de fora é cortada (barra de status, ponto do épico, itens de menu) */
-  --ring-inset:inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
-  /* repaginada C: o verde cheio (--accent) é só do CTA primário, do foco e de "rodando" — e da marca
-     (o símbolo IC.starfork no logo, no avatar da IA e no loader pode ser verde cheio; é assinatura, não seleção).
-     Seleção, badge e borda de destaque usam o soft (fundo) + line (borda), com texto claro (--text).
-     São calculados aqui no :root: um tema claro que redefina --accent em OUTRO seletor precisa redeclarar os dois lá. */
+/* fontes servidas pelo próprio app (vendor/fonts, OFL — ver vendor/fonts/OFL.txt): nenhum host externo em produção.
+   Public Sans = interface; Martian Mono = terminal/código, fixada em 87,5% de largura (o descritor de valor único
+   prende o eixo wdth — vale até pro canvas do xterm, que não tem font-stretch). */
+@font-face{font-family:'Public Sans';src:url('../vendor/fonts/public-sans-latin-wght.woff2') format('woff2');font-weight:100 900;font-style:normal;font-display:swap}
+@font-face{font-family:'Public Sans';src:url('../vendor/fonts/public-sans-latin-wght-italic.woff2') format('woff2');font-weight:100 900;font-style:italic;font-display:swap}
+@font-face{font-family:'Martian Mono';src:url('../vendor/fonts/martian-mono-latin-standard.woff2') format('woff2');font-weight:100 800;font-stretch:87.5%;font-style:normal;font-display:swap}
+
+/* ===== TOKENS (fonte única de cor) — redesenho F2, valores do protótipo aprovado (_bmad-output/redesign/proto) =====
+   Tema escolhido por html[data-theme=light|dark] (04-tema.js; o <head> do index.html grava antes da 1ª pintura).
+   CLARO = Cartório (papel verde-acinzentado, tinta azul, carimbo roxo como ÚNICO acento de estado vivo).
+   ESCURO = chão verde-escuro tingido + o verde do logo (#3FD68A) como único acento.
+   Fora destes blocos, NENHUM arquivo de css/ tem cor literal (teste: app/tests/tema-movimento.test.mjs). */
+:root{ /* tema: claro (Cartório) */
+  color-scheme:light;
+  --ground:#E8EFEA; --surf-1:#F4F8F5; --surf-2:#DCE6DF; --surf-3:#FFFFFF; --card:#FFFFFF;
+  --ink-1:#0E1A2E; --ink-2:#38465A; --ink-3:#55647A;
+  --line:#C8D4CB; --line-2:#A9BAAE;
+  --live:#5A3AA5; --live-2:#4A2E8C; --on-live:#FFFFFF; --live-ink:#3E2580;
+  --stamp:#5A3AA5; --slate:#4B566A;
+  --tone-ok:#2A7049; --tone-warn:#8A5A0A; --tone-crit:#A63F2A; --tone-info:#286683; --cyan:#1F6F74; --purple:#6B4BB5; --tone-ask:#9A3E8C;
+  --warn-bg:#FFF3D6; --warn-line:#E7C77E; --crit-soft:#F5E3DC;
+  --tone-primary:#13254A; --tone-on-primary:#FFFFFF; --on-tone:#FFFFFF;
+  --tone-focus:var(--live);
+  /* lateral: azul-marinho no claro */
+  --side:#13254A; --side-2:#1C3363; --side-3:#0C1A37; --on-side:#D6DEEF; --on-side-2:#9AABCB; --live-side:#BBA8FF;
+  --side-cta:#E8EFEA; --on-side-cta:#13254A;
+  --side-ok:#93E2B4; --side-warn:#E6BE74; --side-crit:#F2A592; --side-info:#8CC7E6; --side-ask:#D3C6FF;
+  /* terminal: sempre escuro (marinho no claro) */
+  --term-bg:#0F1E3D; --term-bg-2:#142750; --term-line:#21386A; --term-fg:#DCE3F2; --term-dim:#A3B2D1; --term-faint:#7F92BA; --term-live:#BBA8FF; --term-sel:rgba(187,168,255,.30); --term-ask:#F0A6D8;
+  --chip-bg:#231F55; --chip-line:#5C4C9C; --chip-ink:#EEE9FF; --chip1-bg:#3B2D86; --chip1-line:#8B75E0;
+  --ansi-black:#1C2C4F; --ansi-red:#F2A592; --ansi-green:#93E2B4; --ansi-yellow:#E6BE74; --ansi-blue:#A8D6FF; --ansi-magenta:#BBA8FF; --ansi-cyan:#8CC7E6; --ansi-white:#DCE3F2;
+  --ansi-bblack:#7F92BA; --ansi-bred:#FFB8A8; --ansi-bgreen:#B0EEC9; --ansi-byellow:#F2D398; --ansi-bblue:#C4E3FF; --ansi-bmagenta:#D3C6FF; --ansi-bcyan:#B0DCF0; --ansi-bwhite:#FFFFFF;
+  /* séries de gráfico (ordem fixa; nunca dois verdes) */
+  --chart-1:#5A3AA5; --chart-2:#286683; --chart-3:#9A6A1C; --chart-4:#2A7049; --chart-5:#A63F2A; --chart-6:#1F6F74; --chart-7:#9A3E8C; --chart-8:#4B566A;
+  /* sombra: a base já carrega a intensidade do tema (color-mix multiplica o alfa) */
+  --shade:rgba(14,26,46,.5);
+  /* fixos dos dois temas: marca, mídia, página web, moldura de aparelho */
+  --logo:#3FD68A; --on-color:#FFFFFF; --media-bg:#000000; --web-bg:#FFFFFF; --yt-red:#E11D1D;
+  --on-color-dark:#0B0D0F; --device-1:#2B2D31; --device-2:#141518; --device-edge:#3A3C41; --device-ink:#BBBBBB;
+}
+:root[data-theme="dark"]{ /* tema: escuro (verde do logo) */
+  color-scheme:dark;
+  --ground:#0F1A17; --surf-1:#14221E; --surf-2:#1A2B26; --surf-3:#1D302A; --card:#12201C;
+  --ink-1:#E4EEE8; --ink-2:#B9C9C0; --ink-3:#8DA096;
+  --line:#263A33; --line-2:#365247;
+  --live:#3FD68A; --live-2:#34C07B; --on-live:#062818; --live-ink:#9BF0C4;
+  --stamp:#3FD68A; --slate:#9AA8A0;
+  --tone-ok:#7FDCA7; --tone-warn:#E0B054; --tone-crit:#E58C78; --tone-info:#7CC0E0; --cyan:#6CCFD3; --purple:#C9A7F0; --tone-ask:#C79BFF;
+  --warn-bg:#3A2F12; --warn-line:#7A6326; --crit-soft:#36201B;
+  --tone-primary:#DCE8E1; --tone-on-primary:#0F1A17; --on-tone:#0B1210;
+  --tone-focus:color-mix(in srgb, var(--live) 55%, transparent);
+  --side:#0A1411; --side-2:#15241F; --side-3:#07100D; --on-side:#D3E2DA; --on-side-2:#8DA096; --live-side:#3FD68A;
+  --side-cta:#E8EFEA; --on-side-cta:#13254A;
+  --side-ok:#7FDCA7; --side-warn:#E0B054; --side-crit:#E58C78; --side-info:#7CC0E0; --side-ask:#C79BFF;
+  --term-bg:#0A1513; --term-bg-2:#10201C; --term-line:#1E332C; --term-fg:#DCE8E1; --term-dim:#9DB2A7; --term-faint:#6F857A; --term-live:#3FD68A; --term-sel:rgba(63,214,138,.28); --term-ask:#E39AC8;
+  --chip-bg:#11291F; --chip-line:#2C6B4C; --chip-ink:#D6F7E5; --chip1-bg:#1A4632; --chip1-line:#3FD68A;
+  --ansi-black:#1E332C; --ansi-red:#F0A48F; --ansi-green:#7FDCA7; --ansi-yellow:#E0B868; --ansi-blue:#9CD3F5; --ansi-magenta:#C9A7F0; --ansi-cyan:#6CCFD3; --ansi-white:#DCE8E1;
+  --ansi-bblack:#6F857A; --ansi-bred:#F7BBA9; --ansi-bgreen:#3FD68A; --ansi-byellow:#F0D58C; --ansi-bblue:#BCE2FA; --ansi-bmagenta:#DCC4F7; --ansi-bcyan:#9BE3E6; --ansi-bwhite:#F4FAF6;
+  --chart-1:#3FD68A; --chart-2:#7CC0E0; --chart-3:#E0B868; --chart-4:#C9A7F0; --chart-5:#E58C78; --chart-6:#6CCFD3; --chart-7:#E39AC8; --chart-8:#9AA8A0;
+  --shade:rgba(0,0,0,1);
+}
+/* nomes semânticos que o app inteiro usa (apontam pros tokens do tema; os blocos de escopo abaixo os redefinem).
+   O seletor ".sidebar .moremenu" devolve o escopo da página a algo aberto DENTRO da lateral (menu "Mais"). */
+:root, .sidebar .moremenu{
+  --bg:var(--ground); --surface:var(--surf-1); --surface-2:var(--surf-2); --surface-3:var(--surf-3); --raised:var(--surf-3); --card-bg:var(--card);
+  --border:var(--line); --border-strong:var(--line-2);
+  --text:var(--ink-1); --text-2:var(--ink-2); --muted:var(--ink-3); --text-3:var(--ink-3);
+  --accent:var(--live); --accent-2:var(--live-2); --on-accent:var(--on-live);
+  --ok:var(--tone-ok); --good:var(--tone-ok); --warn:var(--tone-warn); --crit:var(--tone-crit); --info:var(--tone-info); --ask:var(--tone-ask);
+  --primary:var(--tone-primary); --on-primary:var(--tone-on-primary); --focus:var(--tone-focus); --c-main:var(--slate);
+  /* repaginada C: o acento cheio (--accent) é só do estado vivo, do foco e de "rodando".
+     Seleção, badge e borda de destaque usam o soft (fundo) + line (borda), com texto --text. */
   --accent-soft:color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-line:color-mix(in srgb, var(--accent) 40%, transparent);
+  /* tintas de tinta: borda/realce que funcionam nos dois temas (tinta escura no claro, clara no escuro) */
+  --wash:color-mix(in srgb, var(--text) 5%, transparent); --wash-2:color-mix(in srgb, var(--text) 9%, transparent);
+  --shadow:0 0 0 .5px color-mix(in srgb, var(--shade) 55%, transparent), 0 16px 44px color-mix(in srgb, var(--shade) 62%, transparent);
+  --shadow-sm:0 1px 2px color-mix(in srgb, var(--shade) 45%, transparent);
+  --shadow-pop:0 14px 40px color-mix(in srgb, var(--shade) 50%, transparent);
+  --scrim:color-mix(in srgb, var(--shade) 55%, transparent);
+  /* foco ≥ 3:1 nos dois temas: vão de 2px na cor do fundo + anel (--focus por tema). Estado (--st-*) e anel são
+     DERIVADOS: cada escopo abaixo (lateral, terminal) os redeclara — var() resolve onde é declarado, não onde é usado */
+  --st-run:var(--accent); --st-ask:var(--ask); --st-review:var(--warn); --st-done:var(--info); --st-err:var(--crit);
+  --err:var(--crit); --bad:var(--crit); --text-dim:var(--muted); --dim:var(--muted); --dim2:var(--text-3);
+  --ring:0 0 0 2px var(--bg), 0 0 0 4px var(--focus); --ring-inset:inset 0 0 0 2px var(--focus);
+}
+.sidebar .moremenu{color:var(--text)}
+/* lateral: no claro é o azul-marinho do protótipo; os mesmos nomes valem lá dentro */
+.sidebar{
+  --bg:var(--side-3); --surface:var(--side); --surface-2:var(--side-2); --surface-3:var(--side-2); --raised:var(--side-2); --card-bg:var(--side-3);
+  --border:color-mix(in srgb, var(--on-side) 14%, transparent); --border-strong:color-mix(in srgb, var(--on-side) 24%, transparent);
+  --text:var(--on-side); --text-2:var(--on-side); --muted:var(--on-side-2); --text-3:var(--on-side-2);
+  --accent:var(--live-side); --on-accent:var(--side-3); --primary:var(--side-cta); --on-primary:var(--on-side-cta);
+  --accent-soft:color-mix(in srgb, var(--live-side) 16%, transparent); --accent-line:color-mix(in srgb, var(--live-side) 45%, transparent);
+  --wash:color-mix(in srgb, var(--on-side) 6%, transparent); --wash-2:color-mix(in srgb, var(--on-side) 10%, transparent);
+  --focus:var(--live-side);
+  --ok:var(--side-ok); --good:var(--side-ok); --warn:var(--side-warn); --crit:var(--side-crit); --info:var(--side-info); --ask:var(--side-ask);
+  --chart-1:var(--live-side); --chart-2:var(--side-info); --chart-3:var(--side-warn); --chart-4:var(--side-ok); --chart-5:var(--side-crit); --chart-6:var(--ansi-cyan); --chart-7:var(--side-ask); --chart-8:var(--on-side-2);
+  --st-run:var(--accent); --st-ask:var(--ask); --st-review:var(--warn); --st-done:var(--info); --st-err:var(--crit);
+  --err:var(--crit); --bad:var(--crit); --text-dim:var(--muted); --dim:var(--muted); --dim2:var(--text-3);
+  --ring:0 0 0 2px var(--bg), 0 0 0 4px var(--focus); --ring-inset:inset 0 0 0 2px var(--focus);
+  color:var(--text);
+}
+/* terminais (xterm da tarefa, terminais do orquestrador): sempre escuros, com a tinta do terminal */
+.fwtermslot,.tltermbar,.tireply,.orq-term,.orq-termbox,.orq-chat,.orq-branch,.vf-log{
+  --surface-2:var(--term-bg); --surface:var(--term-bg-2); --surface-3:var(--term-bg-2);
+  --border:var(--term-line); --border-strong:color-mix(in srgb, var(--term-fg) 22%, transparent);
+  --text:var(--term-fg); --text-2:var(--term-dim); --muted:var(--term-dim); --text-3:var(--term-faint);
+  --accent:var(--term-live); --accent-soft:color-mix(in srgb, var(--term-live) 16%, transparent); --accent-line:color-mix(in srgb, var(--term-live) 45%, transparent);
+  --bg:var(--term-bg); --focus:var(--term-live);
+  --ok:var(--ansi-green); --good:var(--ansi-green); --warn:var(--ansi-yellow); --crit:var(--ansi-red); --info:var(--ansi-blue); --ask:var(--term-ask); --purple:var(--ansi-magenta); --cyan:var(--ansi-cyan);
+  --st-run:var(--accent); --st-ask:var(--ask); --st-review:var(--warn); --st-done:var(--info); --st-err:var(--crit);
+  --err:var(--crit); --bad:var(--crit); --text-dim:var(--muted); --dim:var(--muted); --dim2:var(--text-3);
+  --ring:0 0 0 2px var(--bg), 0 0 0 4px var(--focus); --ring-inset:inset 0 0 0 2px var(--focus);
+
+  --wash:color-mix(in srgb, var(--term-fg) 6%, transparent); --wash-2:color-mix(in srgb, var(--term-fg) 10%, transparent);
+  color:var(--text);
+}
+:root{
+  --ui:'Public Sans',-apple-system,"SF Pro Text",system-ui,"Helvetica Neue",Arial,sans-serif;
+  --mono:'Martian Mono',ui-monospace,"SF Mono",Menlo,monospace;
+  --r:12px; --r-sm:8px; --r-xs:6px;
   /* escala tipográfica ÚNICA (crítica Impeccable 02/10): todo texto do app usa estes passos — 11px é o PISO de
      texto legível (rótulo, dica, atalho .kbd). --fs-base é o corpo do app (13px, o mesmo do body). Só títulos de
      tela/vitrine (≥15px) ainda têm tamanho próprio. Teste: app/tests/critica-impeccable.test.mjs */
@@ -32,10 +129,6 @@
      texto). Lista fechada no teste (FS_DECORATIVOS). */
   --fs-ini:9.5px;
 }
-/* dark-only: o design é escuro em qualquer tema do SO */
-/* app é dark-only: color-scheme SEMPRE dark (sem isso, com o macOS em dark o
-   UA não aplicava nada e <button> sem color ficava com texto PRETO no WKWebView) */
-:root{ color-scheme:dark; }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{
@@ -49,12 +142,12 @@ body{
 
 /* topbar */
 .top{display:flex;align-items:center;gap:12px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--surface)}
-.brand{font-weight:800;font-size:16px;letter-spacing:.02em;color:var(--accent);display:flex;gap:7px;align-items:center}
+.brand{font-weight:800;font-size:16px;letter-spacing:.02em;color:var(--text);display:flex;gap:7px;align-items:center}
 .repo{display:flex;align-items:center;gap:6px;margin-left:6px;flex:1;max-width:640px}
 .repo input{flex:1;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:var(--fs-sm);padding:5px 9px}
 .repo input:focus{outline:2px solid var(--accent);outline-offset:-1px}
 .btn{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);font:inherit;font-weight:600;font-size:var(--fs-sm);padding:5px 11px;cursor:pointer}
-.btn.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.btn.on{background:var(--accent-soft);color:var(--text);border-color:var(--accent-line)}
 .conn{margin-left:auto;font-size:var(--fs-xs);color:var(--muted);display:flex;align-items:center;gap:7px}
 .conn .d{width:8px;height:8px;border-radius:50%;background:var(--muted)}
 .conn.live .d{background:var(--good);animation:pulse 1.6s infinite}
@@ -85,16 +178,17 @@ body{
 .askinput{background:var(--surface);border:1px solid var(--border);color:var(--text);font:inherit;font-size:var(--fs-sm);padding:5px 9px;min-width:220px}
 .askinput:focus{outline:2px solid var(--warn);outline-offset:-1px}
 .askopt,.asksend{border:1px solid var(--warn);background:var(--surface);color:var(--text);font:inherit;font-weight:600;font-size:var(--fs-sm);padding:5px 11px;cursor:pointer}
-.askopt:hover,.asksend:hover{background:var(--warn);color:#160f00}
+.askopt:hover,.asksend:hover{background:var(--warn);color:var(--on-tone)}
 
 /* botões extras */
-.btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
-.btn.primary:hover{filter:brightness(1.08)}
+/* primário = tinta do tema (marinho no claro, quase-branco no escuro), como no protótipo; o acento fica pro estado vivo */
+.btn.primary{background:var(--primary);color:var(--on-primary);border-color:var(--primary)}
+.btn.primary:hover{background:color-mix(in srgb,var(--primary) 88%,var(--bg))}
 .btn.danger{color:var(--crit);border-color:var(--crit)}
 .btn.sm{padding:5px 10px;font-size:var(--fs-sm)}
 /* modal nova tarefa */
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px}
-.modal{width:min(600px,100%);max-height:92vh;overflow:auto;background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px rgba(0,0,0,.5);display:flex;flex-direction:column}
+.overlay{position:fixed;inset:0;background:color-mix(in srgb,var(--shade) 55%,transparent);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px}
+.modal{width:min(600px,100%);max-height:92vh;overflow:auto;background:var(--surface);border:1px solid var(--border);box-shadow:0 20px 60px color-mix(in srgb,var(--shade) 50%,transparent);display:flex;flex-direction:column}
 .mhead{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid var(--border);font-size:15px}
 .mhead .x{border:0;background:transparent;color:var(--muted);font-size:var(--fs-md);cursor:pointer}
 .mbody{padding:14px 16px;display:flex;flex-direction:column;gap:5px}
@@ -103,16 +197,16 @@ body{
 .cmsg{display:flex;gap:8px;align-items:flex-start;max-width:88%;min-width:0}
 .cmsg.you{align-self:flex-end}
 .cav{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:var(--fs-ini);font-weight:700;color:var(--on-accent);flex:none;margin-top:3px}
-.cbub{background:var(--surface);border:1px solid rgba(255,255,255,.06);border-radius:12px;border-top-left-radius:4px;padding:9px 12px;font-size:var(--fs-sm);line-height:1.58;min-width:0;overflow-wrap:anywhere;word-break:break-word;box-shadow:0 1px 4px rgba(0,0,0,.18)}
-.cmsg.you .cbub{background:color-mix(in srgb,var(--accent) 88%,#000);color:var(--on-accent);border-color:transparent;border-top-left-radius:12px;border-top-right-radius:4px}
+.cbub{background:var(--surface);border:1px solid color-mix(in srgb,var(--text) 6%,transparent);border-radius:12px;border-top-left-radius:4px;padding:9px 12px;font-size:var(--fs-sm);line-height:1.58;min-width:0;overflow-wrap:anywhere;word-break:break-word;box-shadow:0 1px 4px color-mix(in srgb,var(--shade) 18%,transparent)}
+.cmsg.you .cbub{background:var(--accent-2);color:var(--on-accent);border-color:transparent;border-top-left-radius:12px;border-top-right-radius:4px}
 .cbub.think{color:var(--muted);box-shadow:none}
 .cbub.err{border-color:color-mix(in srgb,var(--crit) 45%,var(--border));color:var(--crit)}
 /* markdown dentro das bolhas — nada de ** cru */
 .cbub p{margin:0 0 7px} .cbub p:last-child{margin:0}
 .cbub h1,.cbub h2,.cbub h3,.cbub h4{font-size:1em;margin:4px 0 6px;font-weight:700;letter-spacing:0} /* título do agente nunca menor que o texto (era 12,5 px num balão de 14) */
 .cbub ul,.cbub ol{margin:4px 0 7px;padding-left:18px} .cbub li{margin-bottom:3px}
-.cbub code{font-family:var(--mono);font-size:var(--fs-xs);background:rgba(255,255,255,.08);border-radius:4px;padding:0 4px}
-.cmsg.you .cbub code{background:rgba(0,0,0,.22)}
+.cbub code{font-family:var(--mono);font-size:var(--fs-xs);background:color-mix(in srgb,var(--text) 8%,transparent);border-radius:4px;padding:0 4px}
+.cmsg.you .cbub code{background:color-mix(in srgb,var(--shade) 22%,transparent)}
 .cmsg.you.optim .cbub{opacity:.85}
 .cmsg.you .optim-st{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:var(--fs-xs);opacity:.85}
 .cmsg.you .optim-st .spin{width:9px;height:9px}
@@ -124,7 +218,7 @@ body{
 .cbub{position:relative;user-select:text;cursor:text}
 .ccopy{position:absolute;top:4px;right:4px;width:20px;height:20px;display:grid;place-items:center;border:1px solid var(--border);background:var(--surface-3);color:var(--muted);border-radius:5px;font-size:var(--fs-xs);cursor:pointer;opacity:0;transition:opacity .12s;padding:0}
 .cbub:hover .ccopy{opacity:.85}
-.cmsg.you .ccopy{background:rgba(0,0,0,.25);border-color:transparent;color:var(--on-accent)}
+.cmsg.you .ccopy{background:color-mix(in srgb,var(--shade) 25%,transparent);border-color:transparent;color:var(--on-accent)}
 .fwinput{position:relative}
 /* linha de sistema (meta) — discreta e central */
 .csys{align-self:center;max-width:92%;text-align:center;color:var(--muted);font-size:var(--fs-xs);font-family:var(--mono);padding:1px 0;opacity:.85}
@@ -142,7 +236,7 @@ body{
 .chatinput{display:flex;gap:8px;align-items:flex-end;padding:11px 14px;border-top:1px solid var(--border);position:relative}
 .cbub.asknow{border-color:color-mix(in srgb,var(--warn) 50%,var(--border));background:color-mix(in srgb,var(--warn) 8%,var(--surface))}
 .asknote{font-size:var(--fs-xs);color:var(--warn);margin-top:7px;font-family:var(--mono)}
-.atmenu{position:absolute;bottom:calc(100% + 6px);left:14px;right:14px;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:6px;z-index:10}
+.atmenu{position:absolute;bottom:calc(100% + 6px);left:14px;right:14px;max-height:240px;overflow:auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px color-mix(in srgb,var(--shade) 50%,transparent);padding:6px;z-index:10}
 .ath{font-size:var(--fs-xs);font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-family:var(--mono);padding:4px 8px}
 .atit{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;color:var(--text);font:inherit;font-size:var(--fs-sm);padding:6px 8px;border-radius:7px;cursor:pointer}
 .atit:hover{background:var(--surface-2)}
@@ -181,7 +275,7 @@ body{
 .top .grow{flex:1}
 .repoinput{width:210px;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:var(--fs-sm);padding:6px 9px}
 /* menu "mais" do topo — os botões secundários viram linhas de menu */
-.moremenu{position:absolute;top:calc(100% + 6px);right:0;z-index:70;min-width:230px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.5);padding:6px;display:flex;flex-direction:column;gap:2px}
+.moremenu{position:absolute;top:calc(100% + 6px);right:0;z-index:70;min-width:230px;background:var(--surface);border:1px solid var(--border-strong);border-radius:10px;box-shadow:0 14px 40px color-mix(in srgb,var(--shade) 50%,transparent);padding:6px;display:flex;flex-direction:column;gap:2px}
 .moremenu .btn{width:100%;justify-content:flex-start;border:0;background:transparent;padding:8px 10px}
 .moremenu .btn:hover{background:var(--surface-2)}
 .repoinput:focus{outline:2px solid var(--accent);outline-offset:-1px}
@@ -195,7 +289,7 @@ body{
 .sw .tr{position:absolute;inset:0;background:var(--surface);border:1px solid var(--border-strong);border-radius:21px;transition:.15s}
 .sw .kn{position:absolute;top:3px;left:3px;width:13px;height:13px;background:var(--muted);border-radius:50%;transition:.15s}
 .sw input:checked+.tr{background:var(--accent);border-color:transparent}
-.sw input:checked+.tr .kn{transform:translateX(15px);background:#fff}
+.sw input:checked+.tr .kn{transform:translateX(15px);background:var(--on-color)}
 .sw input:focus-visible+.tr{box-shadow:var(--ring)}
 .sw input:disabled+.tr{opacity:.5;cursor:not-allowed}
 .raopt{display:flex;align-items:center;gap:14px;padding:12px 0;border-top:1px solid var(--border)}
@@ -217,11 +311,8 @@ body{
 
 /* ===== tokens de status (fonte única — ver STATUS_META em js/00-util.js) ===== */
 :root{
-  --st-run:var(--good); --st-ask:#c79bff; --st-review:var(--warn); --st-done:var(--info); --st-err:var(--crit);
-  --text-3:rgba(233,237,239,.52); --r-pill:999px; --card-bg:#101312;
-  --display:'Instrument Sans',var(--ui); --code:'JetBrains Mono',var(--mono);
-  /* aliases de nomes que o código já usava sem existir */
-  --ok:var(--good); --err:var(--crit); --bad:var(--crit); --text-dim:var(--muted); --dim:var(--muted); --dim2:var(--text-3);
+  --r-pill:999px;
+  --display:var(--ui); --code:var(--mono);
 }
 .stbadge{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-xs);font-weight:600;color:var(--stc);background:color-mix(in srgb,var(--stc) 13%,transparent);border:1px solid color-mix(in srgb,var(--stc) 32%,transparent);border-radius:var(--r-pill);padding:1px 8px 1px 7px;white-space:nowrap;line-height:1.6}
 .stbadge i{font-style:normal;font-size:var(--fs-xs);display:inline-flex}

@@ -6,7 +6,7 @@
    o box-shadow some e o contorno vira a cor do sistema. [tabindex="-1"] fica de fora (foco programático numa caixa). */
 html :is(button,.btn,.iconbtn,[role=tab],:where([tabindex]:not([tabindex="-1"])),a[href],a[role=button],summary,select,input[type=checkbox],input[type=radio],input[type=date],[role=button],[role=option],[role=menuitem],[role=switch],[role=link]):focus-visible{outline:2px solid transparent;outline-offset:2px;box-shadow:var(--ring)!important}
 /* quem já tinha sombra própria mantém: anel + a sombra original */
-html .ndex:focus-visible{box-shadow:var(--ring),0 1px 0 rgba(255,255,255,.03) inset,0 6px 16px -10px rgba(0,0,0,.6)!important}
+html .ndex:focus-visible{box-shadow:var(--ring),0 1px 0 color-mix(in srgb,var(--text) 3%,transparent) inset,0 6px 16px -10px color-mix(in srgb,var(--shade) 60%,transparent)!important}
 html .tab.dropto:focus-visible{box-shadow:var(--ring),inset 2px 0 0 var(--accent)!important}
 /* onde a borda de fora é cortada ou o anel cobriria o vizinho: anel por dentro (--ring-inset) */
 html .busln:focus-visible,html .epqdot:focus-visible,html #tmenuPop button:focus-visible,html #stmenuPop button:focus-visible{outline:2px solid transparent;box-shadow:var(--ring-inset)!important}

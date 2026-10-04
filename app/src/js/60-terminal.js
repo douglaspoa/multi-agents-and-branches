@@ -22,14 +22,25 @@ function termViewOf(t){
 }
 function termSlotHtml(t){ return `<div class="fwthread fwtermslot" id="fwThread" data-term="${escA(t.id)}"></div>`; }
 function termCss(name, fb){ try{ const v=getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v||fb; }catch(_){ return fb; } }
-// tema a partir dos tokens do app (mesmo fundo/texto/acento da tela)
+// tema a partir dos tokens do app (redesenho F2): o terminal é SEMPRE escuro — marinho no claro (Cartório), verde-quase-
+// preto no escuro — com a paleta ANSI de cada tema (--term-*, --ansi-* em css/10-base.css). Os fallbacks são os do escuro.
+// @cor-dado-inicio — fallbacks do termTheme: os valores do tema escuro, só se o token não existir
 function termTheme(){
-  return { background:termCss('--surface-2','#0e1113'), foreground:termCss('--text','#e9edef'), cursor:termCss('--accent','#3fd68a'),
-    cursorAccent:termCss('--surface-2','#0e1113'), selectionBackground:'rgba(63,214,138,.28)',
-    black:'#1b2024', red:termCss('--crit','#f2685c'), green:termCss('--good','#3fd68a'), yellow:termCss('--warn','#f0b449'),
-    blue:termCss('--info','#5b9df9'), magenta:termCss('--purple','#b47ce0'), cyan:termCss('--cyan','#4fc4c9'), white:termCss('--text-2','#c9d1d6'),
-    brightBlack:termCss('--muted','#8b959b'), brightWhite:termCss('--text','#e9edef') };
+  const c=(n, fb)=>termCss(n, fb);
+  return { background:c('--term-bg','#0A1513'), foreground:c('--term-fg','#DCE8E1'), cursor:c('--term-live','#3FD68A'),
+    cursorAccent:c('--term-bg','#0A1513'), selectionBackground:c('--term-sel','rgba(63,214,138,.28)'),
+    black:c('--ansi-black','#1E332C'), red:c('--ansi-red','#F0A48F'), green:c('--ansi-green','#7FDCA7'), yellow:c('--ansi-yellow','#E0B868'),
+    blue:c('--ansi-blue','#9CD3F5'), magenta:c('--ansi-magenta','#C9A7F0'), cyan:c('--ansi-cyan','#6CCFD3'), white:c('--ansi-white','#DCE8E1'),
+    brightBlack:c('--ansi-bblack','#6F857A'), brightRed:c('--ansi-bred','#F7BBA9'), brightGreen:c('--ansi-bgreen','#3FD68A'), brightYellow:c('--ansi-byellow','#F0D58C'),
+    brightBlue:c('--ansi-bblue','#BCE2FA'), brightMagenta:c('--ansi-bmagenta','#DCC4F7'), brightCyan:c('--ansi-bcyan','#9BE3E6'), brightWhite:c('--ansi-bwhite','#F4FAF6') };
 }
+// @cor-dado-fim
+// trocou o tema (04-tema dispara 'sf-theme'): todo xterm aberto — visível ou guardado — repinta na hora (evento, sem polling)
+function termRetheme(){ const th=termTheme(); for(const k of Object.keys(TERM)){ const x=TERM[k]; if(x && x.term) try{ x.term.options.theme=th; }catch(_){ } } }
+if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('sf-theme', termRetheme);
+// a Martian Mono local terminou de carregar depois de um xterm já aberto: re-mede a célula (senão a grade fica com a
+// largura da fonte reserva) e reencaixa
+try{ if(document.fonts && document.fonts.ready) document.fonts.ready.then(()=>{ for(const k of Object.keys(TERM)){ const x=TERM[k]; if(!x || !x.term) continue; try{ x.term.options.fontFamily=termCss('--mono','ui-monospace, Menlo, monospace'); const h=x.host; if(x.fit && h && h.isConnected && h.offsetWidth>0 && h.offsetHeight>0) x.fit.fit(); }catch(_){ } /* só encaixa o visível: escondido mede 0 e o PTY encolheria à toa */ } }); }catch(_){ }
 function termCtor(){ const T=window.Terminal; return T && (T.Terminal||T); }
 function termFitCtor(){ const F=window.FitAddon; return F && (F.FitAddon||F); }
 

@@ -175,7 +175,7 @@ function renderTeamBoard(){
     <div class="tskpis">
       <div class="tskpi"><div class="v">${done}</div><div class="l">entregas</div><div class="d">${inP.length} tarefas no período</div></div>
       <div class="tskpi"><div class="v" style="color:var(--accent)">${doing.length}</div><div class="l">em andamento</div><div class="d">${fcT.aguardando?`${fcT.aguardando} aguardando alguém · `:''}${nPl(nDevs,'dev ativo','devs ativos')}</div></div>
-      <div class="tskpi"><div class="v" style="color:#c678dd">${eps}</div><div class="l">épicos ativos</div><div class="d">${activeEps.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(epDelivered).length;return esc(e.name.split(' ')[0])+' '+dn+'/'+ts.length;}).join(' · ')||'—'}</div></div>
+      <div class="tskpi"><div class="v" style="color:var(--purple)">${eps}</div><div class="l">épicos ativos</div><div class="d">${activeEps.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(epDelivered).length;return esc(e.name.split(' ')[0])+' '+dn+'/'+ts.length;}).join(' · ')||'—'}</div></div>
       <div class="tskpi"><div class="v" style="color:${prs.length?'var(--warn)':'var(--text)'}">${prs.length}</div><div class="l">PRs pra revisar</div><div class="d">${prs.length?'mais antigo '+agoTx(prs[prs.length-1].updated_at):'em dia ✓'}</div></div>
       <div class="tskpi"><div class="v">${fmtCost(custo,{usdOnly:true})}</div><div class="l">custo no período · ≈ R$ ${fmtNumBR(custo*usdBrlRate(),true)}</div><div class="d">${inP.length?fmtCost(custo/Math.max(1,done||1))+' por entrega':'—'}</div></div>
     </div>
@@ -222,7 +222,7 @@ function renderTeamBoard(){
             const act=mine.filter(t=>!['merged','done'].includes(t.status)&&t.flag!=='closed').slice(0,3);
             if(!act.length) return '';
             const KIND_PT={build:'FEATURE',fix:'FIX',invest:'INVESTIGAÇÃO',design:'DESIGN',review:'REVIEW'};
-            const KIND_CO={build:'var(--accent)',fix:'var(--warn)',invest:'#c678dd',design:'var(--info)',review:'var(--good)'};
+            const KIND_CO={build:'var(--accent)',fix:'var(--warn)',invest:'var(--purple)',design:'var(--info)',review:'var(--good)'};
             const pctOf=s=>({backlog:5,requested:10,queued:15,running:45,thinking:45,'plan-review':30,review:80,delivered:85,error:45,conflict:45}[s]??20);
             return act.map(t=>{ const k=(t.spec||{}).kind|| ((t.branch||'').startsWith('fix/')?'fix':(t.branch||'').startsWith('invest/')?'invest':(t.branch||'').startsWith('design/')?'design':'build');
               return `<div data-ct="${escA(t.id)}" style="cursor:pointer;margin-top:7px;padding-top:7px;border-top:1px dashed var(--border)">

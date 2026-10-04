@@ -159,12 +159,14 @@ function ctWire(el, src){
   const taskOf=(id)=>(src||[]).find(x=>x.id===id)||(state.tasks||[]).find(x=>x.id===id);
   const open=(id)=>{ const t=taskOf(id); if(!t) return;
     if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; }
-    selected=t.id; if(typeof openOrEdit==='function') openOrEdit(t); else openWorkspace(t.id); };
+    const go=()=>{ selected=t.id; if(typeof openOrEdit==='function') openOrEdit(t); else openWorkspace(t.id); };
+    // F3: aberto por clique, o título da linha voa até a aba (View Transition; sem ela, o voo WAAPI do renderTabs)
+    if(typeof mvOpen==='function') mvOpen(table.querySelector(`tr[data-ctrow="${CSS.escape(id)}"] .cttx`), go); else go(); };
   const toggle=(id)=>{
     const tr=table.querySelector(`tr[data-ctrow="${CSS.escape(id)}"]`), r=CT.rows.get(id); if(!tr || !r) return;
     const op=!CT.open.has(id); if(op) CT.open.add(id); else CT.open.delete(id);
     const nx=tr.nextElementSibling; if(nx && nx.classList.contains('ctexp')) nx.remove();
-    if(op) tr.insertAdjacentHTML('afterend', ctExpHtml(r));
+    if(op){ tr.insertAdjacentHTML('afterend', ctExpHtml(r)); const ex=tr.nextElementSibling; if(ex && ex.classList.contains('ctexp') && typeof mvExpand==='function' && mvUser()) mvExpand(ex.querySelector('.ctexpb')); } // F3: a linha abre crescendo
     tr.classList.toggle('open', op);
     const ch=tr.querySelector('[data-cttog]'); if(ch){ ch.setAttribute('aria-expanded', String(op)); ch.textContent=op?'▾':'▸'; }
     ctSyncLast();
@@ -173,7 +175,9 @@ function ctWire(el, src){
     CT.sort=ctNextSort(CT.sort, k); lsSet('ctSort', JSON.stringify(CT.sort));
     const tb=table.tBodies[0]; const groups=new Map();
     tb.querySelectorAll('tr[data-ctrow]').forEach(tr=>{ const g=[tr]; const nx=tr.nextElementSibling; if(nx && nx.classList.contains('ctexp')) g.push(nx); groups.set(tr.dataset.ctrow, g); });
-    for(const r of ctSort([...CT.rows.values()], CT.sort.key, CT.sort.dir)){ const g=groups.get(r.id); if(g) g.forEach(x=>tb.appendChild(x)); }
+    // F3: as linhas reordenam com FLIP (cada uma desliza do lugar velho pro novo; reduzir movimento = corte)
+    const reorder=()=>{ for(const r of ctSort([...CT.rows.values()], CT.sort.key, CT.sort.dir)){ const g=groups.get(r.id); if(g) g.forEach(x=>tb.appendChild(x)); } };
+    if(typeof flip==='function') flip(tb, reorder, { sel:'tr' }); else reorder();
     table.querySelectorAll('th[aria-sort]').forEach(th=>{ const b=th.querySelector('[data-ctsort]'); const on=b && b.dataset.ctsort===CT.sort.key;
       th.setAttribute('aria-sort', on?(CT.sort.dir==='asc'?'ascending':'descending'):'none'); if(b){ b.classList.toggle('on', !!on); const a=b.querySelector('.ctar'); if(a) a.textContent=on?(CT.sort.dir==='asc'?'▲':'▼'):'↕'; } });
     ctSyncLast();

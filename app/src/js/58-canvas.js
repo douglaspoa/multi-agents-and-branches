@@ -138,11 +138,18 @@ function cvShowView(tab){
   let row=ov.querySelector('.cvrow'); if(!row){ row=document.createElement('div'); row.className='cvrow'; ov.appendChild(row); cvWireRow(row); }
   const want=[]; ids.forEach((id,i)=>{ if(i) want.push(cvSplitter(i-1)); want.push(cvPaneEl(id)); });
   const cur=[...row.children];
+  // F3: dividir/juntar por um clique — o painel novo entra deslizando da direita e os que ficam andam até o lugar novo
+  // (FLIP). Painel com webview nativa (Navegador) não anima: a janela nativa segue o retângulo medido.
+  const mv=split && typeof mvUser==='function' && mvUser() && (cur.length!==want.length || cur.some((c,i)=>c!==want[i]));
+  const before=mv?new Map(cur.filter(c=>c.dataset.tabid).map(c=>[c, c.getBoundingClientRect()])):null;
   if(cur.length!==want.length || cur.some((c,i)=>c!==want[i])){
     cur.forEach(c=>{ if(!want.includes(c)){ if(c.dataset.tabid) cvPaneHidden(c); c.remove(); } });
     want.forEach((el,i)=>{ if(row.children[i]!==el) row.insertBefore(el, row.children[i]||null); });
   }
   cvApplyLayout(row, ids);
+  if(before) ids.forEach((id,i)=>{ const el=SPL.panes[id], tb=cvTabOf(id); if(!el || (tb && tb.kind==='web')) return; const b=before.get(el);
+    if(!b){ if(!before.size && !i) return; mvAnim(el, [{ opacity:0, transform:'translateX(40px)' }, { opacity:1, transform:'none' }], { duration:260 }); return; }
+    const d=mvFlipDelta(b, el.getBoundingClientRect()); if(d) mvAnim(el, [{ transform:`translate(${d.dx}px,${d.dy}px)` }, { transform:'none' }], { duration:260 }); });
   if(split) cvRelayout(); // a 1ª medida pode vir antes do layout (área 0): reavalia no próximo quadro
   cvNatSync();
   ids.forEach((id,i)=>{ const el=SPL.panes[id]; el.classList.toggle('focus', split && (SPL.focus|0)===i); el.classList.toggle('split', split); cvRenderPane(cvTabOf(id), el); });
@@ -471,6 +478,7 @@ function cvPlusMenu(anchor, opts){
   const r=anchor?anchor.getBoundingClientRect():{ left:window.innerWidth/2-170, bottom:90 };
   m.style.top=Math.min(window.innerHeight-m.offsetHeight-8, r.bottom+6)+'px';
   m.style.left=Math.max(8, Math.min(window.innerWidth-m.offsetWidth-8, r.left))+'px';
+  if(typeof mvFromOrigin==='function' && anchor) mvFromOrigin(m, anchor); // F3: o menu nasce do botão
   setTimeout(()=>document.addEventListener('mousedown', cvMenuOut, true), 0);
   const split=opts.split||null;
   const open=(desc)=>{ cvCloseMenu(); cvOpenTop(desc, split?{ split }:{}); };

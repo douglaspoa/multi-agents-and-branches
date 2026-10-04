@@ -8,9 +8,9 @@
 /* ---------- dock ---------- */
 .tidock{flex:none;display:flex;flex-direction:column;gap:0;border-top:1px solid var(--border);background:var(--surface)}
 .tichips{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px 0}
-.tichip{font:inherit;font-size:var(--fs-sm);color:var(--text);background:var(--surface-3);border:1px solid var(--border-strong);border-radius:var(--r-pill);padding:4px 12px;cursor:pointer;max-width:100%;text-align:left;line-height:1.35;overflow-wrap:anywhere}
-.tichip:hover{border-color:var(--accent-line);color:var(--accent)}
-.tichip.pri{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
+.tichip{font:inherit;font-size:var(--fs-sm);color:var(--chip-ink);background:var(--chip-bg);border:1px solid var(--chip-line);border-radius:var(--r-pill);padding:4px 12px;cursor:pointer;max-width:100%;text-align:left;line-height:1.35;overflow-wrap:anywhere}
+.tichip:hover{border-color:var(--chip1-line)}
+.tichip.pri{background:var(--chip1-bg);border-color:var(--chip1-line);color:var(--chip-ink)}
 .tichip:focus-visible,.tiact:focus-visible,.ticomp:focus-visible,.tilink:focus-visible,.tiapp:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
 .tiacts{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px}
 .tiacts .sp{flex:1 1 0}
@@ -70,7 +70,7 @@
 
 /* ---------- folha dos botões (reaproveita .tlsheet/.tlopt da folha de pergunta) ---------- */
 .tisheethost{position:absolute;inset:0;z-index:7;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;padding:8px 12px 12px}
-.tiscrim{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.tiscrim{position:absolute;inset:0;background:color-mix(in srgb,var(--shade) 45%,transparent)}
 .tisheetbox{position:relative;width:min(560px,100%);max-height:100%;display:flex;min-height:0}
 .tisheet{width:100%;border-color:var(--border-strong)}
 .tisheet .tlshk{color:var(--muted);font-weight:500;font-family:var(--mono)}
@@ -124,13 +124,13 @@
    turno, "a IA parou · Continuar com…" no shell); embaixo, IA ▾ · Anexar · ✎ | Etapa · Skills · Tarefa · Revisão / PR.
    O compositor é o ícone ✎ (sem o rótulo "compositor" solto). Só tokens; nada anima (F3). */
 .tidock{border-top:0;background:none}
-.tireply{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;padding:8px 12px;background:var(--surface-2);border-top:1px solid var(--border);min-width:0}
+.tireply{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;padding:8px 12px;background:var(--surface);border-top:1px solid var(--border);min-width:0}
 .tirl{flex:none;font-size:var(--fs-sm);font-weight:600;color:var(--text-2);white-space:nowrap}
 .tireply .tichips{padding:0;flex:1 1 auto;min-width:0}
 .tichip{display:inline-flex;align-items:center;gap:8px}
 .tichx{min-width:0}
 .tik{flex:none;font:600 var(--fs-xs)/1 var(--mono);color:var(--muted);border:1px solid var(--border-strong);border-radius:4px;padding:2px 5px}
-.tichip.pri .tik{color:var(--accent);border-color:var(--accent-line)}
+.tichip.pri .tik{color:var(--chip-ink);border-color:var(--chip1-line)}
 .tireply.busy .sp{flex:1 1 0}
 .tireply.busy .tirl{font-weight:500;color:var(--muted)}
 .tiesc .kbd{margin-left:4px}

@@ -4,6 +4,15 @@
 const TASK_DONE_ST=['merged','done'];
 function taskIsDone(t){ return !!t && (t.flag==='closed' || TASK_DONE_ST.includes(t.status)); }
 function prNumOf(t){ return (String((t&&t.prUrl)||'').match(/\/pull\/(\d+)/)||[])[1]||''; }
+// carimbo ESTÁTICO "entregue" (redesenho F2, componente .stamp): só quando a demanda foi integrada (PR mergeado) — na
+// cabeça da Entrega e na faixa de etapas, como no protótipo. Data = último movimento da tarefa; o número do PR se houver
+function enStampEntregue(t){
+  if(!t || t.status!=='merged') return '';
+  const pr=prNumOf(t), ts=(typeof taskTs==='function')?taskTs(t):0;
+  const d=ts?new Date(ts).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }):'';
+  const sub=[d, pr?'PR #'+pr:''].filter(Boolean).join(' · ');
+  return `<span class="stamp entregue" role="img" aria-label="${escA('entregue'+(sub?' — '+sub:''))}">entregue${sub?`<span class="d">${esc(sub)}</span>`:''}</span>`;
+}
 function agoShort(ms){ const s=(Date.now()-ms)/1000; if(!(s>=0)) return ''; if(s<60) return 'agora'; if(s<3600) return Math.floor(s/60)+'min'; if(s<86400) return Math.floor(s/3600)+'h'; return Math.floor(s/86400)+'d'; }
 // duração desconhecida (sem eventos) = '' — nunca "0 min" como se a tarefa não tivesse levado tempo
 function fmtDurKnown(ms){ return ms>0?fmtDurMs(ms):''; }
@@ -494,7 +503,7 @@ function fwRenderEntrega(t, main){
   const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
     <div class="en-head">
       <div class="en-ht"><span class="ndeyebrow">${esc(TYPE_PT[taskType(t)]||'demanda')} · ${done?'concluída':nonCode&&['review','delivered'].includes(t.status)?'pronta pra você conferir':esc(PHASES[taskPhase(t)-1]||'')}</span><h2 class="en-h1">${esc(t.title)}</h2>${t.objective?`<p class="en-obj">${esc(t.objective)}</p>`:''}</div>
-      <div class="en-kpis">${kpis}</div>
+      <div class="en-kpis">${kpis}${enStampEntregue(t)}</div>
     </div>
     ${enLiveHtml(t)}
     ${nonCode?enSaveBarHtml(t, arts)+pvSec:enVerifHtml(t)}
