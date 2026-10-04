@@ -22,13 +22,13 @@
 //
 // Os hooks chamam o motor empacotado: `<node> cli.mjs hook <Evento> --starfork-task <id> --repo <repo>`.
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ClaudeEngine, claudeEnv, mapTool, resolveClaude, adjustRuleOf } from "./engine/claude.ts";
 import { buildPrompt as codexPrompt, loadLlmEnv } from "./engine/codex.ts";
 import { DSH_FAST_MODEL, DSH_KEY_MSG, dshKey, dshModelFor, isDshLabel } from "./engine/dsh.ts";
-import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
+import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
 import { resolveToolCached, toolPath } from "./engine/bin-resolve.ts";
 import { protectArgs, protectEnabled } from "./engine/protect.ts";
 import { engineKind, Orchestrator, deliverPrompt } from "./orchestrator.ts";
@@ -664,6 +664,8 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   let kicked = false;
   const genericKick = () => merged ? "" : codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
   if (ai === "claude" || ai === "deepseek") {
+    // a pasta foi criada pelo Starfork a partir do repo da pessoa: sem o "Is this a project you trust?" (padrão = sair)
+    trustClaudeProject(task.worktree, repo);
     writeClaudeSettings(task.worktree, base, taskId, repo);
     // /starfork-* do terminal integrado (só os nossos; arquivo de mesmo nome da pessoa fica) — fora do commit
     try { const c = writeStarforkCommands(task.worktree); excludeFromGit(task.worktree, c.written); } catch { /* sem comandos: as tools seguem */ }
@@ -691,6 +693,10 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     if (mcp.command) {
       args.push("-c", `mcp_servers.cardume.command=${toml(mcp.command)}`, "-c", `mcp_servers.cardume.args=${toml(mcp.args ?? [])}`, "-c", `mcp_servers.cardume.env=${toml(mcp.env ?? {})}`);
     }
+    // sem o "Do you trust the contents of this directory?": confiança SÓ nesta sessão (-c; o ~/.codex/config.toml
+    // da pessoa não muda). Conferido no codex 0.153: a chave com aspas (projects."<p>".trust_level) não pega — a
+    // tabela inteira sim; ela só vale pra esta sessão, que roda nesta pasta
+    args.push("-c", codexTrustArg(task.worktree, repo));
     // instruções do terminal como mensagem de "developer" (config do Codex) — valem também no `codex resume`
     args.push("-c", `developer_instructions=${toml(rules)}`);
     // comandos IGUAIS em toda tarefa (tarefa/banco vêm do env CARDUME_TASK/CARDUME_DB): o Codex pede pra pessoa
@@ -745,6 +751,43 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   return { ai, program: bin, args, env, envRemove, resumed: !!(sid || resumeLast), sessionId: sid || null, cwd: task.worktree, busy };
 }
 
+/** Caminho e o real (macOS: /tmp → /private/tmp) — a IA compara pelo real, a pessoa vê o outro. */
+const bothPaths = (p: string) => { let r = p; try { r = realpathSync(p); } catch { /* não existe */ } return [...new Set([p, r])]; };
+/** Config do Claude Code com as pastas confiadas: $CLAUDE_CONFIG_DIR/.claude.json ou ~/.claude.json. */
+export const claudeJsonPath = (env: NodeJS.ProcessEnv = process.env) => env.CLAUDE_CONFIG_DIR?.trim() ? join(env.CLAUDE_CONFIG_DIR.trim(), ".claude.json") : join(env.HOME?.trim() || homedir(), ".claude.json");
+/**
+ * Marca a worktree da tarefa como confiada no Claude Code (projects[<pasta>].hasTrustDialogAccepted = true; conferido
+ * no ~/.claude.json do Claude Code 2.1). Só pasta nossa (<repo>/.cardume/worktrees/…), arquivo existente (não cria),
+ * gravação atômica preservando o resto; qualquer erro = segue (o diálogo aparece, como antes). Devolve se gravou.
+ */
+export function trustClaudeProject(worktree: string, repo: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  try {
+    const root = join(repo, ".cardume", "worktrees") + "/";
+    if (!worktree.startsWith(root)) return false;
+    const p = claudeJsonPath(env);
+    if (!existsSync(p)) return false;
+    const cfg = JSON.parse(readFileSync(p, "utf8"));
+    if (!cfg || typeof cfg !== "object") return false;
+    const projects = cfg.projects && typeof cfg.projects === "object" ? cfg.projects : (cfg.projects = {});
+    let changed = false;
+    for (const k of bothPaths(worktree)) {
+      const cur = projects[k] && typeof projects[k] === "object" ? projects[k] : (projects[k] = {});
+      if (cur.hasTrustDialogAccepted !== true) { cur.hasTrustDialogAccepted = true; changed = true; }
+    }
+    if (!changed) return false;
+    const tmp = `${p}.starfork-${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(cfg, null, 2), { encoding: "utf8", mode: statSync(p).mode & 0o777 });
+    renameSync(tmp, p);
+    return true;
+  } catch { return false; }
+}
+/** `-c projects={…}` do Codex: a worktree e a raiz do repo (o Codex aplica a confiança à raiz do git) como trusted. */
+export function codexTrustArg(worktree: string, repo: string): string {
+  const t: Record<string, { trust_level: string }> = {};
+  for (const k of [...bothPaths(worktree), ...bothPaths(repo)]) t[k] = { trust_level: "trusted" };
+  return `projects=${toml(t)}`;
+}
+
 /** `<ia> --help` (stdout+stderr) pra conferir flag que muda entre versões. Falhou = "" (usa só o básico). */
 function cliHelp(bin: string, path: string | undefined): string {
   try {
@@ -757,7 +800,8 @@ function cliHelp(bin: string, path: string | undefined): string {
 export function mergedRule(prUrl?: string): string {
   return `## Tarefa já integrada — modo conversa\n` +
     `Esta tarefa JÁ FOI INTEGRADA${prUrl ? ` (PR ${prUrl})` : ""}. Responda perguntas sobre o que foi feito usando o histórico, o diff (git log/diff contra a base) e .cardume/artifacts. ` +
-    `NÃO altere código aqui; se o humano pedir mudança, crie uma tarefa de ajuste com \`starfork tarefa "Ajuste: …"\` (rascunho, mesmo épico) e diga isso a ele.\n`;
+    `NÃO altere código aqui; se o humano pedir mudança, crie uma tarefa de ajuste com \`starfork tarefa "Ajuste: …"\` (rascunho, mesmo épico) e diga isso a ele.\n` +
+    `Termine TODA resposta chamando \`starfork sugerir\` (ou suggest_replies) com 2–4 próximas perguntas/ações curtas (ex.: "o que mudou no X?", "mostra os testes", "abrir ajuste").\n`;
 }
 const lastPr = (spec: TaskSpec) => spec.prUrl || spec.prHistory?.[spec.prHistory.length - 1];
 
@@ -778,6 +822,10 @@ export function geminiSettings(existing: Record<string, unknown> | null, mcp: { 
     servers.cardume = { command: mcp.command, args: mcp.args ?? [], env: mcp.env ?? {}, trust: true, description: "Starfork — tarefa, provas, PR" };
     out.mcpServers = servers;
   }
+  // Gemini CLI novo: "confiar nesta pasta?" (security.folderTrust) — a pasta é do Starfork; desligado só nesta sessão
+  const sec = (out.security && typeof out.security === "object" ? out.security : {}) as Record<string, unknown>;
+  sec.folderTrust = { ...(sec.folderTrust && typeof sec.folderTrust === "object" ? sec.folderTrust : {}), enabled: false };
+  out.security = sec;
   return out;
 }
 /** opencode.json do terminal: MCP local (command = argv inteiro) + as instruções do Starfork + sem pedir permissão. */
@@ -1022,12 +1070,27 @@ export function hookCli(event: string, taskArg: string, repoArg: string, argvPay
     const store = new Store(db);
     try {
       const eff = mapHook(event, p);
+      // fala INTEIRA (o feed guarda o começo; as opções ficam no fim)
+      let full = String(p.last_assistant_message ?? p["last-assistant-message"] ?? "");
       if (event === "Stop" && eff.events[0]?.text === "turno concluído") {
         const t = lastAssistantText(p.transcript_path);
-        if (t) eff.events[0].text = clip(t, 2000);
+        if (t) { eff.events[0].text = clip(t, 2000); full = t; }
       }
       const wasBusy = (store.termGet(taskId)?.busy ?? 0) === 1;
       applyHook(store, taskId, eff);
+      // chips de reserva: o agente não chamou suggest_replies, mas a fala termina com opções claras
+      if (eff.turnEnd && full) {
+        try {
+          if (!suggestedSinceUser(store.eventsForTask(taskId))) {
+            const opts = suggestFromText(full);
+            if (opts) {
+              let agent = store.getTask(taskId)?.agent ?? "agente", role: string | undefined;
+              try { const sp = JSON.parse(store.getTask(taskId)!.spec_json) as TaskSpec; const r = sp.roles?.find((x) => x.role === "builder") ?? sp.roles?.[0]; agent = r?.name || agent; role = r?.role; } catch { /* spec ilegível */ }
+              store.addEvent(taskId, agent, "suggest", JSON.stringify(opts), true, role);
+            }
+          }
+        } catch { /* chips são extra */ }
+      }
       // fim de turno: no Stop/notify sempre; no SessionEnd só se a sessão caiu NO MEIO de um turno (senão o
       // fim de turno já rodou no Stop e o gate apareceria duas vezes)
       if (eff.turnEnd || (eff.ended && wasBusy)) spawnTurnEnd(taskId, repo);

@@ -9,7 +9,7 @@ const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8'
 const cut = (src, from, to) => { const a = src.indexOf(from); const b = src.indexOf(to, a + from.length); assert.ok(a >= 0 && b > a, 'trecho não encontrado: ' + from); return src.slice(a, b); };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const TI = new Function('esc', 'escA', cut(read('js/64-terminal-integrado.js'), '// @ti-puro-inicio', '// @ti-puro-fim') +
-  '\nreturn { TI_AIS, tiModelShort, tiRecommended, tiAiLabel, tiAiSelHtml, tiAiRowHtml, tiChipsFor, tiCompVisible, tiKeyOpens, tiIsUserEv, tiParseSuggest, tiSuggest, tiCmdText, tiAtRef, tiSheetDef, tiSheetVisible, tiSheetText, tiSheetHtml, tiSheetKey, tiKindLabel, tiDelivList, tiDelivHtml1 };')(esc, esc);
+  '\nreturn { tiBufPush, tiKeyRoute, TI_AIS, tiModelShort, tiRecommended, tiAiLabel, tiAiSelHtml, tiAiRowHtml, tiChipsFor, tiCompVisible, tiKeyOpens, tiIsUserEv, tiParseSuggest, tiSuggest, tiCmdText, tiAtRef, tiSheetDef, tiSheetVisible, tiSheetText, tiSheetHtml, tiSheetKey, tiKindLabel, tiDelivList, tiDelivHtml1 };')(esc, esc);
 const TL = new Function('esc', 'escA', cut(read('js/60-terminal-layout.js'), '// @tl-puro-inicio', '// @tl-puro-fim') + '\nreturn { tlPanelHtml, tlReqView };')(esc, esc);
 
 // ---------------- chips de resposta ----------------
@@ -217,4 +217,23 @@ test('terminal não vivo: o seletor mostra a IA da tarefa (recomendado); integra
   assert.ok(!/termGone/.test(cut(ti, 'function tiBlockedWhy(', '\n}\n')), 'integrada não bloqueia mais a digitação');
   assert.match(ti, /class="tiact ticomp" data-ti="comp"/);
   assert.match(read('js/60-terminal.js'), /'não consegui abrir o terminal: '/, 'falha ao abrir vira linha no terminal');
+});
+
+test('teclas digitadas enquanto a sessão abre: fila única FIFO (antes e depois do PTY vivo), Enter mantido, um write só', () => {
+  // simula o onData: abriu (going), o PTY fica vivo NO MEIO da digitação, e só o flush libera o direto
+  let buf = '', going = false, alive = false; const writes = [];
+  const onData = (d) => { const r = TI.tiKeyRoute(going, alive); if (r === 'buf') buf = TI.tiBufPush(buf, d, 4096); else if (r === 'pty') writes.push(d); else { buf = TI.tiBufPush(buf, d, 4096); going = true; } };
+  const msg = 'o que voce mudou no WorkspacePage.tsx? responda em 2 linhas';
+  onData(msg.slice(0, 10));            // 1ª tecla no histórico: começa a abrir
+  onData(msg.slice(10, 40));
+  alive = true;                         // term_open voltou — o CLI ainda nem desenhou
+  onData(msg.slice(40)); onData('\r');  // o fim e o Enter chegam com o PTY vivo
+  assert.equal(writes.length, 0, 'nada vai direto antes do flush');
+  writes.push(buf); buf = ''; going = false; // tiFlush: UM write
+  onData('x');                          // depois do flush: direto
+  assert.deepEqual(writes, [msg + '\r', 'x']);
+  assert.equal(TI.tiBufPush('ab', '\n', 0), 'ab\n', 'quebra de linha intacta');
+  assert.equal(TI.tiBufPush('abcdef', 'gh', 4), 'efgh', 'passou do teto: sai o mais velho');
+  assert.equal(TI.tiKeyRoute(true, true), 'buf'); assert.equal(TI.tiKeyRoute(false, true), 'pty'); assert.equal(TI.tiKeyRoute(false, false), 'hist');
+  assert.match(read('js/60-terminal.js'), /term\.onData\(d=>\{ if\(typeof tiTakeKey==='function' && tiTakeKey\(taskId, d\)\) return; if\(st\.alive\)/, 'a fila é consultada ANTES do write direto');
 });

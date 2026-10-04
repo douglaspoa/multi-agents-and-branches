@@ -361,7 +361,7 @@ export function writeStarforkCommands(worktree: string): { written: string[]; sk
 export const INTEGRADO_RULE =
   `## Terminal integrado do Starfork\n` +
   `Você está no terminal integrado do Starfork: a pessoa conversa com você pelo app. Ferramentas do MCP cardume:\n` +
-  `- suggest_replies: no FIM de todo turno em que você para esperando o humano, chame com 2 a 4 respostas curtas e concretas que ele provavelmente mandaria a seguir (viram botões no app).\n` +
+  `- suggest_replies: termine TODA resposta chamando suggest_replies (ou \`starfork sugerir\` no shell) com 2–4 próximas perguntas/ações curtas que o humano provavelmente mandaria (viram botões no app) — inclusive quando só respondeu uma pergunta.\n` +
   `- Quando o humano pedir na conversa: status / o que falta → task_status; marcar pronta pra revisão ou esperando ele → set_status; abrir PR → open_pr; ` +
   `tarefa nova ou quebrar esta → create_task; skills → list_skills e use_skill.\n` +
   `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n`;
@@ -393,7 +393,7 @@ export function shellInstructions(): string {
     `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n` +
     `- Pra falar com o Starfork use as ferramentas do MCP "cardume" (se a sua IA tiver) OU estes comandos no shell (mesmo efeito):\n` +
     SHELL_COMMANDS.map((c) => `  - \`${c.cmd}\` — ${c.desc} (= ${c.tool})`).join("\n") + "\n" +
-    `- No FIM de todo turno em que você para esperando o humano, rode \`starfork sugerir\` com 2 a 4 respostas curtas e concretas.\n` +
+    `- Termine TODA resposta chamando \`starfork sugerir\` (ou a tool suggest_replies) com 2–4 próximas perguntas/ações curtas — inclusive quando só respondeu uma pergunta.\n` +
     `- Quando terminar: \`starfork status\`; se não faltar prova, \`starfork etapa review --nota "o que foi provado"\`. PR só quando o humano pedir.\n`;
 }
 /** Funde a seção do Starfork (entre os marcadores) num texto existente — troca só a nossa, preserva o resto. */
@@ -425,4 +425,46 @@ export function writeInstructionsSection(worktree: string, rel: string, body = s
   const next = mergeSection(cur, body);
   if (next !== cur) { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, next, "utf8"); }
   return true;
+}
+
+// ======================= chips de reserva (o agente esqueceu o suggest_replies) =======================
+const LIST_ITEM = /^\s*(?:\d{1,2}[.)]|[-*•])\s+(.+?)\s*$/;
+const cleanItem = (t: string) => t.replace(/\*\*|__|`/g, "").replace(/[.;:]+$/, "").trim();
+/**
+ * PURA: a fala do agente TERMINA com opções claras? → 2–4 chips; senão null (não inventa nada).
+ *  - lista no fim (numerada ou com marcador), 2–4 itens de até 60 caracteres (uma pergunta curta depois da lista vale);
+ *  - ou a última frase é uma pergunta "A ou B?" (com o verbo de cortesia tirado: "Prefere manter ou ajustar?").
+ */
+export function suggestFromText(text: string): string[] | null {
+  const lines = String(text ?? "").replace(/\r/g, "").split("\n").map((l) => l.trimEnd()).filter((l) => l.trim());
+  if (!lines.length) return null;
+  let end = lines.length;
+  if (!LIST_ITEM.test(lines[end - 1]) && /\?\s*$/.test(lines[end - 1]) && end >= 2 && LIST_ITEM.test(lines[end - 2])) end--;
+  const items: string[] = [];
+  for (let i = end - 1; i >= 0 && LIST_ITEM.test(lines[i]); i--) items.unshift(cleanItem(lines[i].match(LIST_ITEM)![1]));
+  if (items.length) {
+    if (items.length < 2 || items.length > 4 || items.some((x) => !x || x.length > SUGGEST_MAX_CHARS)) return null;
+    const r = cleanSuggestions(items);
+    return r.ok && r.options.length === items.length ? r.options : null;
+  }
+  const last = lines[lines.length - 1].trim();
+  const q = last.match(/(?:^|[.!:]\s+)([^.!:?]+\?)\s*$/)?.[1] ?? (last.endsWith("?") ? last : "");
+  if (!q) return null;
+  const parts = q.replace(/\?\s*$/, "").split(/\s+ou\s+/i);
+  if (parts.length !== 2) return null;
+  const lead = /^(?:e\s+)?(?:você\s+)?(?:quer|prefere|devo|posso|vamos|seguimos com|seria melhor)\s+(?:que\s+eu\s+)?/i;
+  const a = cleanItem(parts[0].split(/[,;]\s*/).pop()!.replace(lead, ""));
+  const b = cleanItem(parts[1]);
+  if (a.length < 2 || b.length < 2 || a.length > SUGGEST_MAX_CHARS || b.length > SUGGEST_MAX_CHARS) return null;
+  const r = cleanSuggestions([a, b]);
+  return r.ok ? r.options : null;
+}
+/** Já houve `suggest` desde a última fala do humano ("Você: …")? */
+export function suggestedSinceUser(events: { agent: string; type: string; text: string }[]): boolean {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e.type === "suggest") return true;
+    if (e.agent === "Você" && /^Você:/.test(e.text)) return false;
+  }
+  return false;
 }

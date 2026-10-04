@@ -11,9 +11,9 @@ import { fileURLToPath } from "node:url";
 import { Orchestrator } from "./orchestrator.ts";
 import { Store } from "./store.ts";
 import { tempHome } from "./testing/temp-home.ts";
-import { cleanSuggestions, findCommand, mergeSection, naturalCommand, SECTION_BEGIN, SECTION_END, shellInstructions, STARFORK_COMMANDS, STARFORK_MARK, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
+import { cleanSuggestions, findCommand, mergeSection, naturalCommand, SECTION_BEGIN, SECTION_END, shellInstructions, STARFORK_COMMANDS, STARFORK_MARK, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
 import { etapaStatus, parseSf } from "./starfork-cli.ts";
-import { aiOfEngine, mergedRule, deepseekClaudeEnv, DEEPSEEK_ANTHROPIC_URL, launchScript, NEXT_MSG_REL, recommendedLaunch, shArg, shimScript, skipStatuslineCost, TERM_BIN_REL, terminalCapable, termAiOf, termModelOf, termPrep } from "./terminal.ts";
+import { aiOfEngine, claudeJsonPath, codexTrustArg, geminiSettings, trustClaudeProject, mergedRule, deepseekClaudeEnv, DEEPSEEK_ANTHROPIC_URL, launchScript, NEXT_MSG_REL, recommendedLaunch, shArg, shimScript, skipStatuslineCost, TERM_BIN_REL, terminalCapable, termAiOf, termModelOf, termPrep } from "./terminal.ts";
 import type { TaskSpec } from "./types.ts";
 
 const SERVER = fileURLToPath(new URL("./mcp/server.ts", import.meta.url));
@@ -405,6 +405,7 @@ test("starfork ia-prep / _ia-exit: script de lançamento (env/unset/cd, chave fo
     assert.equal(c.code, 0, c.err);
     assert.match(c.out, /'developer_instructions="# Starfork — terminal integrado/);
     assert.match(c.out, /'mcp_servers\.cardume\.command=/);
+    assert.ok(c.out.includes(`'projects={${JSON.stringify(t.worktree)}={"trust_level"="trusted"}`), "codex: pasta confiada só nesta sessão (-c)");
     assert.match(readFileSync(join(t.worktree, "AGENTS.md"), "utf8"), /<!-- starfork:inicio -->[\s\S]*starfork sugerir[\s\S]*<!-- starfork:fim -->/);
     // Gemini: MCP no settings de SISTEMA apontado no env (nada no .gemini do repo); GEMINI.md nosso
     const g = sf(f, "ia", ["ia-prep", "gemini"], { ...env, GEMINI_CLI_SYSTEM_SETTINGS_PATH: "" });
@@ -641,5 +642,72 @@ test("integrada no terminal: bloco 'modo conversa' nas instruções (Claude e sh
       assert.equal(s.termGet("feita")!.busy, 0, "sem kickoff: nasce livre");
     } finally { s.close(); }
     assert.match(mergedRule("u"), /JÁ FOI INTEGRADA \(PR u\)/);
+  } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
+});
+
+test("confiança da pasta: ~/.claude.json ganha só a nossa worktree (atômico, preserva o resto, não cria); codex -c projects", () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "starfork-trust-")));
+  try {
+    const cfg = join(root, "cfg"), repo = join(root, "repo"), wt = join(repo, ".cardume", "worktrees", "t1");
+    mkdirSync(cfg, { recursive: true }); mkdirSync(wt, { recursive: true });
+    const env = { CLAUDE_CONFIG_DIR: cfg };
+    assert.equal(claudeJsonPath(env), join(cfg, ".claude.json"));
+    assert.equal(claudeJsonPath({ HOME: "/h" }), "/h/.claude.json");
+    assert.equal(trustClaudeProject(wt, repo, env), false, "sem arquivo: não cria");
+    assert.ok(!existsSync(join(cfg, ".claude.json")));
+    const orig = { numStartups: 9, projects: { "/outro": { hasTrustDialogAccepted: false, allowedTools: ["x"] }, [wt]: { mcpServers: { a: 1 } } } };
+    writeFileSync(join(cfg, ".claude.json"), JSON.stringify(orig));
+    assert.equal(trustClaudeProject(join(root, "fora"), repo, env), false, "pasta fora de .cardume/worktrees: nunca");
+    assert.equal(trustClaudeProject(wt, repo, env), true);
+    const after = JSON.parse(readFileSync(join(cfg, ".claude.json"), "utf8"));
+    assert.equal(after.numStartups, 9);
+    assert.deepEqual(after.projects["/outro"], orig.projects["/outro"], "o resto intocado");
+    assert.deepEqual(after.projects[wt], { mcpServers: { a: 1 }, hasTrustDialogAccepted: true });
+    assert.equal(trustClaudeProject(wt, repo, env), false, "já confiada: não regrava");
+    writeFileSync(join(cfg, ".claude.json"), "{quebrado");
+    assert.equal(trustClaudeProject(wt, repo, env), false, "ilegível: segue sem quebrar");
+    assert.equal(readFileSync(join(cfg, ".claude.json"), "utf8"), "{quebrado");
+    assert.equal(codexTrustArg(wt, repo), `projects={${JSON.stringify(wt)}={"trust_level"="trusted"},${JSON.stringify(repo)}={"trust_level"="trusted"}}`);
+    assert.deepEqual(geminiSettings(null, {}).security, { folderTrust: { enabled: false } });
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("chips de reserva: só quando a fala TERMINA com opções claras; nada se o agente já sugeriu", () => {
+  assert.deepEqual(suggestFromText("Feito.\n\nPróximos passos:\n1. Rodar os testes\n2. **Abrir o PR**\n3. Revisar o diff"), ["Rodar os testes", "Abrir o PR", "Revisar o diff"]);
+  assert.deepEqual(suggestFromText("Posso:\n- ajustar o layout\n- manter assim\n\nO que prefere?"), ["ajustar o layout", "manter assim"], "pergunta curta depois da lista vale");
+  assert.deepEqual(suggestFromText("Pronto, corrigi o bug. Prefere manter assim ou ajustar o layout?"), ["manter assim", "ajustar o layout"]);
+  assert.deepEqual(suggestFromText("Quer que eu abra o PR ou rode os testes antes?"), ["abra o PR", "rode os testes antes"]);
+  assert.equal(suggestFromText("Corrigi o bug e rodei os testes."), null, "sem opções: nada");
+  assert.equal(suggestFromText("1. só um item"), null);
+  assert.equal(suggestFromText("- a\n- b\n- c\n- d\n- e"), null, "mais de 4");
+  assert.equal(suggestFromText(`- ${"x".repeat(61)}\n- curto`), null, "item longo");
+  assert.equal(suggestFromText("Lista:\n- a1\n- b1\n\nDepois eu sigo com o resto."), null, "lista no meio, não no fim");
+  assert.equal(suggestFromText("Isso é A, B ou C?"), null, "não é A ou B");
+  assert.equal(suggestFromText(""), null);
+  const ev = (agent: string, type: string, text: string) => ({ agent, type, text });
+  assert.equal(suggestedSinceUser([ev("Você", "note", "Você: oi"), ev("Vega", "suggest", "[]")]), true);
+  assert.equal(suggestedSinceUser([ev("Vega", "suggest", "[]"), ev("Você", "note", "Você: oi"), ev("Vega", "done", "x")]), false);
+  assert.equal(suggestedSinceUser([]), false);
+});
+
+test("hook Stop: fala com opções e sem suggest_replies → evento suggest; com suggest do agente → nada a mais", async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    await orch.createTask(spec("ch"));
+    orch.close();
+    const stop = (msg: string) => spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, "hook", "Stop", "--starfork-task", "ch", "--repo", f.repo], { encoding: "utf8", input: JSON.stringify({ last_assistant_message: msg }), env: { ...process.env, HOME: f.home, CARDUME_NOTIFY: "0", CARDUME_DB: f.db } });
+    const sug = () => { const s = new Store(f.db); try { return s.eventsForTask("ch").filter((e) => e.type === "suggest").map((e) => e.text); } finally { s.close(); } };
+    const you = (t: string) => { const s = new Store(f.db); try { s.addEvent("ch", "Você", "note", `Você: ${t}`, true); } finally { s.close(); } };
+    you("o que foi feito?");
+    stop("Fiz X.\n1. Ver o diff\n2. Abrir o PR");
+    assert.deepEqual(sug(), [JSON.stringify(["Ver o diff", "Abrir o PR"])]);
+    you("e agora?");
+    stop("Só isso, sem opções.");
+    assert.equal(sug().length, 1, "sem opções: nada");
+    you("ok");
+    assert.equal(sf(f, "ch", ["sugerir", "pode seguir", "mostra o diff"]).code, 0);
+    stop("Feito.\n- a1\n- b1");
+    assert.equal(sug().length, 2, "o agente já sugeriu: sem reserva");
   } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
 });

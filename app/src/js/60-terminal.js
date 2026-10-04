@@ -164,7 +164,8 @@ function termEnsure(taskId){
   term.open(box);
   // vivo: tecla → PTY. Histórico: digitar RETOMA a sessão sozinho (64-terminal-integrado guarda as teclas e escreve
   // quando o Claude Code abrir) — antes o xterm parado engolia tudo calado
-  term.onData(d=>{ if(st.alive){ invokeQuiet('term_write',{ taskId, data:d }).catch(()=>{}); return; } if(typeof tiHistKey==='function') tiHistKey(taskId, d); });
+  // (abertura em voo: TUDO vai pra fila do 64 — mesmo com o PTY já vivo — e sai num único write, em ordem)
+  term.onData(d=>{ if(typeof tiTakeKey==='function' && tiTakeKey(taskId, d)) return; if(st.alive){ invokeQuiet('term_write',{ taskId, data:d }).catch(()=>{}); return; } if(typeof tiHistKey==='function') tiHistKey(taskId, d); });
   st.term=term; st.fit=fit;
   if(typeof tiHostWire==='function') tiHostWire(taskId, st); // clique retoma · colar/arrastar arquivo = anexo @arquivo
   // redimensiona o PTY só quando o tamanho REAL muda; tamanho zero = escondido → para os eventos

@@ -28,6 +28,11 @@ const TI_IC={
 };
 // tecla que RETOMA a sessão: texto/Enter/colagem; setas, PgUp/PgDn e Esc (sequências \x1b…) só rolam o histórico
 function tiKeyOpens(d){ return !!d && !/^\x1b/.test(String(d)); }
+// fila das teclas digitadas enquanto a sessão abre: FIFO, Enter (\r/\n) e tudo mais intactos; passou do teto, sai o mais velho
+function tiBufPush(buf, d, max){ const s=String(buf||'')+String(d==null?'':d); return max && s.length>max ? s.slice(-max) : s; }
+/** Pra onde vai cada pedaço do onData: 'buf' enquanto a abertura está em voo (MESMO com o PTY já vivo, até o flush
+ *  único — senão o fim do texto chegava antes do começo e o Enter se perdia), 'pty' direto, 'hist' = tecla no histórico. */
+function tiKeyRoute(going, alive){ return going ? 'buf' : alive ? 'pty' : 'hist'; }
 // fala SUA (o chip é a resposta ao último turno do agente: depois de você falar, os chips velhos saem)
 function tiIsUserEv(e){ const tx=String((e&&e.text)||''); return !!e && ((e.agent==='Você' && /^Você:\s/.test(tx)) || (e.type==='note' && /^Você:\s/.test(tx)) || /^humano respondeu:/.test(tx)); }
 // texto do evento `suggest` (JSON com 2–4 strings) → chips limpos; lixo vira []
@@ -275,8 +280,14 @@ function tiBlockedWhy(taskId){
 function tiHistKey(taskId, d){
   const st=TERM[taskId]; if(!st || !tiKeyOpens(d)) return;
   const why=tiBlockedWhy(taskId); if(why){ tiHint(taskId, why); return; }
-  TI.buf[taskId]=((TI.buf[taskId]||'')+d).slice(-TI_MAX_BUF);
+  TI.buf[taskId]=tiBufPush(TI.buf[taskId], d, TI_MAX_BUF);
   tiGoLive(taskId);
+}
+/** onData do xterm (60-terminal chama ANTES de tudo): true = guardou na fila da abertura em voo. */
+function tiTakeKey(taskId, d){
+  const st=TERM[taskId]; if(!st || !d) return false;
+  if(tiKeyRoute(!!TI.going[taskId], !!st.alive)!=='buf') return false;
+  TI.buf[taskId]=tiBufPush(TI.buf[taskId], d, TI_MAX_BUF); return true;
 }
 /** Abre (retoma) a sessão no PTY e escreve o que estava guardado depois que o CLI desenhar. */
 async function tiGoLive(taskId){
@@ -298,7 +309,7 @@ async function tiGoLive(taskId){
       await wait(250);
     }
     if(!up && TI.buf[taskId]) termSayLine(taskId, 'a IA não subiu a tempo — o que você digitou foi pro shell do terminal', '33');
-    tiFlush(taskId);
+    tiFlush(taskId); // UM term_write com tudo, em ordem; só depois disso as teclas voltam a ir direto pro PTY
     return true;
   }finally{ delete TI.going[taskId]; }
 }
@@ -307,7 +318,7 @@ function tiFlush(taskId){ const d=TI.buf[taskId]; delete TI.buf[taskId]; if(d) i
 function tiType(taskId, text){
   const st=TERM[taskId]; if(!st || !text) return;
   if(st.alive){ invokeQuiet('term_write',{ taskId, data:text }).catch(()=>{}); try{ st.term.focus(); }catch(_){ } return; }
-  TI.buf[taskId]=((TI.buf[taskId]||'')+text).slice(-TI_MAX_BUF);
+  TI.buf[taskId]=tiBufPush(TI.buf[taskId], text, TI_MAX_BUF);
   tiGoLive(taskId);
 }
 try{ window.__TAURI__.event.listen('term-data', ev=>{ const p=ev&&ev.payload; if(p && p.taskId) TI.lastData[p.taskId]=Date.now(); }); }catch(_){ }
