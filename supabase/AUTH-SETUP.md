@@ -18,7 +18,7 @@
 >    até o provider ser ativado no painel (seção 3).
 
 > Feito em 13/09/2026 pela Management API: código de e-mail com 6 dígitos (10 min), templates
-> em PT com `{{ .Token }}` + link, Site URL = https://constellation-ai-v1.lovable.app,
+> em PT com `{{ .Token }}` + link, Site URL = https://starfork.com.br,
 > Redirect URLs (callback local, /confirmado, /redefinir-senha), coluna `billing_plans.per_seat`
 > e deploy da `stripe-checkout` com assentos. FALTA: provider GitHub (precisa do OAuth App) e os
 > preços novos na Stripe (seção 4) — os planos atuais (Individual/Equipes) continuam valendo.
@@ -42,7 +42,7 @@ Ou cole cada HTML no painel. Regra: **Reset password só tem `{{ .Token }}`** (s
 `{{ .ConfirmationURL }}`), porque o app pede o código e um clique no link consumiria ele.
 
 ## 2. URLs (Authentication → URL Configuration)
-- **Site URL**: o domínio do site (Lovable), ex. `https://constellation.lovable.app`.
+- **Site URL**: o domínio do site (Lovable), `https://starfork.com.br` (o `scripts/supabase-auth-mail.sh apply` grava sozinho).
 - **Redirect URLs** (lista exata):
   - `http://localhost:8788/callback` — login GitHub/Google pelo app (callback local).
   - `https://<site>/confirmado` — destino do link de confirmação.

@@ -1180,6 +1180,8 @@ struct Task {
     engine: String,
     model: Option<String>,
     created_at: i64,
+    /// F4 (inventário 01): data de CONCLUSÃO = ts do último evento da tarefa (0 sem eventos) — "concluída hoje" usa esta
+    finished_at: i64,
     sort_order: Option<i64>,
     deliverables: serde_json::Value,
     requirements: serde_json::Value,
@@ -2814,7 +2816,8 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
     };
     let tasks = conn
         .prepare(&format!(
-            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{} \
+            "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{}, \
+             (SELECT e.ts FROM event e WHERE e.task_id=task.id ORDER BY e.id DESC LIMIT 1) \
              FROM task ORDER BY created_at",
             if has_busy { "busy_pid" } else { "NULL" }
         ))
@@ -2837,6 +2840,7 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                 engine: r.get(10)?,
                 model: r.get(11)?,
                 created_at: r.get(12)?,
+                finished_at: r.get::<_, Option<i64>>(17).unwrap_or(None).unwrap_or(0),
                 sort_order: r.get(14)?,
                 deliverables: spec.get("deliverables").cloned().unwrap_or(serde_json::Value::Array(vec![])),
                 requirements: spec.get("requirements").cloned().unwrap_or(serde_json::Value::Array(vec![])),
@@ -8481,6 +8485,8 @@ struct AllTask {
     flag: Option<String>,
     engine: String,
     created_at: i64,
+    /// data de conclusão (último evento) — a Central ordena/filtra Concluídas por ela
+    finished_at: i64,
     sort_order: Option<i64>,
     repo: String,
     proj: String,
@@ -8499,7 +8505,7 @@ fn list_all_tasks() -> Vec<AllTask> {
             Err(_) => continue,
         };
         let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
-        let mut st = match conn.prepare("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order FROM task ORDER BY created_at") {
+        let mut st = match conn.prepare("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,(SELECT e.ts FROM event e WHERE e.task_id=task.id ORDER BY e.id DESC LIMIT 1) FROM task ORDER BY created_at") {
             Ok(s) => s,
             Err(_) => continue,
         };
@@ -8513,6 +8519,7 @@ fn list_all_tasks() -> Vec<AllTask> {
                 flag: r.get::<_, Option<String>>(5)?.filter(|s| !s.is_empty()),
                 engine: r.get::<_, Option<String>>(6)?.unwrap_or_default(),
                 created_at: r.get::<_, Option<i64>>(7)?.unwrap_or(0),
+                finished_at: r.get::<_, Option<i64>>(9).unwrap_or(None).unwrap_or(0),
                 sort_order: r.get::<_, Option<i64>>(8)?,
                 repo: p.clone(),
                 proj: name.clone(),

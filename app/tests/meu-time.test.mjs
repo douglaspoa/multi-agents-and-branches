@@ -147,7 +147,7 @@ const host={ innerHTML:'', querySelector:()=>null, querySelectorAll:()=>[] }, ti
 const $id=k=>k==='agFicha'?host:k==='agTitle'?title:k==='agHome'?{}:null;
 const state={ repo:'/r' };
 `;
-const R = new Function(stub + mt + '\nreturn { AGS, AGF, agCardHtml, agFichaRender, host, title, setCfg:c=>{ cfgEdit=c; } };')();
+const R = new Function(stub + mt + '\nreturn { AGS, AGF, agCardHtml, agFichaRender, agMemSectionsHtml, host, title, setCfg:c=>{ cfgEdit=c; } };')();
 
 test('cartão: rosto, nome, papel, "o que faz" numa frase, contagens com n e o "ainda conhecendo"', () => {
   R.AGS.rows = Array.from({ length: 7 }, (_, i) => row(i, i < 3 ? {} : { muda: 1 }));
@@ -176,14 +176,18 @@ test('ficha: cabeçalho motor · modelo · versão e as 3 abas; cada aba mostra 
   assert.match(h, /claude · sonnet/); assert.match(h, /v4/);
   assert.match(h, /10 de 10 de primeira \(100%\)/);
   assert.ok(!/ainda conhecendo/.test(h), 'n = 10');
-  for (const t of ['Histórico', 'Aprendizados \\(1 \\+ 1 pra decidir\\)', 'Editar \\(avançado\\)']) assert.match(h, new RegExp('role="tab"[^>]*>' + t));
+  // F4 (D15/D16): ficha Histórico · Desempenho · Editar; "pra você decidir", o que ela lembra e as esquecidas moram na
+  // Memória › Pra revisar (agMemSectionsHtml) — a ficha mostra só o link
+  for (const t of ['Histórico 10', 'Desempenho', 'Editar']) assert.match(h, new RegExp('role="tab"[^>]*>' + t + '<'));
   assert.match(h, /aria-selected="true"[^>]*>Histórico/);
   assert.match(h, /data-agtask="t9"/); assert.match(h, /stbadge/); assert.match(h, /US\$ 0,30/);
-  assert.equal(R.title.textContent, 'Meu time');
-  // Aprendizados: o que decidir (cartão em frase) + o que ela lembra, com voltar/esquecer/isso ajudou?
-  R.AGF.tab = 'aprendizados'; R.agFichaRender();
-  const a = R.host.innerHTML;
-  assert.match(a, /Pra você decidir[\s\S]*class="memlcard">p1/);
+  assert.equal(R.title.textContent, 'Agentes');
+  R.AGF.tab = 'aprendizados'; R.agFichaRender(); // aba antiga → Desempenho
+  const d = R.host.innerHTML;
+  assert.match(d, /1 aprendizado de Nyx esperando você\.[\s\S]*data-agmem="1">Ver em Memória › Pra revisar/);
+  assert.match(d, /Nyx lembra 1 coisa\. <button class="lnk" data-agmem="1">ver na Memória/);
+  assert.ok(!/Pra você decidir/.test(d), 'os cartões de decidir saíram da ficha');
+  const a = R.agMemSectionsHtml({ id: 'nyx', name: 'Nyx', role: 'reviewer', engine: 'claude' }, R.AGF.card);
   assert.match(a, /A Nyx lembra: conferir o teste de login\./);
   assert.match(a, /desde a v3/);
   assert.match(a, /data-agback="nota" data-key="n1">voltar pro jeito antigo/);

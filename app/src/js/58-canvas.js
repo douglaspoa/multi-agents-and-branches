@@ -466,14 +466,17 @@ function cvPlusMenu(anchor, opts){
   const m=document.createElement('div'); m.className='cvmenu'; m.setAttribute('role','menu'); m.setAttribute('aria-label', opts.split?'abrir ao lado':'abrir');
   const items=[
     // ícones do conjunto IC (10-core), mesmo traço do resto do app — antes eram glifos Unicode
-    !opts.split && { k:'nova', label:'Nova demanda', hint:'começar uma demanda (⌘N)', ic:CV_IC_PLUS },
-    !opts.split && { k:'ideia', label:'Ideia nova', hint:'conversar com a mesa, pesquisar se vale a pena e criar o projeto', ic:IC.ideia||CV_IC_PLUS },
-    { k:'task', label:'Abrir demanda', hint:'uma demanda deste projeto', ic:IC.stack, sub:true },
+    // F4 (G1, mesa D8): "Criar" (Nova demanda · Novo projeto… → Fábrica em App novo) separado de "Abrir"; "Ideia nova"
+    // saiu daqui (virou Fábrica › Tenho uma ideia); a Conversa do projeto (⌘J) entra no "Abrir"
+    !opts.split && { k:'nova', label:'Nova demanda', hint:'⌘N', ic:CV_IC_PLUS, grp:'Criar' },
+    !opts.split && { k:'novoproj', label:'Novo projeto…', hint:'Fábrica', ic:IC.fabrica||CV_IC_PLUS },
+    { k:'task', label:'Abrir demanda', hint:'uma demanda deste projeto', ic:IC.stack, sub:true, grp:opts.split?'':'Abrir' },
+    !opts.split && { k:'conversa', label:'Conversa do projeto', hint:'⌘J', ic:IC.chat||IC.q },
     { k:'web', label:'Navegador', hint:'YouTube, documentação, ou o app de uma demanda', ic:IC.globe, sub:true },
     { k:'device', label:'Simulador iOS/Android', hint:'o celular de uma demanda ao vivo', ic:IC.phone, sub:true },
     { k:'doc', label:'Documento', hint:'README, um arquivo ou o que foi entregue', ic:IC.doc, sub:true },
   ].filter(Boolean);
-  m.innerHTML=(opts.split?`<div class="cvmsub"><b>Abrir ao lado</b><span class="dim">vai pra direita da aba atual</span></div>`:'')+`<div class="cvml">${items.map((x,i)=>`<button type="button" class="cvmi" role="menuitem" data-cvmi="${i}"><span class="cvmic" aria-hidden="true">${x.ic}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span>${x.sub?'<span class="cvmch" aria-hidden="true">›</span>':''}</button>`).join('')}</div><div class="cvmfoot dim">arraste uma aba pra metade da tela pra dividir · ⌘\\</div>`;
+  m.innerHTML=(opts.split?`<div class="cvmsub"><b>Abrir ao lado</b><span class="dim">vai pra direita da aba atual</span></div>`:'')+`<div class="cvml">${items.map((x,i)=>`${x.grp?`<div class="cvmgrp" role="presentation">${esc(x.grp)}</div>`:''}<button type="button" class="cvmi" role="menuitem" data-cvmi="${i}"><span class="cvmic" aria-hidden="true">${x.ic}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span>${x.sub?'<span class="cvmch" aria-hidden="true">›</span>':''}</button>`).join('')}</div><div class="cvmfoot dim">arraste uma aba pra metade da tela pra dividir · ⌘\\</div>`;
   document.body.appendChild(m); SPL.menu=m;
   const r=anchor?anchor.getBoundingClientRect():{ left:window.innerWidth/2-170, bottom:90 };
   m.style.top=Math.min(window.innerHeight-m.offsetHeight-8, r.bottom+6)+'px';
@@ -486,7 +489,8 @@ function cvPlusMenu(anchor, opts){
   m.querySelectorAll('[data-cvmi]').forEach(b=>b.onclick=()=>{
     const x=items[+b.dataset.cvmi];
     if(x.k==='nova'){ cvCloseMenu(); openTab('nova'); return; }
-    if(x.k==='ideia'){ cvCloseMenu(); if(window.ideiaNew) window.ideiaNew(); return; }
+    if(x.k==='novoproj'){ cvCloseMenu(); if(typeof g1NovoProjeto==='function') g1NovoProjeto(); else openTab('fabrica'); return; }
+    if(x.k==='conversa'){ cvCloseMenu(); openTab('projeto',{ sub:'conversa' }); return; }
     if(x.k==='task') return taskList('Abrir demanda', ()=>'a tela da demanda', t=>open({ kind:'task', taskId:t.id }));
     if(x.k==='web') return open({ kind:'web', url:'' }); // abre o navegador JÁ (aba em branco, barra de endereço focada) — sem formulário nem lista
     if(x.k==='device') return taskList('Simulador iOS/Android', t=>{ const i=(typeof DV!=='undefined')?DV.info[t.id]:null; return i&&i.mobile?'app de celular':'o simulador desta demanda'; }, t=>open({ kind:'device', taskId:t.id }));

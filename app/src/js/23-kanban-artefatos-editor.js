@@ -2,11 +2,11 @@
 // ---------- Kanban ----------
 // colunas = as MESMAS etapas da Central (22: flowBucket/FLOW_SECS) — mesma tarefa, mesma coluna, mesmo número.
 // Antes o Kanban tinha classificação própria (pausada/conflito em "Em andamento", PR aberto em "Prontas").
-const KCOLS=[['rascunho','Rascunhos'],['aguardando','Aguardando você'],['andamento','Em andamento'],['prontas','Prontas pra revisar'],['praberto','PR aberto'],['concluidas','Concluídas']];
+const KCOLS=[['rascunho','Rascunhos'],['fila','Na fila'],['aguardando','Aguardando você'],['andamento','Em andamento'],['prontas','Prontas pra revisar'],['praberto','PR aberto'],['concluidas','Concluídas']];
 const KDONE_CAP=30; // Concluídas: mostra as mais recentes (conta todas)
 function kanbanCol(t){
   const b=flowBucket(t);
-  return (b==='hoje'||b==='anteriores')?'concluidas':(b==='fila'?'andamento':b);
+  return (b==='hoje'||b==='anteriores')?'concluidas':b; // F4: a fila tem coluna própria (antes caía em andamento)
 }
 function kCard(t){
   const roles=t.roles||[]; const curIdx=roles.findIndex(r=>r.role===t.stage);
@@ -36,7 +36,7 @@ function renderKanban(){
   // mesma fonte da Central (boardSource: projeto filtrado ou todos) e mesma regra de bloqueadas
   let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
   for(const t of src.filter(t=>t.flag!=='blocked'||flowShowBlocked)) (byCol[kanbanCol(t)]||byCol.andamento).push(t);
-  byCol.concluidas.sort((a,b)=>taskTs(b)-taskTs(a)); // taskTs (22): createdAt local (número) ou created_at da nuvem (ISO)
+  byCol.concluidas.sort((a,b)=>taskDoneTs(b)-taskDoneTs(a)); // F4: pela data de CONCLUSÃO (taskDoneTs, 22)
   if(kDragId) return; // arrastando: reconstruir destruía o card no meio do arrasto (o drop nunca vinha)
   const html = KCOLS.map(([k,label])=>{ const list=byCol[k]; const shown=k==='concluidas'?list.slice(0,KDONE_CAP):list;
     return `<div class="kcol" data-col="${k}"><div class="kcolh" title="${escA(FLOW_SEC_TIP[k]||label)}"><span class="kcl">${label}</span><span class="kn">${list.length}</span></div><div class="kcolbody">${shown.map(kCard).join('')||'<div class="kempty">—</div>'}${list.length>shown.length?`<div class="kempty">+${list.length-shown.length} mais antigas</div>`:''}</div></div>`; }).join('');

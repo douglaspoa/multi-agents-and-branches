@@ -12,7 +12,7 @@ function openCloudTaskPage(ct){
   if(localId && (state.tasks||[]).some(t=>t.id===localId)){ openWorkspace(localId); return; }
   const id='cttask:'+ct.id;
   let tab=tabById(id);
-  if(!tab){ tab={id, kind:'cttask', ct, title:(ct.title||'Tarefa do time').slice(0,26)}; TABS.push(tab); }
+  if(!tab){ tab={id, kind:'cttask', ct, title:(ct.title||'Tarefa do colega').slice(0,28)}; TABS.push(tab); }
   else tab.ct=ct;
   activateTab(id);
 }
@@ -78,19 +78,21 @@ function ctPageRender(){
     ? `<div class="stepper">${act.map((a,i)=>{ const last=i===act.length-1; return `<div class="step ${last?'cur':'done'}" style="cursor:default"><span class="smark">${last?'●':'✓'}</span><span class="stx"><span class="srole" style="text-transform:none">${esc(tmName(a.user_id))} · ${esc(K[a.kind]||a.kind)}</span><span class="sname">${esc(new Date(a.at).toLocaleString('pt-BR'))}${a.body?' — '+esc(String(a.body).slice(0,160)):''}</span></span></div>`; }).join('')}</div>`
     : `<div class="en-empty">${c.loaded?'sem atividade registrada':skeletonHtml('lista',{ n:3, compact:true, inline:true, label:'carregando a atividade' })}</div>`;
   const note = ct.last_note ? `<div class="seclbl2" style="margin-top:14px">Última nota do agente${ct.stage?` <span class="dim">· ${esc(ct.stage)}</span>`:''}</div><div class="en-how">${esc(ct.last_note)}</div>` : '';
-  main.innerHTML=`<div class="enpage">
+  // F4 (G1, mesa tela 25): "Tarefa do colega" no padrão de página — título UMA vez, selo "Time · leitura", custo em
+  // US$ (≈ R$) como no resto; revisar com agente (PR aberto) é a ação primária; ↻ no ⋯; Esc não fecha a aba
+  const proj=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||'';
+  main.innerHTML=`<div class="enpage">${pageHead({ title:ct.title||'Tarefa do colega', scope:'time', scopeLabel:'leitura', sum:`${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''} · tarefa de ${esc(tmName(who))}${proj?' · '+esc(proj):''}`,
+      primary:(prN&&!done)?{ id:'ctpReview', label:'Revisar com agente' }:null, more:{ id:'ctPageRefresh', title:'Recarregar da nuvem' } })}
     <div class="en-head">
       <div class="en-ht">
-        <span class="ndeyebrow">tarefa do time · ${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''}</span>
-        <h2 class="en-h1">${esc(ct.title)}</h2>
         ${sp.objective?`<p class="en-obj">${esc(sp.objective)}</p>`:''}
         <div class="ctp-who">${tsAv(who, tsOnline(who))}<span>${ct.assignee?'com <b>'+esc(tmName(ct.assignee))+'</b> · ':''}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span>${ct.status==='backlog'?`<button class="btn sm primary" id="ctpStart" title="assumir e iniciar agora nesta máquina">▶ iniciar</button>`:''}${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button><button class="btn sm ghost" id="ctpCancel" title="remover do backlog do time">✕ cancelar</button>`:''}</div>
       </div>
       <div class="en-kpis">
         ${prN?`<button class="en-kpi" data-lk="${escA(ct.pr_url)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
         <div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>
-        <div class="en-kpi"><b>${arts.length}</b><span>publicado(s) pro time</span></div>
-        <div class="en-kpi"><b>${+ct.cost_usd>0?fmtUsd(+ct.cost_usd):'—'}</b><span>${+ct.cost_tokens>0?Math.round(ct.cost_tokens/1000)+'k tokens':'custo'}</span></div>
+        <div class="en-kpi"><b>${arts.length}</b><span>provas e documentos publicados</span></div>
+        <div class="en-kpi"><b>${+ct.cost_usd>0?fmtUsdBr(+ct.cost_usd,{usdOnly:true}):'—'}</b><span>${+ct.cost_usd>0?'custo · ≈ R$ '+fmtNumBR(+ct.cost_usd*usdBrlRate(), true):'custo'}</span></div>
       </div>
     </div>
     <div class="en-grid">
@@ -105,6 +107,13 @@ function ctPageRender(){
   main.querySelectorAll('[data-cart]').forEach(b=>b.onclick=()=>openCloudArtifact(b.dataset.cart, b.dataset.cname));
   main.querySelectorAll('[data-cdl]').forEach(b=>b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.cdl)); }catch(e){ showErr(e, 'Falha ao abrir'); } });
   bindClick('ctpEdit', ()=>openCloudTask(ct));
+  // mesma ação de Time › PRs pra revisar (avisa se o PR já foi revisado; a revisão vira tarefa na Central)
+  bindClick('ctpReview', async()=>{ const b=$id('ctpReview'); if(b){ b.disabled=true; b.textContent='criando revisão…'; }
+    const prev=(typeof cloudPrReviewCheck==='function')?await cloudPrReviewCheck(ct.pr_url).catch(()=>null):null;
+    if(prev && !await askYes('Atenção: este PR já foi revisado '+(prev.mine?'por VOCÊ':'por '+prev.name)+' ('+prev.when+') pelo Starfork.\n\nRodar OUTRA revisão mesmo assim?')){ if(b){ b.disabled=false; b.textContent='Revisar com agente'; } return; }
+    invoke('review_pr',{ prUrl:ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); toast('Revisão criada — está na sua Central','ok'); if(b) b.textContent='revisão criada ✓'; })
+      .catch(err=>{ showErr(err, 'Não consegui criar a revisão'); if(b){ b.disabled=false; b.textContent='Revisar com agente'; } }); });
+  bindClick('ctPageRefresh', ()=>{ const b=$id('ctPageRefresh'); if(b) b.disabled=true; ctPageLoad(ct.id, true).then(()=>{ if(ctpTask&&ctpTask.id===ct.id) ctPageRender(); }); });
   bindClick('ctpStart', ()=>{ if(window.epCardStart) epCardStart(ct, $id('ctpStart')); else teamClaimStart(ct, $id('ctpStart')); });
   bindClick('ctpCancel', ()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); });
   { const h=$id('ctPageName'); if(h) h.textContent=ct.title; const s=$id('ctPageSub'); if(s) s.textContent=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||''; }
@@ -126,13 +135,4 @@ async function openCloudArtifact(storagePath, name){
 }
 bindClick('ctPageClose', ()=>closeTabOfKind('cttask'));
 bindClick('ctPageRefresh', ()=>{ if(ctpTask){ const b=$id('ctPageRefresh'); if(b) b.disabled=true; ctPageLoad(ctpTask.id, true).then(()=>{ ctPageRender(); if(b) b.disabled=false; }); } });
-// Esc fecha a aba — em fase de CAPTURA, pra decidir ANTES de os handlers do lightbox/artefato
-// fecharem o modal deles (senão o mesmo esc fechava o modal E a aba).
-document.addEventListener('keydown', e=>{
-  if(e.key!=='Escape') return;
-  const o=$id('ctPageOverlay'); if(!o||o.style.display==='none'||!o.classList.contains('astab')) return;
-  // com um modal aberto por cima (artefato, lightbox, editar cartão), o esc é deles
-  if(['artOverlay','lbOverlay','ctOverlay'].some(id=>{ const m=$id(id); return m&&m.style.display!=='none'; })) return;
-  if(e.target&&/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-  closeTabOfKind('cttask');
-}, true);
+// F4 (D24): Esc NUNCA fecha a aba da tarefa do colega — quem fecha é ⌘W (o Esc continua dos modais por cima)

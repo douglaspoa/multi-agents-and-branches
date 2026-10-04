@@ -2,7 +2,7 @@
 # E-mails de autenticação do Starfork (código de 6 dígitos, visual do produto).
 #
 #   scripts/supabase-auth-mail.sh check    # mostra o estado atual (templates com {{ .Token }}? SMTP próprio? validade do código)
-#   scripts/supabase-auth-mail.sh apply    # sobe supabase/templates/*.html + assuntos + código válido por 10 min
+#   scripts/supabase-auth-mail.sh apply    # sobe supabase/templates/*.html + assuntos + código válido por 10 min + site_url starfork.com.br
 #   scripts/supabase-auth-mail.sh smtp     # liga SMTP próprio (Resend etc.) — precisa das vars SMTP_* abaixo
 #
 # Precisa de SUPABASE_ACCESS_TOKEN de uma conta OWNER/ADMIN do projeto (https://supabase.com/dashboard/account/tokens).
@@ -46,6 +46,9 @@ import json,sys,pathlib
 t=pathlib.Path(sys.argv[1])/"supabase/templates"
 rd=lambda n:(t/f"{n}.html").read_text()
 print(json.dumps({
+  # o link do e-mail abre o SITE do produto (antes caía no domínio antigo constellation-ai-v1.lovable.app)
+  "site_url": "https://starfork.com.br",
+  "uri_allow_list": "https://starfork.com.br/**,https://www.starfork.com.br/**,http://localhost:8788/callback",
   "mailer_otp_length": 6,
   "mailer_otp_exp": 600,
   "mailer_subjects_recovery": "{{ .Token }} é seu código pra redefinir a senha · Starfork",

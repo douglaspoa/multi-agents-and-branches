@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canStartIn, lockFile, renderReport, normalizePlan, propagateBlocked, readState, requestStop, runAutopilot, runnable, stateFile, FIRST_COMMIT_MSG, type ApTaskState } from "./autopilot.ts";
+import { apCapCheck, AP_CAP_REQUIRED, canStartIn, lockFile, renderReport, normalizePlan, propagateBlocked, readState, requestStop, runAutopilot, runnable, stateFile, FIRST_COMMIT_MSG, type ApTaskState } from "./autopilot.ts";
 import { Orchestrator } from "./orchestrator.ts";
 import { Store } from "./store.ts";
 import { tempHome } from "./testing/temp-home.ts";
@@ -46,7 +46,7 @@ test("ideia → pasta nova com git SEM remoto, merges na main em ordem de depend
   const e = env();
   try {
     const planFile = e.plan([T("Esqueleto do app", []), T("Adicionar itens", [0]), T("Marcar comprados", [1])]);
-    const st = await runAutopilot({ idea: "um app de lista de compras", dir: e.dir, engine: "mock", planFile, log: quiet });
+    const st = await runAutopilot({ idea: "um app de lista de compras", dir: e.dir, engine: "mock", planFile, budgetUsd: 50, log: quiet });
     assert.equal(st.phase, "done");
     assert.equal(git(e.dir, "remote"), "", "nenhum remoto criado");
     assert.equal(git(e.dir, "rev-parse", "--abbrev-ref", "HEAD"), "main");
@@ -79,7 +79,7 @@ test("prova falha na 1ª tentativa → refeita COM os motivos e mergeada na 2ª"
   const e = env();
   try {
     const planFile = e.plan([T("Esqueleto do app", []), T("Adicionar itens", [0], ["itens aparecem na lista [mock:falha-1]"])]);
-    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, attempts: 2, log: quiet });
+    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 50, attempts: 2, log: quiet });
     const t = st.tasks.find((x) => x.id === "adicionar-itens")!;
     assert.equal(t.stage, "merged");
     assert.equal(t.attempts, 2);
@@ -100,7 +100,7 @@ test("prova falha sempre → bloqueada após N tentativas; quem depende dela tam
   const e = env();
   try {
     const planFile = e.plan([T("Esqueleto do app", []), T("Recurso quebrado", [0], ["impossível [mock:falha-sempre]"]), T("Depende do quebrado", [1]), T("Recurso independente", [0])]);
-    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, attempts: 2, parallel: 1, log: quiet });
+    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 50, attempts: 2, parallel: 1, log: quiet });
     const by = (id: string) => st.tasks.find((x) => x.id === id)!;
     assert.equal(by("recurso-quebrado").stage, "blocked");
     assert.equal(by("recurso-quebrado").attempts, 2);
@@ -118,7 +118,7 @@ test("parar entre passos e RETOMAR: rodar de novo na mesma pasta continua do sta
   try {
     const planFile = e.plan([T("Esqueleto do app", []), T("Adicionar itens", [0]), T("Marcar comprados", [1])]);
     let asked = false;
-    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, log: quiet }, {
+    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 50, log: quiet }, {
       onSave: (s) => { if (!asked && s.tasks.some((t) => t.stage === "merged")) { asked = true; requestStop(e.dir); } },
     });
     assert.equal(st.phase, "stopped");
@@ -163,7 +163,7 @@ test("ask_human no piloto: resposta automática NA HORA mandando decidir e regis
   const e = env();
   try {
     const planFile = e.plan([T("Esqueleto do app", [])]);
-    await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, log: quiet });
+    await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 50, log: quiet });
     const db = join(e.dir, ".cardume", "state.sqlite");
     const srv = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", fileURLToPath(new URL("./mcp/server.ts", import.meta.url))], {
       env: { ...process.env, CARDUME_DB: db, CARDUME_TASK: "esqueleto-do-app", CARDUME_AGENT: "Piloto 1", CARDUME_AUTOPILOT: "1" },
@@ -221,7 +221,7 @@ test("relatório: Provas e Suposições vêm dos artefatos coletados (a versão 
   const e = env();
   try {
     const planFile = e.plan([T("Esqueleto do app", []), T("Adicionar itens", [0], ["itens aparecem [mock:falha-1]"])]);
-    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, attempts: 2, log: quiet });
+    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 50, attempts: 2, log: quiet });
     assert.equal(st.phase, "done");
     const rep = readFileSync(join(e.dir, "AUTOPILOT.md"), "utf8");
     const sec = (h: string) => rep.split(`### ${h}`)[1].split(/\n### |\n## /)[0];
@@ -240,7 +240,7 @@ test("trava: um segundo piloto na MESMA pasta é recusado enquanto o primeiro ro
   const e = env();
   try {
     const planFile = e.plan([T("Esqueleto do app", []), T("Adicionar itens", [0])]);
-    const first = runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, log: quiet });
+    const first = runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 50, log: quiet });
     for (let k = 0; k < 200 && !existsSync(lockFile(e.dir)); k++) await new Promise((r) => setTimeout(r, 10));
     assert.ok(existsSync(lockFile(e.dir)), "a trava nasce no começo");
     await assert.rejects(runAutopilot({ dir: e.dir, engine: "mock", log: quiet, idea: "lista" }), /já está rodando nesta pasta/);
@@ -254,14 +254,15 @@ test("trava: um segundo piloto na MESMA pasta é recusado enquanto o primeiro ro
   } finally { e.done(); }
 });
 
-test("teto: retomar com o mesmo teto (já gasto) é recusado com erro humano; com teto maior ou 0 continua", async () => {
+test("teto: retomar com o mesmo teto (já gasto) é recusado com erro humano; com teto maior continua", async () => {
   const e = env({ CARDUME_MOCK_COST_USD: "0.6" });
   try {
     const planFile = e.plan([T("Esqueleto do app", []), T("Adicionar itens", [0])]);
     const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 1, log: quiet });
     assert.equal(st.phase, "budget");
     assert.equal(st.lastPhase, "building", "lembra onde parou");
-    await assert.rejects(runAutopilot({ dir: e.dir, log: quiet }), /teto de US\$ 1\.00 já foi gasto[\s\S]*aumente o teto[\s\S]*0 pra seguir sem teto/);
+    await assert.rejects(runAutopilot({ dir: e.dir, log: quiet }), /teto de US\$ 1\.00 já foi gasto[\s\S]*aumente o teto/);
+    await assert.rejects(runAutopilot({ dir: e.dir, budgetUsd: 0, log: quiet }), /não roda sem teto/, "0 não é mais 'sem teto'");
     await assert.rejects(runAutopilot({ dir: e.dir, budgetUsd: 1.1, log: quiet }), /já foi gasto/);
     assert.equal(readState(e.dir)!.phase, "budget", "recusa não mexe no estado");
     // a 1ª tarefa nasceu com o teto inteiro; o teto da tarefa = o que sobrava do piloto
@@ -271,10 +272,36 @@ test("teto: retomar com o mesmo teto (já gasto) é recusado com erro humano; co
       assert.equal(JSON.parse(store.getTask("adicionar-itens")!.spec_json).budgetUsd, 0.4);
       assert.equal(JSON.parse(store.getTask("adicionar-itens")!.spec_json).autopilot, true);
     } finally { store.close(); }
-    const st2 = await runAutopilot({ dir: e.dir, budgetUsd: 0, log: quiet });
+    const st2 = await runAutopilot({ dir: e.dir, budgetUsd: 10, log: quiet });
     assert.equal(st2.phase, "done");
-    // 0 explícito continua "sem teto" (compatibilidade, mesa 03/10) — e o relatório diz isso com todas as letras
-    assert.match(renderReport(st2, null, { costs: new Map(), questions: [] }), /sem teto \(explícito\)/);
+    assert.equal(st2.budgetUsd, 10, "o teto novo fica gravado");
+    // estado ANTIGO com teto 0 ("sem teto"): o relatório ainda diz isso com todas as letras
+    assert.match(renderReport({ ...st2, budgetUsd: 0 }, null, { costs: new Map(), questions: [] }), /sem teto \(explícito\)/);
+  } finally { e.done(); }
+});
+
+test("teto OBRIGATÓRIO (F4): rodada nova sem teto, com 0, negativo ou lixo é recusada ANTES de criar a pasta; estado antigo sem teto só continua com teto novo", async () => {
+  // regra pura (a mesma do Rust cap_check e do app pilotoCapCheck)
+  assert.deepEqual(apCapCheck(undefined, null), { ok: false, err: AP_CAP_REQUIRED });
+  assert.deepEqual(apCapCheck(0, null), { ok: false, err: AP_CAP_REQUIRED });
+  assert.deepEqual(apCapCheck(-3, null), { ok: false, err: AP_CAP_REQUIRED });
+  assert.deepEqual(apCapCheck(Number.NaN, null), { ok: false, err: AP_CAP_REQUIRED });
+  assert.deepEqual(apCapCheck(Number.POSITIVE_INFINITY, null), { ok: false, err: AP_CAP_REQUIRED });
+  assert.deepEqual(apCapCheck(40, null), { ok: true, cap: 40 });
+  assert.deepEqual(apCapCheck(undefined, { budgetUsd: 20, costUsd: 3 }), { ok: true, cap: 20 }, "retomada sem teto novo mantém o do estado");
+  assert.deepEqual(apCapCheck(undefined, { budgetUsd: 0, costUsd: 3 }), { ok: false, err: AP_CAP_REQUIRED }, "estado antigo 'sem teto' precisa de teto");
+  const r = apCapCheck(3, { budgetUsd: 2, costUsd: 3 });
+  assert.equal(r.ok, false); assert.match((r as { err: string }).err, /já foi gasto/);
+  const e = env();
+  try {
+    const planFile = e.plan([T("Esqueleto do app", [])]);
+    await assert.rejects(runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, log: quiet }), /não roda sem teto/);
+    await assert.rejects(runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 0, log: quiet }), /não roda sem teto/);
+    assert.equal(existsSync(e.dir), false, "recusa não cria a pasta");
+    assert.equal(readState(e.dir), null);
+    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 7.5, log: quiet });
+    assert.equal(st.budgetUsd, 7.5);
+    assert.equal(st.phase, "done");
   } finally { e.done(); }
 });
 
@@ -289,7 +316,7 @@ test("criação interrompida: estado 'starting' gravado antes do git init; pasta
     writeFileSync(join(e.dir, "README.md"), "# x\n"); writeFileSync(join(e.dir, ".gitignore"), ".cardume/\n");
     git(e.dir, "add", "-A"); git(e.dir, "commit", "-q", "-m", FIRST_COMMIT_MSG);
     assert.equal(await canStartIn(e.dir), true);
-    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, log: quiet });
+    const st = await runAutopilot({ idea: "lista", dir: e.dir, engine: "mock", planFile, budgetUsd: 50, log: quiet });
     assert.equal(st.phase, "done");
     // pasta com um commit que NÃO é do piloto: recusada
     const other = join(e.root, "outro");
@@ -301,7 +328,7 @@ test("criação interrompida: estado 'starting' gravado antes do git init; pasta
     // falha na preparação: o estado mínimo existe e fica "failed" com o motivo (a aba mostra; rodar de novo retoma)
     const bad = join(e.root, "com-remoto");
     mkdirSync(join(bad, ".cardume", "autopilot"), { recursive: true });
-    writeFileSync(stateFile(bad), JSON.stringify({ version: 1, idea: "x", name: "x", platform: "web", engine: "mock", parallel: 1, attempts: 1, budgetUsd: 0, dir: bad, epicId: "", epicTitle: "", phase: "starting", pid: 0, runs: 0, startedAt: 1, updatedAt: 1, costUsd: 0, tasks: [], events: [] }));
+    writeFileSync(stateFile(bad), JSON.stringify({ version: 1, idea: "x", name: "x", platform: "web", engine: "mock", parallel: 1, attempts: 1, budgetUsd: 5, dir: bad, epicId: "", epicTitle: "", phase: "starting", pid: 0, runs: 0, startedAt: 1, updatedAt: 1, costUsd: 0, tasks: [], events: [] }));
     execFileSync("git", ["init", "-q", "-b", "main", bad]);
     git(bad, "remote", "add", "origin", "https://example.com/x.git");
     await assert.rejects(runAutopilot({ dir: bad, log: quiet }), /remoto/);

@@ -156,28 +156,74 @@ function fabIdeaTurn(op, foco, panel){
   return { you, at:Date.now(), resp };
 }
 function fabDefaultMode(hasRepo){ return hasRepo?'feature':'app'; }
+// ---- F4 · G2: Fábrica unificada (Sessões, rotas antigas) ----
+// UMA lista de sessões: ideias (59), mesas (38), varreduras (aqui) e pilotos (56). Linha normalizada:
+// { k:'i'|'m'|'v'|'p', id, tema, small, onde, repo, sit, sitCls, custo, at, bad }
+const FAB_KIND={ i:'IDEIA', m:'MESA', v:'VARREDURA', p:'PILOTO' };
+function fabSessRows(src){
+  src=src||{}; const out=[], base=p=>String(p||'').split(/[\\/]/).filter(Boolean).pop()||'';
+  (src.ideias||[]).forEach(x=>{ if(!x||!x.id) return;
+    const st=x.corrompida?['arquivo ilegível','blk']:x.projeto?['projeto criado','ok']:x.decisao==='ok'?['MVP decidido · falta criar','rev']:x.pesquisa==='ok'?['pesquisada','ok']:x.turnos?['conversando','run']:['nova','idle'];
+    out.push({ k:'i', id:x.id, tema:x.titulo||'(sem título)', small:x.corrompida?'o arquivo foi editado fora do app e não dá pra ler':(x.turnos?x.turnos+' mensage'+(x.turnos===1?'m':'ns'):'sem conversa ainda'), onde:x.projeto?base(x.projeto):'', repo:x.projeto||'', sit:st[0], sitCls:st[1], custo:+x.costUsd||0, at:+x.updatedAt||0, bad:!!x.corrompida }); });
+  (src.mesas||[]).forEach(x=>{ if(!x||!x.id) return;
+    const live=(src.liveMesas||[]).includes(x.id), s0=x.status==='rodando'&&!live?'interrompida':(x.status||'concluida');
+    const st={ rodando:['rodando','run'], pausada:['parou no teto','blk'], parada:['parada','idle'], interrompida:['interrompida · continuar','rev'], concluida:['concluída','ok'], corrompida:['arquivo ilegível','blk'] }[s0]||[s0,'idle'];
+    out.push({ k:'m', id:x.id, tema:x.status==='corrompida'?'Mesa '+x.id:(x.tema||'(sem tema)'), small:x.status==='corrompida'?'o arquivo foi editado fora do app e não dá pra ler':`${+x.personas||0} personas · ${+x.rounds||0} rodada${+x.rounds===1?'':'s'}`, onde:base(x.repo), repo:x.repo||'', sit:st[0], sitCls:st[1], custo:+x.costUsd||0, at:+x.updatedAt||0, bad:x.status==='corrompida' }); });
+  (src.varreduras||[]).forEach(x=>{ if(!x||!x.id) return;
+    const n=(x.opcoes||[]).length, st={ rodando:['rodando','run'], pronta:['concluída','ok'], teto:['parou no teto','blk'], parada:['parada','idle'], vazia:['sem opção na triagem','idle'], falhou:['falhou','blk'], interrompida:['interrompida','rev'] }[x.status]||[x.status||'—','idle'];
+    out.push({ k:'v', id:x.id, tema:x.foco||'(sem foco)', small:`${n} opç${n===1?'ão':'ões'}${x.mode==='feature'?' · feature':' · app novo'}`, onde:x.mode==='feature'?base(x.projeto):'', repo:x.mode==='feature'?(x.projeto||''):'', mode:x.mode||'app', sit:st[0], sitCls:st[1], custo:+x.gasto||0, at:+x.updatedAt||+x.createdAt||0, bad:false }); });
+  (src.pilotos||[]).forEach(x=>{ if(!x||!x.dir) return; const ts=x.tasks||[], m=ts.filter(t=>t.stage==='merged').length;
+    const st=x.alive?['construindo · '+m+'/'+ts.length,'run']:({ done:['concluído','ok'], stopped:['parado','idle'], budget:['parou no teto','blk'], failed:['falhou','blk'] }[x.phase]||['parado','idle']);
+    out.push({ k:'p', id:x.dir, tema:x.name||x.epicTitle||base(x.dir), small:x.idea?String(x.idea).slice(0,80):'piloto', onde:base(x.dir), repo:x.dir, sit:st[0], sitCls:st[1], custo:+x.costUsd||0, at:+x.updatedAt||0, bad:false }); });
+  return out.sort((a,b)=>b.at-a.at);
+}
+// filtros da lista: tipo (all|i|m|v|p), projeto ('' = todos · '-' = sem projeto) e busca (sem acento/caixa)
+function fabSessFilter(rows, f){
+  f=f||{}; const q=fabFold(f.q||'');
+  return (rows||[]).filter(r=>(!f.k||f.k==='all'||r.k===f.k) && (!f.proj||(f.proj==='-'?!r.repo:r.repo===f.proj)) && (!q||fabFold(r.tema+' '+r.small).includes(q)));
+}
+function fabSessCounts(rows){ const c={ all:(rows||[]).length, i:0, m:0, v:0, p:0 }; (rows||[]).forEach(r=>{ c[r.k]=(c[r.k]||0)+1; }); return c; }
+// ROTAS ANTIGAS → lugares novos (Ideia/Mesa/Piloto viraram partes da Fábrica). Devolve { kind, view?, filter?, mode? }.
+// ctx = { mesaId?, hasRepo }  — "mesa" sem uma mesa escolhida (era a LISTA de mesas) vai pra Fábrica › Sessões › Mesas;
+// "dividir" (orq vindo do seletor antigo) segue sendo o resultado "várias em etapas" da Nova demanda.
+function fabRoute(kind, ctx){
+  ctx=ctx||{};
+  if(kind==='mesa' && !ctx.mesaId) return { kind:'fabrica', view:'sessoes', filter:'m' };
+  if(kind==='mesanova') return { kind:'fabrica', view:'nova', mode:'feature' };
+  if(kind==='ideias') return { kind:'fabrica', view:'sessoes', filter:'i' };
+  if(kind==='nova') return { kind:'planner' };
+  return { kind };
+}
 // @fabrica-puro-fim
 
 Object.assign(IC, { fabrica:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 13V7l3 2V7l3 2V7l3 2V3h3v10z" stroke-linejoin="round"/></svg>' });
-// ---- registro na barra de abas (aba única) ----
-if(typeof VIEW_META!=='undefined'){ VIEW_META.fabrica={ title:'Fábrica', icon:'<path d="M2 13V7l3 2V7l3 2V7l3 2V3h3v10z" stroke-linejoin="round"/>' }; VIEW_OVERLAY.fabrica='fabOverlay'; }
-if(typeof KEEP_ON_SWITCH!=='undefined') KEEP_ON_SWITCH.add('fabrica'); // voltar pela aba só mostra (a sessão segue na memória)
-if(typeof viewOpen==='function' && !viewOpen.__fab){ const vo=viewOpen; viewOpen=function(kind, tab){ if(kind==='fabrica'){ if(tab) tab.fresh=false; return openFabrica(); } return vo.apply(this, arguments); }; viewOpen.__fab=true; }
-function fabOpen(){ if(window.openTab) window.openTab('fabrica'); }
+// ---- registro na barra de abas: "fabrica" (hub: Nova sessão · Sessões · Personas) + "varredura" (sessão "Me mostre opções") ----
+if(typeof VIEW_META!=='undefined'){ VIEW_META.fabrica={ title:'Fábrica', icon:'<path d="M2 13V7l3 2V7l3 2V7l3 2V3h3v10z" stroke-linejoin="round"/>' }; VIEW_OVERLAY.fabrica='fabOverlay';
+  VIEW_META.varredura={ title:'Varredura', icon:'<circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2L14 14" stroke-linecap="round"/>' }; VIEW_OVERLAY.varredura='varOverlay';
+  if(VIEW_META.mesa) VIEW_META.mesa.title='Mesa'; }
+if(typeof KEEP_ON_SWITCH!=='undefined'){ KEEP_ON_SWITCH.add('fabrica'); KEEP_ON_SWITCH.add('varredura'); } // voltar pela aba só mostra (a sessão segue na memória)
+if(typeof viewOpen==='function' && !viewOpen.__fab){ const vo=viewOpen; viewOpen=function(kind, tab){ if(kind==='fabrica'){ if(tab){ tab.fresh=false; if(tab.sub){ FAB.view=tab.sub; if(tab.sub==='sessoes'&&tab.from==='mesas') FAB.sf.k='m'; tab.sub=null; } } return openFabrica(); } if(kind==='varredura'){ if(tab) tab.fresh=false; return openVarredura(); } return vo.apply(this, arguments); }; viewOpen.__fab=true; }
+// rotas antigas (Mais › Mesa, "Ideias recentes", seletor de 5 modos): openTab passa pelo fabRoute
+if(typeof openTab==='function' && !openTab.__g2){ const ot=openTab; openTab=function(kind, opts){ const r=fabRoute(kind, Object.assign({ mesaId:(opts&&opts.mesaId)||(typeof MESA!=='undefined'&&MESA.forceId)||'' }, opts||{}));
+    if(r.kind==='fabrica' && kind!=='fabrica'){ FAB.view=r.view||'nova'; if(r.filter) FAB.sf.k=r.filter; if(r.mode) FAB.mode=r.mode==='feature'?'feature':'app'; return ot.call(this, 'fabrica', {}); }
+    return ot.call(this, r.kind, opts); }; openTab.__g2=true; window.openTab=openTab; }
+// fabOpen('nova'|'sessoes'|'personas', { mode?, filter? }) — a porta da Fábrica pra quem está fora dela
+function fabOpen(view, o){ if(view && typeof view==='string') FAB.view=view; o=o||{}; if(o.mode) FAB.mode=o.mode; if(o.filter) FAB.sf.k=o.filter; if(window.openTab) window.openTab('fabrica'); else openFabrica(); }
 window.fabOpen=fabOpen;
 
-const FAB={ mode:null, foco:{ app:'', feature:'' }, teto:null, colado:'', showColado:false, by:{ app:null, feature:null }, confirm:null, disc:{}, ov:{}, busy:false };
+const FAB={ view:'nova', sf:{ k:'all', proj:'', q:'' }, sess:null, sessErr:'', psel:null, mode:null, foco:{ app:'', feature:'' }, teto:null, colado:'', showColado:false, by:{ app:null, feature:null }, confirm:null, disc:{}, ov:{}, busy:false };
 function fabEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function fabCall(){ return typeof invokeQuiet==='function'?invokeQuiet:invoke; }
 function fabSess(){ return FAB.by[FAB.mode]||null; }
-function fabVisible(){ const o=$id('fabOverlay'); return !!(o && o.style.display!=='none'); }
+function fabVisible(){ const o=$id('varOverlay'); return !!(o && o.style.display!=='none'); }
 const FAB_TETO_MAX=50; // o mesmo corte do fabrica.rs
 function fabTeto(){ if(FAB.teto!=null) return Math.min(FAB.teto, FAB_TETO_MAX); const v=parseFloat(String((typeof lsGet==='function'&&lsGet('fabTeto'))||'').replace(',','.')); return v>0?v:FAB_TETO_PADRAO; }
 function fabEngineLabel(){ return typeof aiChatRunLabel==='function'?aiChatRunLabel():(typeof defaultAiEngine==='function'?defaultAiEngine():'a IA padrão'); }
 function fabProjName(p){ return typeof pathBase==='function'?pathBase(p):String(p||'').split(/[\\/]/).pop(); }
 
-async function openFabrica(){
-  const ov=$id('fabOverlay'); if(!ov) return;
+// sessão "Me mostre opções" (varredura) — aba própria com migalha Fábrica › Sessões › varredura
+async function openVarredura(){
+  const ov=$id('varOverlay'); if(!ov) return;
   if(!FAB.mode) FAB.mode=fabDefaultMode(typeof state!=='undefined' && !!state.repo);
   if(typeof ovShow==='function') ovShow(ov); else ov.style.display='flex';
   fabRender();
@@ -189,6 +235,9 @@ async function openFabrica(){
   }
   fabRender(); fabLoadOverlaps();
 }
+window.openVarredura=openVarredura;
+function fabOpenVarredura(mode, sess){ if(mode) FAB.mode=mode; if(sess){ FAB.by[FAB.mode]=sess; try{ lsSet('fabLast:'+FAB.mode, sess.id); }catch(_){ } } if(window.openTab) window.openTab('varredura'); }
+window.fabOpenVarredura=fabOpenVarredura;
 window.openFabrica=openFabrica;
 
 // ---- progresso: evento do Rust, nada de polling ----
@@ -429,19 +478,23 @@ function fabResultHtml(s){
   return h+`<div class="fab-opts">${ops.map((o,i)=>fabCardHtml(s,o,i)).join('')}</div>`;
 }
 function fabRender(){
-  const body=$id('fabBody'); if(!body) return;
+  const body=$id('varBody'); if(!body) return;
   fabCapture();
   const s=fabSess(), feat=FAB.mode==='feature';
-  const top=`<div class="fab-top"><h2>${IC.fabrica}Fábrica</h2><div class="fab-seg" role="tablist" aria-label="Tipo">`+
-    `<button type="button" role="tab" data-fmode="app" aria-selected="${!feat}" class="${!feat?'on':''}">App novo</button><button type="button" role="tab" data-fmode="feature" aria-selected="${feat}" class="${feat?'on':''}">Feature neste projeto</button></div>${fabMeterHtml(s)}</div>`;
+  const seg=`<div class="g2seg fab-seg" role="tablist" aria-label="O que criar"><button type="button" role="tab" data-fmode="app" aria-selected="${!feat}" class="${!feat?'on':''}">App novo</button><button type="button" role="tab" data-fmode="feature" aria-selected="${feat}" class="${feat?'on':''}">Feature neste projeto</button></div>`;
+  const crumb=`<nav class="g2crumb" aria-label="Você está em"><button type="button" data-fgo="nova">Fábrica</button>›<button type="button" data-fgo="sessoes">Sessões</button>› varredura</nav>`;
+  const title='Varredura: '+((s&&s.foco)||FAB.foco[FAB.mode]||(feat?'este projeto':'app novo'));
+  const top=crumb+(typeof pageHead==='function'?pageHead({ title, scope:feat?'projeto':'computador', scopeLabel:feat&&typeof state!=='undefined'&&state.repo?fabProjName(state.repo):'', right:seg+fabMeterHtml(s) })
+    :`<div class="fab-top"><h2>${IC.fabrica}${fabEsc(title)}</h2>${seg}${fabMeterHtml(s)}</div>`);
   const warn=`<div class="fab-warnline"><b>Leia antes:</b> isto é dor documentada, não demanda comprovada. Autores são contados uma vez, não menções. O custo é só pra construir com IA; manter fica de fora${feat?' e aparece como superfície nova':''}.</div>`;
-  const html=`<div class="fab">${top}${fabFormHtml(s)}${warn}${fabResultHtml(s)}</div>`;
+  const html=`<div class="g2page">${top}<div class="g2scroll"><div class="fab">${fabFormHtml(s)}${warn}${fabResultHtml(s)}</div></div></div>`;
   if(body.__html===html) return;
   const ae=document.activeElement, fid=ae&&body.contains(ae)&&ae.id?ae.id:null, sel=fid&&typeof ae.selectionStart==='number'?[ae.selectionStart, ae.selectionEnd]:null;
-  const sc=body.scrollTop;
-  body.innerHTML=html; body.__html=html; body.scrollTop=sc;
+  const sc0=body.querySelector('.g2scroll'), sc=sc0?sc0.scrollTop:0;
+  body.innerHTML=html; body.__html=html; { const s2=body.querySelector('.g2scroll'); if(s2) s2.scrollTop=sc; }
   if(fid){ const el=$id(fid); if(el){ el.focus(); if(sel && el.setSelectionRange) try{ el.setSelectionRange(sel[0], sel[1]); }catch(_){ } } }
   fabWire(body);
+  try{ const t=(typeof TABS!=='undefined'?TABS:[]).find(x=>x.kind==='varredura'); const nt=title.slice(0,28); if(t && t.title!==nt){ t.title=nt; if(typeof renderTabs==='function') renderTabs(); } }catch(_){ }
 }
 function fabWire(body){
   bindClick('fabGo', fabStart);
@@ -457,8 +510,203 @@ function fabWire(body){
   body.querySelectorAll('[data-fundisc]').forEach(b=>b.onclick=()=>fabDiscard(+b.dataset.fundisc, ''));
   body.querySelectorAll('[data-fmk]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.fmk; if(FAB.mode==='feature') fabMakeEpic(i); else fabToIdeia(i); });
   body.querySelectorAll('[data-fideia]').forEach(b=>b.onclick=()=>{ if(typeof ideiaOpenTab==='function') ideiaOpenTab(b.dataset.fideia); });
+  body.querySelectorAll('[data-fgo]').forEach(b=>b.onclick=()=>fabOpen(b.dataset.fgo));
   // segmentado com setas (padrão de abas acessíveis)
   const seg=body.querySelector('.fab-seg'); if(seg) seg.onkeydown=e=>{ if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight') return; e.preventDefault(); fabCapture(); FAB.mode=FAB.mode==='app'?'feature':'app'; FAB.confirm=null; fabRender(); const on=body.querySelector('.fab-seg .on'); if(on) on.focus(); };
 }
 document.addEventListener('click', e=>{ const u=e.target.closest&&e.target.closest('[data-furl]'); if(u){ e.preventDefault(); invoke('open_url',{ url:u.dataset.furl }).catch(()=>{}); } });
-bindClick('fabClose', ()=>{ if(typeof ovHide==='function') ovHide('fabOverlay'); });
+
+// ======================= HUB DA FÁBRICA (F4 · G2) =======================
+// Cabeçalho "App novo | Feature neste projeto" · sub-nav Nova sessão · Sessões · Personas.
+// Pontos de partida: Já sei o que quero · Tenho uma ideia (ex-Ideia) · Me mostre opções (varredura) · Discutir um tema
+// (ex-Mesa). Fim de todo caminho de App novo: "seguir à mão" | "construir sozinho" (56-piloto, teto obrigatório).
+const FAB_HUB={ phrase:'', plat:'web', tema:'', pick:null, cap:'', gen:[], genRepo:'', pDraft:null, saveT:0, saved:'', mesaIa:null };
+async function openFabrica(){
+  const ov=$id('fabOverlay'); if(!ov) return;
+  if(!FAB.mode) FAB.mode=fabDefaultMode(typeof state!=='undefined' && !!state.repo);
+  if(typeof ovShow==='function') ovShow(ov); else ov.style.display='flex';
+  fabHubRender();
+  fabLoadGen();
+  fabLoadSessions();
+}
+window.openFabrica=openFabrica;
+function fabHubVisible(){ const o=$id('fabOverlay'); return !!(o && o.style.display!=='none'); }
+// personas geradas pro projeto aberto (as da mesa) — o editor e o cartão "Discutir um tema" usam
+async function fabLoadGen(){
+  const repo=(typeof state!=='undefined'&&state.repo)||''; if(!repo){ FAB_HUB.gen=[]; FAB_HUB.genRepo=''; return; }
+  if(FAB_HUB.genRepo===repo) return;
+  try{ const r=await fabCall()('mesa_read',{ repo, id:'personas' }); FAB_HUB.gen=(r&&Array.isArray(r.personas))?r.personas:[]; }catch(_){ FAB_HUB.gen=[]; }
+  FAB_HUB.genRepo=repo; if(typeof MESA!=='undefined' && MESA.repo===repo) MESA.gen=FAB_HUB.gen;
+  if(fabHubVisible()) fabHubRender();
+}
+function fabPersonas(){ return typeof mesaPersonaList==='function'?mesaPersonaList(FAB_HUB.gen):(typeof MESA_PERSONAS!=='undefined'?MESA_PERSONAS:[]); }
+// as 4 fontes da lista única: ideias, mesas (de cada projeto), varreduras e pilotos
+async function fabLoadSessions(){
+  const call=fabCall(), src={ ideias:[], mesas:[], varreduras:[], pilotos:[], liveMesas:[] };
+  try{
+    const [ids, vl]=await Promise.all([call('ideia_list').catch(()=>[]), call('fabrica_list').catch(()=>[])]);
+    src.ideias=ids||[];
+    src.varreduras=(await Promise.all((vl||[]).slice(0,24).map(x=>call('fabrica_read',{ id:x.id }).catch(()=>null)))).filter(Boolean);
+    const repos=[...new Set(((typeof projects!=='undefined'&&Array.isArray(projects))?projects.map(p=>p&&p.path):[]).concat([(typeof state!=='undefined'&&state.repo)||'']).filter(Boolean))].slice(0,12);
+    for(const repo of repos){ try{ const l=await call('mesa_list',{ repo }); (l||[]).forEach(x=>src.mesas.push(Object.assign({ repo }, x))); }catch(_){ } }
+    const dirs=[...new Set([(typeof lsGet==='function'&&lsGet('piloto:dir'))||''].concat(src.ideias.map(x=>x.projeto||'')).filter(Boolean))].slice(0,10);
+    for(const dir of dirs){ try{ const st=await call('autopilot_status',{ dir }); if(st && st.phase) src.pilotos.push(Object.assign({ dir }, st)); }catch(_){ } }
+    if(typeof MESA!=='undefined') src.liveMesas=Object.values(MESA.runs||{}).map(r=>r.m&&r.m.id).filter(Boolean);
+    FAB.sess=fabSessRows(src); FAB.sessErr='';
+  }catch(e){ FAB.sessErr=(typeof humanErr==='function'?humanErr(e,'Não consegui ler as sessões').msg:'Não consegui ler as sessões'); FAB.sessRaw=String(e&&e.message||e); }
+  if(fabHubVisible()) fabHubRender();
+}
+window.fabLoadSessions=fabLoadSessions;
+function fabHubCapture(){
+  const v=id=>{ const e=$id(id); return e?e.value:null; };
+  const a=v('fabPhrase'); if(a!=null) FAB_HUB.phrase=a;
+  const t=v('fabTema'); if(t!=null) FAB_HUB.tema=t;
+  const c=v('fabMesaCap'); if(c!=null) FAB_HUB.cap=c;
+  const q=v('fabSessQ'); if(q!=null) FAB.sf.q=q;
+}
+function fabSnavHtml(){
+  const rows=FAB.sess||[], np=fabPersonas().length, b=(k,ic,l,n)=>`<button type="button" role="tab" class="${FAB.view===k?'on':''}" aria-selected="${FAB.view===k}" data-fview="${k}">${IC[ic]||''}${l}${n!=null?`<small>${n}</small>`:''}</button>`;
+  return `<nav class="g2snav" role="tablist" aria-orientation="vertical" aria-label="Fábrica">${b('nova','plus','Nova sessão')}${b('sessoes','list','Sessões',FAB.sess?rows.length:'…')}${b('personas','users','Personas',np)}<div class="g2tip">Ideias, mesas e varreduras ficam salvas neste computador. Toda sessão tem teto em US$.</div></nav>`;
+}
+function fabHubHead(){
+  const feat=FAB.mode==='feature', repo=(typeof state!=='undefined'&&state.repo)||'', rows=FAB.sess||[];
+  const sub='Descobrir o que construir antes de construir. Pra demanda que você já sabe descrever, use Nova demanda.';
+  const seg=`<div class="g2seg" role="tablist" aria-label="O que criar"><button type="button" role="tab" data-fhmode="app" class="${!feat?'on':''}" aria-selected="${!feat}">App novo</button><button type="button" role="tab" data-fhmode="feature" class="${feat?'on':''}" aria-selected="${feat}">Feature neste projeto</button></div>`;
+  if(typeof pageHead!=='function') return `<h1>Fábrica</h1>`;
+  if(FAB.view==='sessoes'){ const tot=rows.reduce((a,r)=>a+(+r.custo||0),0); return pageHead({ title:'Fábrica', scope:'computador', sum:FAB.sess?`<span>${rows.length} sess${rows.length===1?'ão':'ões'} · gasto total <b>${fabEsc(typeof fmtUsdBr==='function'?fmtUsdBr(tot):fabUsd(tot))}</b></span>`:'', primary:{ label:'Nova sessão', id:'fabNewSess', icon:'plus' }, sub }); }
+  if(FAB.view==='personas'){ const ps=fabPersonas(), g=ps.filter(p=>p.origem==='gerada').length; return pageHead({ title:'Fábrica', scope:'computador', sum:`<span>${ps.length} personas · ${ps.length-g} deste computador${g?` + ${g} gerada${g===1?"":"s"} pra ${fabEsc(fabProjName(repo))}`:''}</span>`, primary:repo?{ label:'Gerar personas pra este projeto', id:'fabGenP', icon:'starforkEm' }:null, sub:'Quem senta à mesa nas ideias e nos temas. Personas são simuladas — não representam usuários reais.' }); }
+  return pageHead({ title:'Fábrica', scope:feat?'projeto':'computador', scopeLabel:feat&&repo?fabProjName(repo):'', right:seg, sub });
+}
+function fabStartsHtml(){
+  const feat=FAB.mode==='feature', repo=(typeof state!=='undefined'&&state.repo)||'';
+  const plats=PILOTO_PLATS_FAB.map(([k,l])=>`<button type="button" class="g2rad${FAB_HUB.plat===k?' on':''}" data-fplat="${k}" aria-pressed="${FAB_HUB.plat===k}">${l}</button>`).join('');
+  if(!feat) return `<div class="g2starts">`
+    +`<div class="g2start big"><h3><span class="nn">1</span>Já sei o que quero</h3><p>Descreva o app numa frase. O Starfork cria o projeto e monta o primeiro épico.</p>`
+      +`<textarea class="in g2ta" id="fabPhrase" rows="3" placeholder="ex.: recriar o jogo Pou pra web" aria-label="App numa frase">${fabEsc(FAB_HUB.phrase)}</textarea>`
+      +`<div class="g2fld"><span class="g2lb">Plataforma</span><div class="g2radios">${plats}</div></div>`
+      +`<div class="g2ft"><button type="button" class="btn primary" id="fabPhraseGo">Continuar →</button><span class="g2help">no fim: seguir à mão ou construir sozinho</span></div>`
+      +`<p class="g2help g2sep">Já tem a pasta ou o repositório? <button type="button" class="lnk" id="fabToProj">Adicionar ou clonar em Projetos</button></p></div>`
+    +`<button type="button" class="g2start" id="fabIdeia"><h3><span class="nn">2</span>Tenho uma ideia</h3><p>Converse com a mesa (6 pontos de vista), peça uma pesquisa com fontes e deixe a mesa votar o MVP.</p><ul><li>pesquisa com teto em US$</li><li>cada afirmação marcada: fato, dedução ou suposição</li></ul><span class="g2ft"><span class="btn sm">Começar ${IC.arrow||'→'}</span></span></button>`
+    +`<button type="button" class="g2start" id="fabVarApp"><h3><span class="nn">3</span>Me mostre opções</h3><p>Diga um foco. A varredura lê fóruns, reviews e concorrentes e traz 3 opções com mock, custo e o voto da mesa.</p><ul><li>para sozinha no teto · nada roda em segundo plano</li></ul><span class="g2ft"><span class="btn sm">Varrer ${IC.arrow||'→'}</span></span></button>`
+    +`</div><div class="g2endstrip">${IC.play||''}<span>No fim de qualquer caminho de App novo: <b>seguir à mão</b> ou <b>construir sozinho</b> (o antigo piloto automático, com teto obrigatório).</span></div>`;
+  if(!repo) return `<div class="g2empty"><b>Esta parte é de um projeto.</b><p>Abra um projeto pra discutir features ou varrer o que os usuários pedem — ou troque pra <b>App novo</b>.</p><div class="g2row"><button type="button" class="btn primary" data-fhmode="app">App novo</button><button type="button" class="btn" id="fabToProj">Abrir um projeto</button></div></div>`;
+  const ps=fabPersonas(); if(!FAB_HUB.pick) FAB_HUB.pick=new Set(ps.filter(p=>p.ativa!==false).map(p=>p.id));
+  const n=ps.filter(p=>FAB_HUB.pick.has(p.id)).length;
+  const [lo,hi]=typeof mesaCost==='function'?mesaCost(n, 2, (FAB_HUB.mesaIa&&FAB_HUB.mesaIa.get().model)||'sonnet', typeof roughEstimate==='function'?roughEstimate:null):[0,0];
+  const cap=FAB_HUB.cap||String(typeof mesaCapBase==='function'?mesaCapBase():2).replace('.',',');
+  return `<div class="g2starts feat">`
+    +`<button type="button" class="g2start" id="fabToNova"><h3><span class="nn">1</span>Já sei o que quero</h3><p>Abre a <b>Nova demanda</b> com ${fabEsc(fabProjName(repo))} preenchido. A Fábrica não repete o planejador.</p><span class="g2ft"><span class="btn sm">Abrir Nova demanda ${IC.arrow||'→'}</span></span></button>`
+    +`<div class="g2start big"><h3><span class="nn">2</span>Discutir um tema</h3><p>Mesa: pontos de vista que debatem e votam features. Você aprova e elas viram demandas.</p>`
+      +`<div class="g2fld"><label for="fabTema">Tema</label><input class="in" id="fabTema" value="${fabEsc(FAB_HUB.tema)}" placeholder="ex.: o que fazer com os módulos Em breve?"></div>`
+      +`<div class="g2fld"><span class="g2lb">Quem senta <small>— clique pra tirar ou pôr</small></span><div class="g2persrow">${ps.map(p=>`<button type="button" class="g2pers${FAB_HUB.pick.has(p.id)?' on':''}" data-fpick="${fabEsc(p.id)}" aria-pressed="${FAB_HUB.pick.has(p.id)}" title="${fabEsc(p.papel)}"><span class="g2pav">${fabEsc(p.nome.charAt(0))}</span>${fabEsc(p.nome)}</button>`).join('')}</div></div>`
+      +`<div class="g2g2"><div class="g2fld"><span class="g2lb">IA</span><span id="fabMesaIa"></span></div><div class="g2fld"><label for="fabMesaCap">Teto (US$)</label><input class="in" id="fabMesaCap" inputmode="decimal" value="${fabEsc(cap)}"></div></div>`
+      +`<div class="g2ft"><button type="button" class="btn primary" id="fabMesaGo"${n<2?' disabled title="escolha pelo menos 2 personas"':''}>Rodar a mesa</button><span class="g2help">deve custar ${fabEsc(typeof fmtCostRange==='function'?fmtCostRange(lo,hi):'')} · ${n} personas × 2 rodadas</span></div></div>`
+    +`<button type="button" class="g2start" id="fabVarFeat"><h3><span class="nn">3</span>Me mostre opções</h3><p>Lê as issues, o chat do projeto, demandas passadas e o código. Traz 3 opções com mock sobre a sua tela e os arquivos que cada uma toca.</p><span class="g2ft"><span class="btn sm">Varrer este projeto ${IC.arrow||'→'}</span></span></button>`
+    +`</div><div class="g2endstrip">${IC.stack||''}<span>No fim: <b>épico criado só com confirmação</b>, neste projeto. Nada roda até você iniciar.</span></div>`;
+}
+const PILOTO_PLATS_FAB=[['web','Web'],['ios','iOS'],['android','Android'],['mobile','iOS + Android']];
+function fabSessRowHtml(r){
+  const onde=r.onde?`<span class="g2scope">${fabEsc(r.onde)}</span>`:`<span class="dim">${r.k==='i'?'sem projeto ainda':r.k==='v'?'app novo':'—'}</span>`;
+  const when=r.at?new Date(r.at).toLocaleDateString('pt-BR',{ day:'2-digit', month:'2-digit' }):'—';
+  return `<div class="g2trw${r.bad?' bad':''}" role="row" tabindex="0" data-fsess="${fabEsc(r.k)}:${fabEsc(r.id)}"><div><span class="g2kind ${r.k}">${FAB_KIND[r.k]}</span></div><div><b>${fabEsc(r.tema)}</b><small>${fabEsc(r.small)}</small></div><div>${onde}</div><div><span class="g2sit sit-${r.sitCls}">${fabEsc(r.sit)}</span></div><div>${r.custo?fabEsc(fabUsd(r.custo)):'—'}</div><div>${fabEsc(when)}</div><div><button type="button" class="btn icon quiet" data-fsessmore="${fabEsc(r.k)}:${fabEsc(r.id)}" title="Mais" aria-label="Mais ações">${IC.dots||'⋯'}</button></div></div>`;
+}
+function fabSessoesHtml(){
+  if(FAB.sessErr) return `<div class="g2empty"><b>${fabEsc(FAB.sessErr)}</b><div class="g2row"><button type="button" class="btn primary" id="fabSessRetry">Tentar de novo</button></div><details class="g2tech"><summary>ver detalhes</summary><pre class="mono">${fabEsc(FAB.sessRaw||'')}</pre></details></div>`;
+  if(!FAB.sess) return `<div class="g2help" role="status">lendo as sessões…</div>`;
+  const all=FAB.sess, c=fabSessCounts(all), rows=fabSessFilter(all, FAB.sf);
+  const projs=[...new Set(all.map(r=>r.repo).filter(Boolean))];
+  const chip=(k,l)=>`<button type="button" class="g2fc${FAB.sf.k===k?' on':''}" data-fsf="${k}" aria-pressed="${FAB.sf.k===k}">${l} <b>${c[k]||0}</b></button>`;
+  const bar=`<div class="g2toolbar">${chip('all','Todas')}${chip('i','Ideias')}${chip('m','Mesas')}${chip('v','Varreduras')}${chip('p','Pilotos')}`
+    +`<select class="in g2sel" id="fabSessProj" aria-label="Projeto"><option value="">Todos os projetos</option>${projs.map(p=>`<option value="${fabEsc(p)}"${FAB.sf.proj===p?' selected':''}>${fabEsc(fabProjName(p))}</option>`).join('')}<option value="-"${FAB.sf.proj==='-'?' selected':''}>sem projeto (app novo)</option></select>`
+    +`<label class="g2search">${IC.search||''}<input id="fabSessQ" placeholder="Buscar sessão" aria-label="Buscar sessão" value="${fabEsc(FAB.sf.q)}"></label></div>`;
+  if(!all.length) return bar+`<div class="g2empty"><b>Sem sessões ainda.</b><p>Comece descrevendo uma ideia ou um tema — a mesa responde.</p><button type="button" class="btn primary" data-fview="nova">Nova sessão</button></div>`;
+  return bar+`<div class="g2tblw" role="table" aria-label="Sessões"><div class="g2trw th" role="row"><div>Tipo</div><div>Tema</div><div>Onde</div><div>Situação</div><div>Custo</div><div>Quando</div><div></div></div>${rows.map(fabSessRowHtml).join('')||'<div class="g2help g2pad">nenhuma sessão com esse filtro</div>'}</div>`;
+}
+function fabPersonasHtml(){
+  const ps=fabPersonas(); if(!ps.length) return '<div class="g2empty">sem personas</div>';
+  if(!FAB.psel || !ps.some(p=>p.id===FAB.psel)) FAB.psel=ps[0].id;
+  const p=FAB_HUB.pDraft&&FAB_HUB.pDraft.id===FAB.psel?FAB_HUB.pDraft:ps.find(x=>x.id===FAB.psel);
+  const list=ps.map(x=>`<button type="button" class="g2pitem${x.id===FAB.psel?' on':''}" data-fpsel="${fabEsc(x.id)}" aria-pressed="${x.id===FAB.psel}"><span class="g2pav">${fabEsc(x.nome.charAt(0))}</span><b>${fabEsc(x.nome)}</b>${x.origem==='gerada'?'<em>gerada</em>':x.ativa===false?'<em>fora</em>':'<i></i>'}<span class="ps">${fabEsc(x.papel)}</span></button>`).join('')+`<button type="button" class="btn sm" id="fabPNew">+ nova persona</button>`;
+  const where=p.origem==='gerada'?'gerada a partir do projeto — fica salva nele (edite à vontade)':p.origem==='custom'?'criada aqui — vale neste computador':'persona padrão — mudanças valem só neste computador';
+  const ed=`<div class="g2phead"><span class="g2pav lg">${fabEsc(p.nome.charAt(0))}</span><div><h3>${fabEsc(p.nome)}</h3><span class="g2help">${where}</span></div><span class="g2saved" id="fabPSaved" aria-live="polite">${fabEsc(FAB_HUB.saved)}</span></div>`
+    +`<div class="g2g2"><div class="g2fld"><label for="fabPNome">Nome</label><input class="in" id="fabPNome" value="${fabEsc(p.nome)}" maxlength="30"></div><div class="g2fld"><label for="fabPPapel">Papel</label><input class="in" id="fabPPapel" value="${fabEsc(p.papel)}" maxlength="60"></div></div>`
+    +`<div class="g2fld"><label for="fabPDesc">Descrição e voz <small>— vai no começo de toda resposta dela</small></label><textarea class="in g2ta" id="fabPDesc" rows="5" maxlength="600">${fabEsc(p.desc)}</textarea></div>`
+    +`<label class="ias-chk g2big"><input type="checkbox" id="fabPAtiva"${p.ativa!==false?' checked':''}> Ativa — senta por padrão nas ideias e nas mesas</label>`
+    +(p.origem!=='padrao'?`<div><button type="button" class="lnk g2danger" id="fabPDel">remover esta persona</button></div>`:'');
+  return `<div class="g2pers-lay"><div class="g2plist">${list}</div><div class="g2pedit"><div class="in">${ed}</div></div></div>`;
+}
+function fabRecentHtml(){
+  const rows=(FAB.sess||[]).filter(r=>!r.bad).slice(0,3); if(!rows.length) return '';
+  return `<div><div class="g2k">Continuar de onde parou</div><div class="g2recent">${rows.map(r=>`<div class="row"><span class="g2kind ${r.k}">${FAB_KIND[r.k]}</span><b>${fabEsc(r.tema)}</b><span>${fabEsc(r.sit)}</span><span>${r.custo?fabEsc(fabUsd(r.custo)):''}</span><button type="button" class="lnk" data-fsess="${fabEsc(r.k)}:${fabEsc(r.id)}">abrir</button></div>`).join('')}</div></div>`;
+}
+function fabHubRender(){
+  const body=$id('fabBody'); if(!body) return;
+  fabHubCapture();
+  const v=FAB.view==='sessoes'||FAB.view==='personas'?FAB.view:'nova';
+  const content=v==='sessoes'?fabSessoesHtml():v==='personas'?fabPersonasHtml():fabStartsHtml()+fabRecentHtml();
+  const html=`<div class="g2page">${fabHubHead()}<div class="g2lay">${fabSnavHtml()}<div class="g2scroll"><div class="g2fab-c">${content}</div></div></div></div>`;
+  if(body.__html===html) return;
+  const ae=document.activeElement, fid=ae&&body.contains(ae)&&ae.id?ae.id:null, sel=fid&&typeof ae.selectionStart==='number'?[ae.selectionStart, ae.selectionEnd]:null;
+  body.innerHTML=html; body.__html=html;
+  if(fid){ const el=$id(fid); if(el){ el.focus(); if(sel && el.setSelectionRange) try{ el.setSelectionRange(sel[0], sel[1]); }catch(_){ } } }
+  fabHubWire(body);
+}
+window.fabHubRender=fabHubRender;
+function fabPDraftFromInputs(){
+  const ps=fabPersonas(), base=ps.find(x=>x.id===FAB.psel); if(!base) return null;
+  const g=id=>{ const e=$id(id); return e?e.value:''; };
+  return Object.assign({}, base, { nome:g('fabPNome'), papel:g('fabPPapel'), desc:g('fabPDesc'), ativa:!!($id('fabPAtiva')||{}).checked });
+}
+function fabPSaveSoon(){
+  const d=fabPDraftFromInputs(); if(!d) return; FAB_HUB.pDraft=d; FAB_HUB.saved='salvando…'; const sv=$id('fabPSaved'); if(sv) sv.textContent='salvando…';
+  clearTimeout(FAB_HUB.saveT);
+  FAB_HUB.saveT=setTimeout(async()=>{ try{ await mesaPersonaSave(d, (typeof state!=='undefined'&&state.repo)||''); if(d.origem==='gerada'){ FAB_HUB.genRepo=''; await fabLoadGen(); } FAB_HUB.saved='salvo ✓'; }catch(e){ FAB_HUB.saved='não salvou'; showErr(e,'Não consegui salvar a persona'); }
+    FAB_HUB.pDraft=null; const s2=$id('fabPSaved'); if(s2) s2.textContent=FAB_HUB.saved; const it=document.querySelector(`[data-fpsel="${CSS.escape(d.id)}"] b`); if(it) it.textContent=d.nome; }, 450);
+}
+function fabOpenSess(key){
+  const i=key.indexOf(':'), k=key.slice(0,i), id=key.slice(i+1), r=(FAB.sess||[]).find(x=>x.k===k && x.id===id); if(!r) return;
+  if(r.bad){ if(k==='m' && typeof mesaCorrupt==='function'){ MESA.repo=r.repo; mesaCorrupt(r.id); } else toast('O arquivo desta sessão está ilegível — foi editado fora do app.','warn'); return; }
+  if(k==='i' && typeof ideiaOpenTab==='function') return ideiaOpenTab(id);
+  if(k==='m' && typeof mesaOpenAt==='function') return mesaOpenAt(r.repo, id);
+  if(k==='p' && typeof pilotoRunOpen==='function') return pilotoRunOpen(id);
+  if(k==='v') fabCall()('fabrica_read',{ id }).then(s=>fabOpenVarredura(s.mode==='feature'?'feature':'app', s)).catch(e=>showErr(e,'Não consegui abrir a varredura'));
+}
+function fabSessMore(anchor, key){
+  const i=key.indexOf(':'), k=key.slice(0,i), id=key.slice(i+1), r=(FAB.sess||[]).find(x=>x.k===k && x.id===id); if(!r||typeof g2SheetMenu!=='function') return;
+  const items=[{ label:'Abrir', fn:()=>fabOpenSess(key) }];
+  if(r.repo) items.push({ label:'Abrir pasta do projeto', hint:String(r.repo).replace(/^\/Users\/[^/]+/,'~'), fn:()=>invoke('open_folder',{ path:r.repo }).catch(e=>showErr(e,'Não consegui abrir a pasta')) });
+  if(k==='m') items.push({ label:'Apagar a mesa', danger:true, fn:()=>g2SheetConfirm(anchor, { title:'Apagar esta mesa?', sub:'não dá pra desfazer (a não ser pelo git)', ok:'Apagar', danger:true, onOk:async()=>{ try{ await invoke('mesa_delete',{ repo:r.repo, id }); toast('Mesa apagada.','ok'); }catch(e){ showErr(e,'Não consegui apagar a mesa'); } fabLoadSessions(); } }) });
+  g2SheetMenu(anchor, items);
+}
+function fabHubWire(body){
+  body.querySelectorAll('[data-fview]').forEach(b=>b.onclick=()=>{ FAB.view=b.dataset.fview; fabHubRender(); if(FAB.view==='sessoes') fabLoadSessions(); });
+  { const nav=body.querySelector('.g2snav'); if(nav) nav.onkeydown=e=>{ if(e.key!=='ArrowDown'&&e.key!=='ArrowUp') return; e.preventDefault(); const o=['nova','sessoes','personas'], i=o.indexOf(FAB.view); FAB.view=o[(i+(e.key==='ArrowDown'?1:2))%3]; fabHubRender(); const on=body.querySelector('.g2snav .on'); if(on) on.focus(); }; }
+  body.querySelectorAll('[data-fhmode]').forEach(b=>b.onclick=()=>{ FAB.mode=b.dataset.fhmode; fabHubRender(); });
+  body.querySelectorAll('[data-fplat]').forEach(b=>b.onclick=()=>{ FAB_HUB.plat=b.dataset.fplat; fabHubRender(); });
+  bindClick('fabNewSess', ()=>{ FAB.view='nova'; fabHubRender(); });
+  bindClick('fabPhraseGo', ()=>{ fabHubCapture(); const t=FAB_HUB.phrase.trim(); if(t.length<8){ toast('Descreva o app numa frase (ex.: "recriar o jogo Pou pra web").','warn'); const i=$id('fabPhrase'); if(i) i.focus(); return; }
+    if(typeof pilotoOpenWith==='function') pilotoOpenWith({ idea:t, platform:FAB_HUB.plat, name:'', end:'auto' }); FAB_HUB.phrase=''; });
+  bindClick('fabToProj', ()=>{ if(window.openTab) window.openTab('projetos'); });
+  bindClick('fabIdeia', ()=>{ if(typeof ideiaNew==='function') ideiaNew(FAB_HUB.phrase||''); });
+  bindClick('fabVarApp', ()=>fabOpenVarredura('app'));
+  bindClick('fabVarFeat', ()=>fabOpenVarredura('feature'));
+  bindClick('fabToNova', ()=>{ if(window.openTab) window.openTab('planner'); });
+  body.querySelectorAll('[data-fpick]').forEach(b=>b.onclick=()=>{ const id=b.dataset.fpick; if(FAB_HUB.pick.has(id)) FAB_HUB.pick.delete(id); else FAB_HUB.pick.add(id); fabHubRender(); });
+  { const h=$id('fabMesaIa'); if(h && typeof iaPick==='function'){ const chat=typeof aiEngineOf==='function'?aiEngineOf(aiDefaults().eng):'claude'; const eng=chat==='mock'?'claude':chat;
+      const prev=FAB_HUB.mesaIa?FAB_HUB.mesaIa.get():{ engine:eng, model:eng==='claude'?(aiClaudeModel()||''):'' };
+      FAB_HUB.mesaIa=iaPick(h, { value:prev, scope:'mesa', engines:[eng], allowDefault:false, title:'a mesa roda na IA dos chats; aqui você escolhe o modelo', onChange:()=>fabHubRender() }); } }
+  bindClick('fabMesaGo', async()=>{ fabHubCapture(); const ia=FAB_HUB.mesaIa?FAB_HUB.mesaIa.get():{ engine:'claude', model:'' }; const cap=parseFloat(String(FAB_HUB.cap||($id('fabMesaCap')||{}).value||'').replace(/\./g,'').replace(',','.'));
+    if(typeof mesaStartWith==='function' && await mesaStartWith({ repo:state.repo, tema:FAB_HUB.tema, ids:[...FAB_HUB.pick], gen:FAB_HUB.gen, engine:ia.engine, model:ia.engine==='claude'?(ia.model||null):null, capUsd:cap })){ FAB_HUB.tema=''; } });
+  bindClick('fabSessRetry', ()=>{ FAB.sess=null; FAB.sessErr=''; fabHubRender(); fabLoadSessions(); });
+  body.querySelectorAll('[data-fsf]').forEach(b=>b.onclick=()=>{ FAB.sf.k=b.dataset.fsf; fabHubRender(); });
+  { const s=$id('fabSessProj'); if(s) s.onchange=()=>{ FAB.sf.proj=s.value; fabHubRender(); }; }
+  { const q=$id('fabSessQ'); if(q) q.oninput=()=>{ FAB.sf.q=q.value; fabHubRender(); }; }
+  body.querySelectorAll('[data-fsessmore]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); fabSessMore(b, b.dataset.fsessmore); });
+  body.querySelectorAll('[data-fsess]').forEach(r=>{ r.onclick=e=>{ if(e.target.closest('[data-fsessmore]')) return; fabOpenSess(r.dataset.fsess); }; r.onkeydown=e=>{ if(e.key==='Enter' && e.target===r){ e.preventDefault(); fabOpenSess(r.dataset.fsess); } }; });
+  body.querySelectorAll('[data-fpsel]').forEach(b=>b.onclick=()=>{ FAB.psel=b.dataset.fpsel; FAB_HUB.pDraft=null; FAB_HUB.saved=''; fabHubRender(); });
+  ['fabPNome','fabPPapel','fabPDesc'].forEach(id=>{ const e=$id(id); if(e) e.oninput=fabPSaveSoon; });
+  { const a=$id('fabPAtiva'); if(a) a.onchange=fabPSaveSoon; }
+  bindClick('fabPNew', ()=>{ if(typeof mesaPersonaNew!=='function') return; FAB.psel=mesaPersonaNew(); FAB_HUB.saved=''; fabHubRender(); const n=$id('fabPNome'); if(n){ n.focus(); n.select(); } });
+  bindClick('fabPDel', ev=>{ const p=fabPersonas().find(x=>x.id===FAB.psel); if(!p) return; g2SheetConfirm(ev.currentTarget, { title:'Remover '+p.nome+'?', sub:'as mesas e ideias que já rodaram não mudam', ok:'Remover', danger:true, onOk:async()=>{ try{ await mesaPersonaRemove(p, state.repo); if(p.origem==='gerada'){ FAB_HUB.genRepo=''; await fabLoadGen(); } FAB.psel=null; fabHubRender(); }catch(e){ showErr(e,'Não consegui remover'); } } }); });
+  bindClick('fabGenP', async()=>{ if(typeof mesaGenerate!=='function' || !state.repo) return; MESA.repo=state.repo; const b=$id('fabGenP'); if(b){ b.disabled=true; b.textContent='gerando personas…'; } const ok=await mesaGenerate(); FAB_HUB.genRepo=''; await fabLoadGen(); if(!ok) fabHubRender(); });
+}

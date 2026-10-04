@@ -30,29 +30,42 @@ const ctx = {
 ctx.escA = (s) => ctx.esc(s).replace(/"/g, '&quot;');
 vm.createContext(ctx);
 vm.runInContext([read('00-util.js'), read('14-nova-demanda-inicio.js'), read('15-config-abas-onboarding.js'), read('29-ia-picker.js'), read('32-planner.js')].join('\n;\n')
-  + '\n;globalThis.__nd={ ND_TYPES, ND_TO_MODE, ndKindCreate, ndSplitCarry, ndTakeCarry, ndTakeCarryAll, plKindTag, openTab, tabs:()=>TABS, setCarry:(t,x)=>{ ndCarryText=t; ndCarryExtra=x||null; }, ndExamples, ndGuessType, ndLegacy, ndProjectIsSoftware, plPreviewHtml, plHumanModel, plScopeLabel, ndMethodSeg };', ctx);
+  + '\n;globalThis.__nd={ ND_TYPES, ND_TO_MODE, ndKindCreate, ndSplitCarry, ndTakeCarry, ndTakeCarryAll, plKindTag, openTab, tabs:()=>TABS, setCarry:(t,x)=>{ ndCarryText=t; ndCarryExtra=x||null; }, ndExamples, ndGuessType, ndLegacy, ndProjectIsSoftware, plPreviewHtml, plHumanModel, plScopeLabel, ndMethodSeg, plForecastLine, plPlanToOrq, ndPadroesHtml };', ctx);
 const N = ctx.__nd;
 const text = (html) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
-test('prévia: linguagem de gente, sem nome técnico de modelo nem glob', () => {
+test('prévia: 3 itens em linguagem de gente (Entrega · Mexe em · IA), sem nome técnico de modelo nem glob', () => {
   const h = N.plPreviewHtml({ kind: 'fix', engine: 'claude', model: 'claude-sonnet-5', owns: ['src/pagamento/**', 'src/checkout/'], tasks: 1, costLo: 0.4, costHi: 0.8, rate: 5.5 });
   const t = text(h);
-  assert.match(t, /Tipo: correção/);
+  assert.match(t, /Entrega: PR pra revisar/);
   assert.match(t, /IA: equilibrada/);
   assert.match(t, /Mexe em: 2 pastas/);
-  assert.match(t, /Custo: ~R\$ 3/);
-  assert.match(t, /Vira: 1 tarefa/);
+  assert.doesNotMatch(t, /Tipo:|Vira:|Custo:/, 'F4: tipo e IA no composer, custo na linha "Previsão", "Vira" virou o seletor Resultado');
   assert.doesNotMatch(h, /claude-sonnet-5|src\/pagamento|\*\*/, 'nome técnico só no popover');
-  // cada item é clicável (troca na hora)
-  for (const k of ['tipo', 'entrega', 'modo', 'ia', 'escopo', 'custo']) assert.match(h, new RegExp(`<button[^>]*data-prev="${k}"`));
+  for (const k of ['entrega', 'escopo', 'ia']) assert.match(h, new RegExp(`<button[^>]*data-prev="${k}"`));
+  assert.equal((h.match(/data-prev=/g) || []).length, 3);
 });
 
-test('prévia: tipo automático usa o palpite e avisa que é automático', () => {
+test('prévia: tipo automático usa o palpite (investigação só escreve documento)', () => {
   const t = text(N.plPreviewHtml({ kind: '', guess: 'invest', engine: 'claude', model: 'opus', owns: [], tasks: 3 }));
-  assert.match(t, /Tipo: investigação automático/);
   assert.match(t, /IA: caprichada/);
-  assert.match(t, /Mexe em: só os documentos/, 'investigação só escreve documento');
-  assert.match(t, /Vira: épico · 3 tarefas/);
+  assert.match(t, /Mexe em: só os documentos/);
+  assert.match(t, /Entrega: relatório com a causa/);
+});
+
+test('previsão em UMA linha: tempo, faixa em US$ (≈ R$), calibração e teto', () => {
+  const l = N.plForecastLine({ costLo: 0.4, costHi: 0.9 }, { total: { minLo: 6, minHi: 12 }, n: 15 }, 3);
+  assert.match(l, /^6–12 min · ~US\$ /);
+  assert.match(l, /calibrado com 15 tarefas suas · teto US\$ 3,00$/);
+  assert.match(N.plForecastLine({ costHi: 0 }, null, 0), /sem estimativa ainda/);
+});
+
+test('épico proposto → etapas LOCAIS do orquestrador (motores separados, mesma palavra "etapas")', () => {
+  const op = N.plPlanToOrq({ epic: 'Alertas', outcome: 'avisar', tasks: [{ idx: 0, title: 'A', objective: 'a', requirements: ['r1'], verify: 'v', after: [], on: true }, { idx: 1, title: 'B', after: [0], risk: 'high', on: true }, { idx: 2, title: 'C', after: [0], on: false }] }, 'pedido', '/r', 1000);
+  assert.equal(op.status, 'planned');
+  assert.equal(op.repo, '/r');
+  assert.deepEqual(JSON.parse(JSON.stringify(op.phases.map((p) => [p.key, p.dependsOn, p.autonomy]))), [['n1', [], 'free'], ['n2', ['n1'], 'ask']]);
+  assert.deepEqual(JSON.parse(JSON.stringify(op.phases[0].objectives)), ['r1', 'prova: v']);
 });
 
 test('prévia: tipos que não entregam código não falam de PR nem de branch', () => {
@@ -101,13 +114,21 @@ test('exemplos: 4 a 6, com pelo menos 2 que não são software, e ordem pelo tip
   assert.equal(N.ndProjectIsSoftware('loja'), true);
 });
 
-test('seletor de modo pequeno: Conversar · Formulário · Dividir · Piloto automático · Ideia', () => {
+test('UMA porta, 2 modos: Conversar | Formulário (Dividir virou resultado; Piloto e Ideia foram pra Fábrica)', () => {
   const h = N.ndMethodSeg('chat');
-  assert.equal(text(h), 'Conversar Formulário Dividir Piloto automático Ideia');
-  assert.match(h, /data-ndseg="ideia"[^>]*>Ideia</);
-  assert.match(N.ndMethodSeg('auto'), /class="on"[^>]*data-ndseg="piloto"/);
-  assert.match(h, /ndseg-sm/);
+  assert.equal(text(h), 'Conversar Formulário');
+  assert.doesNotMatch(h, /data-ndseg="(orq|piloto|ideia)"/);
   assert.match(h, /class="on"[^>]*data-ndseg="planner"/);
+  assert.match(N.ndMethodSeg('form'), /class="on"[^>]*data-ndseg="form"/);
+  assert.doesNotMatch(N.ndMethodSeg('orq'), /class="on"/, 'o resultado "várias em etapas" não é modo');
+});
+
+test('"Padrões que valem aqui": política e guia inline, só leitura, quem muda', () => {
+  const h = N.ndPadroesHtml({ minRequirements: 2, proofRequired: true, testsRequired: false, costWarn: 5, specGuide: '# G\n\n- Requisito no formato Dado/quando/então.\n- Tela nova: prova em 1440 e 390 px.\n', guideFrom: 'repo' }, 'x', false);
+  assert.match(text(h), /Padrões que valem aqui · mín\. 2 requisitos · prints obrigatórios · aviso de custo a partir de US\$ 5 · guia: este repositório/);
+  assert.match(h, /class="g2std-b" hidden/, 'recolhido por padrão');
+  assert.match(text(h), /Requisito no formato Dado\/quando\/então\./);
+  assert.match(text(h), /Regras da organização\. Aqui é só leitura/);
 });
 
 test('flag legada nd:legacy liga a tela antiga de 2 passos', () => {
@@ -116,13 +137,6 @@ test('flag legada nd:legacy liga a tela antiga de 2 passos', () => {
   assert.equal(N.ndLegacy(), true);
   ctx.localStorage.removeItem('nd:legacy');
   assert.equal(N.ndLegacy(), false);
-});
-
-test('prévia: épico com tudo desmarcado e custo desconhecido', () => {
-  const h = N.plPreviewHtml({ kind: 'build', engine: 'claude', model: '', tasks: 0 });
-  assert.match(text(h), /Vira: nenhuma tarefa marcada/);
-  assert.match(text(h), /Custo: —/, 'o item de custo (e o teto no popover) aparece sempre');
-  assert.match(h, /data-prev="custo"/);
 });
 
 test('palpite de tipo: revisão (com acento) e design', () => {

@@ -43,7 +43,7 @@ function plRenderRefs(){
 }
 // anexos do planner: composer único; o que entra também vira ref da tarefa criada
 function plWireComposer(){ chatComposer({ input:'plInput', attach:'plAttach', pend:()=>plPend, taskId:()=>null, rerender:renderPlanner, afterAdd:atts=>{ atts.forEach(a=>{ if(!plRefs.includes(a.path)) plRefs.push(a.path); }); plRenderRefs(); },
-  onSend:()=>plSend($id('plInput').value), send:'plSend', stop:{ btn:'plStop', busy:()=>plBusy, fn:plStop }, modelPill:plModelPill() });
+  onSend:()=>plSend($id('plInput').value), send:'plSend', stop:{ btn:'plStop', busy:()=>plBusy, fn:plStop } }); // a IA mora no seletor único (plCtl)
   if(plBusy) plActsPaint(); } // a dica ao vivo (tempo + ação atual) é do plActsPaint — nada de texto congelado no wire
 function plVal(k){ if(k==='engine'&&plFields.engineLabel) return plFields.engineLabel; if(k==='id') return plFields.title?agSlug(plFields.title):''; const v=plFields[k]; return Array.isArray(v)?v:(v||''); }
 function plHas(k){ if(k==='artifacts') return plFields.artifacts!==null && plFields.artifacts!==undefined; const v=plVal(k); return Array.isArray(v)?v.length>0:!!String(v).trim(); }
@@ -75,7 +75,7 @@ async function openPlanner(){
     if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){
       plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=plPlanRestore(d.plan); plNoEpic=!!d.noEpic;
       plMsgs.forEach(m=>{ if(m && m.kind==='model' && !m.choice) m.hidden=true; }); // rascunho antigo: o "Com qual IA?" agora mora na prévia
-      plMsgs.unshift({who:'sys', text:'↺ Rascunho recuperado — continue de onde parou (ou "novo" no topo pra começar do zero).'});
+      plMsgs.unshift({who:'sys', text:'↺ Rascunho recuperado — continue de onde parou (ou ⋯ › Recomeçar do zero).'});
       try{ const inp=$id('plInput'); if(inp && d.input) inp.value=d.input; }catch(_){}
     }
   }catch(_){} }
@@ -83,6 +83,8 @@ async function openPlanner(){
   { const txt=window.ndTakeCarry?window.ndTakeCarry():''; const inp=$id('plInput'); if(txt && inp && !inp.value.trim()) inp.value=txt; }
   { const k=window.ndTakeCarryKind?window.ndTakeCarryKind():''; if(k) plFields.kind=k; } // veio do Formulário com um tipo escolhido
   renderPlanner(); plRenderRefs();
+  // "Padrões que valem aqui" lê a MESMA política do Formulário (repo > organização > padrão)
+  if(typeof policyChain==='function') policyChain().then(p=>{ if(typeof ntPolicy!=='undefined'){ ntPolicy=Object.assign({}, ntPolicy, p); if(plIsEmpty()) renderPlanner(); } }).catch(()=>{});
   { const th=$id('plThread'); if(plQuiet && th && th.querySelector(':scope>.ld-sk')) ldPaint(th, ''); } // render pulado: sem esqueleto órfão
   const i=$id('plInput'); if(i){ i.focus(); try{ i.setSelectionRange(i.value.length, i.value.length); }catch(_){} }
   plOpenDone=seq;
@@ -109,9 +111,9 @@ function plStartWith(text, opts){
   setTimeout(go,60);
 }
 window.plStartWith=plStartWith;
-async function plNew(){
-  // R8: "+ novo" apagava a conversa inteira (e o épico proposto) num clique só
-  if((plMsgs.some(m=>m.who==='you') || plPlan) && !await askYes('Começar uma demanda nova do zero?\n\nA conversa e o resumo desta aba são descartados.')) return;
+async function plNew(confirmed){
+  // R8: "recomeçar" apagava a conversa inteira (e o épico proposto) num clique só → confirma (folha ancorada no ⋯)
+  if(!confirmed && (plMsgs.some(m=>m.who==='you') || plPlan)){ const a=$id('plMore'); if(a && typeof g2SheetConfirm==='function'){ g2SheetConfirm(a, { title:'Recomeçar do zero?', sub:'a conversa e o resumo desta aba são descartados', ok:'Recomeçar', danger:true, onOk:()=>plNew(true) }); return; } if(!await askYes('Começar uma demanda nova do zero?\n\nA conversa e o resumo desta aba são descartados.')) return; }
   if(plBusy) await plStop();
   await plClearDraft();
   plReset(); ndPopClose&&ndPopClose();
@@ -152,15 +154,25 @@ const ND_EX_IC={
 function plEmptyHtml(){
   const projs=((window.projectsList&&window.projectsList())||(typeof projList==='function'?projList().map(([path,name])=>({path,name})):[])).filter(p=>p&&p.path);
   const cur=projs.find(p=>p.path===state.repo), name=(cur&&cur.name)||projShort(state.repo||'')||'';
-  const sel=projs.length>1?`<select class="nd-projsel ndproj-sel" id="plProj" title="trocar o projeto onde a demanda vai abrir">${projs.map(p=>`<option value="${escA(p.path)}"${p.path===state.repo?' selected':''}>${esc(p.name||projShort(p.path))}</option>`).join('')}</select>`
-    :`<b class="ndproj-name">${esc(name||'—')}</b>`;
   const ex=ndExamples(ndProjectIsSoftware(name));
   return `<div class="ndempty">
-    <div class="ndproj"><span class="ndproj-ic">${IC_FOLDER}</span><span class="ndproj-l">no projeto</span>${sel}</div>
-    <h1 class="ndempty-h">O que precisa ser feito?</h1>
-    <p class="ndempty-sub">Descreva do seu jeito, em português normal. A IA pergunta só o que faltar e decide se vira uma tarefa ou um épico. Nada roda antes de você aprovar.</p>
+    <h2 class="ndempty-h">O que precisa ser feito?</h2>
+    <p class="ndempty-sub">Descreva do seu jeito. No fim vira <b>1 tarefa</b> ou <b>várias em etapas</b> — a IA propõe, você decide. Nada roda antes de você aprovar.</p>
+    ${typeof ndPadroesHtml==='function'&&typeof ntPolicy!=='undefined'?ndPadroesHtml(ntPolicy, 'plStd', !!ND_STD_OPEN.plStd):''}
+    <div class="g2k">Exemplos <span>— clique pra começar com um deles</span></div>
     <div class="ndexs">${ex.map((e,i)=>`<button type="button" class="ndex" data-ndex="${escA(e.text)}" title="preenche a caixa abaixo — você edita e envia"><span class="ndex-k">${ND_EX_IC[e.k]||''}${esc(ndTypeName(e.k))}</span><span class="ndex-t">${esc(e.title)}</span></button>`).join('')}</div>
+    <p class="g2help">App novo do zero, ideia pra validar ou mesa de opiniões? Isso mora na <button type="button" class="lnk" data-plfab>Fábrica</button> — não aqui.</p>
   </div>`;
+}
+// cabeçalho no padrão de página: título = título da demanda; "em <projeto> ▾" (a demanda cai onde você escolher); modos
+function plHeadPaint(){
+  const t=$id('plTitle'); if(t) t.textContent=(plFields&&plFields.title)||'Nova demanda';
+  const sc=$id('plScope'); if(sc){ const projs=((window.projectsList&&window.projectsList())||(typeof projList==='function'?projList().map(([path,name])=>({path,name})):[])).filter(p=>p&&p.path);
+    const cur=projs.find(p=>p.path===state.repo), name=(cur&&cur.name)||projShort(state.repo||'')||'—';
+    const html=projs.length>1?`em <select class="nd-projsel" id="plProj" aria-label="projeto onde a demanda vai abrir">${projs.map(p=>`<option value="${escA(p.path)}"${p.path===state.repo?' selected':''}>${esc(p.name||projShort(p.path))}</option>`).join('')}</select>`:`em <b>${esc(name)}</b>`;
+    if(sc.__html!==html){ sc.innerHTML=html; sc.__html=html; const ps=$id('plProj'); if(ps) ps.onchange=async()=>{ const p=ps.value, was=state.repo;
+      if(p && p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(e){ ps.value=was||''; showErr(e, 'Não deu pra trocar de projeto'); return; } } sc.__html=''; renderPlanner(); }; } }
+  const sh=$id('plSegHost'); if(sh){ const h=ndMethodSeg('chat'); if(sh.__html!==h){ sh.innerHTML=h; sh.__html=h; } }
 }
 const IC_FOLDER='<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>';
 const IC_CARET='<svg class="ndcaret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4.5 6.5l3.5 3.5 3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -168,9 +180,7 @@ function plWireEmpty(th){
   // o texto do exemplo vai no próprio botão (data-ndex): o que você clica é o que entra na caixa
   th.querySelectorAll('[data-ndex]').forEach(b=>b.onclick=()=>{ const i=$id('plInput'); if(!i) return;
     i.value=b.dataset.ndex; i.dispatchEvent(new Event('input')); i.focus(); try{ i.setSelectionRange(i.value.length, i.value.length); }catch(_){} });
-  const ps=th.querySelector('#plProj'); if(ps) ps.onchange=async()=>{ const p=ps.value, was=state.repo;
-    if(p && p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(e){ ps.value=was||''; showErr(e, 'Não deu pra trocar de projeto'); return; } }
-    renderPlanner(); };
+  th.querySelectorAll('[data-plfab]').forEach(b=>b.onclick=()=>{ if(window.fabOpen) window.fabOpen('nova'); });
 }
 // controles pequenos dentro do composer: "Tipo: Automático ▾" + o modo (Conversar · Formulário · Dividir)
 function plTypeLabel(){ return plFields.kind ? ndTypeName(plFields.kind) : 'Automático'; }
@@ -183,10 +193,16 @@ function plTypePopHtml(){
 function plOpenTypePop(anchor){
   ndPopover(anchor, plTypePopHtml(), p=>p.querySelectorAll('[data-pltype]').forEach(b=>b.onclick=()=>{ plFields.kind=b.dataset.pltype; ndPopClose(); renderPlanner(); plAutoSave(); const i=$id('plInput'); if(i) i.focus(); }));
 }
+let PL_IA=null;
+function plRecommend(){ const k=plEffKind(); return aiRecommend({ mode:(ND_TO_MODE[k]||'build'), title:plFields.title||'', objective:plGuessText(), nReq:(plFields.requirements||[]).length }); }
 function plRenderCtl(){
   const el=$id('plCtl'); if(!el) return;
-  const html=`<button type="button" class="ndchip${plFields.kind?' set':''}" id="plType" aria-haspopup="dialog" title="tipo da demanda (opcional)"><span class="ndchip-l">Tipo:</span> <b>${esc(plTypeLabel())}</b>${IC_CARET}</button>${ndMethodSeg('chat')}`;
-  if(el.__html!==html){ el.innerHTML=html; el.__html=html; }
+  const html=`<span id="plIa"></span><button type="button" class="ndchip${plFields.kind?' set':''}" id="plType" aria-haspopup="dialog" title="tipo da demanda (opcional)"><span class="ndchip-l">Tipo:</span> <b>${esc(plTypeLabel())}</b>${IC_CARET}</button>`;
+  if(el.__html!==html){ el.innerHTML=html; el.__html=html; PL_IA=null; }
+  const host=$id('plIa'); const { eng, model }=plModelNow();
+  if(host && typeof iaPick==='function'){ if(!PL_IA || !host.contains(PL_IA.pill)) PL_IA=iaPick(host, { value:{ engine:eng, model }, scope:'demanda', recommend:plRecommend,
+      onChange:(v)=>{ plFields.engine=v.engine; plFields.model=v.model||''; plFields.engineLabel=aiRunLabel(v.engine, v.model); const m=plModelMsg(); m.choice={ eng:v.engine, model:v.model, saved:false }; renderPlanner(); plAutoSave(); } });
+    else PL_IA.set({ engine:eng, model }); }
   const b=$id('plType'); if(b) b.onclick=()=>plOpenTypePop(b);
 }
 // texto que a IA (e o palpite de tipo) enxerga: o objetivo, senão a 1ª mensagem sua, senão o que está na caixa
@@ -195,7 +211,7 @@ function renderPlanner(){
   if(plQuiet) return; // aplicando resposta noutra aba (plInTab): não pinta a aba que está na tela
   const empty=plIsEmpty();
   // medidor
-  $id('plMeter').innerHTML=plMeterHtml();
+  $id('plMeter').innerHTML=plMeterHtml(); plHeadPaint();
   { const cols=document.querySelector('#plannerOverlay .plcols'); if(cols) cols.classList.toggle('plempty', empty); }
   // chat
   const th=$id('plThread');
@@ -210,7 +226,7 @@ function renderPlanner(){
   { const i=$id('plInput'); if(i) i.placeholder=empty?'Descreva o que precisa ser feito… (/ referencia uma tarefa já feita)':'responda aqui… (/ referencia uma tarefa já feita)'; }
   // um CTA primário por tela: com plano/tarefa pronta, o "enviar" vira secundário
   { const snd=$id('plSend'); if(snd) snd.classList.toggle('primary', !(plPlan||plReady())); }
-  stick(th);
+  stick(th); if(empty) th.scrollTop=0; // estado vazio começa do topo (o título não some)
   // chips
   const chipsEl=$id('plChips');
   chipsEl.innerHTML=(plChips||[]).map((c,i)=>`<button class="plchip" data-chip="${i}">${esc(c)}</button>`).join('');
@@ -234,13 +250,14 @@ function renderPlanner(){
     human.map(fieldHtml).join('')+
     `<details class="pltech" id="plRaw"${plRawOpen?' open':''}><summary><svg class="pltech-car" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4.5l3.5 3.5L6 11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="pltech-t">Detalhes técnicos</span><span class="pltech-d">identificador, pastas, arquivo da tarefa</span></summary>`+
       `<div class="pltech-b">${tech.map(fieldHtml).join('')}<div class="pltech-yh">o arquivo que o agente recebe <span class="mono">TASK.yaml</span></div><pre class="mono">${esc(plYaml())}</pre></div></details>`+
-    `<div class="plmeshfoot">${plPlan?'':(typeof estPlannerHtml==='function'?estPlannerHtml():'')+plPreviewHtml(plPreviewFields())+`<button class="btn${createPrimary?' primary':''}" id="plCreate"${plReady()&&!plBusy?'':' disabled'}>${IC.cright} criar e rodar</button>`}<div class="dim plcreatehint">${plCreateHint()}</div></div>`; // com épico proposto, o único CTA é o "Aprovar" do card (antes o "criar e rodar" criava UMA tarefa ignorando o épico)
+    `<div class="plmeshfoot">${plResultHtml()}${plPlan?'':plForecastHtml(plPreviewFields())+plPreviewHtml(plPreviewFields())+`<div class="g2row plcreaterow"><span class="g2help plcreatehint">${esc(plCreateHint())}</span><button class="btn${createPrimary?' primary':''}" id="plCreate"${plReady()&&!plBusy?'':' disabled'}>Criar e rodar ${IC.arrow||''}</button></div>`}${plPlan?`<div class="dim plcreatehint">${plCreateHint()}</div>`:''}</div>`; // com épico proposto, o único CTA é o "Aprovar" do card (antes o "criar e rodar" criava UMA tarefa ignorando o épico)
   mesh.querySelectorAll('[data-plart]').forEach(b=>b.onclick=()=>{ const k=b.dataset.plart; if(!plFields.artifacts) plFields.artifacts={doc:false,proof:false,tests:false}; plFields.artifacts[k]=!plFields.artifacts[k]; renderPlanner(); plAutoSave(); });
   // R8: listas do resumo crescem com o conteúdo (antes o 3º requisito ficava cortado numa caixa de 2 linhas)
   mesh.querySelectorAll('textarea.plfv').forEach(t=>{ chatGrow(t); t.addEventListener('input',()=>chatGrow(t)); });
   mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); if(typeof estSchedule==='function') estSchedule(); }));
   bindClick('plCreate', plCreate);
-  if(!plPlan && typeof estSchedule==='function'){ estPaint(); estSchedule(); } // previsão: recalcula com debounce (cache pelo conteúdo)
+  if(!plPlan && typeof estSchedule==='function'){ estSchedule(); } // previsão: recalcula com debounce (cache pelo conteúdo) — a linha de previsão relê estLast
+  plWireResult(mesh);
   if(!plPlan) plWirePreview(mesh.querySelector('.plmeshfoot'));
   { const d=$id('plRaw'); if(d) d.ontoggle=()=>{ plRawOpen=d.open; }; }
   if(keep){ const i=$id('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
@@ -264,22 +281,58 @@ function plScopeLabel(owns){
   const pl=(n,a,b)=>n+' '+(n===1?a:b); return [dirs?pl(dirs,'pasta','pastas'):'', files?pl(files,'arquivo','arquivos'):''].filter(Boolean).join(' e ');
 }
 function plCostHuman(lo, hi, rate){ if(!(hi>0)) return '—'; const mid=(lo+hi)/2*(rate>0?rate:5.5); return '~R$ '+Math.max(1, Math.round(mid)); }
-// PURA: f = { kind, guess, engine, model, owns:[], tasks (0 = épico sem tarefa marcada), costLo, costHi, rate } → HTML.
-// Descreve o que o plCreate/plCreateEpic VÃO criar (ndKindCreate: entrega, PR ou não, onde mexe). Testada em app/tests/nova-demanda.test.mjs
+// PURA: f = { kind, guess, engine, model, owns:[], tasks, costLo, costHi, rate } → HTML. F4: a prévia de 6 chips virou 3
+// (Entrega · Mexe em · IA); Tipo e IA também ficam no composer; o custo foi pra linha "Previsão"; "Vira" virou o seletor
+// Resultado. Descreve o que o plCreate/plCreateEpic VÃO criar (ndKindCreate). Testada em app/tests/nova-demanda.test.mjs
 function plPreviewHtml(f){
-  f=f||{}; const k=f.kind||f.guess||'build', auto=!f.kind;
-  const tipo=(ndTypeName(k)||'Feature').toLowerCase();
-  const item=(key,label,val,extra)=>`<button type="button" class="ndprev-i" data-prev="${key}" aria-haspopup="dialog">${label}: <b>${esc(val)}</b>${extra||''}</button>`;
-  const cr=ndKindCreate(k), nT=f.tasks==null?1:Math.max(0, +f.tasks||0);
-  const parts=[
-    item('tipo','Tipo', tipo, auto?'<i>automático</i>':''),
-    item('entrega','Entrega', cr.delivery),
-    item('modo','Vira', nT===0?'nenhuma tarefa marcada':nT>1?'épico · '+nT+' tarefas':'1 tarefa'),
-    item('ia','IA', plHumanModel(f.engine, f.model)),
-    item('escopo','Mexe em', cr.owns?'só os documentos (sem código)':plScopeLabel(f.owns)),
-    item('custo','Custo', plCostHuman(+f.costLo||0, +f.costHi||0, +f.rate||0)), // sempre: o teto por tarefa mora no popover
-  ];
-  return `<div class="ndprev" role="group" aria-label="o que a IA escolheu — clique pra trocar">${parts.join('<span class="ndprev-sep" aria-hidden="true">·</span>')}</div>`;
+  f=f||{}; const k=f.kind||f.guess||'build';
+  const item=(key,label,val)=>`<button type="button" class="ndprev-i g2pchip" data-prev="${key}" aria-haspopup="dialog">${label}: <b>${esc(val)}</b></button>`;
+  const cr=ndKindCreate(k);
+  const parts=[ item('entrega','Entrega', cr.delivery), item('escopo','Mexe em', cr.owns?'só os documentos (sem código)':plScopeLabel(f.owns)), item('ia','IA', plHumanModel(f.engine, f.model)) ];
+  return `<div class="ndprev g2pchips" role="group" aria-label="o que a IA escolheu — clique pra trocar">${parts.join('')}</div>`;
+}
+// PURA: a linha "Previsão" — tempo + US$ (faixa) + calibração + teto; est = estLast do 33-previsao (ou null)
+function plForecastLine(f, est, cap){
+  f=f||{}; const parts=[];
+  if(est && est.total){ const t=est.total, m=x=>x<10?(Math.round(x*10)/10).toString().replace('.',','):String(Math.round(x)); parts.push(`${m(t.minLo)}–${m(t.minHi)} min`); }
+  parts.push(f.costHi>0?(typeof fmtCostRange==='function'?fmtCostRange(f.costLo, f.costHi):`US$ ${f.costLo}–${f.costHi}`):'sem estimativa ainda');
+  if(est) parts.push(est.aiFail?'tamanho médio (IA indisponível)':est.seeded?'sem histórico ainda':`calibrado com ${est.n} tarefa${est.n===1?'':'s'} suas`);
+  if(+cap>0) parts.push('teto US$ '+String((+cap).toFixed(2)).replace('.',','));
+  return parts.join(' · ');
+}
+function plForecastHtml(f){
+  const est=(typeof estLast!=='undefined' && estEnabled!==false)?estLast:null, cap=(typeof ntBudgetPending!=='undefined'&&ntBudgetPending>0)?ntBudgetPending:(typeof costCapDefault==='function'?costCapDefault():0);
+  return `<div class="g2prev" id="plForecast"><b>Previsão</b> ${esc(plForecastLine(f, est, cap))} <button type="button" class="lnk" data-prev="custo">ver detalhes</button></div>`;
+}
+function plForecastPaint(){ const el=$id('plForecast'); if(el && !plPlan){ const h=plForecastHtml(plPreviewFields()); const tmp=document.createElement('div'); tmp.innerHTML=h; el.innerHTML=tmp.firstElementChild.innerHTML; const b=el.querySelector('[data-prev]'); if(b) plWirePreview(el); } }
+// Resultado (D7): "1 tarefa" | "várias em etapas". Com épico proposto na conversa, "várias" já está ligado; sem ele,
+// "várias em etapas" leva a conversa pro planejador de etapas (o orquestrador — mesmo motor de antes)
+function plResultHtml(){
+  const many=!!plPlan, sug=plPlan?plPlan.tasks.filter(t=>t.on).length:1;
+  return `<div class="g2resline"><span class="g2k">Resultado</span><div class="g2seg" role="tablist" aria-label="Resultado"><button type="button" role="tab" data-plres="1" class="${!many?'on':''}" aria-selected="${!many}">1 tarefa</button><button type="button" role="tab" data-plres="n" class="${many?'on':''}" aria-selected="${many}">várias em etapas</button></div><span class="g2help">${many?`a IA propôs ${sug} etapa${sug===1?'':'s'}`:'a IA sugere 1'}</span></div>`;
+}
+function plWireResult(root){
+  if(typeof estPaint==='function' && !estPaint.__pl){ const ep=estPaint; estPaint=function(){ ep.apply(this, arguments); try{ plForecastPaint(); }catch(_){ } }; estPaint.__pl=true; }
+  (root||document).querySelectorAll('[data-plres]').forEach(b=>b.onclick=()=>{
+    const v=b.dataset.plres;
+    if(v==='1'){ if(plPlan){ plPlan=null; plNoEpic=true; plAfterEdit=new Set(); plMsgs.push({who:'sys',text:'Seguimos como 1 tarefa — é só continuar respondendo.'}); renderPlanner(); plAutoSave(); } return; }
+    if(plPlan) return;
+    // leva a conversa (ou o que o resumo já montou) pro planejador de etapas na MESMA aba
+    const txt=[plFields.title, plFields.objective||plGuessText(), (plFields.deliverables||[]).length?'Entregas:\n'+plFields.deliverables.map(x=>'- '+x).join('\n'):'', (plFields.requirements||[]).length?'Requisitos:\n'+plFields.requirements.map(x=>'- '+x).join('\n'):''].filter(Boolean).join('\n\n').trim();
+    if(txt.length<12){ toast('Conte um pouco mais na conversa antes — o planejador de etapas precisa de pelo menos uma frase completa.','warn'); return; }
+    ndCarryText=txt; ndCarryExtra=null; window.__orqAutoPlan=true;
+    if(window.openTab) window.openTab('orq', { replace:true });
+  });
+}
+// PURA: o épico proposto na conversa → plano LOCAL do orquestrador (etapas coordenadas por prova, "aqui neste computador").
+// Os motores continuam separados (veto do Rafa): só o vocabulário e a porta são os mesmos.
+function plPlanToOrq(plan, briefing, repo, now){
+  const on=(plan&&plan.tasks||[]).filter(t=>t.on!==false), key=t=>'n'+(on.indexOf(t)+1), byIdx={}; on.forEach(t=>{ byIdx[t.idx]=t; });
+  const phases=on.map(t=>({ key:key(t), name:String(t.title||'Etapa').slice(0,60), kind:'build', agent:'Construtor', objective:String(t.objective||''),
+    objectives:(t.requirements||[]).concat(t.verify?['prova: '+t.verify]:[]).map(String).filter(Boolean).slice(0,6), autonomy:t.risk==='high'?'ask':'free',
+    dependsOn:(t.after||[]).map(a=>byIdx[a]).filter(Boolean).map(key), taskId:null }));
+  const ts=now||Date.now();
+  return { id:'orq-'+ts.toString(36)+'p', title:String((plan&&plan.epic)||'Plano').slice(0,80), summary:String((plan&&plan.outcome)||''), briefing:String(briefing||''), createdAt:ts, status:'planned', model:'', engine:'claude', phases, repo:repo||'' };
 }
 // a MESMA IA que o plCreate vai usar (motor do plano; modelo escolhido ou o padrão do usuário)
 function plModelNow(){ return { eng:String(plFields.engine||'claude'), model:plFields.model||aiDefaults().model||'' }; }
@@ -315,7 +368,6 @@ function plWirePreview(root){
   root.querySelectorAll('[data-prev]').forEach(b=>b.onclick=()=>{
     const k=b.dataset.prev, f=plPreviewFields();
     if(k==='tipo'||k==='entrega'){ plOpenTypePop(b); return; }
-    if(k==='modo'){ ndPopover(b, `<div class="ndpop-h">Como montar <span>troque na hora — o texto vai junto</span></div><div class="ndpop-p">${f.tasks>1?'A IA propôs um épico com '+f.tasks+' tarefas em paralelo. Desmarque tarefas no card pra enxugar.':'Vira uma tarefa só. Se for grande, a IA propõe um épico com várias tarefas.'}</div>${ndMethodSeg('chat')}`); return; }
     if(k==='ia'){ plOpenModelPop(b); return; }
     if(k==='escopo'){
       const off=(plFields.off||[]);
@@ -323,8 +375,8 @@ function plWirePreview(root){
         p=>{ const t=p.querySelector('[data-prevtech]'); if(t) t.onclick=()=>{ ndPopClose(); plRawOpen=true; renderPlanner(); const d=$id('plRaw'); if(d) d.scrollIntoView({block:'nearest'}); }; });
       return; }
     if(k==='custo'){
-      ndPopover(b, `<div class="ndpop-h">Quanto deve custar</div><div class="ndpop-p">${f.costHi>0?esc(fmtCostRange(f.costLo, f.costHi)):'sem estimativa agora'} · ${f.nAgents} agentes${f.tasks>1?' × '+f.tasks+' tarefas':''} · varia com o tamanho</div>${typeof budgetFieldHtml==='function'?budgetFieldHtml('plBudget'):''}`,
-        ()=>{ if(typeof budgetFieldWire==='function') budgetFieldWire('plBudget'); });
+      ndPopover(b, `<div class="ndpop-h">Previsão em detalhe</div><div class="ndpop-p">${f.costHi>0?esc(fmtCostRange(f.costLo, f.costHi)):'sem estimativa agora'} · ${f.nAgents} agentes${f.tasks>1?' × '+f.tasks+' tarefas':''} · varia com o tamanho</div>${typeof estPlannerHtml==='function'?estPlannerHtml():''}${typeof budgetFieldHtml==='function'?budgetFieldHtml('plBudget'):''}`,
+        ()=>{ if(typeof budgetFieldWire==='function') budgetFieldWire('plBudget'); const d=document.querySelector('#ndPop #plEst details'); if(d) d.open=true; });
     }
   });
 }
@@ -445,8 +497,9 @@ function plPlanCardHtml(bare){
       ${dw.map((d,i)=>`<div class="ppdwrow"><span class="mono">D${i+1}</span><input class="ppedit" data-ppdw="${i}" value="${escA(d)}" placeholder="checagem que uma pessoa roda sem abrir tarefa"${dis}><button type="button" class="ppx" data-ppdwx="${i}" title="remover"${dis}>${IC.x}</button></div>`).join('')}
       <button type="button" class="ppadd" id="ppDwAdd"${dis}>+ checagem</button></div>
     <div class="pplist">${rows}</div>
-    ${noTeam?`<div class="ppwarn">Criar um épico usa o backlog do <b>time</b> — entre na conta e escolha um time (botão Conta, no rodapé da barra lateral) pra aprovar.</div>`:''}
-    <div class="ppfoot">${plPlanCtx.origin?'':plPreviewHtml(plPreviewFields())}<span class="ppfoot-sp"></span><button class="btn sm" id="ppDiscard"${PLP().locked?' disabled':''}>${plPlanCtx.origin?'cancelar':'descartar'}</button><button class="btn primary sm" id="ppApprove"${(noTeam||PLP().locked||(busyHere))?' disabled':''}${busyHere?' title="espere a IA responder — ela pode ajustar o plano"':''}>${PLP().locked?'criando…':'✓ Aprovar e criar'+(n?' · '+n+' tarefa'+(n===1?'':'s'):'')}</button></div>
+    ${plPlanCtx.origin&&noTeam?`<div class="ppwarn">Desdobrar usa o backlog do <b>time</b> — entre na conta e escolha um time pra aprovar.</div>`:''}
+    ${plPlanCtx.origin?'':plWhereHtml(noTeam, n)}
+    <div class="ppfoot">${plPlanCtx.origin?'':plPreviewHtml(plPreviewFields())}<span class="ppfoot-sp"></span><button class="btn sm${plPlanCtx.origin?'':' quiet'}" id="ppDiscard"${PLP().locked?' disabled':''}>${plPlanCtx.origin?'cancelar':'Seguir como 1 tarefa'}</button><button class="btn primary sm" id="ppApprove"${((plPlanCtx.origin?noTeam:(plWhere(noTeam)==='time'&&noTeam))||PLP().locked||(busyHere))?' disabled':''}${busyHere?' title="espere a IA responder — ela pode ajustar o plano"':''}>${PLP().locked?'criando…':plApproveLabel(n, plPlanCtx.origin?'origin':plWhere(noTeam))}</button></div>
   </div>`;
   return bare?inner:`<div class="plmsg bot plmsg-plan"><span class="plav">${IC.starfork}</span>${inner}</div>`; // plmsg-plan: largura toda (sem :has(), que o WebKitGTK não garante)
 }
@@ -481,8 +534,31 @@ function plWirePlanCard(){
   card.querySelectorAll('[data-ppaftere]').forEach(b=>b.onclick=()=>{ plAfterEdit.add(+b.dataset.ppaftere); plPlanRerender(); });
   card.querySelectorAll('[data-ppafterx]').forEach(b=>b.onclick=()=>{ plAfterEdit.delete(+b.dataset.ppafterx); plPlanRerender(); });
   const dc=$id('ppDiscard'); if(dc) dc.onclick=()=>{ if(plPlanCtx.onDiscard){ plPlanCtx.onDiscard(); return; } plPlan=null; plNoEpic=true; plAfterEdit=new Set(); plMsgs.push({who:'sys',text:'Épico descartado — seguimos como tarefa única. É só continuar respondendo.'}); renderPlanner(); plAutoSave(); };
-  const ap=$id('ppApprove'); if(ap) ap.onclick=plCreateEpic;
+  const ap=$id('ppApprove'); if(ap) ap.onclick=()=>{ if(!plPlanCtx.origin && plWhere(!(SB.sess() && cloudTeamId()))==='local') return plApproveLocal(ap); plCreateEpic(); };
+  card.querySelectorAll('[data-plwhere]').forEach(b=>b.onclick=()=>{ if(b.disabled) return; PL_WHERE=b.dataset.plwhere; plPlanRerender(); });
   if(!plPlanCtx.origin) plWirePreview(card.querySelector('.ppfoot'));
+}
+// ONDE RODA (D7): "Aqui neste computador" usa o orquestrador (etapas locais, coordenadas por prova); "No quadro do
+// time" cria o épico na nuvem. Motores separados (veto do Rafa) — mesma palavra "etapas" e mesma porta.
+let PL_WHERE='';
+function plApproveLabel(n, w){ if(w==='origin') return '✓ Aprovar e criar'+(n?' · '+n+' tarefa'+(n===1?'':'s'):''); if(w==='time') return 'Aprovar e criar épico · '+n+(n===1?' cartão':' cartões'); return 'Aprovar e criar '+n+(n===1?' tarefa':' tarefas'); }
+function plWhere(noTeam){ return PL_WHERE==='local'||noTeam ? 'local' : (PL_WHERE||'time'); }
+function plWhereHtml(noTeam, n){
+  const w=plWhere(noTeam), team=(!noTeam&&typeof cloudData!=='undefined'&&cloudData&&cloudData.team&&cloudData.team.name)||'';
+  return `<div class="g2where" role="radiogroup" aria-label="Onde roda"><span class="g2k">Onde roda</span>`+
+    `<button type="button" class="g2wopt${w==='local'?' on':''}" role="radio" aria-checked="${w==='local'}" data-plwhere="local"><b>Aqui neste computador</b><span>cada etapa vira uma tarefa local; a próxima começa quando a anterior provar</span></button>`+
+    `<button type="button" class="g2wopt${w==='time'?' on':''}" role="radio" aria-checked="${w==='time'}" data-plwhere="time"${noTeam?' disabled':''}><b>No quadro do time${team?' · '+esc(team):''}</b><span>${noTeam?'entre na conta e escolha um time pra usar esta opção':`vira épico com ${n} ${n===1?'cartão':'cartões'}; quem pegar roda no computador dele`}</span></button></div>`;
+}
+// aprovar "aqui neste computador": o épico proposto vira plano do orquestrador e abre o grafo pra aprovar e rodar
+async function plApproveLocal(btn){
+  const P=PLP(); if(!P) return;
+  plWaves(P.tasks); plSortWaves(P.tasks);
+  if(!P.tasks.some(t=>t.on)){ toast('Marque pelo menos uma etapa.','warn'); return; }
+  const op=plPlanToOrq(P, [plFields.title, plFields.objective].filter(Boolean).join('\n\n'), state.repo);
+  try{ await invoke('orch_save',{ id:op.id, data:op, repo:op.repo||null }); }catch(e){ showErr(e,'Não consegui guardar o plano'); return; }
+  plPlan=null; plAfterEdit=new Set(); await plClearDraft();
+  if(typeof orqOpenPlan==='function'){ if(window.openTab) window.openTab('orq', { replace:true }); setTimeout(()=>orqOpenPlan(op.id), 80); }
+  toast('Etapas montadas neste computador — confira o grafo e aprove pra rodar.','ok');
 }
 async function plCreateEpic(){
   if(!PLP()) return;
@@ -718,13 +794,18 @@ async function plCreate(){
   catch(e){ showErr(e, 'Falha ao criar'); const b2=$id('plCreate')||b; if(b2){ b2.disabled=false; b2.innerHTML=bHtml||(IC.cright+' criar e rodar'); } }
 }
 $id('plClose').onclick=closePlanner;
-$id('plNew').onclick=plNew;
+$id('plNew').onclick=()=>plNew();
+// ⋯ do cabeçalho: recomeçar do zero (folha confirma) · importar .md (abre o Formulário com o arquivo)
+bindClick('plMore', ev=>{ const a=ev.currentTarget; if(typeof g2SheetMenu!=='function') return;
+  g2SheetMenu(a, [ { label:'Recomeçar do zero', hint:'descarta a conversa e o resumo desta aba', danger:true, disabled:plIsEmpty(), fn:()=>setTimeout(()=>plNew(),0) },
+    { label:'Importar .md', hint:'abre o Formulário com a spec do arquivo', fn:()=>{ window.ntPresetType='build'; if(window.openTab) window.openTab('form', { replace:true }); setTimeout(()=>{ if(typeof importTaskMd==='function') importTaskMd(); }, 300); } } ]); });
 plWireComposer();
 $id('plSend').onclick=()=>plSend($id('plInput').value);
 $id('plInput').addEventListener('input',()=>plAutoSave()); // persiste o texto em digitação (sobrevive a queda antes de enviar)
 $id('plannerOverlay').addEventListener('click',e=>{ if(e.target.id==='plannerOverlay') closePlanner(); });
 // Esc digitando (ou com modal por cima) é do campo — antes fechava a aba no meio da frase
-document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverlay').style.display!=='none'&&!escBusy(e)) closePlanner(); });
+// F4 (D24): Esc NUNCA fecha a aba da Nova demanda (fechava no meio da conversa) — quem fecha é ⌘W
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverlay').style.display!=='none'&&!$id('plannerOverlay').classList.contains('astab')&&!escBusy(e)) closePlanner(); });
 
 // aplica o destino Time (local/self/team) a QUALQUER modo de criação;
 // devolve true quando virou cartão do time (não roda nesta máquina)

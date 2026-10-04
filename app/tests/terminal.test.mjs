@@ -166,10 +166,10 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   assert.match(src('43-espaco-times.js'), /if\(opts\.auto\) payload\.termMode='auto'/);
   assert.match(src('32-planner.js'), /teamClaimStart\(c\.row, null, \{ auto:true \}\)/);
   assert.match(src('46-epico-time.js'), /teamClaimStart\(ct, null, \{ silent:true, auto:true \}\)/);
-  const cfg = src('15-config-abas-onboarding.js');
-  assert.match(cfg, /id="cfgTaskMode"/);
+  const cfg = src('67-ajustes.js'); // F4 · G3: Ajustes › Como as tarefas rodam
+  assert.match(cfg, /data-ajmode="terminal"/);
   assert.match(cfg, /chave de API/);
-  assert.match(cfg, /w\('taskMode'/);
+  assert.match(cfg, /ajSetting\('taskMode'/);
   const html = readFileSync(new URL('../src/index.html', import.meta.url), 'utf8');
   assert.match(html, /vendor\/xterm\/xterm\.js/);
   assert.doesNotMatch(html, /cdn[^"']*xterm/i, 'xterm local, sem CDN');

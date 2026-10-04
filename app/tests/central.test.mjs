@@ -43,8 +43,9 @@ test('taskTs lê createdAt (snapshot local) e created_at (outro projeto/nuvem), 
 });
 
 test('inPeriod: "últimos 7 dias" não esconde mais as tarefas do projeto aberto (createdAt)', () => {
-  const mk = (period) => new Function('taskTs', 'let flowPeriod=' + JSON.stringify(period) + ';\n' + fn(quadro, 'inPeriod') + '\nreturn inPeriod;')(
-    new Function(fn(quadro, 'taskTs') + '\nreturn taskTs;')());
+  const tts = new Function(fn(quadro, 'taskTs') + '\nreturn taskTs;')();
+  const mk = (period) => new Function('taskTs', 'taskDoneTs', 'taskEncerrada', 'let flowPeriod=' + JSON.stringify(period) + ';\n' + fn(quadro, 'inPeriod') + '\nreturn inPeriod;')(
+    tts, tts, (t) => !!t && (t.flag === 'closed' || ['merged', 'done', 'cancelled'].includes(t.status)));
   const now = Date.now();
   const week = mk('week'), today = mk('today'), all = mk('all');
   assert.equal(week({ createdAt: now - 2 * 864e5 }), true, 'tarefa local de 2 dias atrás entra');

@@ -114,7 +114,9 @@ function escBusy(e){
 // Aqui vai direto no comando 'message' com OK/Cancelar (o mesmo que o ask/confirm do plugin usam).
 async function askYes(message, title){
   const inv=window.__TAURI__&&window.__TAURI__.core&&window.__TAURI__.core.invoke;
-  if(!inv) return window.confirm(String(message)); // preview no browser: confirm nativo
+  // F4 · G3: folha ancorada no botão que perguntou (52-erros: sheetAsk) — nada de diálogo nativo destoando do app
+  if(typeof sheetAsk==='function'){ const t=String(message).split('\n\n'); return !!(await sheetAsk({ title:title&&title!=='Starfork'?title:t[0], text:title&&title!=='Starfork'?String(message):t.slice(1).join('\n\n'), ok:'confirmar', danger:/\b(apagar|remover|excluir|revogar|sair|descartar|interromper|limpar|tirar)\b/i.test(String(message)) })); }
+  if(!inv) return window.confirm(String(message)); // preview no browser sem a folha: confirm nativo
   try{ return (await inv('plugin:dialog|message',{ message:String(message), title:title||'Starfork', kind:'warning', buttons:'OkCancel' }))==='Ok'; }
   catch(e){ console.error('askYes:', e); return false; } // na dúvida, NÃO executa
 }
@@ -127,6 +129,7 @@ async function askYes(message, title){
 const STATUS_META={
   draft:        { pt:'rascunho',          short:'rascunho', c:'var(--muted)',     ic:'stQueue' },
   backlog:      { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'stQueue' },
+  requested:    { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'stQueue' },
   queued:       { pt:'na fila',           short:'fila',     c:'var(--muted)',     ic:'stQueue' },
   'plan-review':{ pt:'plano pra aprovar', short:'plano',    c:'var(--st-ask)',    ic:'stAsk' },
   // exceção do ciclo (mesa 03/10): teto a 80%, 3ª rodada de revisão ou veredito ilegível — o motivo vem em spec.needsYou
@@ -212,11 +215,11 @@ function errFirstLine(raw){
 }
 // ações do catálogo: abrem a tela que resolve (nada de "vá em Configurações" sem botão)
 const ERR_ACTIONS={
-  env:     ()=>{ if(window.openTab) window.openTab('env'); },
-  github:  ()=>{ if(window.openTab) window.openTab('env'); },
+  env:     ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('verificacao'); else if(window.openTab) window.openTab('env'); },
+  github:  ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('github'); else if(window.openTab) window.openTab('env'); },
   gitinit: ()=>{ if(typeof gitGate==='function') return gitGate(); },
   publish: ()=>{ if(typeof publishGithub==='function') return publishGithub(); },
-  conta:   ()=>{ if(window.openTab) window.openTab('conta'); },
+  conta:   ()=>{ if(typeof auShow==='function' && typeof SB!=='undefined' && !SB.sess()) auShow('login'); else if(typeof ajustesOpen==='function') ajustesOpen('perfil'); else if(window.openTab) window.openTab('conta'); },
   suaia:   ()=>{ if(window.suaIaOpenCfg) window.suaIaOpenCfg(); else if(window.openTab) window.openTab('cfg'); },
   // wt-gone: abre a conversa da tarefa aberta (mandar uma mensagem recria a cópia) e põe o foco na caixa
   conversa:()=>{ if(typeof fwTask!=='undefined' && fwTask && typeof renderWorkspace==='function'){ fwMode='conversa'; renderWorkspace(); setTimeout(()=>{ if(typeof fwFocusTalk==='function'){ fwFocusTalk(); return; } const i=document.getElementById('fwInput'); if(i) i.focus(); },60); } }, // compositor escondido (terminal integrado): o foco vai pro terminal
@@ -226,22 +229,22 @@ const ERR_ACTIONS={
 const ERR_CATALOG=[
   // antes do gh-auth: a frase orienta com "gh auth switch/login" e casaria lá
   { id:'gh-no-access', re:/^GH_NO_ACCESS:|could not resolve to a repository/i,
-    msg:'A conta logada no GitHub (gh) não tem acesso a este repositório — troque pra conta certa (gh auth switch) ou entre com ela (gh auth login).', act:'github', label:'abrir Ambiente' },
+    msg:'A conta logada no GitHub (gh) não tem acesso a este repositório — troque pra conta certa (gh auth switch) ou entre com ela (gh auth login).', act:'github', label:'abrir GitHub (Ajustes)' },
   // wt-gone ANTES dos *-missing: spawn com a pasta da tarefa apagada também dá ENOENT/os error 2
   { id:'wt-gone', re:/c[óo]pia de trabalho desta tarefa n[ãa]o existe mais|worktree[^\n]{0,200}(os error 2\b|no such file|ENOENT)|(os error 2\b|no such file|ENOENT)[^\n]{0,200}worktree/i,
     msg:'A cópia de trabalho desta tarefa já foi limpa — mande uma mensagem na conversa da tarefa pra retomá-la (ela é recriada).', act:'conversa', label:'abrir a conversa' },
   // IA auxiliar plural (Claude, Codex ou gateway — app/src-tauri/src/ai_once.rs): ANTES do claude-login, que casaria
   // no "invalid api key" entre parênteses e mandaria quem usa Codex/gateway fazer login no Claude
   { id:'ai-none', re:/nenhuma ia dispon[ií]vel/i,
-    msg:'Nenhuma IA disponível neste computador — instale o Claude Code ou o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta).', act:'suaia', label:'escolher a IA (Sua IA)' },
+    msg:'Nenhuma IA disponível neste computador — instale o Claude Code ou o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta).', act:'suaia', label:'escolher a IA' },
   // DeepSeek Harness (beta) — mensagens do motor/auxiliar (src/engine/dsh.ts, ai_once.rs). A da CHAVE antes de tudo
   // que casaria "api key"/"401" (claude-login) — quem usa DeepSeek não precisa de login no Claude
   { id:'dsh-key', re:/falta a chave da deepseek|DEEPSEEK_API_KEY/i,
-    msg:'Falta a chave da DeepSeek (ou ela foi recusada) — adicione/confira a DEEPSEEK_API_KEY em Configurações → Sua IA.', act:'suaia', label:'abrir Sua IA' },
+    msg:'Falta a chave da DeepSeek (ou ela foi recusada) — adicione/confira a DEEPSEEK_API_KEY em Ajustes › IA e modelos.', act:'suaia', label:'abrir IA e modelos' },
   { id:'dsh-missing', re:/deepseek harness \(dsh\) n[aã]o est[aá] instalado|spawn dsh ENOENT|n[aã]o consegui rodar o deepseek harness/i,
-    msg:'O DeepSeek Harness (beta) não está instalado — npm i -g @deepseek-ai/dsh.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
+    msg:'O DeepSeek Harness (beta) não está instalado — npm i -g @deepseek-ai/dsh.', act:'env', label:'ver como instalar (Verificação)' },
   { id:'dsh-node', re:/deepseek harness precisa do node/i,
-    msg:'O DeepSeek Harness precisa do Node 22.19+ ou 24+ — atualize o Node.', act:'env', label:'abrir Ambiente' },
+    msg:'O DeepSeek Harness precisa do Node 22.19+ ou 24+ — atualize o Node.', act:'env', label:'abrir Verificação' },
   { id:'dsh-timeout', re:/o deepseek n[aã]o respondeu a tempo/i,
     msg:'O DeepSeek não respondeu a tempo — tente de novo.' },
   { id:'dsh-quota', re:/o deepseek est[aá] sem saldo/i,
@@ -251,10 +254,10 @@ const ERR_CATALOG=[
   // o motor só diz "não foi encontrado" quando o resolvedor único (bin-resolve.ts ≡ resolve_tool) não achou em LUGAR
   // NENHUM — a mensagem dele traz a lista de onde procurou (ver detalhes)
   { id:'codex-missing', re:/o codex n[aã]o est[aá] instalado|o codex n[aã]o foi encontrado neste computador|n[aã]o consegui rodar o codex|spawn codex ENOENT/i,
-    msg:'O Codex não foi encontrado neste computador (procurei no PATH, nvm, volta, asdf, fnm, npm, Homebrew e no app do ChatGPT).', act:'env', label:'ver como instalar (Mais › Ambiente)' },
+    msg:'O Codex não foi encontrado neste computador (procurei no PATH, nvm, volta, asdf, fnm, npm, Homebrew e no app do ChatGPT).', act:'env', label:'ver como instalar (Verificação)' },
   // achou o binário mas ele não iniciou (shim do npm sem node, sem permissão…)
   { id:'codex-broken', re:/o codex foi encontrado[^\n]{0,300}(mas|precisa do node)|n[aã]o consegui iniciar o codex/i,
-    msg:'O Codex está instalado, mas não consegui iniciá-lo — reinstale com npm i -g @openai/codex e rode de novo.', act:'env', label:'abrir Ambiente' },
+    msg:'O Codex está instalado, mas não consegui iniciá-lo — reinstale com npm i -g @openai/codex e rode de novo.', act:'env', label:'abrir Verificação' },
   { id:'codex-timeout', re:/o codex n[aã]o respondeu a tempo/i,
     msg:'O Codex não respondeu a tempo — tente de novo.' },
   { id:'codex-quota', re:/o codex est[aá] sem cota|o codex bateu o limite de uso/i,
@@ -276,28 +279,28 @@ const ERR_CATALOG=[
   { id:'dsh-empty', re:/o deepseek terminou sem resposta/i,
     msg:'O DeepSeek terminou sem resposta — tente de novo.' },
   { id:'gateway-unreachable', re:/n[aã]o consegui falar com o gateway/i,
-    msg:'Não consegui falar com o gateway da sua empresa — cheque a URL em Configurações → Gateway próprio e a internet/VPN.', act:'env', label:'abrir Ambiente' },
+    msg:'Não consegui falar com o gateway da sua empresa — cheque a URL em Ajustes › IA da sua empresa e a internet/VPN.', act:'suaia', label:'abrir IA e modelos' },
   { id:'gateway-truncated', re:/resposta do gateway foi cortada/i,
     msg:'A resposta do gateway foi cortada (limite de tokens) — peça algo menor ou aumente o limite no gateway.' },
   { id:'gateway-empty', re:/o gateway devolveu uma resposta vazia|o gateway n[aã]o respondeu|sem resposta do gateway/i,
-    msg:'O gateway não devolveu resposta — tente de novo; se continuar, confira o modelo em Configurações → Gateway próprio.', act:'env', label:'abrir Ambiente' },
+    msg:'O gateway não devolveu resposta — tente de novo; se continuar, confira o modelo em Ajustes › IA da sua empresa.', act:'suaia', label:'abrir IA e modelos' },
   // só a falha REAL de autenticação do Codex (a mensagem que o ai_once monta), não qualquer menção a "codex login"
   { id:'codex-login', re:/o codex est[aá] sem login\/chave|o codex n[aã]o est[aá] logado/i,
-    msg:'O Codex está sem login/chave — rode `codex login` num terminal ou configure a chave OpenAI em Configurações → Sua IA.', act:'suaia', label:'abrir Sua IA' },
+    msg:'O Codex está sem login/chave — rode `codex login` num terminal ou configure a chave OpenAI em Ajustes › IA e modelos.', act:'suaia', label:'abrir IA e modelos' },
   { id:'gateway-key', re:/o gateway recusou a chave/i,
-    msg:'O gateway da sua empresa recusou a chave — confira URL, chave e modelo em Configurações → Gateway próprio.', act:'env', label:'abrir Ambiente' },
+    msg:'O gateway da sua empresa recusou a chave — confira URL, chave e modelo em Ajustes › IA da sua empresa.', act:'suaia', label:'abrir IA e modelos' },
   { id:'claude-missing', re:/spawn claude ENOENT|claude:?\s*(command )?not found|command not found: claude\b|n[aã]o (encontrei|achei) o (bin[aá]rio do )?claude|claude (code )?n[aã]o (est[aá] )?instalado|claude[^\n]{0,40}ENOENT|falha ao rodar claude:[^\n]{0,120}(os error 2\b|no such file or directory|program not found|cannot find the file)/i,
-    msg:'O Claude Code não está instalado neste computador.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
+    msg:'O Claude Code não está instalado neste computador.', act:'env', label:'ver como instalar (Verificação)' },
   { id:'claude-login', re:/please run \/login|run \/login|invalid api key|not logged in|n[aã]o est[aá] logado no claude|authentication_error|oauth token (has )?expired|oauth session expired|failed to authenticate|login do claude( code)? expirou|claude auth login|x-api-key/i,
-    msg:'O Claude Code precisa de login (ou o login expirou) — abra um terminal, rode `claude` e digite /login (ou `claude auth login`), depois envie de novo.', act:'env', label:'abrir Ambiente' },
+    msg:'O Claude Code precisa de login (ou o login expirou) — abra um terminal, rode `claude` e digite /login (ou `claude auth login`), depois envie de novo.', act:'env', label:'abrir Verificação' },
   { id:'gh-missing', re:/spawn gh ENOENT|\bgh:?\s*(command )?not found(?!\s*\(HTTP)|command not found: gh\b|gh n[aã]o (est[aá] )?instalado|github cli n[aã]o|(gh indispon[ií]vel|sem resposta do GitHub \(gh\)|^gh):[^\n]{0,120}(os error 2\b|no such file or directory|program not found|cannot find the file)/i,
-    msg:'O GitHub CLI (gh) não está instalado.', act:'env', label:'ver como instalar (Mais › Ambiente)' },
+    msg:'O GitHub CLI (gh) não está instalado.', act:'env', label:'ver como instalar (Verificação)' },
   { id:'git-missing', re:/spawn git ENOENT|\bgit:?\s*(command )?not found(?!\s*\(HTTP)|command not found: git\b|git n[aã]o (est[aá] )?instalado|xcrun: error: invalid active developer path|^git:[^\n]{0,120}(os error 2\b|no such file or directory|program not found|cannot find the file)/i,
-    msg:'O git não está instalado (ou as ferramentas de linha de comando do Mac precisam ser reinstaladas).', act:'env', label:'ver como instalar (Mais › Ambiente)' },
+    msg:'O git não está instalado (ou as ferramentas de linha de comando do Mac precisam ser reinstaladas).', act:'env', label:'ver como instalar (Verificação)' },
   { id:'gh-auth', re:/gh auth login|authentication required|not logged into any github|bad credentials|requires authentication|gh sem login|to get started with github cli/i,
-    msg:'Conecte sua conta do GitHub.', act:'github', label:'abrir Ambiente' },
+    msg:'Conecte sua conta do GitHub.', act:'github', label:'abrir GitHub (Ajustes)' },
   { id:'session', re:/jwt expired|invalid jwt|sess[aã]o expirou|refresh[_ ]token/i,
-    msg:'Sua sessão na nuvem expirou — entre de novo na conta.', act:'conta', label:'abrir Conta' },
+    msg:'Sua sessão na nuvem expirou — entre de novo na conta.', act:'conta', label:'entrar de novo' },
   { id:'not-git', re:/not a git repository|n[aã]o [eé] um reposit[oó]rio git/i,
     msg:'Esta pasta ainda não é um repositório git.', act:'gitinit', label:'criar repositório' },
   { id:'no-remote', re:/'origin' does not appear to be a git repository|no such remote|no configured push destination|does not appear to be a git repository|sem remote|no git remotes? found|none of the git remotes/i,
@@ -308,10 +311,8 @@ const ERR_CATALOG=[
   // nome de branch que colide com outra ("feat" x "feat/login"): "cannot lock ref … exists; cannot create"
   { id:'branch-clash', re:/cannot lock ref[^\n]*(exists; cannot create|is at [0-9a-f]+ but expected)|'refs\/heads\/[^']+' exists; cannot create/i,
     msg:'O nome da branch colide com outra que já existe (ex.: "feat" e "feat/login" não podem coexistir) — escolha outro nome.' },
-  // lock sem permissão (pasta de outro usuário/protegida) não é "espere": vai pra permissão
-  { id:'permission', re:/\.lock'?:?\s*permission denied|unable to create '[^']*\.lock': permission denied/i,
-    msg:'Sem permissão pra essa ação (arquivo protegido ou conta sem acesso ao repositório).' },
-  { id:'git-lock', re:/index\.lock|unable to create '[^']*\.lock'|another git process seems to be running|cannot lock ref/i,
+  // lock sem permissão (pasta de outro usuário/protegida) não é "espere": o git-lock pula e cai no 'permission' (UM id só — antes duplicado)
+  { id:'git-lock', re:/^(?![\s\S]*\.lock'?:?\s*permission denied)[\s\S]*(?:index\.lock|unable to create '[^']*\.lock'|another git process seems to be running|cannot lock ref)/i,
     msg:'Outro comando do git está rodando nesta pasta (ou travou no meio) — espere alguns segundos e tente de novo.' },
   { id:'branch-exists', re:/a branch named .{1,120} already exists|reference already exists|already exists on remote/i,
     msg:'Já existe uma branch com esse nome — escolha outro nome ou use a que já existe.' },
@@ -375,6 +376,7 @@ function humanErr(e, ctx){
 }
 // detalhes do erro cru (recolhido): pra quem quer ver/copiar o que o sistema disse
 function errDetails(h){
+  if(typeof errTabOpen==='function'){ errTabOpen(h); return; } // F4 · G3: aba "Detalhes do erro", não modal
   document.getElementById('errOverlay')?.remove();
   const ov=document.createElement('div'); ov.id='errOverlay';
   ov.style.cssText='position:fixed;inset:0;z-index:10000;background:var(--scrim);display:flex;align-items:center;justify-content:center;padding:16px';
@@ -432,6 +434,49 @@ function fmtCostRange(lo, hi){
   const rs=(lo*rate>=1) ? `${Math.floor(lo*rate)}–${Math.ceil(hi*rate)}` : `${fmtNumBR(lo*rate,true)}–${fmtNumBR(hi*rate,true)}`;
   return `~US$ ${f(lo)}–${f(hi)} (≈ R$ ${rs})`;
 }
+// @helpers-comuns-inicio (F4: G1 cria, G2/G3 consomem — testado em app/tests/redesign-f4-g1.test.mjs)
+// DINHEIRO (D13): US$ é a verdade; totais e cabeçalhos mostram "US$ 1,79 (≈ R$ 9,82)" com a MESMA cotação da barra
+// de status (usdBrlRate ← Ajustes › Custo e limites). Célula de tabela: fmtUsdBr(v,{usdOnly:true}) → "US$ 1,79".
+function fmtUsdBr(usd, opts){ return fmtCost(usd, opts); }
+// "AGUARDANDO VOCÊ" (D14): pergunta pendente + plano pra aprovar + precisa de você + erro, conflito ou interrompida.
+// "Pronta pra revisar" é contada À PARTE e nunca entra nesta soma. Lateral, Central, barra de status, Projetos,
+// notificações e Time contam por AQUI (o flowBucket do 22 usa o mesmo predicado). `pend(t)` = tem pergunta aberta.
+const AGUARDA_ST=['plan-review','needs-you','error','conflict','aborted'];
+function taskEncerrada(t){ return !!t && (t.flag==='closed' || ['merged','done','cancelled'].includes(t.status)); }
+function taskAguardaVoce(t, pend){
+  if(!t || t.status==='draft' || taskEncerrada(t)) return false;
+  const p = pend || (typeof pendingOf==='function' ? (x=>pendingOf(x.id).length>0) : (()=>false));
+  return !!p(t) || AGUARDA_ST.includes(t.status);
+}
+function taskProntaRevisar(t, pend){ return !!t && !taskEncerrada(t) && !t.prUrl && ['review','delivered'].includes(t.status) && !taskAguardaVoce(t, pend); }
+// tarefas VIVAS por padrão (sem encerradas; bloqueadas escondidas = mesma visibilidade da Central)
+function aguardaSrc(tasks){ if(tasks) return tasks; try{ return flowLiveTasks(); }catch(_){ return (typeof state!=='undefined'&&state.tasks)||[]; } }
+function aguardandoVoceCount(tasks, pend){ return aguardaSrc(tasks).filter(t=>taskAguardaVoce(t, pend)).length; }
+function prontasRevisarCount(tasks, pend){ return aguardaSrc(tasks).filter(t=>taskProntaRevisar(t, pend)).length; }
+// PADRÃO DE PÁGINA (D25, mesa-ia §6): UM cabeçalho pra toda aba que não é Tarefa. Título (= título da aba) · selo de
+// escopo ("pra quem vale") · resumo de 1 linha · no máximo 1 ação primária · ⋯ · subtítulo de 1 linha · abas/visões.
+// Sem X nem "fechar esc" (⌘W fecha a aba). `scope`: 'projeto'|'computador'|'conta'|'org'|'time' + `scopeLabel`,
+// ou texto livre. `sum`/`right`/`tabs` são HTML (já escapado por quem chama); `title`/`sub`/rótulos são texto.
+const PH_SCOPE={ projeto:['folder','Este projeto'], computador:['pc','Este computador'], conta:['user','Sua conta'], org:['team','Organização'], time:['team','Time'] };
+function pageHead(o){
+  o=o||{}; const E=(typeof escA==='function')?escA:(s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'));
+  const icn=(k)=>(typeof IC!=='undefined'&&IC[k])||'';
+  const sc=o.scope ? (PH_SCOPE[o.scope]||[o.scopeIcon||'folder', o.scope]) : null;
+  const scLabel=sc ? (o.scopeLabel ? (PH_SCOPE[o.scope] ? sc[1]+' · '+o.scopeLabel : o.scopeLabel) : sc[1]) : '';
+  const p=o.primary;
+  const prim=p ? `<button class="btn primary pgh-primary"${p.id?` id="${E(p.id)}"`:''}${p.title?` title="${E(p.title)}"`:''} ${p.attrs||''}>${p.icon?icn(p.icon):''}${E(p.label)}</button>` : '';
+  const m=o.more; const more=m ? `<button class="btn icon quiet pgh-more"${m.id?` id="${E(m.id)}"`:''} title="${E(m.title||'Mais ações')}" aria-label="${E(m.title||'Mais ações')}" aria-haspopup="menu">${icn('dots')}</button>` : '';
+  return `<header class="pghead"${o.id?` id="${E(o.id)}"`:''}><div class="pgh-t"><h1 class="pgh-title">${E(o.title||'')}</h1>`
+    + (sc?`<span class="pgh-scope" title="Pra quem vale o que está nesta página">${icn(sc[0])}${E(scLabel)}</span>`:'')
+    + (o.sum?`<span class="pgh-sum">${o.sum}</span>`:'') + `<span class="pgh-sp"></span>${o.right||''}${prim}${more}</div>`
+    + (o.sub?`<p class="pgh-sub">${E(o.sub)}</p>`:'') + (o.tabs||'') + `</header>`;
+}
+// abas horizontais (visões do mesmo dado) no padrão da página: [[chave, rótulo, contagem?, quente?]], role=tablist
+function pageTabs(set, items, act){
+  const E=(typeof escA==='function')?escA:(s=>String(s));
+  return `<div class="pgtabs" role="tablist" data-pgtabs="${E(set)}">`+items.map(([k,l,n,hot])=>`<button role="tab" class="${k===act?'on':''}${hot?' hot':''}" aria-selected="${k===act}" tabindex="${k===act?0:-1}" data-pgtab="${E(set)}:${E(k)}">${E(l)}${n!=null&&n!==''?` <b>${E(String(n))}</b>`:''}</button>`).join('')+`</div>`;
+}
+// @helpers-comuns-fim
 // teto padrão por tarefa (US$; 0 = sem teto) — Configurações
 // teto SEMPRE ligado (veto da Carla, mesa 03/10): 0/vazio/lixo valem o padrão US$ 5 — nunca "sem teto"
 function costCapDefault(){ const raw=lsGet('costCap'); const v=parseFloat(raw==null||raw===''?'5':String(raw).replace(',','.')); return v>0?v:5; }

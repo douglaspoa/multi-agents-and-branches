@@ -155,19 +155,17 @@ test('seletores (formulário/planner): estado em cada cartão + "configurar" que
   assert.match(read('29-ia-picker.js'), /\[data-aicfg\][^\n]*suaIaOpenCfg\(\)/);
 });
 
-test('primeiro acesso: passo "Qual IA você vai usar?" com o MESMO painel, pulável ("decido depois")', () => {
-  const src = read('15-config-abas-onboarding.js');
-  const steps = new Function(cut(src, 'const OB_STEPS=[', '\nlet obStep') + '\nreturn OB_STEPS;')();
-  const ia = steps.findIndex((s) => s.ia), env = steps.findIndex((s) => s.env);
-  assert.ok(ia >= 0 && ia < env, 'passo de IA antes do ambiente');
-  assert.match(steps[ia].t, /Qual IA você vai usar\?/);
-  const render = cut(src, 'function renderOb(){', '\nfunction finishOb');
-  assert.match(render, /id="obIaLater"[^`]*decido depois/);
-  assert.match(render, /bindClick\('obIaLater', \(\)=>\{ obStep\+\+; renderOb\(\);/, 'pular segue o tour');
-  assert.match(render, /suaIaMount\(\$id\('obSuaIa'\)/);
-  // Configurações: o mesmo componente no lugar do "IA padrão"
-  const cfg = cut(src, 'function openCfg(){', '\n$id(\'cfgBtn\')');
-  assert.match(cfg, /suaIaMount\(\$id\('suaIaCfg'\), \{ ctx:'cfg'/);
+test('Primeiros passos: passo "Escolher a IA" com o MESMO painel (aplica a escolha) e Ajustes › IA e modelos também', () => {
+  const aj = read('67-ajustes.js');
+  const P = new Function(cut(aj, '// @ajustes-puro-inicio', '// @ajustes-puro-fim') + '\nreturn { ppSteps };')();
+  const ids = P.ppSteps({}).steps.map((s) => s.id);
+  assert.ok(ids.indexOf('pc') < ids.indexOf('ia') && ids.indexOf('ia') < ids.indexOf('proj'), 'ordem nova: computador → IA → projeto');
+  const step = cut(aj, "} else if(id==='ia'){", "} else if(id==='proj'){");
+  assert.match(step, /suaIaMount\(\$id\('ppSuaIa'\), \{ ctx:'onboarding'/);
+  assert.match(step, /suaIaObApply\(\)/, 'a escolha vira o padrão');
+  // Ajustes: o mesmo componente no lugar do "IA padrão"
+  const cfg = cut(aj, 'function ajRenderMotores(host){', '\n// a pílula');
+  assert.match(cfg, /suaIaMount\(\$id\('suaIaCfg'\), \{ ctx:'ajustes'/);
   assert.ok(!/aiPickCfg/.test(cfg));
 });
 
@@ -247,12 +245,8 @@ test('primeiro acesso: padrão não pronto + UMA IA pronta → já escolhida e o
   // padrão pronto: nada a sugerir; nenhum pronto: idem
   assert.equal(P.ctx.suaIaObSuggest([ST.claude, ST.codexOk], 'codex'), null);
   assert.equal(P.ctx.suaIaObSuggest([ST.claude, ST.codexLogin], 'claude'), null);
-  // no tour: "continuar" chama suaIaObApply e mostra "vai usar"; "decido depois" não aplica
-  const render = cut(read('15-config-abas-onboarding.js'), 'function renderOb(){', '\nfunction finishOb');
-  assert.match(render, /\$id\('obNext'\)\.onclick=\(\)=>\{[\s\S]{0,400}if\(s\.ia && typeof suaIaObApply==='function'\) suaIaObApply\(\);/);
-  assert.ok(!/bindClick\('obIaLater'[^\n]*suaIaObApply/.test(render));
-  assert.match(render, /vai usar: /);
-  assert.match(read('15-config-abas-onboarding.js'), /ArrowRight' && !\/INPUT\|TEXTAREA\|SELECT\//);
+  // Primeiros passos: o passo da IA mostra "vai usar" quando pronto (ppStepSub)
+  assert.match(read('67-ajustes.js'), /'vai usar: '\+aiRunLabel/);
 });
 
 test('dois painéis montados (tour + Configurações): ids únicos por container e nenhuma busca global', () => {

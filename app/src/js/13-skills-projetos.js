@@ -37,7 +37,7 @@ function skAddPanelHtml(){
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn primary" id="skAiGo">${ic('spark')}montar com IA</button><button class="btn" id="skAddCancel">cancelar</button></div>
       <div class="dim" style="font-size:var(--fs-xs);margin-top:8px;line-height:1.5">Abre o <b>Montar conversando</b> com o pedido pronto. Quando a tarefa terminar, a skill aparece aqui na biblioteca.</div>`;
   }
-  return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Importar SKILL.md')}${tab('ia',IC.starforkEm+' Com IA')}</div>${b}<div class="dim" style="font-size:var(--fs-xs);margin-top:10px">vai pra ~/.claude/skills/</div></div>`;
+  return `<div class="addpanel"><div class="addtabs">${tab('git','Do Git')}${tab('criar','Criar do zero')}${tab('importar','Colar um SKILL.md')}${tab('ia',IC.starforkEm+' Montar com IA')}</div>${b}<div class="dim" style="font-size:var(--fs-xs);margin-top:10px">vai pra sua biblioteca (vale em todos os projetos)</div></div>`;
 }
 function skRender(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
@@ -48,21 +48,21 @@ function skRender(){
   const nOn=all.filter(s=>s.active).length, allOn=all.length&&nOn===all.length;
   const bar=all.length?Math.round(nOn/all.length*100):0;
   const sw=(nm,on)=>`<label class="sw"><input type="checkbox" data-sk="${escA(nm)}"${on?' checked':''}><span class="tr"><span class="kn"></span></span></label>`;
+  const card=s=>`<div class="skc${s.active?' on':''}"><div class="skc-h"><span class="skc-name">${esc(s.name)}</span><span style="flex:1"></span>${sw(s.name,s.active)}</div><div class="skc-d">${esc(String(s.description||'(sem descrição)').slice(0,220))}${(s.description||'').length>220?'…':''}</div></div>`;
+  // F4 (G1, mesa tela 14): o escopo fica explícito — "Deste projeto" (vai no repositório) e "Sua biblioteca" (vale em todos)
+  const grp=(src)=>list.filter(s=>(src==='projeto')===(s.source==='projeto'));
+  const gProj=grp('projeto'), gLib=grp('pessoal');
   const cards=list.length
-    ? list.map(s=>`<div class="skc${s.active?' on':''}"><div class="skc-h"><span class="skc-name">${esc(s.name)}</span><span class="skc-scope">${esc(s.source||'')}</span><span style="flex:1"></span>${sw(s.name,s.active)}</div><div class="skc-d">${esc(String(s.description||'(sem descrição)').slice(0,220))}${(s.description||'').length>220?'…':''}</div></div>`).join('')
-    : q ? emptyHtml({ icon:'search', title:'Nenhuma skill com “'+skQuery.trim()+'”', help:'A busca olha o nome e o gatilho (quando usar) de cada skill.', action:{ id:'skClearQ', label:'limpar busca', primary:false } })
-    : skAddOpen ? '' : emptyHtml({ icon:'stack', title:'Nenhuma skill na biblioteca', help:'Traga de um repositório Git, de um SKILL.md ou crie uma do zero.', action:{ id:'skEmptyAdd', label:'+ adicionar skill' } });
+    ? (gProj.length?`<div class="pgsh3"><h3>Deste projeto</h3><span>ficam no repositório (.claude/skills) e vão junto pro time</span></div><div class="sk-grid">${gProj.map(card).join('')}</div>`:'')
+      +(gLib.length?`<div class="pgsh3"><h3>Sua biblioteca</h3><span>na sua conta deste computador · vale em todos os seus projetos</span></div><div class="sk-grid">${gLib.map(card).join('')}</div>`:'')
+    : q ? emptyHtml({ icon:'search', title:'Nenhuma skill com “'+skQuery.trim()+'”', help:'A busca olha o nome e o “quando usar” de cada skill.', action:{ id:'skClearQ', label:'limpar busca', primary:false } })
+    : skAddOpen ? '' : emptyHtml({ icon:'stack', title:'Nenhuma skill ainda', help:'Traga de um repositório Git, de um SKILL.md ou crie uma do zero.', action:{ id:'skEmptyAdd', label:'Adicionar skill' } });
   body.innerHTML=`<div class="sk-screen">
-    <div class="sk-head">
-      <div><h1 class="sk-h1">Skills</h1><p class="sk-sub">Skills ligadas viram instrução para os agentes deste projeto — entram sozinhas quando o gatilho bate.</p></div>
-      <div class="sk-actions">
-        <div class="sk-search"><span class="sk-sd"></span><input id="skQ" value="${escA(skQuery)}" placeholder="filtrar por nome ou gatilho"></div>
-        <button class="sk-add" id="skAddBtn">+ adicionar skill</button>
-      </div>
-    </div>
-    <div class="sk-stats"><span class="sk-mono">${all.length} na biblioteca</span><span class="sk-mono on">${nOn} ativas neste projeto</span><span class="sk-progress"><i style="width:${bar}%"></i></span><button class="sk-toggleall" id="skToggleAll">${allOn?'desligar todas':'ligar todas'}</button></div>
+    <div class="pgsec-h"><div><h2>Skills</h2><p>O que os agentes sabem fazer. As ligadas entram sozinhas quando o assunto da tarefa bate com o “quando usar”.</p></div><span class="grow"></span>
+      <button class="btn sm" id="skToggleAll">${allOn?'Desligar todas':'Ligar todas'}</button><button class="btn primary sm" id="skAddBtn">+ Adicionar skill</button></div>
     ${skAddOpen?skAddPanelHtml():''}
-    <div class="sk-grid">${cards}</div>
+    <div class="pgtool"><div class="sk-search"><span class="sk-sd"></span><input id="skQ" value="${escA(skQuery)}" placeholder="filtrar por nome ou quando usar" aria-label="Filtrar skills"></div><span class="dim"><b>${nOn}</b> ligadas neste projeto · ${all.length} no total</span><span class="sk-progress"><i style="width:${bar}%"></i></span></div>
+    ${cards}
   </div>`;
   { const qi=body.querySelector('#skQ'); if(qi){ qi.oninput=()=>{ skQuery=qi.value; skRender(); const n=body.querySelector('#skQ'); if(n){ n.focus(); const v=n.value; n.value=''; n.value=v; } }; } }
   body.querySelectorAll('[data-sk]').forEach(cb=>cb.onchange=()=>skToggle(cb.dataset.sk, cb.checked));
@@ -145,60 +145,81 @@ bindClick('skillsBtn', openSkills);
 bindClick('skClose', ()=>{ ovHide('skOverlay'); });
 $id('skOverlay').addEventListener('click',e=>{ if(e.target.id==='skOverlay') ovHide('skOverlay'); });
 // ===== Hub de Projetos =====
+let projOvLast=[];
 async function openProjetos(){
   const body=$id('projetosBody');
   $id('projetosOverlay').style.display='flex';
   await loadInto(body, 'cards', ()=>invoke('projects_overview'), (ov)=>projetosRender(ov||[]),
     { label:'buscando os projetos', ctx:'Não consegui ler os projetos', shape:{ wrap:'appscreen', head:true, n:4 } });
 }
+// F4 (G1, mesa tela 04): padrão de página — cada cartão usa a contagem ÚNICA (aguardando você · pronta pra revisar à
+// parte), abre a página Projeto; "publicar no GitHub" vale pra QUALQUER projeto só local (antes só o aberto); Finder,
+// publicar e remover moram no ⋯ do cartão; abrir pasta e Fábrica no ⋯ do cabeçalho; o botão "skills" saiu (Projeto › Skills)
+function projCountsOf(p){
+  const mine=p.path===state.repo ? (state.tasks||[]) : (typeof allTasksCache!=='undefined'?allTasksCache:[]).filter(t=>t.repo===p.path).map(t=>typeof normAgg==='function'?normAgg(t):t);
+  return (typeof flowCounts==='function' && mine.length) ? flowCounts(typeof flowLiveTasks==='function'?flowLiveTasks(mine):mine) : { aguardando:0, prontas:p.review||0, andamento:p.active||0, rodando:0, praberto:0, fila:0 };
+}
+function projCountsHtml(fc){
+  const c=(n,col,l)=>`<span class="pjc"><i style="background:${col}"></i><b>${n}</b> ${l}</span>`;
+  const bits=[];
+  if(fc.aguardando) bits.push(c(fc.aguardando,'var(--st-ask)','aguardando você'));
+  if(fc.prontas) bits.push(c(fc.prontas,'var(--st-review)',fc.prontas===1?'pronta pra revisar':'prontas pra revisar'));
+  if(fc.praberto) bits.push(c(fc.praberto,'var(--info)',fc.praberto===1?'PR aberto':'PRs abertos'));
+  if(fc.andamento) bits.push(c(fc.andamento,'var(--st-run)','em andamento'));
+  if(fc.fila) bits.push(c(fc.fila,'var(--muted)','na fila'));
+  return bits.length?bits.join(''):'<span class="dim">nada em andamento</span>';
+}
 function projetosRender(ov){
   const body=$id('projetosBody'); if(!body) return;
   if(typeof ndInjectFonts==='function') ndInjectFonts();
+  projOvLast=ov||[];
   const n=(ov||[]).length;
-  const head=`<div class="as-head"><div><h1 class="as-h1">Projetos</h1><p class="as-sub">Tudo aparece junto no quadro — aqui você gerencia cada repositório.</p></div><div class="as-actions"><span class="as-note">${n} projeto${n===1?'':'s'}</span><button class="as-btn" id="projAddBtn2">abrir existente…</button><button class="as-btn primary" id="projNewBtn">+ novo projeto</button></div></div>`;
-  const cards=(ov||[]).map(p=>{
-    const col=projColor(p.path);
-    // MESMA contagem e vocabulário do quadro (flowCounts em 22-quadro-fluxo); sem o cache de tarefas, cai no resumo do backend
-    const mine=p.path===state.repo ? (state.tasks||[]) : (typeof allTasksCache!=='undefined'?allTasksCache:[]).filter(t=>t.repo===p.path).map(t=>typeof normAgg==='function'?normAgg(t):t);
-    const fc=(typeof flowCounts==='function' && mine.length) ? flowCounts(typeof flowLiveTasks==='function'?flowLiveTasks(mine):mine) : null;
-    const nAnd=fc?fc.andamento:(p.active||0), nRev=fc?fc.prontas:(p.review||0), nAsk=fc?fc.aguardando:0;
-    const bits=[];
-    if(nAsk) bits.push(`<b style="color:var(--st-ask,var(--warn))">${nAsk} aguardando você</b>`);
-    const nPr=fc?fc.praberto:0; // R5-1: mesmos rótulos da Central (FLOW_SECS): "pronta(s) pra revisar" e "PR aberto"
-    if(nRev) bits.push(`<b style="color:var(--st-review,var(--warn))">${nRev} ${nRev===1?'pronta':'prontas'} pra revisar</b>`);
-    if(nPr) bits.push(`<b style="color:var(--info)">${nPl(nPr,'PR aberto','PRs abertos')}</b>`);
-    bits.push(nAnd?`<b style="color:var(--accent)">${nAnd} em andamento</b>`:'<span class="dim">nada em andamento</span>');
-    return `<div class="projcard2 as-card">
-      <div class="pc2name"><span class="pc2d" style="background:${col}"></span>${esc(p.name)}${p.path===state.repo?' <span class="as-badge" style="color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)">aberto</span>':''}</div>
-      <div class="pc2meta">${bits.join(' · ')}</div>
-      <div class="pc2path mono">${esc(p.path)}</div>
-      ${p.path===state.repo&&typeof repoHasRemote==='function'&&!repoHasRemote()?`<div class="pc2pub"><span class="dim">${(typeof repoHasGit!=='function'||repoHasGit())?'só no seu computador — o time e os PRs precisam dele no GitHub':'pasta sem git — publicar cria o repositório e envia pro GitHub'}</span><button class="btn sm primary" data-pjpub="${escA(p.path)}">${(typeof IC!=='undefined'&&IC.push)||''}publicar no GitHub</button></div>`:''}
-      <div class="pc2acts"><button class="btn sm" data-pjopen="${escA(p.path)}">ver tarefas</button><button class="btn sm" data-pjsk="${escA(p.path)}">skills</button><button class="btn sm" data-pjfx="${escA(p.path)}" title="abrir a pasta do projeto">${(typeof osKind!=='function'||osKind()==='mac')?'Finder':'abrir pasta'}</button><span style="flex:1"></span><button class="btn sm ghost danger" data-pjrm="${escA(p.path)}" title="tira da lista do Starfork — não apaga nenhum arquivo">remover</button></div>
+  const all=(ov||[]).map(p=>({ p, fc:projCountsOf(p) }));
+  const tot=all.reduce((a,x)=>({ ag:a.ag+x.fc.aguardando, pr:a.pr+x.fc.prontas }), { ag:0, pr:0 });
+  const head=pageHead({ title:'Projetos', scope:'computador', sum:`${n} ${n===1?'projeto':'projetos'} · <b>${tot.ag}</b> aguardando você · <b>${tot.pr}</b> ${tot.pr===1?'pronta':'prontas'} pra revisar`,
+    primary:{ id:'projNewBtn', label:'Novo projeto', icon:'plus' }, more:{ id:'projMoreBtn', title:'Abrir pasta que já tenho · começar pela Fábrica' } });
+  const mac=(typeof osKind!=='function'||osKind()==='mac');
+  const cards=all.map(({p, fc})=>{
+    const cur=p.path===state.repo;
+    const local=cur ? (typeof repoHasRemote==='function' && !repoHasRemote()) : (p.remote===false || p.hasRemote===false);
+    const gh=local?`<div class="pjgh warn">só neste computador · <button class="lnk" data-pjpub="${escA(p.path)}">publicar no GitHub</button></div>`
+      :(p.remote||p.hasRemote||cur)?`<div class="pjgh">no GitHub${typeof p.remote==='string'?' · '+esc(p.remote):''}</div>`:'';
+    return `<div class="projcard2 as-card${cur?' cur':''}">
+      <div class="pc2name">${typeof railBadgeHtml==='function'?railBadgeHtml(p.name, projColor(p.path)):`<span class="pc2d" style="background:${projColor(p.path)}"></span>`}<b>${esc(p.name)}</b>${cur?' <span class="as-badge">aberto</span>':''}<span style="flex:1"></span><button class="btn sm icon quiet" data-pjmore="${escA(p.path)}" title="Mais: ${mac?'mostrar no Finder':'abrir a pasta'}, publicar no GitHub, remover da lista" aria-label="Mais ações do projeto" aria-haspopup="menu">${(typeof IC!=='undefined'&&IC.dots)||'⋯'}</button></div>
+      <div class="pc2meta">${projCountsHtml(fc)}</div>
+      <div class="pc2path mono">${esc(p.path)}</div>${gh}
+      <div class="pc2acts"><button class="btn sm primary" data-pjpage="${escA(p.path)}">Abrir projeto</button><button class="btn sm" data-pjopen="${escA(p.path)}">Ver na Central</button></div>
     </div>`;
   }).join('');
-  const list=n ? `<div class="as-sect">repositórios</div><div class="projgrid2">${cards}</div>`
-    : projNewOpen ? '' : emptyHtml({ icon:'folder', title:'Nenhum projeto ainda', help:'Crie um projeto novo ou abra uma pasta que já existe nesta máquina.', action:{ id:'projEmptyNew', label:'+ novo projeto' } });
+  const list=n ? `<div class="projgrid2">${cards}</div>`
+    : projNewOpen ? '' : emptyHtml({ icon:'folder', title:'Nenhum projeto ainda', help:'Crie um projeto novo ou abra uma pasta que já existe nesta máquina.', action:{ id:'projEmptyNew', label:'Novo projeto' } });
   body.innerHTML=`<div class="appscreen">${head}${projNewOpen?projNewHtml():''}${list}</div>`;
   { const b=body.querySelector('#projEmptyNew'); if(b) b.onclick=()=>{ const nb=body.querySelector('#projNewBtn'); if(nb) nb.click(); }; }
-  { const b=body.querySelector('#projAddBtn2'); if(b) b.onclick=()=>{ if(window.pickFolder) window.pickFolder(); }; }
+  { const b=body.querySelector('#projMoreBtn'); if(b) b.onclick=()=>{ if(typeof g1Menu==='function') g1Menu(b, [
+      { label:'Abrir pasta que já tenho', hint:'⌘O', act:()=>{ if(window.pickFolder) window.pickFolder(); } },
+      { label:'Começar pela Fábrica', hint:'app novo', act:()=>{ if(typeof g1NovoProjeto==='function') g1NovoProjeto(); } } ]); }; }
   { const b=body.querySelector('#projNewBtn'); if(b) b.onclick=()=>{ projNewOpen=!projNewOpen; projetosRender(ov); if(projNewOpen){ projNewWire(ov); ghOwnersReload(); const i=$id('pnName'); if(i) i.focus(); } }; } // toda abertura relê os donos (o cache aparece na hora)
   if(projNewOpen) projNewWire(ov);
   body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; projFilter=p; lsSet('projFilter',p); if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('flow'); });
-  body.querySelectorAll('[data-pjsk]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjsk; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('skills'); });
-  // BUG-15: open_url só aceita http(s) — o Finder abre pela reveal_project (e o erro aparece, não some calado)
-  body.querySelectorAll('[data-pjfx]').forEach(b=>b.onclick=()=>invoke('reveal_project',{path:b.dataset.pjfx}).catch(e=>showErr(e, 'Não deu pra abrir a pasta')));
-  // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
-  // E4 na aba Projetos: o projeto aberto sem GitHub ganha o "publicar" aqui mesmo (antes só aparecia na hora do PR)
-  body.querySelectorAll('[data-pjpub]').forEach(b=>b.onclick=async()=>{
-    if(b.dataset.pjpub!==state.repo){ openProjetos(); return; } // o projeto aberto mudou desde o desenho: publicar agora iria pro projeto errado
+  body.querySelectorAll('[data-pjpage]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjpage; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('projeto'); });
+  const pub=async(p, b)=>{ // qualquer projeto só local: troca pra ele (publishGithub age no projeto aberto) e publica
     if(typeof publishGithub!=='function') return;
-    b.disabled=true; let ok=false;
+    if(p!==state.repo && window.switchProject) await window.switchProject(p);
+    if(b) b.disabled=true; let ok=false;
     try{ ok=await publishGithub(); }catch(e){ showErr(e, 'Não consegui publicar no GitHub'); }
-    if(ok) openProjetos(); else b.disabled=false; });
-  body.querySelectorAll('[data-pjrm]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjrm, wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return;
-    try{ await invoke('remove_project',{path:p}); }catch(e){ showErr(e, 'Não consegui remover o projeto da lista'); return; } // antes o erro sumia calado e a lista recarregava como se tivesse removido
+    if(ok) openProjetos(); else if(b) b.disabled=false; };
+  body.querySelectorAll('[data-pjpub]').forEach(b=>b.onclick=()=>pub(b.dataset.pjpub, b));
+  // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
+  const rm=async(p)=>{ const wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return;
+    try{ await invoke('remove_project',{path:p}); }catch(e){ showErr(e, 'Não consegui remover o projeto da lista'); return; }
     if(wasActive){ selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches(); await refresh(); }
-    if(window.loadProjects) await window.loadProjects(); openProjetos(); });
+    if(window.loadProjects) await window.loadProjects(); openProjetos(); };
+  body.querySelectorAll('[data-pjmore]').forEach(b=>b.onclick=()=>{ const p=b.dataset.pjmore; if(typeof g1Menu!=='function') return;
+    g1Menu(b, [
+      // BUG-15: open_url só aceita http(s) — o Finder abre pela reveal_project (e o erro aparece, não some calado)
+      { label:mac?'Mostrar no Finder':'Abrir a pasta', act:()=>invoke('reveal_project',{path:p}).catch(e=>showErr(e, 'Não deu pra abrir a pasta')) },
+      { label:'Publicar no GitHub', hint:'cria o repositório e envia', act:()=>pub(p, null) },
+      { label:'Remover da lista…', hint:'não apaga arquivos', danger:true, act:()=>rm(p) } ]); });
 }
 // ---- donos do GitHub de TODAS as contas logadas (gh_owners) ----
 // @puro-ghdonos-inicio
@@ -235,7 +256,6 @@ const ghOwnersSt=ghOwnersLoader((c)=>invoke(c), (l)=>{ ghOwnersCache=l; if(!proj
   if(projNew.owner && !ghOwnerFind(l, projNew.owner)) projNew.owner='';
   if(projNewOpen && $id('projNewCard')){ const ov=projOvLast; projetosRender(ov); projNewWire(ov); } });
 function ghOwnersReload(){ ghOwnersDirty=false; return ghOwnersSt.load(true); }
-let projOvLast=[];
 // ---- novo projeto do zero: pasta + git init + (opcional) repositório no GitHub ----
 let projNewOpen=false, projNew={ name:'', parent:lsGet('projParent')||'', github:false, ghTouched:false, private:true, owner:'' }, ghOwnersCache=null, projNewBusy=false, projNewMsg='', projNewGhFail=''; // projNewGhFail: pasta criada cujo GitHub falhou (BUG-10)
 function projNewHtml(){
@@ -264,13 +284,13 @@ function projNewWire(ov){
   // E11c: "criar no GitHub" só vem marcado quando o gh está logado (antes vinha marcado sempre e o create falhava)
   projOvLast=ov;
   if(ghOwnersCache===null || ghOwnersDirty) ghOwnersReload();
-  bindClick('pnGhEnv', ()=>{ if(window.openTab) window.openTab('env'); });
+  bindClick('pnGhEnv', ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('github'); else if(window.openTab) window.openTab('cfg'); }); // F4: os dois links do GitHub levam a Ajustes › GitHub
   const nm=$id('pnName'); if(nm) nm.oninput=()=>{ projNew.name=nm.value; };
   bindClick('pnPick', async()=>{ try{ const d=await invoke('pick_folder'); if(d){ projNew.parent=d; lsSet('projParent',d); $id('pnParent').value=d; } }catch(_){} });
   const gh=$id('pnGh'); if(gh) gh.onchange=()=>{ projNew.github=gh.checked; projNew.ghTouched=true; $id('pnGhOpts').style.display=gh.checked?'flex':'none'; };
   const ow=$id('pnOwner'); if(ow) ow.onchange=()=>{ projNew.owner=ow.value; };
   document.querySelectorAll('input[name=pnVis]').forEach(r=>r.onchange=()=>{ projNew.private=r.value==='private'; });
-  bindClick('pnGhCfg', ()=>{ if(window.openTab) window.openTab('cfg'); });
+  bindClick('pnGhCfg', ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('github'); else if(window.openTab) window.openTab('cfg'); });
   bindClick('pnCancel', ()=>{ projNewOpen=false; projNewMsg=''; projNewGhFail=''; projetosRender(ov); });
   bindClick('pnOpenLocal', async()=>{ const path=projNewGhFail; if(!path) return;
     try{ await invoke('open_project',{ path }); projNewGhFail=''; projNewMsg=''; projNewOpen=false; projNew.name='';

@@ -13,10 +13,10 @@
 // @ideia-puro-inicio — funções sem DOM (testadas em app/tests/ideia.test.mjs, junto do trecho puro do 38-mesa)
 const IDEIA_PESQ={ id:'pesq', nome:'Pesquisadora', papel:'pesquisa de mercado', desc:'Pesquisadora de produto. Só acredita no que tem fonte: busca sinais de demanda, concorrentes, reclamações de usuários e tendências recentes. Separa fato (com link) de inferência e de palpite, e nunca inventa número.' };
 // a mesa da ideia: a Pesquisadora + as 5 vozes da Mesa (MESA_PERSONAS, 38-mesa.js)
-function ideiaPanel(){ return [IDEIA_PESQ].concat(typeof MESA_PERSONAS!=='undefined'?MESA_PERSONAS:[]); }
+function ideiaPanel(){ return [IDEIA_PESQ].concat(typeof mesaPersonaList==='function'?mesaPersonaList([]).filter(p=>p.ativa!==false):(typeof MESA_PERSONAS!=='undefined'?MESA_PERSONAS:[])); } // personas ATIVAS do editor único (Fábrica › Personas)
 const IDEIA_PLATS=[['web','Web'],['ios','iOS'],['android','Android'],['mobile','iOS + Android']];
 const IDEIA_SECS=[['demanda','Sinais de demanda'],['tendencias','Tendências e por que agora'],['concorrentes','Concorrentes e alternativas'],['reclamacoes','Do que os usuários reclamam'],['publico','Público-alvo'],['riscos','Riscos']];
-const IDEIA_ROT={ fato:'fato', inferencia:'inferência', suposicao:'suposição' };
+const IDEIA_ROT={ fato:'fato', inferencia:'dedução', suposicao:'suposição' }; // F4: "inferência" → "dedução" (sem jargão)
 const IDEIA_VERED={ sim:'Sim', talvez:'Talvez', nao:'Não' };
 const IDEIA_CONF={ alta:'alta', media:'média', baixa:'baixa' };
 const IDEIA_MAX_ITEMS=8;
@@ -266,7 +266,7 @@ Object.assign(IC, {
 });
 function iEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-const IDEIA={ list:null, cur:null, mem:{}, next:null, pendingId:'', draft:'', newDraft:'', live:{}, mode:null, capUsd:null, gh:false, apCap:'' };
+const IDEIA={ tab:'', end:null, list:null, cur:null, mem:{}, next:null, pendingId:'', draft:'', newDraft:'', live:{}, mode:null, capUsd:null, gh:false, apCap:'' };
 const IDEIA_POOL=3; // personas ao mesmo tempo (como a mesa)
 function ideiaLive(id){ return IDEIA.live[id]||(IDEIA.live[id]={ turn:false, research:null, decide:false, creating:false, paused:false }); }
 function ideiaVisible(id){ const o=$id('ideiaOverlay'); return !!(o && o.style.display!=='none' && IDEIA.cur && (!id || IDEIA.cur.id===id)); }
@@ -496,16 +496,15 @@ async function ideiaCreate(m, mode){
   const view=m.decision&&ideiaDecisionView(m.decision, ideiaPanel()); if(!view || !view.mvp.length){ toast('Decida o MVP com a mesa antes de criar o projeto.','warn'); return; }
   const md=m.report&&m.report.status==='ok'?m.report.md:'';
   const plan=ideiaBuildPlan(m, view, md), slug=ideiaSlug(m.titulo);
-  const q=mode==='piloto'
-    ? `Criar o projeto "${slug}" e entregar pro PILOTO AUTOMÁTICO?\n\nO piloto constrói sozinho o épico "${plan.epic}" (${plan.tasks.length} tarefas, ${ideiaPlatName(plan.platform)}) numa pasta nova em Documentos › Starfork, só no seu computador.${md?'\n\nA pesquisa vai junto em docs/pesquisa-'+slug+'.md.':''}`
-    : `Criar o projeto "${slug}" com o épico "${plan.epic}" e ${plan.tasks.length} tarefas em rascunho (nenhuma começa sozinha)?${IDEIA.gh?'\n\nTambém cria o repositório PRIVADO no GitHub.':''}${md?'\n\nA pesquisa vai em docs/pesquisa-'+slug+'.md.':''}`;
-  if(!await askYes(q, mode==='piloto'?'Entregar pro piloto':'Criar projeto')) return;
+  const E=ideiaEndForm(m);
+  if(mode==='piloto'){ const c=typeof pilotoCapCheck==='function'?pilotoCapCheck(E.budget, 0):{ ok:+String(E.budget).replace(',','.')>0, cap:+String(E.budget).replace(',','.') };
+    if(!c.ok){ IDEIA.endErr=c.err||'Defina um teto: o piloto para sozinho quando chegar nele.'; ideiaPaint(m); const i=$id('pilBudget'); if(i) try{ i.focus(); }catch(_){ } return; } E.cap=c.cap; }
+  IDEIA.endErr='';
   L.creating=true; ideiaPaint(m);
   try{
     if(mode==='piloto'){
-      const capIn=$id('ideiaApCap'); const cap=capIn?parseFloat(String(capIn.value).replace(',','.')):NaN;
       const op=typeof window.orgPolForPilot==='function'?await window.orgPolForPilot():null; // F5 · P14
-      const res=await invoke('autopilot_start',{ orgPolicy:op, idea:`${m.titulo}${view.mvp.length?' — MVP: '+view.mvp.map(f=>f.titulo).join('; '):''}`.slice(0,600), platform:plan.platform, name:slug, engine:defaultAiEngine(), model:defaultAiModel(), parallel:2, attempts:2, budgetUsd:cap>0?cap:null, plan }); // vazio ou 0 = sem teto
+      const res=await invoke('autopilot_start',{ orgPolicy:op, idea:`${m.titulo}${view.mvp.length?' — MVP: '+view.mvp.map(f=>f.titulo).join('; '):''}`.slice(0,600), platform:plan.platform, name:E.name||slug, engine:E.engine||defaultAiEngine(), model:E.model||null, parallel:+E.parallel||2, attempts:+E.attempts||3, budgetUsd:E.cap, plan }); // teto OBRIGATÓRIO (o Rust e o motor recusam sem)
       const dir=typeof res==='string'?res:(res&&res.dir)||'';
       m.project={ dir, mode:'piloto', at:Date.now(), epic:plan.epic };
       await ideiaSave(m);
@@ -520,7 +519,7 @@ async function ideiaCreate(m, mode){
     let path=part?part.dir:'';
     if(part){ if(window.switchProject && (typeof state==='undefined' || state.repo!==path)) await window.switchProject(path); }
     else {
-      if(IDEIA.gh){
+      if(E.gh){
         const target=String(await invoke('quick_project_target',{ name:slug })||'');
         const parent=target.replace(/[\\/][^\\/]+$/,''), name=target.split(/[\\/]/).pop();
         path=await invoke('create_project',{ parent, name, github:true, private:true, owner:'' });
@@ -557,94 +556,111 @@ async function ideiaCreate(m, mode){
   finally{ L.creating=false; await ideiaSave(m); ideiaPaint(m); }
 }
 
-// ---------------- tela ----------------
+// ---------------- tela (F4 · G2: Fábrica › App novo › Tenho uma ideia) ----------------
 function ideiaPaint(m){ if(ideiaVisible(m&&m.id)) ideiaRender(); else if(typeof renderTabs==='function' && m && IDEIA.cur===m) renderTabs(); }
 function ideiaCapture(){
   const a=$id('ideiaIn'); if(a) IDEIA.draft=a.value;
   const n=$id('ideiaNewIn'); if(n) IDEIA.newDraft=n.value;
   const c=$id('ideiaCap'); if(c){ const v=parseFloat(String(c.value).replace(',','.')); if(v>0) IDEIA.capUsd=v; }
-  const g=$id('ideiaGh'); if(g) IDEIA.gh=!!g.checked;
-  const ap=$id('ideiaApCap'); if(ap) IDEIA.apCap=ap.value;
+  if(IDEIA.cur && $id('pilBudget')) ideiaEndRead(IDEIA.cur);
+}
+// fim de caminho (aba Projeto): o MESMO formulário do "construir sozinho" (56-piloto), por ideia
+function ideiaEndForm(m){
+  const k=m&&m.id; IDEIA.end=IDEIA.end||{};
+  if(!IDEIA.end[k]){ const v=m&&m.decision&&ideiaDecisionView(m.decision, ideiaPanel()); const d=(typeof aiDefaults==='function')?aiDefaults():{ eng:'claude', model:'' };
+    IDEIA.end[k]={ end:'auto', name:m?ideiaSlug(m.titulo):'', platform:(v&&v.plataforma)||'web', engine:(()=>{ const e=typeof aiEngineOf==='function'?aiEngineOf(d.eng):'claude'; return e==='mock'?'claude':e; })(), model:d.model||'', parallel:2, attempts:3, budget:'', gh:true }; }
+  return IDEIA.end[k];
+}
+function ideiaEndRead(m){
+  const E=ideiaEndForm(m), v=id=>{ const e=$id(id); return e?e.value:undefined; };
+  [['name','pilName'],['parallel','pilPar'],['attempts','pilAtt'],['budget','pilBudget']].forEach(([k,id])=>{ const x=v(id); if(x!==undefined) E[k]=x; });
+  const g=$id('pilGh'); if(g) E.gh=!!g.checked;
+  if(IDEIA.endIa && IDEIA.endIa.get){ const x=IDEIA.endIa.get(); E.engine=x.engine; E.model=x.model; }
+  return E;
 }
 function ideiaRender(){
   const body=$id('ideiaBody'); if(!body) return;
   ideiaCapture();
-  const html='<div class="ideiawrap">'+(IDEIA.cur?ideiaIdeaHtml(IDEIA.cur):ideiaStartHtml())+'</div>';
+  const html='<div class="g2page ideiawrap">'+(IDEIA.cur?ideiaIdeaHtml(IDEIA.cur):ideiaStartHtml())+'</div>';
   if(body.__html===html) return;
   const ae=document.activeElement, fid=ae&&body.contains(ae)&&ae.id?ae.id:null;
   const sel=fid&&typeof ae.selectionStart==='number'?[ae.selectionStart, ae.selectionEnd]:null;
-  const docEl=body.querySelector('.ideiaside'), top=docEl?docEl.scrollTop:0;
+  const docEl=body.querySelector('.g2rp-b:not([hidden])'), top=docEl?docEl.scrollTop:0;
   const keep=typeof stickBottom==='function'?stickBottom($id('ideiaThread')):()=>{};
   body.innerHTML=html; body.__html=html;
-  { const d=body.querySelector('.ideiaside'); if(d) d.scrollTop=top; }
+  { const d=body.querySelector('.g2rp-b:not([hidden])'); if(d) d.scrollTop=top; }
   keep($id('ideiaThread'));
   { const a=$id('ideiaIn'); if(a && a.value!==IDEIA.draft) a.value=IDEIA.draft; const n=$id('ideiaNewIn'); if(n && n.value!==IDEIA.newDraft) n.value=IDEIA.newDraft; }
   if(fid){ const el=$id(fid); if(el){ el.focus(); if(sel && typeof el.setSelectionRange==='function') try{ el.setSelectionRange(sel[0], sel[1]); }catch(_){ } } }
   ideiaWire(body);
 }
 function ideiaPillLabel(){ return typeof aiChatRunLabel==='function'?aiChatRunLabel():'IA padrão'; }
+// lista compacta (fica pra quem ainda chama — a lista de verdade mora em Fábrica › Sessões)
 function ideiaRecentHtml(n, compact){
   const l=(IDEIA.list||[]).slice(0,n||8); if(!l.length) return '';
   const st=x=>x.corrompida?'arquivo ilegível':x.projeto?'projeto criado':x.decisao==='ok'?'MVP decidido':x.pesquisa==='ok'?'pesquisada':(x.turnos?x.turnos+' mensagem'+(x.turnos===1?'':'s'):'nova');
   const d=x=>x.updatedAt?new Date(x.updatedAt).toLocaleString('pt-BR',{ day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }):'';
-  return `<div class="ideiarecent${compact?' compact':''}"><h2>Ideias recentes</h2><div class="ideialist">${l.map(x=>`<button type="button" class="ideiarow" data-iopen="${iEsc(x.id)}"${x.corrompida?' disabled':''}><span class="ideiart"><b>${iEsc(x.titulo||'(sem título)')}</b><span class="ideiast">${iEsc(st(x))}</span></span><span class="ideiarm">${iEsc(d(x))}${+x.costUsd>0?' · '+iEsc(fmtCost(+x.costUsd,{ usdOnly:true })):''}</span></button>`).join('')}</div></div>`;
+  return `<div class="ideiarecent${compact?' compact':''}"><div class="g2k">Continuar uma ideia <span>— todas em Fábrica › Sessões</span></div><div class="g2recent">${l.map(x=>`<button type="button" class="row" data-iopen="${iEsc(x.id)}"${x.corrompida?' disabled':''}><span class="g2kind i">IDEIA</span><b>${iEsc(x.titulo||'(sem título)')}</b><span>${iEsc(st(x))}</span><span>${iEsc(d(x))}${+x.costUsd>0?' · '+iEsc(fmtCost(+x.costUsd,{ usdOnly:true })):''}</span></button>`).join('')}</div></div>`;
 }
 window.ideiaRecentHtml=ideiaRecentHtml;
+function ideiaCrumb(){ return `<nav class="g2crumb" aria-label="Você está em"><button type="button" data-igo="nova">Fábrica</button>›<button type="button" data-igo="sessoes">Sessões</button>› ideia</nav>`; }
 function ideiaStartHtml(){
   const names=ideiaPanel().map(p=>p.nome).join(', ');
-  return `<div class="ideiastart"><div class="ideiahero">${IC.ideia}<h1>Começar por uma ideia</h1>`+
-    `<p>Conte a ideia como contaria pra um amigo. A mesa responde — ${iEsc(names)} — cada uma do seu jeito. Depois a Pesquisadora busca na web se a ideia teria procura agora (com fontes), a mesa decide o MVP e o Starfork cria o projeto: pra você seguir ou pro piloto automático construir.</p></div>`+
+  const head=ideiaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Tenho uma ideia', scope:'computador', sub:'Conte a ideia como contaria pra um amigo. A mesa responde, a Pesquisadora busca na web se teria procura agora e a mesa vota o MVP.' }):'<h1>Tenho uma ideia</h1>');
+  return head+`<div class="g2scroll"><div class="ideiastart"><div class="g2explain"><b>Mesa:</b> ${ideiaPanel().length} pontos de vista que respondem, debatem e votam — ${iEsc(names)}. Você decide. Os nomes são personas simuladas, não pessoas reais.</div>`+
     chatComposerHtml({ input:'ideiaNewIn', send:'ideiaNewGo', rows:3, cls:'card', value:IDEIA.newDraft, sendHtml:'começar', modelPill:aiChatModelPill('ideiaNewModel'), placeholder:'ex.: um app de rotina de skincare com lembretes — quero saber se faria sucesso agora' })+
-    (IDEIA.list===null?`<div class="dim ideiahint">lendo as ideias…</div>`:ideiaRecentHtml(8))+`</div>`;
+    (IDEIA.list===null?`<div class="g2help">lendo as ideias…</div>`:ideiaRecentHtml(4))+`</div></div>`;
 }
-function ideiaSteps(m){
+function ideiaStagesItems(m){
   const st=ideiaStage(m), order=['conversar','pesquisar','decidir','criar'], at=st==='criado'?4:order.indexOf(st);
   const lbl={ conversar:'Conversar', pesquisar:'Pesquisar', decidir:'Decidir o MVP', criar:'Criar o projeto' };
-  return `<ol class="ideiaflow" aria-label="passos da ideia">${order.map((k,i)=>`<li class="${i<at?'ok':i===at?'cur':''}"${i===at?' aria-current="step"':''}>${lbl[k]}</li>`).join('')}</ol>`;
+  return order.map((k,i)=>({ label:lbl[k], st:i<at?'done':i===at?'now':'next' }));
 }
-function ideiaAvatar(p){ const hue={ pesq:170, bia:330, rafa:210, carla:30, marcos:270, julia:0 }[p.id]; return `<span class="ideiaav" style="--h:${hue==null?190:hue}" aria-hidden="true">${iEsc(p.nome.charAt(0))}</span>`; }
+function ideiaSteps(m){
+  if(typeof pilotoStagesHtml==='function') return pilotoStagesHtml(ideiaStagesItems(m));
+  return `<ol class="ideiaflow">${ideiaStagesItems(m).map(x=>`<li class="${x.st}"${x.st==='now'?' aria-current="step"':''}>${x.label}</li>`).join('')}</ol>`;
+}
+function ideiaAvatar(p){ return `<span class="g2pav" aria-hidden="true">${iEsc(p.nome.charAt(0))}</span>`; }
 function ideiaTurnHtml(m, t, last){
   const L=ideiaLive(m.id), ps=ideiaPanel();
   const you=`<div class="plmsg you chatmsg"><div class="plbub">${iEsc(t.you)}</div></div>`;
   const rs=ps.map(p=>{
     const x=t.resp[p.id]||{ st:'na fila' };
-    let inner;
-    if(x.st==='ok') inner=`<div class="mdview ideiamd">${mdToHtml(x.text||'')}</div>`;
-    else if(x.st==='pendente') inner=`<span class="ideiachip live"><span class="pltyping"><i></i><i></i><i></i></span>pensando…</span>`;
-    else if(x.st==='falhou') inner=`<span class="ideiachip bad">não respondeu</span> <span class="dim ideiaerr">${iEsc(x.erro||'')}</span>`;
-    else if(x.st==='na fila') inner=`<span class="ideiachip">${L.paused&&last?'esperando a aba aparecer':'na fila'}</span>`;
-    else inner=`<span class="ideiachip">${x.st==='interrompida'?'interrompida':'parada'}</span>`;
-    return `<div class="ideiamsg st-${iEsc(x.st.replace(/\s/g,'-'))}">${ideiaAvatar(p)}<div class="ideiamb"><div class="ideiamn"><b>${iEsc(p.nome)}</b><span class="dim">${iEsc(p.papel)}</span></div>${inner}</div></div>`;
+    let st, inner='';
+    if(x.st==='ok'){ st='<em class="ok">respondeu</em>'; inner=`<div class="mdview ideiamd">${mdToHtml(x.text||'')}</div>`; }
+    else if(x.st==='pendente') st=`<em class="live"><span class="pltyping"><i></i><i></i><i></i></span>pensando…</em>`;
+    else if(x.st==='falhou'){ st=`<em class="w">não respondeu${x.erro?' · '+iEsc(ideiaCut(x.erro,60)):''}</em>`; inner='<p>—</p>'; }
+    else if(x.st==='na fila') st=`<em>${L.paused&&last?'esperando a aba aparecer':'na fila'}</em>`;
+    else st=`<em>${x.st==='interrompida'?'interrompida':'parada'}</em>`;
+    return `<div class="g2pline st-${iEsc(x.st.replace(/\s/g,'-'))}${x.st==='falhou'?' fail':''}">${ideiaAvatar(p)}<div><div class="g2nm">${iEsc(p.nome)} <small>${iEsc(p.papel)}</small>${st}</div>${inner}</div></div>`;
   }).join('');
   const failed=last && !L.turn && Object.values(t.resp).some(x=>['falhou','parada','interrompida','na fila'].includes(x.st));
-  return you+`<div class="ideiapanel">${rs}${failed?`<button type="button" class="btn sm" id="ideiaRetryTurn">${IC.play||''}responder quem faltou</button>`:''}</div>`;
+  return you+`<div class="g2round">${rs}${failed?`<div><button type="button" class="btn sm" id="ideiaRetryTurn">Responder quem faltou</button></div>`:''}</div>`;
 }
 function ideiaResearchHtml(m){
   const L=ideiaLive(m.id), mode=IDEIA.mode, rep=m.report, running=!!(L.research&&L.research.running);
   const eng=(mode&&mode.engine)||ideiaEngine(), [lo,hi]=ideiaResearchCost(eng, ideiaClaudeModel());
-  let body='';
+  let body='', doc='';
+  if(rep && rep.status==='ok' && rep.data){
+    const v=rep.data.veredito||{ resposta:'talvez', confianca:'baixa', texto:'' };
+    doc=`<div class="g2verdict v-${iEsc(v.resposta)}"><h4>Vale a pena agora? ${iEsc(IDEIA_VERED[v.resposta])} · confiança ${iEsc(IDEIA_CONF[v.confianca]||v.confianca)}</h4><p>${iEsc(v.texto)}</p></div>`+
+      `<span class="g2help">${rep.data.fontes.length} fonte${rep.data.fontes.length===1?'':'s'} · ${+rep.sites||0} página${+rep.sites===1?'':'s'} lida${+rep.sites===1?'':'s'} · ${iEsc(fmtCost(+rep.costUsd||0,{ usdOnly:true }))}${(rep.avisos||[]).length?` · ${rep.avisos.length} aviso${rep.avisos.length===1?'':'s'} da checagem`:''}</span>`+
+      `<article class="mdview ideiadoc">${mdToHtml(rep.md.replace(/^# .*\n+(> .*\n+)?/,''))}</article>`;
+  }
   if(running){
     const acts=(L.research.acts||[]).slice(-12).reverse();
     body=`<div class="ideiaprog" role="status"><div class="ideiaprogh"><span class="pltyping"><i></i><i></i><i></i></span><b>pesquisando</b><span class="dim" id="ideiaSites">${L.research.sites.length} página${L.research.sites.length===1?'':'s'} lida${L.research.sites.length===1?'':'s'} · ${(L.research.acts||[]).length} passo${(L.research.acts||[]).length===1?'':'s'}</span><span class="ideiasp"></span><button type="button" class="btn sm" id="ideiaResStop"${L.research.stop?' disabled':''}>${IC.stopsq||''}${L.research.stop?'parando…':'Parar'}</button></div>`+
-      `<ul class="ideiaacts" id="ideiaActs">${ideiaActsHtml(acts)}</ul><div class="dim ideiahint">segue rodando se você trocar de aba — o relatório chega aqui.</div></div>`;
+      `<ul class="ideiaacts" id="ideiaActs">${ideiaActsHtml(acts)}</ul><div class="g2help">segue rodando se você trocar de aba — o relatório chega aqui.</div></div>`;
   } else if(mode && mode.mode==='none'){
-    body=`<div class="ideianote warn">${iEsc(mode.msg)}</div><div class="ideiaacts2"><button type="button" class="btn sm" id="ideiaGoCfg">trocar a IA</button><button type="button" class="btn sm" id="ideiaGoEnv">pesquisa ampliada no Ambiente</button></div>`;
+    body=`<div class="g2help">${iEsc(mode.msg)} Sem busca na web nesta IA? <button type="button" class="lnk" id="ideiaGoCfg">trocar a IA</button> ou ligar a pesquisa ampliada em <button type="button" class="lnk" id="ideiaGoEnv">Ajustes › Verificação</button>.</div>`;
   } else {
-    const capRow=eng==='claude'?`<label class="ideiacap">teto US$ <input class="in" id="ideiaCap" type="number" min="0.1" step="0.1" value="${iEsc(String(ideiaCap()))}" aria-label="teto da pesquisa em dólares"></label>`:`<span class="dim">estimativa pelos tokens — ${iEsc(eng)} não tem teto por pesquisa</span>`;
-    body=`<div class="ideiaest"><div>deve custar <b>${iEsc(fmtCostRange(lo,hi))}</b> <span class="dim">· usa ${iEsc((mode&&mode.tools)||'a web da sua IA')}</span></div><div class="ideiaestrow">${capRow}<span class="ideiasp"></span><button type="button" class="btn ${rep&&rep.status==='ok'?'':'primary'}" id="ideiaResGo">${rep&&rep.status==='ok'?'Pesquisar de novo':'Pesquisar'}</button></div></div>`+
-      (rep && rep.erro && rep.status!=='rodando'?`<div class="ideianote warn" role="alert">${iEsc(rep.erro)}</div>`:'');
+    const capRow=eng==='claude'?`<label class="g2inline"><span class="g2help">Teto da pesquisa US$</span><input class="in" id="ideiaCap" type="text" inputmode="decimal" value="${iEsc(String(ideiaCap()).replace('.',','))}" aria-label="teto da pesquisa em dólares"></label>`:`<span class="g2help">estimativa pelos tokens — ${iEsc(eng)} não tem teto por pesquisa</span>`;
+    body=`<div class="g2row">${capRow}<button type="button" class="btn sm ${rep&&rep.status==='ok'?'':'primary'}" id="ideiaResGo">${rep&&rep.status==='ok'?'Pesquisar de novo':'Pesquisar'}</button></div><span class="g2help">deve custar ${iEsc(fmtCostRange(lo,hi))} · usa ${iEsc((mode&&mode.tools)||'a web da sua IA')} · cada afirmação marcada: fato, dedução ou suposição</span>`+
+      (rep && rep.erro && rep.status!=='rodando'?`<div class="g2err" role="alert">${iEsc(rep.erro)}</div>`:'');
   }
-  let doc='';
-  if(rep && rep.status==='ok' && rep.data){
-    const v=rep.data.veredito||{ resposta:'talvez', confianca:'baixa', texto:'' };
-    doc=`<div class="ideiaverd v-${iEsc(v.resposta)}"><div class="ideiaverdq">Vale a pena agora?</div><div class="ideiaverda">${iEsc(IDEIA_VERED[v.resposta])}<span>confiança ${iEsc(IDEIA_CONF[v.confianca]||v.confianca)}</span></div><p>${iEsc(v.texto)}</p></div>`+
-      `<div class="dim ideiameta">${rep.data.fontes.length} fonte${rep.data.fontes.length===1?'':'s'} · ${+rep.sites||0} página${+rep.sites===1?'':'s'} lida${+rep.sites===1?'':'s'} · ${iEsc(fmtCost(+rep.costUsd||0,{ usdOnly:true }))}${(rep.avisos||[]).length?` · <span class="ideiawarnt">${rep.avisos.length} aviso${rep.avisos.length===1?'':'s'} da checagem</span>`:''}</div>`+
-      `<article class="mdview ideiadoc">${mdToHtml(rep.md.replace(/^# .*\n+(> .*\n+)?/,''))}</article>`;
-  }
-  return `<section class="ideiasec" aria-labelledby="ideiaResH"><h2 id="ideiaResH">Pesquisa</h2>${body}${doc}</section>`;
+  return (rep&&rep.status==='ok'?doc+body:body+doc);
 }
 function ideiaActsHtml(acts){ return (acts||[]).map(a=>`<li>${a.url?`<a href="#" data-iurl="${iEsc(a.url)}">${iEsc(ideiaCut(a.line,110))}</a>`:iEsc(ideiaCut(a.line,110))}</li>`).join('')||'<li class="dim">preparando a busca…</li>'; }
-// progresso da pesquisa sem redesenhar a aba inteira (o evento chega a cada ferramenta usada)
 function ideiaPaintActs(m){
   const L=m&&IDEIA.live[m.id]; const ul=$id('ideiaActs'), s=$id('ideiaSites'); if(!L || !L.research || !ul){ if(m) ideiaRender(); return; }
   ul.innerHTML=ideiaActsHtml(L.research.acts.slice(-12).reverse());
@@ -653,75 +669,89 @@ function ideiaPaintActs(m){
 function ideiaDecisionHtml(m){
   const L=ideiaLive(m.id), dc=m.decision, ps=ideiaPanel();
   const n=ps.length, [lo,hi]=typeof mesaCost==='function'?mesaCost(n, 2, ideiaClaudeModel()||'sonnet', typeof roughEstimate==='function'?roughEstimate:null):[0,0];
-  const go=`<div class="ideiaest"><div>a mesa (${n} vozes) dá a posição e depois debate e vota: sai o MVP, o que fica de fora e a plataforma. Deve custar <b>${iEsc(fmtCostRange(lo*0.6,hi*0.6))}</b>.</div><div class="ideiaestrow"><span class="ideiasp"></span><button type="button" class="btn${!dc||dc.status!=='ok'?' primary':''}" id="ideiaDecGo"${!(m.turns||[]).length||L.decide||L.turn?' disabled':''}>${dc&&dc.status==='ok'?'Decidir de novo':'Decidir com a mesa'}</button></div></div>`;
-  if(!dc) return `<section class="ideiasec"><h2>Decisão</h2>${go}</section>`;
+  const go=`<div class="g2row"><button type="button" class="btn sm${!dc||dc.status!=='ok'?' primary':''}" id="ideiaDecGo"${!(m.turns||[]).length||L.decide||L.turn?' disabled':''}>${dc&&dc.status==='ok'?'Decidir de novo':'Decidir com a mesa'}</button><span class="g2help">a mesa (${n} vozes) dá a posição e depois debate e vota · deve custar ${iEsc(fmtCostRange(lo*0.6,hi*0.6))}</span></div>`;
+  if(!dc) return `<p class="g2help">Converse com a mesa e, quando quiser, deixe ela votar: sai o MVP, o que fica de fora e a plataforma.</p>${go}`;
   if(dc.status==='rodando' || L.decide){
     const chips=(dc.rounds||[]).map(r=>`<div class="ideiaround"><b>${r.n===1?'Rodada 1 — posições':'Rodada 2 — debate e voto'}</b><div class="ideiarchips">${ps.map(p=>{ const x=r.resp[p.id]; const s=x?x.st:'na fila'; return `<span class="ideiachip ${s==='ok'?'ok':s==='pendente'?'live':s==='falhou'?'bad':''}">${iEsc(p.nome)}${s==='ok'?'':' · '+(s==='pendente'?'pensando':s)}</span>`; }).join('')}</div></div>`).join('');
-    return `<section class="ideiasec"><h2>Decisão</h2><div class="ideiaprog"><div class="ideiaprogh"><span class="pltyping"><i></i><i></i><i></i></span><b>${L.dpaused?'esperando a aba aparecer':'a mesa está decidindo'}</b><span class="ideiasp"></span>${L.decide?`<button type="button" class="btn sm" id="ideiaDecStop"${L.dstop?' disabled':''}>${IC.stopsq||''}${L.dstop?'parando…':'Parar'}</button>`:`<button type="button" class="btn sm primary" id="ideiaDecCont">continuar</button>`}</div>${chips}</div></section>`;
+    return `<div class="ideiaprog"><div class="ideiaprogh"><span class="pltyping"><i></i><i></i><i></i></span><b>${L.dpaused?'esperando a aba aparecer':'a mesa está decidindo'}</b><span class="ideiasp"></span>${L.decide?`<button type="button" class="btn sm" id="ideiaDecStop"${L.dstop?' disabled':''}>${IC.stopsq||''}${L.dstop?'parando…':'Parar'}</button>`:`<button type="button" class="btn sm primary" id="ideiaDecCont">continuar</button>`}</div>${chips}</div>`;
   }
-  if(dc.status!=='ok') return `<section class="ideiasec"><h2>Decisão</h2><div class="ideianote warn">${iEsc(dc.erro||'A decisão parou no meio.')}</div><div class="ideiaacts2"><button type="button" class="btn sm primary" id="ideiaDecCont">continuar de onde parou</button></div>${go}</section>`;
-  const v=ideiaDecisionView(dc, ps); if(!v) return `<section class="ideiasec"><h2>Decisão</h2>${go}</section>`;
+  if(dc.status!=='ok') return `<div class="g2err">${iEsc(dc.erro||'A decisão parou no meio.')}</div><div class="g2row"><button type="button" class="btn sm primary" id="ideiaDecCont">continuar de onde parou</button></div>${go}`;
+  const v=ideiaDecisionView(dc, ps); if(!v) return go;
   const nome=pid=>(ps.find(p=>p.id===pid)||{}).nome||pid;
-  const todosDiz=v.dec.rows.some(r=>!r.todos); // "voto de todos" em TODA linha não diz nada (mesma regra da Mesa)
+  const todosDiz=v.dec.rows.some(r=>!r.todos);
   const rows=v.dec.rows.filter(r=>r.total>0||r.vetadoPor.length).map(r=>{
     const inMvp=v.mvp.some(f=>f.id===r.id);
-    return `<li class="ideiafeat${inMvp?' on':''}${r.vetadoPor.length?' veto':''}"><span class="ideiafp">${r.total}</span><span class="ideiaft"><b>${iEsc(r.titulo)}</b>${r.vetadoPor.length?`<span class="ideiatag veto">vetada por ${iEsc(r.vetadoPor.map(nome).join(', '))}</span>`:''}${r.todos&&todosDiz?'<span class="ideiatag">voto de todos</span>':''}</span>`+
-      `<span class="ideiafb"><button type="button" class="btn sm${r.escolha==='aprovada'?' on':''}" data-ichoose="${iEsc(r.id)}:aprovada" aria-pressed="${r.escolha==='aprovada'}" title="entra no MVP" aria-label="pôr ${iEsc(r.titulo)} no MVP">${IC.ok}</button><button type="button" class="btn sm${r.escolha==='rejeitada'?' on bad':''}" data-ichoose="${iEsc(r.id)}:rejeitada" aria-pressed="${r.escolha==='rejeitada'}" title="fica de fora" aria-label="tirar ${iEsc(r.titulo)} do MVP">${IC.x}</button></span></li>`;
+    return `<div class="${inMvp?'':'out'}"><b>${r.total} pts</b><span>${iEsc(r.titulo)}${r.vetadoPor.length?`<small>vetada por ${iEsc(r.vetadoPor.map(nome).join(', '))}</small>`:''}${r.todos&&todosDiz?'<small>voto de todos</small>':''}</span>`+
+      `<span class="g2yn"><button type="button" class="y${inMvp?' on':''}" data-ichoose="${iEsc(r.id)}:aprovada" aria-pressed="${r.escolha==='aprovada'}" title="entra no MVP" aria-label="pôr ${iEsc(r.titulo)} no MVP">${IC.ok}</button><button type="button" class="n${r.escolha==='rejeitada'?' on':''}" data-ichoose="${iEsc(r.id)}:rejeitada" aria-pressed="${r.escolha==='rejeitada'}" title="fica de fora" aria-label="tirar ${iEsc(r.titulo)} do MVP">${IC.x}</button></span></div>`;
   }).join('');
-  const plats=IDEIA_PLATS.map(([k,l])=>`<option value="${k}"${k===v.plataforma?' selected':''}>${l}${k===v.plataformaVotada?' (votada)':''}</option>`).join('');
-  return `<section class="ideiasec"><h2>Decisão</h2>`+
-    `<div class="ideiadec"><div class="ideialbl">MVP <span class="dim">— ${v.mvp.length} feature${v.mvp.length===1?'':'s'}; pontos da votação; ${IC.ok} põe, ${IC.x} tira</span></div><ol class="ideiafeats">${rows}</ol>`+
-    `<label class="ideiaplat">Plataforma <select class="in" id="ideiaPlat">${plats}</select></label>`+
-    (v.naoObjetivos.length?`<div class="ideialbl">Fora do MVP</div><ul class="ideianon">${v.naoObjetivos.map(x=>`<li>${iEsc(x)}</li>`).join('')}</ul>`:'')+`</div>${go}</section>`;
+  const plats=IDEIA_PLATS.map(([k,l])=>`<button type="button" class="g2rad${k===v.plataforma?' on':''}" data-iplat="${k}" aria-pressed="${k===v.plataforma}">${l}${k===v.plataformaVotada?' <small>(votada)</small>':''}</button>`).join('');
+  return `<div class="g2k">MVP votado pela mesa <span>— ✓ põe, ✕ tira</span></div><div class="g2mvp">${rows}</div>`+
+    `<div class="g2fld"><span class="g2lb">Plataforma</span><div class="g2radios">${plats}</div></div>`+
+    (v.naoObjetivos.length?`<div class="g2k">Fora do MVP</div><p class="g2help">${v.naoObjetivos.map(iEsc).join(' · ')}</p>`:'')+go;
 }
 function ideiaCreateHtml(m){
   const L=ideiaLive(m.id), stage=ideiaStage(m);
   if(m.project && m.project.dir){
     const p=m.project;
-    return `<section class="ideiasec"><h2>Projeto</h2><div class="ideiadone">${IC.ok}<div><b>${p.mode==='piloto'?'Entregue pro piloto automático':'Projeto criado'}</b><div class="dim mono">${iEsc(String(p.dir).replace(/^\/Users\/[^/]+/,'~'))}</div></div></div>`+
-      `<div class="ideiaacts2"><button type="button" class="btn primary" id="ideiaOpenProj">${p.mode==='piloto'?'ver o progresso do piloto':'abrir o quadro do projeto'}</button>${m.report&&m.report.status==='ok'&&p.mode==='manual'&&m.report.at>p.at?'<button type="button" class="btn" id="ideiaSaveDoc">atualizar a pesquisa no projeto</button>':''}</div></section>`;
+    return `<div class="ideiadone">${IC.ok}<div><b>${p.mode==='piloto'?'Entregue pro piloto (construir sozinho)':'Projeto criado'}</b><div class="g2help mono">${iEsc(String(p.dir).replace(/^\/Users\/[^/]+/,'~'))}</div></div></div>`+
+      `<div class="g2row"><button type="button" class="btn primary" id="ideiaOpenProj">${p.mode==='piloto'?'Ver o progresso do piloto':'Abrir o quadro do projeto'}</button>${m.report&&m.report.status==='ok'&&p.mode==='manual'&&m.report.at>p.at?'<button type="button" class="btn" id="ideiaSaveDoc">Atualizar a pesquisa no projeto</button>':''}</div>`;
   }
-  if(stage!=='criar') return `<section class="ideiasec"><h2>Projeto</h2><div class="dim ideiahint">Depois que a mesa decidir o MVP, o Starfork monta o épico (pronto quando, requisitos por tarefa, ondas) e cria o projeto.</div></section>`;
+  if(stage!=='criar') return `<p class="g2help">Depois que a mesa decidir o MVP, o Starfork monta o épico e você escolhe como construir: seguir à mão ou construir sozinho (com teto).</p>`;
   const v=ideiaDecisionView(m.decision, ideiaPanel()), plan=ideiaBuildPlan(m, v, '');
-  const busy=L.creating, part=m.partial&&m.partial.dir;
-  return `<section class="ideiasec"><h2>Projeto</h2>${part?`<div class="ideianote warn">A criação parou no meio — a pasta ${iEsc(String(m.partial.dir).replace(/^\/Users\/[^/]+/,'~'))} já existe com ${m.partial.tasks.length} tarefa${m.partial.tasks.length===1?'':'s'}. "Continuar a criação" segue dali, sem repetir.</div>`:''}<div class="ideiaplan"><b>${iEsc(plan.epic)}</b> <span class="dim">· ${plan.tasks.length} tarefas em 2 ondas · ${iEsc(ideiaPlatName(plan.platform))}${m.report&&m.report.status==='ok'?' · com a pesquisa em docs/':''}</span></div>`+
-    `<div class="ideiacreate"><div class="ideiaopt"><b>Criar e seguir eu mesmo</b><p class="dim">Pasta nova em Documentos › Starfork com o épico e as tarefas em rascunho no quadro — você revisa e solta quando quiser.</p><label class="ideiachk"><input type="checkbox" id="ideiaGh"${IDEIA.gh?' checked':''}> guardar também no GitHub (privado)</label><button type="button" class="btn primary" id="ideiaMkManual"${busy?' disabled':''}>${busy?'criando…':part?'continuar a criação':'criar e seguir eu mesmo'}</button></div>`+
-    `<div class="ideiaopt"><b>Criar e entregar pro piloto automático</b><p class="dim">O piloto constrói tudo sozinho, sem perguntar, e prova cada tarefa. Só no seu computador (sem GitHub).</p><label class="ideiacap">teto US$ <input class="in" id="ideiaApCap" type="text" inputmode="decimal" placeholder="sem teto" value="${iEsc(IDEIA.apCap)}" aria-label="teto do piloto em dólares"></label><button type="button" class="btn" id="ideiaMkPiloto"${busy||part?' disabled':''}>criar e entregar pro piloto</button></div></div></section>`;
+  const part=m.partial&&m.partial.dir, E=ideiaEndForm(m);
+  E.platform=v.plataforma||E.platform;
+  const summary=`Vai criar <b>1 projeto + 1 épico com ${plan.tasks.length} tarefas em 2 etapas</b>${m.report&&m.report.status==='ok'?' · a pesquisa e o MVP vão em <code>docs/</code>':''} · o progresso aparece na lateral e na página do projeto.`;
+  return (part?`<div class="g2err">A criação parou no meio — a pasta ${iEsc(String(m.partial.dir).replace(/^\/Users\/[^/]+/,'~'))} já existe com ${m.partial.tasks.length} tarefa${m.partial.tasks.length===1?'':'s'}. Escolha "Seguir à mão" pra continuar a criação dali, sem repetir.</div>`:'')+
+    (typeof pilotoEndHtml==='function'?pilotoEndHtml({ f:E, busy:L.creating, err:IDEIA.endErr||'', src:'ideia', nTasks:plan.tasks.length, summary, ideaEditable:false, votada:v.plataformaVotada, back:{ label:'← voltar ao MVP', id:'ideiaBackMvp' } }):'');
 }
 function ideiaIdeaHtml(m){
   const L=ideiaLive(m.id), turns=m.turns||[];
-  const spent=(+m.costUsd||0)+(+m.tokUsd||0);
-  const head=`<div class="ideiatop"><div class="ideiatitle">${IC.ideia}<div><h1>Ideia: ${iEsc(m.titulo)}</h1><div class="dim ideiasub">gastou ${iEsc(fmtCost(spent,{ usdOnly:true }))}${+m.tokUsd>0?' (parte estimada pelos tokens)':''} · salva neste computador</div></div></div><div class="ideiactl"><button type="button" class="btn" id="ideiaBack">${IC.back||''}ideias</button></div></div>`;
-  const thread=`<div class="ideiathread plthread" id="ideiaThread">${turns.map((t,i)=>ideiaTurnHtml(m, t, i===turns.length-1)).join('')||'<div class="dim ideiahint">Escreva a ideia abaixo — a mesa responde.</div>'}</div>`;
+  const spent=(+m.costUsd||0)+(+m.tokUsd||0), stage=ideiaStage(m);
+  if(!IDEIA.tab || IDEIA.tabFor!==m.id){ IDEIA.tab=stage==='criar'||stage==='criado'?'proj':(m.decision?'mvp':'pes'); IDEIA.tabFor=m.id; }
+  const head=ideiaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Ideia: '+m.titulo, scope:'computador', sum:`<span>gastou <b>${iEsc(fmtCost(spent,{ usdOnly:true }))}</b> (≈ R$ ${iEsc(fmtNumBR(spent*usdBrlRate(), true))})${+m.tokUsd>0?' · parte estimada pelos tokens':''}</span>`, right:ideiaSteps(m) }):`<h1>Ideia: ${iEsc(m.titulo)}</h1>${ideiaSteps(m)}`);
+  const thread=`<div class="ideiathread plthread" id="ideiaThread"><div class="g2explain"><b>Mesa:</b> ${ideiaPanel().length} pontos de vista que respondem, debatem e votam. Você decide. Os nomes são personas simuladas, não pessoas reais.</div>${turns.map((t,i)=>ideiaTurnHtml(m, t, i===turns.length-1)).join('')||'<div class="g2help">Escreva a ideia abaixo — a mesa responde.</div>'}</div>`;
   const comp=chatComposerHtml({ input:'ideiaIn', send:'ideiaSend', stop:'ideiaStop', stopTitle:'para a mesa', rows:2, value:IDEIA.draft, modelPill:aiChatModelPill('ideiaModel'),
-    placeholder:'converse com a mesa — ex.: "e se for só pra quem tem pele oleosa?"', sendHtml:'enviar' });
-  return head+ideiaSteps(m)+`<div class="ideiagrid"><div class="ideiachat">${thread}${comp}</div><div class="ideiaside">${ideiaResearchHtml(m)}${ideiaDecisionHtml(m)}${ideiaCreateHtml(m)}</div></div>`;
+    placeholder:'continue a conversa com a mesa…', sendHtml:'enviar' });
+  const rep=m.report, dc=m.decision, v=dc&&dc.status==='ok'&&ideiaDecisionView(dc, ideiaPanel());
+  const tab=(k,l,small)=>`<button type="button" role="tab" data-itab="${k}" class="${IDEIA.tab===k?'on':''}" aria-selected="${IDEIA.tab===k}">${l}${small?`<small>${small}</small>`:''}</button>`;
+  const panes=`<div class="g2htabs" role="tablist">${tab('pes','Pesquisa',rep&&rep.status==='ok'?'pronta':(L.research&&L.research.running?'rodando':''))}${tab('mvp','MVP',v?'votado':(L.decide?'votando':''))}${tab('proj','Projeto',m.project?'criado':'')}</div>`+
+    `<div class="g2rp-b"${IDEIA.tab==='pes'?'':' hidden'}>${ideiaResearchHtml(m)}</div><div class="g2rp-b"${IDEIA.tab==='mvp'?'':' hidden'}>${ideiaDecisionHtml(m)}</div><div class="g2rp-b"${IDEIA.tab==='proj'?'':' hidden'}>${ideiaCreateHtml(m)}</div>`;
+  const foot=IDEIA.tab!=='proj'&&stage==='criar'?`<div class="g2pfoot"><span class="g2msg">${v?v.mvp.length+' ite'+(v.mvp.length===1?'m':'ns')+' no MVP':''}</span><span class="g2sp"></span><button type="button" class="btn primary" data-itab="proj">Criar o projeto →</button></div>`:'';
+  return head+`<div class="g2ideia"><div class="g2chat">${thread}<div class="g2cwrap">${comp}</div></div><div class="g2rpanel">${panes}${foot}</div></div>`;
 }
 function ideiaWire(body){
   const m=IDEIA.cur;
+  body.querySelectorAll('[data-igo]').forEach(b=>b.onclick=()=>{ if(window.fabOpen) window.fabOpen(b.dataset.igo, b.dataset.igo==='sessoes'?{ filter:'i' }:{ mode:'app' }); });
   if(!m){
     if($id('ideiaNewIn')) chatComposer({ input:'ideiaNewIn', attach:null, pend:()=>[], taskId:()=>null, rerender:()=>{}, send:'ideiaNewGo', onSend:ideiaStart, modelPill:aiChatModelPill('ideiaNewModel'), hint:'Enter começa · ⇧Enter quebra linha' });
     bindClick('ideiaNewGo', ideiaStart);
   } else {
     const L=ideiaLive(m.id);
     if($id('ideiaIn')) chatComposer({ input:'ideiaIn', attach:null, pend:()=>[], taskId:()=>null, rerender:()=>{}, send:'ideiaSend', onSend:ideiaSendFromInput, modelPill:aiChatModelPill('ideiaModel'),
-      stop:{ btn:'ideiaStop', busy:()=>L.turn, fn:()=>ideiaStopTurn(m) }, hint:'Enter envia · ⇧Enter quebra linha', busyHint:'a mesa está respondendo…' });
+      stop:{ btn:'ideiaStop', busy:()=>L.turn, fn:()=>ideiaStopTurn(m) }, hint:'Enter envia · a mesa responde em paralelo', busyHint:'a mesa está respondendo…' });
     bindClick('ideiaSend', ideiaSendFromInput);
-    bindClick('ideiaBack', async()=>{ IDEIA.cur=null; IDEIA.pendingId=''; if(typeof renderTabs==='function') renderTabs(); await ideiaLoadList(); ideiaRender(); });
+    body.querySelectorAll('[data-itab]').forEach(b=>b.onclick=()=>{ IDEIA.tab=b.dataset.itab; ideiaRender(); });
+    bindClick('ideiaBackMvp', ()=>{ IDEIA.tab='mvp'; ideiaRender(); });
     bindClick('ideiaRetryTurn', ()=>{ const t=m.turns[m.turns.length-1]; if(t) ideiaRunTurn(m, t); });
     bindClick('ideiaResGo', ()=>ideiaResearch(m));
     bindClick('ideiaResStop', ()=>ideiaStopResearch(m));
     bindClick('ideiaDecGo', ()=>ideiaDecide(m, false));
     bindClick('ideiaDecCont', ()=>ideiaDecide(m, true));
     bindClick('ideiaDecStop', ()=>ideiaStopDecide(m));
+    // fim de caminho (o formulário do 56-piloto, aqui dentro da ideia)
+    { const E=ideiaEndForm(m), h=$id('pilIa'); if(h && typeof iaPick==='function') IDEIA.endIa=iaPick(h, { value:{ engine:E.engine, model:E.model }, scope:'piloto', onChange:v=>{ E.engine=v.engine; E.model=v.model; } }); }
+    body.querySelectorAll('[data-pil-eo]').forEach(b=>{ b.onclick=e=>{ if(e.target.closest('input,label')) return; ideiaEndRead(m).end=b.dataset.pilEo; ideiaRender(); }; b.onkeydown=e=>{ if((e.key==='Enter'||e.key===' ')&&e.target===b){ e.preventDefault(); b.click(); } }; });
+    body.querySelectorAll('[data-pil-plat]').forEach(b=>b.onclick=async()=>{ ideiaEndRead(m); if(m.decision){ m.decision.plataforma=b.dataset.pilPlat; await ideiaSave(m); } ideiaRender(); });
+    body.querySelectorAll('[data-iplat]').forEach(b=>b.onclick=async()=>{ if(m.decision){ m.decision.plataforma=b.dataset.iplat; await ideiaSave(m); } ideiaRender(); });
+    { const i=$id('pilBudget'); if(i) i.oninput=()=>{ const E=ideiaEndRead(m), c=typeof pilotoCapCheck==='function'?pilotoCapCheck(i.value,0):{ ok:true }; i.classList.toggle('err',!c.ok); const er=$id('pilCapErr'); if(er){ er.hidden=c.ok; er.textContent=c.ok?'':c.err; } const g=$id('pilGo'); if(g) g.disabled=!!(L.creating||(E.end!=='hand'&&!c.ok)); const ms=$id('pilCapMsg'); if(ms) ms.textContent=E.end!=='hand'?(c.ok?'pronto pra construir':'falta o teto'):'cria o projeto e o épico em rascunho'; }; }
+    bindClick('pilCapSug', ev=>{ const i=$id('pilBudget'); if(i){ i.value=ev.currentTarget.dataset.cap+',00'; i.oninput&&i.oninput(); i.focus(); } });
+    bindClick('pilGo', ()=>{ const E=ideiaEndRead(m); ideiaCreate(m, E.end==='hand'?'manual':'piloto'); });
     bindClick('ideiaMkManual', ()=>ideiaCreate(m, 'manual'));
     bindClick('ideiaMkPiloto', ()=>ideiaCreate(m, 'piloto'));
     bindClick('ideiaGoCfg', ()=>{ if(typeof suaIaOpenCfg==='function') suaIaOpenCfg(); else if(window.openTab) window.openTab('cfg'); });
-    bindClick('ideiaGoEnv', ()=>{ if(window.openTab) window.openTab('env'); });
-    bindClick('ideiaOpenProj', async()=>{ const p=m.project; if(!p) return; if(window.switchProject && (typeof state==='undefined'||state.repo!==p.dir)) try{ await window.switchProject(p.dir); }catch(_){ } if(p.mode==='piloto'){ if(typeof pilSetDir==='function') pilSetDir(p.dir); window.openTab('pilotorun'); } else window.openTab('flow'); });
+    bindClick('ideiaGoEnv', ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('verificacao'); else if(window.openTab) window.openTab('env'); });
+    bindClick('ideiaOpenProj', async()=>{ const p=m.project; if(!p) return; if(window.switchProject && (typeof state==='undefined'||state.repo!==p.dir)) try{ await window.switchProject(p.dir); }catch(_){ } if(p.mode==='piloto'){ if(typeof pilotoRunOpen==='function') pilotoRunOpen(p.dir); else { if(typeof pilSetDir==='function') pilSetDir(p.dir); window.openTab('pilotorun'); } } else window.openTab('flow'); });
     bindClick('ideiaSaveDoc', async()=>{ try{ await invoke('ideia_commit_doc',{ repo:m.project.dir, rel:`docs/pesquisa-${ideiaSlug(m.titulo)}.md`, content:m.report.md, message:'docs: pesquisa de mercado atualizada' }); m.project.at=Date.now(); await ideiaSave(m); ideiaRender(); toast('Pesquisa atualizada no projeto.','ok'); }catch(e){ showErr(e,'Não consegui gravar a pesquisa no projeto'); } });
-    const pl=$id('ideiaPlat'); if(pl) pl.onchange=async()=>{ m.decision.plataforma=pl.value; await ideiaSave(m); ideiaRender(); };
-    const gh=$id('ideiaGh'); if(gh) gh.onchange=()=>{ IDEIA.gh=gh.checked; };
     body.querySelectorAll('[data-ichoose]').forEach(b=>b.onclick=async()=>{ const [id,w]=b.dataset.ichoose.split(':'); const e=m.decision.escolhas=m.decision.escolhas||{}; if(e[id]===w) delete e[id]; else e[id]=w; await ideiaSave(m); ideiaRender(); });
   }
 }
@@ -732,7 +762,6 @@ document.addEventListener('click', e=>{
   const u=e.target.closest&&e.target.closest('[data-iurl]');
   if(u){ e.preventDefault(); invoke('open_url',{ url:u.dataset.iurl }).catch(()=>{}); }
 });
-bindClick('ideiaClose', ()=>{ if(typeof ovHide==='function') ovHide('ideiaOverlay'); });
 // entrada pela tela inicial sem projeto ("O que você quer fazer?"): o texto digitado vira a 1ª mensagem
 bindClick('emIdeia', ()=>{ const t=$id('emWhat'); ideiaNew(t&&t.value); if(t) t.value=''; });
 

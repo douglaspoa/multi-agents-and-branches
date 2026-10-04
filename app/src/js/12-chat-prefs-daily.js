@@ -44,7 +44,8 @@ function pcRender(){
   const projOpts=(typeof projList==='function'?projList():[]).map(([path,name])=>`<option value="${escA(path)}"${path===state.repo?' selected':''}>${esc(name)}</option>`).join('');
   const here=pcBusy && pcBusyRepo===(state.repo||''); // "lendo o projeto…" só no chat do projeto que perguntou
   const otherBusy=pcBusy && !here;
-  const head=`<div class="pc-head"><div><h1 class="as-h1">Chat do projeto</h1><p class="as-sub">Ele lê o código de verdade antes de responder — e não altera nada.</p></div><div class="as-actions"><select class="as-btn pc-proj" id="pcProj" title="${escA((pathBase(state.repo)||'')+' — sobre qual projeto você quer conversar')}" aria-label="Projeto da conversa">${projOpts}</select><button class="as-btn" id="pcTask2" title="${here?'espere a resposta terminar':'a conversa vira a especificação de uma tarefa'}"${pcToTaskBusy||here||!ms.length?' disabled':''}>${ic('compass')}${pcToTaskBusy?'montando a tarefa…':'virar tarefa'}</button><button class="as-btn" id="pcClear2" title="começa uma conversa nova (a atual some)" style="border-color:transparent;color:var(--text-3)"${ms.length&&!here?'':' disabled'}>nova conversa</button></div></div>`
+  // F4 (G1, mesa tela 17): Projeto › Conversa — o seletor de projeto saiu (trocava o projeto do app em silêncio)
+  const head=`<div class="pc-head"><div><h2 class="pc-h2">Conversa</h2><p class="as-sub">Lê o código de verdade antes de responder e não altera nada. Segue este projeto — nunca troca o projeto aberto no app.</p></div><div class="as-actions"><button class="as-btn primary" id="pcTask2" title="${here?'espere a resposta terminar':'a conversa vira a especificação de uma tarefa'}"${pcToTaskBusy||here||!ms.length?' disabled':''}>${ic('compass')}${pcToTaskBusy?'montando a tarefa…':'virar tarefa'}</button><button class="as-btn" id="pcClear2" title="começa uma conversa nova (a atual some)" style="border-color:transparent;color:var(--text-3)"${ms.length&&!here?'':' disabled'}>nova conversa</button></div></div>`
     +(otherBusy?`<div class="imhint" style="margin:10px 0 0">Ainda respondendo uma pergunta sobre <b>${esc(pathBase(pcBusyRepo))}</b> — a resposta fica salva na conversa daquele projeto.</div>`:'');
   let bodyHtml;
   if(ms.length){
@@ -57,7 +58,6 @@ function pcRender(){
   th.innerHTML=`<div class="appscreen">${head}${bodyHtml}</div>`;
   { const b=th.querySelector('#pcTask2'); if(b) b.onclick=()=>{ const o=$id('pcTask'); if(o) o.click(); }; }
   { const b=th.querySelector('#pcClear2'); if(b) b.onclick=()=>{ const o=$id('pcClear'); if(o) o.click(); }; }
-  { const s=th.querySelector('#pcProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p&&p!==state.repo&&window.switchProject){ await switchProject(p); } pcRender(); }; }
   th.querySelectorAll('[data-sg]').forEach(b=>b.onclick=()=>{ const i=$id('pcInput'); if(i){ i.value=b.dataset.sg; i.focus(); } });
   attRenderPend('pcPend', pcPend, pcRender);
   chatComposer({ input:'pcInput', attach:'pcAttach', pend:()=>pcPend, taskId:()=>null, rerender:pcRender, onSend:pcSend, send:'pcSend', modelPill:aiChatModelPill('pcModel'),
@@ -144,40 +144,46 @@ async function prefsPull(){ // nuvem → .cardume/PREFS.md local (todo mundo peg
     const r=remotePick(rows, k.ids, 'repo');
     if(r) await invoke('repo_doc_write',{ doc:'PREFS.md', content:r.content||'' }); }catch(_){ }
 }
+// F4 (G1): Projeto › Regras. Os três blocos aparecem SEMPRE que há projeto: proteção (local), checagens (local,
+// .cardume/checks.json — inventário 13: antes só com login + org + remote) e convenções (só essas pedem conta + remote).
+// "Salvar pro time" mora na barra fixa, só aparece com mudança e NÃO fecha a aba.
+let prefsK=null, prefsLoaded='';
+function prefsBarSync(){ const ta=$id('prefsText'), bar=$id('prefsBar'); if(bar) bar.hidden=!(prefsK && ta && ta.value!==prefsLoaded); }
 async function openPrefs(){
   const ov=$id('prefsOverlay');
-  // Proteção dos agentes é LOCAL (vale nesta máquina, por pasta do projeto) — não depende de conta/nuvem
   const repoPath=(state&&state.repo)||'';
-  { const h=$id('prefsProtHost'); if(h){ if(repoPath && typeof protectPrefsHtml==='function'){ if(!protectLoaded) await protectLoad(); h.innerHTML=protectPrefsHtml(repoPath); protectPrefsWire(repoPath); } else h.innerHTML=''; } }
-  // memória do projeto: onde salvar as memórias novas (time/local/só local) — mesmo seletor da aba Memória
-  if(typeof memPrefsRender==='function') memPrefsRender();
+  ovShow(ov); // nunca aba em branco: sem projeto a página Projeto mostra o estado "Esta página é de um projeto"
+  if(!repoPath) return;
+  // Proteção dos agentes é LOCAL (vale nesta máquina, por pasta do projeto) — não depende de conta/nuvem
+  { const h=$id('prefsProtHost'); if(h){ if(typeof protectPrefsHtml==='function'){ if(!protectLoaded) await protectLoad(); h.innerHTML=protectPrefsHtml(repoPath); protectPrefsWire(repoPath); } else h.innerHTML=''; } }
+  if(typeof prefsChecksRender==='function') prefsChecksRender(); // checagens: sem conta e sem GitHub também
+  $id('prefsRepo').textContent=pathBase(repoPath);
   const cloudOk=!!(SB.sess()&&cloudData&&cloudData.org);
-  const k=cloudOk?await prefsKey():null;
-  // sem conta/remote: o documento do time fica indisponível, mas a proteção continua configurável
-  { const ta=$id('prefsText'), sv=$id('prefsSave'); const box=ta&&(ta.closest('.ceditor')||ta); if(box) box.style.display=k?'':'none'; if(sv) sv.style.display=k?'':'none'; }
+  const k=cloudOk?await prefsKey():null; prefsK=k;
+  const ta=$id('prefsText'), off=$id('prefsConvOff'); const box=ta&&(ta.closest('.ceditor')||ta);
+  if(box) box.style.display=k?'':'none';
+  { const sc=$id('prefsConvScope'); if(sc){ const tm=cloudData&&cloudData.teams&&cloudData.teams.find(t=>t.id===(typeof cloudTeamId==='function'?cloudTeamId():'')); sc.textContent=tm?'Time '+tm.name:'Time'; } }
   if(!k){
-    if(!repoPath){ toast('Abra um projeto primeiro.','warn'); return; }
-    $id('prefsRepo').textContent=pathBase(repoPath);
-    $id('prefsMeta').textContent=cloudOk?'as convenções do time precisam de um repositório com git remote':'entre na sua conta pra escrever as convenções do time';
-    ovShow(ov); return;
+    if(off){ off.hidden=false; off.textContent=cloudOk?'As convenções do time precisam de um repositório com git remote (publique o projeto no GitHub em Projetos).':'Entre na sua conta pra escrever as convenções do time — proteção e checagens já valem sem conta.'; }
+    $id('prefsMeta').textContent=''; prefsBarSync(); return;
   }
-  $id('prefsRepo').textContent=k.repo.replace(/^https?:\/\/[^/]+\//,'').replace(/\.git$/,'');
+  if(off) off.hidden=true;
   $id('prefsMeta').textContent='';
-  ovShow(ov); // depois do await: respeita o modo aba
-  if(typeof prefsChecksRender==='function') prefsChecksRender(); // FT-5a: seção Checagens
-  mountEditor($id('prefsText'), { markdown:true });
+  mountEditor(ta, { markdown:true });
+  if(!ta.__prefsWired){ ta.__prefsWired=true; ta.addEventListener('input', prefsBarSync); }
   try{
-    const rows=await tabBusy('prefs', sbGet('project_prefs?select=repo,content,updated_by,updated_at&org_id=eq.'+k.orgId+'&'+remoteInQ('repo', k.ids)), { label:'buscando as convenções do time' });
+    const rows=await tabBusy('projeto', sbGet('project_prefs?select=repo,content,updated_by,updated_at&org_id=eq.'+k.orgId+'&'+remoteInQ('repo', k.ids)), { label:'buscando as convenções do time' });
     const r=remotePick(rows, k.ids, 'repo'); // salvar grava na forma nova — a antiga fica como estava
-    editorSet($id('prefsText'), (r&&r.content)||'');
+    prefsLoaded=(r&&r.content)||''; editorSet(ta, prefsLoaded);
     if(r){ const who=(cloudData.profileByUser&&cloudData.profileByUser[r.updated_by])||{}; $id('prefsMeta').textContent='última edição: '+((who.name||who.email||'alguém'))+' · '+new Date(r.updated_at).toLocaleString('pt-BR'); }
     else $id('prefsMeta').textContent='ainda em branco — escreva as convenções do projeto';
   }catch(e){ $id('prefsMeta').textContent=humanErr(e,'Não consegui carregar as convenções').msg; }
+  prefsBarSync();
 }
 bindClick('prefsBtn', ()=>{ if(window.openTab) window.openTab('prefs'); else openPrefs(); });
 $id('prefsClose').onclick=()=>{ ovHide('prefsOverlay'); };
-$id('prefsCancel').onclick=()=>{ ovHide('prefsOverlay'); };
-$id('prefsOverlay').addEventListener('click',e=>{ if(e.target.id==='prefsOverlay') ovHide('prefsOverlay'); });
+bindClick('prefsGoMem', ()=>{ if(window.projGo) window.projGo('memoria'); else if(window.openTab) window.openTab('memoria'); });
+$id('prefsCancel').onclick=()=>{ const ta=$id('prefsText'); if(ta){ editorSet(ta, prefsLoaded); } prefsBarSync(); };
 $id('prefsSave').onclick=async()=>{
   const k=await prefsKey(); if(!k) return;
   const b=$id('prefsSave'); b.disabled=true; b.textContent='salvando…';
@@ -186,9 +192,9 @@ $id('prefsSave').onclick=async()=>{
     await sbFetch('/rest/v1/project_prefs?on_conflict=org_id,repo',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
       body: JSON.stringify({ org_id:k.orgId, repo:k.repo, content, updated_by:cloudUserId(), updated_at:new Date().toISOString() }) });
     await invoke('repo_doc_write',{ doc:'PREFS.md', content }).catch(()=>{}); // desce pro repo já
-    $id('prefsMeta').textContent='✓ salvo pro time · aplica nas próximas tarefas';
+    prefsLoaded=content; $id('prefsMeta').textContent='✓ salvo pro time · aplica nas próximas tarefas';
   }catch(e){ $id('prefsMeta').textContent=humanErr(e,'Não consegui salvar as convenções').msg; }
-  finally{ b.disabled=false; b.textContent='salvar pro time'; }
+  finally{ b.disabled=false; b.textContent='Salvar pro time'; prefsBarSync(); }
 };
 // ---- Preferências do projeto → "Checagens antes de aprovar" (FT-5a) ----
 // Detectadas na cópia da tarefa/repo (package.json, Cargo, pytest, go.mod) com liga/desliga + comandos
@@ -272,7 +278,7 @@ function loadDaily(){
 function dailyErrHead(iso){
   const body=$id('dailyBody'); const er=body&&body.querySelector(':scope>.ld-err'); if(!er || body.querySelector('#dlDate')) return;
   const h=document.createElement('div'); h.className='appscreen dl-errhead'; h.style.cssText='min-height:0;padding-bottom:0';
-  h.innerHTML=`<div class="as-head"><div><h1 class="as-h1">Daily</h1><p class="as-sub">Não deu pra montar este dia — tente de novo ou escolha outra data.</p></div>
+  h.innerHTML=`<div class="as-head"><div><p class="as-sub">Não deu pra montar este dia — tente de novo ou escolha outra data.</p></div>
     <div class="as-actions"><input type="date" id="dlDate" class="as-btn as-mono" value="${escA(iso)}" aria-label="dia do relatório" style="color:var(--text);padding:8px 12px"></div></div>`;
   body.insertBefore(h, er);
   const d=h.querySelector('#dlDate'); d.onchange=()=>{ if(!d.value){ d.value=iso; return; } // apagou a data (×): volta pro dia que falhou
@@ -282,14 +288,15 @@ function renderDaily(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
   const body=$id('dailyBody'); if(!body||!dailyData) return;
   const iso=dailyIso||($id('dailyDate')||{}).value||'';
-  const head=`<div class="as-head"><div><h1 class="as-h1">Daily</h1><p class="as-sub">O que os agentes fizeram — pronto pra colar na reunião.</p></div>
-    <div class="as-actions"><input type="date" id="dlDate" aria-label="dia do resumo" class="as-btn as-mono" value="${escA(iso)}" style="color:var(--text);padding:8px 12px">
-      <button class="as-btn" id="dlAI">resumo curto</button><button class="as-btn primary" id="dlDoc">DOC + PDF</button></div></div>`;
+  // F4 (D20): o Daily virou Central › Concluídas › Resumo do período — sem H1 próprio (a Central já tem o cabeçalho)
+  const head=`<div class="rs-bar"><label class="rs-l">Dia <input type="date" id="dlDate" aria-label="dia do resumo" class="in" value="${escA(iso)}"></label>
+    <span class="dim rs-proj" title="o resumo lê o projeto aberto">${esc(pathBase(state.repo||''))}</span><span class="dim">o que os agentes fizeram, pronto pra colar na reunião</span><span class="grow"></span>
+    <button class="btn sm" id="dlAI">Resumo curto</button><button class="btn primary sm" id="dlDoc" title="o relatório técnico do período (o quê · por quê · arquitetura · como validar) — salvar .md ou PDF">Gerar relatório do período</button></div>`;
   if(!dailyData.length){ body.innerHTML=`<div class="appscreen">${head}<div style="margin-top:22px">${emptyHtml({ icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"><rect x="2.6" y="3.4" width="10.8" height="10" rx="1.6"/><path d="M2.6 6.6h10.8M5.4 2.2v2.4M10.6 2.2v2.4"/></svg>', title:'Dia sem atividade', help:'Nenhuma tarefa deste projeto teve movimento em '+(iso?iso.split('-').reverse().join('/'):'nesse dia')+'.', action:{ label:'ver o dia anterior', id:'dlPrev', primary:false } })}</div></div>`; wireDaily(); return; }
   const totUsd=dailyData.reduce((s,t)=>s+(t.usd||0),0);
   const totCommits=Object.values(dailyCommits).reduce((s,c)=>s+c.length,0);
   const merged=dailyData.filter(t=>['merged','done'].includes(t.status)).length, rev=dailyData.filter(t=>['review','delivered'].includes(t.status)).length;
-  const kpis=[[dailyData.length,dailyData.length===1?'tarefa tocada':'tarefas tocadas',''],[totCommits,totCommits===1?'commit':'commits',''],[rev+merged,'prontas ou mergeadas','var(--accent)'],[fmtUsd(totUsd),'custo do dia','']];
+  const kpis=[[dailyData.length,dailyData.length===1?'tarefa tocada':'tarefas tocadas',''],[totCommits,totCommits===1?'commit':'commits',''],[rev+merged,'prontas ou mergeadas','var(--accent)'],[fmtUsd(totUsd),'custo do dia · ≈ R$ '+fmtNumBR(totUsd*usdBrlRate(), true),'']];
   const kpiRow=`<div class="as-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin:22px 0 24px">${kpis.map(k=>`<div class="as-card"><div style="font:600 var(--fs-xl)/1 var(--display);color:${k[2]||'var(--text)'}">${k[0]}</div><div style="margin-top:8px;font:500 var(--fs-xs) var(--code);letter-spacing:.12em;color:var(--text-3)">${esc(k[1])}</div></div>`).join('')}</div>`;
   const cards=dailyData.map(t=>{
     const cs=dailyCommits[t.id]||[];
@@ -322,7 +329,7 @@ function wireDaily(){
 const dailyBusy={ ai:false, doc:false };
 // @puro-inicio dailyBtnState — estado de um botão: escrevendo (busy) › carregando o dia › dia sem atividade › livre
 function dailyBtnState(k, st){
-  const on=k==='ai'?'escrevendo…':'escrevendo o relatório…', off=k==='ai'?'resumo curto':'DOC + PDF';
+  const on=k==='ai'?'escrevendo…':'escrevendo o relatório…', off=k==='ai'?'Resumo curto':'Gerar relatório do período';
   if(st.busy) return { disabled:true, label:on, title:'' };
   if(st.loading) return { disabled:true, label:off, title:'espere o dia carregar' };
   if(!st.has) return { disabled:true, label:off, title:'dia sem atividade — troque a data' };

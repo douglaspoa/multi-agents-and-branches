@@ -39,6 +39,8 @@
 <link rel="stylesheet" href="css/97-revisao-pr.css">
 <link rel="stylesheet" href="css/98-terminal-integrado.css">
 <link rel="stylesheet" href="css/98-fabrica.css">
+<link rel="stylesheet" href="css/99-paginas.css">
+<link rel="stylesheet" href="css/99-ajustes.css">
 </head>
 <body>
 <div class="app">
@@ -58,14 +60,23 @@
       <div id="rail"></div>
     </div>
     <!-- redesenho F1: as DEMANDAS vêm primeiro (lista acima); a navegação fica embaixo dela, como no protótipo aprovado -->
-    <div class="sbnav2" role="navigation" aria-label="navegação">
+    <!-- F4 (G1, mesa D1): 4 lugares — Projetos · Issues · Fábrica · Time (só com organização). "Mais" e "Chat do projeto"
+         saíram (Chat → Projeto › Conversa, ⌘J); o rodapé é medidor + avatar (menu: 68-casca-g1.js) -->
+    <div class="sbnav2" role="navigation" aria-label="Lugares">
       <button class="btn sbitem sbproj" id="projetosBtn" title="Projetos — todos os repositórios (trocar, adicionar, remover)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Projetos</button>
       <button class="btn sbitem" id="issuesBtn" title="Issues — o painel de issues do time: conexão, projetos e quadro (kanban)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/></svg>Issues</button>
-      <button class="btn sbitem" id="pcBtn" title="Conversar sobre o projeto — dúvidas, arquitetura, ideias (⌘J)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg>Chat do projeto</button>
       <button class="btn sbitem" id="fabricaBtn" title="Fábrica — montar apps e funcionalidades com a IA, do pedido ao app pronto"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 13.5V7.2l3.2 2V7.2l3.2 2V4.5h2.2v9z" stroke-linejoin="round"/><path d="M2 13.5h12" stroke-linecap="round"/></svg>Fábrica</button>
+      <button class="btn sbitem" id="timeBtn" hidden title="Time — visão geral, quadro, PRs pra revisar, pessoas e atividade"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Time</button>
     </div>
     <!-- medidor do plano (28-medidor-plano): uso de cada IA configurada; minimizável -->
     <div class="planmeter" id="planMeter" role="group" aria-label="Uso do plano"></div>
+    <div class="sbme">
+      <button class="sbmebtn" id="meBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="meMenu"><span class="meav" id="meAv" aria-hidden="true">?</span><span class="metx"><b id="meName">Entrar</b><small id="meSub"></small></span><svg class="mechev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 9.8 8 6.3l3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <!-- compatibilidade: os botões antigos do "Mais" seguem no DOM (outros arquivos ligam handlers e selos neles),
+         sempre escondidos — o menu do avatar e a página Projeto chamam as mesmas funções -->
+    <div class="sbcompat" id="sbCompat" hidden aria-hidden="true">
+      <button class="btn sbitem" id="pcBtn" title="Conversar sobre o projeto — dúvidas, arquitetura, ideias (⌘J)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg>Chat do projeto</button>
     <div class="sbnav">
       <button class="btn sbitem" id="cloudBtn" title="Conta e time — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
       <div style="position:relative" id="moreWrap">
@@ -84,6 +95,7 @@
       <button class="btn" id="pubRelBtn" style="display:none" title="só em instalação de desenvolvimento ou pra admin da organização — sobe o zip empacotado (dist/) pro canal do time — os Macs dos colegas mostram o botão atualizar">⇡ Publicar release</button>
       </div>
       </div>
+    </div>
     </div>
   </aside>
 
@@ -109,21 +121,29 @@
         <span class="chint" id="chint">quem fez o quê · commits por tarefa</span>
         <div id="navTabs" style="display:contents"></div>
       </div>
-      <div id="flowPane" class="pane"><div id="flowHead" class="flowhead"></div><div id="flowFilters" class="ffbar"></div><div id="flow"></div></div>
+      <div id="flowPane" class="pane"><div id="flowHead" class="flowhead"></div><div id="flowFilters" class="ffbar"></div><div id="flow"></div><div id="flowResumo" class="flowresumo" hidden></div></div>
       <div id="kanbanPane" class="pane" style="display:none"><div id="kanban" class="kanban"></div></div>
       <div id="graphPane" class="pane" style="display:none"><svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg></div>
       <div id="feedPane" class="pane" style="display:none"><div id="feed"></div></div>
       <div id="teamPane" class="pane" style="display:none;padding:12px 12px 16px"><div id="teamBoard"></div></div>
+      <!-- F4 (G1, mesa tela 03): o "Início sem projeto" virou o ESTADO VAZIO da Central — campo de uma frase (mesmo fluxo de
+           Fábrica › Já sei o que quero), 3 portas legíveis e os projetos recentes deste computador -->
       <div id="emptyRepo" class="emptyrepo emstart" style="display:none">
         <div class="emwrap">
+          <div id="emBand"></div>
           <h1 class="emh1">O que você quer fazer?</h1>
-          <p class="emsub">Conte em português normal. O Starfork cria uma pasta pro projeto e a IA monta o plano com você — sem configurar nada antes.</p>
-          <textarea id="emWhat" class="emta" rows="4" placeholder="Ex.: um app de agendamento de aulas pro estúdio de pilates da minha irmã" spellcheck="true"></textarea>
-          <div class="emex"><span class="dim">exemplos:</span><button type="button" class="emchip" data-emex="um app de agendamento de aulas">um app de agendamento de aulas</button><button type="button" class="emchip" data-emex="um site de portfólio">um site de portfólio</button><button type="button" class="emchip" data-emex="um relatório a partir de uma planilha">um relatório a partir de uma planilha</button></div>
+          <p class="emsub">Conte em português normal. O Starfork cria a pasta do projeto e a IA monta o plano com você — sem configurar nada antes.</p>
+          <div class="emask"><textarea id="emWhat" class="emta" rows="4" placeholder="Ex.: um app de agendamento de aulas pro estúdio de pilates da minha irmã" spellcheck="true" aria-label="Descreva o que você quer fazer"></textarea>
+            <div class="emcta"><span class="grow"></span><button class="btn primary embig" id="emGo">Começar</button><span class="dim emkbd">⌘↵</span></div></div>
           <div class="emwhere" id="emWhere"></div>
           <div class="emerr" id="emErr" style="display:none"></div>
-          <div class="emcta"><button class="btn primary embig" id="emGo">Começar</button><span class="dim emkbd">⌘↵</span></div>
-          <div class="emalt"><a id="emAbrir">Abrir uma pasta que já tenho</a><span class="dim">·</span><a id="emNovo" title="escolher onde a pasta mora e (opcional) criar o repositório no GitHub">Criar projeto com GitHub…</a><span class="dim">·</span><a id="emIdeia" title="conversar com a mesa de personas, pesquisar na web se a ideia teria procura agora e só então criar o projeto">Começar por uma ideia (pesquisa + mesa)</a></div>
+          <div class="emex"><span class="dim">exemplos:</span><button type="button" class="emchip" data-emex="um app de agendamento de aulas">um app de agendamento de aulas</button><button type="button" class="emchip" data-emex="um site de portfólio">um site de portfólio</button><button type="button" class="emchip" data-emex="um relatório a partir de uma planilha">um relatório a partir de uma planilha</button></div>
+          <div class="emways">
+            <button type="button" class="emway" id="emAbrir"><b>Abrir uma pasta que já tenho</b><span>escolha a pasta · ⌘O</span></button>
+            <button type="button" class="emway" id="emNovo" title="escolher onde a pasta mora e (opcional) criar o repositório no GitHub"><b>Criar com GitHub…</b><span>em Projetos, com dono e visibilidade</span></button>
+            <button type="button" class="emway" id="emIdeia" title="pesquisa na web + mesa: 5 pontos de vista que debatem e votam — e só então o projeto"><b>Começar por uma ideia</b><span>pesquisa + mesa (5 pontos de vista que debatem e votam)</span></button>
+          </div>
+          <div class="emrecent" id="emRecent"></div>
         </div>
       </div>
     </div>
@@ -141,7 +161,8 @@
 
 <div class="overlay" id="ntOverlay" style="display:none">
   <div class="modal">
-    <div class="mhead nf-head" data-tauri-drag-region><span class="ndeyebrow" data-tauri-drag-region>nova demanda</span><select class="nd-projsel" id="ntProj" title="projeto onde a demanda vai abrir"></select><span class="nf-typechip" id="ntTypeChip" title="tipo da demanda"><span class="nf-typedot"></span><span id="ntTypeName">Feature</span><a id="ntTypeSwap" title="trocar o tipo da demanda">trocar</a></span><span style="flex:1" data-tauri-drag-region></span><div class="orq-seg ndseg ndseg-sm" role="tablist" aria-label="como montar a demanda"><button type="button" role="tab" id="ntAI" class="" data-ndseg="planner" title="a IA pergunta só o essencial e monta a demanda">Conversar</button><button type="button" role="tab" class="on" data-ndseg="form" title="formulário com todos os campos, sem conversa">Formulário</button><button type="button" role="tab" class="" data-ndseg="orq" title="um agente coordenador divide o problema em etapas e abre uma tarefa por etapa">Dividir</button></div><button class="as-btn" id="ntImport" title="importar uma spec .md pronta"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="x" id="ntClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead nf-head g2ndhead" data-tauri-drag-region><h1 class="pgh-title nf-title">Nova demanda</h1><label class="g2scopebtn" title="a demanda cai no projeto que você escolher aqui">em <select class="nd-projsel" id="ntProj" aria-label="projeto onde a demanda vai abrir"></select></label><span class="pgh-sum nf-sum" id="ntSum">campo a campo, sem conversa · rascunho salvo</span><span style="flex:1" data-tauri-drag-region></span><div class="g2seg ndseg" role="tablist" aria-label="Modo"><button type="button" role="tab" id="ntAI" class="" data-ndseg="planner" aria-selected="false" title="a IA pergunta só o essencial e monta a demanda">Conversar</button><button type="button" role="tab" class="on" data-ndseg="form" aria-selected="true" title="campo a campo, sem conversa">Formulário</button></div><button type="button" class="btn icon quiet" id="ntMore" title="Mais: importar .md · recomeçar do zero" aria-label="Mais ações" aria-haspopup="menu"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/></svg></button><span hidden><span id="ntTypeChip"><span id="ntTypeName">Feature</span><a id="ntTypeSwap">trocar</a></span><button id="ntImport" type="button">importar .md</button><button id="ntClose" type="button" aria-label="Fechar">fechar</button></span></div>
+    <div class="g2htabs nt-types" id="ntTypeTabs" role="tablist" aria-label="Tipo de demanda"><button type="button" role="tab" data-nttype="build">Feature</button><button type="button" role="tab" data-nttype="fix">Correção</button><button type="button" role="tab" data-nttype="invest">Investigação</button><button type="button" role="tab" data-nttype="design">Design</button><button type="button" role="tab" data-nttype="review">Revisar PR</button></div>
     <div class="mbody">
       <div id="ntRight">
       <div class="ntviewbar"><span class="dim" style="font-size:var(--fs-xs)">SPEC</span><span style="flex:1"></span><div class="seg2"><button id="ntVForm" class="on">Formulário</button><button id="ntVMd">Markdown</button></div></div>
@@ -170,13 +191,6 @@
           <div id="howAgents" style="margin-top:12px"></div>
         </details>
         <div id="howFootRow" style="display:flex;gap:8px;margin-top:18px"><button class="btn" id="howCancel">← voltar à spec</button><span style="flex:1"></span><button class="btn primary" id="howGo">Iniciar execução</button></div>
-      </div>
-      <div class="ntmode" id="ntMode">
-        <button class="ntmodebtn on" data-mode="build"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M10.8 2.6a3 3 0 0 0-3.9 3.7l-4.1 4.1a1.25 1.25 0 0 0 1.8 1.8l4.1-4.1a3 3 0 0 0 3.7-3.9l-1.9 1.9-1.5-.3-.3-1.5z" stroke-linejoin="round"/></svg> Entrega</button>
-        <button class="ntmodebtn" data-mode="review"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg> Review</button>
-        <button class="ntmodebtn" data-mode="fix"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8.7 2L4 9h3l-.6 5L12 6.8H8.9z" stroke-linejoin="round"/></svg> Fix rápido</button>
-        <button class="ntmodebtn" data-mode="design"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M8 2.6a5.4 5.4 0 1 0 0 10.8c.9 0 1.3-.55 1.3-1.15 0-.55-.4-.95-.4-1.5 0-.6.5-1.05 1.15-1.05h1.3A2.05 2.05 0 0 0 13.4 7.6 5.1 5.1 0 0 0 8 2.6z" stroke-linejoin="round"/><circle cx="5.6" cy="6.4" r=".7" fill="currentColor" stroke="none"/><circle cx="8.2" cy="5" r=".7" fill="currentColor" stroke="none"/><circle cx="10.7" cy="6.3" r=".7" fill="currentColor" stroke="none"/></svg> Design</button>
-        <button class="ntmodebtn" data-mode="invest"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v2M8 11.8v2M2.2 8h2M11.8 8h2" stroke-linecap="round"/><circle cx="8" cy="8" r="5.3" stroke-dasharray="2.4 2.2"/></svg> Investigar</button>
       </div>
       <div id="ntInvFields" style="display:none">
         <label style="display:flex;align-items:center">O que investigar<span style="flex:1"></span><button class="btn sm" data-aititle="ntInvTitle:ntInvObj" title="gera o título a partir do sintoma" style="text-transform:none;letter-spacing:0"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" style="width:12px;height:12px"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z" stroke-linejoin="round"/></svg> gerar do sintoma</button></label>
@@ -328,26 +342,6 @@
   </div>
 </div>
 
-<!-- Padrões de demanda da ORGANIZAÇÃO: template de spec + política (admins) -->
-<div class="overlay" id="orgTplOverlay" style="display:none;z-index:95">
-  <div class="modal" style="width:min(680px,100%)">
-    <div class="mhead"><b>Padrões de demanda da organização</b><span style="flex:1"></span><button class="x" id="orgTplClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody">
-      <div class="imhint" style="border-left:2px solid var(--accent)">Vale pra <b>toda a organização</b>: o wizard mostra este guia e a IA o segue ao completar specs e desdobrar épicos. Um repo ainda pode refinar com o próprio guia e política na pasta de trabalho do Starfork <span class="mono dim" style="font-size:var(--fs-xs)">(.cardume/SPEC.md · policy.json)</span> — o repo vence.</div>
-      <label style="margin-top:12px">Guia de spec <span class="dim" style="text-transform:none;letter-spacing:0">(markdown — apagar tudo volta ao template padrão do produto)</span></label>
-      <textarea class="in ta mono" id="orgTplText" rows="12" style="font-size:var(--fs-xs)"></textarea>
-      <div class="seclbl2" style="margin-top:14px">Política de obrigatoriedade</div>
-      <div class="two">
-        <div><label>Mínimo de requisitos por demanda</label><input class="in" id="orgPolMin" type="number" min="1" max="10"></div>
-        <div><label>Aviso de custo (US$)</label><input class="in" id="orgPolCost" type="number" min="0" step="1"></div>
-      </div>
-      <label class="ckrow" style="margin-top:9px"><input type="checkbox" id="orgPolProof"><span><b>Prova real (prints)</b> <span class="dim">obrigatória em toda entrega</span></span></label>
-      <label class="ckrow"><input type="checkbox" id="orgPolTests"><span><b>Testes comprovando</b> <span class="dim">obrigatórios em toda entrega</span></span></label>
-      <label class="ckrow"><input type="checkbox" id="orgPolDoc"><span><b>Documento de arquitetura</b> <span class="dim">obrigatório</span></span></label>
-    </div>
-    <div class="mfoot"><span class="dim" id="orgTplMsg"></span><span style="flex:1"></span><button class="btn" id="orgTplCancel">cancelar</button><button class="btn primary" id="orgTplSave">salvar padrões</button></div>
-  </div>
-</div>
 <!-- Planos & assinatura (Stripe Checkout no navegador — cartão nunca toca o app) -->
 <div class="overlay" id="payOverlay" style="display:none;z-index:110;background:var(--bg)">
   <div class="modal" style="width:100%;height:100%;max-width:none;border-radius:0;border:0;background:transparent;padding:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
@@ -400,51 +394,32 @@
     <div class="mbody" id="usoBody"></div>
   </div>
 </div>
-<!-- Piloto automático: app do zero sem ninguém conduzir (56-piloto.js, src/autopilot.ts) — aba, não modal -->
-<div class="overlay" id="pilotoOverlay" style="display:none;z-index:95">
-  <div class="modal" style="width:min(900px,100%)">
-    <div class="mhead"><b>Piloto automático</b><span id="pilSeg" style="margin-left:12px"></span><span style="flex:1"></span><button class="x" id="pilotoClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="pilBody"></div>
-  </div>
-</div>
-<div class="overlay" id="pilotoRunOverlay" style="display:none;z-index:95">
-  <div class="modal" style="width:min(1100px,100%)">
-    <div class="mhead"><b>Progresso do piloto</b><span style="flex:1"></span><button class="x" id="pilotoRunClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="pilRunBody"></div>
-  </div>
-</div>
-<!-- Fábrica de apps e de features: foco + teto → até 3 opções com mock → épico (65-fabrica.js) — aba, não modal -->
-<div class="overlay" id="fabOverlay" style="display:none;z-index:95">
-  <div class="modal" style="width:min(1320px,100%)">
-    <div class="mhead"><b>Fábrica</b><span style="flex:1"></span><button class="x" id="fabClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="fabBody"></div>
-  </div>
-</div>
-<!-- Começar por uma ideia: conversa com a mesa + pesquisa com fontes + decisão → projeto (59-ideia.js) — aba, não modal -->
-<div class="overlay" id="ideiaOverlay" style="display:none;z-index:95">
-  <div class="modal" style="width:min(1240px,100%)">
-    <div class="mhead"><b>Ideia</b><span style="flex:1"></span><button class="x" id="ideiaClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="ideiaBody"></div>
-  </div>
-</div>
-<!-- Mesa de personas (party mode): personas debatem e votam o que construir (aba, não modal) -->
-<div class="overlay" id="mesaOverlay" style="display:none;z-index:95">
-  <div class="modal" style="width:min(1100px,100%)">
-    <div class="mhead"><b>Mesa de personas</b><span style="flex:1"></span><button class="x" id="mesaClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mbody" id="mesaBody"></div>
-  </div>
-</div>
+<!-- F4 · G2: Fábrica (hub) · varredura · ideia · mesa · construir sozinho · piloto — abas no padrão de página (cabeçalho pelo JS, sem X) -->
+<div class="overlay g2ov" id="pilotoOverlay" style="display:none;z-index:95"><div class="modal"><div class="mbody" id="pilBody"></div></div></div>
+<div class="overlay g2ov" id="pilotoRunOverlay" style="display:none;z-index:95"><div class="modal"><div class="mbody" id="pilRunBody"></div></div></div>
+<div class="overlay g2ov" id="fabOverlay" style="display:none;z-index:95"><div class="modal"><div class="mbody" id="fabBody"></div></div></div>
+<div class="overlay g2ov" id="varOverlay" style="display:none;z-index:95"><div class="modal"><div class="mbody" id="varBody"></div></div></div>
+<div class="overlay g2ov" id="ideiaOverlay" style="display:none;z-index:95"><div class="modal"><div class="mbody" id="ideiaBody"></div></div></div>
+<div class="overlay g2ov" id="mesaOverlay" style="display:none;z-index:95"><div class="modal"><div class="mbody" id="mesaBody"></div></div></div>
 <!-- Preferências do projeto: 1 arquivo por projeto, o time escreve, os agentes seguem -->
+<!-- F4 (G1, mesa tela 13): Preferências do projeto → Projeto › Regras. Cada bloco diz pra quem vale; o documento tem
+     altura de documento (era uma faixa de ~14px no modo aba); checagens funcionam SEM conta e sem GitHub; o seletor de
+     memória mora só na Memória; "salvar pro time" fica na barra fixa e NÃO fecha a aba -->
 <div class="overlay" id="prefsOverlay" style="display:none;z-index:95">
-  <div class="modal" style="width:min(720px,100%)">
-    <div class="mhead"><b>Preferências do projeto</b><span class="dim" id="prefsRepo" style="font-size:var(--fs-xs);margin-left:8px"></span><span style="flex:1"></span><button class="x" id="prefsClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+  <div class="modal" style="width:min(860px,100%)">
+    <div class="mhead"><b>Regras</b><span class="dim" id="prefsRepo" style="font-size:var(--fs-xs);margin-left:8px"></span><span style="flex:1"></span><button class="x" id="prefsClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
-      <div class="imhint" style="border-left:2px solid var(--accent)">Um documento por projeto, escrito pelo <b>time</b> — convenções, padrões, o que evitar, decisões acordadas. <b>Todo agente</b> deste projeto lê e segue à risca (fica salvo na pasta de trabalho do Starfork, <span class="mono dim" style="font-size:var(--fs-xs)">.cardume/PREFS.md</span>). Sincroniza pra todos do time.</div>
-      <textarea class="in ta mono" id="prefsText" rows="16" style="font-size:var(--fs-sm);margin-top:10px" placeholder="# Convenções do projeto&#10;&#10;- Ex.: use unittest, NÃO pytest.&#10;- Ex.: nada de dados de produção em prints — conta demo teste.local@x.com.&#10;- Ex.: componentes em src/ui/, um arquivo por componente.&#10;- Ex.: o backend NORMALIZA os dados; o front só consome — não trate por-tool no front."></textarea>
-      <div id="prefsProtHost"></div>
-      <div id="prefsMemHost"></div>
+      <div class="pgsec-h"><div><h2>Regras</h2><p>O que todo agente deste projeto segue. Cada bloco diz pra quem vale.</p></div></div>
+      <section class="rsec" id="prefsConvSec"><div class="rsec-h"><h4>Convenções do time</h4><span class="pgh-scope" id="prefsConvScope">Time</span><span class="grow"></span><span class="dim" id="prefsMeta" style="font-size:var(--fs-xs)"></span></div>
+        <div class="rsec-b"><p class="pgnote" style="margin:0 0 8px">Um documento por projeto, escrito pelo time: padrões, o que evitar, decisões acordadas. Todo agente lê antes de começar.</p>
+        <p class="pgnote" id="prefsConvOff" hidden></p>
+        <textarea class="in ta mono" id="prefsText" rows="14" style="font-size:var(--fs-sm)" placeholder="# Convenções do projeto&#10;&#10;- Ex.: use unittest, NÃO pytest.&#10;- Ex.: nada de dados de produção em prints — conta demo teste.local@x.com.&#10;- Ex.: componentes em src/ui/, um arquivo por componente.&#10;- Ex.: o backend NORMALIZA os dados; o front só consome — não trate por-tool no front."></textarea></div></section>
+      <section class="rsec"><div class="rsec-h"><h4>Proteção dos agentes</h4><span class="pgh-scope">Este computador</span></div><div class="rsec-b" id="prefsProtHost"></div></section>
+      <section class="rsec"><div class="rsec-h"><h4>Checagens antes de aprovar</h4><span class="pgh-scope">Este projeto</span></div><div class="rsec-b"><p class="pgnote" style="margin:0 0 6px">Rodam na cópia de cada tarefa. Com alguma falhando, “aprovar e abrir PR” fica bloqueado. Funciona sem conta e sem GitHub.</p><div class="prefs-sec" id="prefsChecks"></div></div></section>
+      <p class="pgnote">Onde salvar memórias novas agora fica em <button class="lnk" id="prefsGoMem">Memória</button>.</p>
+      <div id="prefsMemHost" hidden></div>
     </div>
-    <div class="mfoot"><span class="dim" id="prefsMeta" style="font-size:var(--fs-xs)"></span><span style="flex:1"></span><button class="btn" id="prefsCancel">fechar</button><button class="btn primary" id="prefsSave">salvar pro time</button></div>
+    <div class="mfoot pgsavebar" id="prefsBar" hidden><b>Convenções do time mudaram</b><span class="dim">· salvar grava pra todo o time e vale nas próximas tarefas</span><span style="flex:1"></span><button class="btn" id="prefsCancel">Descartar</button><button class="btn primary" id="prefsSave">Salvar pro time</button></div>
   </div>
 </div>
 <!-- Colocando no ar: progresso da criação (estilo abertura de PR) -->
@@ -471,26 +446,15 @@
   </div>
 </div>
 
-<div class="overlay" id="howOverlay" style="display:none">
-  <div class="modal" style="max-width:560px;display:none">
-    <div class="mhead"><b>Como executar?</b><span style="flex:1"></span><button class="x" id="howClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
-    <div class="mfoot">
-    </div>
-  </div>
-</div>
-
 <!-- Planner (chat) — monta o TASK.yaml conversando, 2 colunas -->
 <div class="overlay fwoverlay" id="plannerOverlay" style="display:none">
   <div class="fw">
-    <div class="plhead" data-tauri-drag-region>
-      <div class="plheadl">
-        <b class="plttl">Nova demanda</b>
-        <span class="fwsub plmeter" id="plMeter"></span>
-      </div>
-      <div class="plheadr">
-        <button class="btn sm ghost" id="plNew" title="começar do zero (descarta o rascunho)">＋ novo</button>
-        <button class="btn sm" id="plClose">fechar <span class="kbd">esc</span></button>
-      </div>
+    <div class="plhead g2ndhead" data-tauri-drag-region>
+      <h1 class="pgh-title plttl" id="plTitle">Nova demanda</h1><span class="g2scopebtn" id="plScope"></span><span class="pgh-sum plmeter" id="plMeter"></span>
+      <span style="flex:1" data-tauri-drag-region></span>
+      <span id="plSegHost"></span>
+      <button type="button" class="btn icon quiet" id="plMore" title="Mais: recomeçar do zero · importar .md" aria-label="Mais ações" aria-haspopup="menu"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="3.5" cy="8" r=".9" fill="currentColor"/><circle cx="8" cy="8" r=".9" fill="currentColor"/><circle cx="12.5" cy="8" r=".9" fill="currentColor"/></svg></button>
+      <span hidden><button type="button" id="plNew">recomeçar</button><button type="button" id="plClose">fechar</button></span>
     </div>
     <div class="plcols">
       <div class="plchatcol">
@@ -562,20 +526,26 @@
 
 <div class="overlay" id="agOverlay" style="display:none">
   <div class="modal wide agpage">
-    <div class="mhead"><b id="agTitle">Meu time</b><button class="x" id="agClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
+    <div class="mhead"><b id="agTitle">Agentes</b><button class="x" id="agClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div>
     <div class="mbody">
       <!-- "Meu time" (61-meu-time.js): grade de cartões + equipes; a ficha do agente abre aqui dentro (#agFicha) -->
-      <section id="agHome" aria-label="Meu time">
-        <div class="seclbl2">Quem trabalha nas suas tarefas <span style="flex:1"></span><button class="btn sm" id="agImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="btn sm" id="agAdd">+ novo agente</button></div>
-        <p class="imhint">Os números são contagens deste projeto, sempre com quantas tarefas entraram na conta. Clique num agente pra ver a ficha: o que ele fez, o que lembra e como ajustar. Dá pra <b>importar um .md</b> de subagente do Claude Code.</p>
-        <div id="agList"></div>
-        <div class="seclbl2" style="margin-top:22px">Equipes prontas</div>
-        <p class="imhint">A equipe vem do tipo de entrega que você escolhe na Nova demanda. É a mesma faixa que aparece no topo da tarefa.</p>
-        <div id="agTeams" class="agteams"></div>
-        <div class="seclbl2" style="margin-top:22px">Montar minha equipe <span style="flex:1"></span><button class="btn sm" id="wfAdd">+ nova equipe</button></div>
-        <p class="imhint">A sequência de agentes que toca a tarefa. Arraste um agente pra dentro, ou escolha no fim da linha; arraste as etapas pra mudar a ordem.</p>
-        <div id="wfList"></div>
-        <div id="agPolicy" class="agpol"></div>
+      <!-- F4 (G1, D15): Projeto › Agentes — abas Agentes · Equipes; a ficha (Histórico · Desempenho · Editar) abre aqui dentro -->
+      <section id="agHome" aria-label="Agentes">
+        <div class="pgsec-h"><div><h2>Agentes</h2><p>Quem trabalha nas tarefas deste projeto: papel, IA e jeito de trabalhar. Fica no arquivo de configuração do projeto.</p></div><span class="grow"></span><button class="btn sm" id="agImport"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4 2.5h4.6L12 5.9v7.1c0 .3-.25.5-.5.5h-7c-.28 0-.5-.22-.5-.5v-10c0-.28.22-.5.5-.5z" stroke-linejoin="round"/><path d="M8.5 2.6V6h3.4"/></svg>importar .md</button><button class="btn primary sm" id="agAdd">+ Novo agente</button></div>
+        <div class="pgtabs" role="tablist" aria-label="Agentes e equipes"><button role="tab" id="agTabAg" data-agtop="ag" class="on" aria-selected="true">Agentes <b id="agTabAgN"></b></button><button role="tab" id="agTabEq" data-agtop="eq" aria-selected="false" tabindex="-1">Equipes <b id="agTabEqN"></b></button></div>
+        <div id="agPanelAg" role="tabpanel">
+          <div id="agList"></div>
+          <p class="pgnote">Números só deste projeto, sempre com quantas tarefas entraram na conta. Dá pra importar um .md de subagente do Claude Code.</p>
+        </div>
+        <div id="agPanelEq" role="tabpanel" hidden>
+          <div class="pgband info" role="note"><span><b>No terminal, vale o perfil, as skills e a memória do agente que constrói.</b> A sequência da equipe (revisor, rodadas) roda no modo automático.</span><span class="grow"></span><button class="lnk" id="agEqModo">como as tarefas rodam</button></div>
+          <div class="pgsh3"><h3>Prontas</h3><span>vêm do tipo de entrega escolhido na Nova demanda · só leitura</span></div>
+          <div id="agTeams" class="agteams"></div>
+          <div class="pgsh3"><h3>Minhas</h3><span>arraste um agente pra montar a sequência</span><span class="grow"></span><button class="btn sm" id="wfAdd">+ Nova equipe</button></div>
+          <div id="wfList"></div>
+          <div id="agPolicy" class="agpol" hidden></div>
+          <div id="agOrgCat"></div>
+        </div>
       </section>
       <section id="agFicha" hidden aria-live="polite"></section>
     </div>
@@ -643,8 +613,8 @@
 
 <!-- Nova demanda (redesign): tela de início — tipo + método -->
 <!-- Orquestrador: briefing → plano em grafo (subagentes) → execução coordenada -->
-<div class="overlay" id="orqOverlay" style="display:none">
-  <div class="modal" style="width:100%"><div class="mhead"><b>Orquestrador</b><span style="flex:1"></span><button class="x" id="orqClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button></div><div class="mbody" id="orqBody"></div></div>
+<div class="overlay g2ov" id="orqOverlay" style="display:none">
+  <div class="modal" style="width:100%"><div class="mbody" id="orqBody"></div></div>
 </div>
 <div class="overlay" id="ndOverlay" style="display:none">
   <div class="modal" style="width:100%"><div class="mbody" id="ndBody" style="padding:0"></div></div>
@@ -693,29 +663,22 @@
 <!-- tarefa de um colega do time: página de ENTREGA (aba), com o que ele publicou -->
 <div class="overlay fwoverlay" id="ctPageOverlay" style="display:none">
   <div class="fw">
-    <div class="fwhead" data-tauri-drag-region>
-      <b id="ctPageName">Tarefa do time</b>
-      <span class="fwsub" id="ctPageSub"></span>
-      <span style="flex:1"></span>
-      <button class="btn sm" id="ctPageRefresh" title="recarregar da nuvem">↻</button>
-      <button class="btn sm" id="ctPageClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button>
-    </div>
+    <!-- F4: cabeçalho no padrão de página (pageHead, dentro do #ctPageMain) — sem "fechar esc"; ⌘W fecha a aba -->
     <div class="fwmain" id="ctPageMain"></div>
   </div>
 </div>
 
 <div class="overlay fwoverlay" id="epicOverlay" style="display:none">
   <div class="fw">
-    <div class="fwhead" data-tauri-drag-region>
-      <b id="epicPageName">Épico</b>
-      <span class="fwsub" id="epicPageSub"></span>
-      <span style="flex:1"></span>
-      <button class="btn sm" id="epicPageRefresh" title="recarregar da nuvem">↻</button>
-      <button class="btn sm" id="epicPageClose" aria-label="Fechar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg> fechar <span class="kbd">esc</span></button>
-    </div>
+    <!-- F4: cabeçalho no padrão de página (pageHead, dentro do #epicPageMain) — sem "fechar esc"; ⌘W fecha a aba -->
     <div class="fwmain" id="epicPageMain"></div>
   </div>
 </div>
+
+<!-- F4 (G1): páginas novas no padrão único (pageHead) — Time, Projeto · <nome> e Atalhos (aba, não modal) -->
+<div class="overlay fwoverlay pgov" id="timeOverlay" style="display:none"><div class="pgpage" id="timePage"></div></div>
+<div class="overlay fwoverlay pgov" id="projOverlay" style="display:none"><div class="pgpage" id="projPage"><div id="projHead"></div><div class="pgsplit"><nav class="subnav" id="projNav" role="tablist" aria-label="Seções do projeto" aria-orientation="vertical"></nav><div class="pgbody" id="projHost"></div></div></div></div>
+<div class="overlay fwoverlay pgov" id="atalhosOverlay" style="display:none"><div class="pgpage" id="atalhosPage"></div></div>
 
 <div class="overlay" id="ctOverlay" style="display:none">
   <div class="modal" style="width:min(680px,100%)">
@@ -798,5 +761,7 @@
 <script src="js/64-terminal-integrado.js"></script>
 <script src="js/65-fabrica.js"></script>
 <script src="js/66-central-tabela.js"></script>
+<script src="js/67-ajustes.js"></script>
+<script src="js/68-casca-g1.js"></script>
 </body>
 </html>

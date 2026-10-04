@@ -227,15 +227,15 @@ function agFichaOpen(id, tab){
 }
 function agShowFicha(on){
   const h=$id('agHome'), f=$id('agFicha'); if(h) h.hidden=!!on; if(f) f.hidden=!on;
-  if(!on){ AGF.id=null; const t=$id('agTitle'); if(t) t.textContent='Meu time'; }
+  if(!on){ AGF.id=null; const t=$id('agTitle'); if(t) t.textContent='Agentes'; }
 }
 async function agFichaLoad(){
   const id=AGF.id, repo=state.repo||''; if(!id) return;
   try{
     // o curador não segura a ficha: pinta quando chegar (1×/dia; o resto do dia é só um arquivo)
-    if(typeof curLoad==='function') curLoad(repo).then(()=>{ if(AGF.id===id && AGF.tab==='aprendizados' && agVisible()) agFichaRender(); }).catch(()=>{});
+    if(typeof curLoad==='function') curLoad(repo).then(()=>{ if(AGF.id===id && AGF.tab==='desempenho' && agVisible()) agFichaRender(); }).catch(()=>{});
     // F5: amostras guardadas (P15) e o que o time compartilhou (P17) — lidos UMA vez ao abrir, sem segurar a ficha
-    const later=()=>{ if(AGF.id===id && AGF.tab==='aprendizados' && agVisible()) agFichaRender(); };
+    const later=()=>{ if(AGF.id===id && AGF.tab==='desempenho' && agVisible()) agFichaRender(); };
     if(typeof sampleLoad==='function') sampleLoad(repo, id).then(later).catch(()=>{});
     if(typeof orgTeamLoad==='function') orgTeamLoad(id).then(later).catch(()=>{});
     const [card, pend]=await Promise.all([ invoke('agent_card',{ repo, agentId:id }), invoke('learn_pending',{ repo }).catch(()=>[]) ]);
@@ -249,22 +249,24 @@ function agFichaRender(){
   const host=$id('agFicha'); if(!host || !AGF.id) return;
   const { a, i }=agFichaAgent();
   if(!a){ agShowFicha(false); return; }
-  const t=$id('agTitle'); if(t) t.textContent='Meu time';
+  const t=$id('agTitle'); if(t) t.textContent='Agentes';
+  if(AGF.tab==='aprendizados') AGF.tab='desempenho'; // F4: a aba antiga virou Desempenho (o resto foi pra Memória)
   const v=AGS.rows?agViewOf(a):null;
   const ver=AGF.card&&AGF.card.versions?AGF.card.versions.current:null;
   const learnN=((AGF.card&&AGF.card.learnings&&AGF.card.learnings.notes)||[]).filter(n=>!n.forgottenAt).length+((AGF.card&&AGF.card.learnings&&AGF.card.learnings.skills)||[]).length;
   const pendN=(AGF.pend||[]).length;
   const warn=agFichaWarn(a);
-  const TABS=[['historico','Histórico'],['aprendizados','Aprendizados'+(learnN||pendN?` (${learnN}${pendN?` + ${pendN} pra decidir`:''})`:'')],['editar','Editar (avançado)']];
+  // F4 (D15/D16): ficha Histórico · Desempenho · Editar — aprendizados, curador e o que ele lembra moram em Memória
+  const TABS=[['historico','Histórico'+(AGS.rows?' '+agRowsOf(a.id).length:'')],['desempenho','Desempenho'],['editar','Editar']];
   host.innerHTML=`<div class="agf">
-    <button class="lnk agf-back" id="agfBack">${IC.chevL||'←'} Meu time</button>
+    <button class="lnk agf-back" id="agfBack">${IC.chevL||'←'} Agentes</button>
     <header class="agf-h"><span class="av big" style="background:${escA(a.color||AG_COLOR0)}">${avatarInner(a)}</span>
       <div class="agf-ht"><h2 class="agf-n">${esc(a.name||'—')}</h2><p class="agf-d">${esc(agDoes(a))}</p>
       <p class="agf-meta"><span>${esc(agRunLabel(a))}</span>${ver!=null?`<span class="agf-v" title="cada mudança aceita por você vira uma versão (guardamos as últimas 5)">v${ver}</span>`:''}</p></div></header>
     ${v?`<p class="agf-s">${esc(v.line)}</p>${v.note?`<p class="agf-k">${esc(v.note)} — os números só viram porcentagem a partir de ${AG_MIN_N} tarefas no portão.</p>`:''}`:''}
     ${warn?`<p class="agwarn" role="note">${esc(warn)}</p>`:''}
     <div class="agf-tabs" role="tablist" aria-label="Ficha de ${escA(a.name||'')}">${TABS.map(([k,l])=>`<button role="tab" class="agf-tab" id="agft-${k}" data-agftab="${k}" aria-selected="${AGF.tab===k}" aria-controls="agfPanel" tabindex="${AGF.tab===k?0:-1}">${esc(l)}</button>`).join('')}</div>
-    <div class="agf-panel" id="agfPanel" role="tabpanel" aria-labelledby="agft-${AGF.tab}">${AGF.err?`<p class="agf-err">${esc(AGF.err)}</p>`:''}${AGF.tab==='historico'?agHistHtml(a):AGF.tab==='aprendizados'?agLearnTabHtml(a):agEditTabHtml(a, i)}</div>
+    <div class="agf-panel" id="agfPanel" role="tabpanel" aria-labelledby="agft-${AGF.tab}">${AGF.err?`<p class="agf-err">${esc(AGF.err)}</p>`:''}${AGF.tab==='historico'?agHistHtml(a):AGF.tab==='desempenho'?agDesempenhoHtml(a, learnN, pendN):agEditTabHtml(a, i)}</div>
   </div>`;
   agFichaWire(host, a, i);
 }
@@ -290,14 +292,20 @@ function agHistHtml(a){
     <span class="agf-hst">${typeof stBadge==='function'?stBadge(r.prUrl&&!['merged','done','closed'].includes(r.status)?'pr-open':r.status):esc(r.status)}</span>
     <span class="agf-hf">${esc(facts(r))}</span><span class="agf-hc">${esc(agUsdBr(r.usd))}</span></li>`).join('')}</ol>${rows.length>60?`<p class="dim">mostrando as 60 mais recentes de ${rows.length}</p>`:''}`;
 }
-function agLearnTabHtml(a){
-  if(!AGF.card) return '<p class="dim">lendo o que ele lembra…</p>';
-  const L=AGF.card.learnings||{}, notes=(L.notes||[]), skills=(L.skills||[]);
-  // P12: "isso ajudou?" = o antes/depois da versão que o aceite criou (a mesma conta da seção "Antes e depois")
-  const versions=(AGF.card.versions&&AGF.card.versions.versions)||[];
+// F4: Desempenho = antes e depois de cada versão + testar numa amostra + o link pra Memória (nada de 7 blocos empilhados)
+function agDesempenhoHtml(a, learnN, pendN){
+  const who=a.name||'o agente';
+  const band=pendN?`<div class="pgband info" role="note"><span><b>${pendN} ${pendN===1?'aprendizado':'aprendizados'} ${pendN===1?'de':'de'} ${esc(who)} esperando você.</b> Eles moram na Memória do projeto.</span><span class="grow"></span><button class="btn sm" data-agmem="1">Ver em Memória › Pra revisar</button></div>`:'';
+  const smp=typeof sampleSectionHtml==='function'?sampleSectionHtml(a):'';
+  const lem=`<p class="pgnote">${esc(who)} lembra ${learnN} ${learnN===1?'coisa':'coisas'}. <button class="lnk" data-agmem="1">ver na Memória</button></p>`;
+  return band+agBaSection(a)+smp+lem;
+}
+// o que um agente lembra (notas e skills com versões), "Do time" e os esquecidos — renderizado na Memória › Pra revisar
+// (D16: dona única). `card` = agent_card do agente (lido por quem chama).
+function agMemSectionsHtml(a, card){
+  const L=(card&&card.learnings)||{}, notes=(L.notes||[]), skills=(L.skills||[]);
+  const versions=(card&&card.versions&&card.versions.versions)||[];
   const ver=(k, key, at)=>agLearnVersion(k, k==='nota'?(notes.find(n=>n.id===key)||{ at }):{ name:key, at }, versions, agRowsOf(a.id));
-  const pend=(AGF.pend||[]);
-  const pendH=pend.length?`<section class="agf-sec"><h3 class="agf-h3">Pra você decidir</h3><div class="memlgrid">${pend.map(it=>memLearnCard(it, { editing:LEARN_EDIT[it.id] })).join('')}</div></section>`:'';
   const act=notes.filter(n=>!n.forgottenAt), gone=notes.filter(n=>n.forgottenAt);
   const item=(k, key, sent, verTx, at, det)=>`<li class="agf-li"><p class="agf-ls">${esc(sent)}</p>
     <div class="agf-la"><span class="agf-lv" title="cada aceite vira uma versão — dá pra voltar">${esc(verTx)}</span>
@@ -306,7 +314,7 @@ function agLearnTabHtml(a){
     ${typeof orgShareBtn==='function'?orgShareBtn(k, key):''}
     </div>${agBaBlock(a, ver(k, key, at), 'isso ajudou? ', { back:{ k, key } })}
     <details class="agf-det"><summary>ver detalhes</summary>${det}</details></li>`;
-  const art=(MEM_ART[a.id]||'');
+  const art=(typeof MEM_ART!=='undefined'&&MEM_ART[a.id])||'';
   const who=(art?art+' ':'')+(a.name||'');
   const lis=[
     ...act.map(n=>item('nota', n.id, who+' lembra: '+agLow(n.title)+'.', 'desde a v'+(n.v||1), n.at, `<pre class="memlbody">${esc(n.body||'')}</pre><p class="dim">nota guardada da tarefa ${esc(n.taskId||'')}</p>`)),
@@ -314,21 +322,50 @@ function agLearnTabHtml(a){
       return item('skill', s.name, who+' lembra um jeito de fazer: '+String(s.name).replace(/-/g,' ')+'.', 'skill v'+(h.current||1), last.at||0,
         `<p><b>skill ${esc(s.name)}</b> · v${esc(h.current||1)}</p>${s.description?`<p>${esc(s.description)}</p>`:''}<pre class="memlbody">${esc(s.body||'')}</pre>${vs.length?`<ul class="agf-vs">${vs.map(x=>`<li>v${esc(x.v)} · ${esc(x.action)}${x.reason?' — '+esc(x.reason):''}</li>`).join('')}</ul>`:''}`); }),
   ];
-  const remembered=lis.length?`<section class="agf-sec"><h3 class="agf-h3">O que ${esc(a.name||'ele')} lembra</h3><ul class="agf-list">${lis.join('')}</ul></section>`
-    :`<p class="agf-empty">${esc(a.name||'Esse agente')} ainda não lembra de nada. Quando a retro de uma tarefa propuser algo pra ${esc(a.name||'esse agente')}, aparece aqui pra você aceitar ou descartar — nada entra sem o seu sim.</p>`;
-  // esquecidas/arquivadas (notas) + skills arquivadas dele: nada foi apagado, "restaurar" volta igual (F4 · P13)
+  const remembered=lis.length?`<ul class="agf-list">${lis.join('')}</ul>`
+    :`<p class="agf-empty">${esc(a.name||'Esse agente')} ainda não lembra de nada. Quando a retro de uma tarefa propuser algo pra ${esc(a.name||'esse agente')}, aparece nos aprendizados acima — nada entra sem o seu sim.</p>`;
   const me=typeof curKey==='function'?curKey(a.id):a.id;
   const arqSk=(typeof CUR!=='undefined'&&CUR.archived||[]).filter(x=>x.kind==='skill'&&x.owner===me);
-  // esquecida 2× (mesmo id) = uma linha, a última; reaceita (id ativo) não aparece
   const goneU=[...new Map(gone.filter(n=>!act.some(x=>x.id===n.id)).map(n=>[n.id, n])).values()];
   const goneN=goneU.length+arqSk.length;
-  const forgotten=goneN?`<details class="agf-det"><summary>esquecidas (${goneN})</summary><ul class="agf-gone">${goneU.map(n=>`<li>${esc(n.title)}${n.forgetReason?` — <span class="dim">${esc(n.forgetReason)}</span>`:''} <button class="btn sm" data-currestore="nota" data-key="${escA(n.id)}" data-owner="${escA(a.id)}">restaurar</button></li>`).join('')}${arqSk.map(x=>`<li>um jeito de fazer: ${esc(String(x.key).replace(/-/g,' '))}${x.reason?` — <span class="dim">${esc(x.reason)}</span>`:''} <button class="btn sm" data-currestore="skill" data-key="${escA(x.key)}" data-owner="${escA(a.id)}">restaurar</button></li>`).join('')}</ul></details>`:'';
+  const forgotten=goneN?`<details class="agf-det"><summary>esquecidas (${goneN}) — dá pra restaurar</summary><ul class="agf-gone">${goneU.map(n=>`<li>${esc(n.title)}${n.forgetReason?` — <span class="dim">${esc(n.forgetReason)}</span>`:''} <button class="btn sm" data-currestore="nota" data-key="${escA(n.id)}" data-owner="${escA(a.id)}">restaurar</button></li>`).join('')}${arqSk.map(x=>`<li>um jeito de fazer: ${esc(String(x.key).replace(/-/g,' '))}${x.reason?` — <span class="dim">${esc(x.reason)}</span>`:''} <button class="btn sm" data-currestore="skill" data-key="${escA(x.key)}" data-owner="${escA(a.id)}">restaurar</button></li>`).join('')}</ul></details>`:'';
   const cur=typeof curHtml==='function'?curHtml(a.id, { name:a.name }):'';
-  // F5: P15 (só revisor) e P17 (itens do time, só com nuvem paga) — cada um some sozinho quando não vale
-  const smp=typeof sampleSectionHtml==='function'?sampleSectionHtml(a):'';
   const team=typeof orgTeamLearnHtml==='function'?orgTeamLearnHtml(a):'';
-  return agBaSection(a)+smp+cur+pendH+remembered+team+forgotten;
+  return cur+remembered+team+forgotten;
 }
+// Memória › Pra revisar › "O que cada agente lembra": escolhe o agente (chips) e mostra/age no que ele lembra.
+const AGM={ id:null, card:null, agents:null, repo:'', err:'' };
+async function agMemHostRender(host){
+  if(!host) return;
+  const repo=state.repo||'';
+  if(AGM.repo!==repo){ AGM.repo=repo; AGM.agents=null; AGM.id=null; AGM.card=null; }
+  if(!AGM.agents){ host.innerHTML='<p class="dim">lendo os agentes…</p>';
+    try{ const cfg=await invoke('config')||{}; AGM.agents=(cfg.agents||[]).filter(x=>x&&x.id); }catch(e){ AGM.agents=[]; AGM.err=(typeof errShort==='function')?errShort(e):String(e); }
+    if(!AGS.rows) agStatsLoad().catch(()=>{});
+  }
+  if(!AGM.agents.length){ host.innerHTML='<p class="pgnote">'+esc(AGM.err||'Nenhum agente neste projeto ainda.')+'</p>'; return; }
+  if(!AGM.id || !AGM.agents.some(x=>x.id===AGM.id)) AGM.id=AGM.agents[0].id;
+  const a=AGM.agents.find(x=>x.id===AGM.id);
+  const chips=`<div class="pgchips" role="tablist" aria-label="Agente">${AGM.agents.map(x=>`<button role="tab" class="dchip${x.id===AGM.id?' on':''}" aria-selected="${x.id===AGM.id}" data-agmid="${escA(x.id)}">${esc(x.name||x.id)}</button>`).join('')}</div>`;
+  if(!AGM.card || AGM.card.__id!==AGM.id){
+    host.innerHTML=chips+'<p class="dim">lendo o que '+esc(a.name||'ele')+' lembra…</p>';
+    const id=AGM.id;
+    try{ const c=await invoke('agent_card',{ repo, agentId:id })||{}; c.__id=id; if(AGM.id!==id) return; AGM.card=c; }catch(e){ AGM.card={ __id:id }; }
+    if(typeof orgTeamLoad==='function') orgTeamLoad(id).then(()=>{ if(AGM.id===id && host.isConnected) agMemHostRender(host); }).catch(()=>{});
+  }
+  host.innerHTML=chips+agMemSectionsHtml(a, AGM.card);
+  host.querySelectorAll('[data-agmid]').forEach(b=>b.onclick=()=>{ AGM.id=b.dataset.agmid; agMemHostRender(host); });
+  const ctx={ repo:()=>repo, items:()=>[], repaint:()=>agMemHostRender(host), after:async()=>{ AGM.card=null; await agMemHostRender(host); } };
+  host.querySelectorAll('[data-agback]').forEach(b=>b.onclick=async()=>{
+    if(b.dataset.agback==='skill') await memLearnRevert(repo, b.dataset.key, 'voltou pela Memória', ctx);
+    else await learnForget(repo, a.id, 'nota', b.dataset.key, 'voltou pela Memória', ctx, 'voltar'); });
+  host.querySelectorAll('[data-agforget]').forEach(b=>b.onclick=async()=>{
+    if(!await askYes((a.name||'O agente')+' vai esquecer isso nas próximas tarefas.\n\nNada é apagado: fica no histórico, e dá pra recuperar.')) return;
+    await learnForget(repo, a.id, b.dataset.agforget, b.dataset.key, 'esquecido pela Memória', ctx); });
+  if(typeof curWire==='function') curWire(host, { repo:()=>repo, after:ctx.after });
+  if(typeof orgTeamWire==='function') orgTeamWire(host, a, async(reload)=>{ if(reload) AGM.card=null; await agMemHostRender(host); });
+}
+if(typeof window!=="undefined") window.agMemHostRender=agMemHostRender;
 // ---------------------------------------------------------------- P12: antes × depois na ficha
 // o tipo de tarefa da comparação: o escolhido, ou o que tem mais comparação; nunca "todos misturados"
 function agBaKind(a){
@@ -406,6 +443,7 @@ function agFichaWire(host, a, i){
   tabs.forEach((b,k)=>{ b.onclick=()=>{ AGF.tab=b.dataset.agftab; agFichaRender(); const n=$id('agft-'+AGF.tab); if(n) n.focus(); };
     b.onkeydown=e=>{ if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return; e.preventDefault(); const n=tabs[(k+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length]; n.click(); }; });
   host.querySelectorAll('[data-agtask]').forEach(b=>b.onclick=()=>{ if(typeof openWorkspace==='function') openWorkspace(b.dataset.agtask); });
+  host.querySelectorAll('[data-agmem]').forEach(b=>b.onclick=()=>{ if(typeof MEM!=='undefined') MEM.view='revisar'; if(typeof AGM!=='undefined') AGM.id=a.id; if(window.projGo) window.projGo('memoria'); else if(window.openTab) window.openTab('memoria'); });
   // aprendizados: os 4 botões do cartão (mesmo caminho da Memória) + voltar/esquecer do que ele já lembra
   const repo=state.repo||'';
   // persona aceita/desfeita (F5) muda o cardume.config.json: o catálogo em edição é relido — senão um "salvar" depois
@@ -447,7 +485,8 @@ function agFichaWire(host, a, i){
     catch(e){ showErr(e, 'Não consegui restaurar'); } });
 }
 // o rodapé diz quando há mudança por salvar (o salvar é que cria a versão)
-function agSaveHint(){ const h=$id('agDirtyHint'); if(h) h.textContent=agDirty()?'mudanças não salvas — salvar cria uma versão nova de cada agente alterado':'salvo nas configurações deste projeto'; }
+function agSaveHint(){ const h=$id('agDirtyHint'); if(h) h.textContent=agDirty()?'mudanças não salvas — salvar cria uma versão nova de cada agente alterado':'salvo nas configurações deste projeto';
+  const f=h&&h.closest('.mfoot'); if(f) f.classList.toggle('clean', !agDirty()); } // F4: a barra de salvar só aparece com rascunho (padrão de página)
 // relê o catálogo do disco (depois de voltar/restaurar uma versão pelo Rust) sem fechar a ficha
 async function agReloadCatalog(){
   try{ const cfg=await invoke('config')||{}; cfgEdit=JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] })); agBase=JSON.stringify(cfgEdit); state.config=JSON.parse(agBase); }

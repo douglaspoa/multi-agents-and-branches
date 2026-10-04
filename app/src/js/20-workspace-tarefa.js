@@ -1481,15 +1481,14 @@ $id('fwClose').onclick=async()=>{ if(!await fwLeaveEditor()) return; closeWorksp
 $id('fwOverlay').addEventListener('click', e=>{ if(e.target.id==='fwOverlay') closeWorkspace(); });
 $id('sumOverlay').addEventListener('click', e=>{ if(e.target.id==='sumOverlay') e.target.style.display='none'; });
 function fwVisible(){ const o=$id('fwOverlay'); return !!(o && o.style.display!=='none'); }
-// Esc: no editor → cancela a edição (perguntando se há alteração); fora dele só fecha a aba se
-// NADA está sendo digitado e não há rascunho/anexo pendente (antes um Esc perdido fechava a tarefa)
+// Esc: no editor → cancela a edição (perguntando se há alteração); na Prévia desliga a mira. Fecha só o que é passageiro.
 document.addEventListener('keydown', async e=>{ if(e.key==='Escape' && fwVisible()){
   if(fwEditing){ e.preventDefault(); if(await fwLeaveEditor()) renderWorkspace(); return; }
   if(escBusy(e)) return; // digitando no chat ou com modal por cima: o Esc não fecha a aba da tarefa
   if(fwHasDraft()) return;
   // Prévia: Esc desliga a mira; com seleções pendentes não fecha a aba (perderia os prints escolhidos)
   if(fwMode==='previa' && typeof nvEscape==='function' && nvEscape(fwTask)) return;
-  closeWorkspace(); } });
+  /* F4 (D24): Esc NUNCA fecha a aba da tarefa — quem fecha é ⌘W */ } });
 // ⌘B / Ctrl+B com a tarefa na tela: recolhe/mostra a árvore de arquivos (captura: não deixa o atalho
 // global de recolher a barra lateral agir junto)
 document.addEventListener('keydown', e=>{

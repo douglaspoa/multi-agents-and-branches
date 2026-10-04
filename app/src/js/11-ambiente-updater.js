@@ -50,50 +50,49 @@ async function envCheckOnce(){
   // só o que IMPEDE a tarefa de rodar acende o ponto e abre a tela sozinho (gh/túnel faltando, não)
   const bad=envSummary(envChecks).reqBad>0;
   const dot=$id('envDot'); if(dot) dot.style.display=bad?'block':'none';
+  if(typeof ajEnvBand==='function') try{ ajEnvBand(); }catch(_){ }
   return bad;
 }
-function renderEnv(){
+// Ajustes › Verificação (F4 · G3; ex-aba Ambiente): uma linha por checagem, o técnico em "ver detalhes", a correção
+// copiável fica na linha. host = onde pintar (Ajustes passa o dele; sem host, a aba antiga #envBody).
+function renderEnv(host){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
-  const el=$id('envBody'); if(!el) return;
-  if(!envChecks){ ldPaint(el, '<div class="appscreen">'+skeletonHtml('lista',{ head:true, n:6, label:'verificando o ambiente' })+'</div>'); return; }
+  const el=host||$id('ajEnvBody')||$id('envBody'); if(!el) return;
+  const head=`<div class="ajsh"><h2>Verificação</h2><span class="dim" title="${envCheckedAt?escA(new Date(envCheckedAt).toLocaleString('pt-BR')):''}">${envChecking?'verificando de novo…':'última checagem: '+envAgo()}</span><span class="sp"></span><button class="btn sm" id="envRecheck2">verificar de novo</button></div>
+    <p class="ajlead">O que este computador precisa pra rodar tarefas. Ela não abre mais sozinha: quando falta algo obrigatório, aparece uma faixa na Central com “resolver”.</p>`;
+  if(!envChecks){ ldPaint(el, head+skeletonHtml('lista',{ n:6, label:'verificando o computador' })); envWireRecheck(el); return; }
   const S=envSummary(envChecks), okN=S.okN, tot=S.tot;
   const banner = S.reqBad
-    ? `<div class="as-banner warn"><span class="bd" style="background:var(--warn)"></span><span style="font:600 15px var(--display)">${S.reqBad} pendência${S.reqBad>1?'s':''} — resolva pra as tarefas rodarem</span><span class="as-mono" style="font-size:var(--fs-sm);color:var(--text-3)">${okN} de ${tot} ok</span></div>`
-    : `<div class="as-banner ok"><span class="bd" style="background:var(--accent)"></span><span style="font:600 15px var(--display)">Tudo pronto — as tarefas rodam</span><span class="as-mono" style="font-size:var(--fs-sm);color:var(--text-3)">${S.optBad?`${S.optBad} opciona${S.optBad>1?'is':'l'} faltando · `:''}${okN} de ${tot} ok</span></div>`;
-  const cards=envChecks.map(c=>{ const k=envKind(c), soft=!c.ok&&k!=='req', what=envWhat(c);
-    return `<div class="as-card envcard" style="display:flex;gap:13px;align-items:flex-start">
-    <span class="as-chk" style="background:${c.ok?'var(--accent)':soft?'var(--text-3)':'var(--warn)'}">${c.ok?'✓':soft?'–':'!'}</span>
-    <div style="min-width:0;flex:1">
-      <div style="font:600 var(--fs-md) var(--display);display:flex;gap:8px;align-items:center;flex-wrap:wrap">${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}${ENV_KIND_TAG[k]?`<span class="envtag">${ENV_KIND_TAG[k]}</span>`:''}</div>
-      ${what?`<div style="margin-top:4px;font-size:var(--fs-sm);color:var(--text-2)">${esc(what)}</div>`:''}
-      <div style="margin-top:6px;font:400 var(--fs-xs)/1.5 var(--code);color:var(--text-3);word-break:break-all">${esc(c.detail||'')}</div>
-      ${envFixLines(c.fix).map((f,i,all)=>`<div class="envfix"><span class="dim" style="font-size:var(--fs-xs)">${all.length>1&&i>0?'ou ':''}${f.cmd?'rode no Terminal:':'como resolver:'}</span><code class="as-mono">${esc(f.text)}</code>${f.cmd?`<button class="as-btn" style="padding:5px 10px;font-size:var(--fs-xs)" data-envfix="${escA(f.text)}">copiar</button>`:''}</div>`).join('')}
-    </div></div>`; }).join('');
-  el.innerHTML=`<div class="appscreen">
-    <div class="as-head"><div><h1 class="as-h1">Ambiente</h1><p class="as-sub">O que as tarefas precisam pra rodar nesta máquina.</p></div>
-      <div class="as-actions"><span class="as-note" title="${envCheckedAt?escA(new Date(envCheckedAt).toLocaleString('pt-BR')):''}">${envChecking?'verificando de novo…':'última checagem: '+envAgo()}</span><button class="as-btn" id="envRecheck2">verificar de novo</button></div></div>
-    ${banner}
-    <div class="as-grid" style="grid-template-columns:repeat(auto-fill,minmax(min(400px,100%),1fr))">${cards}${typeof reachEnvHtml==='function'?reachEnvHtml():''}</div>
-  </div>`;
+    ? `<div class="ajband warn" role="status"><b>${S.reqBad} ${S.reqBad>1?'pendências':'pendência'}</b> — resolva pra as tarefas rodarem · ${okN} de ${tot} ok</div>`
+    : `<div class="ajband ${S.optBad?'':'ok'}" role="status"><b>${S.optBad?`${S.optBad} ${S.optBad>1?'opcionais':'opcional'} faltando`:'Tudo pronto'}</b> — as tarefas rodam · ${okN} de ${tot} ok</div>`;
+  const rows=envChecks.map((c,i)=>{ const k=envKind(c), soft=!c.ok&&k!=='req', what=envWhat(c);
+    const fixes=envFixLines(c.fix);
+    return `<div class="ajli envrow"><span class="ajck ${c.ok?'ok':soft?'opt':'bad'}" aria-label="${c.ok?'ok':soft?'faltando (não obrigatório)':'faltando'}">${c.ok?'✓':soft?'–':'!'}</span>
+      <div class="l"><b>${esc(String(c.name||'').replace(/\s*\(opcional\)/i,''))}</b>${ENV_KIND_TAG[k]?` <span class="ajtag">${ENV_KIND_TAG[k]}</span>`:''}${what?`<small>${esc(what)}</small>`:''}
+        ${!c.ok?fixes.map((f,j)=>`<div class="ajcmdrow"><span class="dim">${fixes.length>1&&j>0?'ou ':''}${f.cmd?'rode no Terminal:':'como resolver:'}</span>${f.cmd?`<code class="ajcmd">${esc(f.text)}</code><button class="btn sm" data-envfix="${escA(f.text)}">copiar</button>`:`<span>${esc(f.text)}</span>`}</div>`).join(''):''}
+        ${c.detail?`<details class="ajvd"><summary>ver detalhes</summary><pre class="ajraw">${esc(c.detail)}</pre></details>`:''}</div></div>`; }).join('');
+  el.innerHTML=head+banner+`<div class="ajlist">${rows}</div>`
+    +(typeof reachEnvHtml==='function'?`<h3 class="ajh3">Extras opcionais</h3><div class="ajreach">${reachEnvHtml()}</div>`:'');
   { const rh=el.querySelector('#reachHost'); if(rh && typeof reachEnvWire==='function') reachEnvWire(rh); } // pesquisa ampliada (59-ideia)
   el.querySelectorAll('[data-envfix]').forEach(b=>{ b.onclick=()=>envCopy(b); });
-  { const b=el.querySelector('#envRecheck2'); if(b) b.onclick=async()=>{ envChecks=null; renderEnv(); await tabBusy('env', runEnvCheck(), { label:'verificando o ambiente' }); renderEnv(); }; }
+  envWireRecheck(el);
 }
+function envWireRecheck(el){ const b=el.querySelector('#envRecheck2'); if(b) b.onclick=async()=>{ envChecks=null; renderEnv(el); await tabBusy('cfg', runEnvCheck(), { label:'verificando o computador' }); renderEnv(el); }; }
 // copiar o comando: a área de transferência pode recusar (janela sem foco) — antes falhava calado e o botão dizia "copiado"
 async function envCopy(b){ try{ await navigator.clipboard.writeText(b.dataset.envfix); b.textContent='copiado ✓'; }catch(_){ b.textContent='selecione e copie'; const c=b.parentElement&&b.parentElement.querySelector('code'); if(c){ try{ const r=document.createRange(); r.selectNodeContents(c); const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r); }catch(__){ } } } }
 // quanto tempo faz a última checagem ("agora" só quando foi mesmo agora — antes mostrava "agora" com resultado velho)
 function envAgo(){ if(!envCheckedAt) return '—'; const s=Math.round((Date.now()-envCheckedAt)/1000); if(s<60) return 'agora'; const m=Math.round(s/60); if(m<60) return 'há '+m+' min'; const h=Math.round(m/60); return h<24?'há '+h+' h':new Date(envCheckedAt).toLocaleDateString('pt-BR'); }
-async function openEnv(){ $id('envOverlay').style.display='flex'; const p=tabBusy('env', runEnvCheck(), { label:'verificando o ambiente' }); renderEnv(); await p; renderEnv(); }
-$id('envBtn').onclick=openEnv;
-$id('envClose').onclick=()=>{ ovHide('envOverlay'); };
-$id('envRecheck').onclick=async()=>{ envChecks=null; renderEnv(); await tabBusy('env', runEnvCheck(), { label:'verificando o ambiente' }); renderEnv(); };
-$id('envOverlay').addEventListener('click',e=>{ if(e.target.id==='envOverlay') ovHide('envOverlay'); });
-// boot: valida em background; problema → abre a tela sozinho (1x por sessão)
-setTimeout(async()=>{ if(await runEnvCheck() && lsGet('onboarded')){ if(window.openTab) window.openTab('env'); else openEnv(); } }, 2500);
+// a aba Ambiente virou Ajustes › Verificação (openTab('env') também cai lá — 67-ajustes: ajRoute)
+function openEnv(){ if(typeof ajustesOpen==='function') ajustesOpen('verificacao'); }
+bindClick('envBtn', openEnv);
+// boot: valida em segundo plano. Faltou algo obrigatório → faixa na Central + selo na sub-navegação de Ajustes (não abre mais sozinha)
+setTimeout(async()=>{ await runEnvCheck(); if(typeof ajEnvBand==='function') ajEnvBand(); }, 2500);
 
 // prompt() do WebView do Tauri é mudo — modal próprio, promise-based
+// askText: folha ancorada com campo (52-erros: sheetAsk) — o modal #txOverlay só sobra como reserva sem a folha
 let txResolve=null;
 function askText(title, placeholder, initial){
+  if(typeof sheetAsk==='function') return sheetAsk({ title, field:{ placeholder:placeholder||'', value:initial||'' }, ok:'ok' });
   return new Promise(res=>{
     txResolve=res;
     $id('txTitle').textContent=title;
@@ -103,10 +102,10 @@ function askText(title, placeholder, initial){
   });
 }
 function txDone(v){ $id('txOverlay').style.display='none'; if(txResolve){ txResolve(v); txResolve=null; } }
-$id('txOk').onclick=()=>txDone($id('txInput').value.trim()||null);
-$id('txCancel').onclick=()=>txDone(null);
-$id('txClose').onclick=()=>txDone(null);
-$id('txInput').addEventListener('keydown',e=>{ if(e.key==='Enter') txDone(e.target.value.trim()||null); if(e.key==='Escape') txDone(null); });
+bindClick('txOk', ()=>txDone($id('txInput').value.trim()||null));
+bindClick('txCancel', ()=>txDone(null));
+bindClick('txClose', ()=>txDone(null));
+{ const i=$id('txInput'); if(i) i.addEventListener('keydown',e=>{ if(e.key==='Enter') txDone(e.target.value.trim()||null); if(e.key==='Escape') txDone(null); }); }
 
 // ---------- updater "tipo Claude": checa o canal de releases, badge, aplica ----------
 // Estado visível da última checagem — a tela de Configurações mostra e tem o

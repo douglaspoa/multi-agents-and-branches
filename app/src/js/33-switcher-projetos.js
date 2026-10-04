@@ -241,7 +241,9 @@ async function openAgents(){
     cfgEdit = JSON.parse(JSON.stringify({ agents:cfg.agents||[], workflows:cfg.workflows||[] }));
     agBase = JSON.stringify(cfgEdit);
     renderAg(); renderTeams(); renderWf(); agLock(false); agSaveHint();
-    if(typeof orgPolRender==='function') orgPolRender(); // F5 · P14: só lê a nuvem com sessão + org (Grátis: nada)
+    if(typeof agTopSync==='function') agTopSync();
+    if(typeof orgPolRender==='function') orgPolRender(); // F5 · P14: avisos da política (o formulário mora em Ajustes › Regras da organização)
+    if(typeof agOrgCatRender==='function') agOrgCatRender(); // D18: catálogo da organização (enviar/aplicar) mora em Equipes › Do time
   }, { label:'lendo os agentes do projeto', ctx:'Não consegui ler os agentes', shape:{ n:6 } });
 }
 function agLock(on){ ['agSave','agAdd','wfAdd','agImport'].forEach(id=>{ const b=$id(id); if(b) b.disabled=!!on; }); }
@@ -294,7 +296,8 @@ function renderWf(){
     ${(()=>{ const roles=agTeamRoles(w.steps||[], byId, false); if(!roles.length) return ''; return `<div class="wfstrip">${agStripFor(roles)}</div>`+(typeof orgPolCovers==='function'&&orgPolCovers()?[]:agTeamWarnings(roles)).map(x=>`<p class="agwarn" role="note">${esc(x.text)} (${esc(x.detail)})</p>`).join('')+(typeof orgPolIssuesHtml==='function'?orgPolIssuesHtml(roles):''); })()}
   </div>`).join("") || '<div class="dim" style="font-size:var(--fs-sm);padding:6px 0">nenhuma equipe — clique "+ nova equipe"</div>';
   el.querySelectorAll("[data-wk]").forEach(inp=>inp.addEventListener("input",()=>{ cfgEdit.workflows[+inp.dataset.wi][inp.dataset.wk]=inp.value; }));
-  el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=()=>{ cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); });
+  el.querySelectorAll("[data-wdel]").forEach(b=>b.onclick=async()=>{ const w=cfgEdit.workflows[+b.dataset.wdel]; if(!w) return; // F4: remover equipe confirma (agente já confirmava)
+    if(!await askYes('Remover a equipe "'+(w.name||'equipe')+'"?\n\nOs agentes continuam. Só vale depois de salvar.')) return; cfgEdit.workflows.splice(+b.dataset.wdel,1); renderWf(); agSaveHint(); });
   // compartilhar UMA equipe com o time (redesign p18) — publica o workflow + os agentes dele
   el.querySelectorAll("[data-wshare]").forEach(b=>b.onclick=async()=>{
     const w=cfgEdit.workflows[+b.dataset.wshare]; if(!w) return;
@@ -350,7 +353,7 @@ async function saveConfig(){
     await invoke("save_config",{config:cfgEdit}); state.config=JSON.parse(JSON.stringify(cfgEdit)); lastSig='';
     // na ficha: fica nela (a versão nova aparece no cabeçalho); na grade: fecha a aba como antes
     if(AGF.id){ agBase=JSON.stringify(cfgEdit); await agFichaLoad(); agSaveHint(); toast('Salvo — cada agente alterado ganhou uma versão nova','ok'); }
-    else { agBase=''; closeAgents(); toast('Agentes e equipes salvos','ok'); }
+    else { agBase=JSON.stringify(cfgEdit); agSaveHint(); toast('Agentes e equipes salvos','ok'); } // F4: salvar NUNCA fecha a aba
   }
   catch(e){ showErr(e, 'Falha ao salvar catálogo'); }
   finally{ btn.disabled=false; btn.textContent="salvar"; }
@@ -402,3 +405,26 @@ setInterval(async()=>{
   refresh().then(()=>{ if(state!==before){ snapStamp=stamp; snapFullAt=Date.now(); snapSigMark=lastSig; } })
     .catch(e=>console.error("refresh:", e)).finally(()=>{ if(refreshBusyAt===my) refreshBusyAt=0; });
 }, 1000);
+
+// ===== F4 (G1, D15/D18): Projeto › Agentes — abas Agentes · Equipes; "Do time" = catálogo da organização =====
+let agTop=lsGet('agTop')==='eq'?'eq':'ag';
+function agTopSync(){
+  const ag=$id('agPanelAg'), eq=$id('agPanelEq'); if(!ag||!eq) return;
+  ag.hidden=agTop!=='ag'; eq.hidden=agTop!=='eq';
+  [['agTabAg','ag'],['agTabEq','eq']].forEach(([id,k])=>{ const b=$id(id); if(b){ b.classList.toggle('on', agTop===k); b.setAttribute('aria-selected', agTop===k); b.tabIndex=agTop===k?0:-1; } });
+  const na=$id('agTabAgN'), ne=$id('agTabEqN');
+  if(na) na.textContent=String((cfgEdit&&cfgEdit.agents||[]).length||'');
+  if(ne) ne.textContent=String(((cfgEdit&&cfgEdit.workflows||[]).length+3)||'');
+}
+document.querySelectorAll('[data-agtop]').forEach(b=>{ b.onclick=()=>{ agTop=b.dataset.agtop; lsSet('agTop', agTop); agShowFicha(false); agTopSync(); };
+  b.onkeydown=e=>{ if(e.key!=='ArrowRight'&&e.key!=='ArrowLeft') return; e.preventDefault(); agTop=agTop==='ag'?'eq':'ag'; lsSet('agTop',agTop); agTopSync(); const n=$id(agTop==='ag'?'agTabAg':'agTabEq'); if(n) n.focus(); }; });
+bindClick('agEqModo', ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('modo'); else if(window.openTab) window.openTab('cfg'); });
+// catálogo da org (antes em Conta › "Agentes & equipes da organização"): só com sessão + organização
+function agOrgCatRender(){
+  const el=$id('agOrgCat'); if(!el) return;
+  const org=(typeof cloudData!=='undefined' && cloudData && cloudData.org)||null;
+  if(!(typeof SB!=='undefined' && SB.sess() && org)){ el.innerHTML=''; return; }
+  const isAdmin=cloudData.meRole==='owner'||cloudData.meRole==='admin';
+  el.innerHTML=`<div class="pgsh3"><h3>Do time</h3><span>catálogo da organização ${esc(org.name||'')}</span><span class="grow"></span>${isAdmin?'<button class="btn sm" id="sbCatPush">enviar os deste projeto</button>':''}<button class="btn sm primary" id="sbCatPull">aplicar neste projeto</button></div><div id="sbCat" class="pgnote">lendo o catálogo…</div>`;
+  if(typeof cloudCatalog==='function') cloudCatalog(org.id, isAdmin);
+}

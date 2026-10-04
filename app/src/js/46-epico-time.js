@@ -10,7 +10,7 @@ let epTab=null;        // épico aberto na aba ativa
 const epCache={};      // epicId → { ep, tasks, loaded }
 const EP_ST_PT={ open:'aberto', 'in-progress':'em andamento', done:'concluído', archived:'arquivado' };
 // B6: "onda" explicada em uma linha (tooltip em todo lugar que a palavra aparece)
-const EP_WAVE_TIP='onda = grupo de tarefas que rodam juntas; a próxima começa quando esta termina';
+const EP_WAVE_TIP='etapa = grupo de tarefas que rodam juntas (internamente, "onda"); a próxima começa quando esta termina';
 // F2: cor ESTÁVEL por épico (mesmo hash da cor de projeto, com prefixo pra não coincidir com ela)
 function epColor(id){ return (typeof projColor==='function')?projColor('epic:'+String(id||'')):'var(--accent)'; }
 // nome do épico por id: épicos do time (aba Time) → fila do quadro → página já aberta
@@ -55,7 +55,7 @@ function openEpicPage(ep){
   if(!ep||!ep.id) return;
   const id='epic:'+ep.id;
   let tab=tabById(id);
-  if(!tab){ tab={ id, kind:'epic', ep, title:(ep.name||'Épico').slice(0,26) }; TABS.push(tab); }
+  if(!tab){ tab={ id, kind:'epic', ep, title:('Épico · '+(ep.name||'Épico')).slice(0,28) }; TABS.push(tab); } // F4: aba e página dizem o mesmo
   else tab.ep=ep;
   activateTab(id);
 }
@@ -83,7 +83,7 @@ async function epicPageLoad(id){
     c.ep=fresh;
     if(epTab&&epTab.id===id) epTab={ ...epTab, ...fresh };
     const i=(teamEpics||[]).findIndex(e=>e.id===id); if(i>=0) teamEpics[i]={ ...teamEpics[i], ...fresh };
-    const tab=tabById('epic:'+id); if(tab){ tab.ep={ ...(tab.ep||{}), ...fresh }; if(fresh.name) tab.title=fresh.name.slice(0,26); }
+    const tab=tabById('epic:'+id); if(tab){ tab.ep={ ...(tab.ep||{}), ...fresh }; if(fresh.name) tab.title=('Épico · '+fresh.name).slice(0,28); }
   }
   c.loaded=true;
   return c;
@@ -148,7 +148,7 @@ function epicPageRender(){
   // R5-2: "x/y entregues · z em revisão" — a onda atual ainda avança com revisão (comportamento mantido),
   // mas o número só conta entregue de verdade (antes "1/3" numa onda sem nada mergeado contradizia o 0/7)
   const waveHead=w=>{ const l=byWave[w], ok=l.filter(isDone).length, rvN=l.filter(isRev).length;
-    return `<div class="ep-wave${w===curWave?' cur':''}" title="${escA(EP_WAVE_TIP)}">ONDA ${w} · ${ok}/${l.length} entregues${rvN?' · '+rvN+' em revisão':''}${ok===l.length?' ✓':w===curWave?' · atual':''}</div>`; };
+    return `<div class="ep-wave${w===curWave?' cur':''}" title="${escA(EP_WAVE_TIP)}">Etapa ${w} · ${ok} de ${l.length} entregues${rvN?' · '+rvN+' em revisão':''}${ok===l.length?' ✓':w===curWave?' · atual':''}</div>`; };
   const tasksHtml = tasks.length
     ? waves.map(w=>`${waveHead(w)}${byWave[w].map(taskRow).join('')}`).join('')
     : c.err ? errorHtml(c.err, 'epTasksRetry', 'Não consegui carregar as tarefas do épico')
@@ -161,18 +161,19 @@ function epicPageRender(){
     : `<div class="en-empty">${legacy?'épico antigo, sem "pronto quando"':'sem checagens definidas'}${ep.status==='done'?' — já está concluído':can?' — ele fecha pelo botão abaixo':' — quem criou o épico (ou um admin) fecha quando terminar'}</div>`;
   // R3-C2: status aparece UMA vez (sobretítulo); os números viram uma faixa compacta ABAIXO da descrição
   // (antes eram 5 blocos ao lado, apertando o texto, e "em andamento" aparecia 3 vezes)
-  main.innerHTML=`<div class="enpage">
+  // F4 (G1, mesa tela 24): padrão de página — título UMA vez (= título da aba), selo do time, status no resumo, ↻ no ⋯;
+  // sem "fechar esc" (⌘W fecha a aba); "onda" virou "etapa" na interface
+  const tmNm=(((typeof cloudData!=='undefined'&&cloudData&&cloudData.teams)||[]).find(x=>x.id===(typeof cloudTeamId==='function'?cloudTeamId():''))||{}).name;
+  main.innerHTML=`<div class="enpage">${pageHead({ title:'Épico · '+(ep.name||'Épico'), scope:'time', scopeLabel:tmNm||'', sum:`<span class="ep-st ep-st-${escA(ep.status||'open')}">${esc(EP_ST_PT[ep.status]||ep.status||'')}</span>${typeof aeEpicBadge==='function'?' · '+aeEpicBadge(sp):''}`, more:{ id:'epicPageRefresh', title:'Recarregar da nuvem' } })}
     <div class="en-head">
       <div class="en-ht">
-        <span class="ndeyebrow">épico do time · <span class="ep-st ep-st-${escA(ep.status||'open')}">${esc(EP_ST_PT[ep.status]||ep.status||'')}</span></span>
-        <h2 class="en-h1">◆ ${esc(ep.name||'Épico')}</h2>${typeof aeEpicBadge==='function'?aeEpicBadge(sp):''}
         ${sp.outcome?`<p class="en-obj">${esc(sp.outcome)}</p>`:''}
         ${sp.description?`<p class="en-obj dim" style="font-size:var(--fs-sm)">${esc(sp.description)}</p>`:''}
         <div class="en-kpis ep-kpis">
           ${sp.issue&&sp.issue.code?`<button class="en-kpi" ${sp.issue.url?`data-lk="${escA(sp.issue.url)}" title="abrir a issue do épico no painel"`:'disabled'}><b>${esc(sp.issue.code)}</b><span>issue${sp.issue.url?' ↗':''}</span></button>`:''}
           ${dw.length?`<div class="en-kpi" title="${escA(okN+' de '+dw.length+' critérios de pronto marcados — o épico fecha com todos')}"><b>${okN}/${dw.length}</b><span>pronto quando</span></div>`:''}
           ${c.err&&!tasks.length?'':`<div class="en-kpi" title="${escA(doneN+" de "+tasks.length+" tarefas mergeadas ou concluídas"+(revN?" · "+revN+" em revisão (pronta pra revisar ou PR aberto)":""))}"><b>${doneN}/${tasks.length}</b><span>tarefas entregues</span></div>`}
-          ${curWave?`<div class="en-kpi" title="${escA(EP_WAVE_TIP)}"><b>${curWave}/${waves.length}</b><span>onda atual</span></div>`:''}
+          ${curWave?`<div class="en-kpi" title="${escA(EP_WAVE_TIP)}"><b>${curWave} de ${waves.length}</b><span>etapa atual</span></div>`:''}
         </div>
         <div class="ctp-who">${tsAv(ep.created_by, tsOnline(ep.created_by))}<span>criado por <b>${esc(tmName(ep.created_by))}</b>${ep.created_at?' · há '+agoTx(ep.created_at):''}</span></div>
       </div>
@@ -183,10 +184,10 @@ function epicPageRender(){
         ${reqs.length?`<div class="seclbl2" style="margin-top:14px">Requisitos <span class="dim">· R1, R2… = requisitos (as tarefas dizem quais cobrem)</span></div>${reqs.map(r=>`<div class="en-del"><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(r.id||'')}</span> ${esc(r.text||'')}</div>`).join('')}`:''}
         ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${esc(b)}</div>`).join('')}`:''}
         ${typeof aeEpicHistHtml==='function'?aeEpicHistHtml(sp, can, tasks, ep.id):''}
-        ${can&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">${IC.clock} próximas ondas começam sozinhas</button></div>`:''}
+        ${can&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">${IC.clock} próximas etapas começam sozinhas</button></div>`:''}
         ${!dw.length&&ep.status!=='done'&&can?`<div style="margin-top:14px"><button class="btn sm" id="epLegacyDone">✓ marcar épico como concluído</button></div>`:''}
       </section>
-      <section class="en-sec"><div class="seclbl2">Tarefas <span class="dim" title="${escA(EP_WAVE_TIP)}">· por onda (a próxima começa quando esta termina); clique pra abrir</span></div>${tasksHtml}</section>
+      <section class="en-sec"><div class="seclbl2">Tarefas <span class="dim" title="${escA(EP_WAVE_TIP)}">· por etapa (a próxima começa quando esta termina); clique pra abrir</span></div>${tasksHtml}</section>
     </div>
     ${conv.length?`<details class="en-sec ep-conv"><summary class="seclbl2">Conversa que originou o épico <span class="dim">· ${conv.length} mensage${conv.length===1?'m':'ns'} do "montar conversando"</span></summary>
       ${conv.map(m=>`<div class="plmsg ${m.who==='you'?'you':'bot'}">${m.who==='bot'?'<span class="plav">'+IC.starfork+'</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(String(m.text||'')):esc(m.text||'')}</div></div>`).join('')}</details>`:''}
@@ -202,6 +203,7 @@ function epicPageRender(){
   main.querySelectorAll('[data-epundo]').forEach(b=>b.onclick=()=>{ if(window.aeEpicUndo) aeEpicUndo(ep, b.dataset.epundo); });
   bindClick('epLegacyDone', ()=>epicSetStatus(ep,'done'));
   bindClick('epAutoOn', ()=>epicAutoOn(ep));
+  bindClick('epicPageRefresh', ()=>{ const b=$id('epicPageRefresh'); if(b) b.disabled=true; epicPageLoad(ep.id).then(()=>{ if(epTab&&epTab.id===ep.id) epicPageRender(); }); });
   { const h=$id('epicPageName'); if(h) h.textContent=ep.name||'Épico'; const s=$id('epicPageSub'); if(s) s.textContent=''; } // status já está no sobretítulo da página
 }
 async function epicPatch(ep, body){
@@ -335,11 +337,7 @@ async function epicMirrorChecks(t){
 window.epicMirrorChecks=epicMirrorChecks;
 bindClick('epicPageClose', ()=>closeTabOfKind('epic'));
 bindClick('epicPageRefresh', ()=>{ if(epTab){ const b=$id('epicPageRefresh'); if(b) b.disabled=true; epicPageLoad(epTab.id).then(()=>{ epicPageRender(); if(b) b.disabled=false; }); } });
-document.addEventListener('keydown', e=>{
-  if(e.key!=='Escape') return;
-  const o=$id('epicOverlay'); const cur=tabById(activeTab);
-  if(o&&o.style.display!=='none'&&cur&&cur.kind==='epic'&&!escBusy(e)){ e.stopImmediatePropagation(); closeTabOfKind('epic'); }
-}, true);
+// F4 (D24): Esc NUNCA fecha a aba do épico — quem fecha é ⌘W (antes o Esc fechava a aba inteira)
 
 // ---- FILA DOS ÉPICOS: aparece no quadro de Tarefas + ondas seguintes começam sozinhas ----
 // Cartão de épico no backlog do time é só NUVEM (não está no state.sqlite) — sem isto ele só aparecia

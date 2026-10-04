@@ -199,19 +199,28 @@ pub(crate) fn wait_state(dir: &Path, timeout_ms: u64, exited: &dyn Fn() -> bool)
     Ok(Some("o piloto ainda está preparando o projeto — acompanhe na aba de progresso (não comece outro)".into()))
 }
 
-/// Recusa de "Continuar": piloto rodando/começando, ou parado no TETO com um teto que já foi gasto. PURA no disco.
-pub(crate) fn resume_check(dir: &Path, budget_usd: Option<f64>) -> Result<(), String> {
+/// TETO OBRIGATÓRIO (F4, dono 04/10): nenhuma rodada do piloto começa sem teto em US$ > 0 — e, numa retomada, maior
+/// que o já gasto. A MESMA regra do motor (src/autopilot.ts `apCapCheck`) e do app (56-piloto.js `pilotoCapCheck`).
+/// `next` = teto pedido agora (None = manter o do estado); `prev_cap`/`spent` = o que o state.json diz (None = rodada nova).
+pub(crate) const CAP_REQUIRED: &str = "defina um teto de custo em US$ (maior que 0): o piloto automático não roda sem teto";
+pub(crate) fn cap_check(next: Option<f64>, prev: Option<(f64, f64)>) -> Result<f64, String> {
+    if let Some(n) = next { if !(n.is_finite() && n > 0.0) { return Err(CAP_REQUIRED.into()); } }
+    let cap = next.unwrap_or_else(|| prev.map(|p| p.0).unwrap_or(0.0));
+    if !(cap.is_finite() && cap > 0.0) { return Err(CAP_REQUIRED.into()); }
+    if let Some((_, spent)) = prev {
+        if cap <= spent { return Err(format!("o teto de US$ {cap:.2} já foi gasto (US$ {spent:.2}) — aumente o teto (maior que o gasto) pra continuar")); }
+    }
+    Ok(cap)
+}
+
+/// Recusa de "Continuar": piloto rodando/começando, ou teto ausente/já gasto (teto obrigatório). PURA no disco.
+pub(crate) fn resume_check(dir: &Path, budget_usd: Option<f64>) -> Result<f64, String> {
     let st = read_status(dir)?;
     if st.get("alive").and_then(|a| a.as_bool()).unwrap_or(false) { return Err("o piloto já está rodando".into()); }
     if let Some(msg) = busy(dir) { return Err(msg); }
-    if st.get("phase").and_then(|p| p.as_str()) == Some("budget") {
-        let cap = budget_usd.filter(|b| b.is_finite() && *b >= 0.0).unwrap_or_else(|| st.get("budgetUsd").and_then(|b| b.as_f64()).unwrap_or(0.0));
-        let spent = st.get("costUsd").and_then(|c| c.as_f64()).unwrap_or(0.0);
-        if cap > 0.0 && cap <= spent {
-            return Err(format!("o teto de US$ {cap:.2} já foi gasto (US$ {spent:.2}) — aumente o teto ou use 0 pra seguir sem teto"));
-        }
-    }
-    Ok(())
+    let prev_cap = st.get("budgetUsd").and_then(|b| b.as_f64()).unwrap_or(0.0);
+    let spent = st.get("costUsd").and_then(|c| c.as_f64()).unwrap_or(0.0);
+    cap_check(budget_usd, Some((prev_cap, spent)))
 }
 
 fn engine_cli(state: &State<AppState>) -> Result<String, String> {
@@ -240,6 +249,8 @@ pub(crate) fn autopilot_start(state: State<AppState>, idea: String, platform: St
     let idea = idea.trim().to_string();
     if idea.is_empty() { return Err("escreva a ideia do app".into()); }
     if !PLATFORMS.contains(&platform.as_str()) { return Err(format!("plataforma inválida: {platform}")); }
+    // teto obrigatório: recusa ANTES de criar qualquer pasta
+    let budget_usd = Some(cap_check(budget_usd, None)?);
     if STARTING.swap(true, Ordering::SeqCst) { return Err("um piloto já está começando — espere ele abrir".into()); }
     let _guard = StartGuard;
     let name = name.unwrap_or_default().trim().to_string();
@@ -278,11 +289,12 @@ pub(crate) fn autopilot_stop(dir: String) -> Result<(), String> {
 }
 
 /// Continuar (depois de parar, do teto ou de uma falha): roda o CLI de novo na MESMA pasta — ele segue do state.json.
-/// Parado no teto: `budget_usd` = o teto novo (0 = sem teto).
+/// `budget_usd` = o teto novo (obrigatório se o estado não tem teto; maior que o já gasto).
 #[tauri::command(async)]
 pub(crate) fn autopilot_resume(state: State<AppState>, dir: String, budget_usd: Option<f64>) -> Result<(), String> {
     let d = PathBuf::from(&dir);
-    resume_check(&d, budget_usd)?;
+    let cap = resume_check(&d, budget_usd)?;
+    let budget_usd = budget_usd.map(|_| cap);
     let cli = engine_cli(&state)?;
     let args = autopilot_cli_args(&cli, &d, "", "", "", "", "", None, None, budget_usd, None);
     mark_starting(&d)?;
@@ -364,7 +376,7 @@ mod tests {
     #[test]
     fn trava_e_marcador_recusam_continuar() {
         let d = tmp("lock");
-        std::fs::write(state_path(&d), r#"{"version":1,"phase":"stopped","pid":0,"tasks":[]}"#).unwrap();
+        std::fs::write(state_path(&d), r#"{"version":1,"phase":"stopped","pid":0,"budgetUsd":5,"tasks":[]}"#).unwrap();
         assert_eq!(busy(&d), None);
         assert!(resume_check(&d, None).is_ok());
         // trava de um processo VIVO (este) pega depois que ele nasceu → recusa
@@ -385,13 +397,30 @@ mod tests {
         assert!(resume_check(&d, None).unwrap_err().contains("começando"));
         std::fs::write(starting_path(&d), (now_ms() - STARTING_TTL_MS - 1).to_string()).unwrap();
         assert!(resume_check(&d, None).is_ok());
-        // parado no TETO: teto já gasto é recusado; maior ou 0 (= sem teto) passa
+        // parado no TETO: teto já gasto é recusado; maior passa; 0 não é mais "sem teto"
         std::fs::write(state_path(&d), r#"{"version":1,"phase":"budget","pid":0,"budgetUsd":1,"costUsd":1.2,"tasks":[]}"#).unwrap();
         assert!(resume_check(&d, None).unwrap_err().contains("aumente o teto"));
         assert!(resume_check(&d, Some(1.1)).is_err());
-        assert!(resume_check(&d, Some(2.0)).is_ok());
-        assert!(resume_check(&d, Some(0.0)).is_ok());
+        assert_eq!(resume_check(&d, Some(2.0)), Ok(2.0));
+        assert!(resume_check(&d, Some(0.0)).unwrap_err().contains("não roda sem teto"));
+        // estado ANTIGO sem teto (0): só continua com um teto novo
+        std::fs::write(state_path(&d), r#"{"version":1,"phase":"stopped","pid":0,"budgetUsd":0,"costUsd":0.5,"tasks":[]}"#).unwrap();
+        assert!(resume_check(&d, None).unwrap_err().contains("não roda sem teto"));
+        assert_eq!(resume_check(&d, Some(3.0)), Ok(3.0));
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn teto_obrigatorio_no_inicio_e_na_retomada() {
+        assert_eq!(cap_check(None, None), Err(CAP_REQUIRED.to_string()));
+        assert_eq!(cap_check(Some(0.0), None), Err(CAP_REQUIRED.to_string()));
+        assert_eq!(cap_check(Some(-1.0), None), Err(CAP_REQUIRED.to_string()));
+        assert_eq!(cap_check(Some(f64::NAN), None), Err(CAP_REQUIRED.to_string()));
+        assert_eq!(cap_check(Some(f64::INFINITY), None), Err(CAP_REQUIRED.to_string()));
+        assert_eq!(cap_check(Some(40.0), None), Ok(40.0));
+        assert_eq!(cap_check(None, Some((20.0, 3.0))), Ok(20.0), "retomada mantém o teto do estado");
+        assert!(cap_check(Some(3.0), Some((2.0, 3.0))).unwrap_err().contains("já foi gasto"));
+        assert_eq!(cap_check(None, Some((0.0, 0.0))), Err(CAP_REQUIRED.to_string()), "estado antigo sem teto");
     }
 
     #[test]

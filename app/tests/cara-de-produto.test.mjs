@@ -124,8 +124,9 @@ test('integrada (merge) só quando dá pra saber que a tarefa tem código; os do
 test('menu de status: todo status marca uma opção (menuitemradio + aria-checked)', () => {
   const q = src('js/22-quadro-fluxo.js');
   const pend = new Set(['q']);
-  const cur = new Function('pendingOf', 'taskTs', fn(q, 'flowBucket') + fn(q, 'stMenuCur') + '\nreturn stMenuCur;')(
-    (id) => (pend.has(id) ? [1] : []), () => Date.now());
+  const help = cut(src('js/00-util.js'), '// @helpers-comuns-inicio', '// @helpers-comuns-fim'); // F4: taskAguardaVoce/taskEncerrada
+  const cur = new Function('pendingOf', 'taskTs', 'taskDoneTs', help + fn(q, 'flowBucket') + fn(q, 'stMenuCur') + '\nreturn stMenuCur;')(
+    (id) => (pend.has(id) ? [1] : []), () => Date.now(), () => Date.now());
   const C = (status, x) => cur({ id: 'z', status, ...x });
   for (const s of ['running', 'thinking', 'queued', 'paused', 'error', 'conflict', 'aborted', 'plan-review']) assert.equal(C(s), 'running', s);
   assert.equal(cur({ id: 'q', status: 'running' }), 'running', 'aguardando você');

@@ -47,22 +47,24 @@ test('relatório: totais, origens em pt-BR, IA, projeto e tarefas com custo info
   assert.match(html, /gasto em 7 dias/);
   assert.match(html, /US\$ 3,53/);
   assert.match(html, /parte estimada por tokens/);
-  assert.match(html, />informado</);
+  assert.match(html, /informado <b>/);
   assert.match(html, /estimado por tokens/);
   assert.match(html, /equivalente em API — não é cobrança/);
-  // o MESMO formato de dinheiro no total e nos KPIs (US$ com o R$)
-  assert.match(html, /informado<\/span><b>US\$ 3,50 \(≈ R\$/);
-  assert.match(html, /estimado por tokens<\/span><b>US\$ 0,03 \(≈ R\$/);
-  const order = ['Tarefas', 'Nova tarefa (planner e spec com IA)', 'Personas (mesa)', 'Título e nome de branch'].map((l) => html.indexOf(l));
+  // F4: total "US$ X (≈ R$ Y)" no cabeçalho e no KPI (fmtUsdBr); informado × estimado só em "ver detalhes"
+  assert.match(html, /<span class="pgh-sumv">· <b>US\$ 3,53 \(≈ R\$ 19,42\)<\/b> em 7 dias/);
+  assert.match(html, /informado <b>US\$ 3,50 \(≈ R\$/);
+  assert.match(html, /estimado por tokens <b>US\$ 0,03 \(≈ R\$/);
+  assert.match(html, /<div class="uso-tech uso-split">/, 'selos técnicos escondidos (uso-tech)');
+  const order = ['Tarefas', 'Nova demanda (conversa e formulário)', 'Fábrica · personas (ex-Mesa)', 'Títulos e nomes de branch'].map((l) => html.indexOf(l));
   assert.ok(order.every((i) => i > 0) && order.every((v, i, a) => !i || a[i - 1] < v), 'origens na ordem: ' + order);
-  assert.match(html, /Personas \(mesa\)[\s\S]*?estimado por tokens/);
+  assert.match(html, /Fábrica · personas \(ex-Mesa\)[\s\S]*?estimado por tokens/);
   assert.match(html, /1,5 mi do cache/);
   assert.match(html, /Claude Code/);
   assert.match(html, /Codex/);
   // testes de conexão: à parte, fora do total
   assert.match(html, /Testes de conexão \(fora do total\): US\$ 0,0002/);
-  // tarefas: listitem em volta de um botão simples
-  assert.match(html, /<div class="uso-tasks" role="list"><div role="listitem"><button type="button" class="uso-task" data-uso-task="t-filtro"/);
+  // tarefas: tabela; o título é um botão que abre a linha (aria-expanded)
+  assert.match(html, /<tr class="uso-trw"><td><button type="button" class="uso-task" data-uso-task="t-filtro" data-uso-tproj="\/Users\/x\/proj-a" aria-expanded="false"/);
   assert.ok(html.indexOf('Filtro por data') < html.indexOf('Tarefa antiga'));
   assert.match(html, /proj-a · histórico/);
   assert.doesNotMatch(html, /mostrando/);

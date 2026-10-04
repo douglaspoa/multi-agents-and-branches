@@ -480,7 +480,7 @@ async function cloudCatalog(orgId, isAdmin){
         try{
           const local=await invoke('config');
           const byId=o=>Object.fromEntries((o||[]).map(x=>[x.id,x]));
-          const la=$id(local.agents), lw=$id(local.workflows);
+          const la=byId(local.agents), lw=byId(local.workflows); // inventário 21: era $id (getElementById → null) e sempre falhava
           for(const a of ags){ const full=await sbGet('org_agents?select=*&org_id=eq.'+orgId+'&id=eq.'+encodeURIComponent(a.id)); const f=full[0]; la[f.id]={ id:f.id, name:f.name, role:f.role, engine:f.engine||'claude', model:f.model||undefined, color:f.color||undefined, persona:f.persona||'' }; }
           for(const w of wfs){ lw[w.id]={ id:w.id, name:w.name, steps:w.steps||[] }; }
           await invoke('save_config',{ config:{ agents:Object.values(la), workflows:Object.values(lw) } });
@@ -513,7 +513,7 @@ async function cloudOrgView(){
 }
 
 /* ===== ABAS: expõe openers do bloco 1 e re-aponta os botões pra abrir como aba ===== */
-window.openCloud = openCloud;
+window.openCloud = ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('perfil'); else openCloud(); };
 window.openAgents = openAgents;
 window.switchProject = switchProject;
 window.pickFolder = pickFolder;

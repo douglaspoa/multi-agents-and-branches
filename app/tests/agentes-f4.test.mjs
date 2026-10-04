@@ -275,7 +275,7 @@ const host={ innerHTML:'', querySelector:()=>null, querySelectorAll:()=>[] }, ti
 const $id=k=>k==='agFicha'?host:k==='agTitle'?title:k==='agHome'?{}:null;
 const state={ repo:'/r', config:{ agents:[{ id:'nyx', name:'Nyx' }, { id:'lumen', name:'Lumen' }] } };
 `;
-const R = new Function(stub + mt + '\n' + cur + '\nreturn { AGS, AGF, CUR, agFichaRender, curHtml, host, setCfg:c=>{ cfgEdit=c; } };')();
+const R = new Function(stub + mt + '\n' + cur + '\nreturn { AGS, AGF, CUR, agFichaRender, agMemSectionsHtml, curHtml, host, setCfg:c=>{ cfgEdit=c; } };')();
 
 test('ficha › Aprendizados: "Antes e depois" por versão, chips de tipo, "isso ajudou?" com a tabela e o "voltar" quando pesou', () => {
   R.setCfg({ agents: [{ id: 'nyx', name: 'Nyx', role: 'reviewer', engine: 'claude' }], workflows: [] });
@@ -288,7 +288,12 @@ test('ficha › Aprendizados: "Antes e depois" por versão, chips de tipo, "isso
   R.CUR.data = { at: 1, suggestions: [{ id: 'arquivar:nota:nyx:n1', type: 'arquivar', kind: 'nota', key: 'n1', owner: 'nyx', title: 'Conferir o teste de login', days: 30 }], dismissed: [] };
   R.CUR.archived = [{ kind: 'skill', key: 'velha-skill', owner: 'nyx', reason: 'sem uso há 30 dias (curador)' }];
   R.agFichaRender();
-  const h = R.host.innerHTML;
+  // F4 (D16): a ficha mostra Desempenho (antes e depois + amostra); o que ele lembra, o curador e os esquecidos moram
+  // na Memória › Pra revisar (agMemSectionsHtml) — a aba antiga "aprendizados" abre Desempenho
+  const hf = R.host.innerHTML;
+  assert.equal(R.AGF.tab, 'desempenho');
+  assert.match(hf, /data-agftab="desempenho"[^>]*>Desempenho</);
+  const h = hf + R.agMemSectionsHtml({ id: 'nyx', name: 'Nyx', role: 'reviewer', engine: 'claude' }, R.AGF.card);
   assert.match(h, /<h3 class="agf-h3">Antes e depois de cada versão<\/h3>/);
   assert.match(h, /data-agbakind="codigo">Código <span class="dim">20<\/span>/);
   assert.match(h, /data-agbakind="documento">Documento/);
@@ -305,7 +310,7 @@ test('ficha › Aprendizados: "Antes e depois" por versão, chips de tipo, "isso
   assert.ok(!/melhor/i.test(h));
   // trocar pra Documento: 0 × 2 → ainda medindo
   R.AGF.kind = 'documento'; R.agFichaRender();
-  assert.match(R.host.innerHTML, /isso ajudou\? <span class="agba-t">ainda medindo \(0 de 10\)/);
+  assert.match(R.host.innerHTML + R.agMemSectionsHtml({ id: 'nyx', name: 'Nyx', role: 'reviewer', engine: 'claude' }, R.AGF.card), /isso ajudou\? <span class="agba-t">ainda medindo \(0 de 10\)/);
   assert.match(R.host.innerHTML, /aria-checked="true" data-agbakind="documento"/);
 });
 
@@ -420,8 +425,8 @@ test('ficha: esquecida 2× aparece uma vez; "depois" avisa quando inclui versõe
   R.AGF.id = 'nyx'; R.AGF.tab = 'aprendizados'; R.AGF.kind = null; R.AGF.pend = [];
   R.AGF.card = { versions: { current: 4, versions: [{ v: 2, at: 1, change: 'nota', what: 'x' }] },
     learnings: { notes: [{ id: 'n0', title: 'Velha', body: 'b', v: 2, at: 1, forgottenAt: 3 }, { id: 'n0', title: 'Velha', body: 'b', v: 2, at: 4, forgottenAt: 6 }], skills: [] } };
-  R.agFichaRender();
-  const h = R.host.innerHTML;
+  R.agFichaRender(); // F4: o antes/depois fica na ficha (Desempenho); as esquecidas moram na Memória
+  const h = R.host.innerHTML + R.agMemSectionsHtml({ id: 'nyx', name: 'Nyx', role: 'reviewer', engine: 'claude' }, R.AGF.card);
   assert.match(h, /esquecidas \(1\)/);
   assert.equal((h.match(/data-currestore="nota" data-key="n0"/g) || []).length, 1);
   assert.match(h, /o &quot;depois&quot; inclui as v3 a v4|o "depois" inclui as v3 a v4/);

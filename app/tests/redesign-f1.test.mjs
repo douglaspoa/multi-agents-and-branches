@@ -216,17 +216,18 @@ test('Central: UMA ação clara por linha, o percurso de etapas e a frase do por
   assert.match(h, /\+1 adiado/);
   assert.equal((h.match(/class="ctexp"/g) || []).length, 1, 'só a linha aberta expande');
 });
-test('Central: tabela é a vista padrão (uma vez pra todo mundo), cartões/grade/Kanban continuam; arquivo registrado', () => {
+test('Central: tabela (lista) é a vista padrão; F4 (D22): a grade saiu e quem estava nela vai pra lista; Kanban continua; arquivo registrado', () => {
   const q = read('js/22-quadro-fluxo.js');
   assert.match(q, /if\(lsGet\('flowViewF1'\)!=='1'\)\{ lsSet\('flowViewF1','1'\); if\(!v \|\| v==='list'\)\{ lsSet\('flowView','table'\); return 'table'; \} \}/, 'só migra lista ou nada escolhido (grade fica)');
   assert.match(q, /function flowTableOk\(\)\{ return flowScope!=='done' && flowGroupBy!=='day'; \}/);
-  assert.match(q, /Tabela só na Execução sem agrupar por dia[^`]*\$\{flowTableOk\(\)\?'':' disabled'\}/);
+  assert.match(q, /Lista só sem agrupar por dia[^`]*\$\{flowTableOk\(\)\?'':' disabled'\}/);
+  assert.match(q, /if\(v0==='grid'\)\{ lsSet\('flowView:f4', v0\); lsSet\('flowView','table'\); \}/, 'a escolha antiga fica guardada');
   assert.match(q, /const go=\(\)=>\{ selected=t\.id; render\(\); openOrEdit\(t\); \};[^\n]*\n\s*if\(typeof mvOpen==='function'\) mvOpen\(ti, go\); else go\(\); \}\);/, 'data-dcopen = mesmo caminho do Enter (rascunho abre o editor); F3: com o voo do título');
   // abrir a linha e ordenar mexem NO LUGAR (sem refazer a Central a cada clique)
   const wire = cut(ct, 'function ctWire(el, src){', '\n}\n');
   assert.ok(!/renderFlow\(/.test(wire), 'nada de renderFlow no clique');
   assert.match(wire, /insertAdjacentHTML\('afterend', ctExpHtml\(r\)\)/); assert.match(wire, /ctSyncLast\(\)/); assert.match(wire, /clearTimeout\(CT\.clickT\)/);
-  assert.match(q, /data-fv="table"/); assert.match(q, /data-fv="list"/); assert.match(q, /data-fv="grid"/); assert.match(q, /data-view="kanban"/);
+  assert.match(q, /data-fv="table"/); assert.ok(!/data-fv="grid"/.test(q), 'a grade saiu'); assert.match(q, /data-view="kanban"/);
   assert.match(q, /\} else if\(flowViewEff\(\)==='table' && typeof ctHtml==='function'\)\{/);
   assert.match(q, /ctWire\(el, src\)/);
   assert.match(html, /<script src="js\/64-terminal-integrado\.js"><\/script>\n(?:<script src="js\/65-fabrica\.js"><\/script>\n)?<script src="js\/66-central-tabela\.js"><\/script>/);

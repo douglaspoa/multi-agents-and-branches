@@ -183,8 +183,9 @@ test('orquestrador, issues e Nova demanda: a escolha de IA também foi pro compo
   assert.match(orq, /chatComposer\(\{ input:'orqTa'[^\n]*modelPill:aiChatModelPill\('orqModel'\)/);
   assert.match(read('14-issues-projeto.js'), /chatComposer\(\{ input:'trkNIInput'[^\n]*modelPill:aiChatModelPill\('trkNIModel'\)/);
   const pl = read('32-planner.js');
-  assert.match(fnSrc(pl, 'plWireComposer'), /modelPill:plModelPill\(\)/);
-  assert.match(fnSrc(pl, 'plModelPill'), /onPick:\(b\)=>plOpenModelPop\(b\)/, 'mesmo popover "IA desta demanda" da prévia');
+  // F4 (D12): na Nova demanda a IA é o SELETOR ÚNICO (iaPick) ao lado do Tipo, não o slot do composer
+  assert.doesNotMatch(fnSrc(pl, 'plWireComposer'), /modelPill:/);
+  assert.match(fnSrc(pl, 'plRenderCtl'), /PL_IA=iaPick\(host, \{ value:\{ engine:eng, model \}, scope:'demanda', recommend:plRecommend/);
   // chatComposer garante a pílula também na marcação estática (index.html) e mantém o rótulo atual
   assert.match(fnSrc(ANEXOS, 'chatComposer'), /if\(cfg\.modelPill\) chatModelPillEnsure\(box, cfg\.modelPill\)/);
 });

@@ -65,16 +65,21 @@ test('o Grátis nunca toca na rede: sem sessão orgPolGet volta null antes de qu
   assert.match(pol, /payload\.orgPolicy=p;/);
 });
 
-test('a política mora na aba Meu time (seção, nunca modal), salva mesclando o jsonb e confirma com askYes', () => {
-  assert.match(html, /<div id="agPolicy" class="agpol"><\/div>\s*<\/section>/);
+test('a política: em Agentes › Equipes só os AVISOS (o formulário mora em Ajustes › Regras da organização — D17), nunca modal, salva com versão mesclando o jsonb', () => {
+  assert.match(html, /<div id="agPolicy" class="agpol" hidden><\/div>\s*<div id="agOrgCat"><\/div>/);
   assert.match(html, /<script src="js\/62-curador\.js"><\/script>\s*<script src="js\/63-politica-org\.js"><\/script>/);
   assert.match(sw, /if\(typeof orgPolRender==='function'\) orgPolRender\(\);/);
+  // Meu time/Equipes: só o atalho pra Ajustes + a leitura da política (os avisos inline usam)
   const r = cut(pol, 'async function orgPolRender(', '\n// ----');
   assert.ok(!/overlay|modal|confirm\(/i.test(r), 'sem modal nem confirm');
-  assert.match(r, /await askYes\('Salvar a política/);
-  assert.match(r, /Object\.assign\(\{\}, cur, \{ agentes:next \}\)/);
-  assert.match(r, /const admin=orgIsOwner\(\);/, 'a RLS de orgs só deixa o dono gravar');
-  assert.match(r, /await orgWrite\('\/rest\/v1\/orgs\?id=eq\.'/);
+  assert.match(r, /ajustesOpen\('regras'\)/);
+  assert.match(r, /await orgPolGet\(\)/);
+  // F4 · G3: a página única (Ajustes › Regras da organização) — salvar explícito cria versão e mescla o jsonb
+  const g = cut(pol, 'async function orgRulesRender(host, d){', '\nwindow.orgRulesRender');
+  assert.match(g, /const org=d\.org, owner=d\.meRole==='owner';/, 'a RLS de orgs só deixa o dono gravar');
+  assert.match(g, /ajPolicyNext\(ORGR\.saved, patch, me, Date\.now\(\)\)/, 'versão + histórico no próprio jsonb (mescla o que já existia)');
+  assert.match(g, /await orgWrite\('\/rest\/v1\/orgs\?id=eq\.'\+org\.id, 'PATCH'/);
+  assert.match(g, /Só leitura\. Quem muda estas regras/, 'membro vê em modo leitura');
   assert.match(mt, /orgPolIssuesHtml\(roles\)/);
   assert.match(sw, /orgPolIssuesHtml\(roles\)/);
   for (const c of ['.agpol-r', '.agpol-f', '.agsmp-l', '.agorg-by']) assert.ok(css.includes(c), c);

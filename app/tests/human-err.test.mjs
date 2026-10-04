@@ -20,11 +20,11 @@ const { humanErr, pathBase, pathDir, errFirstLine } = ctx;
 
 const id = (e, c) => humanErr(e, c).id;
 
-test('Claude Code não instalado → Ambiente', () => {
+test('Claude Code não instalado → Verificação (ex-Ambiente, F4)', () => {
   const h = humanErr('falha ao iniciar claude: spawn claude ENOENT');
   assert.equal(h.id, 'claude-missing');
   assert.match(h.msg, /Claude Code não está instalado/);
-  assert.match(h.action.label, /Ambiente/);
+  assert.match(h.action.label, /Verificação/);
   assert.equal(id('zsh: claude: command not found'), 'claude-missing');
 });
 test('Claude Code sem login (/login, API key inválida)', () => {

@@ -149,7 +149,7 @@ test('planner: erro conhecido mantém o botão do catálogo no aviso', async () 
   c.__ai = Promise.reject(new Error('Invalid API key · Please run /login'));
   await run(c, "plSend('oi')");
   const t = run(c, '__toasts');
-  assert.equal(t.length, 1); assert.equal(t[0].k, 'err'); assert.equal(t[0].a.label, 'abrir Ambiente'); assert.equal(typeof t[0].a.fn, 'function');
+  assert.equal(t.length, 1); assert.equal(t[0].k, 'err'); assert.equal(t[0].a.label, 'abrir Verificação'); assert.equal(typeof t[0].a.fn, 'function');
   assert.match(run(c, 'plMsgs[plMsgs.length-1].text'), /voltou pra caixa/);
 });
 test('planner: "+ novo" com a IA respondendo — a resposta velha é descartada', async () => {

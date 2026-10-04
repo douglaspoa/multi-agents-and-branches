@@ -15,8 +15,10 @@ const L = new Function(cut(gr, '// @rail-mesa-inicio', '// @rail-mesa-fim') +
   '\nreturn { railRank, railCounts, railSum, railFootText, railProjTip, railSplitProjects, railEmptyText, railRowTip, railNavIdx, RAIL_VOCE };')();
 // a flowBucket DE VERDADE (a regra única da Central), com pergunta aberta só na t-ask
 const PEND = new Set(['t-ask']);
-const flowBucket = new Function('pendingOf', 'taskTs', cut(qf, 'function flowBucket(t){', '\n// status EFETIVO') + '\nreturn flowBucket;')(
-  (id) => (PEND.has(id) ? [{ id: 'q' }] : []), () => Date.now());
+// F4: a regra "aguardando você" mora em 00-util (taskAguardaVoce/taskEncerrada — D14); a flowBucket usa as duas
+const HELP = cut(read('js/00-util.js'), '// @helpers-comuns-inicio', '// @helpers-comuns-fim');
+const flowBucket = new Function('pendingOf', 'taskTs', 'taskDoneTs', HELP + cut(qf, 'function flowBucket(t){', '\n// status EFETIVO') + '\nreturn flowBucket;')(
+  (id) => (PEND.has(id) ? [{ id: 'q' }] : []), () => Date.now(), () => Date.now());
 
 const TASKS = [
   { id: 't-run', status: 'running' },
@@ -32,10 +34,11 @@ const TASKS = [
 
 test('L3: uma contagem, uma regra — railCounts classifica pela flowBucket da Central', () => {
   const c = L.railCounts(TASKS, flowBucket);
-  assert.deepEqual(c, { vivas: 9, rodando: 2, voce: 4 }, 'esperando você = pergunta + plano + erro + pra revisar; PR aberto e fila não');
-  assert.deepEqual(L.railCounts([{ id: 'x', status: 'merged' }, { id: 'y', status: 'done' }], flowBucket), { vivas: 0, rodando: 0, voce: 0 }, 'encerradas não contam');
-  assert.deepEqual(L.railCounts(null, flowBucket), { vivas: 0, rodando: 0, voce: 0 });
-  assert.deepEqual(L.railSum([c, { vivas: 1, rodando: 1, voce: 0 }]), { vivas: 10, rodando: 3, voce: 4 });
+  // F4 (D14): aguardando você = pergunta + plano + erro (a MESMA da Central); pronta pra revisar À PARTE; PR aberto e fila não
+  assert.deepEqual(c, { vivas: 9, rodando: 2, voce: 3, revisar: 1 }, 'aguardando você = pergunta + plano + erro; pra revisar separado');
+  assert.deepEqual(L.railCounts([{ id: 'x', status: 'merged' }, { id: 'y', status: 'done' }, { id: 'z', status: 'cancelled' }], flowBucket), { vivas: 0, rodando: 0, voce: 0, revisar: 0 }, 'encerradas (e canceladas) não contam');
+  assert.deepEqual(L.railCounts(null, flowBucket), { vivas: 0, rodando: 0, voce: 0, revisar: 0 });
+  assert.deepEqual(L.railSum([c, { vivas: 1, rodando: 1, voce: 0 }]), { vivas: 10, rodando: 3, voce: 3, revisar: 1 });
   // a fiação: projeto atual, outros projetos e rodapé saem da MESMA função (nada de mine.length/liveN soltos)
   const r = cut(gr, 'function renderRail(){', '\n}\n');
   assert.match(r, /const cMine=railCounts\(mine, flowBucket\);/);
@@ -85,14 +88,15 @@ test('L1: projeto sem demanda viva vira UMA linha, acima do escopo por conta (PR
 
 test('L2: rodapé em português, sem "− N/4 +" (o limite mora em Configurações)', () => {
   assert.equal(L.railFootText({ rodando: 0, voce: 0 }, 4), 'nada rodando agora');
-  assert.equal(L.railFootText({ rodando: 1, voce: 2 }, 4), '1 rodando · 2 esperando você');
-  assert.equal(L.railFootText({ rodando: 0, voce: 1 }, 4), '1 esperando você');
+  // F4 (D14, inventário 02): "aguardando você" (a palavra da Central) e "pronta pra revisar" À PARTE
+  assert.equal(L.railFootText({ rodando: 1, voce: 2 }, 4), '1 rodando · 2 aguardando você');
+  assert.equal(L.railFootText({ rodando: 0, voce: 1 }, 4), '1 aguardando você');
+  assert.equal(L.railFootText({ rodando: 0, voce: 1, revisar: 2 }, 4), '1 aguardando você · 2 prontas pra revisar');
   assert.equal(L.railFootText({ rodando: 4, voce: 0 }, 4), '4 rodando · limite de 4 atingido');
-  assert.equal(L.railProjTip({ vivas: 1, rodando: 0, voce: 1 }), '1 demanda viva · 1 esperando você');
+  assert.equal(L.railProjTip({ vivas: 1, rodando: 0, voce: 1 }), '1 demanda viva · 1 aguardando você');
   const r = cut(gr, 'function renderRail(){', '\n}\n');
   assert.ok(!/data-slot|sess(ão|ões) atua|sbtn/.test(r), 'sem controle de número nem "sessões"');
-  assert.match(r, /Configurações › Tarefas ao mesmo tempo/);
-  assert.match(read('js/15-config-abas-onboarding.js'), /id="cfgSlots"/, 'o ajuste continua em Configurações');
+  assert.match(r, /Ajustes › Custo e limites/);
   assert.ok(!/\.sbtn\{/.test(css), 'CSS do −/+ removido');
 });
 
@@ -102,24 +106,20 @@ test('L6: erro do medidor em duas linhas que quebram — "tentar de novo" sempre
   assert.ok(!/\.pm-err[^{]*\{[^}]*white-space:nowrap/.test(css), 'nada de nowrap no erro');
 });
 
-test('L7b: Projetos · Issues · Chat · Fábrica à vista (redesenho F1: embaixo das demandas); Skills, Agentes & Equipes e Daily no topo do "Mais"', () => {
+test('L7b → F4 (D1): Projetos · Issues · Fábrica · Time (só com org) à vista; "Mais" e "Chat do projeto" saíram; rodapé = medidor + avatar', () => {
   assert.ok(html.indexOf('<div class="sbscroll">') < html.indexOf('<div class="sbnav2"'), 'demandas primeiro, navegação depois');
   const nav = cut(html, '<div class="sbnav2"', '<div class="planmeter"');
   const visible = [...nav.matchAll(/<button class="btn sbitem[^"]*" id="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(visible, ['projetosBtn', 'issuesBtn', 'pcBtn', 'fabricaBtn']);
+  assert.deepEqual(visible, ['projetosBtn', 'issuesBtn', 'fabricaBtn', 'timeBtn']);
+  assert.match(nav, /id="timeBtn" hidden/, 'Time começa escondido (aparece com organização)');
   assert.ok(!/class="btn sbitem/.test(cut(html, '<div class="sbnew">', '<div class="sbscroll">')), 'em cima só a Nova demanda');
   assert.match(read('js/26-sidebar-projetos.js'), /typeof fabOpen==='function' \? fabOpen\(\) : toast\('Fábrica chegando'\)/);
-  const menu = cut(html, '<div class="moremenu" id="moreMenu"', '</aside>');
-  const inMenu = [...menu.matchAll(/<button class="btn" id="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(inMenu.slice(0, 3), ['skillsBtn', 'agentsBtn', 'dailyBtn'], 'no topo do menu, com os mesmos ids (handlers e atalhos intactos)');
-  assert.match(menu, /dailyBtn[\s\S]*<div class="mmsep" role="separator"><\/div>[\s\S]*prefsBtn/);
+  // rodapé: medidor + avatar (menu); os botões antigos do "Mais" ficam num container SEMPRE escondido (handlers e selos intactos)
+  assert.match(html, /<div class="planmeter" id="planMeter"[^>]*><\/div>\s*<div class="sbme">\s*<button class="sbmebtn" id="meBtn" aria-haspopup="menu" aria-expanded="false"/);
+  const compat = cut(html, '<div class="sbcompat" id="sbCompat" hidden aria-hidden="true">', '</aside>');
+  for (const id of ['pcBtn', 'cloudBtn', 'moreBtn', 'skillsBtn', 'agentsBtn', 'dailyBtn', 'prefsBtn', 'memBtn', 'cfgBtn', 'envBtn', 'pubRelBtn']) assert.match(compat, new RegExp('id="' + id + '"'), id);
   assert.equal((html.match(/id="skillsBtn"/g) || []).length, 1);
-  // o "Mais" agora carrega navegação: precisa de teclado (setas, Home/End, Esc devolve o foco) e aria-expanded
-  assert.match(html, /id="moreBtn" aria-haspopup="true" aria-expanded="false" aria-controls="moreMenu"/);
-  const mm = cut(sw, "{ const mb=$id('moreBtn')", '// publicar release');
-  assert.match(mm, /mb\.setAttribute\('aria-expanded', on\?'true':'false'\)/);
-  assert.match(mm, /e\.key==='Escape'\)\{ e\.preventDefault\(\); mmShow\(false\); mb\.focus\(\);/);
-  assert.match(mm, /e\.key==='ArrowDown'\?i\+1:e\.key==='ArrowUp'\?i-1:e\.key==='Home'\?0:e\.key==='End'\?it\.length-1:null/);
+  assert.match(read('css/99-paginas.css'), /\.sbcompat,\.sbcompat\[hidden\]\{display:none!important\}/);
 });
 
 test('L13/L14: ↑/↓/Home/End andam na lista; tooltip com título · estado · branch · projeto (sem hora relativa)', () => {

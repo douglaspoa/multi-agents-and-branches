@@ -10,7 +10,7 @@ const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8'
 const cut = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b, i); assert.ok(i >= 0 && j > i, 'trecho não encontrado: ' + a); return s.slice(i, j); };
 const SRC = read('js/65-fabrica.js');
 const F = new Function(cut(SRC, '// @fabrica-puro-inicio', '// @fabrica-puro-fim') +
-  '\nreturn { fabFold, fabSrcKey, fabFontes, fabAutores, fabIdeiaNossa, fabResumo, fabMockCheck, fabUsd, fabCustoTxt, fabCustoSub, fabMeter, fabDisjoint, fabFeaturePlan, fabPlanoProblema, fabPayloads, fabTelaIdx, fabMockBody, fabReportFromOp, fabIdeaTurn, fabDefaultMode, FAB_MOCK_MAX };')();
+  '\nreturn { fabFold, fabSrcKey, fabFontes, fabAutores, fabIdeiaNossa, fabResumo, fabMockCheck, fabUsd, fabCustoTxt, fabCustoSub, fabMeter, fabDisjoint, fabFeaturePlan, fabPlanoProblema, fabPayloads, fabTelaIdx, fabMockBody, fabReportFromOp, fabIdeaTurn, fabDefaultMode, FAB_MOCK_MAX, fabSessRows, fabSessFilter, fabSessCounts, fabRoute };')();
 const MESA_PURE = cut(read('js/38-mesa.js'), '// @puro-inicio', '// @puro-fim');
 const I = new Function(MESA_PURE + cut(read('js/59-ideia.js'), '// @ideia-puro-inicio', '// @ideia-puro-fim') + '\nreturn { ideiaCheckReport, ideiaSanitize, ideiaBuildPlan, ideiaPanel, ideiaTaskPayloads };')();
 const GOLDEN = JSON.parse(readFileSync(new URL('./fixtures/fabrica-golden.json', import.meta.url), 'utf8'));
@@ -181,4 +181,57 @@ test('aba, não modal: registro no motor de abas, overlay, CSS/JS no index e fab
 test('CSS só com tokens do app (a paleta muda depois)', () => {
   const css = read('css/98-fabrica.css');
   assert.doesNotMatch(css.replace(/\/\*[\s\S]*?\*\//g, ''), /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i, 'cor fixa no CSS da Fábrica');
+});
+
+// ---------------- F4 · G2: Fábrica unificada ----------------
+test('Sessões: UMA lista (ideias, mesas, varreduras, pilotos) normalizada, mais nova primeiro; ilegível marcada', () => {
+  const rows = plain(F.fabSessRows({
+    ideias: [{ id: 'i1', titulo: 'Confirmação', updatedAt: 5, costUsd: 0.42, turnos: 1, decisao: 'ok' }, { id: 'i2', titulo: '(arquivo x ilegível)', corrompida: true, updatedAt: 1 }],
+    mesas: [{ id: 'm1', repo: '/r/logcomex', tema: 'Em breve', status: 'rodando', personas: 5, rounds: 2, costUsd: 0.58, updatedAt: 9 }],
+    varreduras: [{ id: 'f1', mode: 'feature', projeto: '/r/logcomex', foco: 'o que pedem', status: 'pronta', gasto: 0.86, opcoes: [{}, {}], updatedAt: 7 }],
+    pilotos: [{ dir: '/d/studio', name: 'studio', alive: true, tasks: [{ stage: 'merged' }, { stage: 'running' }], costUsd: 11.2, updatedAt: 3 }],
+    liveMesas: [] }));
+  assert.deepEqual(rows.map((r) => r.k + ':' + r.id), ['m:m1', 'v:f1', 'i:i1', 'p:/d/studio', 'i:i2']);
+  assert.equal(rows[0].sit, 'interrompida · continuar', 'mesa "rodando" sem processo vivo = interrompida');
+  assert.equal(rows[0].onde, 'logcomex');
+  assert.equal(rows[1].small, '2 opções · feature');
+  assert.equal(rows[2].sit, 'MVP decidido · falta criar');
+  assert.equal(rows[3].sit, 'construindo · 1/2');
+  assert.equal(rows[4].bad, true);
+  const c = plain(F.fabSessCounts(rows));
+  assert.deepEqual(c, { all: 5, i: 2, m: 1, v: 1, p: 1 });
+  assert.deepEqual(plain(F.fabSessFilter(rows, { k: 'i' })).map((r) => r.id), ['i1', 'i2']);
+  assert.deepEqual(plain(F.fabSessFilter(rows, { proj: '/r/logcomex' })).map((r) => r.id), ['m1', 'f1']);
+  assert.deepEqual(plain(F.fabSessFilter(rows, { proj: '-' })).map((r) => r.id), ['i1', 'i2'], 'sem projeto (app novo)');
+  assert.deepEqual(plain(F.fabSessFilter(rows, { q: 'CONFIRMACAO' })).map((r) => r.id), ['i1'], 'busca sem acento/caixa');
+});
+
+test('rotas antigas → lugares novos: lista de mesas vai pra Fábrica › Sessões; mesa específica abre na aba dela', () => {
+  assert.deepEqual(plain(F.fabRoute('mesa', {})), { kind: 'fabrica', view: 'sessoes', filter: 'm' });
+  assert.deepEqual(plain(F.fabRoute('mesa', { mesaId: 'm-1' })), { kind: 'mesa' });
+  assert.deepEqual(plain(F.fabRoute('mesanova', {})), { kind: 'fabrica', view: 'nova', mode: 'feature' });
+  assert.deepEqual(plain(F.fabRoute('ideias', {})), { kind: 'fabrica', view: 'sessoes', filter: 'i' });
+  assert.deepEqual(plain(F.fabRoute('ideia', {})), { kind: 'ideia' }, '"Tenho uma ideia" É a sessão da Fábrica');
+  assert.deepEqual(plain(F.fabRoute('piloto', {})), { kind: 'piloto' }, 'piloto = fim de caminho "construir sozinho"');
+  // o motor de abas da casca conhece os apelidos (VIEW_ROUTES) e o openTab passa pelo fabRoute
+  const abas = read('js/15-config-abas-onboarding.js');
+  assert.match(abas, /mesas:\['fabrica','sessoes'\], ideias:\['fabrica','sessoes'\], novoprojeto:\['fabrica','nova'\]/);
+  assert.match(SRC, /openTab=function\(kind, opts\)\{ const r=fabRoute\(kind/);
+  // as portas antigas: menu "Mais › Mesa" e o seletor de 5 modos não existem mais
+  assert.match(read('js/38-mesa.js'), /bindClick\('mesaBtn', \(\)=>\{[^\n]*fabOpen\('sessoes', \{ filter:'m' \}\)/);
+  assert.doesNotMatch(read('js/14-nova-demanda-inicio.js'), /tab:'(orq|piloto|ideia)'/);
+});
+
+test('hub: App novo | Feature, sub-nav Nova sessão · Sessões · Personas, 4 pontos de partida e o fim do caminho', () => {
+  assert.match(SRC, /data-fview="\$\{k\}"/);
+  for (const v of ["b('nova','plus','Nova sessão')", "b('sessoes','list','Sessões'", "b('personas','users','Personas'"]) assert.ok(SRC.includes(v), v);
+  for (const t of ['Já sei o que quero', 'Tenho uma ideia', 'Me mostre opções', 'Discutir um tema']) assert.ok(SRC.includes(t), t);
+  assert.match(SRC, /construir sozinho<\/b> \(o antigo piloto automático, com teto obrigatório\)/);
+  assert.match(SRC, /épico criado só com confirmação/);
+  assert.match(SRC, /fabToNova', \(\)=>\{ if\(window\.openTab\) window\.openTab\('planner'\)/, 'Feature › Já sei o que quero abre a Nova demanda (não duplica o planejador)');
+  assert.match(SRC, /mesaStartWith\(\{ repo:state\.repo, tema:FAB_HUB\.tema, ids:\[\.\.\.FAB_HUB\.pick\]/);
+  assert.match(SRC, /Sem sessões ainda/);
+  assert.match(SRC, /Não consegui ler as sessões/);
+  assert.match(read('index.html'), /id="varOverlay"/);
+  assert.match(SRC, /<nav class="g2crumb"[^`]*Fábrica<\/button>›<button type="button" data-fgo="sessoes">Sessões<\/button>› varredura/);
 });

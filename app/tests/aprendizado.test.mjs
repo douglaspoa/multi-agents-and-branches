@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 const mem = readFileSync(new URL('../src/js/37-memoria.js', import.meta.url), 'utf8');
-const cfg = readFileSync(new URL('../src/js/15-config-abas-onboarding.js', import.meta.url), 'utf8');
+const cfg = readFileSync(new URL('../src/js/67-ajustes.js', import.meta.url), 'utf8'); // F4 · G3: Configurações virou Ajustes
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'trecho não encontrado: ' + a); return src.slice(i, j); };
 const M = new Function(cut(mem, '// @puro-inicio', '// @puro-fim') + '\nreturn { memLearnHtml, memLearnCard, memLearnLabel, memLearnSigOf };')();
 
@@ -44,11 +44,11 @@ test('texto proposto é escapado (não injeta HTML na aba)', () => {
   assert.ok(!h.includes('data-lid="x">'), h);
 });
 
-test('Configurações: modo e modelo gravados; modelo personalizado do settings.json não é trocado no salvar', () => {
-  for (const v of ['value="sugerir"', 'value="auto"', 'value="desligado"']) assert.ok(cfg.includes(v), v);
-  assert.match(cfg, /w\('learnMode', lm\.value/);
-  assert.match(cfg, /w\('retroModel', rm\.value/);
-  const C = new Function(cut(cfg, '// modelos da retro', 'function openCfg(){') + '\nreturn { RETRO_MODELS, retroModelSelect };')();
+test('Ajustes › Aprendizado: modo e modelo gravados sozinhos; modelo personalizado do settings.json não é trocado', () => {
+  for (const v of ["['sugerir'", "['auto'", "['desligado'"]) assert.ok(cfg.includes(v), v);
+  assert.match(cfg, /ajSetting\('learnMode', b\.dataset\.ajlearn\)/);
+  assert.match(cfg, /ajSetting\('retroModel', rm\.value\)/);
+  const C = new Function(cut(cfg, '// modelos da retro', '// papel e plano em português') + '\nreturn { RETRO_MODELS, retroModelSelect };')();
   assert.deepEqual(C.RETRO_MODELS.map((m) => m[0]), ['claude-sonnet-5', 'claude-haiku-4-5-20251001']);
   // <select> mínimo, sem DOM
   const sel = { options: C.RETRO_MODELS.map(([value]) => ({ value })), value: 'claude-sonnet-5', appendChild(o) { this.options.push(o); } };

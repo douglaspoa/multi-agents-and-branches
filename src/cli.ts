@@ -899,7 +899,7 @@ function cmdClaudeStatusline(sub: string | undefined, a: Args) {
 async function cmdAutopilot(a: Args) {
   const dir = a.flags.dir || a._[1];
   if (!dir || dir === "true") {
-    console.error(c.red(`✕ use: cardume autopilot --idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine …] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] [--budget-usd N (0 = sem teto)]`));
+    console.error(c.red(`✕ use: cardume autopilot --idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine …] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] --budget-usd N (teto obrigatório, maior que 0)`));
     process.exitCode = 1;
     return;
   }
@@ -1108,7 +1108,7 @@ ${c.dim("criar & rodar")}
   ${c.green("cardume start")} ${c.dim("<taskId>")}               inicia uma tarefa em rascunho (--no-start)
   ${c.green("cardume rework")} ${c.dim("<taskId>")}              re-roda a equipe aplicando os ajustes do humano
 
-  ${c.green("cardume autopilot")} ${c.dim(`--idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine claude] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] [--budget-usd N (0 = sem teto)]`)}
+  ${c.green("cardume autopilot")} ${c.dim(`--idea "…" --dir <pasta nova> [--platform web|ios|android|mobile] [--engine claude] [--model …] [--parallel 1-${AP_MAX_PARALLEL}] [--attempts 1-${AP_MAX_ATTEMPTS}] --budget-usd N (teto obrigatório, maior que 0)`)}
       piloto automático: cria o projeto local, planeja o épico e constrói o app sozinho (rode de novo pra continuar; --stop para; --status mostra)
 
 ${c.dim("acompanhar")}

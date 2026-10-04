@@ -82,7 +82,7 @@ test('preferência de tema: Sistema segue o SO; Claro/Escuro fixam; valor estran
   assert.match(temaSrc, /TEMA_MQ\.addEventListener\('change'/);
   assert.match(temaSrc, /CustomEvent\('sf-theme'/);
   assert.doesNotMatch(temaSrc, /setInterval/);
-  assert.match(rd('js/15-config-abas-onboarding.js'), /temaCfgMount\(\$id\('temaHost'\)\)/, 'Configurações → Aparência');
+  assert.match(rd('js/67-ajustes.js'), /temaCfgMount\(\$id\('temaHost'\)\)/, 'Ajustes › Aparência');
 });
 
 test('xterm: tema vem dos tokens do terminal e todo terminal aberto repinta ao trocar o tema', () => {
