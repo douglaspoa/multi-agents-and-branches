@@ -81,21 +81,34 @@ test('número da tarefa integrada: PR mergeado manda (o diff local contava o ava
 
 // ---------- Prévia nunca branca ----------
 const NV = new Function('esc', cut(read('js/57-navegador.js'), 'function nvHealthHtml(', '// @nav-puro-fim') + '\nreturn nvHealthHtml;')(esc);
-test('Prévia: tarefa integrada com a pasta removida → cartão claro + "abrir a prévia da main"', () => {
-  const h = NV({ verdict: 'gone', status: 404, rootStatus: 404, finished: true, tail: '' }, 'http://127.0.0.1:5241/u/painel');
-  assert.match(h, /Esta tarefa já foi integrada e a pasta dela foi removida/);
+test('Prévia: tarefa integrada com a pasta removida → "a prévia não está rodando" + subir ambiente (main) + ver as provas', () => {
+  const h = NV({ verdict: 'gone', status: 404, rootStatus: 404, finished: true, tail: '' }, 'http://127.0.0.1:5241/u/painel', { proofs: 2 });
+  assert.match(h, /<b>a prévia não está rodando<\/b>/);
+  assert.match(h, /esta tarefa já foi integrada; a pasta dela foi apagada/);
   assert.match(h, /responde 404 em tudo/); assert.match(h, /127\.0\.0\.1:5241/);
-  assert.match(h, /data-nvh="main">abrir a prévia da main/);
-  assert.match(NV({ verdict: 'gone', status: null, finished: false }, 'http://localhost:3000/'), /A pasta desta tarefa foi removida/);
+  assert.match(h, /data-nvh="main">subir ambiente \(main\)/);
+  assert.match(h, /data-nvh="proofs">ver as provas \(2\)/);
+  assert.ok(!/data-nvh="proofs"/.test(NV({ verdict: 'gone', finished: true }, 'http://x/')), 'sem prints: sem o botão');
+  assert.match(NV({ verdict: 'gone', status: null, finished: false }, 'http://localhost:3000/'), /a pasta desta tarefa foi apagada/);
 });
-test('Prévia: tarefa em andamento com o servidor caído → "o servidor da prévia parou" + subir de novo + log curto', () => {
+test('Prévia: ambiente caído ou página que não carregou → "o ambiente desta tarefa não está de pé" + subir ambiente + log curto', () => {
   const h = NV({ verdict: 'down', status: null, tail: 'linha 1\nError: Cannot find module \'vite\'\n' }, 'http://127.0.0.1:4412/');
-  assert.match(h, /O servidor da prévia parou/); assert.match(h, /Ninguém responde/);
-  assert.match(h, /data-nvh="up">subir de novo/);
+  assert.match(h, /a prévia não está rodando/); assert.match(h, /o ambiente desta tarefa não está de pé/); assert.match(h, /ninguém responde/);
+  assert.match(h, /data-nvh="up">subir ambiente/);
   assert.match(h, /data-nvh="force">abrir mesmo assim/, 'falso positivo (servidor só de API) não prende a prévia');
   assert.match(h, /<pre class="mono nvhlog"[^>]*>linha 1\nError: Cannot find module &#39;vite&#39;<\/pre>/);
+  assert.match(NV({ verdict: 'noresp', status: null }, 'http://127.0.0.1:5173/'), /não respondeu — nada carregou/);
   assert.equal(NV({ verdict: 'ok' }, 'http://x'), '');
   assert.equal(NV(null, 'http://x'), '');
+});
+test('Prévia: nunca branco — vigia de 8s sem "ready" no iframe, proxy antigo reconfere a saúde, tarefa integrada sem checagem vira cartão', () => {
+  const nav = read('js/57-navegador.js');
+  const mount = cut(nav, 'function nvMount(', '\n}\n');
+  assert.match(mount, /st\.health=\{ verdict:'noresp'/); assert.match(mount, /8000\)/);
+  assert.match(nav, /if\(d\.type==='ready'\)\{ st\.ready=true;/);
+  assert.match(cut(nav, 'function nvRender(', '\n}\n'), /nvGo\(taskId, st\.addr, true\)/);
+  assert.match(cut(nav, 'async function nvGo(', '\n}\n'), /h=\{ verdict:'gone', status:null, finished:true \}/);
+  assert.match(nav, /m\.style\.display=html\?'flex':'none'/, 'o cartão aparece de verdade (display:\'\' caía no display:none do CSS = quadro branco)');
 });
 test('Prévia: a saúde é checada ANTES de montar o iframe; "main" liga o projeto na pasta principal e não morre no envSweep', () => {
   const nav = read('js/57-navegador.js'), amb = read('js/58-ambiente.js');

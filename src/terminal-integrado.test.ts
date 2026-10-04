@@ -13,7 +13,7 @@ import { Store } from "./store.ts";
 import { tempHome } from "./testing/temp-home.ts";
 import { cleanSuggestions, findCommand, mergeSection, naturalCommand, SECTION_BEGIN, SECTION_END, shellInstructions, STARFORK_COMMANDS, STARFORK_MARK, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
 import { etapaStatus, parseSf } from "./starfork-cli.ts";
-import { aiOfEngine, deepseekClaudeEnv, DEEPSEEK_ANTHROPIC_URL, launchScript, NEXT_MSG_REL, recommendedLaunch, shArg, shimScript, skipStatuslineCost, TERM_BIN_REL, terminalCapable, termAiOf, termModelOf, termPrep } from "./terminal.ts";
+import { aiOfEngine, mergedRule, deepseekClaudeEnv, DEEPSEEK_ANTHROPIC_URL, launchScript, NEXT_MSG_REL, recommendedLaunch, shArg, shimScript, skipStatuslineCost, TERM_BIN_REL, terminalCapable, termAiOf, termModelOf, termPrep } from "./terminal.ts";
 import type { TaskSpec } from "./types.ts";
 
 const SERVER = fileURLToPath(new URL("./mcp/server.ts", import.meta.url));
@@ -620,3 +620,26 @@ async function withEnvAsync<T>(vars: Record<string, string | undefined>, fn: () 
   for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   try { return await fn(); } finally { for (const [k, v] of Object.entries(old)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; } }
 }
+
+test("integrada no terminal: bloco 'modo conversa' nas instruções (Claude e shell), sem kickoff, sem mudar o status", { skip: process.platform === "win32" }, async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    await orch.createTask(spec("feita", { prUrl: "https://github.com/o/r/pull/5" }));
+    orch.store.setStatus("feita", "merged");
+    orch.close();
+    const env = { CARDUME_AI_BIN_claude: fakeBin(join(f.root, "bins"), "claude"), CARDUME_AI_BIN_codex: fakeBin(join(f.root, "bins"), "codex") };
+    const r = sf(f, "feita", ["ia-prep", "claude"], env);
+    assert.equal(r.code, 0, r.err);
+    assert.match(r.out, /Esta tarefa JÁ FOI INTEGRADA \(PR https:\/\/github\.com\/o\/r\/pull\/5\)[\s\S]*NÃO altere código aqui[\s\S]*starfork tarefa "Ajuste: …"/);
+    assert.ok(!r.out.includes("Comece: leia .cardume/TASK.yaml"), "sem kickoff de construir");
+    const c = sf(f, "feita", ["ia-prep", "codex"], env);
+    assert.match(c.out, /developer_instructions=.*JÁ FOI INTEGRADA/);
+    const s = new Store(f.db);
+    try {
+      assert.equal(s.getTask("feita")!.status, "merged");
+      assert.equal(s.termGet("feita")!.busy, 0, "sem kickoff: nasce livre");
+    } finally { s.close(); }
+    assert.match(mergedRule("u"), /JÁ FOI INTEGRADA \(PR u\)/);
+  } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
+});

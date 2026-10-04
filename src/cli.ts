@@ -1036,6 +1036,8 @@ async function main() {
         // (oferece uma tarefa nova de ajuste).
         const t0 = orch.store.getTask(a._[1]);
         if (t0 && t0.status !== "merged" && t0.worktree && !existsSync(t0.worktree)) await orch.ensureTaskWorktree(a._[1]);
+        // INTEGRADA sem pasta: reabre pra CONVERSAR (mesmo caminho = o --resume acha a sessão); a tarefa segue integrada
+        if (t0 && t0.status === "merged" && t0.worktree && !existsSync(t0.worktree)) await orch.ensureTaskWorktree(a._[1], { conversation: true });
         console.log(JSON.stringify(termPrep(orch, a._[1], { resume: !!a.flags.resume, message: a.flags.msg, ai: a.flags.ai || undefined, model: a.flags.ai ? a.flags.model : undefined })));
       } catch (e) {
         console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));

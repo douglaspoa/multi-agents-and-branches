@@ -130,6 +130,8 @@ export interface TaskSpec {
   prNumber?: number;
   /** PRs anteriores desta tarefa (ex.: PR já MERGEADO antes de a conversa ser retomada numa branch nova). */
   prHistory?: string[];
+  /** sha do commit do merge do PR (quando se sabe) — reabrir a tarefa integrada pra conversa parte dele */
+  prMergeCommit?: string;
   /**
    * Link da ISSUE do tracker desta demanda (visível pro time). Preenchido pelo
    * humano na Nova demanda (issue já existente) OU pelo agente via mcp__cardume__set_issue

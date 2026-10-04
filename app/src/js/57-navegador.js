@@ -121,22 +121,26 @@ function nvRouteMsg(states, source, origin){
   for(const k of Object.keys(states||{})){ const s=states[k]; if(s && s.frame && source && source===s.frame.contentWindow && s.proxy && origin===s.proxy.origin) return k; }
   return null;
 }
-// Saúde da Prévia (03/10 — tarefa integrada abria BRANCO: a worktree sumiu e o vite dela seguia vivo servindo 404).
-// h = preview_health do Rust: { verdict:'ok'|'down'|'gone', status, rootStatus, finished, tail }. Cartão no lugar do
-// branco: o que houve + a ação certa. Puro (testado em app/tests/canvas-pronto.test.mjs).
-function nvHealthHtml(h, url){
+// Saúde da Prévia (03/10 — tarefa integrada abria BRANCO: a worktree sumiu e o vite dela seguia vivo servindo 404;
+// 04/10 — de novo branco num endereço sem ninguém). h = preview_health do Rust: { verdict:'ok'|'down'|'gone', status,
+// rootStatus, finished, tail } · verdict 'noresp' = o iframe montou e a página não deu sinal de vida (vigia do nvMount).
+// Cartão no lugar do branco: "a prévia não está rodando" + o porquê + a ação certa (subir ambiente / ver as provas).
+// o: { proofs: nº de prints de prova da tarefa }. Puro (testado em app/tests/canvas-pronto.test.mjs).
+function nvHealthHtml(h, url, o){
   if(!h || h.verdict==='ok') return '';
-  let host=''; try{ host=new URL(url).host; }catch(_){ }
+  o=o||{}; let host=''; try{ host=new URL(url).host; }catch(_){ }
+  const at=host?' em <code>'+esc(host)+'</code>':'';
   const tail=String(h.tail||'').split('\n').filter(Boolean).slice(-6).join('\n');
   const log=tail?`<pre class="mono nvhlog" aria-label="fim do log da prévia">${esc(tail)}</pre>`:'';
+  const proofs=o.proofs?`<button type="button" class="btn sm" data-nvh="proofs">ver as provas (${o.proofs})</button>`:'';
   if(h.verdict==='gone'){
-    return `<div class="nvempty nvhealth" role="status"><b>${h.finished?'Esta tarefa já foi integrada e a pasta dela foi removida':'A pasta desta tarefa foi removida'}</b>`+
-      `<span>${h.status==null?'Não tem mais nada rodando':'O servidor que sobrou responde 404 em tudo'}${host?' em <code>'+esc(host)+'</code>':''} — por isso a prévia ficaria em branco. Pra ver como ficou, abra a prévia da main: o Starfork liga o projeto na pasta principal.</span>`+
-      `<span class="nvhacts"><button type="button" class="btn sm primary" data-nvh="main">abrir a prévia da main</button><button type="button" class="btn sm ghost" data-nvh="retry">tentar de novo</button></span></div>`;
+    return `<div class="nvempty nvhealth" role="status"><b>a prévia não está rodando</b><span>${h.finished?'esta tarefa já foi integrada; a pasta dela foi apagada':'a pasta desta tarefa foi apagada'}.</span>`+
+      `<small class="nvhwhy">${h.status==null?'não tem nada respondendo'+at:'o servidor que sobrou'+at+' responde 404 em tudo'} — pra ver como ficou, suba o ambiente na pasta principal (main) ou veja as provas.</small>`+
+      `<span class="nvhacts"><button type="button" class="btn sm primary" data-nvh="main">subir ambiente (main)</button>${proofs}<button type="button" class="btn sm ghost" data-nvh="retry">tentar de novo</button></span></div>`;
   }
-  const why=h.status==null?`Ninguém responde${host?' em <code>'+esc(host)+'</code>':''} — o servidor caiu ou foi parado.`:`Ele responde 404 em tudo${host?' em <code>'+esc(host)+'</code>':''} — perdeu os arquivos ou o build quebrou.`;
-  return `<div class="nvempty nvhealth" role="status"><b>O servidor da prévia parou</b><span>${why}</span>${log}`+
-    `<span class="nvhacts"><button type="button" class="btn sm primary" data-nvh="up">subir de novo</button><button type="button" class="btn sm ghost" data-nvh="retry">tentar de novo</button><button type="button" class="btn sm ghost" data-nvh="force">abrir mesmo assim</button></span></div>`;
+  const why=h.verdict==='noresp'?`a página${at} não respondeu — nada carregou na prévia.`:h.status==null?`ninguém responde${at} — o servidor caiu ou foi parado.`:`o servidor${at} responde 404 em tudo — perdeu os arquivos ou o build quebrou.`;
+  return `<div class="nvempty nvhealth" role="status"><b>a prévia não está rodando</b><span>o ambiente desta tarefa não está de pé.</span><small class="nvhwhy">${why}</small>${log}`+
+    `<span class="nvhacts"><button type="button" class="btn sm primary" data-nvh="up">subir ambiente</button>${proofs}<button type="button" class="btn sm ghost" data-nvh="retry">tentar de novo</button><button type="button" class="btn sm ghost" data-nvh="force">abrir mesmo assim</button></span></div>`;
 }
 // @nav-puro-fim
 
@@ -146,7 +150,9 @@ function nvSt(id){ return nvState[id]||(nvState[id]={ addr:'', proxy:null, vp:(l
 // elemento do painel DESTA demanda (null = painel não está na tela)
 function nvQ(st, name){ const r=st&&st.root; return (r && r.isConnected) ? r.querySelector('[data-nv="'+name+'"]') : null; }
 function nvPost(st, msg){ try{ if(st.frame && st.frame.contentWindow && st.proxy) st.frame.contentWindow.postMessage(Object.assign({ sf:'nav' }, msg), st.proxy.origin); }catch(_){ } }
-function nvSetMsg(st, html){ const m=nvQ(st, 'msg'); if(m && m.__html!==html){ m.__html=html; m.innerHTML=html; m.style.display=html?'':'none'; } }
+// display EXPLÍCITO: com '' valia o display:none do CSS e todo cartão (servidor parado, erro, pausada) ficava
+// invisível sobre o fundo branco do palco — o "quadro branco" da Prévia (04/10)
+function nvSetMsg(st, html){ const m=nvQ(st, 'msg'); if(m && m.__html!==html){ m.__html=html; m.innerHTML=html; m.style.display=html?'flex':'none'; } }
 function nvResKey(taskId){ return 'app:'+taskId+'@'+(typeof CV_REALM!=='undefined'?CV_REALM:'main'); } // um gerente no app; cada painel com a sua chave
 
 // painel da prévia de UMA demanda dentro de `el` (barato quando nada mudou: o iframe não é recriado)
@@ -161,7 +167,8 @@ function nvRender(taskId, el, opts){
     if(st.frame && !st.frame.isConnected) nvUnmount(taskId);
     el.innerHTML=nvTabHtml(st); el.dataset.nv=taskId;
     st.frame=null; nvWire(taskId);
-    if(st.proxy && !st.frozen) nvMount(taskId); else if(st.addr && !st.proxy) nvGo(taskId, st.addr);
+    // proxy de antes (o servidor pode ter caído desde então): confere a saúde de novo antes de remontar — nunca branco
+    if(st.proxy && !st.frozen){ if(st.addr && nvIsLocalUrl(st.addr) && !st.noWatch) nvGo(taskId, st.addr, true); else nvMount(taskId); } else if(st.addr && !st.proxy) nvGo(taskId, st.addr);
   }
   nvPaint(taskId);
 }
@@ -185,7 +192,10 @@ function nvWire(taskId){
   const pk=nvQ(st, 'picks'); if(pk) pk.onclick=(e)=>{ const x=e.target.closest('[data-nvrm]'); if(!x) return; const id=+x.dataset.nvrm; st.picks=st.picks.filter(p=>p.id!==id); nvPost(st, { cmd:'unmark', id }); nvPaint(taskId); };
   // "pausado" (o gerente de recursos congelou esta prévia pra outra) → clique retoma (e congela a menos recente)
   const msg=nvQ(st, 'msg'); if(msg) msg.onclick=(e)=>{ if(e.target.closest('[data-nvresume]')){ st.frozen=false; nvMount(taskId); nvPaint(taskId); return; }
-    const hb=e.target.closest('[data-nvh]'); if(!hb) return; const k=hb.dataset.nvh; hb.disabled=true;
+    const lb=e.target.closest('[data-nvlb]'); if(lb){ if(typeof lbOpen==='function') lbOpen(taskId, nvProofImgs(taskId), +lb.dataset.nvlb); return; }
+    const hb=e.target.closest('[data-nvh]'); if(!hb) return; const k=hb.dataset.nvh;
+    if(k==='proofs'||k==='proofsx'){ st.proofs=k==='proofs'; nvPaint(taskId); return; }
+    hb.disabled=true;
     if(k==='retry'){ st.health=null; nvGo(taskId, st.addr, true); }
     else if(k==='force'){ st.health=null; nvGo(taskId, st.addr, 'skiphealth'); }
     else if(typeof envUp==='function'){ st.health=null; st.addr=''; nvPaint(taskId); envUp(taskId, { main:k==='main' }); } };
@@ -211,24 +221,38 @@ function nvPaint(taskId){
   const sb=nvQ(st, 'send'); if(sb){ sb.disabled=!st.picks.length||st.sending; sb.textContent=st.sending?'mandando…':'mandar pra tarefa'; }
   const sh=nvQ(st, 'shot'); if(sh) sh.disabled=!st.frame;
   if(st.opening) nvSetMsg(st, '<div class="nvempty"><span class="spin"></span> abrindo '+esc(st.addr||'')+'…</div>');
-  else if(st.health) nvSetMsg(st, nvHealthHtml(st.health, st.addr));
+  else if(st.proofs) nvSetMsg(st, nvProofsHtml(taskId));
+  else if(st.health) nvSetMsg(st, nvHealthHtml(st.health, st.addr, { proofs:nvProofImgs(taskId).length }));
   // erro ao abrir: diz o que houve E oferece subir o ambiente (nunca só "deu erro")
   else if(st.err) nvSetMsg(st, `<div class="nvempty"><b>Não abri a prévia</b><span>${esc(st.err)}</span></div>`+(st.empty?st.empty():''));
   else if(st.frozen && st.proxy) nvSetMsg(st, '<div class="nvempty"><b>Prévia pausada</b><span>Pra o Mac não esquentar, ficam no máximo 2 páginas vivas ao mesmo tempo.</span><button type="button" class="btn sm primary" data-nvresume="1">continuar daqui</button></div>');
   else if(!st.proxy && !st.addr) nvSetMsg(st, st.empty?st.empty():nvEmptyHtml());
   else if(st.frame) nvSetMsg(st, '');
 }
+// prints de prova da tarefa (o cartão "a prévia não está rodando" mostra eles no lugar da página)
+function nvProofImgs(taskId){
+  const c=(typeof artifactsCache!=='undefined')?artifactsCache[taskId]:null; const t=(state.tasks||[]).find(x=>x.id===taskId);
+  if(c===undefined && t && typeof loadArtifacts==='function'){ const st=nvSt(taskId); if(!st.artReq){ st.artReq=1; loadArtifacts(taskId, t.status).then(()=>nvPaint(taskId)).catch(()=>{}); } }
+  return ((c&&c.list)||[]).filter(a=>a && (a.kind==='image' || /\.(png|jpe?g|gif|webp)$/i.test(a.name||''))).map(a=>a.name);
+}
+function nvProofsHtml(taskId){
+  const imgs=nvProofImgs(taskId);
+  const th=imgs.map((n,i)=>`<button type="button" class="nvpf" data-nvlb="${i}" title="${escA('ver '+n)}">${typeof enThumbHtml==='function'?enThumbHtml(taskId, n, 'prova: '+n):''}<span>${esc(n)}</span></button>`).join('');
+  return `<div class="nvempty nvproofs" role="region" aria-label="provas da tarefa"><b>provas desta tarefa</b>${imgs.length?`<div class="nvpfs">${th}</div>`:'<span>nenhum print de prova</span>'}<span class="nvhacts"><button type="button" class="btn sm ghost" data-nvh="proofsx">voltar</button></span></div>`;
+}
 // abre (ou troca) o alvo: o Rust reaproveita o proxy se a origem é a mesma
 async function nvGo(taskId, url, force){
   const st=nvSt(taskId);
   const u=nvNormUrl(url); if(!u){ st.err='endereço inválido — só http(s)'; nvPaint(taskId); return; }
-  st.addr=u; st.err=''; st.health=null; const gen=st.gen=(st.gen||0)+1;
+  st.addr=u; st.err=''; st.health=null; st.proofs=false; st.noWatch=(force==='skiphealth'); const gen=st.gen=(st.gen||0)+1;
   // endereço local: confere a saúde ANTES de mostrar — pasta da tarefa sumiu / servidor parou viram cartão, nunca branco
   // ("abrir mesmo assim" pula a checagem: um servidor só de API, por exemplo, responde 404 no / de propósito)
   if(nvIsLocalUrl(u) && !(force==='skiphealth')){ st.opening=true; nvPaint(taskId);
-    const h=await invokeQuiet('preview_health', { taskId, url:u }).catch(()=>null);
+    let h=await invokeQuiet('preview_health', { taskId, url:u }).catch(()=>null);
     if(st.gen!==gen) return; // outra navegação começou enquanto checava
     st.opening=false;
+    // sem resposta da checagem numa tarefa integrada: não arrisca o branco
+    { const t=(state.tasks||[]).find(x=>x.id===taskId); if(!h && t && ((typeof taskIsDone==='function' && taskIsDone(t)) || t.status==='merged')) h={ verdict:'gone', status:null, finished:true }; }
     if(h && h.verdict && h.verdict!=='ok'){ st.health=h; if(st.frame) nvUnmount(taskId); nvPaint(taskId); return; } }
   const same=st.proxy && (()=>{ try{ return new URL(u).origin===st.proxy.target; }catch(_){ return false; } })();
   if(same && st.frame && !force){ st.frame.src=nvToProxy(u, st.proxy.origin); nvPaint(taskId); return; }
@@ -255,6 +279,10 @@ function nvMount(taskId){
   f.setAttribute('sandbox','allow-scripts allow-same-origin allow-forms allow-modals allow-downloads');
   f.src=nvToProxy(st.addr||st.proxy.target, st.proxy.origin);
   wrap.appendChild(f); st.frame=f; st.frozen=false; nvSetMsg(st, '');
+  // vigia anti-branco: a página com o script da prévia avisa 'ready' ao carregar; 8s sem sinal = nada carregou →
+  // cartão "a prévia não está rodando" no lugar do iframe vazio ("abrir mesmo assim" desliga a vigia)
+  st.ready=false;
+  if(!st.noWatch) setTimeout(()=>{ if(st.frame===f && !st.ready && f.isConnected){ st.health={ verdict:'noresp', status:null }; nvUnmount(taskId); nvPaint(taskId); } }, 8000);
   nvPaint(taskId);
 }
 function nvUnmount(taskId){
@@ -354,8 +382,8 @@ window.addEventListener('message', (e)=>{
   const taskId=nvRouteMsg(nvState, e.source, e.origin);
   if(!taskId) return;
   const st=nvState[taskId];
-  if(d.type==='ready'){ nvPost(st, { cmd:'hello' }); if(st.picking) nvPost(st, { cmd:'pick', on:true }); return; }
-  if(d.type==='loc'){ const real=nvNormUrl(nvFromProxy(String(d.url||''), st.proxy.origin, st.proxy.target)); if(real) st.addr=real; // a página não escolhe o que o "abrir fora" abre (só http/https)
+  if(d.type==='ready'){ st.ready=true; nvPost(st, { cmd:'hello' }); if(st.picking) nvPost(st, { cmd:'pick', on:true }); return; }
+  if(d.type==='loc'){ st.ready=true; const real=nvNormUrl(nvFromProxy(String(d.url||''), st.proxy.origin, st.proxy.target)); if(real) st.addr=real; // a página não escolhe o que o "abrir fora" abre (só http/https)
     st.title=String(d.title||''); st.err=''; nvPaint(taskId); return; }
   if(d.type==='hidden'){ const w=st.waits[d.nonce]; if(w) w(); return; }
   if(d.type==='esc'){ st.picking=false; nvPaint(taskId); return; }

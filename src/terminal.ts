@@ -653,12 +653,16 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   const first = [lostSession ? CONTINUE : "", (opts.message ?? "").trim()].filter(Boolean).join("\n\n");
   let args: string[] = [];
   let envRemove = envToRemove();
-  const rules = shellInstructions();
+  // integrada: modo conversa (nada de kickoff "execute a tarefa", nada de status mudando)
+  const merged = task.status === "merged";
+  const mergedNote = merged ? mergedRule(lastPr(spec)) : "";
+  const rules = shellInstructions() + (merged ? `\n${mergedNote}` : "");
   // .cardume/term/AGENTS.starfork.md: as instruções do terminal SEMPRE num arquivo nosso (fora do git) — a IA que
   // aceita arquivo de instruções aponta pra ele; AGENTS.md/GEMINI.md da raiz só se forem nossos (nunca o rastreado)
   const ownRules = join(termDir(task.worktree), "AGENTS.starfork.md");
   try { mkdirSync(dirname(ownRules), { recursive: true }); writeFileSync(ownRules, rules, "utf8"); } catch { /* segue com a 1ª mensagem */ }
-  const genericKick = () => codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
+  let kicked = false;
+  const genericKick = () => merged ? "" : codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
   if (ai === "claude" || ai === "deepseek") {
     writeClaudeSettings(task.worktree, base, taskId, repo);
     // /starfork-* do terminal integrado (só os nossos; arquivo de mesmo nome da pessoa fica) — fora do commit
@@ -666,12 +670,13 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     if (sid) args.push("--resume", sid);
     // as regras do Starfork vão no SYSTEM PROMPT (reenviado a cada abertura, inclusive no --resume): a conversa
     // no terminal começa limpa, com um pedido curto — e não com 10 KB de regra na 1ª mensagem
-    args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}\n\n${INTEGRADO_RULE}${INTEGRADO_CLAUDE_CMDS}${INTEGRADO_SHELL}`);
+    args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}\n\n${INTEGRADO_RULE}${INTEGRADO_CLAUDE_CMDS}${INTEGRADO_SHELL}${mergedNote ? `\n${mergedNote}` : ""}`);
     args.push("--mcp-config", mcpConfigPath, ...protectArgs(protectOn), "--permission-mode", "bypassPermissions");
     // DeepSeek: o modelo vai no env (ANTHROPIC_MODEL) — `--model deepseek-…` seria validado como id do Claude
     if (model && !dsEnv) args.push("--model", model);
-    const kick = first || (sid ? "" : KICKOFF);
+    const kick = first || (sid || merged ? "" : KICKOFF);
     if (kick) args.push(kick);
+    kicked = !!kick;
     const ce = claudeEnv();
     env.PATH = ce.PATH ?? process.env.PATH ?? "";
     if (dsEnv) {
@@ -698,6 +703,7 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     if (model) args.push("-m", model);
     const kick = first || (sid ? "" : genericKick());
     if (kick) args.push(kick);
+    kicked = !!kick;
     Object.assign(env, loadLlmEnv());
     env.PATH = toolPath(bin, process.env.PATH);
     try { if (writeInstructionsSection(task.worktree, "AGENTS.md", rules)) excludeFromGit(task.worktree, ["AGENTS.md"]); } catch { /* developer_instructions já leva */ }
@@ -732,10 +738,10 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     if (kick) args.push("--prompt", kick);
     env.PATH = toolPath(bin, process.env.PATH);
   }
-  orch.store.setStage(taskId, role.role);
-  orch.store.setStatus(taskId, "running");
-  orch.store.addEvent(taskId, "Sistema", "status", sid || resumeLast ? `abrindo o terminal (${ai}) e retomando a sessão` : `abrindo o terminal (${ai})`, true);
-  const busy = aiHasHooks(ai) && !!(first || !sid);
+  // integrada NUNCA sai de integrada (abrir o terminal pra perguntar não é voltar a construir)
+  if (!merged) { orch.store.setStage(taskId, role.role); orch.store.setStatus(taskId, "running"); }
+  orch.store.addEvent(taskId, "Sistema", "status", `${sid || resumeLast ? `abrindo o terminal (${ai}) e retomando a sessão` : `abrindo o terminal (${ai})`}${merged ? " — tarefa integrada: só conversa" : ""}`, true);
+  const busy = aiHasHooks(ai) && kicked;
   return { ai, program: bin, args, env, envRemove, resumed: !!(sid || resumeLast), sessionId: sid || null, cwd: task.worktree, busy };
 }
 
@@ -746,6 +752,14 @@ function cliHelp(bin: string, path: string | undefined): string {
     return `${r.stdout ?? ""}\n${r.stderr ?? ""}`;
   } catch { return ""; }
 }
+
+/** Tarefa JÁ INTEGRADA reaberta no terminal: só conversa (perguntas sobre o que foi feito) — mudança vira tarefa de ajuste. */
+export function mergedRule(prUrl?: string): string {
+  return `## Tarefa já integrada — modo conversa\n` +
+    `Esta tarefa JÁ FOI INTEGRADA${prUrl ? ` (PR ${prUrl})` : ""}. Responda perguntas sobre o que foi feito usando o histórico, o diff (git log/diff contra a base) e .cardume/artifacts. ` +
+    `NÃO altere código aqui; se o humano pedir mudança, crie uma tarefa de ajuste com \`starfork tarefa "Ajuste: …"\` (rascunho, mesmo épico) e diga isso a ele.\n`;
+}
+const lastPr = (spec: TaskSpec) => spec.prUrl || spec.prHistory?.[spec.prHistory.length - 1];
 
 /** Linha extra do system prompt do Claude: os `starfork …` do shell (fallback quando o MCP cai). */
 const INTEGRADO_SHELL = "- No shell deste terminal também há o comando `starfork` (status, sugerir, etapa, pr, tarefa, skill…) — `starfork ajuda` lista.\n";
@@ -876,7 +890,7 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
     sessionId: sid || null,
     model,
     shell: true,
-    busy: aiHasHooks(ai) && !!(msg || !sid),
+    busy: aiHasHooks(ai) && !!(msg || (!sid && task.status !== "merged")),
     recommended,
   };
 }

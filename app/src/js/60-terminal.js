@@ -10,7 +10,8 @@
 // render); só recebe eventos enquanto está visível (term_attach/term_detach); o histórico só é relido quando o
 // arquivo muda (carimbo tamanho:mtime) e o PTY só é redimensionado quando o tamanho muda (ResizeObserver).
 const TERM = {};
-const TERM_WT_GONE='a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste'; // = WT_GONE (term.rs) // taskId → { term, fit, host, attached, alive, mode:'live'|'hist', hinfo, hstamp, ro, lastSize, opening }
+// tarefa integrada (worktree apagada): o backend recria a pasta e retoma a sessão — dá pra conversar de novo (04/10)
+const TERM_WT_GONE='tarefa integrada · digite pra perguntar sobre o que foi feito'; // taskId → { term, fit, host, attached, alive, mode:'live'|'hist', hinfo, hstamp, ro, lastSize, opening }
 function termModeOf(t){ return !!(t && t.spec && t.spec.termMode === 'terminal'); }
 /** A tarefa mostra a aba Terminal (e não a Conversa)? Modo terminal sempre; senão toda tarefa Claude Code que já rodou. */
 function termViewOf(t){
@@ -235,7 +236,7 @@ async function termHistLoad(taskId, force){
     const wt=String(h.worktree||(t&&t.worktree)||'').split('/').filter(Boolean).pop()||'';
     const eng=(t&&typeof aiEngineOf==='function')?aiEngineOf(t.engine):'claude';
     const head=`${eng} · ${h.sessionId?'sessão '+String(h.sessionId).slice(0,8):'sem sessão gravada'}${wt?' · worktree '+wt:''} · histórico${h.source==='transcript'?(h.clipped?' (só o fim — a sessão é longa)':''):h.source==='log'?' (log do terminal)':' (eventos da tarefa)'}`;
-    const foot=termGone(h)?TERM_WT_GONE:termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · digite aqui pra continuar a conversa — a sessão retoma neste terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Configurações → modo das tarefas)';
+    const foot=termGone(h)?'tarefa integrada · digite aqui pra perguntar sobre o que foi feito — a sessão retoma neste terminal':termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · digite aqui pra continuar a conversa — a sessão retoma neste terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Configurações → modo das tarefas)';
     // log cru do PTY: sai da tela alternativa/colagem antes do rodapé (o TUI pode ter deixado ligado)
     const out=st.hraw!==undefined ? st.hraw+'\x1b[?1049l\x1b[?2004l\x1b[?25h\x1b[0m\r\n\r\n'+thC('2','╰─ '+foot)+'\r\n'
       : (st.hlast={ items:st.hitems||thFromEvents(evs), o:{ head, foot, notes:st.hitems?thSysNotes(evs):[] } }, thRender(st.hlast.items, { ...st.hlast.o, cols:st.term.cols }));
@@ -276,7 +277,7 @@ function termSetAlive(taskId, alive){
   const t=(state.tasks||[]).find(x=>x.id===taskId); const h=st.hinfo||{};
   const fresh=t && (t.status==='draft' || t.status==='queued') && (!h.source || h.source==='none');
   let html;
-  if(termGone(h)) html=`<span>integrada · ${esc(TERM_WT_GONE.replace(/^a worktree desta tarefa/,'a worktree'))}</span><span class="cc-sp"></span><button class="btn sm primary" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
+  if(termGone(h)) html=`<span>${esc(TERM_WT_GONE)}</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}" title="retoma a sessão da tarefa (a pasta dela é recriada)">conversar</button><button class="btn sm" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
   else if(termHeadless(t)) html=`<span><span class="pulse" style="--pc:var(--good)"></span> rodando em segundo plano (modo automático) · o histórico se atualiza sozinho</span><span class="cc-sp"></span>`;
   else if(fresh) html=`<span>o terminal desta tarefa ainda não foi aberto</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}">abrir terminal</button>`;
   else html=`<span>histórico${h.resumes===false?' · o compositor manda no modo automático':' · digite pra continuar'}</span><span class="cc-sp"></span><button class="btn sm" data-termopen="${escA(taskId)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>`;
@@ -292,7 +293,7 @@ async function termOpen(taskId){
     st.attached=true; st.pend=null; st.mode='live'; st.term.reset(); if(info && info.data) st.term.write(info.data);
     termSetAlive(taskId, !!(info && info.alive)); st.term.focus();
     lastSig=''; refresh().catch(()=>{});
-  }catch(e){ showErr(e, 'Não consegui abrir o terminal'); termSetAlive(taskId, false); }
+  }catch(e){ showErr(e, 'Não consegui abrir o terminal'); termSetAlive(taskId, false); termSayLine(taskId, 'não consegui abrir o terminal: '+(typeof errShort==='function'?errShort(e):String(e&&e.message||e)), '31'); } // a barra mantém "abrir tarefa de ajuste"
   finally{ st.opening=false; }
 }
 /** Chamado pelo render da tarefa: põe o terminal (já existente) no slot e solta os que saíram da tela. */

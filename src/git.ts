@@ -193,6 +193,35 @@ export class GitService {
     return { branch: name, from: baseRef, reused: false };
   }
 
+  /**
+   * Pasta de CONVERSA de uma tarefa já integrada, no MESMO caminho: a branch dela (local; senão origin → cria a local);
+   * sem branch → destacada no commit do merge (se existe aqui) ou na base. Nunca cria branch nova nem mexe na base.
+   */
+  async recreateForConversation(path: string, o: { branch: string; base: string; commit?: string }): Promise<{ from: string; detached: boolean }> {
+    try { await run("git", ["-C", this.repo, "worktree", "prune"]); } catch { /* ok */ }
+    if (o.branch && (await this.refExists(`refs/heads/${o.branch}`))) {
+      await run("git", ["-C", this.repo, "worktree", "add", path, o.branch]);
+      return { from: `branch ${o.branch}`, detached: false };
+    }
+    if (o.branch) {
+      try { await run("git", ["-C", this.repo, "fetch", "origin", o.branch, "--no-tags"], { env: netEnv(), timeout: netTimeoutMs() }); } catch { /* offline/apagada */ }
+      if (await this.refExists(`refs/remotes/origin/${o.branch}`)) {
+        await run("git", ["-C", this.repo, "worktree", "add", "-b", o.branch, path, `origin/${o.branch}`]);
+        return { from: `origin/${o.branch}`, detached: false };
+      }
+    }
+    const baseRef = await this.freshBaseRef(o.base);
+    if (o.commit) {
+      try {
+        await run("git", ["-C", this.repo, "rev-parse", "--verify", "--quiet", `${o.commit}^{commit}`]);
+        await run("git", ["-C", this.repo, "worktree", "add", "--detach", path, o.commit]);
+        return { from: `o commit do merge ${o.commit.slice(0, 9)}`, detached: true };
+      } catch { /* commit não está aqui: cai na base */ }
+    }
+    await run("git", ["-C", this.repo, "worktree", "add", "--detach", path, baseRef]);
+    return { from: `${baseRef} (a branch da tarefa não existe mais)`, detached: true };
+  }
+
   /** Branch existe no origin? (sem remoto/offline → olha só o que já foi buscado). */
   private async remoteBranchExists(name: string): Promise<boolean> {
     if (await this.refExists(`refs/remotes/origin/${name}`)) return true;

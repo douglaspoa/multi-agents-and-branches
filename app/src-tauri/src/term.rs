@@ -401,7 +401,9 @@ fn headless_busy(t: &TaskRow) -> bool { t.busy_pid.is_some() || ["running", "thi
 pub fn talk_decision(t: &TaskRow, is_term: bool, live: bool, default: &str) -> Result<bool, String> {
     if is_term || live { return Ok(true); }
     if !talk_in_terminal(false, &t.engine, default, headless_busy(t)) { return Ok(false); }
-    if worktree_gone_after_merge(&t.status, &t.worktree) { return Err(WT_GONE.to_string()); }
+    // integrada sem pasta: o motor RECRIA no mesmo caminho pra conversar (term-prep › ensureTaskWorktree conversation)
+    // — só não dá sem caminho gravado (aí o erro do motor diria o mesmo, mais tarde)
+    if worktree_gone_after_merge(&t.status, &t.worktree) && t.worktree.trim().is_empty() { return Err(WT_GONE.to_string()); }
     Ok(true)
 }
 /// Mensagem do compositor numa tarefa Claude parada: vai pro terminal (retomando a sessão)? Erro = não dá pra mandar.
@@ -413,7 +415,7 @@ pub fn should_talk_in_terminal(state: &State<AppState>, task_id: &str) -> Result
     let Some(t) = task_row(&db, task_id) else { return Ok(false) };
     talk_decision(&t, false, false, default_mode())
 }
-/// A worktree foi apagada ao integrar: não há onde retomar — o caminho é uma tarefa nova de ajuste.
+/// Integrada sem pasta E sem caminho gravado: não há onde recriar — o caminho é uma tarefa nova de ajuste.
 pub const WT_GONE: &str = "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste";
 fn worktree_gone_after_merge(status: &str, worktree: &str) -> bool { status == "merged" && (worktree.is_empty() || !Path::new(worktree).is_dir()) }
 
@@ -662,7 +664,9 @@ mod modo_padrao_tests {
         assert_eq!(talk_decision(&row("queued", None, "/"), false, false, "terminal"), Ok(false), "na fila do headless");
         assert_eq!(talk_decision(&row("paused", Some(9), "/"), false, false, "terminal"), Ok(false), "pausada = processo congelado vivo");
         assert_eq!(talk_decision(&row("review", None, "/"), false, false, "auto"), Ok(false), "Automático escolhido");
-        assert_eq!(talk_decision(&row("merged", None, "/nao/existe"), false, false, "terminal"), Err(WT_GONE.to_string()));
+        assert_eq!(talk_decision(&row("merged", None, "/nao/existe"), false, false, "terminal"), Ok(true), "integrada sem pasta: recria no mesmo caminho pra conversar");
+        assert_eq!(talk_decision(&row("merged", None, ""), false, false, "terminal"), Err(WT_GONE.to_string()), "sem caminho gravado: não há onde recriar");
+        assert_eq!(talk_decision(&row("merged", None, "/nao/existe"), false, false, "auto"), Ok(false), "Automático escolhido: segue o chat headless");
         assert_eq!(talk_decision(&row("merged", None, "/nao/existe"), false, true, "terminal"), Ok(true), "PTY vivo vence");
         assert_eq!(talk_decision(&row("running", Some(9), "/"), true, false, "auto"), Ok(true), "modo terminal sempre");
     }
@@ -694,6 +698,9 @@ mod modo_padrao_tests {
         assert_eq!((l.source.as_str(), l.raw.as_str(), l.resumes), ("log", "LOG CRU", false));
         std::fs::remove_file(repo.join(".cardume").join("term").join("t1.log")).unwrap();
         assert_eq!(history_for(&db, &repo, Some(&cfg), "t1", None, false, "terminal").unwrap().source, "none");
+        c.execute("UPDATE task SET status='merged', worktree='/nao/existe/mais'", []).unwrap();
+        let m = history_for(&db, &repo, Some(&cfg), "t1", None, false, "terminal").unwrap();
+        assert!(m.merged && !m.worktree_exists && m.resumes, "integrada sem pasta: o compositor retoma (a pasta é recriada pra conversar)");
         let _ = std::fs::remove_dir_all(&d);
     }
     #[test]

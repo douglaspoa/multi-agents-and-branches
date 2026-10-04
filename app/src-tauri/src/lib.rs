@@ -35,6 +35,7 @@ mod term_hist;
 #[cfg(test)]
 mod pty_e2e;
 mod usage_ledger;
+mod task_code;
 #[cfg(target_os = "macos")]
 mod notif_mac;
 #[cfg(test)]
@@ -1637,7 +1638,8 @@ fn task_commit_info(state: State<AppState>, task_id: String) -> Result<CommitInf
 fn commit_info_in(repo: &Path, base: &str, branch: &str, wt: Option<&Path>) -> CommitInfo {
     let live = wt.filter(|w| w.join(".git").exists());
     let (dir, tip) = match live { Some(w) => (w.to_path_buf(), "HEAD".to_string()), None => (repo.to_path_buf(), branch.to_string()) };
-    let mb = merge_base_ref(&dir, base, &tip);
+    // sem worktree e branch já dentro da base (merge commit): fork pelo merge commit — senão "0 commits" na mergeada
+    let mb = if live.is_some() { merge_base_ref(&dir, base, &tip) } else { task_code::fork_point(&dir, base, &tip) };
     let mut commits = Vec::new();
     if let Ok(out) = Command::new("git").arg("-C").arg(&dir)
         .args(["log", &format!("{mb}..{tip}"), "--format=%H\u{1f}%s\u{1f}%an\u{1f}%ad", "--date=short"]).output()
@@ -6379,6 +6381,47 @@ fn task_diff_base(wt: &PathBuf, base: &str) -> String {
     merge_base_ref(wt, base, "HEAD")
 }
 
+/// Worktree já limpa (tarefa mergeada/encerrada): de onde ler o código dela — cache do patch, branch, merge commit
+/// na base ou `gh pr diff` (ver task_code.rs). None = nada achado (o front segue mostrando vazio, como antes).
+fn task_code_src(state: &State<AppState>, task_id: &str, base: &str) -> Option<(PathBuf, task_code::Fonte)> {
+    let repo = repo_of(state).ok()?;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+    let (branch, spec): (String, String) = open(&db).ok()?
+        .query_row("SELECT branch, spec_json FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .ok()?;
+    let spec: serde_json::Value = serde_json::from_str(&spec).unwrap_or_default();
+    let f = task_code::resolver(&repo, task_id, base, &branch, &spec, true)?;
+    Some((repo, f))
+}
+/// Entregável copiado pro repo no merge: `.cardume/artifacts/<rel>` da worktree → `<repo>/.cardume/artifacts/<tarefa>/<rel>`.
+fn task_artifact_in_repo(state: &State<AppState>, task_id: &str, path: &str) -> Option<PathBuf> {
+    let rel = path.strip_prefix(".cardume/artifacts/")?;
+    Some(repo_of(state).ok()?.join(".cardume").join("artifacts").join(task_id).join(rel)).filter(|p| p.is_file())
+}
+/// Diff de UM arquivo da tarefa (worktree viva ou versão integrada) — fonte única de `file_diff` e `ai_file_why`.
+fn task_file_diff_text(state: &State<AppState>, task_id: &str, path: &str) -> Result<String, String> {
+    let (wt, base) = task_wt_base(state, task_id)?;
+    let as_added = |content: String| -> String { content.lines().map(|l| format!("+{l}\n")).collect() };
+    if !wt.is_dir() {
+        if let Some(p) = task_artifact_in_repo(state, task_id, path) {
+            return Ok(std::fs::read_to_string(p).map(as_added).unwrap_or_default());
+        }
+        return Ok(task_code_src(state, task_id, &base).map(|(repo, f)| task_code::diff_arquivo(&repo, &f, path)).unwrap_or_default());
+    }
+    let base = task_diff_base(&wt, &base);
+    let out = Command::new("git")
+        .arg("-C").arg(&wt)
+        .args(["diff", "--unified=3", &base, "--", path])
+        .output()
+        .map_err(|e| e.to_string())?;
+    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
+    // arquivo NOVO (untracked) não aparece no diff → mostra o conteúdo como adição
+    if text.trim().is_empty() {
+        if let Ok(content) = std::fs::read_to_string(wt.join(path)) { text = as_added(content); }
+    }
+    Ok(text)
+}
+
 fn safe_rel(path: &str) -> Result<(), String> {
     if path.starts_with('/') || path.contains("..") {
         return Err("caminho inválido".to_string());
@@ -6392,6 +6435,45 @@ struct TaskFile {
     path: String,
     add: i64,
     del: i64,
+    /// só sem worktree: de onde veio ("cache" | "branch" | "merge" | "gh") — o front pode dizer "versão integrada"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<&'static str>,
+}
+
+/// Artefatos de texto editáveis de uma pasta → `.cardume/artifacts/<rel>` (imagem abre pela aba Entregas).
+fn walk_artifacts(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<TaskFile>) {
+    if let Ok(rd) = std::fs::read_dir(dir) {
+        for e in rd.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk_artifacts(&p, root, out);
+            } else {
+                let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
+                if ["html", "htm", "md", "txt", "json", "csv", "svg", "yaml", "yml"].contains(&ext.as_str()) {
+                    if let Ok(rel) = p.strip_prefix(root) {
+                        out.push(TaskFile { add: 0, del: 0, path: format!(".cardume/artifacts/{}", rel.to_string_lossy()), source: None });
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Sem worktree (mergeada/limpa): arquivos da versão integrada (task_code) + entregáveis copiados pro repo
+/// (`<repo>/.cardume/artifacts/<tarefa>/`). Antes: lista vazia — "volto na tarefa e não vejo o código".
+fn task_files_integrated(state: &State<AppState>, task_id: &str, base: &str) -> Vec<TaskFile> {
+    let mut files: Vec<TaskFile> = match task_code_src(state, task_id, base) {
+        Some((repo, f)) => {
+            let src = f.origem();
+            task_code::arquivos(&repo, &f).into_iter().map(|(path, add, del)| TaskFile { path, add, del, source: Some(src) }).collect()
+        }
+        None => vec![],
+    };
+    if let Ok(repo) = repo_of(state) {
+        let art = repo.join(".cardume").join("artifacts").join(task_id);
+        if art.is_dir() { walk_artifacts(&art, &art, &mut files); }
+    }
+    files
 }
 
 /// Arquivos alterados pela tarefa (git diff base...HEAD na worktree).
@@ -6403,7 +6485,7 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
         Err(e) if e == TASK_GONE => return Ok(vec![]),
         Err(e) => return Err(e),
     };
-    if !wt.is_dir() { return Ok(vec![]); }
+    if !wt.is_dir() { return Ok(task_files_integrated(&state, &task_id, &base)); }
     // diff da ÁRVORE DE TRABALHO vs base (inclui alterações NÃO-commitadas) —
     // assim os arquivos aparecem ao vivo enquanto o agente edita, antes do commit.
     let base = task_diff_base(&wt, &base);
@@ -6418,7 +6500,7 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
         let p: Vec<&str> = line.split('\t').collect();
         if p.len() >= 3 {
             seen.insert(p[2].to_string());
-            files.push(TaskFile { add: p[0].parse().unwrap_or(0), del: p[1].parse().unwrap_or(0), path: p[2].to_string() });
+            files.push(TaskFile { add: p[0].parse().unwrap_or(0), del: p[1].parse().unwrap_or(0), path: p[2].to_string(), source: None });
         }
     }
     // Arquivos NOVOS ainda não commitados (untracked) — para tarefas de design/criação
@@ -6436,29 +6518,12 @@ fn task_files(state: State<AppState>, task_id: String) -> Result<Vec<TaskFile>, 
                         + if b.last().map(|&c| c != b'\n').unwrap_or(false) { 1 } else { 0 })
                 .unwrap_or(0);
             seen.insert(rel.to_string());
-            files.push(TaskFile { add, del: 0, path: rel.to_string() });
+            files.push(TaskFile { add, del: 0, path: rel.to_string(), source: None });
         }
     }
     // Artefatos da worktree: .cardume/ é git-excluded e NUNCA aparece no diff —
     // sem isso, tarefa de design (que só escreve artefatos) mostra árvore vazia.
     // Só arquivos de texto editáveis (imagem abre pela aba Entregas).
-    fn walk_artifacts(dir: &std::path::Path, root: &std::path::Path, out: &mut Vec<TaskFile>) {
-        if let Ok(rd) = std::fs::read_dir(dir) {
-            for e in rd.flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    walk_artifacts(&p, root, out);
-                } else {
-                    let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_lowercase();
-                    if ["html", "htm", "md", "txt", "json", "csv", "svg", "yaml", "yml"].contains(&ext.as_str()) {
-                        if let Ok(rel) = p.strip_prefix(root) {
-                            out.push(TaskFile { add: 0, del: 0, path: format!(".cardume/artifacts/{}", rel.to_string_lossy()) });
-                        }
-                    }
-                }
-            }
-        }
-    }
     let art_dir = wt.join(".cardume").join("artifacts");
     if art_dir.is_dir() {
         walk_artifacts(&art_dir, &art_dir, &mut files);
@@ -6489,7 +6554,17 @@ fn read_file(state: State<AppState>, task_id: String, path: String) -> Result<Fi
     safe_rel(&path)?;
     let (wt, base) = task_wt_base(&state, &task_id)?;
     if !wt.is_dir() {
-        // worktree limpa (tarefa mergeada/encerrada): mostra a versão da branch (ou da base) no repo
+        // worktree limpa (tarefa mergeada/encerrada): entregável copiado pro repo → versão integrada da tarefa
+        // (cache/branch/merge commit, com as linhas adicionadas destacadas) → por fim branch/base no repo
+        if let Some(p) = task_artifact_in_repo(&state, &task_id, &path) {
+            return std::fs::read_to_string(p).map(|content| FileContent { content, added_lines: vec![] }).map_err(|e| e.to_string());
+        }
+        if let Some((repo, f)) = task_code_src(&state, &task_id, &base) {
+            let diff = task_code::diff_arquivo(&repo, &f, &path);
+            if let Some(content) = task_code::conteudo(&repo, &f, &path) {
+                return Ok(FileContent { content, added_lines: task_code::linhas_adicionadas(&diff) });
+            }
+        }
         let repo = active_repo(&state)?;
         let branch: String = open(&state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?)?
             .query_row("SELECT branch FROM task WHERE id=?1", params![task_id], |r| r.get(0))
@@ -6587,21 +6662,8 @@ fn pr_body_ai(state: State<AppState>, task_id: String) -> Result<String, String>
 #[tauri::command(async)]
 fn file_diff(state: State<AppState>, task_id: String, path: String) -> Result<String, String> {
     safe_rel(&path)?;
-    let (wt, base) = task_wt_base(&state, &task_id)?;
-    let base = task_diff_base(&wt, &base);
-    let out = Command::new("git")
-        .arg("-C").arg(&wt)
-        .args(["diff", "--unified=3", &base, "--", &path])
-        .output()
-        .map_err(|e| e.to_string())?;
-    let mut text = String::from_utf8_lossy(&out.stdout).to_string();
-    // arquivo NOVO (untracked) não aparece no diff → mostra o conteúdo como adição
-    if text.trim().is_empty() {
-        if let Ok(content) = std::fs::read_to_string(wt.join(&path)) {
-            text = content.lines().map(|l| format!("+{l}\n")).collect();
-        }
-    }
-    Ok(text.chars().take(200_000).collect())
+    // sem worktree (mergeada): versão integrada — ver task_file_diff_text
+    Ok(task_file_diff_text(&state, &task_id, &path)?.chars().take(200_000).collect())
 }
 
 /// "Por que este arquivo": explicação REAL do que mudou neste arquivo (funções, libs, por quê),
@@ -6612,13 +6674,8 @@ fn ai_file_why(state: State<AppState>, task_id: String, path: String) -> Result<
     use std::hash::{Hash, Hasher};
     safe_rel(&path)?;
     let repo = repo_of(&state)?;
-    let (wt, base) = task_wt_base(&state, &task_id)?;
-    let base = task_diff_base(&wt, &base);
-    let out = Command::new("git").arg("-C").arg(&wt).args(["diff", "--unified=3", &base, "--", &path]).output().map_err(|e| e.to_string())?;
-    let mut diff = String::from_utf8_lossy(&out.stdout).to_string();
-    if diff.trim().is_empty() {
-        if let Ok(content) = std::fs::read_to_string(wt.join(&path)) { diff = content.lines().map(|l| format!("+{l}\n")).collect(); }
-    }
+    // mesmo diff da Revisão (worktree viva ou versão integrada da tarefa mergeada)
+    let diff = task_file_diff_text(&state, &task_id, &path)?;
     if diff.trim().is_empty() { return Ok(String::new()); }
     let (objective, title): (String, String) = {
         let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
@@ -8594,8 +8651,12 @@ fn remove_worktree_dir(repo: &Path, wt: &Path) -> bool {
 /// qualquer caminho (merge pelo app, merge externo detectado, marcação manual).
 fn remove_task_worktree(repo: &Path, conn: &Connection, task_id: &str) {
     term::kill_task(task_id);
-    if let Ok(wt) = conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
-        if !wt.is_empty() { remove_worktree_dir(repo, &PathBuf::from(wt)); }
+    if let Ok((wt, base)) = conn.query_row("SELECT worktree, base FROM task WHERE id=?1", params![task_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+        if !wt.is_empty() {
+            // ANTES de sumir: o código da tarefa vira .cardume/diffs/<tarefa>.patch (aba Código/Revisão depois do merge, offline)
+            task_code::salvar_cache(repo, Path::new(&wt), &base, task_id);
+            remove_worktree_dir(repo, &PathBuf::from(wt));
+        }
     }
 }
 
@@ -8681,7 +8742,7 @@ fn workspace_usage(state: State<AppState>) -> Result<serde_json::Value, String> 
 fn workspace_clean(state: State<AppState>, worktrees: bool, temp: bool, artifacts: bool) -> Result<serde_json::Value, String> {
     let repo = repo_of(&state)?;
     let d = repo.join(".cardume");
-    let usage = workspace_usage(state)?;
+    let usage = workspace_usage(state.clone())?;
     let mut freed: u64 = 0;
     let mut removed: u64 = 0;
     let mut errors: Vec<String> = Vec::new();
@@ -8692,6 +8753,10 @@ fn workspace_clean(state: State<AppState>, worktrees: bool, temp: bool, artifact
             let p = PathBuf::from(it["path"].as_str().unwrap_or(""));
             if p.as_os_str().is_empty() { continue; }
             let b = it["bytes"].as_u64().unwrap_or(0);
+            // tarefa conhecida: guarda o código dela antes (mesma regra do merge)
+            if let Some(id) = it["id"].as_str().filter(|s| !s.is_empty()) {
+                if let Ok((_, base)) = task_wt_base(&state, id) { task_code::salvar_cache(&repo, &p, &base, id); }
+            }
             if remove_worktree_dir(&repo, &p) { freed += b; removed += 1; } else { errors.push(format!("worktree {}", p.display())); }
         }
     }

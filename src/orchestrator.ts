@@ -193,6 +193,15 @@ export function ghEnvFor(repo: string): NodeJS.ProcessEnv {
   return env;
 }
 
+/** sha do commit do merge de um PR (gh pr view). Offline/sem gh/não mergeado → "". */
+export async function prMergeCommit(prUrl: string, repo: string): Promise<string> {
+  try {
+    const { stdout } = await run(ghBin(), ["pr", "view", prUrl, "--json", "mergeCommit", "-q", ".mergeCommit.oid"], { cwd: repo, env: ghEnvFor(repo), timeout: 15_000 });
+    const sha = stdout.trim();
+    return /^[0-9a-f]{7,64}$/i.test(sha) ? sha : "";
+  } catch { return ""; }
+}
+
 export class Orchestrator {
   ws: Workspace;
   git: GitService;
@@ -2063,7 +2072,12 @@ export class Orchestrator {
    * PR antigo vai pro histórico (spec.prHistory) — o próximo push abre PR novo.
    * Retorna true se recriou.
    */
-  async ensureTaskWorktree(taskId: string): Promise<boolean> {
+  /**
+   * `conversation`: tarefa INTEGRADA reaberta só pra CONVERSAR no terminal (perguntar sobre o que foi feito): recria a
+   * pasta no MESMO caminho (o `claude --resume` acha o transcript pela pasta) a partir da branch da tarefa (local ou
+   * origin) ou, sem ela, do commit do merge / da base, SEM trocar branch nem arquivar o PR — a tarefa segue integrada.
+   */
+  async ensureTaskWorktree(taskId: string, o: { conversation?: boolean } = {}): Promise<boolean> {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
@@ -2086,6 +2100,21 @@ export class Orchestrator {
     const merged = task.status === "merged";
     const base = task.base || (spec.base && spec.base.trim()) || (await this.git.defaultBase());
     await this.git.ensureExcluded([".cardume/", ".constellation/"]);
+    if (merged && o.conversation) {
+      let r: { from: string };
+      try {
+        r = await this.git.recreateForConversation(wt, { branch: task.branch, base, commit: spec.prMergeCommit || (spec.prUrl ? await prMergeCommit(spec.prUrl, this.ws.repo) : "") });
+      } catch (err) {
+        throw new Error(`não consegui reabrir a pasta desta tarefa integrada (${String((err as { stderr?: string }).stderr || (err as Error).message).trim().split("\n").pop()}) — pra mexer de novo, abra uma tarefa de ajuste`);
+      }
+      await mkdir(join(wt, ".cardume"), { recursive: true });
+      try { await this.seedWorktreeEnv(wt, spec.light === true); } catch { /* best-effort */ }
+      await writeFile(join(wt, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8");
+      // provas coletadas no repo (.cardume/artifacts/<id>) voltam pra pasta: a conversa pode citar
+      try { const src = join(this.ws.repo, ".cardume", "artifacts", taskId); if (existsSync(src)) await cp(src, join(wt, ".cardume", "artifacts"), { recursive: true, force: false }); } catch { /* sem provas */ }
+      this.store.addEvent(taskId, "Sistema", "note", `tarefa integrada reaberta pra conversa — a pasta foi recriada a partir de ${r.from}`, true);
+      return true;
+    }
     let r: { branch: string; from: string; reused: boolean };
     try {
       r = await this.git.recreateWorktree(wt, { branch: task.branch, base, merged });
@@ -2373,6 +2402,8 @@ export class Orchestrator {
     const spec = JSON.parse(task.spec_json) as TaskSpec;
     const role = spec.roles?.find((r) => r.role === "builder") ?? spec.roles?.[0];
     const agent = role?.name || spec.agent;
+    // tarefa INTEGRADA reaberta só pra conversa: nada de commit, gate, status ou PR — o turno foi só pergunta/resposta
+    if (task.status === "merged") return null;
     await this.collectArtifacts(taskId, task.worktree, agent).catch(() => {});
     if (spec.kind !== "review") {
       try {

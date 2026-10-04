@@ -186,7 +186,7 @@ function tiDelivHtml1(d, o){
 }
 /** A linha da IA no dock. o: { cli ('' = shell sem IA · null = não sei ainda), taskAi, rec:{ai,model,command}, shell (PTY vivo no shell sem IA) } */
 function tiAiRowHtml(o){
-  const cli=o.cli==null?o.taskAi:o.cli; const rl=tiAiLabel(o.rec.ai, o.rec.model);
+  const cli=o.cli==null?o.rec.ai:o.cli; const rl=tiAiLabel(o.rec.ai, o.rec.model); // sem terminal vivo: a IA da tarefa (o recomendado)
   const cmd=`<span class="tirecd">ou digite: <code title="${escA(o.rec.command)}">${esc(o.rec.command)}</code></span>`;
   if(o.shell) return `<div class="tiairow shell" role="status"><span class="tishell">a IA parou</span><button type="button" class="btn sm primary" data-ti="rec" title="${escA('roda no terminal: '+o.rec.command)}">Continuar com ${esc(rl)}</button>${cmd}<span class="sp"></span>${tiAiSelHtml('', o.rec)}</div>`;
   const exp=TI_AIS.some(x=>x.id===cli && x.exp) ? `<span class="tiaiexp">sem chips automáticos nem custo — a IA usa os comandos starfork</span>` : '';
@@ -209,7 +209,8 @@ function tiTaskModel(t){ if(!t) return ''; if(t.model) return t.model; const r=(
 function tiEngine(t){ const s=t&&TI.stat[t.id]; return String((s && s.cli) || (s && s.recommended && s.recommended.ai) || tiTaskAi(t)); }
 function tiRec(t){ const s=TI.stat[t.id]; return tiRecommended(s&&s.recommended, tiTaskAi(t), tiTaskModel(t)); }
 function tiAiRow(t){ const s=TI.stat[t.id]; const st=TERM[t.id]; const live=!!(st && st.alive);
-  return tiAiRowHtml({ cli:(s && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:live && !!s && s.cli==='' }); }
+  // "shell (sem IA)" só com o PTY VIVO e nada rodando nele; sem terminal vivo o seletor mostra a IA da tarefa
+  return tiAiRowHtml({ cli:(live && s && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:live && !!s && s.cli==='' }); }
 function tiAiRowReset(t){ const box=$id('tiAiRow'); if(box) box.__html=''; tiAiRowPaint(t); } // o <select> ficou na opção escolhida: volta pro real
 // trocar/rodar com a IA no meio de um turno interrompe o trabalho: pergunta antes
 async function tiBusyOk(taskId){
@@ -220,7 +221,6 @@ async function tiBusyOk(taskId){
 /** "Continuar com…"/recomendado: o backend roda o comando recomendado (não fixa a escolha como faria o seletor). */
 async function tiRunRec(taskId){
   const t=tiTask(taskId); if(!t) return;
-  const st=TERM[taskId]; if(st && termGone(st.hinfo)){ toast(TERM_WT_GONE, 'warn'); return; }
   if(!await tiBusyOk(taskId)) return;
   try{ await invoke('term_run_recommended', { taskId }); }
   catch(e){ showErr(e, 'Não consegui rodar o recomendado no terminal'); tiAiRowReset(t); return; }
@@ -238,7 +238,6 @@ function tiAiRowPaint(t){ const box=$id('tiAiRow'), dock=$id('tiDock'); if(!t ||
 async function tiSwitchAi(taskId, ai, model){
   const t=tiTask(taskId); if(!t) return;
   if(ai==='__cmd'){ tiAiRowReset(t); tlFocusTerm(taskId); termSayLine(taskId, 'digite o comando no terminal — ex.: starfork ia gemini, starfork ia codex, ou qualquer comando do shell', '36'); return; }
-  const st=TERM[taskId]; if(st && termGone(st.hinfo)){ toast(TERM_WT_GONE, 'warn'); tiAiRowReset(t); return; }
   if(!await tiBusyOk(taskId)){ tiAiRowReset(t); return; }
   try{ await invoke('term_switch_ai', { taskId, ai, model:model||null }); }
   catch(e){ showErr(e, 'Não consegui trocar a IA do terminal'); tiAiRowReset(t); return; }
@@ -261,13 +260,12 @@ function tiCompShow(taskId){
 }
 function tiResumable(taskId){
   const st=TERM[taskId], t=tiTask(taskId); if(!st || !t) return false;
-  return !termGone(st.hinfo) && !termHeadless(t);
+  return !termHeadless(t); // integrada também retoma (o backend recria a pasta)
 }
 // um aviso por vez no próprio terminal (não repete a cada tecla)
 function tiHint(taskId, text){ const now=Date.now(); if(now-(TI.hintAt[taskId]||0)<4000) return; TI.hintAt[taskId]=now; termSayLine(taskId, text); }
 function tiBlockedWhy(taskId){
   const st=TERM[taskId], t=tiTask(taskId);
-  if(st && termGone(st.hinfo)) return 'esta tarefa já foi integrada e a worktree apagada — use "abrir tarefa de ajuste" na barra acima';
   if(termHeadless(t)) return 'rodando em segundo plano (modo automático) — use as sugestões e os botões embaixo, ou o compositor: entram na fila';
   return '';
 }
@@ -340,7 +338,7 @@ function tiHostWire(taskId, st){
 }
 async function tiAttachFiles(taskId, files){ if(!tiAttachOk(taskId)) return; tiAttached(taskId, await attImportFiles(files, taskId)); }
 async function tiAttachPick(taskId){ if(!tiAttachOk(taskId)) return; tiAttached(taskId, await attPick(taskId)); }
-function tiAttachOk(taskId){ const st=TERM[taskId]; if(st && termGone(st.hinfo)){ tiHint(taskId, TERM_WT_GONE); toast(TERM_WT_GONE, 'warn'); return false; } return true; }
+function tiAttachOk(taskId){ return !!taskId; } // integrada também anexa: o backend recria a pasta ao retomar
 /** Anexos salvos → @arquivo no prompt. Rodando em segundo plano (sem terminal pra digitar): vão pro compositor. */
 function tiAttached(taskId, atts){
   atts=(atts||[]).filter(a=>a && a.rel); if(!atts.length) return;
@@ -365,8 +363,8 @@ function tiDockHtml(t){
   return `<div class="tidock" id="tiDock" data-task="${escA(t.id)}"><div id="tiAiRow">${tiAiRow(t)}</div><div id="tiChips">${tiChipsHtml(t)}</div>`+
     `<div class="tiacts"><button type="button" class="tiact ticlip" data-ti="att" title="anexar print, PDF ou arquivo — ou arraste/cole (⌘V) no terminal">${TI_IC.clip}<span>Anexar</span></button><span class="tisep" aria-hidden="true"></span>`+
     act('etapa','Etapa')+act('skill','Skills')+act('tarefa','Tarefa')+act('pr','Revisão/PR')+
-    `<span class="sp"></span><span class="tihint">botão = comando no terminal</span>`+
-    `<button type="button" class="lnk ticomp" data-ti="comp" aria-pressed="${comp}" title="${comp?'esconder o compositor de texto':'mostrar o compositor de texto (anexos, vira requisito, IA da tarefa)'}">compositor</button></div></div>`;
+    `<button type="button" class="tiact ticomp" data-ti="comp" aria-pressed="${comp}" title="${comp?'esconder o compositor de texto':'mostrar o compositor de texto (anexos, vira requisito, IA da tarefa)'}"><span aria-hidden="true">✎</span><span>compositor</span></button>`+
+    `<span class="sp"></span><span class="tihint">botão = comando no terminal</span></div></div>`;
 }
 /** Depois do render (tlWire): liga o dock, devolve a folha aberta e põe o foco no terminal quando a tarefa abre. */
 function tiWire(t){
@@ -405,7 +403,6 @@ function tiChipsPaint(t){ const box=$id('tiChips'), dock=$id('tiDock'); if(!t ||
 async function tiSend(taskId, text){
   const t=tiTask(taskId); if(!t || !String(text||'').trim()) return false;
   const st=TERM[taskId];
-  if(st && termGone(st.hinfo)){ tiHint(taskId, TERM_WT_GONE); toast(TERM_WT_GONE, 'warn'); return false; }
   if(tiBudgetOpen(t)){ toast('a tarefa está pausada no teto de custo — decida no cartão do teto primeiro', 'warn'); return false; }
   if(termHeadless(t) || (st && !st.alive && st.hinfo && st.hinfo.resumes===false)) return (typeof fwSendText==='function') ? fwSendText(taskId, text) : false;
   const live=!!(st && st.alive), busy=!!(t.busy || ACTIVE_ST.has(t.status) || t.status==='thinking' || pendingOf(taskId).length);

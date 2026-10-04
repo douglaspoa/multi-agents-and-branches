@@ -20,9 +20,10 @@
 .ticlip svg{stroke-width:1.4}
 .tisep{width:1px;height:18px;background:var(--border);flex:none}
 .tihint{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-3);white-space:nowrap}
-.ticomp{flex:none;border:0;background:none;font:inherit;font-size:var(--fs-xs);padding:2px 0;color:var(--text-2);text-decoration:none}
-.ticomp:hover{color:var(--text)}
-.ticomp[aria-pressed="true"]{color:var(--accent);text-decoration:underline}
+/* compositor: botão fantasma na mesma linha das ações (não um rótulo solto) */
+.tiact.ticomp{background:transparent;border-style:dashed;color:var(--muted)}
+.tiact.ticomp:hover{color:var(--text)}
+.tiact.ticomp[aria-pressed="true"]{color:var(--accent);border-color:var(--accent-line);border-style:solid}
 /* a coluna do terminal estreita: a dica sai primeiro; bem estreita, os botões viram só ícone */
 @container (max-width:700px){ .tihint{display:none} }
 /* botões NUNCA viram só ícone (quem não programa lê o rótulo): estreito, quebram linha */

@@ -1357,9 +1357,7 @@ async function fwSendMsg(queueOnly){
   // modo terminal com pergunta aberta: o texto vira a resposta da pergunta da vez (a folha manda pro hook)
   // (anexo não cabe numa resposta: volta pro compositor e vai depois, quando a pergunta fechar)
   if(typeof termViewOf==='function' && termViewOf(t) && typeof tlAskFromComposer==='function' && typed.trim() && pendingOf(t.id).some(p=>!fwIsBudgetAsk(p)) && tlAskFromComposer(t, typed.trim())){ inp.value=''; fwDraft[t.id]=''; if(atts.length){ (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts); toast('os anexos ficaram no compositor — mande depois que a pergunta fechar','info'); renderWorkspace(); } return; }
-  // aba Terminal de tarefa integrada cuja worktree foi apagada: não há sessão pra retomar — diz numa linha e o
-  // botão da barra abre a tarefa nova de ajuste (o texto e os anexos ficam no compositor)
-  if(typeof termWtGone==='function' && termWtGone(t.id) && !pendingOf(t.id).length){ (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts); termSayLine(t.id, TERM_WT_GONE+' (botão na barra acima)'); toast(TERM_WT_GONE,'warn'); if(atts.length) renderWorkspace(); return; }
+  // tarefa integrada (worktree apagada): a mensagem vai normal — o backend recria a pasta e retoma a sessão (04/10)
   const sel=fwSelRange();
   // só amarra ao arquivo quando o usuário SELECIONOU linhas — mensagem sem seleção vai pura
   const ctx = sel ? `Sobre ${fwPath}:${sel.a}${sel.b>sel.a?'-'+sel.b:''}: ` : '';

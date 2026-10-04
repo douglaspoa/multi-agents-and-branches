@@ -129,10 +129,13 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   await ctx.termHistLoad('t1', false);
   assert.match(st.term.out.join(''), /LOG-ANTIGO/);
   assert.match(st.term.out.join(''), /\x1b\[\?1049l/, 'sai da tela alternativa antes do rodapé');
-  // integrada e sem worktree: a barra oferece a tarefa de ajuste
+  // integrada e sem worktree: dá pra conversar de novo (o backend recria a pasta) e a tarefa de ajuste fica como 2ª opção
   ctx.__answers.term_history = { source: 'transcript', items: [], stamp: '11:1', merged: true, worktreeExists: false };
   await ctx.termHistLoad('t1', true);
+  assert.match(st.bar.innerHTML, /tarefa integrada · digite pra perguntar sobre o que foi feito/);
+  assert.match(st.bar.innerHTML, /data-termopen="t1"[^>]*>conversar</);
   assert.match(st.bar.innerHTML, /abrir tarefa de ajuste/);
+  assert.doesNotMatch(st.bar.innerHTML, /worktree foi apagada/);
   assert.equal(ctx.termWtGone('t1'), true);
   // a mensagem RETOMOU a sessão: o PTY nasceu → o xterm vira o vivo
   ctx.__answers.term_attach = { alive: true, data: 'VIVO' };

@@ -207,3 +207,14 @@ test('textos: Entregar = conferir provas e abrir PR (igual ao /comando); nada de
   assert.equal(TI.tiCmdText('codex', 'etapa', 'entregar'), 'Starfork: confira as provas desta tarefa (`starfork status`); se todos os requisitos estiverem provados, abra o PR (`starfork pr`); senão me diga o que falta.');
   assert.ok(!/--iniciar/.test(read('js/64-terminal-integrado.js')));
 });
+
+test('terminal não vivo: o seletor mostra a IA da tarefa (recomendado); integrada retoma ao digitar; compositor é botão na linha das ações', () => {
+  const rec = { ai: 'claude', model: 'opus', command: 'starfork ia claude --modelo opus' };
+  const row = TI.tiAiRowHtml({ cli: null, taskAi: 'codex', rec });
+  assert.match(row, /<option value="claude" selected>Claude · opus</); assert.ok(!/shell \(sem IA\)/.test(row));
+  const ti = read('js/64-terminal-integrado.js');
+  assert.match(ti, /cli:\(live && s && typeof s\.cli==='string'\)\?s\.cli:null/, '"shell (sem IA)" só com PTY vivo');
+  assert.ok(!/termGone/.test(cut(ti, 'function tiBlockedWhy(', '\n}\n')), 'integrada não bloqueia mais a digitação');
+  assert.match(ti, /class="tiact ticomp" data-ti="comp"/);
+  assert.match(read('js/60-terminal.js'), /'não consegui abrir o terminal: '/, 'falha ao abrir vira linha no terminal');
+});
