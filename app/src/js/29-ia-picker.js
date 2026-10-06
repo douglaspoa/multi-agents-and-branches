@@ -9,6 +9,30 @@ const AI_CLAUDE_MODELS=[
   {id:'claude-fable-5-1',name:'Fable 5.1',tag:'id fixo'}, {id:'claude-opus-5-5',name:'Opus 5.5',tag:'id fixo · mais novo'}, {id:'claude-opus-5',name:'Opus 5',tag:'id fixo'}, {id:'claude-sonnet-5',name:'Sonnet 5',tag:'id fixo'},
   {id:'claude-opus-4-8',name:'Opus 4.8',tag:'id fixo'}, {id:'claude-haiku-4-5-20251001',name:'Haiku 4.5',tag:'id fixo'},
 ];
+// Codex: a lista REAL vem do Codex instalado (~/.codex/models_cache.json, via codex_models) — esta é só a reserva
+// quando ele não está instalado/nunca rodou. Rótulo em pt-BR a partir da descrição do próprio Codex.
+const AI_CODEX_FALLBACK=[ {id:'',name:'Padrão do Codex',tag:'auto'}, {id:'gpt-6-astra',name:'GPT-6-Astra',tag:'mais capaz · gasta mais'},
+  {id:'gpt-5.6-sol',name:'GPT-5.6-Sol',tag:'geração anterior · forte'}, {id:'gpt-5.6-terra',name:'GPT-5.6-Terra',tag:'geração anterior · equilíbrio'},
+  {id:'gpt-5.6-luna',name:'GPT-5.6-Luna',tag:'geração anterior · rápido e barato'}, {id:'gpt-5.5',name:'GPT-5.5',tag:'legado'} ];
+function aiCodexTag(desc){
+  const d=String(desc||'').toLowerCase(), old=/older|previous/.test(d);
+  if(/legacy/.test(d)) return 'legado';
+  const k=/frontier|most demanding|most capable/.test(d)?'mais capaz · gasta mais':/fast|efficient|affordable|cheap/.test(d)?'rápido e barato':/balanced/.test(d)?'equilíbrio':/workhorse/.test(d)?'forte':'';
+  return (old?'geração anterior':'')+(old&&k?' · ':'')+k;
+}
+/** {models:[{id,name,desc}], default} do codex_models → lista do seletor (com "Padrão do Codex · <modelo do config>"). */
+function aiCodexModelsFrom(r){
+  const ms=((r&&r.models)||[]).filter(m=>m&&m.id); if(!ms.length) return null;
+  const def=String((r&&r.default)||''), dn=(ms.find(m=>m.id===def)||{}).name||def;
+  return [{id:'',name:'Padrão do Codex',tag:dn?'auto · '+dn:'auto'}, ...ms.map(m=>({id:String(m.id),name:String(m.name||m.id),tag:aiCodexTag(m.desc)}))];
+}
+let _aiCodexAt=0;
+async function aiCodexRefresh(){
+  if(Date.now()-_aiCodexAt<60000) return; _aiCodexAt=Date.now();
+  let r=null; try{ r=await invoke('codex_models'); }catch(_){ }
+  const list=aiCodexModelsFrom(r), e=AI_ENGINES.find(x=>x.id==='codex');
+  if(list && e) e.models.splice(0, e.models.length, ...list);
+}
 // @cor-dado-inicio — cor de MARCA de cada fornecedor de IA (identidade do produto deles, igual nos dois temas)
 const AI_ENGINES=[
   { id:'claude', name:'Claude', vendor:'Anthropic · assinatura', color:'#d97757', custom:true,
@@ -18,7 +42,7 @@ const AI_ENGINES=[
   { id:'codex', name:'Codex', vendor:'OpenAI', color:'#10a37f', custom:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.6"/><path d="M8 2.4v11.2M3.15 5.2l9.7 5.6M3.15 10.8l9.7-5.6" stroke-linecap="round"/></svg>',
     desc:'Codex CLI com o login da sua conta do ChatGPT (Plus/Pro/Team — igual ao Claude Code com o plano Claude). Sem plano do ChatGPT, dá pra usar uma chave da OpenAI. Configure em Configurações → Sua IA.',
-    models:[ {id:'',name:'Padrão do Codex',tag:'auto'}, {id:'gpt-5-codex',name:'GPT-5 Codex',tag:'código'}, {id:'gpt-5',name:'GPT-5',tag:'geral'}, {id:'o4-mini',name:'o4-mini',tag:'rápido'} ] },
+    models:AI_CODEX_FALLBACK.slice() },
   { id:'gateway', name:'Gateway próprio', vendor:'OpenAI-compatível', color:'#5b9df9', custom:true, dynamic:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1.2"/><rect x="2.5" y="9" width="11" height="4" rx="1.2"/><path d="M5 5h.01M5 11h.01" stroke-width="2" stroke-linecap="round"/></svg>',
     desc:'O endpoint da SUA empresa (vLLM, LiteLLM, Azure, Ollama…). URL, chave e modelos ficam na sua conta: Configurações → Gateway próprio.',
@@ -170,6 +194,7 @@ function aiPickRender(target){
   // gateway: nome/modelos vêm da conta (assíncrono — renderiza de novo quando chegar)
   const gwCard=AI_ENGINES.find(x=>x.id==='gateway');
   if(!_aiGw){ aiGatewayInfo().then(()=>aiPickRender()); }
+  if(!_aiCodexAt){ aiCodexRefresh().then(()=>aiPickRender()).catch(()=>{}); }
   const gw=_aiGw||{ configured:false, label:'Gateway próprio', host:'', model:'', models:[] };
   gwCard.name=gw.label; gwCard.vendor=gw.configured?(gw.host||'OpenAI-compatível'):'não configurado';
   gwCard.models=gw.configured?[{id:'',name:gw.model||'padrão do gateway',tag:'padrão'},...gw.models.filter(m=>m!==gw.model).map(m=>({id:m,name:m,tag:''}))]:[];
@@ -302,6 +327,7 @@ function iaPick(el, opts){
     if(_iaPickOpen) _iaPickOpen.close(false);
     if(typeof suaIaStale==='function' && suaIaStale() && typeof suaIaLoad==='function') suaIaLoad().then(()=>{ if(_iaPickOpen && _iaPickOpen.ctl===ctl) draw(); }).catch(()=>{});
     if(!_aiGw) aiGatewayInfo().then(()=>{ if(_iaPickOpen && _iaPickOpen.ctl===ctl) draw(); }).catch(()=>{});
+    if(!_aiCodexAt) aiCodexRefresh().then(()=>{ if(_iaPickOpen && _iaPickOpen.ctl===ctl) draw(); }).catch(()=>{});
     const pill=el.querySelector('.iapill');
     const sh=document.createElement('div'); sh.className='iasheet'; sh.setAttribute('role','dialog'); sh.setAttribute('aria-modal','true'); sh.setAttribute('aria-label','Com qual IA?'); sh.tabIndex=-1;
     let pick=Object.assign({}, ctl.v), custom=false, asDef=false;
