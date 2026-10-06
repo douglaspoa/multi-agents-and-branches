@@ -167,9 +167,10 @@ function timePageOpen(){
 }
 function timeHeadPaint(){
   const i=meInfo();
-  const n=(typeof cloudData!=='undefined'&&cloudData&&cloudData.members)?cloudData.members.length:0;
-  const eps=(typeof teamEpics!=='undefined'&&teamEpics)?teamEpics.filter(e=>e.status!=='done'&&e.status!=='archived').length:0;
-  const prs=(typeof teamTasks!=='undefined'&&teamTasks)?teamTasks.filter(t=>t.pr_url&&!['merged','done'].includes(t.status)).length:0;
+  let n=(typeof cloudData!=='undefined'&&cloudData&&cloudData.members)?cloudData.members.length:0;
+  let eps=(typeof teamEpics!=='undefined'&&teamEpics)?teamEpics.filter(e=>e.status!=='done'&&e.status!=='archived').length:0;
+  let prs=(typeof teamTasks!=='undefined'&&teamTasks)?teamTasks.filter(t=>t.pr_url&&!['merged','done'].includes(t.status)).length:0;
+  const S=window._timeSum; if(S){ n=S.n; eps=S.eps; prs=S.prs; } // o quadro já contou (mesmas regras das abas)
   const sum=i.org?`${n} ${n===1?'pessoa':'pessoas'} · ${eps} ${eps===1?'épico ativo':'épicos ativos'} · <b>${prs}</b> ${prs===1?'PR':'PRs'} pra revisar`:'';
   const head=pageHead({ title:'Time', scope:'time', scopeLabel:i.team?i.team.name:(i.org?i.org.name:''), sum });
   const h=$id('timeHead'); if(h && h.__html!==head){ h.__html=head; h.innerHTML=head; }

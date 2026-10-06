@@ -79,7 +79,7 @@ test('chave salva: só "salva ✓" + trocar/remover; motor pronto pode testar; o
   assert.ok(!/data-sa="test" data-id="codex" disabled/.test(html));
   assert.match(html, /data-sa="test" data-id="claude" disabled/);
   // modelos do catálogo do seletor
-  assert.match(cut(html, 'data-suaia="codex"', 'data-suaia="deepseek"'), /<option value="gpt-5-codex"/);
+  assert.match(cut(html, 'data-suaia="codex"', 'data-suaia="deepseek"'), /<option value="gpt-6-astra"/);
 });
 
 test('chave colada vai pro cofre da conta com o NOME certo por motor e o estado é relido', async () => {

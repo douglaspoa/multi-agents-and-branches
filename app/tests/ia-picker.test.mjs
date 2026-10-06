@@ -29,7 +29,8 @@ test('aiEngineOf segue a regra do motor (engineKind)', () => {
 });
 
 test('rótulo mostra o motor de verdade — tarefa Codex não aparece como "Claude"', () => {
-  assert.match(aiRunLabel('codex', 'gpt-5'), /^Codex · GPT-5$/);
+  assert.match(aiRunLabel('codex', 'gpt-6-astra'), /^Codex · GPT-6-Astra$/);
+  assert.match(aiRunLabel('codex', 'gpt-9-novo'), /^Codex · gpt-9-novo$/, 'id desconhecido aparece como veio');
   assert.match(aiRunLabel('claude', 'claude-opus-5-5'), /^Claude · Opus 5\.5$/);
   assert.match(aiRunLabel('claude', ''), /^Claude · padrão da assinatura$/);
   assert.equal(aiRunLabel('mock', ''), 'Mock (sem IA)');
@@ -55,4 +56,18 @@ test('DeepSeek Harness (beta): motor próprio, rótulo com "beta", modelos do ca
   assert.ok(ds && ds.beta && /beta/i.test(ds.vendor) && /BETA/.test(ds.desc));
   assert.equal(JSON.stringify(ds.models.map((m) => m.id)), JSON.stringify(['', 'deepseek-v4-pro', 'deepseek-flash']));
   assert.equal(aiClaudeModel('deepseek', 'deepseek-flash'), null, 'id do DeepSeek nunca vai pro --model do claude');
+});
+
+test('Codex: versões vêm do Codex instalado, com rótulo de custo em pt-BR', () => {
+  const { aiCodexModelsFrom, aiCodexTag } = ctx;
+  assert.equal(aiCodexModelsFrom({ models: [] }), null, 'sem cache → fica a reserva');
+  const l = aiCodexModelsFrom({ default: 'gpt-6-astra', models: [
+    { id: 'gpt-6-astra', name: 'GPT-6-Astra', desc: 'Frontier intelligence for the most demanding work.' },
+    { id: 'gpt-5.6-luna', name: 'GPT-5.6-Luna', desc: 'Older fast and efficient model.' } ] });
+  assert.equal(l.length, 3);
+  assert.deepEqual([l[0].id, l[0].tag], ['', 'auto · GPT-6-Astra']);
+  assert.equal(l[1].tag, 'mais capaz · gasta mais');
+  assert.equal(l[2].tag, 'geração anterior · rápido e barato');
+  assert.equal(aiCodexTag('Older balanced model for straightforward work.'), 'geração anterior · equilíbrio');
+  assert.equal(aiCodexTag('Legacy coding model.'), 'legado');
 });

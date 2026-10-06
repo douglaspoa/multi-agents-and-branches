@@ -53,10 +53,10 @@
 .tsboard{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;align-items:start}
 /* ---- PADRONIZAÇÃO do Time na linguagem nova da Central ---- */
 .tmain h1{font-size:var(--fs-xl);letter-spacing:-.015em;margin-bottom:4px}
-.tssub{font-family:var(--mono,ui-monospace,monospace);font-size:var(--fs-xs)}
-.tsph{font-family:var(--mono,ui-monospace,monospace);font-size:var(--fs-xs);letter-spacing:.11em;color:var(--text-2)}
+.tssub{font-size:var(--fs-sm)}
+.tsph{font-size:var(--fs-xs);font-weight:600;letter-spacing:.06em;color:var(--text-2)}
 .tsph::after{content:"";flex:1;height:1px;background:var(--border)}
-.tskh{font-family:var(--mono,ui-monospace,monospace);font-size:var(--fs-xs);letter-spacing:.11em;text-transform:uppercase;color:var(--text-2)}
+.tskh{font-size:var(--fs-xs);letter-spacing:.06em;text-transform:uppercase;color:var(--text-2)}
 .tskpi{border-radius:14px}
 .tskpi .v{font-family:var(--mono,ui-monospace,monospace);font-size:var(--fs-lg);font-weight:700}
 .tspanel{border-radius:14px}
@@ -822,3 +822,13 @@ details.suaia-secret[open] summary{margin-bottom:4px}
 .en-evv{display:flex;flex-direction:column;gap:3px;max-width:100%}
 .en-evv video.en-evvid{width:220px;max-width:100%;max-height:300px;border-radius:8px;background:var(--media-bg);border:1px solid color-mix(in srgb,var(--text) 12%,transparent)}
 .en-evn{font:400 var(--fs-xs) var(--code);color:var(--text-3);display:flex;gap:4px;align-items:center}
+
+/* Quadro do Time (06/10): seletor de épico no lugar dos chips; texto longo do cartão com reticências */
+.tsepsel{width:auto;max-width:360px}
+.tscard{min-width:0}
+.tscard .dc-reqs{margin-left:0;min-width:0}
+.tscard .dc-req{max-width:100%;min-width:0}
+.dc-rt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tscard .meta .tsbr{max-width:100%;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:1200px){.tsboard.ts5{grid-template-columns:repeat(3,minmax(0,1fr))!important}}
+@media(max-width:1000px){.tsboard.ts5{grid-template-columns:1fr 1fr!important}}

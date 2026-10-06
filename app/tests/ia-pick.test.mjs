@@ -25,7 +25,7 @@ test('normaliza o valor: rótulos antigos (logcomex → gateway), vazio = Claude
 test('rótulo da pílula: "Claude · Sonnet 5"; sem modelo = "· padrão"', () => {
   assert.equal(P.iaPickLabel({ engine: 'claude', model: 'claude-sonnet-5' }), 'Claude · Sonnet 5');
   assert.equal(P.iaPickLabel({ engine: 'claude', model: '' }), 'Claude · padrão');
-  assert.equal(P.iaPickLabel({ engine: 'codex', model: 'gpt-5' }), 'Codex · GPT-5');
+  assert.equal(P.iaPickLabel({ engine: 'codex', model: 'gpt-6-astra' }), 'Codex · GPT-6-Astra');
 });
 
 test('dica de custo relativa (não é preço inventado)', () => {

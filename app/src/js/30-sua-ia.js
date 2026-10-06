@@ -62,6 +62,7 @@ function suaIaModel(id){
 function suaIaLoad(force){
   if(_suaIaP){ if(!force) return _suaIaP; return _suaIaP.then(()=>suaIaLoad(true)); }
   if(!force && suaIaList && suaIaList.length && Date.now()-suaIaAt<20000) return Promise.resolve(suaIaList);
+  if(typeof aiCodexRefresh==='function') aiCodexRefresh().then(()=>suaIaRefresh()).catch(()=>{}); // versões reais do Codex instalado
   _suaIaP=Promise.resolve().then(()=>invoke('ai_engines_status'))
     .then(r=>{
       suaIaList=Array.isArray(r)?r:[]; suaIaAt=Date.now(); suaIaUi.loadErr='';

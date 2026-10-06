@@ -5380,6 +5380,38 @@ fn llm_env_path() -> PathBuf {
 fn read_llm_env() -> Result<String, String> {
     Ok(std::fs::read_to_string(llm_env_path()).unwrap_or_default())
 }
+/// Versões que o Codex CLI desta máquina oferece (o próprio Codex baixa e guarda em ~/.codex/models_cache.json):
+/// só as visíveis ("list"), na ordem de prioridade dele. Sem o arquivo → [] e a tela usa a lista curada.
+fn codex_models_parse(txt: &str) -> Vec<serde_json::Value> {
+    let v: serde_json::Value = serde_json::from_str(txt).unwrap_or_default();
+    let mut ms: Vec<&serde_json::Value> = v.get("models").and_then(|m| m.as_array()).map(|a| a.iter().collect()).unwrap_or_default();
+    ms.retain(|m| m.get("visibility").and_then(|x| x.as_str()).unwrap_or("list") == "list" && m.get("slug").and_then(|x| x.as_str()).map_or(false, |s| !s.is_empty()));
+    ms.sort_by_key(|m| m.get("priority").and_then(|x| x.as_i64()).unwrap_or(999));
+    ms.iter().map(|m| {
+        let slug = m["slug"].as_str().unwrap_or_default();
+        serde_json::json!({ "id": slug, "name": m.get("display_name").and_then(|x| x.as_str()).unwrap_or(slug), "desc": m.get("description").and_then(|x| x.as_str()).unwrap_or("") })
+    }).collect()
+}
+#[tauri::command(async)]
+fn codex_models() -> serde_json::Value {
+    let home = std::env::var("CODEX_HOME").ok().filter(|s| !s.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(home_dir_s()).join(".codex"));
+    let models = codex_models_parse(&std::fs::read_to_string(home.join("models_cache.json")).unwrap_or_default());
+    // o padrão do Codex = `model = "..."` do config.toml da pessoa (sem ele, o 1º da lista)
+    let cfg = std::fs::read_to_string(home.join("config.toml")).unwrap_or_default();
+    let default = cfg.lines().map(str::trim).take_while(|l| !l.starts_with('[')).find_map(|l| l.strip_prefix("model").map(str::trim).and_then(|r| r.strip_prefix('=')).map(|r| r.trim().trim_matches('"').to_string())).unwrap_or_default();
+    serde_json::json!({ "models": models, "default": default })
+}
+#[cfg(test)]
+mod codex_models_tests {
+    #[test]
+    fn so_visiveis_na_ordem_de_prioridade() {
+        let txt = r#"{"models":[{"slug":"b","display_name":"B","description":"barato","visibility":"list","priority":9},{"slug":"x","visibility":"hide","priority":1},{"slug":"a","display_name":"A","visibility":"list","priority":2}]}"#;
+        let ids: Vec<String> = super::codex_models_parse(txt).iter().map(|m| m["id"].as_str().unwrap().to_string()).collect();
+        assert_eq!(ids, vec!["a", "b"]);
+        assert_eq!(super::codex_models_parse(txt)[1]["desc"], "barato");
+        assert!(super::codex_models_parse("lixo").is_empty());
+    }
+}
 #[tauri::command(async)]
 fn write_llm_env(content: String) -> Result<(), String> {
     let p = llm_env_path();
@@ -10175,6 +10207,7 @@ pub fn run() {
             repo_docs,
             repo_doc_write,
             read_llm_env,
+            codex_models,
             write_llm_env,
             route_ai_ping,
             list_skills,
