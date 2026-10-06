@@ -139,7 +139,7 @@ function renderTeamBoard(){
   const prs=all.filter(t=>t.pr_url && t.status!=='merged' && (t.spec||{}).kind!=='review');
   const fgn=tmapForeign(); const unsynced=(state.tasks||[]).filter(t=>!tmap()[t.id] && !fgn.has(t.id) && t.status!=='draft').length; // cartão de outra conta não conta
   // ---------- sidebar ----------
-  const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['prs','PRs pra revisar',prs.length?String(prs.length):''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
+  const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['prs','PRs pra revisar',prs.length?String(prs.length):''],['linha','Linha',''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
   const subTabs=`<div class="ftabs" style="margin-bottom:16px">`+
     NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:var(--fs-xs);opacity:.8">${n}</span>`:''}</button>`).join('')+
@@ -147,7 +147,10 @@ function renderTeamBoard(){
   let side=``;
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   // épicos: UM seletor (ativos primeiro, concluídos num grupo à parte) — a parede de chips empurrava o quadro pra baixo
-  const epActive=e=>e.status!=='done'&&e.status!=='archived';
+  // ativo = regra única do 69 (epAtivo): épico entregue ("pronto quando" todo provado, ou todas as tarefas entregues) sai
+  // dos ativos e vai pro grupo "concluídos" — mesmo número no cabeçalho, no KPI e no seletor
+  const epTs=e=>all.filter(t=>t.epic_id===e.id);
+  const epActive=e=>typeof epAtivo==='function'?epAtivo(e, epTs(e)):(e.status!=='done'&&e.status!=='archived');
   const epNameN={}; teamEpics.forEach(e=>{ epNameN[e.name]=(epNameN[e.name]||0)+1; });
   const epOpt=e=>{ const ts=all.filter(t=>t.epic_id===e.id); const done=ts.filter(epDelivered).length;
     const dup=epNameN[e.name]>1&&e.created_at?' · '+new Date(e.created_at).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}):'';
@@ -173,7 +176,7 @@ function renderTeamBoard(){
     const nDevs=members.filter(u=>tsRunningOf(u).length).length;
     const asking=all.filter(t=>t.assignee===me&&false); // pergunta real vem do desktop de cada dev
     const custo=inP.reduce((s,t)=>s+(+t.cost_usd||0),0);
-    const activeEps=teamEpics.filter(e=>e.status!=='done'&&e.status!=='archived'); // B2: concluído não é "ativo"
+    const activeEps=teamEpics.filter(epActive); // B2: concluído (e entregue) não é "ativo"
     const eps=activeEps.length;
     // entregas por dia (últimos 7)
     const days=[...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); d.setHours(0,0,0,0); return d; });
@@ -216,6 +219,9 @@ function renderTeamBoard(){
       (prs.length?prs.map(t=>{ const n=(t.pr_url.match(/\/pull\/(\d+)/)||[])[1];
         return `<div class="tspanel" style="display:flex;align-items:center;gap:12px"><span class="mono" style="color:var(--accent)">${n?'#'+n:'PR'}</span><div style="flex:1;min-width:0"><b style="font-size:var(--fs-base)">${esc(t.title)}</b><div class="dim" style="font-size:var(--fs-xs)">de ${esc(tmName(t.assignee||t.created_by))} · ${esc(stLabel(tsSt(t)))} · ${agoTx(t.updated_at)}</div></div>${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}">revisar com agente</button></div>`; }).join('')
       :'<div class="emptyrepo" style="display:flex"><div class="big">Em dia ✓</div><div>nenhum PR do time esperando review.</div></div>');
+  } else if(tmView==='linha'){
+    // Linha do time (69-linha): todos os projetos, janela e saúde postas por uma pessoa
+    main=typeof linhaTimeHtml==='function'?linhaTimeHtml():'';
   } else if(tmView==='people'){
     const inP=tsPeriodTasks();
     main=`<h1>Pessoas</h1><div class="tssub">${members.length} membros · ${perSel}</div><div class="tsppl">`+
@@ -249,6 +255,7 @@ function renderTeamBoard(){
   if(teamPaintSig===html) return;
   teamPaintSig=html; el.innerHTML=html;
   // ---------- wiring ----------
+  if(tmView==='linha' && typeof linhaWire==='function') linhaWire(el);
   el.querySelectorAll('[data-tsv]').forEach(b=>{ b.onclick=()=>{ tmView=b.dataset.tsv; lsSet('tmView',tmView); teamPaintSig=''; renderTeamBoard(); }; });
   el.querySelectorAll('[data-tscope]').forEach(b=>{ b.onclick=()=>tsSetScope(b.dataset.tscope); });
   el.querySelectorAll('[data-epopen]').forEach(b=>{ b.onclick=()=>{ const e=teamEpics.find(x=>x.id===b.dataset.epopen); if(e&&window.openEpicPage) openEpicPage(e); }; });

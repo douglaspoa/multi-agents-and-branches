@@ -168,7 +168,8 @@ function timePageOpen(){
 function timeHeadPaint(){
   const i=meInfo();
   let n=(typeof cloudData!=='undefined'&&cloudData&&cloudData.members)?cloudData.members.length:0;
-  let eps=(typeof teamEpics!=='undefined'&&teamEpics)?teamEpics.filter(e=>e.status!=='done'&&e.status!=='archived').length:0;
+  // ativo = regra única do 69 (épico entregue — "pronto quando" todo provado, ou todas as tarefas entregues — não conta)
+  let eps=(typeof teamEpics!=='undefined'&&teamEpics)?teamEpics.filter(e=>typeof epAtivo==='function'?epAtivo(e, ((typeof teamTasks!=='undefined'&&teamTasks)||[]).filter(t=>t.epic_id===e.id)):(e.status!=='done'&&e.status!=='archived')).length:0;
   let prs=(typeof teamTasks!=='undefined'&&teamTasks)?teamTasks.filter(t=>t.pr_url&&!['merged','done'].includes(t.status)).length:0;
   const S=window._timeSum; if(S){ n=S.n; eps=S.eps; prs=S.prs; } // o quadro já contou (mesmas regras das abas)
   const sum=i.org?`${n} ${n===1?'pessoa':'pessoas'} · ${eps} ${eps===1?'épico ativo':'épicos ativos'} · <b>${prs}</b> ${prs===1?'PR':'PRs'} pra revisar`:'';
@@ -197,8 +198,8 @@ if(typeof setView==='function' && !setView.__g1){ const sv=setView; setView=func
 
 // ===================== PROJETO · <nome> (D3/D4) =====================
 // @puro-projeto-inicio (testado em app/tests/redesign-f4-g1.test.mjs)
-const PROJ_SECS=[['conversa','Conversa','chat'],['memoria','Memória','book'],['agentes','Agentes','bot'],['skills','Skills','bolt'],['regras','Regras','rule'],['disco','Espaço em disco','disk']];
-const PROJ_OV={ conversa:'pcOverlay', memoria:'memOverlay', agentes:'agOverlay', skills:'skOverlay', regras:'prefsOverlay', disco:null };
+const PROJ_SECS=[['conversa','Conversa','chat'],['linha','Linha','linha'],['memoria','Memória','book'],['agentes','Agentes','bot'],['skills','Skills','bolt'],['regras','Regras','rule'],['disco','Espaço em disco','disk']];
+const PROJ_OV={ conversa:'pcOverlay', linha:null, memoria:'memOverlay', agentes:'agOverlay', skills:'skOverlay', regras:'prefsOverlay', disco:null };
 function projSubNorm(s){ return PROJ_SECS.some(x=>x[0]===s)?s:'conversa'; }
 // @puro-projeto-fim
 let projSub=projSubNorm(lsGet('projSub'));
@@ -253,8 +254,10 @@ function projShowSub(sub){
   const host=$id('projHost'); if(!host) return;
   host.querySelectorAll(':scope>.overlay').forEach(o=>{ if(o.id!==PROJ_OV[sub]){ o.style.display='none'; } });
   const disk=$id('projDisk'); if(disk) disk.hidden=sub!=='disco';
+  const lin=$id('projLinha'); if(lin) lin.hidden=sub!=='linha';
   const none=$id('projNone');
-  if(!state.repo){ if(!none){ const d=document.createElement('div'); d.id='projNone'; host.appendChild(d); }
+  if(!state.repo){ if(lin) lin.hidden=true; // a Linha do projeto anterior não fica por baixo do "sem projeto"
+    if(!none){ const d=document.createElement('div'); d.id='projNone'; host.appendChild(d); }
     const n=$id('projNone'); n.hidden=false;
     n.innerHTML=emptyHtml({ icon:'folder', title:'Esta página é de um projeto.', help:'Abra um projeto (ou crie um) pra ver a conversa, a memória, os agentes, as skills e as regras dele.', action:{ id:'projNoneGo', label:'Abrir ou criar projeto' } });
     bindClick('projNoneGo', ()=>openTab('projetos')); return; }
@@ -263,6 +266,12 @@ function projShowSub(sub){
     if(!disk){ const d=document.createElement('section'); d.id='projDisk'; d.className='pgsec';
       d.innerHTML='<div class="pgsec-h"><div><h2>Espaço em disco</h2><p>Pasta de trabalho do Starfork neste projeto (.cardume). Aprendizados e estado ficam sempre; o resto pode ir.</p></div></div><div id="projWsHost"></div>'; host.appendChild(d); }
     if(typeof wsMount==='function') wsMount();
+    return; }
+  // Linha do projeto (69-linha): seção sem overlay, como o disco — épicos do projeto aberto, com os dados do Time
+  if(sub==='linha'){
+    if(!$id('projLinha')){ const d=document.createElement('section'); d.id='projLinha'; d.className='pgsec';
+      d.innerHTML='<div class="pgsec-h"><div><h2>Linha do projeto</h2><p>O que este projeto está entregando e quando. A janela e a saúde são postas por uma pessoa; o preenchimento é o "pronto quando" provado.</p></div></div><div id="projLinhaHost"></div>'; host.appendChild(d); }
+    if(typeof linhaProjMount==='function') linhaProjMount();
     return; }
   const o=$id(PROJ_OV[sub]); if(!o) return;
   if(o.parentElement!==host) host.appendChild(o);
@@ -316,7 +325,7 @@ if(typeof render==='function' && !render.__g1){ const r0=render; render=function
     try{
       if(!state.repo){ emRecentPaint(); centralBandPaint(); } else emRecentDone=false; // a próxima vez que o vazio aparecer, relê
       if(g1TabOn('time') && typeof renderTeamBoard==='function'){ safe(renderTeamBoard); timeHeadPaint(); }
-      if(g1TabOn('projeto')){ const ch=projRepoShown!==(state.repo||''); projPageRender(); if(ch) projShowSub(projSub); }
+      if(g1TabOn('projeto')){ const ch=projRepoShown!==(state.repo||''); projPageRender(); if(ch) projShowSub(projSub); else if(projSub==='linha' && typeof linhaProjMount==='function') linhaProjMount(); }
       meSync();
     }catch(e){ console.error('g1 render', e); }
     return out; }; render.__g1=true; }

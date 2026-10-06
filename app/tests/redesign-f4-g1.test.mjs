@@ -152,9 +152,9 @@ test('avatar: nome, iniciais e "Organização · Time"; sem org o menu oferece c
 
 // ---------------- página Projeto ----------------
 const PJ = new Function(cut(casca, '// @puro-projeto-inicio', '// @puro-projeto-fim') + '\nreturn { PROJ_SECS, PROJ_OV, projSubNorm };')();
-test('Projeto: sub-nav Conversa · Memória · Agentes · Skills · Regras · Espaço em disco; seção inválida cai na Conversa', () => {
-  assert.deepEqual(PJ.PROJ_SECS.map((x) => x[1]), ['Conversa', 'Memória', 'Agentes', 'Skills', 'Regras', 'Espaço em disco']);
-  assert.deepEqual(PJ.PROJ_OV, { conversa: 'pcOverlay', memoria: 'memOverlay', agentes: 'agOverlay', skills: 'skOverlay', regras: 'prefsOverlay', disco: null });
+test('Projeto: sub-nav Conversa · Linha · Memória · Agentes · Skills · Regras · Espaço em disco; seção inválida cai na Conversa', () => {
+  assert.deepEqual(PJ.PROJ_SECS.map((x) => x[1]), ['Conversa', 'Linha', 'Memória', 'Agentes', 'Skills', 'Regras', 'Espaço em disco']);
+  assert.deepEqual(PJ.PROJ_OV, { conversa: 'pcOverlay', linha: null, memoria: 'memOverlay', agentes: 'agOverlay', skills: 'skOverlay', regras: 'prefsOverlay', disco: null });
   assert.equal(PJ.projSubNorm('regras'), 'regras'); assert.equal(PJ.projSubNorm('xx'), 'conversa'); assert.equal(PJ.projSubNorm(null), 'conversa');
   assert.match(casca, /title:'Esta página é de um projeto\.'/, 'sem projeto: estado padrão, nunca aba vazia (inventário 13)');
   assert.match(html, /<div class="overlay fwoverlay pgov" id="projOverlay"[^>]*><div class="pgpage" id="projPage"><div id="projHead"><\/div><div class="pgsplit"><nav class="subnav" id="projNav" role="tablist"/);
@@ -220,7 +220,7 @@ test('99-paginas.css: só tokens do tema (nenhuma cor literal), registrado depoi
   const css = read('css/99-paginas.css');
   assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/.test(css), 'sem cor literal');
   assert.match(html, /<link rel="stylesheet" href="css\/98-fabrica\.css">\n<link rel="stylesheet" href="css\/99-paginas\.css">/);
-  assert.match(html, /<script src="js\/68-casca-g1\.js"><\/script>\n<\/body>/);
+  assert.match(html, /<script src="js\/68-casca-g1\.js"><\/script>\n<script src="js\/69-linha\.js"><\/script>\n<\/body>/, 'depois da casca só a Linha (69), que não reescreve nada da casca');
   assert.ok(!/#[0-9a-fA-F]{6}\b/.test(casca), 'sem cor fixa no JS da casca');
 });
 
