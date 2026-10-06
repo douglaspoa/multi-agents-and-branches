@@ -187,4 +187,4 @@
 
 /* lateral: lugar da aba aberta (68-casca-g1 › g1NavSync) */
 .sbnav2 .sbitem.on{background:var(--surface-2);color:var(--text);font-weight:600}
-html:not(.kbdnav) .sbnav2 .sbitem:focus-visible{box-shadow:none!important}
+html:not(.kbdnav) .sbnav2 .sbitem:focus{box-shadow:none!important}
