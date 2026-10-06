@@ -143,7 +143,7 @@ function renderTeamBoard(){
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
   const subTabs=`<div class="ftabs" style="margin-bottom:16px">`+
     NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:var(--fs-xs);opacity:.8">${n}</span>`:''}</button>`).join('')+
-    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido em Conta e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim mono tsnavlbl" style="font-size:var(--fs-xs);align-self:center;white-space:nowrap">${orgScope?`${(cloudData.teams||[]).length} times · ${((cloudData.orgMembers)||[]).length} pessoas`:'time '+teamName}</span></div>`;
+    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido em Conta e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim tsnavlbl" style="font-size:var(--fs-xs);align-self:center;white-space:nowrap">${orgScope?`${(cloudData.teams||[]).length} times · ${((cloudData.orgMembers)||[]).length} pessoas`:'time '+teamName}</span></div>`;
   let side=``;
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   // épicos: UM seletor (ativos primeiro, concluídos num grupo à parte) — a parede de chips empurrava o quadro pra baixo
