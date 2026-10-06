@@ -782,7 +782,7 @@ async function trkNISend(text, silent){
         rest=lots.slice(k).flat().join('\n'); // se parar aqui, só o que FALTA volta pra caixa
         n.prog=`lote ${k+1} de ${lots.length} · ${n.items.length} de ${lines.length} issues prontas`; trkNIRender();
         const { obj, text:raw }=await call(`[LOTE ${k+1}/${lots.length}] Monte as issues destas linhas (a lista inteira tem ${lines.length}; responda só este lote):\n`+lots[k].join('\n'));
-        if(obj){ n.items=n.items.concat(toItems(obj.issues)); trkNIEpicFrom(obj); if(obj.say) n.msgs.push({ who:'bot', text:String(obj.say) }); n.chips=Array.isArray(obj.chips)?obj.chips.slice(0,4).map(String):[]; }
+        if(obj){ n.items=n.items.concat(toItems(obj.issues)); trkNIEpicFrom(obj); if(obj.say) n.msgs.push({ who:'bot', text:String(obj.say) }); n.chips=Array.isArray(obj.chips)?obj.chips.slice(0,8).map(String):[]; }
         else n.msgs.push({ who:'bot', text:raw||'(sem resposta)' });
       }
     } else {
@@ -791,7 +791,7 @@ async function trkNISend(text, silent){
       if(obj){
         if(Array.isArray(obj.issues)&&obj.issues.length) n.items=n.items.filter(i=>i.state==='ok').concat(toItems(obj.issues));
         trkNIEpicFrom(obj);
-        n.chips=Array.isArray(obj.chips)?obj.chips.slice(0,4).map(String):[];
+        n.chips=Array.isArray(obj.chips)?obj.chips.slice(0,8).map(String):[];
         if(obj.say) n.msgs.push({ who:'bot', text:String(obj.say) });
         if(obj.done && trkNIReady()){ n.busy=false; n.prog=''; n.msgs.push({ who:'sys', text:'Confirmado — criando…' }); trkNIRender(); await trkNICreate(); return; }
       } else n.msgs.push({ who:'bot', text:raw||'(sem resposta)' });

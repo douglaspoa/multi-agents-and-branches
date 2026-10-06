@@ -30,6 +30,16 @@ let plFields={}, plSid='', plMsgs=[], plChips=[], plAsking='', plDone=false, plB
 let plActs=[], plStopping=false; // plActs: o que a IA está fazendo agora (uma linha por ação), vindo do evento planner-activity
 let plPend=[]; // anexos importados, ainda não enviados
 // R8: estado do "pensando" e do card — no topo (let declarado depois = ReferenceError se usado antes da linha)
+// PURA: chips da rodada. A IA às vezes manda só parte das opções que numerou na fala (ex.: 8 frentes, 4 chips) →
+// quando o `say` tem uma lista 1..N (2 a 8) maior que os chips, os chips viram as N opções, na ordem ("N) título").
+function plChipsFull(say, chips){
+  const c=(Array.isArray(chips)?chips:[]).map(String).filter(Boolean);
+  const txt=String(say||''), re=/(?:^|[\s;(])(\d{1,2})[).]\s+([^\n;—:]{2,80}?)(?=\s*(?:—|–|:|;|\n|\s\d{1,2}[).]\s|$))/g;
+  const items=[]; let m;
+  while((m=re.exec(txt))){ const n=+m[1]; if(n!==items.length+1) continue; items.push(n+') '+m[2].trim().replace(/[?.,]+$/,'').replace(/\s+(ou|e|or)$/i,'').slice(0,48)); }
+  if(items.length>=2 && items.length<=8 && items.length>c.length) return items;
+  return c.slice(0,8);
+}
 let plAfterEdit=new Set(); // tarefas do épico com os chips de "depois de" abertos pra editar
 let plBusyAt=0, plBusyTick=null;
 // geração: cada conversa (plReset) e cada envio ganham um id. Resposta de uma conversa que já foi trocada
@@ -753,7 +763,7 @@ async function plSend(text){
       plApplyPatch(obj.patch);
       plAsking=(typeof obj.asking==='string')?obj.asking:'';
       plDone=!!obj.done;
-      plChips=Array.isArray(obj.chips)?obj.chips.slice(0,4):[];
+      plChips=plChipsFull(obj.say, obj.chips);
       // a IA propôs um ÉPICO (várias tarefas paralelas) → vira preview aprovável no chat
       if(!plNoEpic && obj.plan && Array.isArray(obj.plan.tasks) && obj.plan.tasks.length){ plPlan=plPlanFrom(obj.plan); plAfterEdit=new Set(); } // idx do plano novo ≠ do velho
       if(obj.say) plMsgs.push({who:'bot', text:String(obj.say)});
