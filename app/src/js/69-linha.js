@@ -95,7 +95,9 @@ function linhaModelo(ep, tasks){
       if(last){ const d=new Date(last); entregueEm=new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
     }
   }
-  return { id:ep.id, nome:ep.name||'Épico', ep, porDw, ok, tot, pct, rotulo, custo, janela, saude, entregue, entregueEm, ativo:ep.status!=='archived'&&!entregue };
+  // tarefas todas entregues mas o "pronto quando" ainda sem prova: a barra não promete nada, mas a tela diz o que falta
+  const faltaConferir=porDw && !entregue && ts.length>0 && tOk===ts.length;
+  return { id:ep.id, nome:ep.name||'Épico', ep, porDw, ok, tot, pct, rotulo, custo, janela, saude, entregue, entregueEm, faltaConferir, ativo:ep.status!=='archived'&&!entregue };
 }
 // escala de meses visíveis (mín. 3, máx. 12) cobrindo janelas, entregas e hoje → { meses:[{label, left, width}], ini, fim, pos(d), hojePct }
 function linhaEscala(modelos, hoje){
@@ -150,7 +152,7 @@ function linhaHtml(modelos, o){
     const can=!!pode(m), pj=proj(m), s=m.saude;
     const sub1=m.entregue
       ? `entregue${m.entregueEm?' '+lnDM(m.entregueEm):''} · ${esc_(custoTx(m.custo))}`
-      : `${esc_(m.rotulo)} · ${esc_(custoTx(m.custo))}`;
+      : `${esc_(m.rotulo)} · ${esc_(custoTx(m.custo))}${m.faltaConferir?`<span class="ln-falta" title="todas as tarefas foram entregues, mas ninguém marcou o pronto quando com prova — abra o épico pra conferir">tarefas entregues · falta conferir o pronto quando</span>`:''}`;
     const sub2=m.entregue?'':(s
       ? `<span class="ln-sd h-${s.state}">${esc_(LN_SAUDE[s.state])}</span>${s.note?' · “'+esc_(s.note)+'”':''}${s.by?' · '+esc_(quem(s.by)):''}${Date.parse(s.at)>0?', '+lnDM(new Date(Date.parse(s.at))):''}`
       : `<span class="ln-sd">sem avaliação</span>`);

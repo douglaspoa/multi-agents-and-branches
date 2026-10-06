@@ -211,3 +211,10 @@ test('folhas: data incompleta não apaga a janela; saúde sem avaliação começ
   assert.match(linha, /let pick=h\?h\.state:null;/);
   assert.match(L.linhaSaudeErro(null, ''), /Escolha/);
 });
+
+test('tarefas todas entregues mas pronto quando sem prova: avisa "falta conferir" (não conta como entregue)', () => {
+  const m = L.linhaModelo(ep({ spec: { doneWhen: dw(5, 0) } }), [tk('merged'), tk('done')]);
+  assert.equal(m.entregue, false); assert.equal(m.faltaConferir, true);
+  assert.match(L.linhaHtml([m], { hoje: HOJE }), /falta conferir o pronto quando/);
+  assert.equal(L.linhaModelo(ep({ spec: { doneWhen: dw(5, 0) } }), [tk('merged'), tk('running')]).faltaConferir, false);
+});
