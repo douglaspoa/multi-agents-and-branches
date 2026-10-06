@@ -28,6 +28,16 @@ function lnDia(s){
 }
 function lnIso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function lnDM(d){ return d?String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'):''; }
+// data digitada no formato do Brasil → "AAAA-MM-DD" ('' = vazio · null = inválida). Aceita d/m/aa, dd/mm/aaaa e AAAA-MM-DD.
+function linhaDataBR(txt){
+  const t=String(txt||'').trim(); if(!t) return '';
+  if(lnDia(t)) return t;
+  const m=/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2}|\d{4})$/.exec(t); if(!m) return null;
+  const y=m[3].length===2?2000+(+m[3]):+m[3];
+  const iso=y+'-'+String(+m[2]).padStart(2,'0')+'-'+String(+m[1]).padStart(2,'0');
+  return lnDia(iso)?iso:null;
+}
+function linhaDataTx(iso){ const d=lnDia(iso); return d?String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear():''; }
 // erro da janela digitada ('' = válida). Os dois vazios = tirar a janela (válido).
 function linhaJanelaErro(start, end){
   start=String(start||'').trim(); end=String(end||'').trim();
@@ -325,19 +335,22 @@ function linhaFolha(anchor, title, bodyHtml, ok, okLabel){
 function linhaFolhaJanela(anchor, ep){
   const j=linhaJanela((ep.spec||{}).window);
   const body=`<p>Quando este épico deve começar e terminar. Quem define é uma pessoa — o app nunca calcula nem prevê data.</p>
-    <div class="ln-dates"><label>Início<input class="in" type="date" data-ln-ini value="${lnE(j?j.start:'')}"></label><label>Fim<input class="in" type="date" data-ln-fim value="${lnE(j?j.end:'')}"></label></div>
-    <p class="ln-hint">Deixe os dois vazios pra tirar a janela.</p>`;
-  linhaFolha(anchor, 'Janela · '+(ep.name||'Épico'), body, async(el)=>{
+    <div class="ln-dates"><label>Início<input class="in" type="text" inputmode="numeric" autocomplete="off" placeholder="dd/mm/aaaa" maxlength="10" data-ln-ini value="${lnE(j?linhaDataTx(j.start):'')}"></label><label>Fim<input class="in" type="text" inputmode="numeric" autocomplete="off" placeholder="dd/mm/aaaa" maxlength="10" data-ln-fim value="${lnE(j?linhaDataTx(j.end):'')}"></label></div>
+    <p class="ln-hint">${j?'Apague os dois pra tirar a janela.':'Ex.: 03/11/2026.'}</p>`;
+  const el=linhaFolha(anchor, 'Janela · '+(ep.name||'Épico'), body, async(el)=>{
     const ii=el.querySelector('[data-ln-ini]'), fi=el.querySelector('[data-ln-fim]');
-    // data incompleta no WebKit vira value '' — sem isto, "os dois vazios" apagaria a janela que existe
-    if((ii.validity&&ii.validity.badInput) || (fi.validity&&fi.validity.badInput)) return 'Data inválida — complete dia, mês e ano.';
-    const s=ii.value.trim(), e=fi.value.trim();
+    const s=linhaDataBR(ii.value), e=linhaDataBR(fi.value);
+    if(s===null || e===null) return 'Data inválida — use dia/mês/ano, ex.: 03/11/2026.';
+    if(!s && !e && !j) return 'Preencha o início e o fim.';
     const err=linhaJanelaErro(s, e); if(err) return err;
     await linhaSalvar(ep.id, 'window', (s&&e)?{ start:s, end:e }:null);
     if(typeof toast==='function') toast((s&&e)?'Janela salva':'Janela removida', 'ok');
     return '';
   });
+  if(el) el.querySelectorAll('[data-ln-ini],[data-ln-fim]').forEach(lnMascaraData);
 }
+// máscara leve dd/mm/aaaa: põe a barra sozinha ao digitar (apagar continua livre)
+function lnMascaraData(inp){ inp.addEventListener('input', ev=>{ if(ev.inputType && !ev.inputType.startsWith('insert')) return; let v=inp.value.replace(/[^0-9/]/g,''); if(/^\d{2}$/.test(v)||/^\d{1,2}\/\d{2}$/.test(v)) v+='/'; inp.value=v.slice(0,10); }); }
 function linhaFolhaSaude(anchor, ep){
   const h=linhaSaude((ep.spec||{}).health); let pick=h?h.state:null; // sem avaliação: nada marcado (um Enter não grava "no rumo" por engano)
   const opts=Object.keys(LN_SAUDE).map(k=>`<button type="button" class="sh-opt${k===pick?' on':''}" role="radio" aria-checked="${k===pick}" data-lnst="${k}"><span class="rd"></span><b>${lnE(LN_SAUDE[k])}</b><em>${k==='no_rumo'?'segue a janela':k==='atencao'?'risco pra janela — diga o motivo':'vai passar da janela — diga o motivo'}</em></button>`).join('');

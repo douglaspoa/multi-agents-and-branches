@@ -9,7 +9,7 @@ const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8'
 const cut = (src, from, to) => { const a = src.indexOf(from); const b = src.indexOf(to, a + from.length); assert.ok(a >= 0 && b > a, 'trecho não encontrado: ' + from); return src.slice(a, b); };
 const linha = read('js/69-linha.js'), times = read('js/43-espaco-times.js'), casca = read('js/68-casca-g1.js'), html = read('index.html');
 const L = new Function(cut(linha, '// @puro-linha-inicio', '// @puro-linha-fim') +
-  '\nreturn { epEntregue, epAtivo, linhaModelo, linhaEscala, linhaHtml, linhaJanela, linhaJanelaErro, linhaSaude, linhaSaudeErro, linhaMesclaSpec, linhaVisiveis, linhaJanelaTx, linhaOrdena };')();
+  '\nreturn { epEntregue, epAtivo, linhaModelo, linhaEscala, linhaHtml, linhaJanela, linhaJanelaErro, linhaSaude, linhaSaudeErro, linhaMesclaSpec, linhaVisiveis, linhaJanelaTx, linhaOrdena, linhaDataBR, linhaDataTx };')();
 
 const HOJE = new Date(2026, 9, 6); // 06/10/2026
 const dw = (n, ok) => Array.from({ length: n }, (_, i) => ({ id: 'D' + (i + 1), text: 'item ' + (i + 1), ...(i < ok ? { checkedBy: 'u1', checkedAt: '2026-09-2' + (i % 9) + 'T10:00:00Z' } : {}) }));
@@ -207,7 +207,7 @@ test('linhaSalvar: updated_at mudou no meio → relê e refaz UMA vez (com o don
 });
 
 test('folhas: data incompleta não apaga a janela; saúde sem avaliação começa sem escolha', () => {
-  assert.match(linha, /validity\.badInput\)\) return 'Data inválida — complete dia, mês e ano\.'/);
+  assert.match(linha, /if\(s===null \|\| e===null\) return 'Data inválida/); assert.match(linha, /if\(!s && !e && !j\) return 'Preencha o início e o fim\.'/);
   assert.match(linha, /let pick=h\?h\.state:null;/);
   assert.match(L.linhaSaudeErro(null, ''), /Escolha/);
 });
@@ -217,4 +217,14 @@ test('tarefas todas entregues mas pronto quando sem prova: avisa "falta conferir
   assert.equal(m.entregue, false); assert.equal(m.faltaConferir, true);
   assert.match(L.linhaHtml([m], { hoje: HOJE }), /falta conferir o pronto quando/);
   assert.equal(L.linhaModelo(ep({ spec: { doneWhen: dw(5, 0) } }), [tk('merged'), tk('running')]).faltaConferir, false);
+});
+
+test('data digitada dd/mm/aaaa (campo de texto: o date do WebKit mostrava hoje num campo vazio)', () => {
+  assert.equal(L.linhaDataBR('03/11/2026'), '2026-11-03');
+  assert.equal(L.linhaDataBR('3/1/26'), '2026-01-03');
+  assert.equal(L.linhaDataBR('2026-11-30'), '2026-11-30');
+  assert.equal(L.linhaDataBR(''), '');
+  assert.equal(L.linhaDataBR('31/02/2026'), null);
+  assert.equal(L.linhaDataBR('03/11'), null);
+  assert.equal(L.linhaDataTx('2026-11-03'), '03/11/2026');
 });
