@@ -63,4 +63,4 @@ button.ln-nodate:focus-visible{box-shadow:var(--ring)}
 .ln-ms.out{background:transparent;border:1.5px dashed var(--accent)}
 .ln-edge{position:absolute;top:50%;transform:translateY(-50%);font-size:var(--fs-xs);color:var(--muted);font-style:italic;z-index:2;white-space:nowrap}
 .ln-edge.l{left:8px} .ln-edge.r{right:8px}
-.ln-falta{display:block;color:var(--warn);font-weight:600}
+.ln-falta{font-size:var(--fs-xs);color:var(--warn);font-weight:600;line-height:1.35}

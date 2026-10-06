@@ -152,12 +152,12 @@ function linhaHtml(modelos, o){
     const can=!!pode(m), pj=proj(m), s=m.saude;
     const sub1=m.entregue
       ? `entregue${m.entregueEm?' '+lnDM(m.entregueEm):''} · ${esc_(custoTx(m.custo))}`
-      : `${esc_(m.rotulo)} · ${esc_(custoTx(m.custo))}${m.faltaConferir?`<span class="ln-falta" title="todas as tarefas foram entregues, mas ninguém marcou o pronto quando com prova — abra o épico pra conferir">tarefas entregues · falta conferir o pronto quando</span>`:''}`;
+      : `${esc_(m.rotulo)} · ${esc_(custoTx(m.custo))}`;
     const sub2=m.entregue?'':(s
       ? `<span class="ln-sd h-${s.state}">${esc_(LN_SAUDE[s.state])}</span>${s.note?' · “'+esc_(s.note)+'”':''}${s.by?' · '+esc_(quem(s.by)):''}${Date.parse(s.at)>0?', '+lnDM(new Date(Date.parse(s.at))):''}`
       : `<span class="ln-sd">sem avaliação</span>`);
     const acts=(can&&!m.entregue)?`<span class="ln-acts"><button class="ln-lk" type="button" data-lnwin="${esc_(m.id)}" title="definir início e fim — só uma pessoa define a janela">${m.janela?'janela':'definir janela'}</button><button class="ln-lk" type="button" data-lnhealth="${esc_(m.id)}" title="no rumo · atenção · atrasado, com uma frase">saúde</button></span>`:'';
-    const nm=`<div class="ln-nm"><button class="ln-ep" type="button" data-lnep="${esc_(m.id)}" title="${esc_('abrir o épico “'+m.nome+'”')}">${esc_(m.nome)}</button>${pj?`<span class="ln-proj">${esc_(pj)}</span>`:''}<span class="ln-sub">${sub1}</span>${sub2?`<span class="ln-sub">${sub2}</span>`:''}${acts}</div>`;
+    const nm=`<div class="ln-nm"><button class="ln-ep" type="button" data-lnep="${esc_(m.id)}" title="${esc_('abrir o épico “'+m.nome+'”')}">${esc_(m.nome)}</button>${pj?`<span class="ln-proj">${esc_(pj)}</span>`:''}<span class="ln-sub">${sub1}</span>${m.faltaConferir?`<span class="ln-falta" title="todas as tarefas foram entregues, mas ninguém marcou o pronto quando com prova — abra o épico pra conferir">tarefas entregues · falta conferir o pronto quando</span>`:''}${sub2?`<span class="ln-sub">${sub2}</span>`:''}${acts}</div>`;
     let lane='';
     if(m.entregue){
       // sem data conhecida: só o texto "entregue" (nada de losango num lugar inventado); fora da faixa: preso na borda, marcado
