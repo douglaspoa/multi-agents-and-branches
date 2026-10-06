@@ -40,6 +40,7 @@ function plChipsFull(say, chips){
   if(items.length>=2 && items.length<=8 && items.length>c.length) return items;
   return c.slice(0,8);
 }
+function plLastSay(msgs){ const l=(msgs||[]).filter(m=>m&&m.who==='bot'); return l.length?String(l[l.length-1].text||''):''; }
 let plAfterEdit=new Set(); // tarefas do épico com os chips de "depois de" abertos pra editar
 let plBusyAt=0, plBusyTick=null;
 // geração: cada conversa (plReset) e cada envio ganham um id. Resposta de uma conversa que já foi trocada
@@ -83,7 +84,7 @@ async function openPlanner(){
   let draft=null; if(plOwnsDraft){ try{ draft=await invoke('load_draft'); }catch(e){ console.warn('[planner] rascunho não lido', e); } }
   if(draft){ try{ const d=JSON.parse(draft);
     if(d && ((d.fields&&(d.fields.title||d.fields.objective)) || (d.msgs&&d.msgs.length))){
-      plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=d.chips||[]; plAsking=d.asking||''; plPlan=plPlanRestore(d.plan); plNoEpic=!!d.noEpic;
+      plFields=Object.assign(plFields, d.fields||{}); plSid=d.sid||''; plRefs=d.refs||[]; plMsgs=(d.msgs||[]).slice(); plChips=(d.chips||[]).length?plChipsFull(plLastSay(plMsgs), d.chips):[]; plAsking=d.asking||''; plPlan=plPlanRestore(d.plan); plNoEpic=!!d.noEpic;
       plMsgs.forEach(m=>{ if(m && m.kind==='model' && !m.choice) m.hidden=true; }); // rascunho antigo: o "Com qual IA?" agora mora na prévia
       plMsgs.unshift({who:'sys', text:'↺ Rascunho recuperado — continue de onde parou (ou ⋯ › Recomeçar do zero).'});
       try{ const inp=$id('plInput'); if(inp && d.input) inp.value=d.input; }catch(_){}
@@ -136,7 +137,7 @@ window.plShow=plShow;
 window.TAB_STATE_planner={
   get:()=>({ _title:(plFields&&plFields.title)||'', plOwnsDraft, plFields, plSid, plMsgs, plChips, plAsking, plDone, plRefs, plPlan, plNoEpic, plPend, plConv, plBusyGen:plBusy?plCurGen:0, plBusyAt, plActs:plActs.slice() }),
   // busy volta de verdade se o envio desta aba ainda está no ar (antes: sempre false → Aprovar/criar religavam no meio da resposta)
-  set:(st)=>{ plFields=st.plFields||{}; plSid=st.plSid||''; plMsgs=st.plMsgs||[]; plChips=st.plChips||[]; plAsking=st.plAsking||''; plDone=!!st.plDone; plCurGen=st.plBusyGen||0; plBusy=!!(plCurGen && plInflight.has(plCurGen)); plBusyAt=plBusy?(st.plBusyAt||Date.now()):0; plActs=plBusy?(st.plActs||[]):[]; plConv=st.plConv||(st.plConv=++plGenSeq); plRefs=st.plRefs||[]; plPlan=plPlanRestore(st.plPlan); plNoEpic=!!st.plNoEpic; plPend=st.plPend||[]; plOwnsDraft=st.plOwnsDraft!==false; plAfterEdit=new Set(); if(plBusy && !plQuiet) plBusyStart(plBusyAt); }
+  set:(st)=>{ plFields=st.plFields||{}; plSid=st.plSid||''; plMsgs=st.plMsgs||[]; plChips=(st.plChips||[]).length?plChipsFull(plLastSay(plMsgs), st.plChips):[]; plAsking=st.plAsking||''; plDone=!!st.plDone; plCurGen=st.plBusyGen||0; plBusy=!!(plCurGen && plInflight.has(plCurGen)); plBusyAt=plBusy?(st.plBusyAt||Date.now()):0; plActs=plBusy?(st.plActs||[]):[]; plConv=st.plConv||(st.plConv=++plGenSeq); plRefs=st.plRefs||[]; plPlan=plPlanRestore(st.plPlan); plNoEpic=!!st.plNoEpic; plPend=st.plPend||[]; plOwnsDraft=st.plOwnsDraft!==false; plAfterEdit=new Set(); if(plBusy && !plQuiet) plBusyStart(plBusyAt); }
 };
 function plApplyPatch(patch){
   if(!patch||typeof patch!=='object') return;
