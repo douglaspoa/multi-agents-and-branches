@@ -170,9 +170,14 @@ pub(crate) fn hit_budget(stdout: &[u8]) -> bool {
 /// Marca do "parou no teto desta chamada" — a tela devolve a persona pra fila e mostra o aviso de teto.
 pub const BUDGET: &str = "MESA_BUDGET";
 /// Resposta de UMA chamada ao claude: texto, erro que cobrou, ou o teto da chamada batido (MESA_BUDGET).
+/// O CLI confere o teto DEPOIS de cada mensagem: a fala é cobrada inteira. Se ela veio com texto, o texto é
+/// aproveitado (descartar e re-enfileirar pagaria 2×) e `budgetHit` só avisa que passou da reserva.
 pub(crate) fn ask_reply(out: &std::process::Output, budget_usd: Option<f64>) -> Result<serde_json::Value, String> {
     let cost = cost_of(out);
     if hit_budget(&out.stdout) {
+        let text = serde_json::from_slice::<serde_json::Value>(String::from_utf8_lossy(&out.stdout).trim().as_bytes())
+            .ok().and_then(|v| v["result"].as_str().map(|s| s.trim().to_string())).unwrap_or_default();
+        if !text.is_empty() { return Ok(serde_json::json!({ "text": text, "costUsd": cost, "budgetHit": true })); }
         let b = budget_usd.unwrap_or(0.0);
         return Ok(serde_json::json!({ "error": format!("{BUDGET}: a fala parou no teto desta chamada (US$ {b:.2}) — aumente o teto da sessão pra continuar"), "costUsd": cost, "budgetHit": true }));
     }
@@ -392,6 +397,11 @@ mod tests {
         assert!(hit["error"].as_str().unwrap().starts_with(BUDGET));
         assert_eq!(hit["costUsd"].as_f64(), Some(0.17));
         assert_eq!(hit["budgetHit"].as_bool(), Some(true));
+        // passou da reserva mas a fala veio inteira: aproveita o texto e conta o custo (nada de pagar 2×)
+        let paga = ask_reply(&out(r#"{"type":"result","subtype":"error_max_budget_usd","is_error":true,"result":"minha posição","total_cost_usd":0.4}"#), Some(0.16)).unwrap();
+        assert_eq!(paga["text"].as_str(), Some("minha posição"));
+        assert_eq!(paga["costUsd"].as_f64(), Some(0.4));
+        assert!(paga.get("error").is_none());
         let fine = ask_reply(&out(r#"{"type":"result","subtype":"success","is_error":false,"result":"oi","total_cost_usd":0.1}"#), Some(0.16)).unwrap();
         assert_eq!(fine["text"].as_str(), Some("oi"));
         assert!(fine.get("error").is_none());

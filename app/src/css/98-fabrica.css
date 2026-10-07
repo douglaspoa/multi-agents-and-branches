@@ -460,3 +460,4 @@ button.row{cursor:pointer}button.row:hover{background:var(--surface-2)}
 .g2eopt:has(.g2eor:focus-visible){outline:2px solid transparent;box-shadow:var(--ring)}
 .mbody label.g2eol{text-transform:none;letter-spacing:0;margin-top:0;color:var(--text);font-size:inherit;font-weight:inherit}
 .g2capbox .err{color:var(--crit)}
+.tetonote{margin:6px var(--page-pad,26px) 8px;max-width:110ch}
