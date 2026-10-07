@@ -394,8 +394,8 @@ function ajPickWire(host, isDefault){
   if(!host) return;
   if(typeof iaPick==='function'){ try{ host.innerHTML='';
       const d=aiDefaults();
-      iaPick(host, { value:{ engine:d.eng, model:d.model }, scope:isDefault?'padrao':'demanda', title:isDefault?'IA padrão das demandas novas':'exemplo do seletor único',
-        onChange:(v, o)=>{ if(!isDefault || !v || !v.engine) return; if(!(o&&o.asDefault)) aiSaveDefaults(v.engine, v.model||''); if(typeof aiApplyDefaults==='function') aiApplyDefaults(); if(typeof suaIaRefresh==='function') suaIaRefresh(); ajSaved(); } });
+      iaPick(host, { value:{ engine:d.eng, model:d.model, advisor:d.advisor }, scope:isDefault?'padrao':'demanda', advisor:isDefault, title:isDefault?'IA padrão das demandas novas (e o conselheiro, no Claude)':'exemplo do seletor único',
+        onChange:(v, o)=>{ if(!isDefault || !v || !v.engine) return; if(!(o&&o.asDefault)) aiSaveDefaults(v.engine, v.model||'', v.advisor); if(typeof aiApplyDefaults==='function') aiApplyDefaults(); if(typeof suaIaRefresh==='function') suaIaRefresh(); ajSaved(); } });
       return; }catch(e){ console.warn('iaPick', e); } }
   const b=host.querySelector('.ajpill'); if(!b) return;
   b.onclick=async()=>{

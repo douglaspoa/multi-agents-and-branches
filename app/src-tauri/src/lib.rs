@@ -570,6 +570,19 @@ fn pending_visible(kind: &str, has_busy: bool, task_busy: Option<bool>) -> bool 
 }
 
 #[cfg(test)]
+mod advisor_flag_tests {
+    use super::advisor_flag;
+    #[test]
+    fn so_opus_ou_fable_viram_flag() {
+        assert_eq!(advisor_flag(Some("opus")), Some("opus"));
+        assert_eq!(advisor_flag(Some(" Fable ")), Some("fable"));
+        assert_eq!(advisor_flag(Some("off")), None);
+        assert_eq!(advisor_flag(Some("sonnet")), None, "o app só oferece Opus e Fable");
+        assert_eq!(advisor_flag(None), None);
+    }
+}
+
+#[cfg(test)]
 mod pending_visible_tests {
     use super::pending_visible;
     #[test]
@@ -3402,6 +3415,11 @@ mod agent_version_cfg_tests {
 
 /// Cria e dispara uma tarefa (detached) — roda o núcleo em background; o SQLite
 /// é atualizado ao vivo. Tarefas paralelas se coordenam pelo mesmo state.sqlite.
+/// Conselheiro aceito no new_task: só os dois que o app oferece (o motor confere par/versão a cada abertura).
+fn advisor_flag(v: Option<&str>) -> Option<&'static str> {
+    match v.map(|s| s.trim().to_ascii_lowercase()).as_deref() { Some("opus") => Some("opus"), Some("fable") => Some("fable"), _ => None }
+}
+
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 fn new_task(
@@ -3449,6 +3467,8 @@ fn new_task(
     budget_usd: Option<f64>,
     // "terminal" | "auto" — ausente = o padrão de Configurações ("modo das tarefas"); piloto/ondas/épico mandam "auto"
     term_mode: Option<String>,
+    // CONSELHEIRO (advisor do Claude Code): "opus" | "fable"; o resto (null, "off") = desligado — src/advisor.ts
+    advisor: Option<String>,
     // F5 · P14: a política da organização (Empresa) lida da nuvem pelo app — o motor aplica (revisor, teto máximo, portão)
     org_policy: Option<serde_json::Value>,
 ) -> Result<String, String> {
@@ -3590,6 +3610,7 @@ fn new_task(
     if wave > 0 { args.push("--wave".to_string()); args.push(wave.to_string()); }
     push_opt(&mut args, "--risk", &risk);
     if hitl { args.push("--hitl".to_string()); }
+    if let Some(a) = advisor_flag(advisor.as_deref()) { args.push("--advisor".to_string()); args.push(a.to_string()); }
     if let Some(p) = org_policy.as_ref().filter(|p| p.is_object()) {
         args.push("--org-policy".to_string());
         args.push(p.to_string());

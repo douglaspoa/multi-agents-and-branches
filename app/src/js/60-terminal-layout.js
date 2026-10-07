@@ -196,7 +196,8 @@ function tlBarHtml(t){
   const noSess=['draft','queued'].includes(t.status) && !(ts && ts.hinfo && ts.hinfo.source && ts.hinfo.source!=='none');
   const resume=!live && !gone && !noSess && ts && ts.mode==='hist' && !(typeof termHeadless==='function' && termHeadless(t)) && !(ts.hinfo && ts.hinfo.resumes===false)
     ? `<button type="button" class="lnk tlresume" data-termopen="${escA(t.id)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>` : '';
-  return `<span class="tldot" style="--c:${m.c}" aria-hidden="true"></span><span class="tlai">${esc(ai)}</span><span class="tlst" style="color:${m.c}">${esc(m.pt)}</span>`+
+  const adv=(typeof advLabel==='function')?advLabel(t):''; // conselheiro (advisor do Claude Code), 29-ia-picker
+  return `<span class="tldot" style="--c:${m.c}" aria-hidden="true"></span><span class="tlai">${esc(ai)}</span>${adv?`<span class="tladv" title="${escA(adv+' — as consultas já entram no custo da tarefa')}">${esc(adv)}</span>`:''}<span class="tlst" style="color:${m.c}">${esc(m.pt)}</span>`+
     (t.branch?`<span class="tlbr mono" title="${escA('branch: '+t.branch)}">${esc(t.branch)}</span>`:'')+
     (note?`<span class="tlnote" title="${escA(note)}">${esc(note)}</span>`:'')+'<span class="sp"></span>'+
     `${q?`<span class="tlq1" title="mensagens esperando o terminal terminar o turno">${q} na fila</span>`:''}${hint?`<span class="tlhint">${esc(hint)}</span>`:''}${resume}`;

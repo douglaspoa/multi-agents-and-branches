@@ -26,6 +26,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, rea
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ClaudeEngine, claudeEnv, mapTool, resolveClaude, adjustRuleOf } from "./engine/claude.ts";
+import { advisorArgs, claudeCliVersion } from "./advisor.ts";
 import { buildPrompt as codexPrompt, loadLlmEnv } from "./engine/codex.ts";
 import { DSH_FAST_MODEL, DSH_KEY_MSG, dshKey, dshModelFor, isDshLabel } from "./engine/dsh.ts";
 import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
@@ -676,6 +677,12 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     args.push("--mcp-config", mcpConfigPath, ...protectArgs(protectOn), "--permission-mode", "bypassPermissions");
     // DeepSeek: o modelo vai no env (ANTHROPIC_MODEL) — `--model deepseek-…` seria validado como id do Claude
     if (model && !dsEnv) args.push("--model", model);
+    // CONSELHEIRO (src/advisor.ts): só o `claude` falando com a Anthropic; DeepSeek (outro endereço) desliga e explica
+    if (spec.advisor) {
+      const adv = advisorArgs({ engine: dsEnv ? "deepseek" : "claude", model, advisor: spec.advisor, cliVersion: dsEnv ? null : claudeCliVersion(bin) });
+      args.push(...adv.args);
+      if (adv.note) orch.store.addEvent(taskId, "Sistema", "note", adv.note, true);
+    }
     const kick = first || (sid || merged ? "" : KICKOFF);
     if (kick) args.push(kick);
     kicked = !!kick;

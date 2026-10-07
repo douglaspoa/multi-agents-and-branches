@@ -7,6 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
+import { advisorArgs, advisorCostOf, advisorEventOf, ADVISOR_NAME, claudeCliVersion, type Advisor } from "../advisor.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
 import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
 import { mobileRule } from "../mobile.ts";
@@ -403,6 +404,11 @@ export class ClaudeEngine implements AgentEngine {
     // retomar sem a flag caía no padrão da assinatura (a escolha do usuário sumia no 2º turno).
     if (useAlt && alt) args.push("--model", alt.model);
     else if (this.model) args.push("--model", this.model);
+    // CONSELHEIRO (src/advisor.ts): por sessão via --settings — vale também no --resume (o claude não guarda)
+    const wantAdv = input.spec.advisor;
+    const adv = advisorArgs({ engine: "claude", model: useAlt && alt ? alt.model : this.model, advisor: wantAdv, cliVersion: wantAdv ? claudeCliVersion(resolveClaude()) : null, viaGateway: useAlt });
+    args.push(...adv.args);
+    const advCtx: LineCtx = { advisor: adv.on, mainModel: this.model || "" };
 
     // stdin "ignore": evita o aviso "no stdin data received in 3s".
     // Limpa marcadores de "sessão Claude Code" herdados (ex.: app aberto a
@@ -441,6 +447,7 @@ export class ClaudeEngine implements AgentEngine {
 
     const queue: AgentEvent[] = [];
     if (useAlt && alt) queue.push({ type: "note", text: `Route AI: rodando na ${alt.label} (${alt.model})` });
+    if (adv.note) queue.push({ type: "note", text: adv.note });
     if (resumeSid && costBase === 0) queue.push({ type: "note", text: "custo: não achei o acumulado anterior desta sessão — o custo deste turno pode incluir turnos anteriores" });
     let done = false;
     let notify: (() => void) | null = null;
@@ -520,7 +527,7 @@ export class ClaudeEngine implements AgentEngine {
         const rl = rateLimitOf(line);
         if (rl) recordClaudeRateLimit(rl);
       }
-      for (const ev of mapLine(line, costBase)) {
+      for (const ev of mapLine(line, costBase, advCtx)) {
         if (ev.type === "done" && !sawDone) { sawDone = true; armDoneTimer(); }
         queue.push(ev);
       }
@@ -729,7 +736,9 @@ export function recordClaudeRateLimit(rl: ClaudeRateLimit, dir = claudeUsageDir(
 
 /** Traduz uma linha NDJSON do stream-json real do Claude Code em AgentEvent[].
  * `costBase`: custo acumulado da sessão ANTES deste turno (só no --resume) — é descontado do total. */
-export function mapLine(line: string, costBase = 0): AgentEvent[] {
+/** Estado da sessão que o parser precisa: conselheiro ligado e o modelo principal (vem no system/init). */
+export interface LineCtx { advisor: Advisor | null; mainModel: string }
+export function mapLine(line: string, costBase = 0, ctx?: LineCtx): AgentEvent[] {
   const t = line.trim();
   if (!t) return [];
   let o: any;
@@ -741,6 +750,7 @@ export function mapLine(line: string, costBase = 0): AgentEvent[] {
 
   if (o.type === "system") {
     if (o.subtype === "init") {
+      if (ctx && typeof o.model === "string" && o.model) ctx.mainModel = o.model;
       const evs: AgentEvent[] = [{ type: "status", text: `sessão iniciada · ${o.model ?? ""} · ${o.permissionMode ?? ""}`.trim(), status: "running" }];
       if (o.session_id) evs.unshift({ type: "session", text: String(o.session_id) });
       return evs;
@@ -759,6 +769,7 @@ export function mapLine(line: string, costBase = 0): AgentEvent[] {
     const out: AgentEvent[] = [];
     for (const p of o.message.content) {
       if (p.type === "tool_use") out.push(mapTool(p.name, p.input));
+      else if (p.type === "server_tool_use" || p.type === "advisor_tool_result") { const a = advisorEventOf(p); if (a) out.push({ type: "note", text: a }); }
       else if (p.type === "text" && p.text?.trim()) out.push({ type: "think", text: p.text.trim().slice(0, 4000) });
     }
     return out;
@@ -777,7 +788,11 @@ export function mapLine(line: string, costBase = 0): AgentEvent[] {
     const inTok = (Number(u.input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0);
     const outTok = Number(u.output_tokens) || 0;
     const ms = Number(o.duration_ms) || 0;
+    // parte do conselheiro (acumulado da sessão, já dentro do total) — só quando o modelUsage separa
+    const advUsd = ctx?.advisor ? advisorCostOf(o.modelUsage, ctx.advisor, ctx.mainModel) : null;
+    const advNote: AgentEvent[] = advUsd != null && ctx?.advisor ? [{ type: "note", text: `Conselheiro (${ADVISOR_NAME[ctx.advisor]}): US$ ${advUsd.toFixed(3)} nesta sessão — já incluído no custo da tarefa` }] : [];
     return [
+      ...advNote,
       {
         type: "done",
         text: (o.result ? String(o.result).slice(0, 4000) : "concluído") + cost + denials,

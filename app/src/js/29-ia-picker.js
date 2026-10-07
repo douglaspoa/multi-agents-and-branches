@@ -96,9 +96,38 @@ function aiRecommend(s){
   else { tier='sonnet'; why='escopo médio e claro — Sonnet equilibra qualidade, velocidade e custo'; }
   return { engine:'claude', model:tier, label:AI_TIER_LABEL[tier], reason:why };
 }
+// @advisor-puro-inicio — CONSELHEIRO (advisor do Claude Code, experimental): MESMA regra de src/advisor.ts (o teste
+// app/tests/advisor.test.mjs compara os dois). Um modelo mais forte é consultado em momentos-chave; custa por consulta.
+const ADV_OPTS=[{ id:'', name:'Desligado' }, { id:'opus', name:'Opus' }, { id:'fable', name:'Fable' }];
+const ADV_MIN_CLI='2.1.260';
+const ADV_WHY='Um modelo mais forte é consultado em momentos-chave: antes do plano, quando um erro se repete e antes de terminar. Custa por consulta (conta no limite do plano). Experimental.';
+const ADV_FABLE_NOTE='precisa de acesso ao Fable (e, em alguns planos, aceitar os créditos de uso com /model fable no Claude Code) — sem isso a tarefa roda sem conselheiro';
+function advNorm(v){ const s=String(v||'').trim().toLowerCase(); return s==='opus'||s==='fable'?s:''; }
+function advFamily(model){ const m=String(model||'').toLowerCase().match(/(opus|sonnet|haiku|fable)(?:-(\d+)(?:-(\d{1,2})(?!\d))?)?/);
+  return m?{ fam:m[1], ver:m[2]?Number(m[2])+(m[3]?Number(m[3])/10:0):null }:{ fam:'', ver:null }; }
+// o par (motor/modelo principal × conselheiro) é aceito? {ok, why}
+function advPair(engine, model, adv){
+  adv=advNorm(adv); const e=String(engine||'claude').trim().toLowerCase()||'claude';
+  if(e.startsWith('deepseek')||/^dsh\b/.test(e)) return { ok:!adv, why:'o DeepSeek roda dentro do Claude Code com outro endereço — o conselheiro só existe na API da Anthropic' };
+  if(e!=='claude') return { ok:!adv, why:'o conselheiro é um recurso do Claude Code' };
+  if(!adv) return { ok:true, why:'' };
+  const f=advFamily(model);
+  if(f.fam==='fable' && adv==='opus') return { ok:false, why:'com Fable como modelo principal, só o Fable pode aconselhar' };
+  const mainOk=!f.fam || f.ver==null || f.fam==='fable' || ((f.fam==='opus'||f.fam==='sonnet') && f.ver>=4.6) || (f.fam==='haiku' && (f.ver===4.5||f.ver>=5.5));
+  if(!mainOk) return { ok:false, why:'este modelo não aceita conselheiro — use Opus/Sonnet 4.6 ou mais novo, Haiku 4.5 ou Fable' };
+  return { ok:true, why:'' };
+}
+// versão do Claude Code ("2.1.280 (Claude Code) · /caminho") ≥ mínimo? null = não sei (não bloqueia)
+function advCliOk(version){ const m=String(version||'').match(/(\d+)\.(\d+)\.(\d+)/); if(!m) return null;
+  const a=[+m[1], +m[2], +m[3]], b=ADV_MIN_CLI.split('.').map(Number); for(let i=0;i<3;i++) if(a[i]!==b[i]) return a[i]>b[i]; return true; }
+// o que vai no new_task: 'opus'|'fable' ou 'off' (escolha explícita de desligar; o Rust só repassa opus/fable)
+function advForTask(engine, model, adv){ const a=advNorm(adv); return a && advPair(engine, model, a).ok ? a : 'off'; }
+// sufixo da faixa da tarefa e da Entrega: "com conselheiro (Opus)" — só quando a tarefa roda no Claude
+function advLabel(t){ const a=advNorm(t&&t.spec&&t.spec.advisor); if(!a || aiEngineOf(t.engine)!=='claude') return ''; return 'com conselheiro ('+(ADV_OPTS.find(x=>x.id===a)||{}).name+')'; }
+// @advisor-puro-fim
 function setSelValue(sel, v){ if(!sel) return; v=v||''; if(![...sel.options].some(o=>o.value===v)) sel.add(new Option(v, v)); sel.value=v; }
 // ---- padrão do USUÁRIO (Configurações → Sua IA): vale pra toda demanda nova, do formulário ou do chat ----
-function aiDefaults(){ return { eng:lsGet('defaultEngine')||'claude', model:lsGet('defaultModel')||'' }; }
+function aiDefaults(){ return { eng:lsGet('defaultEngine')||'claude', model:lsGet('defaultModel')||'', advisor:typeof advNorm==='function'?advNorm(lsGet('defaultAdvisor')):'' }; }
 // ESPELHA a IA padrão em ~/.constellation/settings.json (aiEngine/aiModel): é dali que o Rust e o motor TS
 // tiram a IA das chamadas auxiliares (spec com IA, título, previsão, relatórios, retro…) — sem isso,
 // quem escolheu Codex/gateway continuava precisando do Claude Code. Mock não é IA: auxiliar segue no claude.
@@ -125,8 +154,8 @@ function aiSyncRetryOnFocus(){
   _aiSyncRetry=true;
   window.addEventListener('focus', function h(){ window.removeEventListener && window.removeEventListener('focus', h); aiSyncSettings(); }, { once:true }); // uma vez só (o flag não volta)
 }
-function aiSaveDefaults(eng, model){ lsSet('defaultEngine', eng||'claude'); lsSet('defaultModel', model||''); aiSyncSettings(eng||'claude', model||''); }
-function aiApplyDefaults(){ const d=aiDefaults(); setSelValue($id('ntEngine'), d.eng); setSelValue($id('ntModel'), d.model); const hm=$id('howModel'); if(hm) setSelValue(hm, d.model); }
+function aiSaveDefaults(eng, model, advisor){ lsSet('defaultEngine', eng||'claude'); lsSet('defaultModel', model||''); if(advisor!==undefined) lsSet('defaultAdvisor', advNorm(advisor)); aiSyncSettings(eng||'claude', model||''); }
+function aiApplyDefaults(){ const d=aiDefaults(); AI_FORM_ADV=null; setSelValue($id('ntEngine'), d.eng); setSelValue($id('ntModel'), d.model); const hm=$id('howModel'); if(hm) setSelValue(hm, d.model); }
 function aiModelName(id){ if(!id) return 'padrão da assinatura'; for(const e of AI_ENGINES){ const m=(e.models||[]).find(x=>x.id===id); if(m) return m.name; } return id; }
 // motor de um papel/tarefa pelo rótulo salvo — MESMA regra do engineKind do motor (src/orchestrator.ts)
 function aiEngineOf(e){ const n=String(e||'').trim().toLowerCase(); return n==='mock'||!n?'mock':n.startsWith('codex')?'codex':(n.startsWith('deepseek')||/^dsh\b/.test(n))?'deepseek':(n.startsWith('gateway')||n.startsWith('logcomex'))?'gateway':'claude'; }
@@ -153,6 +182,9 @@ function aiChatModelPill(id){
 // só vale se o motor padrão for o Claude — um id do Codex/gateway no --model do claude derrubava a chamada.
 function aiClaudeModel(eng, model){ const d=aiDefaults(); if(eng===undefined){ eng=d.eng; model=d.model; } return aiEngineOf(eng)==='claude' && model ? model : null; }
 // alvo do seletor: o FORMULÁRIO/planner (selects escondidos). A IA padrão é escolhida no painel Sua IA (30-sua-ia.js).
+// conselheiro do FORMULÁRIO: null = o padrão do usuário; escolhido na pílula = vale só pra esta demanda
+let AI_FORM_ADV=null;
+function aiFormAdvisor(){ return AI_FORM_ADV!=null?AI_FORM_ADV:aiDefaults().advisor; }
 const AI_TARGET_FORM={ sel:'.aipick', get:()=>({ eng:($id('ntEngine')||{}).value||'claude', model:($id('ntModel')||{}).value||'' }), set:(e,m)=>{ setSelValue($id('ntEngine'), e); setSelValue($id('ntModel'), m); const hm=$id('howModel'); if(hm) setSelValue(hm, m); } };
 function aiPickApply(eng, model, target){
   target=target||AI_TARGET_FORM; target.set(eng, model);
@@ -183,8 +215,8 @@ function aiPickRender(target){
   if(target===AI_TARGET_FORM && typeof iaPick==='function'){
     let cur=target.get();
     if(cur.eng==='logcomex'){ target.set('gateway', cur.model); cur=target.get(); } // rótulo antigo: o select escondido também vira 'gateway'
-    hosts.forEach(h=>{ if(!h.__ia || !h.contains(h.__ia.pill)){ h.innerHTML=''; h.__ia=iaPick(h, { value:{ engine:cur.eng, model:cur.model }, scope:'demanda', recommend:()=>aiRecommend(aiSpecSnapshot()),
-        onChange:(v)=>{ target.set(v.engine, v.model); hosts.forEach(o=>{ if(o!==h && o.__ia) o.__ia.set(v); }); } }); h.__ia.pill=h.querySelector('.iapill'); }
+    hosts.forEach(h=>{ if(!h.__ia || !h.contains(h.__ia.pill)){ h.innerHTML=''; h.__ia=iaPick(h, { value:{ engine:cur.eng, model:cur.model }, scope:'demanda', recommend:()=>aiRecommend(aiSpecSnapshot()), advisor:true, advisorValue:aiFormAdvisor(),
+        onChange:(v)=>{ target.set(v.engine, v.model); AI_FORM_ADV=advNorm(v.advisor); hosts.forEach(o=>{ if(o!==h && o.__ia) o.__ia.set(v); }); } }); h.__ia.pill=h.querySelector('.iapill'); }
       else h.__ia.set({ engine:cur.eng, model:cur.model }); });
     return;
   }
@@ -314,13 +346,34 @@ function iaPickSame(a, b){ const x=iaPickNorm(a), y=iaPickNorm(b); return x.engi
 // "Usar esta": o valor que fica e se o onChange dispara (só quando mudou, ou quando marcou "usar como padrão")
 function iaPickCommit(cur, pick, asDef){ const v=iaPickNorm(pick); return { value:v, fire:!iaPickSame(v, cur)||!!asDef }; }
 // @ia-pick-puro-fim
+// versão do Claude Code que a verificação do ambiente já leu (11-ambiente-updater) — sem ela, null
+function advCliVersion(){ const l=(typeof envChecks!=='undefined'&&Array.isArray(envChecks))?envChecks:[]; const c=l.find(x=>/^Claude Code/.test(String(x&&x.name||''))&&x.ok); const m=c&&String(c.detail||'').match(/\d+\.\d+\.\d+/); return m?m[0]:null; }
+// payload do new_task: escolha explícita (inclusive 'off') vale; ausente = o padrão do usuário (Ajustes › Motores e chaves)
+function aiAdvisorFill(p){ if(!p) return p; const a=p.advisor!==undefined?p.advisor:aiDefaults().advisor; p.advisor=advForTask(p.engine, p.model, a); return p; }
+// linha "Conselheiro" da folha (só com o Claude): Desligado · Opus · Fable — par recusado fica desligado com o motivo
+function iaAdvHtml(pick, adv){
+  if(pick.engine!=='claude') return '';
+  const ver=advCliVersion(), old=advCliOk(ver)===false;
+  const btn=o=>{ const p=advPair(pick.engine, pick.model, o.id), off=!!o.id && (old || !p.ok), why=old?'precisa atualizar o Claude Code':p.why;
+    return `<button type="button" class="ias-ac${o.id===adv?' on':''}" role="radio" aria-checked="${o.id===adv}" data-iaadv="${escA(o.id)}"${off?` disabled aria-disabled="true" title="${escA(why)}"`:''}>${esc(o.name)}${o.id==='fable'?'<small>precisa de acesso</small>':''}</button>`; };
+  const bad=ADV_OPTS.filter(o=>o.id && !advPair(pick.engine, pick.model, o.id).ok).map(o=>advPair(pick.engine, pick.model, o.id).why)[0];
+  return `<div class="ias-adv"><div class="ias-advh" id="iasAdvL"><b>Conselheiro</b><small>experimental</small></div>`+
+    `<div class="ias-advo" role="radiogroup" aria-labelledby="iasAdvL">${ADV_OPTS.map(btn).join('')}</div>`+
+    `<p class="ias-advd">${esc(ADV_WHY)}</p>`+
+    (old?`<p class="ias-advw" role="note">Precisa atualizar o Claude Code (instalado ${esc(ver)}, mínimo ${ADV_MIN_CLI}): <code>claude update</code></p>`:'')+
+    (!old&&bad?`<p class="ias-advw" role="note">${esc(bad)}</p>`:'')+
+    (adv==='fable'?`<p class="ias-advw" role="note">Fable: ${esc(ADV_FABLE_NOTE)}</p>`:'')+`</div>`;
+}
 let _iaPickOpen=null; // { sheet, close }
 function iaPick(el, opts){
   opts=opts||{};
-  const ctl={ el, v:iaPickNorm(opts.value||aiDefaults()), get:()=>Object.assign({}, ctl.v), set:(v)=>{ ctl.v=iaPickNorm(v); paint(); }, open:()=>openSheet(), close:()=>{ if(_iaPickOpen && _iaPickOpen.ctl===ctl) _iaPickOpen.close(false); } };
+  // conselheiro (opts.advisor): mora ao lado do motor/modelo — só aparece com o Claude; ausente no valor = o padrão do usuário
+  // (opts.advisorValue = a escolha desta tela; set() sem advisor mantém o que está)
+  const advOf=(v)=>advNorm(v!==undefined&&v!==null?v:aiDefaults().advisor);
+  const ctl={ el, v:iaPickNorm(opts.value||aiDefaults()), adv:advOf(opts.value&&opts.value.advisor!==undefined?opts.value.advisor:opts.advisorValue), get:()=>Object.assign({}, ctl.v, opts.advisor?{ advisor:ctl.adv }:{}), set:(v)=>{ ctl.v=iaPickNorm(v); if(opts.advisor && v && v.advisor!==undefined) ctl.adv=advOf(v.advisor); paint(); }, open:()=>openSheet(), close:()=>{ if(_iaPickOpen && _iaPickOpen.ctl===ctl) _iaPickOpen.close(false); } };
   if(!el) return ctl;
   function paint(){
-    el.innerHTML=`<button type="button" class="iapill" aria-haspopup="dialog" aria-expanded="false" title="${escA(opts.title||'trocar a IA e o modelo')}"><span class="iadot" aria-hidden="true"></span><span class="ialbl">${esc(iaPickLabel(ctl.v))}</span><svg class="iachev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 6.5l3.5 3.5 3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+    el.innerHTML=`<button type="button" class="iapill" aria-haspopup="dialog" aria-expanded="false" title="${escA(opts.title||'trocar a IA e o modelo')}"><span class="iadot" aria-hidden="true"></span><span class="ialbl">${esc(iaPickLabel(ctl.v))}</span>${opts.advisor&&ctl.adv&&ctl.v.engine==='claude'?`<span class="iaadv" title="${escA('com conselheiro ('+(ADV_OPTS.find(x=>x.id===ctl.adv)||{}).name+')')}">+ ${esc((ADV_OPTS.find(x=>x.id===ctl.adv)||{}).name)}</span>`:''}<svg class="iachev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 6.5l3.5 3.5 3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
     const b=el.querySelector('.iapill'); ctl.pill=b; b.onclick=()=>{ if(_iaPickOpen && _iaPickOpen.ctl===ctl){ _iaPickOpen.close(true); return; } openSheet(); };
   }
   function openSheet(){
@@ -330,7 +383,7 @@ function iaPick(el, opts){
     if(!_aiCodexAt) aiCodexRefresh().then(()=>{ if(_iaPickOpen && _iaPickOpen.ctl===ctl) draw(); }).catch(()=>{});
     const pill=el.querySelector('.iapill');
     const sh=document.createElement('div'); sh.className='iasheet'; sh.setAttribute('role','dialog'); sh.setAttribute('aria-modal','true'); sh.setAttribute('aria-label','Com qual IA?'); sh.tabIndex=-1;
-    let pick=Object.assign({}, ctl.v), custom=false, asDef=false;
+    let pick=Object.assign({}, ctl.v), custom=false, asDef=false, adv=ctl.adv;
     function draw(){
       const list=iaPickOptions(typeof suaIaOf==='function'?suaIaOf:null, opts.engines, _aiGw);
       const cur=list.find(x=>x.id===pick.engine)||list[0];
@@ -338,13 +391,16 @@ function iaPick(el, opts){
       const known=cur.models.some(m=>m.id===pick.model);
       // o innerHTML refaz os botões (escolha, ou carregamento que chega depois): o foco volta pro MESMO controle
       const ae=document.activeElement, had=ae===sh||sh.contains(ae);
-      const fk=had&&ae!==sh?['iaeng','iamodel','iacustom','iacustomin','iarec','iadef','iaok'].find(k=>k in ae.dataset):null, fv=fk?ae.dataset[fk]:null;
+      const fk=had&&ae!==sh?['iaeng','iamodel','iacustom','iacustomin','iarec','iaadv','iadef','iaok'].find(k=>k in ae.dataset):null, fv=fk?ae.dataset[fk]:null;
+      // par que deixou de valer (trocou o modelo/motor) → conselheiro volta a desligado
+      if(adv && !advPair(pick.engine, pick.model, adv).ok) adv='';
       sh.innerHTML=`<div class="ias-h"><b>Com qual IA?</b><span>${esc(IA_PICK_SCOPE[opts.scope]||opts.scope||IA_PICK_SCOPE.demanda)}</span><em>esc fecha</em></div>`+
         list.map(x=>`<button type="button" class="ias-opt${x.id===pick.engine?' on':''}" data-iaeng="${escA(x.id)}"${x.ready?'':' disabled aria-disabled="true"'}><span class="ias-rd" aria-hidden="true"></span><b>${esc(x.name)}${x.beta?' <small>beta</small>':''}</b>${x.state?`<em class="${x.ready?'ok':'w'}">${esc(x.state)}</em>`:''}<span class="ias-d">${esc(x.hint)}</span></button>`).join('')+
         `<div class="ias-models">${cur.models.map(m=>`<button type="button" class="ias-mc${m.id===pick.model&&!custom?' on':''}" data-iamodel="${escA(m.id)}">${esc(m.name)}${rec&&rec.engine===cur.id&&rec.model===m.id?'<small>recomendado</small>':''}</button>`).join('')}`+
           `<button type="button" class="ias-mc${(custom||(!known&&pick.model))?' on':''}" data-iacustom>${(!known&&pick.model)?esc(pick.model):'outro id…'}</button></div>`+
         (custom?`<div class="ias-custom"><input class="in mono" data-iacustomin placeholder="${cur.id==='claude'?'ex.: claude-opus-5-5':'id exato do modelo'}" value="${escA(known?'':pick.model)}" aria-label="id do modelo"></div>`:'')+
-        `<div class="ias-cost">${esc(iaPickCostHint(pick))}</div>`+
+        (opts.advisor?iaAdvHtml(pick, adv):'')+
+        `<div class="ias-cost">${esc(iaPickCostHint(pick))}${opts.advisor&&adv&&pick.engine==='claude'?' · + consultas ao conselheiro':''}</div>`+
         (rec&&rec.reason?`<div class="ias-rec">${(typeof IC!=='undefined'&&IC.starforkEm)||''} ${esc(rec.reason)}${iaPickSame(rec,pick)?'':` — <button type="button" class="lnk" data-iarec>usar ${esc(iaPickLabel(rec))}</button>`}</div>`:'')+
         `<div class="ias-f">${opts.allowDefault===false?'<span></span>':`<label class="ias-chk"><input type="checkbox" data-iadef${asDef?' checked':''}> usar como padrão nas próximas</label>`}<button type="button" class="btn primary sm" data-iaok>Usar esta</button></div>`;
       sh.querySelectorAll('[data-iaeng]').forEach(b=>b.onclick=()=>{ if(b.disabled) return; pick={ engine:b.dataset.iaeng, model:'' }; custom=false; draw(); });
@@ -352,16 +408,17 @@ function iaPick(el, opts){
       sh.querySelectorAll('[data-iacustom]').forEach(b=>b.onclick=()=>{ custom=true; draw(); const i=sh.querySelector('[data-iacustomin]'); if(i) i.focus(); });
       sh.querySelectorAll('[data-iacustomin]').forEach(i=>{ i.oninput=()=>{ pick.model=i.value.trim(); }; i.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); commit(); } }; });
       sh.querySelectorAll('[data-iarec]').forEach(b=>b.onclick=()=>{ pick=iaPickNorm(rec); custom=false; draw(); });
+      sh.querySelectorAll('[data-iaadv]').forEach(b=>b.onclick=()=>{ if(b.disabled) return; adv=advNorm(b.dataset.iaadv); draw(); });
       sh.querySelectorAll('[data-iadef]').forEach(c=>c.onchange=()=>{ asDef=c.checked; });
       sh.querySelectorAll('[data-iaok]').forEach(b=>b.onclick=commit);
       if(had){ const sel=fk?`[data-${fk.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}${fv?`="${CSS.escape(fv)}"`:''}]`:''; const f=(sel&&sh.querySelector(sel))||sh.querySelector('.ias-opt.on')||sh; try{ f.focus({ preventScroll:true }); }catch(_){ } }
       place();
     }
     function commit(){
-      const r=iaPickCommit(ctl.v, pick, asDef);
-      ctl.v=r.value; if(asDef) aiSaveDefaults(r.value.engine, r.value.model);
+      const r=iaPickCommit(ctl.v, pick, asDef), a=opts.advisor?advForTask(r.value.engine, r.value.model, adv).replace('off',''):'', advChanged=!!opts.advisor && a!==ctl.adv;
+      ctl.v=r.value; if(opts.advisor) ctl.adv=a; if(asDef) aiSaveDefaults(r.value.engine, r.value.model, opts.advisor?a:undefined);
       close(true); paint();
-      if(r.fire && typeof opts.onChange==='function') opts.onChange(ctl.get(), { asDefault:asDef });
+      if((r.fire||advChanged) && typeof opts.onChange==='function') opts.onChange(ctl.get(), { asDefault:asDef });
     }
     function place(){
       const r=pill.getBoundingClientRect(), w=sh.offsetWidth, h=sh.offsetHeight;
@@ -374,7 +431,7 @@ function iaPick(el, opts){
     const onKey=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); return; }
       // ↑↓ andam pelas IAs e modelos (Enter/Espaço escolhem)
       if((e.key==='ArrowDown'||e.key==='ArrowUp') && sh.contains(document.activeElement) && !document.activeElement.matches('input')){
-        const l=[...sh.querySelectorAll('.ias-opt:not([disabled]),.ias-mc')]; if(l.length){ e.preventDefault(); const i=l.indexOf(document.activeElement), d=e.key==='ArrowDown'?1:-1; l[i<0?0:(i+d+l.length)%l.length].focus(); } return; }
+        const l=[...sh.querySelectorAll('.ias-opt:not([disabled]),.ias-mc,.ias-ac:not([disabled])')]; if(l.length){ e.preventDefault(); const i=l.indexOf(document.activeElement), d=e.key==='ArrowDown'?1:-1; l[i<0?0:(i+d+l.length)%l.length].focus(); } return; }
       g2Trap(sh, e); };
     function close(refocus){ sh.remove(); document.removeEventListener('mousedown', onOut, true); document.removeEventListener('keydown', onKey, true); window.removeEventListener('resize', place);
       if(_iaPickOpen && _iaPickOpen.sheet===sh) _iaPickOpen=null; const p=el.querySelector('.iapill'); if(p){ p.setAttribute('aria-expanded','false'); if(refocus) try{ p.focus({ preventScroll:true }); }catch(_){ } } }

@@ -197,7 +197,7 @@ function tiAiRowHtml(o){
   if(o.shell) return `<div class="tiairow shell" role="status"><span class="tishell">a IA parou</span><button type="button" class="btn sm primary" data-ti="rec" title="${escA('roda no terminal: '+o.rec.command)}">Continuar com ${esc(rl)}</button>${cmd}<span class="sp"></span>${tiAiSelHtml('', o.rec)}</div>`;
   const exp=TI_AIS.some(x=>x.id===cli && x.exp) ? `<span class="tiaiexp">sem chips automáticos nem custo — a IA usa os comandos starfork</span>` : '';
   const recBtn=(cli===o.rec.ai) ? '' : `<span class="tireck">recomendado:</span><button type="button" class="btn sm" data-ti="rec" title="${escA('roda no terminal: '+o.rec.command)}">${esc(rl)}</button>`;
-  return `<div class="tiairow">${tiAiSelHtml(cli, o.rec)}${recBtn}${exp}<span class="sp"></span><span class="tiaihint">ou digite <code>starfork ia &lt;nome&gt;</code> no terminal</span></div>`;
+  return `<div class="tiairow">${tiAiSelHtml(cli, o.rec)}${o.adv||''}${recBtn}${exp}<span class="sp"></span><span class="tiaihint">ou digite <code>starfork ia &lt;nome&gt;</code> no terminal</span></div>`;
 }
 /** Chips da vez pra mostrar: some com a IA no meio de um turno (busy) e depois do clique (usedId). */
 function tiChipsFor(evs, usedId, busy){ if(busy) return null; const s=tiSuggest(evs); return (!s || s.id===usedId) ? null : s; }
@@ -229,8 +229,14 @@ function tiRec(t){ const s=TI.stat[t.id]; return tiRecommended(s&&s.recommended,
 function tiAiRow(t){ const s=TI.stat[t.id]; const st=TERM[t.id]; const live=!!(st && st.alive);
   // "shell (sem IA)" só com o PTY VIVO e nada rodando nele; sem terminal vivo o seletor mostra a IA da tarefa
   // shell: o "Continuar com…" mora na faixa Responder (tiReplyHtml) — aqui fica só o seletor, sem repetir o botão
-  if(live && s && s.cli==='') return `<div class="tiairow">${tiAiSelHtml('', tiRec(t))}</div>`;
-  return tiAiRowHtml({ cli:(live && s && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:false }); }
+  if(live && s && s.cli==='') return `<div class="tiairow">${tiAiSelHtml('', tiRec(t))}${tiAdvChip(t)}</div>`;
+  return tiAiRowHtml({ cli:(live && s && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:false, adv:tiAdvChip(t) }); }
+// CONSELHEIRO da tarefa (advisor do Claude Code): troca aqui e vale na próxima abertura da IA (retomar/turno novo)
+function tiAdvChip(t){ if(!t || tiTaskAi(t)!=='claude' || typeof advNorm!=='function') return ''; const a=advNorm(t.spec&&t.spec.advisor), n=(ADV_OPTS.find(x=>x.id===a)||ADV_OPTS[0]).name;
+  return `<button type="button" class="tiadv${a?' on':''}" data-ti="adv" aria-haspopup="menu" title="${escA(ADV_WHY)}">Conselheiro: <b>${esc(a?n:'desligado')}</b></button>`; }
+function tiAdvMenu(taskId, b){ const t=tiTask(taskId); if(!t || typeof g2SheetMenu!=='function') return; const cur=advNorm(t.spec&&t.spec.advisor), model=tiTaskModel(t);
+  g2SheetMenu(b, ADV_OPTS.map(o=>{ const p=advPair('claude', model, o.id); return { label:(o.id===cur?'✓ ':'')+o.name, hint:!p.ok?p.why:o.id==='fable'?ADV_FABLE_NOTE:o.id?'consultado em momentos-chave · custa por consulta':'sem consultas extras', disabled:!p.ok,
+    fn:async()=>{ if(o.id===cur) return; try{ await invoke('patch_task_spec',{ taskId, patch:{ advisor:o.id||null } }); if(typeof lastSig!=='undefined') lastSig=''; await refresh(); tiAiRowReset(tiTask(taskId)); toast('Conselheiro '+(o.id?o.name:'desligado')+' — vale na próxima vez que a IA abrir (retomar sessão ou turno novo)','info'); }catch(e){ showErr(e,'Não consegui trocar o conselheiro'); } } }; })); }
 function tiShellNow(t){ const s=TI.stat[t.id], st=TERM[t.id]; return !!(st && st.alive && s && s.cli===''); }
 function tiAiRowReset(t){ const box=$id('tiAiRow'); if(box) box.__html=''; tiAiRowPaint(t); } // o <select> ficou na opção escolhida: volta pro real
 // trocar/rodar com a IA no meio de um turno interrompe o trabalho: pergunta antes
@@ -414,6 +420,7 @@ function tiDockClick(taskId, e){
   const s=e.target.closest('[data-tisheet]'); if(s){ tiSheetOpen(taskId, s.dataset.tisheet, s); return; }
   const b=e.target.closest('[data-ti]'); if(!b) return;
   if(b.dataset.ti==='att'){ tiAttachPick(taskId); return; }
+  if(b.dataset.ti==='adv'){ tiAdvMenu(taskId, b); return; }
   if(b.dataset.ti==='rec'){ tiRunRec(taskId); return; }
   if(b.dataset.ti==='esc'){ tiInterrupt(taskId); return; }
   if(b.dataset.ti==='comp'){ const t=tiTask(taskId); const on=!tiCompOn(t); lsSet('tiComp', on?'1':'0'); if(!on) delete TI.compTmp[taskId];
