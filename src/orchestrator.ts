@@ -29,7 +29,7 @@ import { ensureHandoff, handoffRule, hasHandoff, HANDOFF_REL, readHandoff } from
 import { loadConfig } from "./config.ts";
 import { oldVerdict, saveSample, type SampleResult } from "./amostra.ts";
 import { recordUsage } from "./usage-ledger.ts";
-import { loopReset, loopTrack, type ToolAttempt } from "./loop-detect.ts";
+import { loopReset, loopTrack, loopTurnEnd, type ToolAttempt } from "./loop-detect.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 
 /**
@@ -1331,6 +1331,7 @@ export class Orchestrator {
             }
             if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
           }
+          loopTurnEnd(this.store, taskId); // fim do turno: aviso cuja ação não terminou na mesma falha sai
         } catch (err) {
           const msg = (err as Error).message;
           if (Orchestrator.usageLimitDeath(msg) || Orchestrator.retriableDeath(msg)) {
@@ -1769,6 +1770,7 @@ export class Orchestrator {
           }
           if (ev.status) this.store.setStatus(taskId, ev.status as AgentStatus);
         }
+        loopTurnEnd(this.store, taskId);
       } catch (err) {
         this.store.addEvent(taskId, role.name, "error", `falha ao aplicar instrução: ${(err as Error).message}`, false, role.role);
       }
@@ -2008,6 +2010,7 @@ export class Orchestrator {
           this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model, ev.cost.cachedTok ?? 0, role.agentId);
         }
       }
+      loopTurnEnd(this.store, taskId);
       // sessão não existe mais (histórico do Claude apagado/outra máquina) →
       // sessão NOVA semeada com o histórico da conversa (historyDigest)
       if (sid && deathText && Orchestrator.sessionMissing(deathText)) {

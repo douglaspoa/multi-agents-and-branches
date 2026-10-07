@@ -452,8 +452,10 @@ async function tiSend(taskId, text, o){
   if(tiBudgetOpen(t)){ toast('a tarefa está pausada no teto de custo — decida no cartão do teto primeiro', 'warn'); return false; }
   if(termHeadless(t) || (st && !st.alive && st.hinfo && st.hinfo.resumes===false)) return (typeof fwSendText==='function') ? fwSendText(taskId, text) : false;
   const live=!!(st && st.alive), busy=!!(t.busy || ACTIVE_ST.has(t.status) || t.status==='thinking' || pendingOf(taskId).length);
-  // o.interrupt (Pedir revisão do detector de loop): Esc no turno e manda já — não espera o loop acabar sozinho
-  const now=!!(o && o.interrupt && live);
+  // o.interrupt (Pedir revisão do detector de loop): Esc SÓ com a IA ocupada no turno (estado fresco do terminal) —
+  // parada, o Esc apagaria o rascunho, recusaria um menu de permissão ou viraria meta no shell: aí só manda a mensagem
+  let now=false;
+  if(o && o.interrupt && live){ try{ const s=await invokeQuiet('term_status', { taskId }); if(s){ TI.stat[taskId]=s; now=!!s.busy; } }catch(_){ } }
   try{ await invoke('term_send', { taskId, text, mode:now?'interrupt':'queue' }); }
   catch(e){ showErr(e, 'Não consegui mandar pro terminal'); return false; }
   if(now) toast('interrompi o turno e mandei o pedido', 'info');

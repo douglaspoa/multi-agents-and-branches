@@ -159,6 +159,11 @@ export class Store {
         updated_at INTEGER,
         cli TEXT                              -- IA rodando no shell do terminal ('' = shell no prompt) — starfork ia
       );
+      CREATE TABLE IF NOT EXISTS loop_state (
+        task_id TEXT PRIMARY KEY,             -- detector de loop (src/loop-detect.ts): janelas por agente + o aviso ativo
+        json TEXT NOT NULL,                   -- { w: { agente: { hist, fired } }, warn } — o snapshot do app lê $.warn
+        updated_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS session_cost (
         session_id TEXT PRIMARY KEY,
         total REAL NOT NULL,          -- custo ACUMULADO da sessão do claude no fim do último turno
@@ -406,6 +411,7 @@ export class Store {
     this.db.prepare(`DELETE FROM pending WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM instruction WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM cost WHERE task_id = ?`).run(taskId);
+    this.db.prepare(`DELETE FROM loop_state WHERE task_id = ?`).run(taskId);
     this.db.prepare(`DELETE FROM task WHERE id = ?`).run(taskId);
   }
 

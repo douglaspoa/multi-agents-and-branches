@@ -378,9 +378,9 @@ function flowBucket(t){
 function taskSt(t){
   if(!t) return '';
   if(pendingOf(t.id).length) return 'asking';
-  if(typeof taskLoop==='function' && taskLoop(t)) return 'needs-you'; // detector de loop: a IA repetindo o mesmo erro (70-loop)
   if(t.flag==='closed' && !['merged','done','cancelled'].includes(t.status)) return 'closed';
   if(flowBucket(t)==='praberto') return 'pr-open';
+  if(typeof taskLoop==='function' && taskLoop(t)) return 'needs-you'; // detector de loop (70-loop): depois de concluída/PR aberto
   return t.status;
 }
 function stShort(st){ const m=STATUS_META[st]; return (m&&m.short)||stLabel(st); }

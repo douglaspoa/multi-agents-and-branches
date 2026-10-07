@@ -33,7 +33,7 @@ import { resolveToolCached, toolPath } from "./engine/bin-resolve.ts";
 import { protectArgs, protectEnabled } from "./engine/protect.ts";
 import { engineKind, Orchestrator, deliverPrompt } from "./orchestrator.ts";
 import { Store } from "./store.ts";
-import { attemptFromHook, loopReset, loopTrack, stripAnsi } from "./loop-detect.ts";
+import { attemptFromHook, loopReset, loopTrack, loopTurnEnd, quietTool, stripAnsi } from "./loop-detect.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import type { AgentStatus, TaskSpec } from "./types.ts";
 
@@ -260,11 +260,12 @@ export function mapHook(event: string, p: Record<string, any>): HookEffect {
     }
     case "PostToolUse": {
       const r = p.tool_response;
-      const failed = r && typeof r === "object" && (r.is_error === true || r.success === false || (typeof r.error === "string" && r.error));
+      const failed = r && typeof r === "object" && (r.is_error === true || r.success === false || (typeof r.error === "string" && r.error))
+        && !quietTool(String(p.tool_name ?? ""), p.tool_input ?? {}, typeof r.error === "string" ? r.error : String(r.stderr ?? "")); // grep sem resultado, espera, navegador: não é falha
       return { events: failed ? [{ type: "note", text: `${p.tool_name ?? "ferramenta"} falhou: ${clip(typeof r.error === "string" ? r.error : r.stderr ?? "", 200)}`, ok: false }] : [] };
     }
     case "PostToolUseFailure":
-      return { events: p.is_interrupt === true ? [] : [{ type: "note", text: `${p.tool_name ?? "ferramenta"} falhou: ${clip(stripAnsi(String(p.error ?? "")), 200)}`, ok: false }] };
+      return { events: p.is_interrupt === true || quietTool(String(p.tool_name ?? ""), p.tool_input ?? {}, String(p.error ?? "")) ? [] : [{ type: "note", text: `${p.tool_name ?? "ferramenta"} falhou: ${clip(stripAnsi(String(p.error ?? "")), 200)}`, ok: false }] };
     case "Notification": {
       const msg = clip(p.message ?? "", 300);
       if (!msg) return { events: [] };
@@ -1083,9 +1084,11 @@ export function hookCli(event: string, taskArg: string, repoArg: string, argvPay
       }
       const wasBusy = (store.termGet(taskId)?.busy ?? 0) === 1;
       applyHook(store, taskId, eff);
-      // detector de loop: mensagem da pessoa zera; resultado de ferramenta entra na janela da tarefa
-      if (event === "UserPromptSubmit") loopReset(store, taskId);
-      else loopTrack(store, taskId, attemptFromHook(event, p));
+      // detector de loop (caminho do hook = rápido: uma tentativa ≤150 ms, desiste em silêncio — o do Codex é síncrono):
+      // mensagem da pessoa zera; resultado de ferramenta entra na janela; fim de turno tira aviso que não está mais valendo
+      if (event === "UserPromptSubmit") loopReset(store, taskId, { quick: true });
+      else if (eff.turnEnd) loopTurnEnd(store, taskId, { quick: true });
+      else loopTrack(store, taskId, attemptFromHook(event, p), { quick: true });
       // chips de reserva: o agente não chamou suggest_replies, mas a fala termina com opções claras
       if (eff.turnEnd && full) {
         try {

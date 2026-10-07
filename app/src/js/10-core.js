@@ -307,7 +307,7 @@ function gitRailTag(){
 function curView(){ return (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow"; }
 // Assinatura barata do estado: se nada mudou, pulamos o render inteiro.
 function snapSig(){
-  const t=(state.tasks||[]).map(x=>x.id+":"+x.status+":"+x.stage+":"+(x.sortOrder??"")+":"+((x.spec&&x.spec.loop&&x.spec.loop.at)||"")).join(","); // loop: o aviso pode sumir sem evento novo
+  const t=(state.tasks||[]).map(x=>x.id+":"+x.status+":"+x.stage+":"+(x.sortOrder??"")+":"+((x.loop&&x.loop.at)||"")).join(","); // loop: o aviso pode sumir sem evento novo
   const d=(state.diffs||[]).map(x=>x.taskId+":"+x.additions+":"+x.deletions).join(",");
   const lastEv = (state.events&&state.events.length) ? state.events[state.events.length-1].id : 0;
   const cost = (state.costs||[]).length+":"+(state.costs||[]).reduce((s,c)=>s+(c.usd||0),0).toFixed(4);
