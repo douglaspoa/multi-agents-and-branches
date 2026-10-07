@@ -184,3 +184,7 @@
 /* R5-10: o canvas do orquestrador termina ANTES do chat (borda + fade): a fase que não cabe "continua →" em vez de
    parecer escondida embaixo do painel — arraste o fundo ou use − pra ver o resto */
 .orq-canvas{-webkit-mask-image:linear-gradient(to right,black calc(100% - 56px),transparent);mask-image:linear-gradient(to right,black calc(100% - 56px),transparent)}
+
+/* lateral: lugar da aba aberta (68-casca-g1 › g1NavSync) */
+.sbnav2 .sbitem.on{background:var(--surface-2);color:var(--text);font-weight:600}
+html:not(.kbdnav) .sbnav2 .sbitem:focus{box-shadow:none!important}

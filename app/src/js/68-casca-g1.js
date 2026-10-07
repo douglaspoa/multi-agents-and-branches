@@ -176,7 +176,19 @@ function timeHeadPaint(){
   const h=$id('timeHead'); if(h && h.__html!==head){ h.__html=head; h.innerHTML=head; }
 }
 if(typeof showActiveView==='function' && !showActiveView.__g1){ const sa=showActiveView; showActiveView=function(){ const r=sa.apply(this, arguments);
-    try{ const t=tabById(activeTab); if(t && t.kind==='projeto' && t.loaded) projShowSub(projSub); }catch(e){ console.error('g1 projeto', e); } return r; }; showActiveView.__g1=true; }
+    try{ const t=tabById(activeTab); if(t && t.kind==='projeto' && t.loaded) projShowSub(projSub); }catch(e){ console.error('g1 projeto', e); }
+    try{ g1NavSync(); }catch(e){ console.error('g1 nav', e); } return r; }; showActiveView.__g1=true; }
+// lateral: marca o LUGAR da aba aberta (e só ele) — trocar de aba pela barra de cima atualiza a marca
+const G1_NAV={ projetos:'projetosBtn', issues:'issuesBtn', fabrica:'fabricaBtn', time:'timeBtn' };
+function g1NavSync(){
+  const t=(typeof tabById==='function')?tabById(activeTab):null, on=t?G1_NAV[t.kind]:'';
+  for(const id of Object.values(G1_NAV)){ const b=$id(id); if(!b) continue; const v=id===on; if(b.classList.contains('on')!==v){ b.classList.toggle('on', v); if(v) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); } }
+}
+// clique de mouse não deixa o anel de foco preso no botão da lateral (teclado continua com o anel)
+{ const nav=document.querySelector('.sbnav2'); if(nav) nav.addEventListener('click', e=>{ const b=e.target.closest('.sbitem'); if(b && e.detail>0) setTimeout(()=>b.blur(), 0); }); }
+// anel de foco da lateral só com navegação por teclado (Tab): o WebKit marcava o botão clicado com o anel e ele ficava preso
+document.addEventListener('keydown', e=>{ if(e.key==='Tab') document.documentElement.classList.add('kbdnav'); }, true);
+document.addEventListener('pointerdown', ()=>document.documentElement.classList.remove('kbdnav'), true);
 // "cancelar" dos agentes dentro da página Projeto: descarta e relê (não há aba 'agents' pra fechar)
 if(typeof closeAgents==='function' && !closeAgents.__g1){ const ca=closeAgents; closeAgents=function(){ const o=$id('agOverlay'); if(o && o.classList.contains('inproj')){ agBase=''; if(window.openAgents) window.openAgents(); return; } return ca.apply(this, arguments); }; closeAgents.__g1=true; }
 function g1TabOn(kind){ const t=tabById(activeTab); return !!(t && t.kind===kind); }
