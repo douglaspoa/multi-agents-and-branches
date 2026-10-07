@@ -2317,7 +2317,7 @@ fn create_project_in(
         if let Some(err) = fail {
             // prefixo GH_FAIL::<pasta>:: → a tela oferece "abrir mesmo assim sem GitHub" (a pasta e o git já existem)
             return Err(format!(
-                "GH_FAIL::{}::A pasta e o git foram criados em {}, mas o GitHub recusou criar o repositório.\n\nMotivo: {}\n\nConfira a conta do GitHub em Configurações → GitHub e tente de novo (a pasta é reaproveitada), ou abra o projeto agora só no seu computador.",
+                "GH_FAIL::{}::A pasta e o git foram criados em {}, mas o GitHub recusou criar o repositório.\n\nMotivo: {}\n\nConfira a conta do GitHub em Ajustes › GitHub e tente de novo (a pasta é reaproveitada), ou abra o projeto agora só no seu computador.",
                 repo.display(),
                 repo.display(),
                 if err.is_empty() { "sem detalhe do gh".to_string() } else { err }
@@ -7019,7 +7019,7 @@ fn env_ai_item(pref: &str, av: &ai_once::Avail, codex_login: bool) -> EnvCheck {
         None => EnvCheck {
             kind: "req".into(), name, ok: false,
             detail: "nenhum encontrado — instale o Claude Code OU o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta, open source — só a DEEPSEEK_API_KEY)".into(),
-            fix: "npm install -g @anthropic-ai/claude-code && claude\nnpm install -g @openai/codex && codex login\nconfigure um gateway em Configurações → Gateway próprio\nnpm i -g @deepseek-ai/dsh\nconfigure a DEEPSEEK_API_KEY em Configurações → Sua IA (DeepSeek, beta)".into(),
+            fix: "npm install -g @anthropic-ai/claude-code && claude\nnpm install -g @openai/codex && codex login\nconfigure um gateway em Ajustes › Motores e chaves › IA da sua empresa\nnpm i -g @deepseek-ai/dsh\nconfigure a DEEPSEEK_API_KEY em Ajustes › Motores e chaves (DeepSeek, beta)".into(),
         },
     }
 }
@@ -7106,7 +7106,7 @@ fn env_dsh_status_item(name: String, found: &str, version: &str, st: Result<(), 
         },
         Ok(()) => EnvCheck { kind: "opt".into(), name, ok: true, detail: format!("{found} — beta (developer preview)"), fix: String::new() },
         Err(e) if e.contains("Node") => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — indisponível: {e}"), fix: node_fix_hint() },
-        Err(e) if e.contains("DEEPSEEK_API_KEY") => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — instalado, mas SEM a chave da DeepSeek"), fix: "configure a DEEPSEEK_API_KEY em Configurações → Sua IA".into() },
+        Err(e) if e.contains("DEEPSEEK_API_KEY") => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — instalado, mas SEM a chave da DeepSeek"), fix: "configure a DEEPSEEK_API_KEY em Ajustes › Motores e chaves".into() },
         Err(e) => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — {e}"), fix: "npm i -g @deepseek-ai/dsh".into() },
     }
 }
@@ -7207,13 +7207,13 @@ fn env_check() -> Vec<EnvCheck> {
     let codex_where = |v: &str| format!("{xb} · versão {}{}", v.trim_start_matches("codex-cli").trim(), if xres.via.is_empty() { String::new() } else { format!(" (achado em: {})", xres.via) });
     out.push(match &codex_v {
         Some(v) if codex_login => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: true, detail: codex_where(v), fix: String::new() },
-        Some(v) => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("{} — instalado, mas SEM login (nem chave OpenAI em Configurações → Sua IA)", codex_where(v)), fix: "codex login".into() },
+        Some(v) => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("{} — instalado, mas SEM login (nem chave OpenAI em Ajustes › Motores e chaves)", codex_where(v)), fix: "codex login".into() },
         None if xres.bin.is_some() => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("achado em {xb}, mas `codex --version` não rodou (shim do npm sem node?)"), fix: "npm install -g @openai/codex".into() },
         None => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("não encontrado — procurei em {} lugares (PATH, nvm, volta, asdf, fnm, npm, Homebrew, app ChatGPT, shell de login)", xres.searched.len()), fix: "npm install -g @openai/codex && codex login".into() },
     });
     out.push(match &gw {
         Some(g) => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: true, detail: format!("{} · modelo {}", g.base, g.model), fix: String::new() },
-        None => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: false, detail: "não configurado".into(), fix: "configure em Configurações → Gateway próprio (URL, chave e modelo)".into() },
+        None => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: false, detail: "não configurado".into(), fix: "configure em Ajustes › Motores e chaves › IA da sua empresa (URL, chave e modelo)".into() },
     });
     out.push(env_dsh_item());
     // provas mobile (opcionais): Simulador iOS, Emulador Android, Maestro — fonte única no motor (src/mobile.ts)
@@ -8394,7 +8394,7 @@ fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>
                 let lines: Vec<&str> = r.log.lines().collect();
                 let tail = lines[lines.len().saturating_sub(8)..].join("\n");
                 if tail.contains("os error 2") || tail.contains("not found") && r.exit_code == Some(127) {
-                    format!("comando não encontrado nesta máquina ({}) — verifique o Ambiente", r.cmd)
+                    format!("comando não encontrado nesta máquina ({}) — veja Ajustes › Verificação", r.cmd)
                 } else { tail.chars().take(600).collect() }
             };
             RepoCheck { name: r.label, ok: r.ok, detail }
@@ -10775,7 +10775,7 @@ mod env_ai_tests {
         let nada = env_ai_item("claude", &av(false, false, false), false);
         assert!(!nada.ok && nada.kind == "req");
         assert_eq!(nada.fix.lines().count(), 5);
-        assert!(nada.fix.contains("claude-code") && nada.fix.contains("@openai/codex") && nada.fix.contains("Gateway") && nada.fix.contains("@deepseek-ai/dsh"));
+        assert!(nada.fix.contains("claude-code") && nada.fix.contains("@openai/codex") && nada.fix.contains("IA da sua empresa") && nada.fix.contains("@deepseek-ai/dsh"));
         // só o DeepSeek: é uma opção do "Motor de IA" (beta)
         let so_ds = env_ai_item("deepseek", &ai_once::Avail { claude: false, codex: false, gateway: false, deepseek: true }, false);
         assert!(so_ds.ok && so_ds.detail.contains("DeepSeek (beta)") && so_ds.detail.contains("sua IA padrão"), "{}", so_ds.detail);
@@ -10794,7 +10794,7 @@ mod env_ai_tests {
         let velho = env_dsh_status_item(n(), "0.2.0 · /x/dsh", "0.2.0", Err("O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o escolhido pelo app é 22.12.0)".into()));
         assert!(!velho.ok && velho.detail.contains("indisponível") && velho.detail.contains("22.19") && velho.fix == node_fix_hint());
         let sem_chave = env_dsh_status_item(n(), "0.2.0 · /x/dsh", "0.2.0", Err(ai_once::DSH_KEY_MSG.into()));
-        assert!(!sem_chave.ok && sem_chave.fix.contains("Configurações → Sua IA"));
+        assert!(!sem_chave.ok && sem_chave.fix.contains("Ajustes › Motores e chaves"));
     }
     /// dsh_status() DE VERDADE (HOME temporário sem chave, dsh falso) alimentando o item do Ambiente.
     #[cfg(unix)]
@@ -10817,7 +10817,7 @@ mod env_ai_tests {
         let item = env_dsh_status_item("DeepSeek Harness (opcional · beta)".into(), "0.2.0-rc.2 · dsh", "0.2.0-rc.2", st);
         assert!(!item.ok);
         if err.contains("Node") { assert_eq!(item.fix, node_fix_hint(), "node do teste < 22.19: {err}"); }
-        else { assert_eq!(err, ai_once::DSH_KEY_MSG); assert!(item.fix.contains("Configurações → Sua IA"), "{}", item.fix); }
+        else { assert_eq!(err, ai_once::DSH_KEY_MSG); assert!(item.fix.contains("Ajustes › Motores e chaves"), "{}", item.fix); }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

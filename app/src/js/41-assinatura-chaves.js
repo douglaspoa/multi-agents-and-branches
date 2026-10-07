@@ -2,14 +2,16 @@
 // ========== Assinatura (Stripe) ==========
 // billing_plans vazio = cobrança desligada (app livre). Semeou os planos
 // (BILLING-SETUP.md) → o gate liga sozinho no próximo sync. Nuvem sem clique.
+// billingKnown: a tabela de planos foi LIDA ao menos uma vez nesta sessão (falha de rede ≠ cobrança desligada)
+let billingKnown=false;
 let billingPlans=[], myBilling=null, billingOn=false, payYear=false, payPollT=null;
 function fmtBRL(c){ return 'R$ '+(c/100).toFixed(2).replace('.',','); }
 function billingActive(){ return !billingOn || (myBilling && (myBilling.org || ['trialing','active'].includes(myBilling.status))); }
 async function billingSync(){
-  if(!SB.sess()){ billingOn=false; payHide(); return; }
+  if(!SB.sess()){ billingOn=false; billingKnown=false; payHide(); return; }
   try{
     billingPlans=await sbGet('billing_plans?select=*&active=eq.true');
-    billingOn=billingPlans.length>0;
+    billingOn=billingPlans.length>0; billingKnown=true;
     if(!billingOn){ payHide(); return; }
     // licença ENTERPRISE da org cobre TODOS os membros. Pergunta ao banco DIRETO (a RLS devolve só as
     // orgs de que sou membro) em vez de depender do cloudData: antes, com a conta ainda carregando (ou

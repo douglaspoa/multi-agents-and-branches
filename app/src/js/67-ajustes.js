@@ -89,8 +89,11 @@ function ajRolePt(r){ return AJ_ROLE[r]||String(r||'membro'); }
 const AJ_PLAN={ enterprise:'Enterprise', team:'Time', individual:'Solo', trial:'Avaliação', free:'Grátis' };
 function ajPlanPt(p){ return AJ_PLAN[p]||(p?String(p).charAt(0).toUpperCase()+String(p).slice(1):'—'); }
 // assinatura: org enterprise (ou liberada pelo admin) NUNCA vira "Individual · mensal … renova em " (bug do inventário)
-function ajBillingLine(b, me, dt){
+// off = cobrança desligada no servidor: sem assinatura não é "inativo", é livre (e não há plano pra escolher)
+function ajBillingLine(b, me, dt, off){
   dt=dt||(s=>s?new Date(s).toLocaleDateString('pt-BR'):'');
+  if(off==='unknown' && !b) return { name:'Não consegui ler a assinatura', sub:'Tente de novo em instantes — o app segue funcionando.', active:false, unknown:true, mine:false };
+  if(off===true && !(b && (b.org || ['trialing','active'].includes(b.status)))) return { name:'Uso livre', sub:'A cobrança ainda não está ligada — o app segue livre, sem plano pra escolher.', active:true, free:true, mine:false };
   if(!b) return { name:'Sem assinatura ativa', sub:'Escolha um plano pra seguir usando com o time.', active:false, mine:false };
   if(b.org) return { name:ajPlanPt(b.plan||'enterprise'), sub:'pago pela organização, por contrato — não renova por aqui', active:true, mine:false, org:true };
   if(!['trialing','active'].includes(b.status)) return { name:'Sem assinatura ativa', sub:'A última assinatura não está mais ativa.', active:false, mine:b.user_id===me };
@@ -134,6 +137,60 @@ function ppSteps(c){
   return { steps:L, done:req.filter(s=>s.done).length, total:req.length, next:next&&next.id };
 }
 // @ajustes-puro-fim
+
+// @atrap-conta-puro-inicio (testado em app/tests/atrap-conta.test.mjs — sem DOM)
+// Primeiros passos › "Este computador": SÓ o computador. As IAs (Motor de IA, Claude Code, Codex, DeepSeek, gateway)
+// são o passo 2 — antes o passo 1 só ficava verde com a IA instalada e listava o mesmo comando duas vezes.
+const PP_AI_RE=/motor de ia|claude|codex|deepseek|gateway/i;
+function ppPcList(list){ return (Array.isArray(list)?list:[]).filter(c=>!PP_AI_RE.test(String((c&&c.name)||''))); }
+// o que falta, sem repetir comando, com a etiqueta (opcional/recomendado) da Verificação; obrigatório primeiro
+function ppPcItems(list, kindOf){
+  const seen=new Set(), out=[];
+  for(const c of ppPcList(list)){ if(c.ok) continue;
+    const k=kindOf?kindOf(c):'req';
+    const fix=String(c.fix||'').split('\n').map(x=>x.trim()).filter(Boolean)[0]||'';
+    if(fix && seen.has(fix)) continue; if(fix) seen.add(fix);
+    out.push({ name:String(c.name||'').replace(/\s*\((opcional|recomendado)[^)]*\)/i,''), kind:k, fix, c }); }
+  return out.sort((a,b)=>(a.kind==='req'?0:1)-(b.kind==='req'?0:1));
+}
+// abre sozinho no boot só se a pessoa ainda está na Central (não troca a aba que ela abriu)
+function ppAutoOk(activeTab){ return !activeTab || activeTab==='flow'; }
+// criar organização: os dois nomes são obrigatórios (antes criava "Minha organização"/"Time 1" calado)
+function ajOrgFormErr(org, team){
+  if(!String(org||'').trim()) return { field:'sbOrgName', msg:'Dê um nome pra organização (ex.: o nome da empresa).' };
+  if(!String(team||'').trim()) return { field:'sbTeamName', msg:'Dê um nome pro primeiro time (ex.: Produto).' };
+  return null;
+}
+// o convite recém-gravado: a linha devolvida, ou a da lista relida (o servidor pode gravar sem devolver a linha)
+// Só vale o convite AINDA VÁLIDO desse e-mail NESSE time; a lista vem order=expires_at.desc → o 1º é o mais novo.
+function ajInvRow(rows, mail, teamId, now){
+  const m=String(mail||'').toLowerCase(); now=now||Date.now();
+  return (Array.isArray(rows)?rows:[]).find(x=>x && x.token && String(x.email||'').toLowerCase()===m && (!teamId || x.team_id===teamId)
+    && !x.accepted_at && (!x.expires_at || new Date(x.expires_at).getTime()>now))||null;
+}
+// quem já está numa organização não aceita convite de outra por aqui (a RPC accept_invite não checa — ver ajAcceptInvite)
+function ajOtherOrgMsg(orgName){ return 'Você já está em '+orgName+'. Pra entrar noutra organização, fale com o admin dela ou saia desta primeiro.'; }
+// @atrap-conta-puro-fim
+// erro ao criar a organização: sem org não existe "lead do time" — a mensagem de permissão genérica não serve aqui
+function ajOrgCreateErr(e){
+  const m=cloudErrMsg(e,'Não consegui criar a organização');
+  return /não tem permissão/i.test(m) ? 'Não consegui criar a organização: o servidor recusou a permissão desta conta. Saia e entre de novo; se continuar, fale com o suporte do Starfork.' : m;
+}
+// aceitar convite pelo código — SÓ sem organização (cartão "Entrar num time").
+// TODO(migration futura): a correção definitiva é a RPC accept_invite RECUSAR convite de outra org quando a pessoa já
+// é membro de uma (hoje ela aceita e a pessoa fica em DUAS orgs; o cloudLoad pega orgs[0] ao acaso). Até lá, a tela
+// não oferece o aceite com organização e, se a resposta vier de outra org, não troca o time atual e avisa.
+async function ajAcceptInvite(b, tok, er, inp){
+  if(b && b.disabled) return;
+  if(!tok){ if(er){ er.textContent='Cole o código do convite (ou peça um convite pro seu e-mail — aí você entra sozinho).'; er.hidden=false; } if(inp) inp.focus(); return; }
+  if(b){ b.disabled=true; b.textContent='entrando…'; } // duplo clique não manda 2 pedidos
+  const cur=(cloudData&&cloudData.org)||null;
+  try{ const j=await sbRpc('accept_invite',{ p_token:tok }); if(!j || !j.ok) throw new Error((j&&j.error)||'convite inválido ou expirado');
+    if(cur && j.org_id && j.org_id!==cur.id){ cloudMsg=ajOtherOrgMsg(cur.name)+' O convite foi registrado, mas o seu time atual não mudou.'; }
+    else { lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ você entrou no time'; } }
+  catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui aceitar o convite'); }
+  ajSectionPaint();
+}
 
 // ============================================================ estado + abertura
 const AJ={ sec:'motores', q:'', saved:{}, polDraft:null, polSaved:null, polErr:'', memQ:'' };
@@ -520,6 +577,7 @@ async function ajCloudReady(host, id, lead){
     catch(e){ if(AJ.sec!==id) return null; cloudData=null; host.innerHTML=ajSecHead(id, lead)+errorHtml(e, null, 'Não consegui carregar a conta'); ldWireErr(host, e, 'Não consegui carregar a conta', ajSectionPaint); return null; }
     if(AJ.sec!==id) return null;
     ajHeadScope(); // o nome da organização só chega agora: o selo do cabeçalho se atualiza
+    try{ cloudBtnSync(); }catch(_){ } // e o avatar + o item Time da lateral também (org criada, convite aceito, time trocado)
   }
   return cloudData;
 }
@@ -571,14 +629,15 @@ async function ajRenderTimes(host){
   const d=await ajCloudReady(host, 'times', lead); if(!d) return;
   if(!d.org){ // sem organização: criar org + 1º time ou aceitar convite por código
     host.innerHTML=ajSecHead('times','')+ajCloudMsg()+`<div class="ajempty left"><span class="eic">${ajIcon('org')}</span><h3>Você ainda não está numa organização</h3><p>Crie a organização com o primeiro time — você vira o dono e o lead. Ou entre num time com o código do convite (convite pro seu e-mail entra sozinho).</p></div>
-      <div class="ajcols"><div class="ajcard"><h3 class="ajh3">Criar organização</h3><label class="ajlbl" for="sbOrgName">Nome da organização</label><input class="in" id="sbOrgName" placeholder="ex.: Minha empresa"><label class="ajlbl" for="sbTeamName">Nome do primeiro time</label><input class="in" id="sbTeamName" placeholder="ex.: Produto"><div class="ajacts"><span class="sp"></span><button type="button" class="btn primary sm" id="sbCreateOrg">criar</button></div></div>
+      <div class="ajcols"><div class="ajcard"><h3 class="ajh3">Criar organização</h3><label class="ajlbl" for="sbOrgName">Nome da organização</label><input class="in" id="sbOrgName" placeholder="ex.: Minha empresa" aria-describedby="sbOrgErr"><label class="ajlbl" for="sbTeamName">Nome do primeiro time</label><input class="in" id="sbTeamName" placeholder="ex.: Produto" aria-describedby="sbOrgErr"><div class="ajfe" id="sbOrgErr" role="alert" hidden></div><div class="ajacts"><span class="sp"></span><button type="button" class="btn primary sm" id="sbCreateOrg">criar</button></div></div>
       <div class="ajcard"><h3 class="ajh3">Entrar num time</h3><label class="ajlbl" for="sbInvTok">Código do convite</label><input class="in mono" id="sbInvTok" placeholder="cole o código que o lead te mandou"><div class="ajfe" id="sbInvTokErr" role="alert" hidden></div><div class="ajacts"><span class="sp"></span><button type="button" class="btn sm" id="sbAccept">aceitar convite</button></div></div></div>`;
-    bindClick('sbCreateOrg', async()=>{ const b=$id('sbCreateOrg'); if(b.disabled) return; b.disabled=true; b.textContent='criando…';
-      try{ const j=await sbRpc('create_org_with_team',{ p_org_name:$id('sbOrgName').value.trim()||'Minha organização', p_team_name:$id('sbTeamName').value.trim()||'Time 1' }); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ organização criada'; }
-      catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui criar a organização'); } ajSectionPaint(); });
-    bindClick('sbAccept', async()=>{ const tok=$id('sbInvTok').value.trim(), er=$id('sbInvTokErr');
-      if(!tok){ er.textContent='Cole o código do convite (ou peça um convite pro seu e-mail — aí você entra sozinho).'; er.hidden=false; $id('sbInvTok').focus(); return; }
-      try{ const j=await sbRpc('accept_invite',{ p_token:tok }); if(!j.ok) throw new Error(j.error); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ você entrou no time'; }catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui aceitar o convite'); } ajSectionPaint(); });
+    bindClick('sbCreateOrg', async()=>{ const b=$id('sbCreateOrg'); if(b.disabled) return;
+      const on=$id('sbOrgName').value.trim(), tn=$id('sbTeamName').value.trim(), er=$id('sbOrgErr'), miss=ajOrgFormErr(on, tn);
+      if(miss){ er.textContent=miss.msg; er.hidden=false; $id(miss.field).focus(); return; } // nada de "Minha organização"/"Time 1" criados calados
+      er.hidden=true; b.disabled=true; b.textContent='criando…';
+      try{ const j=await sbRpc('create_org_with_team',{ p_org_name:on, p_team_name:tn }); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ organização criada'; }
+      catch(e){ cloudMsg=ajOrgCreateErr(e); } ajSectionPaint(); });
+    bindClick('sbAccept', ()=>ajAcceptInvite($id('sbAccept'), $id('sbInvTok').value.trim(), $id('sbInvTokErr'), $id('sbInvTok')));
     return;
   }
   const me=ajMe(), teamId=cloudTeamId(), isAdmin=d.meRole==='owner'||d.meRole==='admin';
@@ -595,7 +654,7 @@ async function ajRenderTimes(host){
   const q=ajNorm(AJ.memQ);
   const mems=(d.orgMembers||[]).filter(om=>!q || ajNorm(ajPName(d,om.user_id)).includes(q));
   const teamsOf=uid=>d.teams.filter(t=>(d.teamMembers[t.id]||[]).some(m=>m.user_id===uid)).map(t=>t.name).join(', ');
-  host.innerHTML=ajSecHead('times', lead, isAdmin?'<button type="button" class="btn sm" id="ajTeamAdd">novo time</button>':'')+ajCloudMsg()
+  host.innerHTML=ajSecHead('times', lead, (isAdmin?'<button type="button" class="btn sm" id="ajTeamAdd">novo time</button>':''))+ajCloudMsg()+`<p class="ajhint">${esc(ajOtherOrgMsg(d.org.name))}</p>`
     +(teamHtml||`<div class="ajempty"><span class="eic">${ajIcon('times')}</span><h3>Nenhum time ainda</h3><p>Todo convite e toda tarefa compartilhada entram num time.</p></div>`)
     +(isAdmin?`<div class="ajsh2"><h3 class="ajh3">Pessoas da organização (${(d.orgMembers||[]).length})</h3><label class="ajsearch sm">${ajIcon('busca')}<input id="ajMemQ" type="search" placeholder="buscar pessoa" aria-label="buscar pessoa" value="${escA(AJ.memQ)}"></label></div>
       <table class="ajtbl"><thead><tr><th>Pessoa</th><th>Papel</th><th>Times</th><th></th></tr></thead><tbody>${mems.map(om=>`<tr><td>${esc(ajPName(d,om.user_id))}${om.user_id===me?' <small class="dim">· você</small>':''}</td><td>${esc(ajRolePt(om.role))}</td><td class="dim">${esc(teamsOf(om.user_id)||'—')}</td><td class="num">${om.role!=='owner'&&om.user_id!==me?`<button type="button" class="btn sm" data-ajorgrm="${escA(om.user_id)}">tirar da organização</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="dim">ninguém com esse nome</td></tr>'}</tbody></table>`:'');
@@ -661,7 +720,12 @@ async function ajRenderConvites(host){
     if(seatsUsed>=d.org.seats) return invErr('Todos os '+d.org.seats+' assentos estão em uso — libere um assento ou amplie o plano antes de convidar.');
     b.disabled=true;
     try{ const tid=$id('sbInvTeam').value; const rows=await sbPost('invites',{ org_id:d.org.id, team_id:tid, email:mail, role:$id('sbInvRole').value, created_by:me });
-      (d.invites||(d.invites=[])).push(rows[0]); ajInvLast={ mail, msg:cloudInviteMsg((d.teams.find(x=>x.id===tid)||{}).name||'', d.org.name, mail, rows[0].token) }; ajSectionPaint(); }
+      // o servidor pode gravar e NÃO devolver a linha (RLS do SELECT): relê a lista e acha o convite pelo e-mail
+      let iv=ajInvRow(rows, mail, tid);
+      if(!iv){ cloudData=null; const d2=await ajCloudReady(host, 'convites', '').catch(()=>null); iv=ajInvRow(d2&&d2.invites, mail, tid); }
+      if(!iv){ cloudMsg='✓ convite gravado pra '+mail+' — a mensagem pronta está na lista de pendentes (copiar mensagem). Se não aparecer, atualize a seção.'; ajSectionPaint(); return; }
+      if(cloudData && cloudData.invites && !cloudData.invites.includes(iv)) cloudData.invites.push(iv); else if(!cloudData) (d.invites||(d.invites=[])).push(iv);
+      ajInvLast={ mail, msg:cloudInviteMsg((d.teams.find(x=>x.id===tid)||{}).name||'', d.org.name, mail, iv.token) }; ajSectionPaint(); }
     catch(e){ invErr(cloudErrMsg(e,'Não consegui gerar o convite')); b.disabled=false; } });
   host.querySelectorAll('[data-ajiv]').forEach(b=>b.onclick=async()=>{ const iv=(d.invites||[]).find(x=>x.id===b.dataset.iv); if(!iv) return;
     if(b.dataset.ajiv==='copy'){ cloudCopy(cloudInviteMsg((d.teams.find(x=>x.id===iv.team_id)||{}).name||'', d.org.name, iv.email, iv.token), b); return; }
@@ -676,13 +740,15 @@ async function ajRenderRegras(host){
 async function ajRenderAssinatura(host){
   const d=await ajCloudReady(host, 'assinatura', ''); if(!d) return;
   const b=typeof myBilling!=='undefined'?myBilling:null;
-  const L=ajBillingLine(b, ajMe());
+  // cobrança só é "desligada" se a tabela de planos foi LIDA; falha de leitura não vira "Uso livre"
+  const off=(typeof billingKnown!=='undefined' && !billingKnown) ? 'unknown' : (typeof billingOn!=='undefined' && !billingOn);
+  const L=ajBillingLine(b, ajMe(), null, off);
   const canPortal=!!(b && !b.org && b.user_id===ajMe() && b.stripe_customer_id);
   host.innerHTML=ajSecHead('assinatura','')
-    +`<div class="ajplan"><div class="l"><b>${esc(L.name)}</b> ${L.active?'<span class="ajst ok">ativo</span>':'<span class="ajst warn">inativo</span>'}<p>${esc(L.sub)}${L.org&&d.org?' · '+esc(d.org.name):''}</p></div>
-      <div class="r">${canPortal?'<button type="button" class="btn sm" id="sbBillPortal">gerenciar no portal de pagamento</button>':''}${L.org?'<button type="button" class="btn sm" id="ajSupport">falar com o suporte</button>':''}${!L.active?'<button type="button" class="btn primary sm" id="sbBillGo">ver planos</button>':''}</div></div>`
-    +(typeof billingOn!=='undefined' && !billingOn && !L.org?'<p class="ajhint">A cobrança ainda não está ligada neste servidor — o app segue livre.</p>':'');
+    +`<div class="ajplan"><div class="l"><b>${esc(L.name)}</b> ${L.unknown?'':L.free?'<span class="ajst ok">livre</span>':L.active?'<span class="ajst ok">ativo</span>':'<span class="ajst warn">inativo</span>'}<p>${esc(L.sub)}${L.org&&d.org?' · '+esc(d.org.name):''}</p></div>
+      <div class="r">${canPortal?'<button type="button" class="btn sm" id="sbBillPortal">gerenciar no portal de pagamento</button>':''}${L.org?'<button type="button" class="btn sm" id="ajSupport">falar com o suporte</button>':''}${L.unknown?'<button type="button" class="btn sm" id="ajBillRetry">tentar de novo</button>':''}${!L.active&&!L.free&&!L.unknown?'<button type="button" class="btn primary sm" id="sbBillGo">ver planos</button>':''}</div></div>`;
   bindClick('sbBillPortal', ()=>payPortal($id('sbBillPortal')));
+  bindClick('ajBillRetry', async()=>{ try{ await billingSync(); }catch(_){ } ajSectionPaint(); });
   bindClick('sbBillGo', ()=>{ if(typeof auShow==='function') auShow('plans', { backTo:()=>ajustesOpen('assinatura') }); });
   bindClick('ajSupport', ()=>{ if(typeof openExternal==='function') openExternal('mailto:suporte@starfork.com.br?subject=Assinatura%20Starfork'); });
 }
@@ -710,7 +776,7 @@ window.ajEnvBand=ajEnvBand;
 // ============================================================ Primeiros passos (aba)
 const PP={ open:'', ia:false };
 function ppCtx(){
-  const S=(typeof envChecks!=='undefined'&&envChecks&&typeof envSummary==='function')?envSummary(envChecks):null;
+  const S=(typeof envChecks!=='undefined'&&envChecks&&typeof envSummary==='function')?envSummary(ppPcList(envChecks)):null;
   const d=typeof aiDefaults==='function'?aiDefaults():{ eng:'claude' };
   const ia=Array.isArray(typeof suaIaList!=='undefined'?suaIaList:null) && typeof suaIaOf==='function' && !!(suaIaOf(d.eng)||{}).ready;
   const inOrg=typeof cloudData!=='undefined' && !!(cloudData&&cloudData.org);
@@ -751,7 +817,7 @@ function ppRender(){
   if(PP.open) ppStepBody(PP.open, c);
 }
 function ppStepSub(s, c){
-  if(s.id==='pc'){ if(c.envOk===null) return 'verificando o computador…'; const S=envSummary(envChecks); return s.done?(S.optBad?S.okN+' de '+S.tot+' ok · '+S.optBad+(S.optBad===1?' opcional faltando':' opcionais faltando'):'tudo certo'):S.reqBad+(S.reqBad===1?' pendência — veja abaixo':' pendências — veja abaixo'); }
+  if(s.id==='pc'){ if(c.envOk===null) return 'verificando o computador…'; const S=envSummary(ppPcList(envChecks)); return s.done?(S.optBad?S.okN+' de '+S.tot+' ok · '+S.optBad+(S.optBad===1?' opcional faltando':' opcionais faltando'):'tudo certo'):S.reqBad+(S.reqBad===1?' pendência — veja abaixo':' pendências — veja abaixo'); }
   if(s.id==='ia' && s.done && typeof aiRunLabel==='function'){ const d=aiDefaults(); return 'vai usar: '+aiRunLabel(d.eng, d.model); }
   if(s.id==='proj' && s.done) return 'projeto aberto: '+pathBase(state.repo);
   return s.d;
@@ -760,13 +826,13 @@ function ppStepBody(id, c){
   const h=$id('ppB-'+id); if(!h) return;
   if(id==='pc'){
     if(c.envOk===null){ h.innerHTML='<p class="dim">verificando…</p>'; runEnvCheck().then(()=>ppRender()).catch(()=>{}); return; }
-    const bad=(envChecks||[]).filter(x=>!x.ok);
-    h.innerHTML=(bad.length?bad.map(x=>`<div class="ppline"><b>${esc(String(x.name||'').replace(/\s*\(opcional\)/i,''))}</b> <span class="dim">${esc(envWhat(x)||'')}</span>${envFixLines(x.fix).filter(f=>f.cmd).slice(0,1).map(f=>`<div class="ajcmdrow"><code class="ajcmd">${esc(f.text)}</code><button type="button" class="btn sm" data-envfix="${escA(f.text)}">copiar</button></div>`).join('')}</div>`).join(''):'<p>Tudo que é obrigatório está instalado.</p>')
+    const bad=ppPcItems(envChecks, typeof envKind==='function'?envKind:null);
+    h.innerHTML=(bad.length?bad.map(x=>`<div class="ppline"><b>${esc(x.name)}</b>${ENV_KIND_TAG[x.kind]?` <span class="ajtag">${ENV_KIND_TAG[x.kind]}</span>`:''} <span class="dim">${esc(envWhat(x.c)||'')}</span>${envFixLines(x.c.fix).filter(f=>f.cmd).slice(0,1).map(f=>`<div class="ajcmdrow"><code class="ajcmd">${esc(f.text)}</code><button type="button" class="btn sm" data-envfix="${escA(f.text)}">copiar</button></div>`).join('')}</div>`).join(''):'<p>Tudo que é obrigatório está instalado.</p>')
       +'<div class="ajacts"><button type="button" class="btn sm" id="ppEnv">ver Verificação</button><button type="button" class="btn sm" id="ppEnvRe">verificar de novo</button></div>';
     h.querySelectorAll('[data-envfix]').forEach(b=>b.onclick=()=>envCopy(b));
     bindClick('ppEnv', ()=>ajustesOpen('verificacao')); bindClick('ppEnvRe', ()=>{ envChecks=null; runEnvCheck().then(()=>ppRender()); ppRender(); });
   } else if(id==='ia'){
-    h.innerHTML='<div id="ppSuaIa"></div><p class="ajhint">Mesmo componente de Ajustes › IA e modelos — dá pra trocar depois.</p>';
+    h.innerHTML='<div id="ppSuaIa"></div><p class="ajhint">Nunca usou o Terminal? Clique em <b>copiar</b>, abra o Terminal do computador (no Windows, o PowerShell), cole o comando e aperte Enter — ou peça ajuda a quem cuida dos computadores na empresa. Se a sua empresa tem uma IA própria, <b>IA da sua empresa</b> não precisa instalar nada.</p><p class="ajhint">Dá pra trocar depois em Ajustes › Motores e chaves.</p>';
     if(typeof suaIaMount==='function') // a escolha (ou a ÚNICA IA pronta quando o padrão não está) vira o padrão na hora — o passo se marca sozinho
     suaIaMount($id('ppSuaIa'), { ctx:'onboarding', fresh:true, onPick:(pid)=>{ if(pid && typeof suaIaObApply==='function' && suaIaObApply()) setTimeout(ppRender, 50); } });
   } else if(id==='proj'){
@@ -800,7 +866,8 @@ function ppMaybeStart(){
   primeirosPassosOpen();
 }
 window.obMaybeStart=ppMaybeStart;
-setTimeout(ppMaybeStart, 3800);
+// boot: só abre se a pessoa ainda está na Central — antes trocava a aba que ela tinha acabado de abrir (ex.: Ajustes › GitHub)
+setTimeout(()=>{ if(ppAutoOk(typeof activeTab!=='undefined'?activeTab:'')) ppMaybeStart(); }, 3800);
 
 // ============================================================ aba "Detalhes do erro"
 function errTabOpen(h){

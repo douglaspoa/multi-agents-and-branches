@@ -250,7 +250,7 @@ async function termHistLoad(taskId, force){
     const wt=String(h.worktree||(t&&t.worktree)||'').split('/').filter(Boolean).pop()||'';
     const eng=(t&&typeof aiEngineOf==='function')?aiEngineOf(t.engine):'claude';
     const head=`${eng} · ${h.sessionId?'sessão '+String(h.sessionId).slice(0,8):'sem sessão gravada'}${wt?' · worktree '+wt:''} · histórico${h.source==='transcript'?(h.clipped?' (só o fim — a sessão é longa)':''):h.source==='log'?' (log do terminal)':' (eventos da tarefa)'}`;
-    const foot=termGone(h)?'tarefa integrada · digite aqui pra perguntar sobre o que foi feito — a sessão retoma neste terminal':termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · digite aqui pra continuar a conversa — a sessão retoma neste terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Configurações → modo das tarefas)';
+    const foot=termGone(h)?'tarefa integrada · digite aqui pra perguntar sobre o que foi feito — a sessão retoma neste terminal':termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · digite aqui pra continuar a conversa — a sessão retoma neste terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Ajustes › Como as tarefas rodam)';
     // log cru do PTY: sai da tela alternativa/colagem antes do rodapé (o TUI pode ter deixado ligado)
     const out=st.hraw!==undefined ? st.hraw+'\x1b[?1049l\x1b[?2004l\x1b[?25h\x1b[0m\r\n\r\n'+thC('2','╰─ '+foot)+'\r\n'
       : (st.hlast={ items:st.hitems||thFromEvents(evs), o:{ head, foot, notes:st.hitems?thSysNotes(evs):[] } }, thRender(st.hlast.items, { ...st.hlast.o, cols:st.term.cols }));
