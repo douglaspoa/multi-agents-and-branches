@@ -473,7 +473,7 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .aipick-pl .aieng{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
 
 /* página de entrega de uma tarefa do time (aba cttask) */
-#ctPageMain{flex:1;min-height:0;overflow:auto}
+#ctPageMain,#epicPageMain{flex:1;min-height:0;overflow:auto}
 .ctp-who{display:flex;align-items:center;gap:9px;margin-top:12px;font:400 var(--fs-sm) var(--display);color:var(--text-2)}
 .ctp-who b{color:var(--text);font-weight:600}
 .ctp-who .tsav{width:22px;height:22px;font-size:var(--fs-ini)}

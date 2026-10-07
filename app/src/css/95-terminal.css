@@ -101,7 +101,10 @@
 .tlmin{flex:none;width:26px;height:24px;border:0;background:transparent;color:var(--muted);border-radius:var(--r-xs);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transform:rotate(90deg)}
 .tlmin svg{width:14px;height:14px}
 .tlmin:hover{color:var(--text);background:var(--surface-3)}
-.tlq{flex:0 3 auto;min-height:3.6em;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px 6px;font-size:var(--fs-md);font-weight:600;color:var(--text);line-height:1.4;text-wrap:pretty;overflow-wrap:anywhere}
+.tlq{flex:0 1 auto;min-height:3.6em;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px 6px;font-size:var(--fs-md);font-weight:600;color:var(--text);line-height:1.4;text-wrap:pretty;overflow-wrap:anywhere}
+/* pergunta longa: abre mostrando o FIM (a frase que pergunta) e as bordas sombreadas avisam que tem mais texto/opções
+   (no macOS a barra de rolagem é sobreposta e só aparece rolando). Sombras "local × scroll": só aparecem quando há o que rolar. */
+.tlq,.tlopts{background:linear-gradient(var(--surface) 30%,transparent) top/100% 22px no-repeat local,linear-gradient(transparent,var(--surface) 70%) bottom/100% 22px no-repeat local,radial-gradient(farthest-side at 50% 0,color-mix(in srgb,var(--shade) 32%,transparent),transparent) top/100% 9px no-repeat scroll,radial-gradient(farthest-side at 50% 100%,color-mix(in srgb,var(--shade) 32%,transparent),transparent) bottom/100% 9px no-repeat scroll}
 .tlmulti{font-size:var(--fs-xs);font-weight:500;color:var(--muted);margin-left:4px}
 .tlopts{flex:0 1 auto;display:flex;flex-direction:column;padding:2px 8px 8px;overflow:auto;overscroll-behavior:contain;min-height:4.4em}
 .tlopt{display:grid;grid-template-columns:22px minmax(0,1fr);gap:9px;align-items:start;padding:8px;border-radius:var(--r-sm);border:1px solid transparent;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -133,6 +136,12 @@
 .tlsheethost.tight .tlother{display:none} /* pane pequeno: "outra resposta" sai da folha — o compositor embaixo responde a pergunta da vez */
 .tlsheethost.tight .tlsf{padding:6px 10px}
 .tlsheethost.tight .tlsh{padding:4px 8px 4px 10px}
+/* pane pequeno: a FOLHA inteira rola (pergunta em largura total + opções), cabeçalho e pular/próxima ficam presos nas bordas —
+   antes pergunta e opções encolhiam até 1–2 linhas e o rodapé saía do painel */
+.tlsheethost.tight .tlsheet{overflow-y:auto;overscroll-behavior:contain}
+.tlsheethost.tight .tlq,.tlsheethost.tight .tlopts{flex:none;overflow:visible;min-height:0;background:none}
+.tlsheethost.tight .tlsh{position:sticky;top:0;z-index:1;background:var(--surface)}
+.tlsheethost.tight .tlsf{position:sticky;bottom:0;z-index:1;background:var(--surface)}
 /* abas das perguntas numa linha só (o "Íris pergunta" sai — a borda lilás já diz quem pergunta): sobra lugar pras opções */
 .tlsheethost.tight .tlshk{display:none}
 .tlsheethost.tight .tlqtabs{flex-wrap:nowrap;overflow:hidden;min-width:0}

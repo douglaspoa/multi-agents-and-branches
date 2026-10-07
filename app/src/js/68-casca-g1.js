@@ -225,9 +225,11 @@ function projPageRender(){
     +`<div class="sn-card"><b>${c.vivas} em aberto</b><span><i style="background:var(--st-ask)"></i>${c.aguardando} aguardando você</span><span><i style="background:var(--st-review)"></i>${c.prontas} ${c.prontas===1?'pronta':'prontas'} pra revisar</span><button class="lnk" id="projSeeCentral">Ver na Central</button><code>${esc(repo.replace(/^\/Users\/[^/]+/,'~'))}</code></div>`;
   if(head.__html===hh && nav.__html===nh) return; // nada mudou: mantém o DOM (foco e handlers)
   head.__html=hh; head.innerHTML=hh; nav.__html=nh; nav.innerHTML=nh;
-  nav.querySelectorAll('[data-projsub]').forEach(b=>{ b.onclick=()=>projGo(b.dataset.projsub);
+  // projGo é async e refaz o nav: o foco vai pra aba nova DEPOIS (antes ia pro body e a 2ª seta não fazia nada)
+  const projGoFoco=(k)=>Promise.resolve(projGo(k)).then(()=>{ const f=nav.querySelector(`[data-projsub="${k}"]`); if(f) f.focus(); });
+  nav.querySelectorAll('[data-projsub]').forEach(b=>{ b.onclick=()=>{ if(nav.contains(document.activeElement)) projGoFoco(b.dataset.projsub); else projGo(b.dataset.projsub); };
     b.onkeydown=(e)=>{ const d={ ArrowDown:1, ArrowUp:-1, ArrowRight:1, ArrowLeft:-1 }[e.key]; if(!d) return; e.preventDefault();
-      const l=[...nav.querySelectorAll('[data-projsub]')], i=l.indexOf(b), n=l[(i+d+l.length)%l.length]; projGo(n.dataset.projsub); const f=nav.querySelector(`[data-projsub="${n.dataset.projsub}"]`); if(f) f.focus(); }; });
+      const l=[...nav.querySelectorAll('[data-projsub]')], i=l.indexOf(b), n=l[(i+d+l.length)%l.length]; projGoFoco(n.dataset.projsub); }; });
   { const b=nav.querySelector('#projSeeCentral'); if(b) b.onclick=()=>flowJump({ status:'all', proj:state.repo }); }
   { const mb=head.querySelector('#projPageMore'); if(mb) mb.onclick=()=>g1Menu(mb, [
     { label:(typeof osKind!=='function'||osKind()==='mac')?'Mostrar no Finder':'Abrir a pasta', act:()=>invoke('reveal_project',{ path:state.repo }) },

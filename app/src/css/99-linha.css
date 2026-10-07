@@ -1,11 +1,11 @@
 /* Starfork — 99-linha: Linha do projeto (69-linha). Só tokens do tema (claro e escuro saem dos mesmos nomes).
    A rolagem horizontal mora SÓ no .ln-wrap: a página nunca rola de lado (pane estreito incluído). */
-.ln-wrap{max-width:100%;overflow-x:auto;overflow-y:hidden;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);overscroll-behavior-x:contain}
+.ln-wrap{max-width:100%;overflow:auto;max-height:max(320px,calc(100vh - 230px));border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);overscroll-behavior-x:contain}
 .ln-wrap:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
 .ln{display:grid;grid-template-columns:minmax(180px,240px) minmax(0,1fr);min-width:660px;font-size:var(--fs-sm)}
-.ln-hd{position:relative;height:40px;border-bottom:1px solid var(--border);color:var(--muted);font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
-.ln-nmh{padding:7px 10px;position:sticky;left:0;z-index:3;background:var(--surface)}
-.ln-m{position:absolute;top:0;bottom:0;padding:7px 6px;border-left:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box}
+.ln-hd{position:sticky;top:0;z-index:3;background:var(--surface);height:40px;border-bottom:1px solid var(--border);color:var(--muted);font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.ln-nmh{padding:7px 10px;position:sticky;left:0;top:0;z-index:4;background:var(--surface)}
+.ln-m{position:absolute;top:0;bottom:0;padding:7px 5px;border-left:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box}
 .ln-hoje{position:absolute;bottom:3px;transform:translateX(-50%);font-size:var(--fs-xs);letter-spacing:.02em;text-transform:none;color:var(--accent);background:var(--surface);padding:0 3px;border-radius:3px;z-index:2;font-weight:700}
 .ln-nm{position:sticky;left:0;z-index:2;background:var(--surface);padding:9px 10px;border-bottom:1px solid var(--border);border-right:1px solid var(--border);display:grid;gap:2px;min-width:0;align-content:start}
 .ln-ep{all:unset;cursor:pointer;font-weight:700;font-size:var(--fs-base);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-radius:4px}

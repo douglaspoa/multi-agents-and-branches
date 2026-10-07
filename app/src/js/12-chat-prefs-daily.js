@@ -435,6 +435,8 @@ $id('dailyBtn').onclick=openDaily;
 function railIsCol(){ return document.querySelector('.app').classList.contains('railcol'); }
 function railPaint(v){
   document.querySelector('.app').classList.toggle('railcol', !!v);
+  // recolhida = fora do Tab e do leitor de tela (antes os 13 controles escondidos continuavam no Tab, com foco invisível)
+  { const sb=$id('sidebar'); if(sb){ const tinha=v && sb.contains(document.activeElement); sb.inert=!!v; if(tinha){ const m=$id('railToggleMain'); if(m) try{ m.focus(); }catch(_){ } } } }
   // aberta: tira o valor inline e deixa o CSS decidir (83-responsivo estreita a barra em janela pequena)
   if(v) document.documentElement.style.setProperty('--rail-w','0px'); else document.documentElement.style.removeProperty('--rail-w');
   const b=$id('railToggle'); if(b) b.setAttribute('aria-pressed', v?'true':'false');

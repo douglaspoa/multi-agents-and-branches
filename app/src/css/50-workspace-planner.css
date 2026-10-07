@@ -121,7 +121,7 @@
 .fwedit{flex:1;height:auto;min-height:0;border:0;border-radius:0}
 .kbd{font-size:var(--fs-xs);font-family:var(--mono);background:var(--surface-3);border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--muted);margin-left:2px}
 .fwmain{display:flex;flex-direction:column;min-width:0;overflow:hidden}
-.fwmhead{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border)}
+.fwmhead{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;padding:11px 14px;border-bottom:1px solid var(--border)}
 .fwmpath{font-size:var(--fs-sm);font-weight:600}
 .fwmadd{font-size:var(--fs-xs);color:var(--good);font-variant-numeric:tabular-nums}
 .fwmby{display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);color:var(--muted)}

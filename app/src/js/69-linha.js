@@ -137,10 +137,12 @@ function linhaJanelaTx(j, hoje){
 // muitos épicos (> 20): entregues há mais de 60 dias ficam recolhidos em "mostrar entregues (N)"
 function linhaVisiveis(modelos, hoje, mostrar){
   const l=modelos||[];
-  if(l.length<=20 || mostrar) return { vis:l, ocultos:0, recolhe:l.length>20 };
+  if(l.length<=20) return { vis:l, ocultos:0, recolhe:false };
   const cut=(hoje||new Date()).getTime()-60*LN_DIA;
   const vis=l.filter(m=>!(m.entregue && m.entregueEm && m.entregueEm.getTime()<cut));
-  return { vis, ocultos:l.length-vis.length, recolhe:true };
+  const velhos=l.length-vis.length; // nenhum entregue antigo: nada a recolher (sem "mostrar entregues (0)")
+  if(mostrar) return { vis:l, ocultos:0, recolhe:velhos>0 };
+  return { vis, ocultos:velhos, recolhe:velhos>0 };
 }
 // ordem: pela janela (início) ou entrega; sem data no fim
 function linhaOrdena(modelos){
@@ -157,7 +159,7 @@ function linhaHtml(modelos, o){
   const E=linhaEscala(vis, hoje);
   const grid=E.meses.slice(1).map(m=>`<i class="ln-gl" style="left:${m.left}%"></i>`).join('');
   const hojeL=`<i class="ln-today" style="left:${E.hojePct}%"></i>`;
-  const head=`<div class="ln-hd ln-nmh">Épico</div><div class="ln-hd ln-mh">${E.meses.map(m=>`<span class="ln-m" style="left:${m.left}%;width:${m.width}%">${esc_(m.label)}</span>`).join('')}<span class="ln-hoje" style="left:${E.hojePct}%" title="hoje, ${lnDM(hoje)}">hoje</span></div>`;
+  const head=`<div class="ln-hd ln-nmh">Épico</div><div class="ln-hd ln-mh">${E.meses.map(m=>`<span class="ln-m" style="left:${m.left}%;width:${m.width}%" title="${esc_(m.label)}">${esc_(m.label)}</span>`).join('')}<span class="ln-hoje" style="left:${E.hojePct}%" title="hoje, ${lnDM(hoje)}">hoje</span></div>`;
   const row=m=>{
     const can=!!pode(m), pj=proj(m), s=m.saude;
     const sub1=m.entregue
@@ -167,7 +169,7 @@ function linhaHtml(modelos, o){
       ? `<span class="ln-sd h-${s.state}">${esc_(LN_SAUDE[s.state])}</span>${s.note?' · “'+esc_(s.note)+'”':''}${s.by?' · '+esc_(quem(s.by)):''}${Date.parse(s.at)>0?', '+lnDM(new Date(Date.parse(s.at))):''}`
       : `<span class="ln-sd">sem avaliação</span>`);
     const acts=(can&&!m.entregue)?`<span class="ln-acts"><button class="ln-lk" type="button" data-lnwin="${esc_(m.id)}" title="definir início e fim — só uma pessoa define a janela">${m.janela?'janela':'definir janela'}</button><button class="ln-lk" type="button" data-lnhealth="${esc_(m.id)}" title="no rumo · atenção · atrasado, com uma frase">saúde</button></span>`:'';
-    const nm=`<div class="ln-nm"><button class="ln-ep" type="button" data-lnep="${esc_(m.id)}" title="${esc_('abrir o épico “'+m.nome+'”')}">${esc_(m.nome)}</button>${pj?`<span class="ln-proj">${esc_(pj)}</span>`:''}<span class="ln-sub">${sub1}</span>${m.faltaConferir?`<span class="ln-falta" title="todas as tarefas foram entregues, mas ninguém marcou o pronto quando com prova — abra o épico pra conferir">tarefas entregues · falta conferir o pronto quando</span>`:''}${sub2?`<span class="ln-sub">${sub2}</span>`:''}${acts}</div>`;
+    const nm=`<div class="ln-nm"><button class="ln-ep" type="button" data-lnep="${esc_(m.id)}" title="${esc_('abrir o épico “'+m.nome+'”')}">${esc_(m.nome)}</button>${pj?`<span class="ln-proj">${esc_(pj)}</span>`:''}<span class="ln-sub">${sub1}</span>${m.faltaConferir?`<span class="ln-falta" title="todas as tarefas foram entregues, mas ninguém marcou o pronto quando com prova — abra o épico pra conferir">tarefas entregues · falta conferir o pronto quando</span>`:''}${sub2?`<span class="ln-sub"${s?` title="${esc_(LN_SAUDE[s.state]+(s.note?' · “'+s.note+'”':'')+(s.by?' · '+quem(s.by):''))}"`:''}>${sub2}</span>`:''}${acts}</div>`;
     let lane='';
     if(m.entregue){
       // sem data conhecida: só o texto "entregue" (nada de losango num lugar inventado); fora da faixa: preso na borda, marcado
@@ -192,7 +194,7 @@ function linhaHtml(modelos, o){
   };
   const body=vis.length?vis.map(row).join(''):'';
   const more=recolhe?`<button class="btn sm quiet ln-more" type="button" data-lnmore="1">${o.mostrar?'recolher entregues antigos':'mostrar entregues ('+ocultos+')'}</button>`:'';
-  return `<div class="ln-wrap" role="region" aria-label="Linha do tempo dos épicos" tabindex="0"><div class="ln">${head}${body}</div></div>
+  return `<div class="ln-wrap" role="region" aria-label="Linha do tempo dos épicos" tabindex="0"><div class="ln" style="min-width:${Math.max(660, 240+E.meses.length*64)}px">${head}${body}</div></div>
     <div class="ln-legend"><span><i class="lg h-no_rumo"></i>no rumo</span><span><i class="lg h-atencao"></i>atenção</span><span><i class="lg h-atrasado"></i>atrasado</span><span><i class="lg h-none"></i>sem avaliação</span><span><i class="lg plan"></i>planejado</span><span><i class="lg ms"></i>entregue</span><span class="ln-lg-tx">preenchimento = "pronto quando" provado (sem ele, tarefas entregues)</span>${more}</div>`;
 }
 // @puro-linha-fim
@@ -363,7 +365,10 @@ function linhaFolhaSaude(anchor, ep){
     if(typeof toast==='function') toast('Saúde do épico salva', 'ok');
     return '';
   });
-  el.querySelectorAll('[data-lnst]').forEach(b=>{ b.onclick=()=>{ pick=b.dataset.lnst; el.querySelectorAll('[data-lnst]').forEach(x=>{ const on=x===b; x.classList.toggle('on',on); x.setAttribute('aria-checked',String(on)); }); }; });
+  const rds=[...el.querySelectorAll('[data-lnst]')];
+  const marca=(b)=>{ pick=b.dataset.lnst; rds.forEach(x=>{ const on=x===b; x.classList.toggle('on',on); x.setAttribute('aria-checked',String(on)); x.tabIndex=on?0:-1; }); };
+  rds.forEach((b,i)=>{ b.tabIndex=(pick?b.dataset.lnst===pick:i===0)?0:-1; b.onclick=()=>marca(b);
+    b.onkeydown=(e)=>{ const d={ ArrowDown:1, ArrowRight:1, ArrowUp:-1, ArrowLeft:-1 }[e.key]; if(!d) return; e.preventDefault(); const n=rds[(i+d+rds.length)%rds.length]; marca(n); n.focus(); }; });
 }
 // grava UMA chave do spec: relê o spec FRESCO e mescla (outro membro ou o agente revisor podem ter mexido no doneWhen).
 // O PATCH só vale se o épico não mudou desde a releitura (updated_at igual); mudou no meio → relê e refaz UMA vez.

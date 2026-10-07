@@ -336,6 +336,9 @@ function iaPick(el, opts){
       const cur=list.find(x=>x.id===pick.engine)||list[0];
       const rec0=typeof opts.recommend==='function'?opts.recommend():null, rec=rec0?Object.assign({}, rec0, { model:IA_PICK_ALIAS[rec0.model]||rec0.model }):null;
       const known=cur.models.some(m=>m.id===pick.model);
+      // o innerHTML refaz os botões (escolha, ou carregamento que chega depois): o foco volta pro MESMO controle
+      const ae=document.activeElement, had=ae===sh||sh.contains(ae);
+      const fk=had&&ae!==sh?['iaeng','iamodel','iacustom','iacustomin','iarec','iadef','iaok'].find(k=>k in ae.dataset):null, fv=fk?ae.dataset[fk]:null;
       sh.innerHTML=`<div class="ias-h"><b>Com qual IA?</b><span>${esc(IA_PICK_SCOPE[opts.scope]||opts.scope||IA_PICK_SCOPE.demanda)}</span><em>esc fecha</em></div>`+
         list.map(x=>`<button type="button" class="ias-opt${x.id===pick.engine?' on':''}" data-iaeng="${escA(x.id)}"${x.ready?'':' disabled aria-disabled="true"'}><span class="ias-rd" aria-hidden="true"></span><b>${esc(x.name)}${x.beta?' <small>beta</small>':''}</b>${x.state?`<em class="${x.ready?'ok':'w'}">${esc(x.state)}</em>`:''}<span class="ias-d">${esc(x.hint)}</span></button>`).join('')+
         `<div class="ias-models">${cur.models.map(m=>`<button type="button" class="ias-mc${m.id===pick.model&&!custom?' on':''}" data-iamodel="${escA(m.id)}">${esc(m.name)}${rec&&rec.engine===cur.id&&rec.model===m.id?'<small>recomendado</small>':''}</button>`).join('')}`+
@@ -351,6 +354,7 @@ function iaPick(el, opts){
       sh.querySelectorAll('[data-iarec]').forEach(b=>b.onclick=()=>{ pick=iaPickNorm(rec); custom=false; draw(); });
       sh.querySelectorAll('[data-iadef]').forEach(c=>c.onchange=()=>{ asDef=c.checked; });
       sh.querySelectorAll('[data-iaok]').forEach(b=>b.onclick=commit);
+      if(had){ const sel=fk?`[data-${fk.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}${fv?`="${CSS.escape(fv)}"`:''}]`:''; const f=(sel&&sh.querySelector(sel))||sh.querySelector('.ias-opt.on')||sh; try{ f.focus({ preventScroll:true }); }catch(_){ } }
       place();
     }
     function commit(){
@@ -367,11 +371,16 @@ function iaPick(el, opts){
       sh.classList.toggle('up', y<r.top);
     }
     const onOut=e=>{ if(!sh.contains(e.target) && !el.contains(e.target)) close(false); };
-    const onKey=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); return; } g2Trap(sh, e); };
+    const onKey=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); return; }
+      // ↑↓ andam pelas IAs e modelos (Enter/Espaço escolhem)
+      if((e.key==='ArrowDown'||e.key==='ArrowUp') && sh.contains(document.activeElement) && !document.activeElement.matches('input')){
+        const l=[...sh.querySelectorAll('.ias-opt:not([disabled]),.ias-mc')]; if(l.length){ e.preventDefault(); const i=l.indexOf(document.activeElement), d=e.key==='ArrowDown'?1:-1; l[i<0?0:(i+d+l.length)%l.length].focus(); } return; }
+      g2Trap(sh, e); };
     function close(refocus){ sh.remove(); document.removeEventListener('mousedown', onOut, true); document.removeEventListener('keydown', onKey, true); window.removeEventListener('resize', place);
       if(_iaPickOpen && _iaPickOpen.sheet===sh) _iaPickOpen=null; const p=el.querySelector('.iapill'); if(p){ p.setAttribute('aria-expanded','false'); if(refocus) try{ p.focus({ preventScroll:true }); }catch(_){ } } }
     document.body.appendChild(sh); pill.setAttribute('aria-expanded','true');
     _iaPickOpen={ ctl, sheet:sh, close };
+    sh.focus({ preventScroll:true }); // dentro da folha antes do 1º draw: ele já devolve o foco à IA marcada
     draw();
     setTimeout(()=>{ document.addEventListener('mousedown', onOut, true); document.addEventListener('keydown', onKey, true); }, 0);
     window.addEventListener('resize', place);

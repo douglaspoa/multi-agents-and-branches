@@ -32,7 +32,9 @@ function tsBucket(t){ return flowBucket(tsNorm(t)); }
 function tsSt(t){ return taskSt(tsNorm(t)); }
 // "em andamento" = MESMA etapa da Central (antes: running/thinking/queued/plan-review, e plano pra aprovar contava como rodando)
 function tsRunningOf(uid){ return (teamTasks||[]).filter(t=>t.assignee===uid && tsBucket(t)==='andamento'); }
-function tsAv(uid, on){ const n=tmName(uid); return `<span class="tsav${on?' on':''}" style="background:${agentColor(n)}" title="${escA(n)}">${esc(n.slice(0,2).toUpperCase())}</span>`; }
+// iniciais como no resto do app ("Douglas S." → DS; e-mail → só a parte antes do @)
+function tsIni(n){ const w=String(n||'?').replace(/@.*/,'').split(/[\s._-]+/).filter(Boolean); return ((w.length>1?w[0][0]+w[1][0]:(w[0]||'?').slice(0,2))).toUpperCase(); }
+function tsAv(uid, on){ const n=tmName(uid); return `<span class="tsav${on?' on':''}" style="background:${agentColor(n)}" title="${escA(n)}">${esc(tsIni(n))}</span>`; }
 function tsPeriodTasks(){ const per=lsGet('tmPeriod')||'all'; const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3; return (teamTasks||[]).filter(t=>!cut||new Date(t.updated_at).getTime()>=cut); }
 // fase (1–5) e % de um cartão da NUVEM — mesma régua da Central
 function ctPhase(t){
@@ -50,7 +52,7 @@ function ctPct(t){
   const frac=(list&&list.length)?list.filter(x=>x.status==='done').length/list.length:null;
   if(['review','delivered'].includes(t.status)) return Math.round(80+(frac==null?5:frac*15));
   if(['queued','requested'].includes(t.status)) return 15;
-  if(t.status==='backlog') return 5;
+  if(t.status==='backlog') return 0; // na fila: nada feito ainda (5% sugeria progresso)
   return Math.round(35+(frac==null?10:frac*40));
 }
 function ctPhaseBar(t){
@@ -169,7 +171,8 @@ function renderTeamBoard(){
   const devOpts=`<select class="sel" id="tbDev" aria-label="filtrar por dev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(tmName(u))}</option>`).join('')}</select>`;
   if(tmView==='overview'){
     const inP=tsPeriodTasks();
-    const done=inP.filter(B.done).length+inP.filter(B.review).length;
+    // entregue = a regra ÚNICA epDelivered (mergeada/concluída/finalizada) — pronta pra revisar ainda não conta (= Quadro, épico, Linha)
+    const done=inP.filter(epDelivered).length;
     // MESMA contagem da Central (flowCounts sobre os cartões normalizados)
     const fcT=flowCounts(all.map(tsNorm).filter(t=>t.flag!=='blocked'));
     const doing=all.filter(t=>tsBucket(t)==='andamento');
@@ -180,14 +183,14 @@ function renderTeamBoard(){
     const eps=activeEps.length;
     // entregas por dia (últimos 7)
     const days=[...Array(7)].map((_,i)=>{ const d=new Date(); d.setDate(d.getDate()-(6-i)); d.setHours(0,0,0,0); return d; });
-    const perDay=days.map(d=>all.filter(t=>(B.done(t)||B.review(t)) && new Date(t.updated_at)>=d && new Date(t.updated_at)<new Date(+d+86400e3)).length);
+    const perDay=days.map(d=>all.filter(t=>epDelivered(t) && new Date(t.updated_at)>=d && new Date(t.updated_at)<new Date(+d+86400e3)).length);
     const mx=Math.max(1,...perDay);
     const DL=['dom','seg','ter','qua','qui','sex','sáb'];
-    main=`<h1>Visão geral</h1><div class="tssub">time ${teamName} · ${perSel}</div>
+    main=`<h1>Visão geral</h1><div class="tssub">time ${teamName}${perSel}</div>
     <div class="tskpis">
-      <div class="tskpi"><div class="v">${done}</div><div class="l">entregas</div><div class="d">${inP.length} tarefas no período</div></div>
+      <div class="tskpi"><div class="v">${done}</div><div class="l">entregues</div><div class="d">${inP.length} tarefas no período · pronta pra revisar ainda não conta</div></div>
       <div class="tskpi"><div class="v" style="color:var(--accent)">${doing.length}</div><div class="l">em andamento</div><div class="d">${fcT.aguardando?`${fcT.aguardando} aguardando alguém · `:''}${nPl(nDevs,'dev ativo','devs ativos')}</div></div>
-      <div class="tskpi"><div class="v" style="color:var(--purple)">${eps}</div><div class="l">épicos ativos</div><div class="d">${activeEps.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(epDelivered).length;return esc(e.name.split(' ')[0])+' '+dn+'/'+ts.length;}).join(' · ')||'—'}</div></div>
+      <div class="tskpi"><div class="v" style="color:var(--purple)">${eps}</div><div class="l">épicos ativos</div><div class="d">${activeEps.slice(0,2).map(e=>{const ts=all.filter(t=>t.epic_id===e.id);const dn=ts.filter(epDelivered).length;return esc(e.name.split(' ')[0].replace(/[:;,.·–—-]+$/,''))+' '+dn+'/'+ts.length;}).join(' · ')||'—'}</div></div>
       <div class="tskpi"><div class="v" style="color:${prs.length?'var(--warn)':'var(--text)'}">${prs.length}</div><div class="l">PRs pra revisar</div><div class="d">${prs.length?'mais antigo '+agoTx(prs[prs.length-1].updated_at):'em dia ✓'}</div></div>
       <div class="tskpi"><div class="v">${fmtCost(custo,{usdOnly:true})}</div><div class="l">custo no período · ≈ R$ ${fmtNumBR(custo*usdBrlRate(),true)}</div><div class="d">${inP.length?fmtCost(custo/Math.max(1,done||1))+' por entrega':'—'}</div></div>
     </div>
@@ -201,9 +204,9 @@ function renderTeamBoard(){
     </div><div>
       <div class="tspanel"><div class="tsph">Entregas por dia</div><div class="tsspark">${perDay.map((n,i)=>`<div class="c"><div class="b" style="height:${Math.round(n/mx*100)}%"></div><span class="dl">${DL[days[i].getDay()]}</span></div>`).join('')}</div></div>
       <div class="tspanel"><div class="tsph">Entregas por membro</div>
-        ${(()=>{ const per={}; for(const t of inP){ const w=t.assignee||t.created_by; const b=per[w]||(per[w]={d:0,r:0,u:0}); if(B.done(t)||B.review(t)) b.d++; else if(tsBucket(t)==='andamento') b.r++; b.u+=(+t.cost_usd||0); }
+        ${(()=>{ const per={}; for(const t of inP){ const w=t.assignee||t.created_by; const b=per[w]||(per[w]={d:0,r:0,u:0}); if(epDelivered(t)) b.d++; else if(tsBucket(t)==='andamento') b.r++; b.u+=(+t.cost_usd||0); }
           const rows=Object.entries(per).sort((a,b)=>b[1].d-a[1].d);
-          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entrega')} · ${v.r} em andamento</span><span class="dim tscost" style="font-size:var(--fs-xs)">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">sem atividade no período</div>'; })()}
+          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entregue','entregues')} · ${v.r} em andamento</span><span class="dim tscost" style="font-size:var(--fs-xs)">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">sem atividade no período</div>'; })()}
       </div>
     </div></div>`;
   } else if(tmView==='board'){
@@ -224,14 +227,14 @@ function renderTeamBoard(){
     main=typeof linhaTimeHtml==='function'?linhaTimeHtml():'';
   } else if(tmView==='people'){
     const inP=tsPeriodTasks();
-    main=`<h1>Pessoas</h1><div class="tssub">${members.length} membros · ${perSel}</div><div class="tsppl">`+
+    main=`<h1>Pessoas</h1><div class="tssub">${nPl(members.length,'membro','membros')}${perSel}</div><div class="tsppl">`+
       members.map(uid=>{ const p=teamProfiles[uid]||{}; const on=tsOnline(uid); const run=tsRunningOf(uid);
         const mine=inP.filter(t=>(t.assignee||t.created_by)===uid);
-        const d=mine.filter(t=>B.done(t)||B.review(t)).length, u=mine.reduce((s,t)=>s+(+t.cost_usd||0),0);
+        const d=mine.filter(epDelivered).length, u=mine.reduce((s,t)=>s+(+t.cost_usd||0),0);
         const lastAct=(teamActivity||[]).find(a=>a.user_id===uid);
         const teamTags=orgScope?teamsOf(uid).map(tid=>`<span class="tsteamtag">${esc(tsTeamName(tid))}</span>`).join(''):'';
         return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:var(--fs-base)">${esc(tmName(uid))}</b><div class="dim" style="font-size:var(--fs-xs)">${roleOf(uid)} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}${teamTags?' · '+teamTags:''}</div></div></div>
-          <div class="nums"><div><b>${d}</b><span>entregas</span></div><div><b>${run.length}</b><span>em andamento</span></div><div><b>${fmtCost(u,{usdOnly:true})}</b><span>custo · ≈ R$ ${fmtNumBR(u*usdBrlRate(),true)}</span></div></div>
+          <div class="nums"><div><b>${d}</b><span>entregues</span></div><div><b>${run.length}</b><span>em andamento</span></div><div><b>${fmtCost(u,{usdOnly:true})}</b><span>custo · ≈ R$ ${fmtNumBR(u*usdBrlRate(),true)}</span></div></div>
           <div class="now">${run.length?`agora: <b>${esc(run[0].stage||'agente')}</b> em “${esc(run[0].title.slice(0,42))}”`:(lastAct?`último: ${tsK(lastAct.kind)} ${esc(((all.find(t=>t.id===lastAct.task_id)||{}).title||'').slice(0,40))} · ${agoTx(lastAct.at)}`:'sem atividade recente')}</div>
           ${(()=>{ // tarefas da pessoa com badge de TIPO + progresso (redesign p7)
             const act=mine.filter(t=>!['merged','done'].includes(t.status)&&t.flag!=='closed').slice(0,3);

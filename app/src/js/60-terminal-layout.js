@@ -281,7 +281,11 @@ function tlLivePaint(t){
 
 // ---------------------------------------------------------------- folha de pergunta
 function tlAskOf(t){ const g=tlAskGroup(pendingOf(t.id)); if(!g) return null; let st=TL.ask[g.key]; if(!st || st.sel.length!==g.rows.length) st=TL.ask[g.key]=tlAskNew(g); return { g, st }; }
-function tlSheetEl(taskId){ let el=TL.sheets[taskId]; if(!el){ el=document.createElement('div'); el.className='tlsheethost'; TL.sheets[taskId]=el; tlSheetWire(taskId, el); } return el; }
+function tlSheetEl(taskId){ let el=TL.sheets[taskId]; if(!el){ el=document.createElement('div'); el.className='tlsheethost'; TL.sheets[taskId]=el; tlSheetWire(taskId, el);
+  el.addEventListener('scroll', ()=>{ if(el.isConnected) el.__sc=tlAskScrollGrab(el); }, true);
+  // pergunta nova fica "presa no fim" enquanto a folha acomoda o tamanho; a pessoa rolou (roda, toque, tecla) = solta
+  ['wheel','touchstart','pointerdown','keydown'].forEach(ev=>el.addEventListener(ev, ()=>{ el.__pin=false; }, { passive:true, capture:true }));
+  if(typeof ResizeObserver==='function'){ el.__ro=new ResizeObserver(()=>{ if(el.__pin) tlAskScrollEnd(el); }); el.__ro.observe(el); } } return el; }
 /** Antes de o renderWorkspace refazer a coluna: onde estava o foco da folha (o host sai do DOM e perde o foco). */
 function tlSheetFocusGrab(taskId){ const el=TL.sheets[taskId]; const ae=document.activeElement; if(!el || !ae || !el.contains(ae)) return null; return { other:ae.matches('[data-tl="other"]'), caret:ae.selectionStart!=null?ae.selectionStart:null }; }
 function tlAskPaint(t, focus, grab){
@@ -297,11 +301,42 @@ function tlAskPaint(t, focus, grab){
   if(fresh) slot.appendChild(el);
   tlSheetPlace(slot, el);
   const html=a.st.min ? `<button type="button" class="tlpill" data-tl="askmax"><span class="tldot" style="--c:var(--st-ask)"></span>${esc(a.g.agent||'O agente')} está esperando sua resposta · <b>responder</b></button>` : tlSheetHtml(a.g, a.st);
-  if(el.__html!==html){ el.__html=html; el.innerHTML=html; }
+  // rolagem: o innerHTML zera e mover o host pra coluna nova (renderWorkspace) também — volta pela última posição vista
+  { const qk=a.g.key+'|'+a.st.q, same=el.__qk===qk;
+    if(el.__html!==html){ el.__html=html; el.innerHTML=html; tlAskScrollPut(el, same?el.__sc:null); }
+    else if(fresh) tlAskScrollPut(el, same?el.__sc:null);
+    el.__qk=qk; }
   el.classList.toggle('min', !!a.st.min);
   // foco: quem estava na folha continua nela; pergunta NOVA só pega o foco se você não estava digitando noutro lugar
   const ae=document.activeElement; const idle=!ae || ae===document.body || (TERM[t.id] && TERM[t.id].host.contains(ae));
   if(hadFocus || focus || (fresh && idle && !a.st.min)) tlAskFocus(el, inOther, caret);
+}
+// rolagem da folha entre repinturas (o innerHTML zera): mesma pergunta = volta onde estava; pergunta NOVA = abre no FIM do
+// texto, onde está a frase que de fato pergunta (o começo fica a uma rolagem, com a sombra avisando)
+function tlAskScrollGrab(el){ const q=el.querySelector('.tlq'), o=el.querySelector('.tlopts'), s=el.querySelector('.tlsheet'); return q?{ q:q.scrollTop, o:o?o.scrollTop:0, s:s?s.scrollTop:0 }:null; }
+function tlAskScrollPut(el, sc){
+  const put=()=>{ const q=el.querySelector('.tlq'), o=el.querySelector('.tlopts'), s=el.querySelector('.tlsheet'); if(!q||!s) return;
+    if(sc){ q.scrollTop=sc.q; if(o) o.scrollTop=sc.o; s.scrollTop=sc.s; } else tlAskScrollEnd(el); };
+  if(!sc) el.__pin=true;
+  if(el.__ro){ const q=el.querySelector('.tlq'); if(q) el.__ro.observe(q); }
+  put(); requestAnimationFrame(put); // a coluna recém-montada só ganha altura no quadro seguinte
+}
+function tlAskScrollEnd(el){
+  const q=el.querySelector('.tlq'), s=el.querySelector('.tlsheet'); if(!q||!s) return;
+  q.scrollTop=q.scrollHeight;
+  // pane pequeno (a folha inteira rola): o fim da pergunta + a 1ª opção logo acima de pular/próxima
+  if(s.scrollHeight>s.clientHeight+1){ const sf=el.querySelector('.tlsf'), op=el.querySelector('.tlopt'); const qb=q.getBoundingClientRect().bottom-s.getBoundingClientRect().top+s.scrollTop; s.scrollTop=Math.max(0, qb+(op?op.offsetHeight+6:0)-s.clientHeight+(sf?sf.offsetHeight:0)); }
+}
+// a opção com foco nunca fica escondida atrás da borda (o focus é preventScroll pra não mexer na página)
+function tlAskKeepVisible(b){
+  for(let a=b.parentElement; a && !a.classList.contains('tlsheethost'); a=a.parentElement){
+    if(a.scrollHeight<=a.clientHeight+1) continue;
+    const r=b.getBoundingClientRect(), p=a.getBoundingClientRect();
+    const sf=a.classList.contains('tlsheet')?a.querySelector('.tlsf'):null, sh=a.classList.contains('tlsheet')?a.querySelector('.tlsh'):null;
+    const top=p.top+(sh?sh.offsetHeight:0), bot=p.bottom-(sf?sf.offsetHeight:0);
+    if(r.top<top) a.scrollTop-=top-r.top+4; else if(r.bottom>bot) a.scrollTop+=r.bottom-bot+4;
+    return;
+  }
 }
 // a folha sobe do topo do compositor; sem espaço (pane pequeno do canvas) ela cobre o compositor também
 function tlSheetPlace(col, el){
@@ -314,7 +349,7 @@ function tlAskFocus(el, inOther, caret){
   requestAnimationFrame(()=>{
     if(inOther){ const i=el.querySelector('[data-tl="other"]'); if(i){ i.focus({ preventScroll:true }); if(caret!=null) try{ i.setSelectionRange(caret, caret); }catch(_){ } return; } }
     const b=el.querySelector('.tlopt.cur')||el.querySelector('.tlopt.sel')||el.querySelector('.tlopt')||el.querySelector('[data-tl="other"]')||el.querySelector('.tlpill');
-    if(b) b.focus({ preventScroll:true });
+    if(b){ b.focus({ preventScroll:true }); if(b.classList.contains('tlopt')) tlAskKeepVisible(b); }
   });
 }
 function tlSheetWire(taskId, el){

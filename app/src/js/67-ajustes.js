@@ -44,7 +44,8 @@ function ajSec(id){ return AJ_SECTIONS.find(x=>x.id===id)||AJ_SECTIONS[0]; }
 function ajSearch(q){
   const words=ajNorm(q).split(' ').filter(Boolean);
   if(!words.length) return { sections:AJ_SECTIONS.map(s=>s.id), elsewhere:[] };
-  const hit=txt=>{ const t=ajNorm(txt); return words.every(w=>t.includes(w)); };
+  // cada palavra casa com o COMEÇO de uma palavra ("tema" acha Aparência, não "Sis-tema")
+  const hit=txt=>{ const t=ajNorm(txt).split(/[^a-z0-9]+/).filter(Boolean); return words.every(w=>t.some(x=>x.startsWith(w))); };
   const grpName=g=>(AJ_GROUPS.find(x=>x[0]===g)||[])[1]||'';
   return { sections:AJ_SECTIONS.filter(s=>hit(s.label+' '+grpName(s.grp)+' '+s.kw)).map(s=>s.id),
     elsewhere:AJ_ELSEWHERE.filter(e=>hit(e.label+' '+e.where+' '+e.kw)) };
@@ -189,6 +190,8 @@ function ajustesOpen(section){
   if(section) AJ.sec=ajSecId(section);
   AJ.q=''; AJ.secTried=false;
   if(window.openTab) window.openTab('cfg'); else ajustesRender();
+  // aberto pelo teclado (menu do avatar): o foco entra na seção marcada em vez de ficar no body
+  requestAnimationFrame(()=>{ const ae=document.activeElement; if(ae && ae!==document.body && ae.isConnected) return; const f=document.querySelector('#ajNav .ajni.on'); if(f) f.focus(); });
 }
 window.ajustesOpen=ajustesOpen;
 window.openCloud=()=>{ const srv=typeof cloudCfgOpen!=='undefined'&&cloudCfgOpen; try{ cloudCfgOpen=false; }catch(_){ } ajustesOpen(srv?'sistema':'perfil'); };
@@ -220,6 +223,8 @@ function ajBadge(id){
 function ajNavPaint(){
   const nav=$id('ajNav'); if(!nav) return;
   const r=ajSearch(AJ.q), show=new Set(r.sections);
+  const foco=nav.contains(document.activeElement)?(document.activeElement.dataset||{}).ajsec:null; // o nav é refeito: o foco volta pra seção
+  { const c=$id('ajContent'); if(c) c.style.visibility=r.sections.length?'':'hidden'; } // busca sem resultado: a seção de antes não fica parecendo resultado
   nav.innerHTML=AJ_GROUPS.map(([g,gl])=>{ const items=AJ_SECTIONS.filter(s=>s.grp===g && show.has(s.id)); if(!items.length) return '';
       return `<div class="ajg">${esc(gl)}</div>`+items.map(s=>`<button type="button" class="ajni${s.id===AJ.sec?' on':''}" data-ajsec="${s.id}"${s.id===AJ.sec?' aria-current="page"':''}>${ajIcon(s.id)}<span>${esc(s.label)}</span>${ajBadge(s.id)}</button>`).join(''); }).join('')
     +(!r.sections.length?`<div class="ajnone">Nada em Ajustes com “${esc(AJ.q)}”.</div>`:'')
@@ -228,6 +233,7 @@ function ajNavPaint(){
   nav.querySelectorAll('[data-ajsec]').forEach(b=>b.onclick=()=>ajGo(b.dataset.ajsec));
   nav.querySelectorAll('[data-ajelse]').forEach(b=>b.onclick=()=>ajGoElsewhere(r.elsewhere[+b.dataset.ajelse].go));
   nav.querySelectorAll('[data-ajelse-go]').forEach(b=>b.onclick=()=>ajGoElsewhere(b.dataset.ajelseGo));
+  if(foco){ const f=nav.querySelector(`[data-ajsec="${AJ.sec}"]`)||nav.querySelector(`[data-ajsec="${foco}"]`); if(f) f.focus(); }
 }
 // volta à seção anterior (closeCloud e afins) — sem fechar a aba
 function ajustesBack(){ if(AJ.prev && AJ.prev!==AJ.sec) ajGo(AJ.prev); }

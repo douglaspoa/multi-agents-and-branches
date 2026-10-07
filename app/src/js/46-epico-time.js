@@ -466,7 +466,7 @@ function epqRowHtml(ct, showProj, me, isAdmin, primary){
 // R3-C1: TODAS as tarefas do épico (nuvem + locais já iniciadas), cada uma com o status efetivo — o cabeçalho do grupo
 // resume o épico inteiro (antes dizia "4 na fila" com 7 tarefas no épico e as rodando/em PR soltas em outras seções)
 const EPQ_BUCKETS=[ // ordem da frase do cabeçalho
-  ['run','rodando'], ['ask','aguardando você'], ['rev','pronta(s) pra revisar'], ['pr','com PR aberto'], ['bad','com erro ou conflito'], ['queue','na fila'],
+  ['run','rodando'], ['ask','aguardando você'], ['rev','prontas pra revisar'], ['pr','com PR aberto'], ['bad','com erro ou conflito'], ['queue','na fila'],
 ];
 function epqBucket(st, flag, pr){
   if(flag==='closed'||['merged','done','closed'].includes(st)) return 'ok';
@@ -502,7 +502,7 @@ function epqSummaryHtml(eid, qn){
   const cur=(all.find(x=>x.b!=='ok')||{}).wave||0;
   const parts=[`<span class="epqk" title="${escA((cnt.ok||0)+' de '+all.length+' tarefas deste épico entregues (mergeadas ou concluídas)')}"><b>${cnt.ok||0}/${all.length}</b> entregues</span>`];
   if(cur) parts.push(`<span class="epqk epq-wv" title="${escA('onda atual — '+EP_WAVE_TIP)}">onda ${cur}</span>`);
-  EPQ_BUCKETS.forEach(([k,l])=>{ if(cnt[k]) parts.push(`<span class="epqk epqk-${k}">${cnt[k]} ${l}</span>`); });
+  EPQ_BUCKETS.forEach(([k,l])=>{ if(cnt[k]) parts.push(`<span class="epqk epqk-${k}">${k==='rev'?nPl(cnt[k],'pronta','prontas')+' pra revisar':cnt[k]+' '+l}</span>`); });
   const dots=all.map((x,i)=>{ const pr=x.b==='pr', sk=pr?'pr-open':(x.flag==='closed'?'closed':x.st);
     const c=stColor(sk), lab=stLabel(sk);
     return `<button class="epqdot" style="--stc:${c}" data-epqt="${escA(eid)}|${i}" title="${escA(x.title+' — '+lab+' · onda '+x.wave+' · clique pra abrir')}" aria-label="${escA(x.title+' — '+lab)}"></button>`; }).join('');
