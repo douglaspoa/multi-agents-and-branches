@@ -57,7 +57,9 @@ test('A4 · ndTabLoses: 2ª conversa (sem rascunho) com mensagem pergunta; a don
 test('A4 · ⌘W e o X passam pela MESMA guarda (tabLeaveGuard → ndTabCloseOk com askYes)', () => {
   assert.match(cut(abas, 'async function tabLeaveGuard', '\n}\n'), /if\(closing && typeof ndTabCloseOk==='function' && !await ndTabCloseOk\(tabById\(targetId\)\)\) return false;/);
   const w = cut(abas, "else if(k==='w' && !e.shiftKey)", "else if(/^[1-9]$/");
-  assert.match(w, /if\(t\.kind!=='task' && typeof tabLeaveGuard==='function' && !await tabLeaveGuard\(t\.id, true\)\) return;/);
+  // ⌘W passa por tabCloseGuarded → tabLeaveGuard(id, true) → ndTabCloseOk (a mesma porta do X da aba)
+  assert.match(w, /await tabCloseGuarded\(t\.id\);/);
+  assert.match(cut(abas, 'async function tabCloseGuarded', '\n}\n'), /if\(!await tabLeaveGuard\(id, true\)\) return false;/);
   assert.match(cut(form, 'async function ndTabCloseOk', '\n}\n'), /await askYes\(/);
   assert.ok(!/window\.confirm/.test(cut(form, 'async function ndTabCloseOk', '\n}\n')));
 });
