@@ -194,6 +194,24 @@ function fabRoute(kind, ctx){
   if(kind==='nova') return { kind:'planner' };
   return { kind };
 }
+// o que a opção escolhida virou (B4): épico da Feature criado POR INTEIRO, criado EM PARTE (parou no meio: N de M
+// tarefas, dá pra continuar sem duplicar), ou levada pro "Começar por uma ideia" (App novo)
+// a MESMA regra decide o que a tela mostra e o que o "continuar" retoma: épico com id = dá pra retomar
+function fabParte(criado){ return criado && !criado.ideia && criado.epicId ? criado : null; }
+function fabCriadoEstado(criado, total){
+  if(!criado) return null;
+  if(criado.ideia) return { kind:'ideia' };
+  if(!fabParte(criado)) return { kind:'feito', n:((criado.tasks)||[]).length, m:+total||0 };
+  const n=((criado.tasks)||[]).length, m=Math.max(+total||0, n);
+  return criado.partial || (m>0 && n<m) ? { kind:'parcial', n, m } : { kind:'feito', n, m };
+}
+// retomada sem duplicar: as já gravadas na sessão + as que existem no projeto com esse épico (a marca pode não ter
+// sido gravada depois do new_task), casadas pelo título na ordem do plano; para no 1º buraco (as dependências seguem a ordem)
+function fabJaCriadas(made, titles, existing){
+  const out=(made||[]).slice(), ex=(existing||[]).filter(t=>t && !out.includes(t.id));
+  for(let k=out.length;k<(titles||[]).length;k++){ const j=ex.findIndex(t=>t.title===titles[k]); if(j<0) break; out.push(ex[j].id); ex.splice(j,1); }
+  return out;
+}
 // @fabrica-puro-fim
 
 Object.assign(IC, { fabrica:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 13V7l3 2V7l3 2V7l3 2V3h3v10z" stroke-linejoin="round"/></svg>' });
@@ -306,7 +324,7 @@ async function fabToIdeia(i){
   const id='i-'+Date.now().toString(36)+'-'+(Math.random().toString(36).slice(2)+'0000').slice(0,4)+'x';
   const m={ id, v:1, titulo, createdAt:Date.now(), updatedAt:Date.now(), turns:[fabIdeaTurn(op, s.foco, typeof ideiaPanel==='function'?ideiaPanel():[])],
     report:{ status:'ok', data, md:(typeof ideiaReportMd==='function'?ideiaReportMd(data, titulo, { engine:'Fábrica', date }):''), engine:s.engine||'', costUsd:0, at:Date.now(), sites:(data.fontes||[]).length, avisos:data.avisos||[] },
-    decision:null, project:null, costUsd:0, tokUsd:0, tokens:0, fabrica:{ sessao:s.id, idx:i, foco:s.foco, mockHtml:op.mock&&op.mock.estado==='ok'?op.mock.html:'' } };
+    decision:null, project:null, costUsd:0, tokUsd:0, tokens:0, capUsd:typeof ideiaSessCapBase==='function'?ideiaSessCapBase():2, fabrica:{ sessao:s.id, idx:i, foco:s.foco, mockHtml:op.mock&&op.mock.estado==='ok'?op.mock.html:'' } };
   try{
     await invoke('ideia_save',{ id, data:m });
     await invoke('fabrica_choose',{ id:s.id, idx:i, criado:{ ideia:id } });
@@ -320,13 +338,13 @@ async function fabMakeEpic(i){
   const s=fabSess(), op=s&&s.opcoes&&s.opcoes[i]; if(!op || FAB.busy) return;
   if(typeof state==='undefined' || state.repo!==s.projeto){ if(window.switchProject && s.projeto){ try{ await window.switchProject(s.projeto); }catch(e){ showErr(e,'Não consegui abrir o projeto'); return; } } else { toast('Abra o projeto da feature primeiro.','warn'); return; } }
   // criação que parou no meio: RETOMA com o mesmo épico e as tarefas já criadas (nada duplicado)
-  const part=s.escolha && s.escolha.idx===i && s.escolha.criado && s.escolha.criado.partial ? s.escolha.criado : null;
+  const part=fabParte(s.escolha && s.escolha.idx===i ? s.escolha.criado : null);
   const slug=typeof ideiaSlug==='function'?ideiaSlug(op.titulo):'feature';
   const epicId=part?part.epicId:'fab-'+slug+'-'+Date.now().toString(36).slice(-4), mockRef=`mock-${slug}.html`;
   const plan=fabFeaturePlan(op, (FAB.ov[s.id]||{})[i], mockRef), why=fabPlanoProblema(plan);
   if(why){ toast('Não dá pra criar o épico: '+why+'.','warn'); return; }
   FAB.busy=true; fabRender();
-  const made=part?(part.tasks||[]).slice():[];
+  let made=part?(part.tasks||[]).slice():[];
   let mockPath=part?part.mockPath||'':'';
   const mark=async(partial)=>{ const criado={ partial, epicId, epic:plan.epic, tasks:made.slice(), mockPath, projeto:s.projeto }; await invoke('fabrica_choose',{ id:s.id, idx:i, criado }); s.escolha={ idx:i, criado }; };
   try{
@@ -334,6 +352,8 @@ async function fabMakeEpic(i){
     if(!mockPath && op.mock && op.mock.estado==='ok' && plan.tasks.some(t=>t.mock)) mockPath=await invoke('write_ref_file',{ name:mockRef, text:op.mock.html });
     const pol=typeof ntPolicy!=='undefined'?ntPolicy:{};
     const all=fabPayloads(plan, ideiaTaskPayloads(plan, epicId, { engine:defaultAiEngine(), model:defaultAiModel(), proof:pol.proofRequired, tests:pol.testsRequired }), mockPath);
+    if(part){ try{ if(typeof refresh==='function') await refresh(); }catch(_){ } // confere no projeto as que já existem com esse épico
+      made=fabJaCriadas(made, all.map(x=>x.payload.title), ((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>t.epic&&t.epic.epicId===epicId)); }
     for(let k=made.length;k<all.length;k++){
       const { afterIdx, payload }=all[k];
       payload.after=afterIdx.map(j=>made[j]).filter(Boolean);
@@ -388,6 +408,8 @@ function fabVotesHtml(op){
 }
 function fabFooterHtml(s, i, op){
   const feat=s.mode==='feature', d=(s.descartes||{})[i], ch=s.escolha&&s.escolha.idx===i&&s.escolha.criado;
+  const ce=ch&&fabCriadoEstado(ch, feat?fabFeaturePlan(op, (FAB.ov[s.id]||{})[i], 'mock.html').tasks.length:0);
+  if(ce && ce.kind==='parcial') return `<div class="fab-partial" role="status"><b>Épico criado em parte (${ce.n} de ${ce.m} tarefa${ce.m===1?'':'s'})</b> — a criação parou no meio. Continuar cria só as que faltam, sem repetir.</div><div class="row1"><button type="button" class="btn sm primary" data-fmk="${i}"${FAB.busy?' disabled':''}>${FAB.busy?'criando…':`Continuar de onde parou (faltam ${ce.m-ce.n})`}</button></div>`;
   if(ch) return `<div class="fab-done">${IC.ok||''} ${feat?'Épico criado neste projeto — as tarefas estão em rascunho':'Levada pro Começar por uma ideia'}${!feat&&ch.ideia?` <button type="button" class="btn sm" data-fideia="${fabEsc(ch.ideia)}">abrir</button>`:''}</div>`;
   if(d) return `<div class="fab-discarded">Descartada — motivo: <b>${fabEsc(d)}</b> <button type="button" class="fab-lnk" data-fundisc="${i}">desfazer</button></div>`;
   if(FAB.confirm===i) return fabConfirmHtml(s, i, op);
@@ -402,7 +424,7 @@ function fabConfirmHtml(s, i, op){
       `<div class="note">o projeto só nasce quando você clicar em criar lá · <b>nada roda até você iniciar</b></div><div class="row1"><button type="button" class="btn sm primary" data-fmk="${i}"${busy?' disabled':''}>Levar pro Começar por uma ideia</button><button type="button" class="btn sm" data-funbuild>Voltar</button></div></div>`;
   }
   const plan=fabFeaturePlan(op, (FAB.ov[s.id]||{})[i], 'mock.html'), q=plan.tasks.filter(t=>t.aguarda).length, proj=fabProjName(s.projeto), why=fabPlanoProblema(plan);
-  const part=s.escolha && s.escolha.idx===i && s.escolha.criado && s.escolha.criado.partial ? s.escolha.criado : null;
+  const part=fabParte(s.escolha && s.escolha.idx===i ? s.escolha.criado : null);
   if(why) return `<div class="fab-confirm"><h5>Ainda não dá pra montar o épico</h5><div class="note">${fabEsc(why)}.</div><div class="row1"><button type="button" class="btn sm" data-funbuild>Voltar</button></div></div>`;
   return `<div class="fab-confirm"><h5>Vai criar 1 épico + ${plan.tasks.length} tarefas em ${fabEsc(proj)}</h5><ol>${plan.tasks.map((t,k)=>`<li class="${t.aguarda?'q':''}"><b>tarefa ${k}</b><span>${fabEsc(k===0?'confirmar impacto (só leitura)':t.title)}${t.owns?` · arquivos: <code>${fabEsc(t.owns)}</code>`:''}${t.mock?' · leva o mock':''}${t.aguarda?` · inicie depois de ${fabEsc(t.aguarda)} (mesma área)`:''}</span></li>`).join('')}</ol>`+
     `<div class="note">${part?`<b>retomando:</b> ${(part.tasks||[]).length} tarefa(s) já criadas não se repetem · `:''}${q?`${q} tarefa${q===1?'':'s'} mexe${q===1?'':'m'} na área de uma demanda ativa e não começa${q===1?'':'m'} sozinha${q===1?'':'s'} · `:''}cada tarefa mexe em arquivos diferentes · <b>nada roda até você iniciar</b>${op.ideiaNossa?' · <b>ideia nossa: sem pedido registrado</b>':''}${op.grande?' · <b>grande: considere dividir antes</b>':''}</div>`+

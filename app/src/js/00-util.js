@@ -491,6 +491,7 @@ function pageHead(o){
   const m=o.more; const more=m ? `<button class="btn icon quiet pgh-more"${m.id?` id="${E(m.id)}"`:''} title="${E(m.title||'Mais ações')}" aria-label="${E(m.title||'Mais ações')}" aria-haspopup="menu">${icn('dots')}</button>` : '';
   return `<header class="pghead"${o.id?` id="${E(o.id)}"`:''}><div class="pgh-t"><h1 class="pgh-title">${E(o.title||'')}</h1>`
     + (sc?`<span class="pgh-scope" title="Pra quem vale o que está nesta página">${icn(sc[0])}${E(scLabel)}</span>`:'')
+    + (o.money?`<span class="pgh-money">${o.money}</span>`:'') // gasto/teto: nunca encolhe nem some (B3) — a linha quebra antes
     + (o.sum?`<span class="pgh-sum">${o.sum}</span>`:'') + `<span class="pgh-sp"></span>${o.right||''}${prim}${more}</div>`
     + (o.sub?`<p class="pgh-sub">${E(o.sub)}</p>`:'') + (o.tabs||'') + `</header>`;
 }
