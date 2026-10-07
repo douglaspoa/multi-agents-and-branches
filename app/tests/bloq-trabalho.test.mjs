@@ -115,7 +115,9 @@ test('11 · painel do canvas: term-data/term-exit chegam, só os da demanda do p
 });
 
 test('revisão · X/Cancelar do Formulário fecham (o MouseEvent do onclick não vira id de aba)', async () => {
-  assert.match(read('js/33-switcher-projetos.js'), /\$id\("ntClose"\)\.onclick = \(\)=>closeNewTask\(\);[^\n]*\n\$id\("ntCancel"\)\.onclick = \(\)=>closeNewTask\(\);/);
+  // revisão atrap-trabalho: o botão passa pela guarda (ntUserClose → tabCloseGuarded); sem aba, cai no closeNewTask sem argumento
+  assert.match(read('js/33-switcher-projetos.js'), /\$id\("ntClose"\)\.onclick = \(\)=>ntUserClose\(\);[^\n]*\n\$id\("ntCancel"\)\.onclick = \(\)=>ntUserClose\(\);/);
+  assert.match(read('js/31-nova-demanda-form.js'), /function ntUserClose\(\)\{[^\n]*return tabCloseGuarded\(t\.id\); closeNewTask\(\); \}/);
   const { W, ntOpenFormTab, closeNewTask } = formWorld();
   await ntOpenFormTab(); const mine = W.activeTab;
   closeNewTask({ type: 'click', target: {} });

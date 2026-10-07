@@ -7,6 +7,7 @@ let projFilter = lsGet('projFilter')||'all'; // 'all' (integrado) | caminho de u
 let allTasksCache = [];   // tarefas de TODOS os projetos (list_all_tasks), pro board integrado
 let allTasksSig = '';
 let allTasksAt = 0;       // throttle: list_all_tasks abre o sqlite de CADA projeto (I/O)
+let allTasksOk = false;   // o cache já foi lido ao menos uma vez (vazio de verdade ≠ ainda não leu)
 function projShort(p){ return pathBase(p); } // E10: aceita C:\… também
 // lista [caminho, nome] dos projetos conhecidos (ativo + os do cache multi-projeto)
 function projList(){ const m=new Map(); if(state.repo) m.set(state.repo, projShort(state.repo)); (allTasksCache||[]).forEach(t=>{ if(t.repo) m.set(t.repo, t.proj||projShort(t.repo)); }); return [...m.entries()]; }
@@ -31,7 +32,7 @@ async function loadAllTasks(force){
   // escrevendo) fazia o board recarregar sem parar e "comer" o clique. A cada ~4s basta.
   if(!force && Date.now()-allTasksAt < 4000) return;
   allTasksAt=Date.now();
-  try{ const r=await invoke('list_all_tasks'); const sig=r.map(t=>t.id+':'+t.status+':'+(t.sortOrder??'')).join(','); if(sig!==allTasksSig){ allTasksSig=sig; allTasksCache=r;
+  try{ const r=await invoke('list_all_tasks'); allTasksOk=true; const sig=r.map(t=>[t.id,t.status,t.sortOrder??'',t.flag||'',t.prUrl||'',t.stage||''].join(':')).join(','); /* flag/PR/etapa também mudam as contagens */ if(sig!==allTasksSig){ allTasksSig=sig; allTasksCache=r;
     // NÃO re-renderiza o Fluxo direto aqui: isso pulava o guard de clique (uiHoldUntil)
     // e destruía o card entre mousedown/mouseup. Marca sujo e deixa o refresh (guardado)
     // aplicar no próximo tick, respeitando o clique em andamento.
@@ -45,11 +46,11 @@ function ntFillProjects(){
   if(!list.length) list=projList().map(([path,name])=>({path,name}));
   if(!list.length && state.repo) list=[{path:state.repo,name:projShort(state.repo)}];
   sel.innerHTML=list.map(p=>`<option value="${escA(p.path)}"${p.path===state.repo?' selected':''}>${esc(p.name||projShort(p.path))}</option>`).join('');
-  sel.onchange=async()=>{ const p=sel.value; if(p && p!==state.repo && window.switchProject) await window.switchProject(p); };
+  sel.onchange=async()=>{ const p=sel.value; if(p && p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(_){ sel.value=state.repo||''; } } };
 }
 // clicar numa tarefa de OUTRO projeto → troca pra ele e abre a tarefa
 async function switchToProjectTask(repo, id){
-  try{ if(window.switchProject) await window.switchProject(repo); }catch(_){}
+  try{ if(window.switchProject) await window.switchProject(repo); }catch(_){ return; } // L14: não abre a tarefa no projeto errado
   selected=id; try{ lsSet('sel:'+repo, id); }catch(_){}
   const t=(state.tasks||[]).find(x=>x.id===id); render(); if(t) openOrEdit(t);
 }
@@ -71,7 +72,7 @@ async function crossRun(id, fn){
   const t=src.find(x=>x.id===id);
   if(t && t._cross && t.repo && t.repo!==state.repo){
     toast('abrindo o projeto '+(t.proj||projShort(t.repo))+'…','info');
-    if(window.switchProject) await window.switchProject(t.repo);
+    if(window.switchProject){ try{ await window.switchProject(t.repo); }catch(_){ return; } } // L14: a troca já avisou do erro
     if(state.repo!==t.repo || !(state.tasks||[]).some(x=>x.id===id)){ toast('Não consegui abrir o projeto '+(t.proj||projShort(t.repo))+' — abra ele na barra lateral e tente de novo.','warn'); return; }
     selected=id; lastSig=''; render();
   } else if(!(state.tasks||[]).some(x=>x.id===id)) return;
@@ -164,17 +165,23 @@ function flowScopeOk(t){
   return flowScope==='done' ? taskEncerrada(t) : (notHidden(t) && !taskEncerrada(t)); // F4: cancelada = encerrada (Concluídas)
 }
 function flowVisible(tasks){
-  const q=flowQuery.trim().toLowerCase();
   return tasks.filter(t=>
     flowScopeOk(t) &&
     // chips de status = as MESMAS seções da lista (flowBucket); em Concluídas não há chips, então não filtra
     (flowScope==='done'||flowStatus==='all'||flowBucket(t)===flowStatus) &&
-    (flowEpic==='all'||((t.epic&&t.epic.epicId)||'')===flowEpic) &&
-    (flowType==='all'||taskType(t)===flowType) &&
+    flowOtherFiltersOk(t)
+  );
+}
+// todos os filtros MENOS o de status (épico, tipo, período, agente, busca): os chips contam por aqui — C1 (mesa-bugs-2):
+// com a busca "cores" a lista tinha 1 linha e os chips seguiam "Todas 3 · Em andamento 2"
+// skip='type': o select de Tipo conta cada opção com todos os filtros MENOS o próprio tipo (senão escolher um tipo sumia com os outros)
+function flowOtherFiltersOk(t, skip){
+  const q=flowQuery.trim().toLowerCase();
+  return (flowEpic==='all'||((t.epic&&t.epic.epicId)||'')===flowEpic) &&
+    (skip==='type'||flowType==='all'||taskType(t)===flowType) &&
     inPeriod(t) &&
     (flowAgent==='all'||taskAgents(t).includes(flowAgent)) &&
-    (!q || (t.title||'').toLowerCase().includes(q))
-  );
+    (!q || (t.title||'').toLowerCase().includes(q));
 }
 function renderFlowFilters(){
   const el=$id('flowFilters'); if(!el) return;
@@ -183,7 +190,7 @@ function renderFlowFilters(){
   // os chips contam SÓ o que a aba atual (Execução/Concluídas) mostra — senão "Review 29" aparece
   // com a lista vazia porque as 29 estão encerradas (moram em Concluídas)
   let srcAll; try{ srcAll=boardSource(); }catch(_){ srcAll=(state.tasks||[]); }
-  const byPeriod=srcAll.filter(t=>inPeriod(t)&&flowScopeOk(t));
+  const byPeriod=srcAll.filter(t=>flowScopeOk(t)&&flowOtherFiltersOk(t)); // C1: os chips contam o que a lista mostraria (só o status muda)
   const epqN=(typeof epQueueCount==='function')?epQueueCount():0;
   const fcP=flowCounts(byPeriod); // a MESMA contagem do cabeçalho/barra de status/Kanban
   const count=g=> g==='all'?byPeriod.length:g==='epicos'?epqN:(fcP[g]||0);
@@ -202,7 +209,8 @@ function renderFlowFilters(){
   const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
   if(flowAgent!=='all' && agents.length && !agents.includes(flowAgent)) flowAgent='all'; // lista vazia = ainda carregando: não perde o filtro salvo
   const agOpts=['all',...agents].map(a=>`<option value="${escA(a)}"${flowAgent===a?' selected':''}>${a==='all'?'Todos os agentes':esc(a)}</option>`).join('');
-  const tyCount=k=>byPeriod.filter(t=>taskType(t)===k).length;
+  const byNoType=srcAll.filter(t=>flowScopeOk(t)&&flowOtherFiltersOk(t,'type'));
+  const tyCount=k=>byNoType.filter(t=>taskType(t)===k).length;
   if(flowType!=='all' && !TYPE_ORDER.includes(flowType)){ flowType='all'; flowSetF('flowType','all'); } // valor antigo (build…) que nenhuma tarefa usa
   // tipo salvo que hoje tem 0 tarefas continua na lista (senão o select mostrava "Todos" e a lista vinha vazia sem explicação)
   const tyOpts=[['all','Todos os tipos']].concat(TYPE_ORDER.filter(k=>tyCount(k)>0||k===flowType).map(k=>[k, (TYPE_PT[k]||k)+' ('+tyCount(k)+')']))
@@ -211,13 +219,14 @@ function renderFlowFilters(){
   if(flowScope!=='done') flowScope='exec';
   // F4 (mesa D2): Em andamento · Concluídas — "Time" virou página própria (lateral, só com organização)
   const nExec=srcAll.filter(t=>notHidden(t)&&!taskEncerrada(t)).length, nDone=srcAll.filter(taskEncerrada).length;
-  const TABS=[['exec','Em andamento',nExec],['done','Concluídas',nDone]];
+  // C2 (mesa-bugs-2): a aba é "Em aberto" (tudo que está vivo, como na lateral); "Em andamento" é SÓ a etapa (chip/seção)
+  const TABS=[['exec','Em aberto',nExec],['done','Concluídas',nDone]];
   // Execução = SÓ o que é meu (tarefas locais + cartões que assumi). Backlog do time de outra pessoa / sem dono /
   // de projeto que não tenho aqui mora no Time — o número na aba avisa e o clique abre direto o Quadro do time
   const nTeamQ=(typeof epQueueTeamCount==='function')?epQueueTeamCount():0;
   // ordem manual (arrastar na grade) vale DENTRO de cada seção; "restaurar" volta pra mais recentes primeiro —
   // fica como link discreto junto dos controles de vista (antes era um botão no meio dos chips de status)
-  const manualOn=flowScope!=='done' && lsGet('flowManual')!=='0' && srcAll.some(t=>t.sortOrder!=null);
+  const manualOn=flowScope!=='done' && flowViewEff()!=='table' && lsGet('flowManual')!=='0' && srcAll.some(t=>t.sortOrder!=null); // a tabela não usa a ordem manual (ordena pela coluna)
   const resetBtn=manualOn?`<button class="fvlink" id="flowResetOrder" title="você reordenou arrastando — volta pra ordem automática (mais recentes primeiro em cada seção)">↺ restaurar ordem</button>`:'';
   const tabsHtml=`<div class="ftabs">`+
     TABS.map(([k,l,n])=>`<button class="ft${flowScope===k?' on':''}" role="tab" aria-selected="${flowScope===k}" data-ftab="${k}">${l}<span class="n">${n}</span></button>`).join('')+
@@ -259,7 +268,7 @@ function renderFlowFilters(){
   // SEMPRE visível: status + busca + projeto/épico/tipo (selects compactos)
   const isDone=flowScope==='done';
   const filterRow=`<div class="ffrow" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">`+
-    (isDone?`<div class="seg2 cdseg" role="tablist" aria-label="Concluídas"><button role="tab" class="${centralDoneSub==='ent'?'on':''}" aria-selected="${centralDoneSub==='ent'}" data-cdsub="ent">Entregas</button><button role="tab" class="${centralDoneSub==='res'?'on':''}" aria-selected="${centralDoneSub==='res'}" data-cdsub="res">Resumo do período</button></div>`+(centralDoneSub==='res'?'':`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`):`<div class="ffchips">${stChips}</div>`)+
+    (isDone?`<div class="seg2 cdseg" role="tablist" aria-label="Concluídas"><button role="tab" class="${centralDoneSub==='ent'?'on':''}" aria-selected="${centralDoneSub==='ent'}" data-cdsub="ent">Entregas</button><button role="tab" class="${centralDoneSub==='res'?'on':''}" aria-selected="${centralDoneSub==='res'}" data-cdsub="res" title="um dia do projeto aberto — o que os agentes fizeram (troque o dia no seletor)">Resumo do dia</button></div>`+(centralDoneSub==='res'?'':`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`):`<div class="ffchips">${stChips}</div>`)+
     `<span style="flex:1"></span>`+
     // busca por nome SEMPRE visível (antes ficava escondida nos filtros avançados)
     `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
@@ -329,7 +338,7 @@ function flowEmptyHtml(){
   if(q) return emptyHtml({ icon:'search', title:'Nenhuma tarefa com “'+q+'” no nome', help:'Confira a grafia ou busque por outra palavra do título.', action:{ id:'flowClearSearch', label:'limpar busca', primary:false } });
   if(anyF) return emptyHtml({ icon:'search', title:'Nenhuma tarefa neste filtro', help:'Os filtros escolhidos estão escondendo as tarefas.', action:{ id:'flowClearFilters', label:'limpar filtros', primary:false } });
   if(flowScope==='done') return emptyHtml({ icon:'checkc', title:'Nada concluído ainda', help:'Quando você concluir ou mergear uma entrega, ela aparece aqui com as provas e os documentos.' });
-  return emptyHtml({ icon:'spark', title:'Nenhuma tarefa em andamento', help:'Descreva o que precisa ser feito e os agentes cuidam do resto.', action:{ id:'flowEmptyNew', label:'Nova demanda' } });
+  return emptyHtml({ icon:'spark', title:'Nada em aberto', help:'Descreva o que precisa ser feito e os agentes cuidam do resto.', action:{ id:'flowEmptyNew', label:'Nova demanda' } });
 }
 // barra de navegação NOVA nas demais vistas (Kanban/Grafo/Atividade/Time) —
 // mesma linguagem da home; o seg2 antigo não aparece mais em lugar nenhum
@@ -337,7 +346,7 @@ function renderNavTabs(v){
   const el=$id('navTabs'); if(!el) return;
   if(el.dataset.sig===('nav:'+v)) return; el.dataset.sig='nav:'+v;
   el.innerHTML=`<div class="ftabs">
-    <button class="ft${v==='kanban'?' on':''}" data-nv-scope="exec">Em andamento</button>
+    <button class="ft${v==='kanban'?' on':''}" data-nv-scope="exec">Em aberto</button>
     <button class="ft" data-nv-scope="done">Concluídas</button>
     <span class="grow"></span>
     <button class="fvic${v==='flow'?' on':''}" data-nv-view="flow" title="Fluxo (lista)" aria-label="ver em lista" aria-pressed="${v==='flow'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>
@@ -381,6 +390,13 @@ function flowLiveTasks(src){
   if(!src){ try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); } }
   return (src||[]).filter(t=>notHidden(t) && !taskEncerrada(t));
 }
+// @proj-vivas-inicio — L11 (mesa-bugs-2): UMA régua de "demanda viva" por projeto pra lateral, Projetos e página Projeto
+// (antes a lateral contava os OUTROS projetos pelo projects_overview: até 8, sem rascunho/pausada — e a Central por outra
+// lista). Viva = não encerrada e não bloqueada, sem depender do botão "Bloqueadas" da Central. Outro projeto = o MESMO
+// list_all_tasks da Central (allTasksCache); classificação por etapa = flowCounts/flowBucket.
+function projLiveTasks(tasks){ return (tasks||[]).filter(t=>t && t.flag!=='blocked' && !taskEncerrada(t)); }
+function projTasksOf(path){ if(path===state.repo) return state.tasks||[]; return (allTasksCache||[]).filter(t=>t.repo===path).map(normAgg); }
+// @proj-vivas-fim
 // A CONTAGEM ÚNICA: quantas tarefas em cada etapa (chaves = FLOW_SECS + 'fila'). `rodando` = subconjunto de
 // andamento que está de fato executando agora (running/thinking) — só pra detalhe/tooltip.
 function flowCounts(tasks){
@@ -470,7 +486,7 @@ function renderFlowHead(){
   const el=$id('flowHead'); if(!el) return;
   // só troca o DOM se mudou: reescrever a cada render piscava e zerava o #coordChip (preenchido a cada 2s)
   const put=h=>{ if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; };
-  const fc=flowCounts(flowLiveTasks());
+  const fc=flowCounts(projLiveTasks(boardSource())); // régua única (projLiveTasks): não depende do botão Bloqueadas
   let sum;
   if(flowScope==='done'){
     let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }
@@ -852,7 +868,7 @@ function renderFlow(){
       if(e.key==='Enter'||e.key===' '){ e.preventDefault(); r.click(); }
       else if(r.dataset.id && (e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))){ e.preventDefault(); openTaskMenu(r.dataset.id, r); } };
   });
-  el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); startTask(b.dataset.rowplay); });
+  el.querySelectorAll('[data-rowplay]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowplay; crossRun(id, ()=>startTask(id)); }); // L13: rascunho de outro projeto troca pro dono antes
   // aprovar pelo card passa pelo MESMO portão do cabeçalho (prova → verificação → PR) — antes pulava direto pro PR
   const taskOfId=(id)=>(state.tasks||[]).find(x=>x.id===id);
   el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowpr; crossRun(id, ()=>approveGate(taskOfId(id))); });

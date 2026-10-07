@@ -204,7 +204,7 @@ function projSubNorm(s){ return PROJ_SECS.some(x=>x[0]===s)?s:'conversa'; }
 // @puro-projeto-fim
 let projSub=projSubNorm(lsGet('projSub'));
 let projRepoShown=null;
-function projCounts(){ const live=(typeof flowLiveTasks==='function')?flowLiveTasks((state.tasks||[])):(state.tasks||[]); const fc=flowCounts(live);
+function projCounts(){ const live=(typeof projLiveTasks==='function')?projLiveTasks((state.tasks||[])):(state.tasks||[]); const fc=flowCounts(live); // L11: régua única (lateral = Projetos = Projeto)
   return { vivas:live.length, aguardando:aguardandoVoceCount(live), prontas:prontasRevisarCount(live), fc }; }
 function projPageOpen(tab){
   if(tab && tab.sub){ projSub=projSubNorm(tab.sub); tab.sub=null; lsSet('projSub', projSub); }

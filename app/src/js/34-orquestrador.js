@@ -248,7 +248,7 @@ function orqRenderBrief(body){
 // normaliza a lista de fases vinda da IA (plano novo OU plano ajustado na conversa); `prev` preserva taskId das fases com a mesma key
 function orqNormPhases(list, prev){
   const prevBy=Object.fromEntries((prev||[]).map(x=>[x.key,x]));
-  const phases=(list||[]).slice(0,8).map((p,i)=>({ key:String(p.key||('n'+(i+1))), name:String(p.name||('Etapa '+(i+1))).slice(0,60), kind:ORQ_KINDS[p.kind]?p.kind:'build', agent:String(p.agent||(ORQ_KINDS[p.kind]||ORQ_KINDS.build).agent).slice(0,30),
+  const phases=(list||[]).slice(0,(typeof PL_PLAN_MAX!=='undefined'?PL_PLAN_MAX:20)) /* o mesmo teto do épico (32-planner) */ .map((p,i)=>({ key:String(p.key||('n'+(i+1))), name:String(p.name||('Etapa '+(i+1))).slice(0,60), kind:ORQ_KINDS[p.kind]?p.kind:'build', agent:String(p.agent||(ORQ_KINDS[p.kind]||ORQ_KINDS.build).agent).slice(0,30),
     objective:String(p.objective||'').trim(), objectives:(Array.isArray(p.objectives)?p.objectives:[]).map(x=>String(x).trim()).filter(Boolean).slice(0,6), autonomy:p.autonomy==='ask'?'ask':'free', dependsOn:(Array.isArray(p.dependsOn)?p.dependsOn:[]).map(String), taskId:(prevBy[String(p.key)]||{}).taskId||null }));
   const keys=new Set(phases.map(p=>p.key)); phases.forEach(p=>{ p.dependsOn=p.dependsOn.filter(k=>keys.has(k)&&k!==p.key); });
   return phases;

@@ -259,7 +259,7 @@ function renderRail(){
   // a cor do STATUS_META — veto da Bia: o status é SEMPRE palavra, nunca só a bolinha
   const tagOf=(st)=>[stShort(st), stColor(st), stLabel(st)];
   // MESMA regra de visibilidade do quadro (bloqueadas e encerradas ficam fora — o quadro tem o chip pra revelar)
-  const mine=(state.tasks||[]).filter(t=>t.flag!=='blocked'&&!taskEncerrada(t)); // F4: cancelada também sai (taskEncerrada, 00-util)
+  const mine=(typeof projLiveTasks==='function')?projLiveTasks(state.tasks):(state.tasks||[]).filter(t=>t.flag!=='blocked'&&!taskEncerrada(t)); // L11: régua única (22 projLiveTasks)
   const rows=mine.map(t=>({ t, st:taskSt(t) })).sort((a,b)=>railRank(a.st)-railRank(b.st) || taskTs(b.t)-taskTs(a.t)).slice(0,12);
   const hi=railHi();
   const cMine=railCounts(mine, flowBucket);
@@ -284,7 +284,9 @@ function renderRail(){
   }
 
   // ---- OUTROS projetos: só os com demanda viva (esperando você em cima); os vazios viram uma linha ----
-  const others=(projOv||[]).filter(p=>p.path!==curPath);
+  // L11: as tarefas dos outros projetos vêm da MESMA lista da Central (list_all_tasks), com a mesma régua de "viva"
+  // (projLiveTasks); o projects_overview fica só como reserva até essa lista chegar
+  const others=(projOv||[]).filter(p=>p.path!==curPath).map(p=>(typeof allTasksOk!=='undefined' && allTasksOk && typeof projLiveTasks==='function')?Object.assign({}, p, { tasks:projLiveTasks(projTasksOf(p.path)) }):p);
   const { vivos, vazios }=railSplitProjects(others);
   const cOf=new Map(vivos.map(p=>[p, railCounts(p.tasks, flowBucket)]));
   vivos.sort((a,b)=> cOf.get(b).voce-cOf.get(a).voce || cOf.get(b).vivas-cOf.get(a).vivas || String(a.name).localeCompare(String(b.name)));
@@ -317,7 +319,7 @@ function renderRail(){
     if(r.dataset.pilrow){ if(window.openTab) window.openTab('pilotorun'); return; }
     if(r.classList.contains('other')){ // demanda de outro projeto: ABRE a tarefa (não é "selecionar projeto")
       if(r.dataset.id) switchToProjectTask(r.dataset.proj, r.dataset.id);
-      else switchProject(r.dataset.proj);
+      else switchProject(r.dataset.proj).catch(()=>{});
       return;
     }
     if(r.dataset.id){ const go=()=>openTaskById(r.dataset.id); if(typeof mvOpen==='function') mvOpen(r.querySelector('.tt'), go); else go(); } // abre a tarefa (ou o rascunho, via openOrEdit) numa aba; F3: o título voa até a aba
@@ -325,7 +327,7 @@ function renderRail(){
   // linhas pelo teclado: Tab chega, Enter/Espaço abre, ↑/↓/Home/End andam (vale pras linhas de plano também)
   el.querySelectorAll('.prow2[tabindex],.prow2.orqrow').forEach(r=>{ if(!r.hasAttribute('tabindex')) r.tabIndex=0;
     r.onkeydown=(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); r.click(); } }; });
-  el.querySelectorAll('[data-projpage]').forEach(r=>{ r.onclick=async()=>{ const p=r.dataset.projpage; if(p && p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('projeto'); };
+  el.querySelectorAll('[data-projpage]').forEach(r=>{ r.onclick=async()=>{ const p=r.dataset.projpage; if(p && p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(_){ return; } } if(window.openTab) window.openTab('projeto'); }; // L14: falhou = não abre a página do anterior
     r.onkeydown=(e)=>{ if(e.target===r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); r.click(); } }; });
   el.querySelectorAll('.rpscope').forEach(r=>{ r.onclick=()=>{ if(window.openTab) window.openTab('projetos'); };
     r.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); r.click(); } }; });

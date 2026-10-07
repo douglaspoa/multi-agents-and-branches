@@ -156,7 +156,7 @@ function viewOpen(kind, tab){
               // aba de tarefa de OUTRO projeto (você trocou de projeto depois de abrir): volta pro projeto dela antes
               if(tab && tab.repo && state.repo && tab.repo!==state.repo && window.switchProject){
                 const tr=tab.repo, id=tab.id, tid=tabTaskId;
-                window.switchProject(tr).then(()=>{ if(activeTab===id && state.repo===tr) fwOpenInner(tid, path); });
+                window.switchProject(tr).then(()=>{ if(activeTab===id && state.repo===tr) fwOpenInner(tid, path); }).catch(()=>{});
                 return; }
               fwOpenInner(tabTaskId, path); },
             cttask:()=>{ if(window.ctPageOpenInner) window.ctPageOpenInner(tab); },
@@ -246,6 +246,7 @@ window.openTab=openTab;
 async function tabLeaveGuard(targetId, closing){
   // a aba está num painel da tela dividida: a edição aberta é a DO PAINEL (outra janela) — pergunta lá
   if(closing && typeof cvPaneWin==='function'){ const w=cvPaneWin(targetId); if(w && typeof w.sfPaneLeaveOk==='function'){ try{ if(!await w.sfPaneLeaveOk()) return false; }catch(_){ } } }
+  if(closing && typeof ndTabCloseOk==='function' && !await ndTabCloseOk(tabById(targetId))) return false; // A4: Nova demanda com trabalho não salvo
   if(typeof fwEditing==='undefined' || !fwEditing || typeof fwLeaveEditor!=='function' || typeof fwTask==='undefined' || !fwTask) return true;
   const tg=tabById(targetId); if(!tg) return true;
   const losing = closing ? (tg.kind==='task' && tg.taskId===fwTask) : (tg.kind==='task' && tg.taskId!==fwTask);
@@ -477,7 +478,7 @@ document.addEventListener('keydown', async e=>{
   if(k==='j' && !e.shiftKey){ e.preventDefault(); openTab('projeto',{ sub:'conversa' }); }
   else if(k===',' && !e.shiftKey){ e.preventDefault(); if(typeof ajustesOpen==='function') ajustesOpen(); else openTab('cfg'); }
   else if(k==='b' && !e.shiftKey){ e.preventDefault(); setRailCollapsed(!railIsCol()); }
-  else if(k==='w'){ if(!tabCloseKey(e, osKind())) return; e.preventDefault(); const t=tabById((typeof cvGroupMember==='function' && cvGroupMember()) || activeTab); if(!t || t.pin) return; // grupo na tela: fecha o membro em foco
+  else if(k==='w' && !e.shiftKey){ if(!tabCloseKey(e, osKind())) return; e.preventDefault(); const t=tabById((typeof cvGroupMember==='function' && cvGroupMember()) || activeTab); if(!t || t.pin) return; // grupo na tela: fecha o membro em foco
     // pela porta guardada (tabLeaveGuard): pergunta antes de descartar a edição — a da janela OU a do painel
     await tabCloseGuarded(t.id); }
   // R7: ⌘1…⌘9 passa pela MESMA guarda do clique na aba — antes ia direto e jogava fora a edição não salva do arquivo

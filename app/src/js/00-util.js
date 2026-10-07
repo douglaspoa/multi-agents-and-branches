@@ -416,6 +416,7 @@ function errDetails(h){
 // mostra o erro traduzido num toast com o botão que resolve (+ "ver detalhes" com o texto cru)
 function showErr(e, ctx){
   const h=humanErr(e, ctx);
+  if(e && typeof e==='object' && e.shown) return h; // já mostrado na origem (ex.: switchProject) — não repete o aviso
   console.warn('[erro]', ctx||'', h.raw);
   const det={ label:'ver detalhes', fn:()=>errDetails(h) };
   toast(h.msg, 'err', h.action||det, h.action?det:null);
@@ -509,6 +510,24 @@ function parseUsd(v){
   else if(/^\d{1,3}(\.\d{3})+$/.test(b)) b=b.replace(/\./g,'');
   if(!/^-?\d*\.?\d+$/.test(b)) return NaN;
   return Math.round(Number(b)*100)/100;
+}
+// L9 (mesa-bugs-2): "GH_FAIL::<pasta>::<texto>" do create_project = a pasta e o git EXISTEM, só o GitHub recusou.
+// A tela mostra a frase (nunca o prefixo cru) e o retry REAPROVEITA a pasta (antes criava "nome-2" a cada tentativa).
+function ghFailOf(e){ const m=String((e&&e.message)||e||'').match(/^GH_FAIL::(.+?)::([\s\S]*)$/); return m?{ path:m[1], msg:m[2] }:null; }
+function ghFailText(g){
+  const why=((String(g&&g.msg||'').match(/Motivo:\s*([^\n]+)/)||[])[1]||'').trim();
+  return 'A pasta do projeto foi criada, mas o GitHub recusou criar o repositório'+(why&&why!=='sem detalhe do gh'?' ('+(why.length>120?why.slice(0,117)+'…':why)+')':'')+'. Tente de novo — a mesma pasta é reaproveitada — ou desmarque o GitHub pra seguir só neste computador.';
+}
+// a pasta da tentativa anterior só vale pro MESMO nome: trocou o nome, cria do zero (r = { path, slug })
+function ghRetryFor(r, slug){ return (r && r.path && r.slug===slug) ? r.path : ''; }
+// cria a pasta do projeto (com ou sem GitHub); retryPath = pasta de uma tentativa em que só o GitHub falhou
+async function projCreateQuick(slug, gh, retryPath){
+  if(retryPath){
+    if(!gh) return invoke('open_project',{ path:retryPath });
+    return invoke('create_project',{ parent:retryPath.replace(/[\\/][^\\/]+$/,''), name:retryPath.split(/[\\/]/).pop(), github:true, private:true, owner:'' });
+  }
+  if(gh){ const target=String(await invoke('quick_project_target',{ name:slug })||''); return invoke('create_project',{ parent:target.replace(/[\\/][^\\/]+$/,''), name:target.split(/[\\/]/).pop(), github:true, private:true, owner:'' }); }
+  return invoke('quick_create_project',{ name:slug });
 }
 // @helpers-comuns-fim
 // teto padrão por tarefa (US$; 0 = sem teto) — Configurações

@@ -179,7 +179,14 @@ function goRender(nReq){
 function goShow(nReq){ goState={spec:'ok',req:'ok',issue:'run',agent:'wait'}; goRender(nReq); $id('goOverlay').style.display='flex'; ldPaint($id('goSky'), brandLoaderHtml('colocando no ar', { now:true })); }
 function goHide(){ $id('goOverlay').style.display='none'; }
 // última etapa do wizard: aplica as escolhas do "Quem executa?" e cria mostrando progresso
+let wizLaunching=false; // duplo clique no "Iniciar execução" escondia o progresso; "voltar" seguia ativo durante a criação
 async function wizLaunch(){
+  if(wizLaunching || (typeof ntSubmitting!=='undefined' && ntSubmitting)) return;
+  wizLaunching=true; ['wizNext','wizBack','wizSkip'].forEach(id=>{ const b=$id(id); if(b) b.disabled=true; });
+  try{ return await wizLaunchInner(); }
+  finally{ wizLaunching=false; ['wizNext','wizBack','wizSkip'].forEach(id=>{ const b=$id(id); if(b) b.disabled=false; }); }
+}
+async function wizLaunchInner(){
   ntGate();
   const pick=document.querySelector('input[name="howflow"]:checked');
   const src=$id(ntMode==='fix'?'ntFixTeam':'ntWorkflow');
@@ -262,10 +269,20 @@ function howAgentsRender(){
   const byId=Object.fromEntries(((state.config&&state.config.agents)||[]).map(a=>[a.id,a]));
   const w=wfs.find(x=>x.id===wid);
   const team=w?(w.steps||[]).map(s=>byId[s]).filter(Boolean):[];
-  if(team.length<2){ el.innerHTML=''; return; }
+  // L7 (mesa-bugs-2): as opções seguem a IA escolhida (antes só Claude, mesmo com Codex); motor sem lista = sem a escolha
+  const opts=ntAgentModelOpts(($id('ntEngine')||{}).value);
+  if(team.length<2 || !opts.length){ el.innerHTML=''; return; }
   el.innerHTML=`<label>Modelo por agente <span class="dim" style="text-transform:none;letter-spacing:0">(sobrepõe o modelo geral)</span></label>`+
-    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" aria-hidden="true" style="background:${agentColor(a.name)}">${agentBadge(a.name)}</span><span style="flex:1;font-size:var(--fs-sm)">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:165px"><option value="">modelo geral</option><option value="opus">Claude Opus</option><option value="sonnet">Claude Sonnet</option><option value="haiku">Claude Haiku</option></select></div>`).join('');
+    team.map(a=>`<div style="display:flex;align-items:center;gap:9px;margin-top:7px"><span class="fwav" aria-hidden="true" style="background:${agentColor(a.name)}">${agentBadge(a.name)}</span><span style="flex:1;font-size:var(--fs-sm)">${esc(a.name)} <span class="dim">· ${esc(a.role)}</span></span><select class="sel" data-agmodel="${escA(a.name)}" style="width:165px" aria-label="${escA('modelo de '+a.name)}"><option value="">modelo geral</option>${opts.map(([v,l])=>`<option value="${escA(v)}">${esc(l)}</option>`).join('')}</select></div>`).join('');
 }
+// @puro-agmodel-inicio — opções do "Modelo por agente" pelo motor: Claude = os 3 apelidos; outro motor = a lista dele (sem o "padrão")
+function ntAgentModelOpts(engine){
+  const k=(typeof aiEngineOf==='function')?aiEngineOf(engine||'claude'):'claude';
+  if(k==='claude') return [['opus','Claude Opus'],['sonnet','Claude Sonnet'],['haiku','Claude Haiku']];
+  const e=(typeof AI_ENGINES!=='undefined'?AI_ENGINES:[]).find(x=>x.id===k);
+  return ((e&&e.models)||[]).filter(m=>m&&m.id).map(m=>[m.id, m.name||m.id]);
+}
+// @puro-agmodel-fim
 $id('howGo').onclick=()=>{
   const pick=document.querySelector('input[name="howflow"]:checked');
   const src=$id(ntMode==='fix'?'ntFixTeam':'ntWorkflow');
@@ -406,6 +423,7 @@ async function openFromDesign(t){
     renderNtRefs();
     $id('ntArtProof').checked=true;
     $id('ntArtTests').checked=true;
+    ntMarkBase();
     if(typeof renderTabs==='function') renderTabs(); // título da aba = a entrega
   }catch(e){ showErr(e, 'Não consegui montar a entrega'); console.error('openFromDesign:', e); }
 }
@@ -466,8 +484,8 @@ async function openLinkedFix(t){
   ntLinkedTo=t.id;
   $id('ntFixTitle').value='Corrigir: '+t.title.replace(/^por que\s*/i,'');
   $id('ntFixObj').value = fromInvest
-    ? 'Correção a partir da INVESTIGAÇÃO "'+t.title+'" (id '+t.id+'). O diagnóstico completo está no anexo INVESTIGATION.md (.cardume/refs/) — siga a CAUSA RAIZ e a RECOMENDAÇÃO de lá; aplique o menor diff que resolve.'
-    : 'Correção LINKADA à tarefa "'+t.title+'" (id '+t.id+', branch '+t.branch+'). Ela foi entregue mas algo não está funcionando em produção.\n\nO que está acontecendo: ';
+    ? 'Correção a partir da investigação "'+t.title+'". O diagnóstico completo está no anexo INVESTIGATION.md (.cardume/refs/) — siga a CAUSA RAIZ e a RECOMENDAÇÃO de lá; aplique o menor diff que resolve.'
+    : 'Correção da tarefa "'+t.title+'". Ela foi entregue, mas algo não está funcionando.\n\nO que está acontecendo: ';
   if(fromInvest){
     // anexa o diagnóstico (INVESTIGATION.md e evidências) como referência do fix
     try{ const arts=await loadArtifacts(t.id, t.status)||[]; ntFixRefs=arts.filter(a=>/\.(md|png|jpe?g|txt|log)$/i.test(a.name)).map(a=>state.repo+'/.cardume/artifacts/'+t.id+'/'+a.name); renderFixRefs(); }catch(_){ }
@@ -478,7 +496,7 @@ async function openLinkedFix(t){
   ];
   renderNtList('ntFixReqs', ntFixReq);
   ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; });
-  renderNtLink(); if(typeof renderTabs==='function') renderTabs(); // título da aba = a correção
+  renderNtLink(); ntMarkBase(); if(typeof renderTabs==='function') renderTabs(); // título da aba = a correção
   const o=$id('ntFixObj'); o.focus(); o.setSelectionRange(o.value.length,o.value.length); o.scrollTop=o.scrollHeight;
 }
 function renderNtLink(){
@@ -576,18 +594,57 @@ async function ntOpenFormTab(){
   if(activeTab!==t.id) return false; // trocou de aba enquanto abria: não preenche a aba errada
   return true;
 }
-function ntShow(){ setNtMode(ntMode); $id("ntOverlay").style.display="flex"; }
+// A4 (mesa-bugs-2): fechar (⌘W, X, Delete, botão do meio) uma aba de Nova demanda com trabalho que SE PERDE pergunta antes.
+// Conversar: a aba dona do rascunho do projeto não pergunta (reabrir recupera); as outras perdem a conversa ao fechar.
+// Formulário: não tem rascunho em disco — conta o que MUDOU desde que a aba foi montada (ntBaseSig): rascunho aberto pra
+// editar, correção linkada ou entrega do design pré-preenchidas e fechadas sem mexer não perguntam.
+// @puro-ndwork-inicio
+const ND_FORM_TEXT=['ntTitle','ntObj','ntFixTitle','ntFixObj','ntDzTitle','ntDzObj','ntDzScreens','ntInvTitle','ntInvObj','ntPr'];
+// assinatura do trabalho da aba (texto + listas); '' = nada preenchido
+function ntWorkSig(st){
+  if(!st) return '';
+  const f=st.fields||{}, txt=ND_FORM_TEXT.map(id=>String((f[id]&&f[id].v)||'').trim());
+  const lists=['ntDel','ntReq','ntFixReq'].map(k=>(st[k]||[]).map(x=>String(x||'').trim()).filter(Boolean).join('\u0001'));
+  const refs=['ntRefs','ntFixRefs','ntDzRefs','ntInvRefs'].map(k=>(st[k]||[]).join('\u0001'));
+  const all=txt.concat(lists, refs); return all.some(Boolean) ? all.join('\u0002') : '';
+}
+function ndTabLoses(kind, st){
+  if(!st) return '';
+  if(kind==='planner'){
+    const talk=(st.plMsgs||[]).some(m=>m&&m.who==='you') || !!st.plPlan;
+    return (talk && st.plOwnsDraft===false) ? 'a conversa desta aba' : '';
+  }
+  if(kind==='form'){
+    const sig=ntWorkSig(st);
+    return (sig && sig!==(st.ntBaseSig||'')) ? 'o que você preencheu no formulário' : ''; // igual ao que a aba abriu (rascunho/pré-preenchido) = nada a perder
+  }
+  return '';
+}
+// @puro-ndwork-fim
+let ntBaseSig=''; // o que a aba tinha ao ser montada (rascunho/correção/entrega pré-preenchidos); vazio = formulário limpo
+function ntMarkBase(){ try{ ntBaseSig=ntWorkSig(window.TAB_STATE_form.get()); }catch(_){ ntBaseSig=''; } }
+// fechar PELO USUÁRIO (botão fechar/cancelar do formulário): a mesma guarda do X da aba. Depois de criar: closeNewTask direto.
+function ntUserClose(){ const t=(typeof tabById==='function')?tabById(activeTab):null; if(t && t.kind==='form' && typeof tabCloseGuarded==='function') return tabCloseGuarded(t.id); closeNewTask(); }
+window.ntUserClose=ntUserClose;
+async function ndTabCloseOk(tab){
+  if(!tab || (tab.kind!=='planner' && tab.kind!=='form')) return true;
+  let st=tab.state; if(tab.id===activeTab){ const api=window['TAB_STATE_'+tab.kind]; try{ st=api&&api.get?api.get():st; }catch(_){ } }
+  const what=ndTabLoses(tab.kind, st); if(!what) return true;
+  return await askYes('Fechar e descartar '+what+'?\n\nNada disso fica salvo depois de fechar.', 'Fechar a aba');
+}
+window.ndTabCloseOk=ndTabCloseOk;
+function ntShow(){ const w=wizN; setNtMode(ntMode); wizN=w; $id("ntOverlay").style.display="flex"; } // A5: voltar pra aba não reinicia o wizard (setNtMode zera a etapa)
 window.ntShow=ntShow;
 // estado por aba: todos os campos do formulário + listas em memória
 window.TAB_STATE_form={
   get:()=>{ const fields={}; document.querySelectorAll('#ntOverlay input[id],#ntOverlay select[id],#ntOverlay textarea[id]').forEach(e=>{ fields[e.id]=(e.type==='checkbox'||e.type==='radio')?{c:e.checked}:{v:e.value}; });
     const ti=($id('ntTitle')||{}).value||($id('ntFixTitle')||{}).value||($id('ntDzTitle')||{}).value||($id('ntInvTitle')||{}).value||'';
-    return { _title:ti, fields, ntMode, ntModels, ntDocsPreset, ntLinkedTo, ntDel:ntDel.slice(), ntReq:ntReq.slice(), ntRefs:ntRefs.slice(), ntFixReq:ntFixReq.slice(), ntDzRefs:ntDzRefs.slice(), ntFixRefs:ntFixRefs.slice(), ntInvRefs:ntInvRefs.slice(), ntEditingDraft:(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null }; },
+    return { _title:ti, fields, ntMode, wizN, ntBaseSig, ntModels, ntDocsPreset, ntLinkedTo, ntDel:ntDel.slice(), ntReq:ntReq.slice(), ntRefs:ntRefs.slice(), ntFixReq:ntFixReq.slice(), ntDzRefs:ntDzRefs.slice(), ntFixRefs:ntFixRefs.slice(), ntInvRefs:ntInvRefs.slice(), ntEditingDraft:(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null }; },
   set:(st)=>{ Object.entries(st.fields||{}).forEach(([id,f])=>{ const e=$id(id); if(!e) return; if('c' in f) e.checked=!!f.c; else e.value=f.v; });
-    ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
+    ntMode=st.ntMode||'build'; wizN=+st.wizN||1; ntBaseSig=st.ntBaseSig||''; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
     renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtList('ntFixReqs',ntFixReq); renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtRefs(); renderNtLink(); }
 };
-function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); if(typeof ntKindReset==='function') ntKindReset(); }
+function resetNewTask(){ ntModels=''; ntBaseSig=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); if(typeof ntKindReset==='function') ntKindReset(); }
 // objetivo / detalhes / contexto / sintoma: colar (⌘V) um print ou arrastar um arquivo pro texto vira ANEXO da
 // demanda (mesma lista do botão "anexar") — igual ao composer dos chats; texto colado continua texto
 [['ntObj',()=>ntRefs,renderNtRefs],['ntFixObj',()=>ntFixRefs,renderFixRefs],['ntDzObj',()=>ntDzRefs,renderDzRefs],['ntInvObj',()=>ntInvRefs,renderInvRefs]].forEach(([id,arr,render])=>attWireRefField(id,arr,render));

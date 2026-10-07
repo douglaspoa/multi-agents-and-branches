@@ -499,6 +499,8 @@ async function refresh(){
     lastSig='';                                   // ao fechar, força um render completo
     // as telas hoje são ABAS: a barra lateral continua à mostra ao lado — mantém ela viva (só troca o que mudou)
     if(typeof renderRail==='function') safe(renderRail);
+    // a página Projeto (cabeçalho + cartão de contagens) também está à mostra em Conversa/Agentes/Skills — antes congelava
+    if(typeof g1TabOn==='function' && g1TabOn('projeto') && typeof projPageRender==='function') safe(projPageRender);
     const fw=$id('fwOverlay');
     if(fw && fw.style.display!=='none' && fwTask){ try{ fwLiveUpdate(); }catch(_){} }
     if(typeof cvPanesTick==='function') try{ cvPanesTick(); }catch(e){ tickErr('cvPanesTick', e); } // tela dividida: os painéis acompanham

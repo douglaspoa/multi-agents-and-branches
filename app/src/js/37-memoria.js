@@ -328,6 +328,7 @@ async function openMemoria(){
   const ov=$id('memOverlay'); if(!ov) return;
   if(!state.repo){ toast('Abra um projeto primeiro.','warn'); return; }
   if(MEM.repo && MEM.repo!==state.repo){ MEM.sel=null; MEM.edit=null; MEM.q=''; MEM.type=''; }
+  else memCaptureEdit(); // A6 (mesa-bugs-2): o esqueleto da leitura apagava o editor antes de guardar — a nota nova voltava vazia
   ovShow(ov);
   // pinta lista + nota em esqueleto na hora (se já havia notas na tela, mantém elas até a leitura nova chegar)
   // F4 · P13: o curador roda AO ABRIR (no máximo 1×/dia — o resto do dia usa o guardado); falhar não esconde as notas

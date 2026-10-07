@@ -14,9 +14,9 @@ test('8 frentes numeradas na fala e só 4 chips → os chips viram as 8, na orde
   assert.equal(got[7], '8) Explorer');
 });
 
-test('sem lista numerada fica o que a IA mandou (até 8); lista inline "1. A ou 2. B"', () => {
+test('sem lista numerada fica o que a IA mandou (todas — a caixa de chips rola; mesa-bugs-2 A2); lista inline "1. A ou 2. B"', () => {
   assert.deepEqual(plChipsFull('Qual o objetivo?', ['a', 'b']), ['a', 'b']);
-  assert.equal(plChipsFull('x', Array.from({ length: 10 }, (_, i) => 'c' + i)).length, 8);
+  assert.equal(plChipsFull('x', Array.from({ length: 10 }, (_, i) => 'c' + i)).length, 10, '10 opções = 10 chips (antes cortava em 8 calado)');
   assert.deepEqual(plChipsFull('Prefere 1. Web ou 2. iOS?', ['Web']), ['1) Web', '2) iOS']);
   assert.deepEqual(plChipsFull('', null), []);
 });

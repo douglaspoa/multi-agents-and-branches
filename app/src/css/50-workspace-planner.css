@@ -300,6 +300,9 @@
 .plinput{display:flex;gap:9px;align-items:flex-end;padding:12px 18px 16px;border-top:1px solid var(--border);background:var(--bg)}
 .plta{flex:1;resize:none;min-height:44px;max-height:160px;line-height:1.5;border-radius:10px;padding:11px 13px}
 #plChips:not(:empty){padding:2px 20px 10px}
+/* A1 (mesa-bugs-2): chips longos (8+) empurravam a pergunta e o enviar pra fora da janela a 920×600 — a caixa tem teto e rola */
+#plChips{flex:none;max-height:min(20vh,168px);overflow-y:auto;overscroll-behavior:contain}
+#plChips .plchip{max-width:100%;text-align:left;white-space:normal}
 .plchip{border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text-2);border-radius:16px;padding:6px 13px;font:inherit;font-size:var(--fs-sm);cursor:pointer;transition:border-color .12s,color .12s,background .12s}
 .plchip:hover{border-color:var(--accent);color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface-2))}
 .plmesh{border-left:1px solid var(--border);background:var(--surface-2);overflow:auto;padding:14px;display:flex;flex-direction:column;gap:9px}

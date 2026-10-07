@@ -157,7 +157,8 @@ async function openProjetos(){
 // publicar e remover moram no ⋯ do cartão; abrir pasta e Fábrica no ⋯ do cabeçalho; o botão "skills" saiu (Projeto › Skills)
 function projCountsOf(p){
   const mine=p.path===state.repo ? (state.tasks||[]) : (typeof allTasksCache!=='undefined'?allTasksCache:[]).filter(t=>t.repo===p.path).map(t=>typeof normAgg==='function'?normAgg(t):t);
-  if(typeof flowCounts==='function' && mine.length) return flowCounts(typeof flowLiveTasks==='function'?flowLiveTasks(mine):mine);
+  // L11: a MESMA régua da lateral e da página Projeto (projLiveTasks) — antes dependia do botão "Bloqueadas" da Central
+  if(typeof flowCounts==='function' && (mine.length || p.path===state.repo || (typeof allTasksOk!=='undefined' && allTasksOk))) return flowCounts(typeof projLiveTasks==='function'?projLiveTasks(mine):mine);
   // sem o cache ainda: classifica a amostra do backend pelos MESMOS predicados (D14) — nunca "active" cru (que soma erro/plano)
   const lite=(p.tasks||[]).map(t=>({ id:t.id, status:t.status }));
   return lite.length ? flowCounts(lite) : { aguardando:0, prontas:0, andamento:0, rodando:0, praberto:0, fila:0, pending:true };
@@ -203,14 +204,15 @@ function projetosRender(ov){
       { label:'Começar pela Fábrica', hint:'app novo', act:()=>{ if(typeof g1NovoProjeto==='function') g1NovoProjeto(); } } ]); }; }
   { const b=body.querySelector('#projNewBtn'); if(b) b.onclick=()=>{ projNewOpen=!projNewOpen; projetosRender(ov); if(projNewOpen){ projNewWire(ov); ghOwnersReload(); const i=$id('pnName'); if(i) i.focus(); } }; } // toda abertura relê os donos (o cache aparece na hora)
   if(projNewOpen) projNewWire(ov);
-  body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; projFilter=p; lsSet('projFilter',p); if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('flow'); });
-  body.querySelectorAll('[data-pjpage]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjpage; if(p!==state.repo && window.switchProject) await window.switchProject(p); if(window.openTab) window.openTab('projeto'); });
+  // L14: a troca que falha avisa (switchProject) e PARA — antes abria a Central/página do projeto anterior
+  body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; if(p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(_){ return; } } projFilter=p; lsSet('projFilter',p); if(window.openTab) window.openTab('flow'); });
+  body.querySelectorAll('[data-pjpage]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjpage; if(p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(_){ return; } } if(window.openTab) window.openTab('projeto'); });
   const pub=async(p, b)=>{ // projeto só local: publishGithub age no projeto ABERTO — troca, publica e VOLTA pro que estava aberto
     if(typeof publishGithub!=='function') return;
-    const back=state.repo; if(p!==state.repo && window.switchProject) await window.switchProject(p);
+    const back=state.repo; if(p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(_){ return; } }
     if(b) b.disabled=true; let ok=false;
     try{ ok=await publishGithub(); }catch(e){ showErr(e, 'Não consegui publicar no GitHub'); }
-    if(back && back!==state.repo && window.switchProject) await window.switchProject(back); // cancelou, falhou ou deu certo: nada de trocar de projeto em silêncio
+    if(back && back!==state.repo && window.switchProject) await window.switchProject(back).catch(()=>{}); // cancelou, falhou ou deu certo: nada de trocar de projeto em silêncio
     if(ok) openProjetos(); else if(b) b.disabled=false; };
   body.querySelectorAll('[data-pjpub]').forEach(b=>b.onclick=()=>pub(b.dataset.pjpub, b));
   // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
@@ -318,9 +320,17 @@ function projNewWire(ov){
       toast('Projeto criado em '+path,'ok');
     }catch(e){ projNewBusy=false; const m=String((e&&e.message)||e||'');
       const gf=m.match(/^GH_FAIL::(.+?)::([\s\S]*)$/); // pasta+git criados, só o GitHub falhou: oferece abrir local
-      if(gf){ projNewGhFail=gf[1]; projNewMsg=gf[2]; } else projNewMsg='Falhou: '+m;
+      if(gf){ projNewGhFail=gf[1]; projNewMsg=gf[2]; } else projNewMsg=projNewErrMsg(m); // A10: antes "Falhou: <erro cru do Rust>"
       projetosRender(ov); projNewWire(ov); }
   });
 }
+// @puro-projerr-inicio — A10 (mesa-bugs-2): erro do "Novo projeto" em pt-BR (pasta que já existe = a causa mais comum)
+function projNewErrMsg(raw){
+  const m=String(raw||'');
+  if(/already ?exists|file exists|os error 17|EEXIST|j[aá] existe uma pasta/i.test(m)) return 'Já existe uma pasta com esse nome nesse lugar — escolha outro nome, ou use ⋯ › "Abrir pasta que já tenho" pra abrir a que existe.';
+  if(/pasta n[aã]o existe/i.test(m)) return 'A pasta escolhida pra guardar o projeto não existe mais — escolha outra.';
+  return (typeof humanErr==='function') ? humanErr(m, 'Não deu pra criar o projeto').msg : 'Não deu pra criar o projeto.';
+}
+// @puro-projerr-fim
 bindClick('projetosClose', ()=>{ ovHide('projetosOverlay'); });
 $id('projetosOverlay').addEventListener('click',e=>{ if(e.target.id==='projetosOverlay') ovHide('projetosOverlay'); });

@@ -123,7 +123,7 @@ function ctTableHtml(rows, o){
 // rows: id → dados da última pintura (abrir/ordenar mexem NO LUGAR, sem refazer a Central); last: o que a Central
 // pintou da última vez (pra devolver o HTML equivalente ao flowLastHtml e o próximo render não reconstruir à toa)
 const CT={ open:new Set(), rows:new Map(), last:null, clickT:0, sort:(()=>{ try{ const v=JSON.parse(lsGet('ctSort')||'null'); if(v && CT_SORTABLE.has(v.key)) return v; }catch(_){ } return { key:'upd', dir:'desc' }; })() };
-const CT_NEEDS_ST=new Set(['plan-review','needs-you','error','conflict']);
+const CT_NEEDS_ST=new Set(typeof AGUARDA_ST!=='undefined'?AGUARDA_ST:['plan-review','needs-you','error','conflict','aborted']); // a MESMA lista do "aguardando você" (00-util) — antes faltava 'aborted'
 function ctRow(t){
   const st=taskSt(t), b=flowBucket(t);
   let stages=[], sum=null;
@@ -192,7 +192,7 @@ function ctWire(el, src){
     const b=e.target.closest('[data-dcopen],[data-rowproof],[data-rowplay],[data-lk]');
     if(b){ e.stopPropagation();
       if(b.dataset.dcopen) open(b.dataset.dcopen);
-      else if(b.dataset.rowplay) startTask(b.dataset.rowplay);
+      else if(b.dataset.rowplay){ const id=b.dataset.rowplay; crossRun(id, ()=>startTask(id)); } // L13 (mesa-bugs-2): "Iniciar" de outro projeto troca pro dono antes (antes agia no projeto ativo)
       else if(b.dataset.lk) openExternal(b.dataset.lk);
       else if(b.dataset.rowproof){ const id=b.dataset.rowproof; crossRun(id, ()=>proofAsk(taskOf(id), b)); }
       return; }

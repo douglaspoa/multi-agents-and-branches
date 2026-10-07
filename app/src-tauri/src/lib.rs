@@ -8641,6 +8641,46 @@ struct AllTask {
     sort_order: Option<i64>,
     repo: String,
     proj: String,
+    /// L12 (mesa-bugs-2): sem estes a Central tratava PR aberto de OUTRO projeto como "pronta pra revisar" e o
+    /// filtro Tipo errava (o tipo sai da branch/kind) — os mesmos campos do snapshot do projeto aberto
+    branch: String,
+    kind: String,
+    pr_url: Option<String>,
+}
+
+/// kind / prUrl saem do spec_json PELO SQLITE (json_extract) — sem desserializar o spec inteiro de cada tarefa de
+/// cada projeto. spec quebrado (json_valid=0) vira NULL em vez de derrubar a consulta do projeto todo.
+const ALL_TASK_SPEC_SQL: &str = "CASE WHEN json_valid(spec_json) THEN json_extract(spec_json,'$.kind') END, \
+     CASE WHEN json_valid(spec_json) THEN json_extract(spec_json,'$.prUrl') END";
+/// normaliza o que veio do SQL: sem kind = 'build' (o padrão do snapshot); prUrl vazio = None
+fn all_task_spec_norm(kind: Option<String>, pr: Option<String>) -> (String, Option<String>) {
+    (kind.filter(|k| !k.is_empty()).unwrap_or_else(|| "build".to_string()), pr.filter(|s| !s.is_empty()))
+}
+/// kind / prUrl de um spec_json — a MESMA regra, pela mesma consulta (usada nos testes e onde não há conexão aberta)
+#[cfg(test)]
+fn all_task_spec(spec_json: &str) -> (String, Option<String>) {
+    let c = Connection::open_in_memory().expect("sqlite em memória");
+    c.query_row(&format!("SELECT {} FROM (SELECT ?1 AS spec_json)", ALL_TASK_SPEC_SQL), params![spec_json], |r| {
+        Ok(all_task_spec_norm(r.get::<_, Option<String>>(0).unwrap_or(None), r.get::<_, Option<String>>(1).unwrap_or(None)))
+    }).expect("consulta do spec")
+}
+#[cfg(test)]
+mod all_task_spec_tests {
+    use super::*;
+    #[test]
+    fn le_kind_e_pr_do_spec() {
+        let (k, pr) = all_task_spec(r#"{"kind":"review","prUrl":"https://github.com/o/r/pull/7"}"#);
+        assert_eq!(k, "review");
+        assert_eq!(pr.as_deref(), Some("https://github.com/o/r/pull/7"));
+    }
+    #[test]
+    fn spec_vazio_ou_quebrado_cai_no_padrao() {
+        for raw in ["", "{}", "não é json", r#"{"prUrl":""}"#] {
+            let (k, pr) = all_task_spec(raw);
+            assert_eq!(k, "build");
+            assert!(pr.is_none(), "{raw}");
+        }
+    }
 }
 
 /// Tarefas de TODOS os projetos salvos (board integrado). Lê o state.sqlite de
@@ -8656,12 +8696,16 @@ fn list_all_tasks() -> Vec<AllTask> {
             Err(_) => continue,
         };
         let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
-        let mut st = match conn.prepare(&format!("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,{} FROM task ORDER BY created_at", finished_at_sql(task_has_col(&conn, "closed_at")))) {
+        let mut st = match conn.prepare(&format!("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,{},branch,{} FROM task ORDER BY created_at", finished_at_sql(task_has_col(&conn, "closed_at")), ALL_TASK_SPEC_SQL)) {
             Ok(s) => s,
             Err(_) => continue,
         };
         let rows = st.query_map([], |r| {
+            let (kind, pr_url) = all_task_spec_norm(r.get::<_, Option<String>>(11).unwrap_or(None), r.get::<_, Option<String>>(12).unwrap_or(None));
             Ok(AllTask {
+                branch: r.get::<_, Option<String>>(10).unwrap_or(None).unwrap_or_default(),
+                kind,
+                pr_url,
                 id: r.get(0)?,
                 title: r.get(1)?,
                 status: r.get(2)?,

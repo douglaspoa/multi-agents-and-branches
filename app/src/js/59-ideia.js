@@ -594,12 +594,8 @@ async function ideiaCreate(m, mode, opts){
     let path=part?part.dir:'';
     if(part){ if(window.switchProject && (typeof state==='undefined' || state.repo!==path)) await window.switchProject(path); }
     else {
-      if(E.gh){
-        const target=String(await invoke('quick_project_target',{ name:slug })||'');
-        const parent=target.replace(/[\\/][^\\/]+$/,''), name=target.split(/[\\/]/).pop();
-        path=await invoke('create_project',{ parent, name, github:true, private:true, owner:'' });
-      } else path=await invoke('quick_create_project',{ name:slug });
-      path=String(path||'');
+      path=String(await projCreateQuick(slug, !!E.gh, ghRetryFor(m.ghRetry, slug))||''); // L9: retry depois do GitHub recusar reaproveita a pasta
+      delete m.ghRetry;
       m.partial={ mode:'manual', dir:path, tasks:[], at:Date.now() };
       await ideiaSave(m);
       selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
@@ -627,7 +623,7 @@ async function ideiaCreate(m, mode, opts){
     lastSig=''; try{ await refresh(); }catch(_){ }
     toast(`Projeto criado com o épico "${plan.epic}" e ${made.length} tarefas em rascunho no quadro.`,'ok');
     if(window.openTab) window.openTab('flow');
-  }catch(e){ showErr(e,'Não consegui criar o projeto'); }
+  }catch(e){ const g=ghFailOf(e); if(g){ m.ghRetry={ path:g.path, slug }; toast(ghFailText(g),'warn'); } else showErr(e,'Não consegui criar o projeto'); } // L9: nada de "GH_FAIL::…" cru
   finally{ L.creating=false; await ideiaSave(m); ideiaPaint(m); }
 }
 
