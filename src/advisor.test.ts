@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { advisorArgs, advisorCostOf, advisorEventOf, advisorNorm, advisorPair, cliVersionOk, modelFamily } from "./advisor.ts";
+import { advisorArgs, advisorCostOf, advisorEnvBlocker, advisorEventOf, advisorForRun, advisorNorm, advisorPair, claudeCliVersion, clearVersionMemo, cliVersionOk, modelFamily, versionCacheFile } from "./advisor.ts";
 import { ClaudeEngine, mapLine } from "./engine/claude.ts";
 import type { AgentEvent } from "./engine/types.ts";
 
@@ -79,10 +79,12 @@ test("custo: separa a parte do conselheiro só quando é outra família que o pr
   assert.equal(advisorCostOf(mu, "opus", "claude-opus-5-5"), null, "Opus aconselhando Opus: uma linha só");
   assert.equal(advisorCostOf(mu, "fable", "claude-sonnet-5"), null, "sem consulta: nada");
   assert.equal(advisorCostOf(mu, "opus", ""), null, "principal desconhecido: não separa");
+  assert.equal(advisorCostOf(mu, "opus", "claude-sonnet-5", { subagents: true }), null, "subagente pode ter usado Opus: não separa");
+  assert.equal(advisorCostOf(mu, "opus", "claude-sonnet-5", { resumed: true }), null, "retomada: não sabemos o que veio antes");
 });
 
 test("mapLine: consulta vira nota no histórico; result com modelUsage mostra a parte do conselheiro", () => {
-  const ctx = { advisor: "opus" as const, mainModel: "" };
+  const ctx = { advisor: "opus" as const, mainModel: "", consults: 0, subagents: false };
   mapLine(JSON.stringify({ type: "system", subtype: "init", session_id: "s", model: "claude-sonnet-5" }), 0, ctx);
   assert.equal(ctx.mainModel, "claude-sonnet-5");
   const a = mapLine(JSON.stringify({ type: "assistant", message: { content: [{ type: "server_tool_use", id: "x", name: "advisor", input: {} }] } }), 0, ctx);
@@ -91,6 +93,13 @@ test("mapLine: consulta vira nota no histórico; result com modelUsage mostra a 
   assert.match(String(r[0].text), /^Conselheiro \(Opus\): US\$ 0\.250 nesta sessão — já incluído/);
   assert.equal(r[1].type, "done");
   assert.equal(mapLine(JSON.stringify({ type: "result", total_cost_usd: 1 }), 0).length, 1, "sem conselheiro: só o done");
+  // subagente (Task) na sessão: o Opus dele se mistura → "incluído no total", sem inventar a parte
+  mapLine(JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", name: "Task", input: {} }] } }), 0, ctx);
+  const r2 = mapLine(JSON.stringify({ type: "result", total_cost_usd: 1.05, modelUsage: { "claude-sonnet-5": { costUSD: 0.8 }, "claude-opus-5-5": { costUSD: 0.25 } } }), 0, ctx);
+  assert.match(String(r2[0].text), /incluído no total \(não dá pra separar/);
+  // pedido mas nunca consultado: nenhuma nota de custo
+  const quiet = { advisor: "opus" as const, mainModel: "claude-sonnet-5", consults: 0 };
+  assert.equal(mapLine(JSON.stringify({ type: "result", total_cost_usd: 1, modelUsage: {} }), 0, quiet).length, 1);
 });
 
 // ---- o motor de verdade com um claude FALSO: args do -p e do --resume ----
@@ -101,7 +110,7 @@ function setup(version: string) {
   mkdirSync(join(dir, "home"), { recursive: true });
   const f = join(dir, "fake-claude.mjs");
   writeFileSync(f, `#!${process.execPath}\nimport { appendFileSync } from "node:fs";\nif (process.argv.includes("--version")) { console.log(${JSON.stringify(version)} + " (Claude Code)"); process.exit(0); }\n` +
-    `appendFileSync(${JSON.stringify(join(dir, "argv.jsonl"))}, JSON.stringify(process.argv.slice(2)) + "\\n");\n` +
+    `appendFileSync(${JSON.stringify(join(dir, "argv.jsonl"))}, JSON.stringify([...process.argv.slice(2), "ENV_OFF=" + (process.env.CLAUDE_CODE_DISABLE_ADVISOR_TOOL || "")]) + "\\n");\n` +
     `const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n");\nout({ type: "system", subtype: "init", session_id: "s1", model: "claude-sonnet-5" });\n` +
     `out({ type: "assistant", message: { content: [{ type: "server_tool_use", id: "a1", name: "advisor", input: {} }] } });\n` +
     `out({ type: "result", total_cost_usd: 0.5, modelUsage: { "claude-sonnet-5": { costUSD: 0.4 }, "claude-opus-5-5": { costUSD: 0.1 } } });\n`);
@@ -111,10 +120,10 @@ function setup(version: string) {
   process.env.CARDUME_CLAUDE = f;
   process.env.CARDUME_PROTECT = "0";
   delete process.env.CLAUDE_CONFIG_DIR;
-  const input = (advisor: string | null, resume?: string) => ({
+  const input = (advisor: string | null, resume?: string, role = "builder") => ({
     cwd: join(dir, "wt"),
     spec: { id: "t1", title: "x", objective: "x", deliverables: [], requirements: [], scope: { owns: [], offLimits: [] }, advisor } as never,
-    systemContext: "", role: "builder", agentName: "Íris", dbFile: join(dir, "state.sqlite"),
+    systemContext: "", role, agentName: "Íris", dbFile: join(dir, "state.sqlite"),
     ...(resume ? { resume: { sessionId: resume, instruction: "continue" } } : {}),
   });
   const restore = () => { for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k]; Object.assign(process.env, saved); rmSync(dir, { recursive: true, force: true }); };
@@ -135,8 +144,13 @@ test("headless: -p e --resume levam o --settings do conselheiro; consulta e cust
     assert.ok(resumed.includes("--resume") && hasSet(resumed, "opus"), "retomada mantém o conselheiro");
     assert.ok(ev1.some((e) => e.text === "Conselheiro consultado"));
     assert.ok(ev1.some((e) => /Conselheiro \(Opus\): US\$ 0\.100/.test(String(e.text))));
+    assert.ok(fresh.includes("ENV_OFF="), "ligado: não desliga pelo env");
     await drain(eng.run(s.input(null) as never));
     assert.ok(!s.argvs()[2].includes("--settings"), "desligado: sem --settings");
+    assert.ok(s.argvs()[2].includes("ENV_OFF=1"), "desligado: CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 (ignora o /advisor global)");
+    // só a sessão de construção: planner e reviewer da MESMA tarefa rodam sem
+    for (const role of ["planner", "reviewer"]) await drain(eng.run(s.input("opus", undefined, role) as never));
+    for (const a of s.argvs().slice(3)) { assert.ok(!a.includes("--settings")); assert.ok(a.includes("ENV_OFF=1")); }
   } finally { s.restore(); }
 });
 
@@ -179,12 +193,50 @@ test("terminal: claude leva o --settings (também ao retomar); DeepSeek dentro d
     assert.ok(!termPrep(orch, "sem", { direct: true }).args.includes("--settings"), "sem conselheiro: nada");
     await orch.createTask(spec("ds", { advisor: "opus", engine: "deepseek", roles: [{ role: "builder", name: "Vega", engine: "deepseek" }] }));
     const L = termPrep(orch, "ds", { direct: true });
+    termPrep(orch, "ds", { direct: true, resume: true });
     assert.equal(L.engine, "deepseek");
     assert.ok(!L.args.includes("--settings"), "DeepSeek: nunca");
-    assert.ok(orch.store.eventsForTask("ds").some((e) => /Conselheiro \(Opus\) desligado: o DeepSeek/.test(e.text)), "explica no histórico");
+    assert.equal(L.env.CLAUDE_CODE_DISABLE_ADVISOR_TOOL, "1");
+    assert.equal(orch.store.eventsForTask("ds").filter((e) => /Conselheiro \(Opus\) desligado: o DeepSeek/.test(e.text)).length, 1, "explica UMA vez no histórico");
+    assert.equal(termPrep(orch, "sem", { direct: true }).env.CLAUDE_CODE_DISABLE_ADVISOR_TOOL, "1", "desligado ignora o /advisor global");
+    assert.equal(termPrep(orch, "cl", { direct: true }).env.CLAUDE_CODE_DISABLE_ADVISOR_TOOL, undefined);
+    // ambiente que impede: avisa uma vez
+    process.env.DISABLE_TELEMETRY = "1";
+    termPrep(orch, "cl", { direct: true }); termPrep(orch, "cl", { direct: true, resume: true });
+    delete process.env.DISABLE_TELEMETRY;
+    assert.equal(orch.store.eventsForTask("cl").filter((e) => /não vai ligar neste ambiente: DISABLE_TELEMETRY/.test(e.text)).length, 1);
   } finally {
     orch.close();
     for (const k of keys) { if (old[k] === undefined) delete process.env[k]; else process.env[k] = old[k]; }
     h.cleanup(); rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("só a sessão principal: builder sim; planner, reviewer e revisão de PR não", () => {
+  assert.equal(advisorForRun({ advisor: "opus" }, "builder"), "opus");
+  assert.equal(advisorForRun({ advisor: "opus" }, "planner"), null);
+  assert.equal(advisorForRun({ advisor: "opus" }, "reviewer"), null);
+  assert.equal(advisorForRun({ advisor: "opus", kind: "review" }, "builder"), null);
+});
+
+test("ambiente que desliga o conselheiro em silêncio: Bedrock/Vertex, telemetria, tráfego não essencial", () => {
+  assert.match(String(advisorEnvBlocker({ CLAUDE_CODE_USE_BEDROCK: "1" })), /Bedrock/);
+  assert.match(String(advisorEnvBlocker({ CLAUDE_CODE_USE_VERTEX: "true" })), /Vertex/);
+  assert.match(String(advisorEnvBlocker({ DISABLE_TELEMETRY: "1" })), /DISABLE_TELEMETRY/);
+  assert.match(String(advisorEnvBlocker({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" })), /NONESSENTIAL/);
+  assert.equal(advisorEnvBlocker({ DISABLE_TELEMETRY: "0", PATH: "/bin" }), null);
+});
+
+test("versão do claude: cache em disco por caminho+mtime (um processo novo não roda o --version de novo)", POSIX, () => {
+  const dir = mkdtempSync(join(tmpdir(), "starfork-adv-ver-"));
+  const old = process.env.HOME; process.env.HOME = dir;
+  try {
+    const bin = join(dir, "claude"), runs = join(dir, "runs");
+    writeFileSync(bin, `#!/bin/sh\necho x >> '${runs}'\necho '2.1.280 (Claude Code)'\n`); chmodSync(bin, 0o755);
+    assert.equal(claudeCliVersion(bin), "2.1.280");
+    clearVersionMemo();
+    assert.equal(claudeCliVersion(bin), "2.1.280");
+    assert.equal(readFileSync(runs, "utf8").trim().split("\n").length, 1, "rodou uma vez só");
+    assert.ok(readFileSync(versionCacheFile(), "utf8").includes(bin));
+  } finally { process.env.HOME = old; clearVersionMemo(); rmSync(dir, { recursive: true, force: true }); }
 });

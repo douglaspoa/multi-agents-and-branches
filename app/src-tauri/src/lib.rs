@@ -570,6 +570,26 @@ fn pending_visible(kind: &str, has_busy: bool, task_busy: Option<bool>) -> bool 
 }
 
 #[cfg(test)]
+mod advisor_front_tests {
+    use super::*;
+    #[test]
+    fn front_recebe_o_conselheiro_e_as_consultas() {
+        let b = task_front_spec(&serde_json::json!({"advisor":"opus","objective":"x"})).expect("tem conselheiro");
+        assert_eq!(b["advisor"], "opus");
+        assert!(task_front_spec(&serde_json::json!({"advisor":null})).is_none(), "desligado não vai");
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE event (id INTEGER PRIMARY KEY, task_id TEXT, text TEXT); INSERT INTO event (task_id,text) VALUES ('t1','Conselheiro consultado'),('t1','Conselheiro consultado'),('t1','outra coisa'),('t2','Conselheiro indisponível');").unwrap();
+        let c = advisor_calls_by_task(&conn).unwrap();
+        assert_eq!(c.get("t1"), Some(&2));
+        assert_eq!(c.get("t2"), None);
+        let s = with_advisor_calls(task_front_spec(&serde_json::json!({"advisor":"opus"})), c.get("t1").copied()).unwrap();
+        assert_eq!(s["advisor"], "opus"); assert_eq!(s["advisorCalls"], 2);
+        assert_eq!(with_advisor_calls(None, Some(3)).unwrap()["advisorCalls"], 3);
+        assert!(with_advisor_calls(None, None).is_none());
+    }
+}
+
+#[cfg(test)]
 mod advisor_flag_tests {
     use super::advisor_flag;
     #[test]
@@ -1164,7 +1184,8 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
     // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal)
-    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns"] {
+    // advisor: o conselheiro PEDIDO na tarefa (faixa, Entrega e doca do terminal — src/advisor.ts)
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "advisor"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     // Cadeado 1 na faixa: a tarefa pausa pra aprovar o plano?
@@ -1175,6 +1196,28 @@ fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
         m.insert("agentProposals".into(), serde_json::Value::Array(tail));
     }
     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
+}
+
+/// Texto EXATO do evento que o motor grava quando o Claude Code consulta o conselheiro (src/advisor.ts advisorEventOf).
+const ADVISOR_CONSULTED: &str = "Conselheiro consultado";
+/// Banco travado/ocupado SOBE o erro (o snapshot cai no último estado bom em vez de esperar duas vezes o busy_timeout).
+fn advisor_calls_by_task(conn: &Connection) -> Result<HashMap<String, i64>, String> {
+    let mut out = HashMap::new();
+    let mut st = match conn.prepare("SELECT task_id, COUNT(*) FROM event WHERE text = ?1 GROUP BY task_id") {
+        Ok(st) => st,
+        Err(e) if e.to_string().contains("no such table") => return Ok(out),
+        Err(e) => return Err(e.to_string()),
+    };
+    let rows = st.query_map(params![ADVISOR_CONSULTED], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).map_err(|e| e.to_string())?;
+    for row in rows { let (k, n) = row.map_err(|e| e.to_string())?; out.insert(k, n); }
+    Ok(out)
+}
+/// Junta a contagem de consultas ao spec do front (t.spec.advisorCalls) — só quando houve alguma.
+fn with_advisor_calls(spec: Option<serde_json::Value>, calls: Option<i64>) -> Option<serde_json::Value> {
+    match calls.filter(|n| *n > 0) {
+        None => spec,
+        Some(n) => { let mut o = spec.and_then(|v| v.as_object().cloned()).unwrap_or_default(); o.insert("advisorCalls".into(), serde_json::json!(n)); Some(serde_json::Value::Object(o)) }
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -2827,6 +2870,8 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
             }
         }
     };
+    // quantas vezes o conselheiro foi consultado (evento do motor headless "Conselheiro consultado") — por tarefa
+    let advisor_calls = advisor_calls_by_task(&conn)?;
     let tasks = conn
         .prepare(&format!(
             "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{}, \
@@ -2874,7 +2919,7 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
                 },
                 depends_on: spec.get("dependsOn").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
-                spec: task_front_spec(&spec),
+                spec: with_advisor_calls(task_front_spec(&spec), advisor_calls.get(&r.get::<_, String>(0)?).copied()),
                 busy: r
                     .get::<_, Option<i64>>(16)
                     .unwrap_or(None)

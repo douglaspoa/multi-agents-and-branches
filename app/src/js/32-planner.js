@@ -826,7 +826,7 @@ async function plCreateInner(){
   // a criação SEGUE a prévia (decisão de 29/09): o tipo (escolhido ou o automático) define branch e entrega, igual ao formulário
   const cr=ndKindCreate(plEffKind()), ai=plModelNow();
   const payload={ start:true, title:plFields.title, workflow:null, agents:null,
-    engine:plEngineNorm(ai.eng), model:ai.model||null, advisor:plFields.advisor, approval:'auto',
+    engine:plEngineNorm(ai.eng), model:ai.model||null, advisor:plFields.advisor!==undefined?plFields.advisor:aiDefaults().advisor, approval:'auto',
     owns:cr.owns||(plFields.owns||[]).join(', ')||null, off:(plFields.off||[]).join(', ')||null,
     objective:plFields.objective||null, deliverables:[],
     // entregáveis do planner viram REQUISITOS — uma lista só, cobrada com prova

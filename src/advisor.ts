@@ -11,6 +11,10 @@
  * Mesma regra do front: app/src/js/29-ia-picker.js (@advisor-puro) — o teste app/tests/advisor.test.mjs compara os dois.
  */
 import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 export type Advisor = "opus" | "fable";
 /** Versão mínima do Claude Code (a doc cita 2.1.260 pro /advisor fora do terminal, o caso do `claude -p`). */
@@ -57,16 +61,70 @@ export function cliVersionOk(version: string | null | undefined, min = ADVISOR_M
 }
 
 const verCache = new Map<string, string | null>();
-/** `claude --version` (só a versão; não chama IA) — uma vez por binário por processo. */
+/** Só pra teste: esquece a versão em memória (simula um processo novo do `starfork ia-prep`). */
+export const clearVersionMemo = () => verCache.clear();
+/** Cache em disco da versão: caminho + mtime do binário (cada `starfork ia-prep` é um processo novo). */
+export const versionCacheFile = () => join(homedir(), ".constellation", "cache", "claude-version.json");
+/** `claude --version` (só a versão; não chama IA) — memória do processo, depois disco (caminho+mtime), por último roda. */
 export function claudeCliVersion(bin: string): string | null {
   if (verCache.has(bin)) return verCache.get(bin)!;
+  let mtime = 0;
+  try { mtime = statSync(bin).mtimeMs; } catch { /* "claude" pelo PATH: sem cache em disco */ }
+  let disk: Record<string, { mtime: number; v: string | null }> = {};
+  if (mtime) {
+    try { disk = JSON.parse(readFileSync(versionCacheFile(), "utf8")) ?? {}; } catch { disk = {}; }
+    const hit = disk[bin];
+    if (hit && hit.mtime === mtime) { verCache.set(bin, hit.v); return hit.v; }
+  }
   let v: string | null = null;
   try {
     const r = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] });
     v = r.status === 0 ? (String(r.stdout).match(/\d+\.\d+\.\d+/)?.[0] ?? null) : null;
   } catch { v = null; }
   verCache.set(bin, v);
+  if (mtime && v) {
+    try { mkdirSync(dirname(versionCacheFile()), { recursive: true }); writeFileSync(versionCacheFile(), JSON.stringify({ ...disk, [bin]: { mtime, v } })); } catch { /* cache é acessório */ }
+  }
   return v;
+}
+
+/**
+ * O conselheiro vale só pra SESSÃO PRINCIPAL de construção (builder e o terminal) — planner, reviewer e revisão de
+ * PR rodam sem (cada sessão com conselheiro multiplica o custo).
+ */
+export function advisorForRun(spec: { advisor?: unknown; kind?: string }, role: string): "opus" | "fable" | null {
+  if (spec?.kind === "review" || role !== "builder") return null;
+  return advisorNorm(spec?.advisor);
+}
+
+/**
+ * Variáveis do ambiente que fazem o Claude Code ignorar o conselheiro em silêncio (doc: Anthropic API only, busca de
+ * feature flags, CLAUDE_CODE_DISABLE_ADVISOR_TOOL). null = nada atrapalha (o que dá pra ver daqui).
+ */
+export function advisorEnvBlocker(env: Record<string, string | undefined>): string | null {
+  const on = (k: string) => { const v = String(env[k] ?? "").trim().toLowerCase(); return !!v && v !== "0" && v !== "false"; };
+  if (on("CLAUDE_CODE_USE_BEDROCK")) return "o Claude Code está configurado pro Amazon Bedrock (CLAUDE_CODE_USE_BEDROCK) — o conselheiro só existe na API da Anthropic";
+  if (on("CLAUDE_CODE_USE_VERTEX")) return "o Claude Code está configurado pro Google Vertex (CLAUDE_CODE_USE_VERTEX) — o conselheiro só existe na API da Anthropic";
+  if (on("CLAUDE_CODE_USE_FOUNDRY")) return "o Claude Code está configurado pro Microsoft Foundry (CLAUDE_CODE_USE_FOUNDRY) — o conselheiro só existe na API da Anthropic";
+  if (on("CLAUDE_CODE_DISABLE_ADVISOR_TOOL")) return "CLAUDE_CODE_DISABLE_ADVISOR_TOOL está ligada no seu ambiente";
+  if (on("DISABLE_TELEMETRY")) return "DISABLE_TELEMETRY está ligada no seu ambiente (o Claude Code precisa buscar as flags pra ligar o conselheiro)";
+  if (on("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC")) return "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC está ligada no seu ambiente (o Claude Code precisa buscar as flags pra ligar o conselheiro)";
+  if (on("CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS")) return "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS está ligada no seu ambiente";
+  return null;
+}
+export const advisorEnvNote = (why: string) => `O conselheiro não vai ligar neste ambiente: ${why}.`;
+/**
+ * Env da sessão SEM conselheiro: CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 (doc: "any configured advisorModel is ignored") —
+ * senão um `/advisor opus` que a pessoa digitou (grava no settings global) ligaria em toda tarefa "Desligado".
+ */
+export const ADVISOR_OFF_ENV = { CLAUDE_CODE_DISABLE_ADVISOR_TOOL: "1" } as const;
+
+/** Já existe este evento na tarefa? (nota "uma vez por tarefa", sem repetir a cada turno/abertura) */
+export function taskHasEvent(dbFile: string, taskId: string, text: string): boolean {
+  try {
+    const db = new DatabaseSync(dbFile);
+    try { return !!db.prepare("SELECT 1 FROM event WHERE task_id = ? AND text = ? LIMIT 1").get(taskId, text); } finally { db.close(); }
+  } catch { return false; }
 }
 
 /**
@@ -99,12 +157,13 @@ export function advisorEventOf(block: any): string | null {
 
 /**
  * Parte do conselheiro no custo, pelo `modelUsage` do `result` (o Claude Code soma as consultas no modelo do conselheiro,
- * por id). Só dá pra separar quando o conselheiro é de outra família que o principal (Opus aconselhando Opus = uma
- * linha só). Acumulado da SESSÃO (como o total_cost_usd). null = não separável.
+ * por id). Só separa quando NADA mais da sessão pode ter usado a família do conselheiro: principal de outra família,
+ * nenhum subagente (Task/Agent) e sessão vista desde o início (num --resume não sabemos o que veio antes).
+ * Acumulado da SESSÃO (como o total_cost_usd). null = não separável ("incluído no total").
  */
-export function advisorCostOf(modelUsage: any, advisor: unknown, mainModel: string | null | undefined): number | null {
+export function advisorCostOf(modelUsage: any, advisor: unknown, mainModel: string | null | undefined, o: { subagents?: boolean; resumed?: boolean } = {}): number | null {
   const adv = advisorNorm(advisor);
-  if (!adv || !modelUsage || typeof modelUsage !== "object") return null;
+  if (!adv || !modelUsage || typeof modelUsage !== "object" || o.subagents || o.resumed) return null;
   const main = modelFamily(mainModel).fam;
   if (!main || main === adv) return null;
   let usd = 0, seen = false;

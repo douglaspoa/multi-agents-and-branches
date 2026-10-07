@@ -122,8 +122,11 @@ function advCliOk(version){ const m=String(version||'').match(/(\d+)\.(\d+)\.(\d
   const a=[+m[1], +m[2], +m[3]], b=ADV_MIN_CLI.split('.').map(Number); for(let i=0;i<3;i++) if(a[i]!==b[i]) return a[i]>b[i]; return true; }
 // o que vai no new_task: 'opus'|'fable' ou 'off' (escolha explícita de desligar; o Rust só repassa opus/fable)
 function advForTask(engine, model, adv){ const a=advNorm(adv); return a && advPair(engine, model, a).ok ? a : 'off'; }
-// sufixo da faixa da tarefa e da Entrega: "com conselheiro (Opus)" — só quando a tarefa roda no Claude
-function advLabel(t){ const a=advNorm(t&&t.spec&&t.spec.advisor); if(!a || aiEngineOf(t.engine)!=='claude') return ''; return 'com conselheiro ('+(ADV_OPTS.find(x=>x.id===a)||{}).name+')'; }
+// faixa da tarefa e Entrega: o que foi PEDIDO (o Claude Code pode ignorar em silêncio: conta, Fable, ambiente) e, quando
+// o motor viu, quantas consultas — "pedido: conselheiro (Opus) · consultado 2×". Só quando a tarefa roda no Claude.
+function advCalls(t){ const n=+(t&&t.spec&&t.spec.advisorCalls)||0; return n>0?n:0; }
+function advLabel(t){ const a=advNorm(t&&t.spec&&t.spec.advisor); if(!a || aiEngineOf(t.engine)!=='claude') return ''; const n=advCalls(t);
+  return 'pedido: conselheiro ('+(ADV_OPTS.find(x=>x.id===a)||{}).name+')'+(n?' · consultado '+n+'×':''); }
 // @advisor-puro-fim
 function setSelValue(sel, v){ if(!sel) return; v=v||''; if(![...sel.options].some(o=>o.value===v)) sel.add(new Option(v, v)); sel.value=v; }
 // ---- padrão do USUÁRIO (Configurações → Sua IA): vale pra toda demanda nova, do formulário ou do chat ----
@@ -217,7 +220,7 @@ function aiPickRender(target){
     if(cur.eng==='logcomex'){ target.set('gateway', cur.model); cur=target.get(); } // rótulo antigo: o select escondido também vira 'gateway'
     hosts.forEach(h=>{ if(!h.__ia || !h.contains(h.__ia.pill)){ h.innerHTML=''; h.__ia=iaPick(h, { value:{ engine:cur.eng, model:cur.model }, scope:'demanda', recommend:()=>aiRecommend(aiSpecSnapshot()), advisor:true, advisorValue:aiFormAdvisor(),
         onChange:(v)=>{ target.set(v.engine, v.model); AI_FORM_ADV=advNorm(v.advisor); hosts.forEach(o=>{ if(o!==h && o.__ia) o.__ia.set(v); }); } }); h.__ia.pill=h.querySelector('.iapill'); }
-      else h.__ia.set({ engine:cur.eng, model:cur.model }); });
+      else h.__ia.set({ engine:cur.eng, model:cur.model, advisor:aiFormAdvisor() }); });
     return;
   }
   let { eng, model }=target.get(); if(eng==='logcomex'){ eng='gateway'; target.set('gateway', model); }
@@ -348,8 +351,9 @@ function iaPickCommit(cur, pick, asDef){ const v=iaPickNorm(pick); return { valu
 // @ia-pick-puro-fim
 // versão do Claude Code que a verificação do ambiente já leu (11-ambiente-updater) — sem ela, null
 function advCliVersion(){ const l=(typeof envChecks!=='undefined'&&Array.isArray(envChecks))?envChecks:[]; const c=l.find(x=>/^Claude Code/.test(String(x&&x.name||''))&&x.ok); const m=c&&String(c.detail||'').match(/\d+\.\d+\.\d+/); return m?m[0]:null; }
-// payload do new_task: escolha explícita (inclusive 'off') vale; ausente = o padrão do usuário (Ajustes › Motores e chaves)
-function aiAdvisorFill(p){ if(!p) return p; const a=p.advisor!==undefined?p.advisor:aiDefaults().advisor; p.advisor=advForTask(p.engine, p.model, a); return p; }
+// payload do new_task: só vale a escolha EXPLÍCITA de uma tela com o seletor (Nova demanda, Formulário — que já trazem o
+// padrão de Ajustes); o que cria tarefa em segundo plano (orquestrador, mesa, fábrica, ideia, piloto, nuvem) nasce desligado
+function aiAdvisorFill(p){ if(!p) return p; p.advisor=advForTask(p.engine, p.model, p.advisor); return p; }
 // linha "Conselheiro" da folha (só com o Claude): Desligado · Opus · Fable — par recusado fica desligado com o motivo
 function iaAdvHtml(pick, adv){
   if(pick.engine!=='claude') return '';

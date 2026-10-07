@@ -7,7 +7,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
-import { advisorArgs, advisorCostOf, advisorEventOf, ADVISOR_NAME, claudeCliVersion, type Advisor } from "../advisor.ts";
+import { ADVISOR_OFF_ENV, advisorArgs, advisorCostOf, advisorEnvBlocker, advisorEnvNote, advisorEventOf, advisorForRun, ADVISOR_NAME, claudeCliVersion, taskHasEvent, type Advisor } from "../advisor.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
 import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
 import { mobileRule } from "../mobile.ts";
@@ -405,10 +405,11 @@ export class ClaudeEngine implements AgentEngine {
     if (useAlt && alt) args.push("--model", alt.model);
     else if (this.model) args.push("--model", this.model);
     // CONSELHEIRO (src/advisor.ts): por sessão via --settings — vale também no --resume (o claude não guarda)
-    const wantAdv = input.spec.advisor;
+    // só a sessão principal de construção (builder) — planner/reviewer/revisão de PR rodam sem
+    const wantAdv = advisorForRun(input.spec, input.role);
     const adv = advisorArgs({ engine: "claude", model: useAlt && alt ? alt.model : this.model, advisor: wantAdv, cliVersion: wantAdv ? claudeCliVersion(resolveClaude()) : null, viaGateway: useAlt });
     args.push(...adv.args);
-    const advCtx: LineCtx = { advisor: adv.on, mainModel: this.model || "" };
+    const advCtx: LineCtx = { advisor: adv.on, mainModel: this.model || "", subagents: false, resumed: !!input.resume?.sessionId, consults: 0 };
 
     // stdin "ignore": evita o aviso "no stdin data received in 3s".
     // Limpa marcadores de "sessão Claude Code" herdados (ex.: app aberto a
@@ -433,6 +434,10 @@ export class ClaudeEngine implements AgentEngine {
       delete env.ANTHROPIC_API_KEY;
       delete env.ANTHROPIC_AUTH_TOKEN;
     }
+    // sem conselheiro: desliga até o `/advisor` global da pessoa; com conselheiro, avisa (uma vez) o que o impede
+    let advEnvNote = "";
+    if (!adv.on) Object.assign(env, ADVISOR_OFF_ENV);
+    else { const why = advisorEnvBlocker(env); if (why) advEnvNote = advisorEnvNote(why); }
     // CUSTO NO --resume: o claude restaura o custo acumulado da sessão (linha "cost-state" do
     // transcript) e o `total_cost_usd` do result vem SOMADO com os turnos anteriores — cada conversa
     // no chat da tarefa re-cobrava a sessão inteira. Base = o último acumulado gravado; custo do turno = diferença.
@@ -447,7 +452,7 @@ export class ClaudeEngine implements AgentEngine {
 
     const queue: AgentEvent[] = [];
     if (useAlt && alt) queue.push({ type: "note", text: `Route AI: rodando na ${alt.label} (${alt.model})` });
-    if (adv.note) queue.push({ type: "note", text: adv.note });
+    for (const n of [adv.note, advEnvNote]) if (n && !taskHasEvent(input.dbFile, input.spec.id, n)) queue.push({ type: "note", text: n });
     if (resumeSid && costBase === 0) queue.push({ type: "note", text: "custo: não achei o acumulado anterior desta sessão — o custo deste turno pode incluir turnos anteriores" });
     let done = false;
     let notify: (() => void) | null = null;
@@ -737,7 +742,7 @@ export function recordClaudeRateLimit(rl: ClaudeRateLimit, dir = claudeUsageDir(
 /** Traduz uma linha NDJSON do stream-json real do Claude Code em AgentEvent[].
  * `costBase`: custo acumulado da sessão ANTES deste turno (só no --resume) — é descontado do total. */
 /** Estado da sessão que o parser precisa: conselheiro ligado e o modelo principal (vem no system/init). */
-export interface LineCtx { advisor: Advisor | null; mainModel: string }
+export interface LineCtx { advisor: Advisor | null; mainModel: string; subagents?: boolean; resumed?: boolean; consults?: number }
 export function mapLine(line: string, costBase = 0, ctx?: LineCtx): AgentEvent[] {
   const t = line.trim();
   if (!t) return [];
@@ -768,8 +773,8 @@ export function mapLine(line: string, costBase = 0, ctx?: LineCtx): AgentEvent[]
   if (o.type === "assistant" && o.message?.content) {
     const out: AgentEvent[] = [];
     for (const p of o.message.content) {
-      if (p.type === "tool_use") out.push(mapTool(p.name, p.input));
-      else if (p.type === "server_tool_use" || p.type === "advisor_tool_result") { const a = advisorEventOf(p); if (a) out.push({ type: "note", text: a }); }
+      if (p.type === "tool_use") { out.push(mapTool(p.name, p.input)); if (ctx && /^(Task|Agent)$/.test(String(p.name))) ctx.subagents = true; }
+      else if (p.type === "server_tool_use" || p.type === "advisor_tool_result") { const a = advisorEventOf(p); if (a) { out.push({ type: "note", text: a }); if (ctx && p.type === "server_tool_use") ctx.consults = (ctx.consults ?? 0) + 1; } }
       else if (p.type === "text" && p.text?.trim()) out.push({ type: "think", text: p.text.trim().slice(0, 4000) });
     }
     return out;
@@ -789,8 +794,10 @@ export function mapLine(line: string, costBase = 0, ctx?: LineCtx): AgentEvent[]
     const outTok = Number(u.output_tokens) || 0;
     const ms = Number(o.duration_ms) || 0;
     // parte do conselheiro (acumulado da sessão, já dentro do total) — só quando o modelUsage separa
-    const advUsd = ctx?.advisor ? advisorCostOf(o.modelUsage, ctx.advisor, ctx.mainModel) : null;
-    const advNote: AgentEvent[] = advUsd != null && ctx?.advisor ? [{ type: "note", text: `Conselheiro (${ADVISOR_NAME[ctx.advisor]}): US$ ${advUsd.toFixed(3)} nesta sessão — já incluído no custo da tarefa` }] : [];
+    // (separa só quando nada mais da sessão pode ter usado a família do conselheiro; senão "incluído no total")
+    const advUsd = ctx?.advisor && ctx.consults ? advisorCostOf(o.modelUsage, ctx.advisor, ctx.mainModel, ctx) : null;
+    const advNote: AgentEvent[] = !ctx?.advisor || !ctx.consults ? []
+      : [{ type: "note", text: advUsd != null ? `Conselheiro (${ADVISOR_NAME[ctx.advisor]}): US$ ${advUsd.toFixed(3)} nesta sessão — já incluído no custo da tarefa` : `Conselheiro (${ADVISOR_NAME[ctx.advisor]}): o custo das consultas está incluído no total (não dá pra separar nesta sessão)` }];
     return [
       ...advNote,
       {
