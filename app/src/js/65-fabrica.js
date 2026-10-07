@@ -194,6 +194,14 @@ function fabRoute(kind, ctx){
   if(kind==='nova') return { kind:'planner' };
   return { kind };
 }
+// o que a opção escolhida virou (B4): épico da Feature criado POR INTEIRO, criado EM PARTE (parou no meio: N de M
+// tarefas, dá pra continuar sem duplicar), ou levada pro "Começar por uma ideia" (App novo)
+function fabCriadoEstado(criado, total){
+  if(!criado) return null;
+  if(criado.ideia) return { kind:'ideia' };
+  const n=((criado.tasks)||[]).length, m=Math.max(+total||0, n);
+  return criado.partial || (m>0 && n<m) ? { kind:'parcial', n, m } : { kind:'feito', n, m };
+}
 // @fabrica-puro-fim
 
 Object.assign(IC, { fabrica:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 13V7l3 2V7l3 2V7l3 2V3h3v10z" stroke-linejoin="round"/></svg>' });
@@ -306,7 +314,7 @@ async function fabToIdeia(i){
   const id='i-'+Date.now().toString(36)+'-'+(Math.random().toString(36).slice(2)+'0000').slice(0,4)+'x';
   const m={ id, v:1, titulo, createdAt:Date.now(), updatedAt:Date.now(), turns:[fabIdeaTurn(op, s.foco, typeof ideiaPanel==='function'?ideiaPanel():[])],
     report:{ status:'ok', data, md:(typeof ideiaReportMd==='function'?ideiaReportMd(data, titulo, { engine:'Fábrica', date }):''), engine:s.engine||'', costUsd:0, at:Date.now(), sites:(data.fontes||[]).length, avisos:data.avisos||[] },
-    decision:null, project:null, costUsd:0, tokUsd:0, tokens:0, fabrica:{ sessao:s.id, idx:i, foco:s.foco, mockHtml:op.mock&&op.mock.estado==='ok'?op.mock.html:'' } };
+    decision:null, project:null, costUsd:0, tokUsd:0, tokens:0, capUsd:typeof ideiaSessCapBase==='function'?ideiaSessCapBase():2, fabrica:{ sessao:s.id, idx:i, foco:s.foco, mockHtml:op.mock&&op.mock.estado==='ok'?op.mock.html:'' } };
   try{
     await invoke('ideia_save',{ id, data:m });
     await invoke('fabrica_choose',{ id:s.id, idx:i, criado:{ ideia:id } });
@@ -388,6 +396,8 @@ function fabVotesHtml(op){
 }
 function fabFooterHtml(s, i, op){
   const feat=s.mode==='feature', d=(s.descartes||{})[i], ch=s.escolha&&s.escolha.idx===i&&s.escolha.criado;
+  const ce=ch&&fabCriadoEstado(ch, feat?fabFeaturePlan(op, (FAB.ov[s.id]||{})[i], 'mock.html').tasks.length:0);
+  if(ce && ce.kind==='parcial') return `<div class="fab-partial" role="status"><b>Épico criado em parte (${ce.n} de ${ce.m} tarefa${ce.m===1?'':'s'})</b> — a criação parou no meio. Continuar cria só as que faltam, sem repetir.</div><div class="row1"><button type="button" class="btn sm primary" data-fmk="${i}"${FAB.busy?' disabled':''}>${FAB.busy?'criando…':`Continuar de onde parou (faltam ${ce.m-ce.n})`}</button></div>`;
   if(ch) return `<div class="fab-done">${IC.ok||''} ${feat?'Épico criado neste projeto — as tarefas estão em rascunho':'Levada pro Começar por uma ideia'}${!feat&&ch.ideia?` <button type="button" class="btn sm" data-fideia="${fabEsc(ch.ideia)}">abrir</button>`:''}</div>`;
   if(d) return `<div class="fab-discarded">Descartada — motivo: <b>${fabEsc(d)}</b> <button type="button" class="fab-lnk" data-fundisc="${i}">desfazer</button></div>`;
   if(FAB.confirm===i) return fabConfirmHtml(s, i, op);

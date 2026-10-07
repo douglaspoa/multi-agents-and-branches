@@ -271,6 +271,35 @@ function mesaNoteBody(m, dec, criadas){
   L.push(`Rastro: mesa ${m.tema} · \`.cardume/mesas/${m.id}.json\``);
   return L.join('\n\n');
 }
+// TETO DA SESSÃO POR CHAMADA (B1/B2 da mesa de bugs 2): várias personas rodam em paralelo e o custo só chega no fim de
+// cada chamada — conferir o gasto antes de lançar deixava a mesa passar 3× do teto. Agora cada chamada RESERVA a sua
+// parte do que sobra (teto − gasto − o já reservado pelas chamadas em voo) e vai pro motor com esse teto
+// (`--max-budget-usd` no Claude). Sobra menor que uma chamada mínima = não lança (parou no teto).
+const MESA_MIN_CALL=0.03; // = fabrica.rs MIN_CHAMADA
+// quanto a PRÓXIMA chamada pode gastar: a sobra dividida pelas vagas que ainda vão abrir agora (slots), nunca além da
+// sobra nem de `max`; arredonda pra BAIXO no centavo (a soma das reservas nunca passa do teto). null = não cabe.
+// `want` = quanto uma fala costuma custar: com sobra curta, menos falas em paralelo (cada uma com o bastante pra
+// terminar) em vez de várias que batem no teto da chamada e não entregam nada. `floor` = o custo de uma fala JÁ
+// MEDIDO nesta sessão: sobra menor que isso não lança (pararia no teto da chamada sem entregar — gasto jogado fora).
+function mesaCallBudget(spent, reserved, cap, slots, max, want, floor){
+  const sobra=(+cap||0)-(+spent||0)-(+reserved||0);
+  if(!(+cap>0) || !(sobra>=Math.max(MESA_MIN_CALL, +floor||0))) return null;
+  let n=Math.max(1, Math.floor(+slots)||1);
+  if(+want>0) n=Math.max(1, Math.min(n, Math.floor(sobra/+want)));
+  let b=Math.max(MESA_MIN_CALL, sobra/n);
+  if(+max>0) b=Math.min(b, +max);
+  b=Math.floor(Math.min(b, sobra)*100+1e-9)/100;
+  return b>=MESA_MIN_CALL?b:null;
+}
+// a "carteira" de uma sessão: reserva antes de lançar, devolve quando a chamada termina (o custo real já entrou no gasto)
+function mesaPurse(spentFn, capFn, wantFn, floorFn){
+  const P={ reserved:0, inflight:0,
+    take(slots, max){ const b=mesaCallBudget(spentFn(), P.reserved, capFn(), slots, max, wantFn?wantFn():0, floorFn?floorFn():0); if(b!=null){ P.reserved+=b; P.inflight++; } return b; },
+    give(b){ P.reserved=Math.max(0, Math.round((P.reserved-(+b||0))*1e6)/1e6); P.inflight=Math.max(0, P.inflight-1); } };
+  return P;
+}
+// aprende quanto uma fala custa nesta sessão: a mais cara que terminou; bateu no teto da chamada = custava mais (dobra)
+function mesaLearnWant(prev, r, budget){ const p=+prev||0; if(r&&r.budgetHit) return Math.max(p, 2*(+budget||0)); const c=+(r&&r.costUsd)||0; return Math.max(p, c); }
 // @puro-fim
 
 Object.assign(IC, {
@@ -396,11 +425,14 @@ function mesaCorrupt(id){
 }
 
 // ---- chamada de UMA persona ----
-async function mesaAsk(m, sys, prompt, json){
-  const r=await invoke('mesa_ask',{ repo:m.repo, id:m.id, personaSys:sys, prompt, model:m.model||null, json:!!json });
+// budget: o teto DESTA chamada (US$) reservado na carteira da sessão; acc.usd soma o que esta chamada custou
+async function mesaAsk(m, sys, prompt, json, budget, acc){
+  const r=await invoke('mesa_ask',{ repo:m.repo, id:m.id, personaSys:sys, prompt, model:m.model||null, json:!!json, budgetUsd:budget>0?budget:null });
+  const c0=mesaSpentUsd(m); m.callWant=mesaLearnWant(m.callWant, r, budget);
   m.costUsd=(+m.costUsd||0)+(+(r&&r.costUsd)||0); // erro do claude também cobra — entra no gasto
   { const tok=(+(r&&r.inTok)||0)+(+(r&&r.outTok)||0); // fora do Claude: US$ 0 + tokens → teto por tokens
     if(!(+(r&&r.costUsd)>0) && tok>0){ m.tokens=(+m.tokens||0)+tok; m.tokUsd=(+m.tokUsd||0)+mesaTokUsd(r.engine, r.inTok, r.outTok, r.cachedTok); } }
+  if(acc) acc.usd=(+acc.usd||0)+(mesaSpentUsd(m)-c0);
   if(r && r.error) throw new Error(r.error);
   return String((r&&r.text)||'');
 }
@@ -457,12 +489,12 @@ async function mesaRunRound(m, r, run, withFailed){
     :(r.argumento && prevVote)?mesaArgPrompt(m.tema, m.personas, prevVote.resp, m.cands, mesaTally(m.cands, mesaVotesOf(prevVote), m.personas), r.argumento)
     :mesaR2Prompt(m.tema, m.personas, m.rounds[0].resp, m.cands);
   const STOP=new Error('MESA_STOPPED');
-  const one=async p=>{
-    const sys=mesaPersonaSys(p);
+  const one=async(p, budget)=>{
+    const sys=mesaPersonaSys(p), acc={ usd:0 };
     const chk=()=>{ if(run.stop) throw STOP; };
     try{
       chk();
-      const text=await mesaAsk(m, sys, prompt, true); chk();
+      const text=await mesaAsk(m, sys, prompt, true, budget, acc); chk();
       if(r.tipo==='posicao'){
         const x=mesaParsePosition(text);
         r.resp[p.id]={ st:'ok', texto:x.texto, propostas:x.propostas, aviso:x.aviso||'', at:Date.now() };
@@ -470,11 +502,13 @@ async function mesaRunRound(m, r, run, withFailed){
       } else {
         const first=mesaParseVote(text, candIds);
         let out=mesaVoteOutcome(first, null, text), raw=text;
-        if(out.kind==='retry'){ // voto malformado: UMA nova tentativa pedindo só o JSON
+        const left=Math.floor((budget-acc.usd)*100)/100; // a nova tentativa usa o que sobrou da reserva desta persona
+        if(out.kind==='retry' && left>=MESA_MIN_CALL){ // voto malformado: UMA nova tentativa pedindo só o JSON
           r.resp[p.id]={ st:'pendente', aviso:'voto malformado — pedindo de novo só o JSON' }; mesaPaint(m);
-          raw=await mesaAsk(m, sys, prompt+MESA_RETRY, true); chk();
+          raw=await mesaAsk(m, sys, prompt+MESA_RETRY, true, left, acc); chk();
           out=mesaVoteOutcome(first, mesaParseVote(raw, candIds), raw);
         }
+        if(out.kind==='retry') out=mesaVoteOutcome(first, mesaParseVote('', candIds), raw); // sem reserva pra tentar de novo: descarta
         if(out.kind==='ok'){
           r.resp[p.id]={ st:'ok', texto:out.vote.fala, voto:out.vote, aviso:out.warns.join(' · '), at:Date.now() };
           if(out.warns.length) r.avisos.push(p.nome+': '+out.warns.join(' · '));
@@ -485,21 +519,26 @@ async function mesaRunRound(m, r, run, withFailed){
       }
     }catch(e){
       const msg=String(e&&e.message||e);
-      r.resp[p.id]=(run.stop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:mesaErrMsg(e), at:Date.now() };
+      if(/MESA_BUDGET/.test(msg)){ r.resp[p.id]={ st:'parada', aviso:'parou no teto desta fala' }; budgetHit=true; } // volta pra fila: roda de novo depois de aumentar o teto
+      else r.resp[p.id]=(run.stop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:mesaErrMsg(e), at:Date.now() };
     }
     await mesaSave(m); mesaPaint(m);
   };
-  const queue=todo.slice(); let capped=false;
+  const queue=todo.slice(); let capped=false, budgetHit=false;
+  // cada persona reserva a sua parte do que sobra do teto ANTES de lançar (as em voo já reservaram a delas)
+  const est=mesaCost(1, 1, m.model||'sonnet', typeof roughEstimate==='function'?roughEstimate:null)[1]; // pior caso de 1 fala antes de ter custo real
+  const purse=mesaPurse(()=>mesaSpentUsd(m), ()=>mesaCapOf(m), ()=>+m.callWant>0?+m.callWant:est, ()=>+m.callWant||0);
   const worker=async()=>{
     while(queue.length && !run.stop && !capped){
-      if(mesaCapHit(mesaSpentUsd(m), mesaCapOf(m))){ capped=true; break; }
-      await one(queue.shift());
+      const b=purse.take(Math.min(MESA_POOL-purse.inflight, queue.length));
+      if(b==null){ if(!purse.inflight) capped=true; break; } // sobra presa em falas em voo: a última que voltar confere de novo
+      try{ await one(queue.shift(), b); }finally{ purse.give(b); }
     }
   };
   await Promise.all(Array.from({ length:Math.min(MESA_POOL, queue.length) }, worker));
   queue.forEach(p=>{ delete r.resp[p.id]; }); // não lançadas (parar/teto): voltam pra "na fila"
   if(queue.length) { await mesaSave(m); mesaPaint(m); }
-  return capped && queue.length>0;
+  return (capped && queue.length>0) || budgetHit;
 }
 async function mesaStop(m){
   const run=MESA.runs[m.id]; if(!run) return;
@@ -562,7 +601,8 @@ async function mesaArgue(){
   }
   const p=(m.personas||[]).find(x=>x.id===MESA.target); if(!p) return;
   if(MESA.chatBusy) return;
-  if(mesaCapHit(mesaSpentUsd(m), mesaCapOf(m))){ m.capAviso={ what:'perguntar pra '+p.nome, kind:'ask', base:m.capBase||mesaCapBase()||2, at:Date.now() }; mesaRender(); return; }
+  const askBudget=mesaCallBudget(mesaSpentUsd(m), 0, mesaCapOf(m), 1); // uma pergunta só: leva toda a sobra
+  if(askBudget==null){ m.capAviso={ what:'perguntar pra '+p.nome, kind:'ask', base:m.capBase||mesaCapBase()||2, at:Date.now() }; mesaRender(); return; }
   MESA.draft=''; if(inp) inp.value='';
   const chat=(m.chats[p.id]=m.chats[p.id]||[]);
   const vr=mesaVoteRounds(m), last=vr[vr.length-1], r1=(m.rounds[0].resp||{})[p.id]||{}, lr=(last&&last.resp[p.id])||{};
@@ -573,11 +613,11 @@ async function mesaArgue(){
   try{
     // "parar" clicado enquanto o resume corria: o resume apagaria a marca do Rust — a flag local segura
     if(MESA.chatStop) throw new Error('MESA_STOPPED');
-    const ans=await mesaAsk(m, mesaPersonaSys(p), mesaAskPrompt(m.tema, p, hist, text), false);
+    const ans=await mesaAsk(m, mesaPersonaSys(p), mesaAskPrompt(m.tema, p, hist, text), false, askBudget);
     chat.push({ who:'bot', text:ans||'(sem resposta)' });
   }catch(e){
     const msg=String(e&&e.message||e);
-    chat.push({ who:'sys', text:/MESA_STOPPED/.test(msg)?'Parado.':(p.nome+' não respondeu: '+mesaErrMsg(e)) });
+    chat.push({ who:'sys', text:/MESA_STOPPED/.test(msg)?'Parado.':/MESA_BUDGET/.test(msg)?(p.nome+' parou no teto da mesa — aumente o teto pra perguntar de novo.'):(p.nome+' não respondeu: '+mesaErrMsg(e)) });
   }finally{ MESA.chatBusy=false; MESA.chatMesaId=''; MESA.chatStop=false; await mesaSave(m); chatPinBottom('mesaChat'); mesaPaint(m); }
 }
 
@@ -775,8 +815,9 @@ function mesaMesaHtml(m){
   const acts=(running?`<button class="btn" id="mesaStop"${run&&run.stop?' disabled':''}>${IC.stopsq}${run&&run.stop?'parando…':'Parar'}</button>`:'')+
     (!running && ['pausada','parada','interrompida'].includes(st) && !m.capAviso?`<button class="btn primary" id="mesaCont">${IC.play}${m.status==='interrompida'?'Tentar de novo':'Continuar'}</button>`:'')+
     `<button type="button" class="btn icon quiet" id="mesaMore" title="Mais: tentar de novo com quem falhou · abrir pasta" aria-label="Mais ações" aria-haspopup="menu">${IC.dots||'⋯'}</button>`;
-  const sum=`${mesaStBadge(st)} <span>${(m.personas||[]).length} personas · ${(m.rounds||[]).length} rodada${(m.rounds||[]).length===1?'':'s'} · <b>${mesaEsc(fmtCost(spent,{ usdOnly:true }))}${cap>0?' de '+mesaEsc(fmtCost(cap,{ usdOnly:true })):''}</b> (≈ R$ ${mesaEsc(fmtNumBR(spent*usdBrlRate(), true))})${+m.tokUsd>0?' · teto por tokens (parte estimada pelos tokens da IA)':''}</span>`;
-  const head=mesaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Mesa: '+m.tema, scope:'projeto', scopeLabel:pathBase(m.repo), sum, right:acts, sub:`Mesa: ${(m.personas||[]).length} pontos de vista que debatem e votam features. Nada vira demanda sem você aprovar.` }):`<h1>Mesa: ${mesaEsc(m.tema)}</h1>`);
+  const money=`${mesaStBadge(st)} gastou <b>${mesaEsc(fmtCost(spent,{ usdOnly:true }))}</b>${cap>0?' de <b>'+mesaEsc(fmtCost(cap,{ usdOnly:true }))+'</b>':''}`; // gasto e teto sempre visíveis (B3)
+  const sum=`<span>${(m.personas||[]).length} personas · ${(m.rounds||[]).length} rodada${(m.rounds||[]).length===1?'':'s'} · ≈ R$ ${mesaEsc(fmtNumBR(spent*usdBrlRate(), true))}${+m.tokUsd>0?' · teto por tokens (parte estimada pelos tokens da IA)':''}</span>`;
+  const head=mesaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Mesa: '+m.tema, scope:'projeto', scopeLabel:pathBase(m.repo), money, sum, right:acts, sub:`Mesa: ${(m.personas||[]).length} pontos de vista que debatem e votam features. Nada vira demanda sem você aprovar.` }):`<h1>Mesa: ${mesaEsc(m.tema)}</h1>`);
   const D=mesaDecisionOf(m);
   const capAv=m.capAviso?`<div class="g2capbox" role="status"><span><b>Aviso do Starfork:</b> a mesa chegou no teto de ${mesaEsc(fmtCost(cap,{ usdOnly:true }))} (gastou ${mesaEsc(fmtCost(spent,{ usdOnly:true }))}) antes de ${mesaEsc(m.capAviso.what)}.</span><div class="g2row"><button type="button" class="btn sm primary" id="mesaCapUp">Continuar com mais ${mesaEsc(fmtCost(m.capAviso.base,{ usdOnly:true }))}</button><button type="button" class="btn sm quiet" id="mesaCapNo">Parar aqui</button></div></div>`:'';
   let left='';

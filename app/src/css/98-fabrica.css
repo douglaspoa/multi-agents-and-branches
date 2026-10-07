@@ -110,6 +110,10 @@
 .fab-dchip:hover{border-color:var(--text-3)}
 .fab-discarded,.fab-done{font-size:12px;color:var(--text-2);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .fab-done svg{width:14px;height:14px;color:var(--good)}
+.fab-partial{font-size:12px;color:var(--text-2);border:1px solid var(--warn-line);background:var(--warn-bg);border-radius:8px;padding:8px 10px;margin-bottom:8px}
+.fab-partial b{color:var(--text)}
+.ideiacaprow{margin-top:10px;align-items:center;gap:10px;flex-wrap:wrap}
+.ideiacaprow .in{width:90px}
 @media (max-width:720px){ .fab-meter{margin-left:0;min-width:0;width:100%} .fab-oc .two{grid-template-columns:1fr} }
 @media (prefers-reduced-motion:reduce){ .fab-meter .m i{transition:none} }
 
@@ -455,3 +459,4 @@ button.row{cursor:pointer}button.row:hover{background:var(--surface-2)}
 .g2eopt:focus-within{box-shadow:var(--ring)}
 .g2eopt:has(.g2eor:focus-visible){outline:2px solid transparent;box-shadow:var(--ring)}
 .mbody label.g2eol{text-transform:none;letter-spacing:0;margin-top:0;color:var(--text);font-size:inherit;font-weight:inherit}
+.g2capbox .err{color:var(--crit)}

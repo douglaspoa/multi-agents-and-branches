@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
-use super::{ai_once, claude_bin, claude_cmd, claude_json, home_dir_s, mesa, push_model, tool_line, usage_ledger};
+use super::{ai_once, claude_bin, claude_cmd, home_dir_s, mesa, push_model, tool_line, usage_ledger};
 
 /// Resposta de uma persona (s): só opina, sem ferramentas.
 const ASK_SECS: u64 = 300;
@@ -112,7 +112,7 @@ pub(crate) fn persona_args(sys: &str, model: &Option<String>) -> Vec<String> {
 /// UMA persona responde UMA vez sobre a ideia. `{ text, costUsd }` (Claude) ou `{ text, costUsd:0, inTok, outTok,
 /// cachedTok, engine }` (outros motores — a tela estima pelo token, como na mesa); `{ error, costUsd }` se cobrou e falhou.
 #[tauri::command(async)]
-pub fn ideia_ask(id: String, persona_sys: String, prompt: String, model: Option<String>, json: Option<bool>) -> Result<serde_json::Value, String> {
+pub fn ideia_ask(id: String, persona_sys: String, prompt: String, model: Option<String>, json: Option<bool>, budget_usd: Option<f64>) -> Result<serde_json::Value, String> {
     if ideia_path(Path::new("."), &id).is_err() { return Err("id de ideia inválido".into()); }
     let dir = ideias_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -123,16 +123,11 @@ pub fn ideia_ask(id: String, persona_sys: String, prompt: String, model: Option<
     if eng != ai_once::AiEngine::Claude { return mesa::ask_other_as("ideia", eng, &id, &sys, &prompt, &dir); }
     let model = model.filter(|m| !m.trim().is_empty());
     let mut cmd = claude_cmd(&claude_bin());
-    cmd.args(persona_args(&sys, &model)).current_dir(&dir);
+    cmd.args(persona_args(&sys, &model)).args(mesa::budget_args(budget_usd)).current_dir(&dir); // teto DESTA fala (parte do teto da ideia)
     let started = Instant::now();
     let out = mesa::run_stoppable(cmd, ASK_SECS, &id, Some(prompt))?;
     usage_ledger::record_claude_output(&usage_ledger::Tag::new("ideia", &dir, &model, &None), &out, started);
-    let cost = mesa::cost_of(&out);
-    match claude_json(&out) {
-        Ok(v) => Ok(serde_json::json!({ "text": v["result"].as_str().unwrap_or(""), "costUsd": cost })),
-        Err(e) if cost > 0.0 => Ok(serde_json::json!({ "error": e, "costUsd": cost })),
-        Err(e) => Err(e),
-    }
+    mesa::ask_reply(&out, budget_usd)
 }
 
 // ---------------------------------------------------------------------------

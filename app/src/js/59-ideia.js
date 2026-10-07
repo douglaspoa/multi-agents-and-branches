@@ -278,6 +278,17 @@ function ideiaNewId(){ return 'i-'+Date.now().toString(36)+'-'+(Math.random().to
 function ideiaCall(){ return typeof invokeQuiet==='function'?invokeQuiet:invoke; }
 function ideiaErr(e, what){ try{ return humanErr(e, what).msg; }catch(_){ return String(e&&e.message||e); } }
 function ideiaClaudeModel(){ if(IDEIA.chatModel && typeof aiEngineOf==='function' && typeof aiDefaults==='function' && aiEngineOf(aiDefaults().eng)==='claude') return IDEIA.chatModel; return typeof aiClaudeModel==='function'?aiClaudeModel():null; } // modelo da pílula da ideia (iaPickChat), senão o padrão
+// TETO DA SESSÃO (B2): conversa, decisão e pesquisa da ideia gastam do MESMO teto obrigatório, como toda sessão da
+// Fábrica. Cada fala reserva a sua parte do que sobra (mesaPurse do 38-mesa) e vai pro motor com esse teto.
+function ideiaSpent(m){ return (+m.costUsd||0)+(+m.tokUsd||0); }
+function ideiaSessCapBase(){ const v=typeof parseUsd==='function'?parseUsd((typeof lsGet==='function'&&lsGet('ideiaSessCapUsd'))||''):null; return v>0?v:2; }
+function ideiaCapOf(m){ return +(m&&m.capUsd)||0; }
+function ideiaPurse(m){ const L=ideiaLive(m.id), cur=()=>IDEIA.mem[m.id]||m;
+  const est=()=>mesaCost(1, 1, ideiaClaudeModel()||'sonnet', typeof roughEstimate==='function'?roughEstimate:null)[1];
+  return L.purse||(L.purse=mesaPurse(()=>ideiaSpent(cur()), ()=>ideiaCapOf(cur()), ()=>+cur().callWant>0?+cur().callWant:est(), ()=>+cur().callWant||0)); }
+// teto batido (ou ideia antiga sem teto): pausa e mostra o aviso inline com o campo do novo teto
+function ideiaCapStop(m, what){ m.capAviso={ what, at:Date.now() }; }
+function ideiaNeedsCap(m, what){ if(ideiaCapOf(m)>0) return false; ideiaCapStop(m, what); ideiaPaint(m); toast('Defina o teto da sessão em US$ pra continuar — toda sessão para sozinha nele.','warn'); return true; }
 function ideiaEngine(){ return (IDEIA.mode&&IDEIA.mode.engine)||(typeof defaultAiEngine==='function'?defaultAiEngine():'claude'); }
 
 // ---- disco: grava a cada passo (fila por ideia: nunca duas escritas cruzadas) ----
@@ -332,8 +343,11 @@ window.ideiaNew=ideiaNew; window.ideiaOpenTab=ideiaOpenTab;
 async function ideiaStart(){
   const inp=$id('ideiaNewIn'); const text=String(inp&&inp.value||IDEIA.newDraft||'').trim();
   if(text.length<6){ toast('Conte a ideia numa frase (ex.: "um app de rotina de skincare com lembretes").','warn'); if(inp) inp.focus(); return; }
-  const m={ id:ideiaNewId(), v:1, titulo:ideiaTitle(text), createdAt:Date.now(), updatedAt:Date.now(), turns:[], report:null, decision:null, project:null, costUsd:0, tokUsd:0, tokens:0, panel:ideiaPanelSnap() };
-  IDEIA.mem[m.id]=m; IDEIA.cur=m; IDEIA.newDraft=''; IDEIA.draft='';
+  const capIn=$id('ideiaNewCap'), c=typeof pilotoCapCheck==='function'?pilotoCapCheck(capIn?capIn.value:(IDEIA.newCap!=null?IDEIA.newCap:ideiaSessCapBase()), 0):{ ok:true, cap:ideiaSessCapBase() };
+  if(!c.ok){ toast(c.err.replace('o piloto para','a sessão para'),'warn'); if(capIn) capIn.focus(); return; }
+  try{ lsSet('ideiaSessCapUsd', String(c.cap)); }catch(_){ }
+  const m={ id:ideiaNewId(), v:1, titulo:ideiaTitle(text), createdAt:Date.now(), updatedAt:Date.now(), turns:[], report:null, decision:null, project:null, costUsd:0, tokUsd:0, tokens:0, capUsd:c.cap, panel:ideiaPanelSnap() };
+  IDEIA.mem[m.id]=m; IDEIA.cur=m; IDEIA.newDraft=''; IDEIA.draft=''; IDEIA.newCap=null;
   if(inp) inp.value='';
   await ideiaSave(m);
   if(typeof renderTabs==='function') renderTabs();
@@ -344,6 +358,7 @@ async function ideiaSendFromInput(){
   const inp=$id('ideiaIn'); const text=String(inp&&inp.value||'').trim(); if(!text) return;
   if(ideiaLive(m.id).turn){ toast('Espere a mesa responder (ou pare).','warn'); return; }
   if(ideiaLive(m.id).decide){ toast('A mesa está decidindo o MVP — converse quando a votação terminar (ou pare).','warn'); return; }
+  if(ideiaNeedsCap(m, 'responder a conversa')) return;
   if(inp) inp.value=''; IDEIA.draft='';
   ideiaSend(m, text);
 }
@@ -356,8 +371,9 @@ async function ideiaSend(m, text){
   await ideiaSave(m); ideiaPaint(m);
   ideiaRunTurn(m, turn);
 }
-async function ideiaAsk(m, sys, prompt, json, key){
-  const r=await ideiaCall()('ideia_ask',{ id:key||m.id, personaSys:sys, prompt, model:ideiaClaudeModel(), json:!!json });
+async function ideiaAsk(m, sys, prompt, json, key, budget){
+  const r=await ideiaCall()('ideia_ask',{ id:key||m.id, personaSys:sys, prompt, model:ideiaClaudeModel(), json:!!json, budgetUsd:budget>0?budget:null });
+  if(budget>0) m.callWant=mesaLearnWant(m.callWant, r, budget);
   m.costUsd=(+m.costUsd||0)+(+(r&&r.costUsd)||0);
   { const tok=(+(r&&r.inTok)||0)+(+(r&&r.outTok)||0); if(!(+(r&&r.costUsd)>0) && tok>0 && typeof mesaTokUsd==='function'){ m.tokens=(+m.tokens||0)+tok; m.tokUsd=(+m.tokUsd||0)+mesaTokUsd(r.engine, r.inTok, r.outTok, r.cachedTok); } }
   if(r && r.error) throw new Error(r.error);
@@ -371,16 +387,19 @@ async function ideiaRunTurn(m, turn){
   const todo=ideiaPanelOf(m).filter(p=>{ const x=turn.resp[p.id]; return !x || ['na fila','interrompida','parada','falhou'].includes(x.st); });
   todo.forEach(p=>{ turn.resp[p.id]={ st:'na fila' }; });
   ideiaPaint(m);
-  const one=async p=>{
+  let capHit=false;
+  const one=async(p, b)=>{
     turn.resp[p.id]={ st:'pendente' }; ideiaPaint(m);
-    try{ const t=await ideiaAsk(m, ideiaPersonaSys(p), ideiaTurnPrompt(m, p, turn), false); turn.resp[p.id]={ st:'ok', text:t.trim()||'(sem resposta)', at:Date.now() }; }
-    catch(e){ const msg=String(e&&e.message||e); turn.resp[p.id]=(L.stop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:ideiaErr(e,'não respondeu') }; }
+    try{ const t=await ideiaAsk(m, ideiaPersonaSys(p), ideiaTurnPrompt(m, p, turn), false, null, b); turn.resp[p.id]={ st:'ok', text:t.trim()||'(sem resposta)', at:Date.now() }; }
+    catch(e){ const msg=String(e&&e.message||e); if(/MESA_BUDGET/.test(msg)){ capHit=true; turn.resp[p.id]={ st:'na fila' }; } else turn.resp[p.id]=(L.stop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:ideiaErr(e,'não respondeu') }; }
     await ideiaSave(m); ideiaPaint(m);
   };
-  const queue=todo.slice();
-  const worker=async()=>{ while(queue.length && !L.stop){ if(!ideiaVisible(m.id)){ L.paused=true; break; } await one(queue.shift()); } };
+  const queue=todo.slice(), purse=ideiaPurse(m);
+  const worker=async()=>{ while(queue.length && !L.stop && !capHit){ if(!ideiaVisible(m.id)){ L.paused=true; break; }
+    const b=purse.take(Math.min(IDEIA_POOL-purse.inflight, queue.length)); if(b==null){ if(!purse.inflight) capHit=true; break; } // não cabe mais uma fala no teto (com falas em voo: a última que voltar confere de novo)
+    try{ await one(queue.shift(), b); }finally{ purse.give(b); } } };
   try{ await Promise.all(Array.from({ length:Math.min(IDEIA_POOL, queue.length) }, worker)); }
-  finally{ L.turn=false; if(L.stop) queue.forEach(p=>{ turn.resp[p.id]={ st:'parada' }; }); await ideiaSave(m); ideiaPaint(m); }
+  finally{ L.turn=false; if(L.stop) queue.forEach(p=>{ turn.resp[p.id]={ st:'parada' }; }); if(capHit && !L.stop) ideiaCapStop(m, 'responder a conversa'); await ideiaSave(m); ideiaPaint(m); }
 }
 async function ideiaStopTurn(m){ const L=ideiaLive(m.id); L.stop=true; ideiaPaint(m); try{ await ideiaCall()('mesa_stop',{ id:m.id }); }catch(_){ } }
 // a aba voltou: o que ficou esperando (rodada da conversa ou da decisão) continua
@@ -411,14 +430,18 @@ async function ideiaResearch(m){
   if(mode.mode==='none'){ R.running=false; toast(mode.msg||'A IA padrão não navega na web.','warn'); ideiaPaint(m); return; }
   const capIn=$id('ideiaCap'); if(capIn){ const v=parseFloat(String(capIn.value).replace(',','.')); if(v>0){ IDEIA.capUsd=v; try{ lsSet('ideiaCapUsd', String(v)); }catch(_){ } } }
   const engine=mode.engine||ideiaEngine(), model=ideiaClaudeModel();
+  if(ideiaNeedsCap(m, 'pesquisar')){ R.running=false; return; }
+  const purse=ideiaPurse(m), budget=purse.take(1, engine==='claude'?ideiaCap():0); // a pesquisa reserva até o teto dela, dentro do que sobra da sessão
+  if(budget==null){ R.running=false; ideiaCapStop(m, 'pesquisar'); await ideiaSave(m); ideiaPaint(m); return; }
   const prev=m.report&&m.report.status==='ok'?m.report:null;
   m.report=Object.assign({}, prev||{}, { status:'rodando', erro:'', startedAt:Date.now(), engine });
   await ideiaSave(m); ideiaPaint(m);
   try{ await ideiaCall()('mesa_resume',{ id:m.id+'-r' }); }catch(_){ }
-  const budget=engine==='claude'?ideiaCap():null;
   let spent=0;
   const call=async(prompt, sid, fix)=>{
-    const r=await ideiaCall()('ideia_research',{ id:m.id, sys:IDEIA_RESEARCH_SYS, prompt, model, budgetUsd:fix?null:budget, sessionId:sid||null, fix:!!fix });
+    const b=fix?Math.floor((budget-spent)*100)/100:budget; // a correção usa o que sobrou da reserva
+    if(fix && !(b>=MESA_MIN_CALL)) throw new Error('sem sobra no teto pra corrigir o relatório');
+    const r=await ideiaCall()('ideia_research',{ id:m.id, sys:IDEIA_RESEARCH_SYS, prompt, model, budgetUsd:engine==='claude'?b:null, sessionId:sid||null, fix:!!fix }); // fora do Claude o motor não tem teto por chamada: vale a reserva (não lança sem sobra)
     spent+=(+(r&&r.costUsd)||0); m.costUsd=(+m.costUsd||0)+(+(r&&r.costUsd)||0);
     { const tok=(+(r&&r.inTok)||0)+(+(r&&r.outTok)||0); if(tok>0 && typeof mesaTokUsd==='function'){ const u=mesaTokUsd(r.engine, r.inTok, r.outTok, r.cachedTok); m.tokens=(+m.tokens||0)+tok; m.tokUsd=(+m.tokUsd||0)+u; spent+=u; } }
     if(r && r.error) throw new Error(r.error);
@@ -443,7 +466,7 @@ async function ideiaResearch(m){
     m.report=Object.assign({}, prev||{}, { status:prev?'ok':(stopped?'parada':'falhou'), erro:stopped?'pesquisa parada':ideiaErr(e,'A pesquisa falhou'), lastErr:Date.now() });
     if(!stopped) showErr(e,'A pesquisa falhou');
   }finally{
-    R.running=false; await ideiaSave(m); ideiaPaint(m);
+    purse.give(budget); R.running=false; await ideiaSave(m); ideiaPaint(m);
   }
 }
 async function ideiaStopResearch(m){ const L=ideiaLive(m.id); if(L.research) L.research.stop=true; ideiaPaint(m); try{ await ideiaCall()('mesa_stop',{ id:m.id+'-r' }); }catch(_){ } }
@@ -453,6 +476,7 @@ async function ideiaDecide(m, resuming){
   const L=ideiaLive(m.id); if(L.decide) return;
   if(L.turn){ toast('Espere a mesa responder a conversa antes de decidir.','warn'); return; }
   if(!resuming && !(m.turns||[]).length){ toast('Converse um pouco com a mesa antes de decidir.','warn'); return; }
+  if(ideiaNeedsCap(m, 'decidir o MVP')) return;
   const key=m.id+'-d'; // chave de parar própria: parar a conversa não derruba a votação (e vice-versa)
   const ps=ideiaPanelOf(m);
   if(!resuming || !m.decision || !m.decision.rounds){ m.decision={ status:'rodando', rounds:[{ n:1, tipo:'posicao', resp:{} }], cands:[], escolhas:{}, plataforma:'', at:Date.now() }; }
@@ -460,24 +484,29 @@ async function ideiaDecide(m, resuming){
   L.decide=true; L.dstop=false; L.dpaused=false;
   try{ await ideiaCall()('mesa_resume',{ id:key }); }catch(_){ }
   await ideiaSave(m); ideiaPaint(m);
+  let capHit=false;
+  const purse=ideiaPurse(m);
   const runRound=async(r, prompt, parse)=>{
     const todo=ps.filter(p=>{ const x=r.resp[p.id]; return !x || x.st!=='ok'; });
     const queue=todo.slice();
-    const one=async p=>{
+    const one=async(p, b)=>{
       r.resp[p.id]={ st:'pendente' }; ideiaPaint(m);
-      try{ const t=await ideiaAsk(m, ideiaPersonaSys(p), prompt, true, key); r.resp[p.id]=Object.assign({ st:'ok', at:Date.now() }, parse(t)); }
-      catch(e){ const msg=String(e&&e.message||e); r.resp[p.id]=(L.dstop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:ideiaErr(e,'não respondeu') }; }
+      try{ const t=await ideiaAsk(m, ideiaPersonaSys(p), prompt, true, key, b); r.resp[p.id]=Object.assign({ st:'ok', at:Date.now() }, parse(t)); }
+      catch(e){ const msg=String(e&&e.message||e); if(/MESA_BUDGET/.test(msg)){ capHit=true; r.resp[p.id]={ st:'parada' }; } else r.resp[p.id]=(L.dstop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:ideiaErr(e,'não respondeu') }; }
       await ideiaSave(m); ideiaPaint(m);
     };
-    const worker=async()=>{ while(queue.length && !L.dstop){ if(!ideiaVisible(m.id)){ L.dpaused=true; break; } await one(queue.shift()); } };
+    const worker=async()=>{ while(queue.length && !L.dstop && !capHit){ if(!ideiaVisible(m.id)){ L.dpaused=true; break; }
+      const b=purse.take(Math.min(IDEIA_POOL-purse.inflight, queue.length)); if(b==null){ if(!purse.inflight) capHit=true; break; }
+      try{ await one(queue.shift(), b); }finally{ purse.give(b); } } };
     await Promise.all(Array.from({ length:Math.min(IDEIA_POOL, queue.length) }, worker));
     // rodada completa = ninguém na fila e ninguém parado (quem FALHOU conta: a apuração usa quem respondeu)
-    return !queue.length && !L.dstop && !ps.some(p=>{ const x=r.resp[p.id]; return x && x.st==='parada'; });
+    return !queue.length && !L.dstop && !capHit && !ps.some(p=>{ const x=r.resp[p.id]; return x && x.st==='parada'; });
   };
+  const capErr=()=>{ ideiaCapStop(m, 'decidir o MVP'); m.decision.erro=`Parou no teto de ${fmtCost(ideiaCapOf(m),{ usdOnly:true })} — aumente o teto (no topo) e continue de onde parou.`; };
   try{
     const r1=m.decision.rounds[0];
     const p1=t=>{ const x=mesaParsePosition(t), o=ideiaJson(t)||{}; return { texto:x.texto, propostas:x.propostas, naoObjetivos:(Array.isArray(o.naoObjetivos)?o.naoObjetivos:[]).map(s=>ideiaCut(s,140)).filter(Boolean).slice(0,4), plataforma:ideiaPlat(o.plataforma) }; };
-    if(!await runRound(r1, ideiaR1Prompt(m), p1)){ m.decision.status=L.dpaused?'rodando':'parada'; return; }
+    if(!await runRound(r1, ideiaR1Prompt(m), p1)){ m.decision.status=L.dpaused&&!capHit?'rodando':'parada'; if(capHit) capErr(); return; }
     if(!m.decision.rounds[1]){
       m.decision.cands=mesaCandidates(ps, r1.resp);
       if(!m.decision.cands.length){ m.decision.status='falhou'; m.decision.erro='Nenhuma persona trouxe proposta de MVP válida — tente de novo.'; return; }
@@ -485,7 +514,7 @@ async function ideiaDecide(m, resuming){
     }
     const r2=m.decision.rounds[1], ids=m.decision.cands.map(c=>c.id);
     const p2=t=>{ const v=mesaParseVote(t, ids), o=ideiaJson(t)||{}; return v.ok?{ texto:v.vote.fala, voto:v.vote, plataforma:ideiaPlat(o.plataforma) }:{ texto:String((o.fala||t)||'').trim(), voto:null, aviso:'voto descartado ('+v.erro+')', plataforma:ideiaPlat(o.plataforma) }; };
-    if(!await runRound(r2, ideiaR2Prompt(m, ps, r1.resp, m.decision.cands), p2)){ m.decision.status=L.dpaused?'rodando':'parada'; return; }
+    if(!await runRound(r2, ideiaR2Prompt(m, ps, r1.resp, m.decision.cands), p2)){ m.decision.status=L.dpaused&&!capHit?'rodando':'parada'; if(capHit) capErr(); return; }
     const view=ideiaDecisionView(m.decision, ps);
     if(!view || !view.mvp.length){ m.decision.status='falhou'; m.decision.erro='A votação não deixou nenhuma feature sem veto — argumente na conversa e decida de novo.'; return; }
     m.decision.status='ok'; m.decision.erro='';
@@ -575,6 +604,8 @@ function ideiaPaint(m){ if(ideiaVisible(m&&m.id)) ideiaRender(); else if(typeof 
 function ideiaCapture(){
   const a=$id('ideiaIn'); if(a) IDEIA.draft=a.value;
   const n=$id('ideiaNewIn'); if(n) IDEIA.newDraft=n.value;
+  const nc=$id('ideiaNewCap'); if(nc) IDEIA.newCap=nc.value;
+  const cn=$id('ideiaCapNew'); if(cn) IDEIA.capNew=cn.value;
   const c=$id('ideiaCap'); if(c){ const v=parseFloat(String(c.value).replace(',','.')); if(v>0) IDEIA.capUsd=v; }
   if(IDEIA.cur && $id('ipilBudget')) ideiaEndRead(IDEIA.cur);
 }
@@ -592,6 +623,16 @@ function ideiaEndRead(m){
   const g=$id('ipilGh'); if(g && g.checked!==E.gh){ E.gh=!!g.checked; E.ghTouched=true; }
   if(IDEIA.endIa && IDEIA.endIa.get){ const x=IDEIA.endIa.get(); E.engine=x.engine; E.model=x.model; }
   return E;
+}
+// novo teto (maior que o já gasto) → retoma o que parou nele: a conversa na fila e a decisão parada
+async function ideiaCapRaise(m){
+  const i=$id('ideiaCapNew'), spent=ideiaSpent(m), c=typeof pilotoCapCheck==='function'?pilotoCapCheck(i?i.value:'', spent):{ ok:false, err:'teto inválido' };
+  if(!c.ok){ const er=$id('ideiaCapErr'); if(er){ er.hidden=false; er.textContent=c.err.replace('o piloto para','a sessão para'); } if(i){ i.classList.add('err'); i.focus(); } return; }
+  const what=m.capAviso&&m.capAviso.what;
+  m.capUsd=c.cap; m.capAviso=null; await ideiaSave(m); ideiaRender(); IDEIA.capNew=null; // depois do render: a captura leria o campo antigo
+  const L=ideiaLive(m.id), t=(m.turns||[]).slice(-1)[0];
+  if(t && !L.turn && Object.values(t.resp||{}).some(x=>x.st==='na fila')) ideiaRunTurn(m, t);
+  else if(m.decision && m.decision.status==='parada' && what==='decidir o MVP') ideiaDecide(m, true);
 }
 function ideiaRender(){
   const body=$id('ideiaBody'); if(!body) return;
@@ -624,6 +665,7 @@ function ideiaStartHtml(){
   const head=ideiaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Tenho uma ideia', scope:'computador', sub:'Conte a ideia como contaria pra um amigo. A mesa responde, a Pesquisadora busca na web se teria procura agora e a mesa vota o MVP.' }):'<h1>Tenho uma ideia</h1>');
   return head+`<div class="g2scroll"><div class="ideiastart"><div class="g2explain"><b>Mesa:</b> ${ideiaPanel().length} pontos de vista que respondem, debatem e votam — ${iEsc(names)}. Você decide. Os nomes são personas simuladas, não pessoas reais.</div>`+
     chatComposerHtml({ input:'ideiaNewIn', send:'ideiaNewGo', rows:3, cls:'card', value:IDEIA.newDraft, sendHtml:'começar', extras:'<span id="ideiaIaNew"></span>', placeholder:'ex.: um app de rotina de skincare com lembretes — quero saber se faria sucesso agora' })+
+    `<div class="g2row ideiacaprow"><label class="g2inline"><span class="g2help">Teto da sessão US$</span><input class="in" id="ideiaNewCap" type="text" inputmode="decimal" value="${iEsc(IDEIA.newCap!=null?IDEIA.newCap:String(ideiaSessCapBase()).replace('.',','))}" aria-label="teto da sessão em dólares"></label><span class="g2help">conversa, decisão e pesquisa param sozinhas nele</span></div>`+
     (IDEIA.list===null?`<div class="g2help">lendo as ideias…</div>`:ideiaRecentHtml(4))+`</div></div>`;
 }
 function ideiaStagesItems(m){
@@ -723,7 +765,9 @@ function ideiaIdeaHtml(m){
   const L=ideiaLive(m.id), turns=m.turns||[];
   const spent=(+m.costUsd||0)+(+m.tokUsd||0), stage=ideiaStage(m);
   if(!IDEIA.tab || IDEIA.tabFor!==m.id){ IDEIA.tab=stage==='criar'||stage==='criado'?'proj':(m.decision?'mvp':'pes'); IDEIA.tabFor=m.id; }
-  const head=ideiaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Ideia: '+m.titulo, scope:'computador', sum:`<span>gastou <b>${iEsc(fmtCost(spent,{ usdOnly:true }))}</b> (≈ R$ ${iEsc(fmtNumBR(spent*usdBrlRate(), true))})${+m.tokUsd>0?' · parte estimada pelos tokens':''}</span>`, right:ideiaSteps(m) }):`<h1>Ideia: ${iEsc(m.titulo)}</h1>${ideiaSteps(m)}`);
+  const cap=ideiaCapOf(m), money=`gastou <b>${iEsc(fmtCost(spent,{ usdOnly:true }))}</b> ${cap>0?`de <b>${iEsc(fmtCost(cap,{ usdOnly:true }))}</b>`:'<b>· sem teto</b>'}`;
+  const head=ideiaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Ideia: '+m.titulo, scope:'computador', money, sum:`<span>(≈ R$ ${iEsc(fmtNumBR(spent*usdBrlRate(), true))})${+m.tokUsd>0?' · parte estimada pelos tokens':''}</span>`, right:ideiaSteps(m) }):`<h1>Ideia: ${iEsc(m.titulo)}</h1>${money}${ideiaSteps(m)}`);
+  const capAv=(m.capAviso||!(cap>0))?`<div class="g2capbox" role="status"><span><b>Aviso do Starfork:</b> ${cap>0?`a ideia chegou no teto de ${iEsc(fmtCost(cap,{ usdOnly:true }))} (gastou ${iEsc(fmtCost(spent,{ usdOnly:true }))})${m.capAviso?' antes de '+iEsc(m.capAviso.what):''}.`:'esta ideia ainda não tem teto. Toda sessão para sozinha no teto em US$.'}</span><div class="g2row"><label class="g2inline"><span class="g2help">${cap>0?'Novo teto':'Teto da sessão'} US$</span><input class="in" id="ideiaCapNew" type="text" inputmode="decimal" value="${iEsc(IDEIA.capNew!=null?IDEIA.capNew:String(Math.max(ideiaSessCapBase(), Math.ceil(spent+ideiaSessCapBase()))).replace('.',','))}" aria-label="novo teto da sessão em dólares"></label><button type="button" class="btn sm primary" id="ideiaCapUp">${cap>0?'Continuar com esse teto':'Definir teto'}</button>${m.capAviso?'<button type="button" class="btn sm quiet" id="ideiaCapNo">Parar aqui</button>':''}</div><span class="g2help err" id="ideiaCapErr" hidden></span></div>`:'';
   const thread=`<div class="ideiathread plthread" id="ideiaThread"><div class="g2explain"><b>Mesa:</b> ${ideiaPanelOf(m).length} pontos de vista que respondem, debatem e votam. Você decide. Os nomes são personas simuladas, não pessoas reais.</div>${turns.map((t,i)=>ideiaTurnHtml(m, t, i===turns.length-1)).join('')||'<div class="g2help">Escreva a ideia abaixo — a mesa responde.</div>'}</div>`;
   const comp=chatComposerHtml({ input:'ideiaIn', send:'ideiaSend', stop:'ideiaStop', stopTitle:'para a mesa', rows:2, value:IDEIA.draft, extras:'<span id="ideiaIa"></span>',
     placeholder:'continue a conversa com a mesa…', sendHtml:'enviar' });
@@ -732,7 +776,7 @@ function ideiaIdeaHtml(m){
   const panes=`<div class="g2htabs" role="tablist">${tab('pes','Pesquisa',rep&&rep.status==='ok'?'pronta':(L.research&&L.research.running?'rodando':''))}${tab('mvp','MVP',v?'votado':(L.decide?'votando':''))}${tab('proj','Projeto',m.project?'criado':'')}</div>`+
     `<div class="g2rp-b"${IDEIA.tab==='pes'?'':' hidden'}>${ideiaResearchHtml(m)}</div><div class="g2rp-b"${IDEIA.tab==='mvp'?'':' hidden'}>${ideiaDecisionHtml(m)}</div><div class="g2rp-b"${IDEIA.tab==='proj'?'':' hidden'}>${ideiaCreateHtml(m)}</div>`;
   const foot=IDEIA.tab!=='proj'&&stage==='criar'?`<div class="g2pfoot"><span class="g2msg">${v?v.mvp.length+' ite'+(v.mvp.length===1?'m':'ns')+' no MVP':''}</span><span class="g2sp"></span><button type="button" class="btn primary" data-itab="proj">Criar o projeto →</button></div>`:'';
-  return head+`<div class="g2ideia"><div class="g2chat">${thread}<div class="g2cwrap">${comp}</div></div><div class="g2rpanel">${panes}${foot}</div></div>`;
+  return head+capAv+`<div class="g2ideia"><div class="g2chat">${thread}<div class="g2cwrap">${comp}</div></div><div class="g2rpanel">${panes}${foot}</div></div>`;
 }
 function ideiaWire(body){
   const m=IDEIA.cur;
@@ -754,6 +798,9 @@ function ideiaWire(body){
     bindClick('ideiaDecGo', ()=>ideiaDecide(m, false));
     bindClick('ideiaDecCont', ()=>ideiaDecide(m, true));
     bindClick('ideiaDecStop', ()=>ideiaStopDecide(m));
+    bindClick('ideiaCapUp', ()=>ideiaCapRaise(m));
+    { const cn=$id('ideiaCapNew'); if(cn) cn.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); ideiaCapRaise(m); } }; }
+    bindClick('ideiaCapNo', async()=>{ m.capAviso=null; IDEIA.capNew=null; await ideiaSave(m); ideiaRender(); });
     // fim de caminho (o formulário do 56-piloto, aqui dentro da ideia)
     { const E=ideiaEndForm(m), h=$id('ipilIa'); if(h && typeof iaPick==='function') IDEIA.endIa=iaPick(h, { value:{ engine:E.engine, model:E.model }, scope:'piloto', onChange:v=>{ E.engine=v.engine; E.model=v.model; } }); }
     body.querySelectorAll('[data-pil-eor]').forEach(r=>{ r.onchange=()=>{ ideiaEndRead(m).end=r.dataset.pilEor; ideiaRender(); }; });
