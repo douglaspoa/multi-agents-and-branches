@@ -8641,6 +8641,38 @@ struct AllTask {
     sort_order: Option<i64>,
     repo: String,
     proj: String,
+    /// L12 (mesa-bugs-2): sem estes a Central tratava PR aberto de OUTRO projeto como "pronta pra revisar" e o
+    /// filtro Tipo errava (o tipo sai da branch/kind) — os mesmos campos do snapshot do projeto aberto
+    branch: String,
+    kind: String,
+    pr_url: Option<String>,
+}
+
+/// kind / prUrl do spec_json — a MESMA leitura do snapshot (Task) pra tarefa de outro projeto
+fn all_task_spec(spec_json: &str) -> (String, Option<String>) {
+    let spec: serde_json::Value = serde_json::from_str(spec_json).unwrap_or_default();
+    (
+        spec.get("kind").and_then(|v| v.as_str()).unwrap_or("build").to_string(),
+        spec.get("prUrl").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string()),
+    )
+}
+#[cfg(test)]
+mod all_task_spec_tests {
+    use super::*;
+    #[test]
+    fn le_kind_e_pr_do_spec() {
+        let (k, pr) = all_task_spec(r#"{"kind":"review","prUrl":"https://github.com/o/r/pull/7"}"#);
+        assert_eq!(k, "review");
+        assert_eq!(pr.as_deref(), Some("https://github.com/o/r/pull/7"));
+    }
+    #[test]
+    fn spec_vazio_ou_quebrado_cai_no_padrao() {
+        for raw in ["", "{}", "não é json", r#"{"prUrl":""}"#] {
+            let (k, pr) = all_task_spec(raw);
+            assert_eq!(k, "build");
+            assert!(pr.is_none(), "{raw}");
+        }
+    }
 }
 
 /// Tarefas de TODOS os projetos salvos (board integrado). Lê o state.sqlite de
@@ -8656,12 +8688,16 @@ fn list_all_tasks() -> Vec<AllTask> {
             Err(_) => continue,
         };
         let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
-        let mut st = match conn.prepare(&format!("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,{} FROM task ORDER BY created_at", finished_at_sql(task_has_col(&conn, "closed_at")))) {
+        let mut st = match conn.prepare(&format!("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,{},branch,spec_json FROM task ORDER BY created_at", finished_at_sql(task_has_col(&conn, "closed_at")))) {
             Ok(s) => s,
             Err(_) => continue,
         };
         let rows = st.query_map([], |r| {
+            let (kind, pr_url) = all_task_spec(&r.get::<_, Option<String>>(11).unwrap_or(None).unwrap_or_default());
             Ok(AllTask {
+                branch: r.get::<_, Option<String>>(10).unwrap_or(None).unwrap_or_default(),
+                kind,
+                pr_url,
                 id: r.get(0)?,
                 title: r.get(1)?,
                 status: r.get(2)?,

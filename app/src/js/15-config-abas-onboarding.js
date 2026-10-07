@@ -156,7 +156,7 @@ function viewOpen(kind, tab){
               // aba de tarefa de OUTRO projeto (você trocou de projeto depois de abrir): volta pro projeto dela antes
               if(tab && tab.repo && state.repo && tab.repo!==state.repo && window.switchProject){
                 const tr=tab.repo, id=tab.id, tid=tabTaskId;
-                window.switchProject(tr).then(()=>{ if(activeTab===id && state.repo===tr) fwOpenInner(tid, path); });
+                window.switchProject(tr).then(()=>{ if(activeTab===id && state.repo===tr) fwOpenInner(tid, path); }).catch(()=>{});
                 return; }
               fwOpenInner(tabTaskId, path); },
             cttask:()=>{ if(window.ctPageOpenInner) window.ctPageOpenInner(tab); },
@@ -244,6 +244,7 @@ window.openTab=openTab;
 // E6 (bug #9): edição de arquivo aberta na aba de uma tarefa — fechar ESSA aba, ou ir pra aba de OUTRA tarefa
 // (fwOpenInner zera o editor), pergunta antes de descartar. Trocar pra quadro/config mantém a edição (volta intacta).
 async function tabLeaveGuard(targetId, closing){
+  if(closing && typeof ndTabCloseOk==='function' && !await ndTabCloseOk(tabById(targetId))) return false; // A4: Nova demanda com trabalho não salvo
   if(typeof fwEditing==='undefined' || !fwEditing || typeof fwLeaveEditor!=='function' || typeof fwTask==='undefined' || !fwTask) return true;
   const tg=tabById(targetId); if(!tg) return true;
   const losing = closing ? (tg.kind==='task' && tg.taskId===fwTask) : (tg.kind==='task' && tg.taskId!==fwTask);
@@ -464,8 +465,9 @@ document.addEventListener('keydown', async e=>{
   else if(k===',' && !e.shiftKey){ e.preventDefault(); if(typeof ajustesOpen==='function') ajustesOpen(); else openTab('cfg'); }
   else if(k==='b' && !e.shiftKey){ e.preventDefault(); setRailCollapsed(!railIsCol()); }
   else if(k==='w' && !e.shiftKey){ e.preventDefault(); const t=tabById((typeof cvGroupMember==='function' && cvGroupMember()) || activeTab); if(!t || t.pin) return; // grupo na tela: fecha o membro em foco
-    // aba de tarefa com o editor aberto: pergunta antes de descartar o que não foi salvo (igual ao "fechar")
+    // a MESMA guarda do X da aba (A4, mesa-bugs-2): editor aberto, conversa/formulário que se perderiam — pergunta antes
     if(t.kind==='task' && typeof fwLeaveEditor==='function' && !await fwLeaveEditor()) return;
+    if(t.kind!=='task' && typeof tabLeaveGuard==='function' && !await tabLeaveGuard(t.id, true)) return;
     if(tabById(t.id)) closeTab(t.id); }
   // R7: ⌘1…⌘9 passa pela MESMA guarda do clique na aba — antes ia direto e jogava fora a edição não salva do arquivo
   else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t && t.id!==activeTab && await tabLeaveGuard(t.id, false)) activateTab(t.id); }

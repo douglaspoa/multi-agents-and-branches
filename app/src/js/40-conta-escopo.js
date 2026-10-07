@@ -107,7 +107,7 @@ function acctResetCaches(){
   acctReset(()=>{ acctClear(cloudSyncSigs); acctClear(prProbed); acctClear(autoPubFails); acctClear(autoPubLast); feedRepaired=false; });
   acctReset(()=>{ acctClear(intentBusy); acctClear(prPubAt); acctClear(qPushed); acctClear(qNotified); acctClear(remoteStartFails); acctClear(msgDelivering); acctClear(pushedReady); });
   acctReset(()=>{ apnsTokens=null; apnsTokensAt=0; appVerSent=''; acctClear(cloudPubCache); acctClear(tmPending); acctClear(tmTried); });
-  acctReset(()=>{ allTasksCache=[]; allTasksSig=''; allTasksAt=0; });
+  acctReset(()=>{ allTasksCache=[]; allTasksSig=''; allTasksAt=0; allTasksOk=false; });
   acctReset(()=>{ projOv=null; projOvAt=0; });
   acctReset(()=>{ localRemoteAt=0; localRemoteList=[]; });
   acctReset(()=>{ trfCache=null; trfAt=0; });

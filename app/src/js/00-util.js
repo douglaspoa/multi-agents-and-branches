@@ -510,6 +510,22 @@ function parseUsd(v){
   if(!/^-?\d*\.?\d+$/.test(b)) return NaN;
   return Math.round(Number(b)*100)/100;
 }
+// L9 (mesa-bugs-2): "GH_FAIL::<pasta>::<texto>" do create_project = a pasta e o git EXISTEM, só o GitHub recusou.
+// A tela mostra a frase (nunca o prefixo cru) e o retry REAPROVEITA a pasta (antes criava "nome-2" a cada tentativa).
+function ghFailOf(e){ const m=String((e&&e.message)||e||'').match(/^GH_FAIL::(.+?)::([\s\S]*)$/); return m?{ path:m[1], msg:m[2] }:null; }
+function ghFailText(g){
+  const why=((String(g&&g.msg||'').match(/Motivo:\s*([^\n]+)/)||[])[1]||'').trim();
+  return 'A pasta do projeto foi criada, mas o GitHub recusou criar o repositório'+(why&&why!=='sem detalhe do gh'?' ('+(why.length>120?why.slice(0,117)+'…':why)+')':'')+'. Tente de novo — a mesma pasta é reaproveitada — ou desmarque o GitHub pra seguir só neste computador.';
+}
+// cria a pasta do projeto (com ou sem GitHub); retryPath = pasta de uma tentativa em que só o GitHub falhou
+async function projCreateQuick(slug, gh, retryPath){
+  if(retryPath){
+    if(!gh) return invoke('open_project',{ path:retryPath });
+    return invoke('create_project',{ parent:retryPath.replace(/[\\/][^\\/]+$/,''), name:retryPath.split(/[\\/]/).pop(), github:true, private:true, owner:'' });
+  }
+  if(gh){ const target=String(await invoke('quick_project_target',{ name:slug })||''); return invoke('create_project',{ parent:target.replace(/[\\/][^\\/]+$/,''), name:target.split(/[\\/]/).pop(), github:true, private:true, owner:'' }); }
+  return invoke('quick_create_project',{ name:slug });
+}
 // @helpers-comuns-fim
 // teto padrão por tarefa (US$; 0 = sem teto) — Configurações
 // teto SEMPRE ligado (veto da Carla, mesa 03/10): 0/vazio/lixo valem o padrão US$ 5 — nunca "sem teto"

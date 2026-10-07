@@ -2,15 +2,27 @@
 // ===== anexos IMPORTADOS (planner, chat do projeto e chat da tarefa) =====
 // o arquivo é copiado pra dentro do projeto (import_attachment), o texto entra
 // INTEIRO na mensagem e a imagem vira miniatura — antes só o caminho ia pro chat.
-async function attPick(taskId){
-  let paths=[]; try{ paths=await invoke('pick_ref_files'); }catch(e){ console.error('pick_ref_files',e); }
-  const out=[];
-  for(const p of (paths||[])){
-    try{ out.push(await invoke('import_attachment',{ path:p, taskId:taskId||null })); }
+async function attPick(taskId, have){
+  let paths=[]; try{ paths=await invoke('pick_ref_files'); }catch(e){ showErr(e, 'Não consegui abrir o seletor de arquivos'); } // L6: antes só no console
+  const seen=new Set((have||[]).map(attKey)), all=(paths||[]); paths=all.filter(p=>!seen.has('p:'+p));
+  if(all.length && !paths.length) toast('Esse anexo já está na mensagem.','info');
+  const out=[]; const done=attBusy(paths.length);
+  try{ for(const p of paths){
+    try{ const a=await invoke('import_attachment',{ path:p, taskId:taskId||null }); if(a) a.src='p:'+p; out.push(a); }
     catch(e){ console.error('import_attachment',e); showErr(e, 'Não consegui importar '+pathBase(p)); }
-  }
+  } }finally{ done(); }
   return out;
 }
+// @puro-anexos-inicio — L6 (mesa-bugs-2): anexo repetido não entra 2× e arquivo grande é barrado ANTES de virar base64 (travava)
+const ATT_MAX_BYTES=25*1000*1000; // o mesmo teto do Rust (import_attachment_data: "anexo maior que 25 MB")
+// chave da ORIGEM (o Rust renomeia a cópia: "print.png" vira "print-2.png" — a cópia não serve pra comparar)
+function attKey(a){ return a ? String(a.src||a.rel||((a.name||'')+'|'+(a.size||''))) : ''; }
+function attFileKey(f){ return 'f:'+(f&&f.name||'')+'|'+(+(f&&f.size)||0); }
+function attNewFiles(have, files){ const seen=new Set((have||[]).map(attKey)); const out=[]; for(const f of (files||[])){ const k=attFileKey(f); if(seen.has(k)) continue; seen.add(k); out.push(f); } return out; }
+function attTooBig(f){ return !!f && (+f.size||0)>ATT_MAX_BYTES; }
+// @puro-anexos-fim
+// "importando…" enquanto copia (arquivo grande demora): aviso só quando passa de um instante
+function attBusy(n){ if(!(n>0)) return ()=>{}; const t=setTimeout(()=>toast(n===1?'importando o anexo…':'importando '+n+' anexos…','info'), 400); return ()=>clearTimeout(t); }
 function attFmtSize(n){ n=+n||0; return n<1024?n+' B':n<1048576?Math.round(n/1024)+' KB':(n/1048576).toFixed(1)+' MB'; }
 function attChipHtml(a,i,removable){
   const thumb=(a.kind==='image'&&a.dataUrl)?`<img src="${a.dataUrl}" alt="">`:`<span class="attic">${a.kind==='pdf'?'PDF':a.kind==='image'?'IMG':a.kind==='text'?'TXT':'FILE'}</span>`;
@@ -42,12 +54,14 @@ function attPastedName(f){
   const ext=f.type==='image/jpeg'?'.jpg':f.type==='image/gif'?'.gif':f.type==='image/webp'?'.webp':f.type==='application/pdf'?'.pdf':f.type==='text/plain'?'.txt':'.png';
   return 'print-'+ts+ext;
 }
-async function attImportFiles(files, taskId){
-  const out=[];
-  for(const f of files){
-    try{ const b64=await attFileToB64(f); out.push(await invoke('import_attachment_data',{ name:attPastedName(f), dataB64:b64, taskId:taskId||null })); }
+async function attImportFiles(files, taskId, have){
+  const all=files; files=attNewFiles(have, all); if(all.length && !files.length) toast('Esse anexo já está na mensagem.','info');
+  const out=[]; const done=attBusy(files.length);
+  try{ for(const f of files){
+    if(attTooBig(f)){ toast('"'+(f.name||'o arquivo')+'" tem '+attFmtSize(f.size)+' — o limite de um anexo é 25 MB.','warn'); continue; }
+    try{ const b64=await attFileToB64(f); const a=await invoke('import_attachment_data',{ name:attPastedName(f), dataB64:b64, taskId:taskId||null }); if(a) a.src=attFileKey(f); out.push(a); }
     catch(e){ console.error('import_attachment_data',e); showErr(e, 'Não consegui importar '+(f.name||'o conteúdo colado')); }
-  }
+  } }finally{ done(); }
   return out;
 }
 // cfg: { input, attach (ids), pend: ()=>array pendente, taskId: ()=>id|null, rerender: fn, afterAdd?: fn(atts) }
@@ -55,12 +69,12 @@ async function attImportFiles(files, taskId){
 function attWireComposer(cfg){
   const input=$id(cfg.input), btn=$id(cfg.attach);
   const add=async(atts)=>{ atts=(atts||[]).filter(Boolean); if(!atts.length) return; cfg.pend().push(...atts); if(cfg.afterAdd) cfg.afterAdd(atts); cfg.rerender(); const i=$id(cfg.input); if(i) i.focus(); };
-  if(btn) btn.onclick=async()=>add(await attPick(cfg.taskId()));
+  if(btn) btn.onclick=async()=>add(await attPick(cfg.taskId(), cfg.pend()));
   if(!input) return;
-  input.onpaste=async(e)=>{ const files=[...((e.clipboardData&&e.clipboardData.files)||[])]; if(!files.length) return; e.preventDefault(); add(await attImportFiles(files, cfg.taskId())); };
+  input.onpaste=async(e)=>{ const files=[...((e.clipboardData&&e.clipboardData.files)||[])]; if(!files.length) return; e.preventDefault(); add(await attImportFiles(files, cfg.taskId(), cfg.pend())); };
   input.ondragover=(e)=>{ e.preventDefault(); input.classList.add('dropping'); };
   input.ondragleave=()=>input.classList.remove('dropping');
-  input.ondrop=async(e)=>{ e.preventDefault(); input.classList.remove('dropping'); const files=[...((e.dataTransfer&&e.dataTransfer.files)||[])]; if(files.length) add(await attImportFiles(files, cfg.taskId())); };
+  input.ondrop=async(e)=>{ e.preventDefault(); input.classList.remove('dropping'); const files=[...((e.dataTransfer&&e.dataTransfer.files)||[])]; if(files.length) add(await attImportFiles(files, cfg.taskId(), cfg.pend())); };
 }
 // ===== CHAT ÚNICO: o mesmo composer + a mesma bolha em todos os chats (planner, projeto, issues, orquestrador) =====
 // Layout ÚNICO = o do chat da tarefa (20-workspace): caixa de texto em cima; embaixo UMA linha com
@@ -204,7 +218,7 @@ function renderNtRefs(){ renderRefsInto('ntRefs', ntRefs, 'nenhum — anexe spec
 function renderDzRefs(){ renderRefsInto('ntDzRefs', ntDzRefs, 'nenhum — anexe prints da tela atual, rascunhos, referências visuais'); }
 function renderFixRefs(){ renderRefsInto('ntFixRefs', ntFixRefs, 'nenhum — anexe o print do bug pra mostrar exatamente onde acontece'); }
 function renderInvRefs(){ renderRefsInto('ntInvRefs', ntInvRefs, 'nenhum — anexe o print do erro, log ou gráfico onde o problema aparece'); }
-async function pickRefsInto(arr, render){ try{ const paths=await invoke('pick_ref_files'); if(paths&&paths.length){ arr.push(...paths); render(); } }catch(e){ console.error('pick_ref_files',e); } }
+async function pickRefsInto(arr, render){ try{ const paths=await invoke('pick_ref_files'); const novos=(paths||[]).filter(p=>!arr.includes(p)); if(novos.length){ arr.push(...novos); render(); } else if((paths||[]).length) toast('Esse anexo já está na lista.','info'); }catch(e){ showErr(e, 'Não consegui anexar'); } }
 async function pickRefs(){ await pickRefsInto(ntRefs, renderNtRefs); }
 function renderNtList(id, arr){
   const el=$id(id);

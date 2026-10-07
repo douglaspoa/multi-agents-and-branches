@@ -135,9 +135,19 @@ async function trkCall(opName, extra){
   if(op.body && method!=='GET'){ body=JSON.stringify(trkFill(op.body,ctx)); if(!Object.keys(headers).some(h=>h.toLowerCase()==='content-type')) headers['Content-Type']='application/json'; }
   const r=await (trkBg?invokeQuiet:invoke)('tracker_http',{ method, url, headers, body });
   let data=null; try{ data=JSON.parse(r.body); }catch(_){ data=r.body; }
-  if(r.status<200||r.status>=300) throw new Error('HTTP '+r.status+' — '+String(typeof data==='string'?data:JSON.stringify(data)).slice(0,240));
+  if(r.status<200||r.status>=300){ const e=new Error(trkHttpMsg(r.status)); e.raw='HTTP '+r.status+' — '+String(typeof data==='string'?data:JSON.stringify(data)).slice(0,240); throw e; } // erro cru só em "ver detalhes"
   return data;
 }
+// @puro-trkhttp-inicio — resposta não-2xx do painel em pt-BR (antes: "HTTP 401 — {json cru}" na tela)
+function trkHttpMsg(st){
+  st=+st||0;
+  if(st===401||st===403) return 'O painel recusou o acesso (HTTP '+st+') — confira a chave em Conexão.';
+  if(st===404) return 'O painel não achou esse endereço (HTTP 404) — confira o conector em Conexão.';
+  if(st===429) return 'O painel pediu pra esperar (muitas chamadas seguidas) — tente de novo em instantes.';
+  if(st>=500) return 'O painel está com problema agora (HTTP '+st+') — tente de novo em alguns minutos.';
+  return 'O painel recusou o pedido (HTTP '+st+') — confira o conector em Conexão.';
+}
+// @puro-trkhttp-fim
 // @puro-trkbg-inicio
 function trkErrText(e){
   const s=String(e&&e.message||e), m=s.match(/SECRET_(UNBOUND|MISSING):([A-Z0-9_]+)/);
@@ -269,11 +279,20 @@ async function trkBeforeNewTask(payload){
     await trkLoad(); if(!trkReady()||!trk.rules.createOnTask||!trk.connector.ops.create||!(await trkProjectOn())) return payload;
     const reqs=(payload.requirements||[]).filter(Boolean);
     const description=[payload.objective||'', reqs.length?'Requisitos:\n'+reqs.map(r=>'- '+r).join('\n'):''].filter(Boolean).join('\n\n');
+    // L10 (mesa-bugs-2): a criação da TAREFA falhou depois da issue nascer e a pessoa tentou de novo → reaproveita a issue
+    const key=trkMadeKey(payload), prev=trkMadeGet(key);
+    if(prev){ payload.issue=prev.code; if(prev.url) payload.issueUrl=prev.url; return payload; }
     const i=await trkCreateIssue(payload.title, description, (payload.deliverables||[]).join('; '));
-    if(i&&i.code){ payload.issue=i.code; if(i.url) payload.issueUrl=i.url; }
+    if(i&&i.code){ payload.issue=i.code; if(i.url) payload.issueUrl=i.url; trkMadeSet(key, i); }
   }catch(e){ trkToast('Não criei a issue no painel: '+trkErrText(e)); }
   return payload;
 }
+// @puro-trkmade-inicio — issue criada por pedido de tarefa (mesmo título+objetivo+requisitos), lembrada por 30 min
+const TRK_MADE_MS=30*60*1000, trkMade=new Map();
+function trkMadeKey(p){ return JSON.stringify([String(p&&p.title||'').trim(), String(p&&p.objective||'').trim(), ((p&&p.requirements)||[]).map(x=>String(x).trim()).filter(Boolean)]); }
+function trkMadeGet(k, now){ const x=trkMade.get(k); if(!x) return null; if((now||Date.now())-x.at>TRK_MADE_MS){ trkMade.delete(k); return null; } return x; }
+function trkMadeSet(k, i, now){ if(i&&i.code) trkMade.set(k, { code:i.code, url:i.url||'', at:now||Date.now() }); }
+// @puro-trkmade-fim
 async function trkCreateIssue(title, description, goal, extra){
   const op=trkOp('create'), d=await trkCall('create',Object.assign({ title, description, goal:goal||'' }, extra||{}));
   const raw=trkPath(d,op.resultPath)||d, i=trkNorm(raw);
@@ -399,7 +418,7 @@ function issRender(){
   else trkBoardWire(body);
 }
 // ----- estágio 1: conexão -----
-let trkSecretSt={}, trkJsonOpen=false, trkTest='';
+let trkSecretSt={}, trkJsonOpen=false, trkTest='', trkJsonBad=null; // trkJsonBad: o texto do conector que NÃO é JSON válido (fica na caixa pra corrigir)
 // comentários da issue aberta: erro de leitura (antes virava "nenhum comentário" calado), rascunho (sobrevive a
 // re-render e a falha no envio) e envio em curso (sem clique duplo = comentário duplicado)
 let trkCmErr='', trkCm={ drafts:{}, errs:{}, sending:{} }; // trkCm: por código da issue (trkCmSendRun)
@@ -427,7 +446,7 @@ function trkConnHtml(){
       <div class="trk-ops" style="margin-top:10px">${(c.statuses||[]).map(s=>`<span class="trk-st"><i style="background:${TRK_KINDS[s.kind]||'var(--muted)'}"></i>${esc(s.label||s.id)}</span>`).join('<span class="dim">→</span>')}</div>
       ${c.notes?`<p class="trk-rs" style="margin-top:10px">${esc(c.notes)}</p>`:''}
       <div class="trk-bar" style="margin-top:12px"><button class="btn sm" id="trkJsonT">${trkJsonOpen?'fechar':'editar'} conector (JSON)</button><span style="flex:1"></span>${trkTest?`<span class="trk-rs" style="color:${trkTest.startsWith('✓')?'var(--good)':'var(--warn)'}">${esc(trkTest)}</span>`:''}<button class="btn" id="trkTestBtn"${trkBusy==='test'?' disabled':''}>${trkBusy==='test'?'testando…':'testar conexão'}</button></div>
-      ${trkJsonOpen?`<textarea class="in mono" id="trkJson" rows="14" style="font-size:var(--fs-xs);margin-top:10px">${esc(JSON.stringify(c,null,2))}</textarea>`:''}</div>
+      ${trkJsonOpen?`<textarea class="in mono" id="trkJson" rows="14" style="font-size:var(--fs-xs);margin-top:10px" aria-label="conector em JSON"${trkJsonBad!=null?' aria-invalid="true"':''}>${esc(trkJsonBad!=null?trkJsonBad:JSON.stringify(c,null,2))}</textarea>`:''}</div>
     <div class="trk-bar"><span style="flex:1"></span><button class="btn primary" id="trkConnSave">salvar e continuar →</button></div>`:''}`;
 }
 function trkHost(){ try{ return new URL(trk.connector.baseUrl).hostname.toLowerCase(); }catch(_){ return ''; } }
@@ -444,10 +463,12 @@ function trkKeepForm(){
   const v=id=>{ const e=$id(id); return e?e.value:null; };
   if(v('trkName')!==null) trk.name=v('trkName').trim();
   if(v('trkDocs')!==null) trk.docs=v('trkDocs');
-  if(trkJsonOpen && v('trkJson')!==null){ try{ trk.connector=JSON.parse(v('trkJson')); }catch(_){ trkMsg='JSON do conector inválido — mantive o anterior.'; } }
+  let ok=true;
+  if(trkJsonOpen && v('trkJson')!==null){ try{ trk.connector=JSON.parse(v('trkJson')); trkJsonBad=null; }catch(_){ ok=false; trkJsonBad=v('trkJson'); trkMsg='O conector (JSON) tem um erro de formato — corrija antes de salvar. Nada foi salvo; o seu texto continua na caixa.'; } }
   const uv=trkUserVars(); let touched=false;
   document.querySelectorAll('[data-trkvar]').forEach(i=>{ touched=true; if(i.dataset.peruser==='1') uv[i.dataset.trkvar]=i.value.trim(); else { trk.vars=trk.vars||{}; trk.vars[i.dataset.trkvar]=i.value.trim(); } });
   if(touched) lsSet('trk:uvars', JSON.stringify(uv));
+  return ok;
 }
 async function trkSecretSave(name, value){
   if(typeof SB!=='undefined' && SB.sess()) await secretSet(name, value); // logado (com ou sem time): cofre da conta — o arquivo é só espelho
@@ -479,14 +500,15 @@ function trkConnWire(body){
     if(!await askYes('Liberar a sua chave '+n+' para ser enviada a '+h+'?\n\nSó confirme se este é o servidor oficial do painel.')) return;
     await invoke('tracker_bind_secret',{ name:n, host:h }); await trkSecretsRefresh(); issRender();
   });
-  on('trkJsonT', ()=>{ trkKeepForm(); trkJsonOpen=!trkJsonOpen; issRender(); });
+  on('trkJsonT', ()=>{ const ok=trkKeepForm(); if(ok) trkJsonOpen=!trkJsonOpen; issRender(); }); // JSON quebrado: a caixa não fecha (o texto sumiria)
   on('trkTestBtn', async()=>{
     trkKeepForm(); trkBusy='test'; trkTest=''; issRender();
     try{ const l=await trkFetchIssues(); trkTest='✓ conectado — '+l.length+' issues lidas'; }catch(e){ trkTest=trkErrText(e); }
     trkBusy=''; issRender();
   });
   on('trkConnSave', async()=>{
-    trkKeepForm(); const cloud=await trkSave();
+    if(!trkKeepForm()){ issRender(); return; } // A7 (mesa-bugs-2): antes o "✓ conexão salva" cobria o aviso do JSON inválido
+    let cloud=false; try{ cloud=await trkSave(); }catch(e){ trkMsg=humanErr(e,'Não consegui salvar a conexão').msg; issRender(); return; }
     trkMsg='✓ conexão salva'+(cloud?' pro time':' (só nesta máquina)')+' — confira os projetos e as regras abaixo.'; trkView='conn'; issRender();
   });
 }
@@ -519,7 +541,7 @@ function trkRulesWire(body){
       trkMsg=''; issRender();
     }; }
   const b=body.querySelector('#trkRulesSave'); if(b) b.onclick=async()=>{
-    trkRulesKeep(body); const cloud=await trkSave();
+    trkRulesKeep(body); let cloud=false; try{ cloud=await trkSave(); }catch(e){ trkMsg=humanErr(e,'Não consegui salvar as regras').msg; issRender(); return; }
     trkMsg='✓ regras salvas'+(cloud?' pro time':' (só nesta máquina)'); trkView='board'; issRender(); trkReload(); trkWatchStart();
   };
 }
@@ -994,7 +1016,7 @@ async function trkSelect(code){
 }
 function trkBoardWire(body){
   const on=(id,fn)=>{ const b=body.querySelector('#'+id); if(b) b.onclick=fn; };
-  { const qi=body.querySelector('#trkQ'); if(qi) qi.oninput=()=>{ trkQ=qi.value; issRender(); const n=$id('trkQ'); if(n){ n.focus(); const v=n.value; n.value=''; n.value=v; } }; }
+  { const qi=body.querySelector('#trkQ'); if(qi) qi.oninput=()=>{ const c0=qi.selectionStart, c1=qi.selectionEnd; trkQ=qi.value; issRender(); const n=$id('trkQ'); if(n){ n.focus(); try{ n.setSelectionRange(c0, c1); }catch(_){ } } }; }
   body.querySelectorAll('[data-trkfilter]').forEach(b=>b.onclick=()=>{ trkFilter=b.dataset.trkfilter; lsSet('trkFilter',trkFilter); issRender(); });
   on('trkRefresh', trkReload); on('trkMoreDone', ()=>{ trkMoreDone=true; issRender(); });
   body.querySelectorAll('[data-trklay]').forEach(b=>b.onclick=()=>{ trkLayout=b.dataset.trklay; lsSet('trkLayout', trkLayout); issRender(); });

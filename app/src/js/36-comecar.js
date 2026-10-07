@@ -69,8 +69,9 @@ async function emStart(){
   const b=$id('emGo'); if(b){ b.disabled=true; b.textContent='criando a pasta…'; }
   try{
     const path=await invoke('quick_create_project',{ name });
+    // a pasta JÁ existe daqui em diante: falha ao recarregar não é "não deu pra criar" (o retry criava nome-2)
     selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
-    await refresh(); if(typeof loadProjects==='function') await loadProjects();
+    try{ await refresh(); if(typeof loadProjects==='function') await loadProjects(); }catch(e2){ console.warn('[começar] recarregar depois de criar', e2); }
     if(ta) ta.value=''; emName=''; emNameCustom=false; emTarget='';
     toast('Projeto criado em '+String(path||'').replace(/^\/Users\/[^/]+/,'~'),'ok');
     if(window.plStartWith) window.plStartWith(text);

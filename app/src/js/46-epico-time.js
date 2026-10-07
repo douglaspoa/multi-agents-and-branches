@@ -584,9 +584,10 @@ async function epCardStart(ct, btn){
 async function epOpenProjectOf(pj){
   try{
     const locals=(await invoke('list_projects', { user:(typeof cloudUserId==='function'?cloudUserId():undefined) }))||[];
-    for(const p of locals){ const ids=await repoRemoteIds(p.path); if(remoteSame(pj.repo_remote, ids)){ if(window.switchProject) await window.switchProject(p.path); return; } }
+    for(const p of locals){ const ids=await repoRemoteIds(p.path); if(remoteSame(pj.repo_remote, ids)){ if(window.switchProject) await window.switchProject(p.path).catch(()=>{}); return; } }
   }catch(e){ console.warn('abrir projeto do cartão', e); }
-  toast('O projeto '+(pj.name||pj.repo_remote||'')+' não está aberto nesta máquina — abra ou clone a pasta dele em Projetos.','warn');
+  // L16 (mesa-bugs-2): não existe "clonar" no app — o texto não promete o que não há
+  toast('O projeto '+(pj.name||pj.repo_remote||'')+' não está neste computador. Baixe uma cópia do repositório numa pasta e abra em Projetos › ⋯ › "Abrir pasta que já tenho".','warn');
   if(window.openTab) window.openTab('projetos');
 }
 // ✕ cancelar = tirar do backlog do time (as que dependiam dela deixam de esperar por ela)

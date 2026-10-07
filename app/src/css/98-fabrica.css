@@ -416,6 +416,8 @@ button.row{cursor:pointer}button.row:hover{background:var(--surface-2)}
 }
 .plhead.g2ndhead .pgh-title{font:800 22px/1.15 var(--ui);letter-spacing:-.02em;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .plmesh .plmeshfoot{position:sticky;bottom:0;background:var(--surface);border-top:1px solid var(--border);z-index:1}
+/* A1 (mesa-bugs-2): janela baixa — o rodapé do resumo ("Criar e rodar") deixa de grudar e para de cobrir os campos */
+@media (max-height:700px){ .plmesh .plmeshfoot{position:static} }
 .orq-foot{align-items:flex-end}
 #orqBody .orq-pill{font-family:var(--ui)}
 #ntOverlay .mbody.nt-g2{display:grid!important;grid-template-columns:minmax(0,1fr) 320px;max-width:none!important;margin:0!important;gap:0!important;padding:0!important;overflow:hidden}

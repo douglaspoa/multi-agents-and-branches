@@ -113,7 +113,7 @@ async function pcToTask(){
     if((state.repo||'')!==repo){
       if(!window.switchProject){ toast('Você trocou de projeto enquanto a tarefa era montada — volte pro projeto '+pathBase(repo)+' e tente de novo.','warn'); return; }
       toast('A tarefa é do projeto '+pathBase(repo)+' — voltei pra ele pra abrir o formulário.','warn');
-      await switchProject(repo);
+      try{ await switchProject(repo); }catch(_){ return; }
       if((state.repo||'')!==repo){ toast('Não consegui voltar pro projeto '+pathBase(repo)+'.','warn'); return; }
     }
     $id('pcOverlay').style.display='none';
@@ -295,7 +295,7 @@ function renderDaily(){
   // F4 (D20): o Daily virou Central › Concluídas › Resumo do período — sem H1 próprio (a Central já tem o cabeçalho)
   const head=`<div class="rs-bar"><label class="rs-l">Dia <input type="date" id="dlDate" aria-label="dia do resumo" class="in" value="${escA(iso)}"></label>
     <span class="dim rs-proj" title="o resumo lê o projeto aberto">${esc(pathBase(state.repo||''))}</span><span class="dim">o que os agentes fizeram, pronto pra colar na reunião</span><span class="grow"></span>
-    <button class="btn sm" id="dlAI">Resumo curto</button><button class="btn primary sm" id="dlDoc" title="o relatório técnico do período (o quê · por quê · arquitetura · como validar) — salvar .md ou PDF">Gerar relatório do período</button></div>`;
+    <button class="btn sm" id="dlAI">Resumo curto</button><button class="btn primary sm" id="dlDoc" title="o relatório técnico deste dia (o quê · por quê · arquitetura · como validar) — salvar .md ou PDF">Gerar relatório do dia</button></div>`;
   if(!dailyData.length){ body.innerHTML=`<div class="appscreen">${head}<div style="margin-top:22px">${emptyHtml({ icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"><rect x="2.6" y="3.4" width="10.8" height="10" rx="1.6"/><path d="M2.6 6.6h10.8M5.4 2.2v2.4M10.6 2.2v2.4"/></svg>', title:'Dia sem atividade', help:'Nenhuma tarefa deste projeto teve movimento em '+(iso?iso.split('-').reverse().join('/'):'nesse dia')+'.', action:{ label:'ver o dia anterior', id:'dlPrev', primary:false } })}</div></div>`; wireDaily(); return; }
   const totUsd=dailyData.reduce((s,t)=>s+(t.usd||0),0);
   const totCommits=Object.values(dailyCommits).reduce((s,c)=>s+c.length,0);

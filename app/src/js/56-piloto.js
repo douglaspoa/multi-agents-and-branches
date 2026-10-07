@@ -245,15 +245,14 @@ async function pilHand(){
   const slug=(typeof emSlug==='function'?emSlug(PIL_FORM.name||idea):'')||'meu-projeto';
   PIL_BUSY=true; PIL_ERR=''; pilRenderForm();
   try{
-    let path;
-    if(PIL_FORM.gh){ const target=String(await invoke('quick_project_target',{ name:slug })||''); path=await invoke('create_project',{ parent:target.replace(/[\\/][^\\/]+$/,''), name:target.split(/[\\/]/).pop(), github:true, private:true, owner:'' }); }
-    else path=await invoke('quick_create_project',{ name:slug });
+    const path=await projCreateQuick(slug, !!PIL_FORM.gh, PIL_FORM.ghRetry||''); // L9: retry reaproveita a pasta (antes "nome-2")
     if(typeof selected!=='undefined') selected=null; if(typeof lastSig!=='undefined') lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
     try{ await refresh(); }catch(_){ } if(typeof loadProjects==='function') try{ await loadProjects(); }catch(_){ }
     PIL_BUSY=false; PIL_FORM=Object.assign({}, PILOTO_FORM0); pilRenderForm();
     if(typeof toast==='function') toast('Projeto criado em '+String(path||'').replace(/^\/Users\/[^/]+/,'~')+' — siga pela Nova demanda.','ok');
     if(window.plStartWith) window.plStartWith(idea, { replace:true });
-  }catch(e){ PIL_BUSY=false; PIL_ERR=(typeof emErrMsg==='function')?emErrMsg(String(e&&e.message||e)).msg:pilErr(e,'Não consegui criar o projeto'); pilRenderForm(); }
+  }catch(e){ PIL_BUSY=false; const g=ghFailOf(e); if(g) PIL_FORM.ghRetry=g.path; // L9: nada de "GH_FAIL::…" cru
+    PIL_ERR=g?ghFailText(g):(typeof emErrMsg==='function')?emErrMsg(String(e&&e.message||e)).msg:pilErr(e,'Não consegui criar o projeto'); pilRenderForm(); }
 }
 function pilWireForm(){
   const b=document.getElementById('pilBody'); if(!b || b.__pilWired) return; b.__pilWired=true;
@@ -366,7 +365,7 @@ async function pilAct(act, anchor){
 }
 async function pilOpenTask(id){
   const dir=PIL_RUN.dir;
-  try{ if(window.switchProject && typeof state!=='undefined' && state.repo!==dir) await window.switchProject(dir); }catch(_){ }
+  try{ if(window.switchProject && typeof state!=='undefined' && state.repo!==dir) await window.switchProject(dir); }catch(_){ return; }
   if(typeof openWorkspace==='function') openWorkspace(id);
 }
 function pilWireRun(){
