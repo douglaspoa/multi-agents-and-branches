@@ -174,7 +174,7 @@ export function claudeEnv(): NodeJS.ProcessEnv {
 export function claudeErrText(err: unknown): string {
   const e = err as { code?: string; message?: string };
   const m = e?.message || String(err);
-  if (e?.code === "ENOENT" || /ENOENT/.test(m)) return "O Claude Code não está instalado neste computador (veja Mais › Ambiente).";
+  if (e?.code === "ENOENT" || /ENOENT/.test(m)) return "O Claude Code não está instalado neste computador (veja Ajustes › Verificação).";
   return m;
 }
 

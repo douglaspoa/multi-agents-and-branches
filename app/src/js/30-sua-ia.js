@@ -37,8 +37,9 @@ function suaIaObSuggest(list, defEng){
   if(!cand.length) return null;
   return { candidates:cand, pick:cand.length===1?cand[0]:null };
 }
-// etiqueta do modelo sem jargão ("alias", "id fixo"): sobra só o que ajuda a escolher (mais capaz, mais veloz…)
-function suaIaTagPt(tag){ const t=String(tag||''); if(!t || t==='auto') return ''; return t.split('·').map(x=>x.trim()).filter(x=>x && !/^(alias|id fixo)$/i.test(x)).join(' · '); }
+// etiqueta do modelo sem jargão: "alias" = sempre o mais novo daquela linha; "id fixo" = versão fixa (não muda sozinha)
+const SUAIA_TAG_PT={ 'alias':'sempre o mais novo', 'id fixo':'versão fixa' };
+function suaIaTagPt(tag){ const t=String(tag||''); if(!t || t==='auto') return ''; return t.split('·').map(x=>x.trim()).filter(Boolean).map(x=>SUAIA_TAG_PT[x.toLowerCase()]||x).join(' · '); }
 // @sua-ia-puro-fim
 function suaIaOf(id){ const k=typeof aiEngineOf==='function'?aiEngineOf(id):id; return (suaIaList||[]).find(s=>s.id===k)||null; }
 function suaIaEngine(id){ return (typeof AI_ENGINES!=='undefined'?AI_ENGINES:[]).find(e=>e.id===id)||{ id, name:id, color:'var(--muted)', icon:'', models:[] }; }

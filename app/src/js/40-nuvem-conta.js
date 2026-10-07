@@ -123,7 +123,7 @@ function sbRefresh(){
 // sessão caiu (refresh_token inválido): limpa o que é da conta e mostra o login com o aviso — nada de erro cru
 function sbSessionEnded(reason){
   lsSet('sb:ended', reason||'expired');
-  cloudData=null; cloudAutoInvTried=false;
+  cloudData=null; cloudAutoInvTried=false; cloudJustJoined='';
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
   try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // quem entrar depois não usa as chaves de quem caiu
   try{ cloudBtnSync(); }catch(_){ }
@@ -133,7 +133,7 @@ function sbSessionEnded(reason){
 function sbLogout(){
   const s=SB.sess();
   SB.setSess(null); lsSet('sb:ended','');
-  cloudData=null; cloudAutoInvTried=false; cloudMsg='';
+  cloudData=null; cloudAutoInvTried=false; cloudJustJoined=''; cloudMsg='';
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
   try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // chaves da conta não ficam pro próximo (bloqueador 02)
   if(s && s.access_token) sbAuth('logout?scope=local', null, { token:s.access_token, timeout:5000 }).catch(()=>{});
@@ -182,7 +182,7 @@ function cloudErrMsg(e, ctx){
   if(hit) return pre+hit[1];
   if(isPtText(raw)) return pre+raw.charAt(0).toUpperCase()+raw.slice(1);
   // erro de programa (TypeError "Cannot read properties of undefined…") não vai pra tela: inglês cru não ajuda ninguém
-  const jsErr=(e instanceof TypeError) || /cannot read propert|is not a function|is not defined|undefined|null/i.test(raw);
+  const jsErr=(e instanceof TypeError) || /cannot read propert|is not a function|is not defined/i.test(raw);
   return pre+'Não deu certo agora — tente de novo em instantes.'+(raw&&!jsErr?' ('+raw.slice(0,80)+')':'');
 }
 // a mensagem do convite (UMA só: a do "gerar convite" e a do "copiar mensagem" da lista eram cópias).

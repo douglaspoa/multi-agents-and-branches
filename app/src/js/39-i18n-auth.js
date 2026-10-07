@@ -24,7 +24,7 @@ const I18N={ 'pt-BR':{
   'auth.err.email_send_failed':'Não conseguimos enviar o e-mail agora. Tente de novo em alguns minutos.',
   'auth.err.same_password':'A nova senha precisa ser diferente da atual.',
   'auth.err.session_expired':'Sua sessão expirou. Entre de novo para continuar.',
-  'auth.err.reauth_needed':'Por segurança, confirme que é você antes de trocar a senha: mandamos um código pro seu e-mail e aí você define a senha nova.',
+  'auth.err.reauth_needed':'Por segurança, confirme que é você antes de trocar a senha: vamos mandar um código pro seu e-mail e aí você define a senha nova.',
   'auth.err.user_not_found':'Não achamos essa conta. Confira o e-mail ou crie uma conta.',
   'auth.err.user_banned':'Esta conta está bloqueada. Fale com o administrador do seu time.',
   'auth.err.email_login_disabled':'Entrar com e-mail está desativado no momento. Fale com o suporte do Starfork.',

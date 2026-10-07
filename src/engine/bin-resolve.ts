@@ -248,6 +248,6 @@ export function codexResolution(): Resolution { return resolveToolCached("codex"
 /** Mensagem HUMANA de "não achei", com os lugares onde procurou. */
 export function notFoundMsg(label: string, install: string, r: Resolution, extra = ""): string {
   const where = r.searched.slice(0, 40).map((s) => `  • ${s}`).join("\n");
-  return `${label} não foi encontrado neste computador${extra} Instale com: ${install} (depois confira em Mais › Ambiente) e tente de novo.\n\nProcurei em:\n${where}`;
+  return `${label} não foi encontrado neste computador${extra} Instale com: ${install} (depois confira em Ajustes › Verificação) e tente de novo.\n\nProcurei em:\n${where}`;
 }
 

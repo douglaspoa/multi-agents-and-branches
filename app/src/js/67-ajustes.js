@@ -92,7 +92,8 @@ function ajPlanPt(p){ return AJ_PLAN[p]||(p?String(p).charAt(0).toUpperCase()+St
 // off = cobrança desligada no servidor: sem assinatura não é "inativo", é livre (e não há plano pra escolher)
 function ajBillingLine(b, me, dt, off){
   dt=dt||(s=>s?new Date(s).toLocaleDateString('pt-BR'):'');
-  if(off && !(b && (b.org || ['trialing','active'].includes(b.status)))) return { name:'Uso livre', sub:'A cobrança ainda não está ligada — o app segue livre, sem plano pra escolher.', active:true, free:true, mine:false };
+  if(off==='unknown' && !b) return { name:'Não consegui ler a assinatura', sub:'Tente de novo em instantes — o app segue funcionando.', active:false, unknown:true, mine:false };
+  if(off===true && !(b && (b.org || ['trialing','active'].includes(b.status)))) return { name:'Uso livre', sub:'A cobrança ainda não está ligada — o app segue livre, sem plano pra escolher.', active:true, free:true, mine:false };
   if(!b) return { name:'Sem assinatura ativa', sub:'Escolha um plano pra seguir usando com o time.', active:false, mine:false };
   if(b.org) return { name:ajPlanPt(b.plan||'enterprise'), sub:'pago pela organização, por contrato — não renova por aqui', active:true, mine:false, org:true };
   if(!['trialing','active'].includes(b.status)) return { name:'Sem assinatura ativa', sub:'A última assinatura não está mais ativa.', active:false, mine:b.user_id===me };
@@ -161,22 +162,32 @@ function ajOrgFormErr(org, team){
   return null;
 }
 // o convite recém-gravado: a linha devolvida, ou a da lista relida (o servidor pode gravar sem devolver a linha)
-function ajInvRow(rows, mail){
-  const m=String(mail||'').toLowerCase();
-  return (Array.isArray(rows)?rows:[]).filter(x=>x && x.token && String(x.email||'').toLowerCase()===m).pop()||null;
+// Só vale o convite AINDA VÁLIDO desse e-mail NESSE time; a lista vem order=expires_at.desc → o 1º é o mais novo.
+function ajInvRow(rows, mail, teamId, now){
+  const m=String(mail||'').toLowerCase(); now=now||Date.now();
+  return (Array.isArray(rows)?rows:[]).find(x=>x && x.token && String(x.email||'').toLowerCase()===m && (!teamId || x.team_id===teamId)
+    && !x.accepted_at && (!x.expires_at || new Date(x.expires_at).getTime()>now))||null;
 }
+// quem já está numa organização não aceita convite de outra por aqui (a RPC accept_invite não checa — ver ajAcceptInvite)
+function ajOtherOrgMsg(orgName){ return 'Você já está em '+orgName+'. Pra entrar noutra organização, fale com o admin dela ou saia desta primeiro.'; }
 // @atrap-conta-puro-fim
 // erro ao criar a organização: sem org não existe "lead do time" — a mensagem de permissão genérica não serve aqui
 function ajOrgCreateErr(e){
   const m=cloudErrMsg(e,'Não consegui criar a organização');
   return /não tem permissão/i.test(m) ? 'Não consegui criar a organização: o servidor recusou a permissão desta conta. Saia e entre de novo; se continuar, fale com o suporte do Starfork.' : m;
 }
-// aceitar convite pelo código (sem organização: o cartão "Entrar num time"; com organização: o botão "aceitar convite")
+// aceitar convite pelo código — SÓ sem organização (cartão "Entrar num time").
+// TODO(migration futura): a correção definitiva é a RPC accept_invite RECUSAR convite de outra org quando a pessoa já
+// é membro de uma (hoje ela aceita e a pessoa fica em DUAS orgs; o cloudLoad pega orgs[0] ao acaso). Até lá, a tela
+// não oferece o aceite com organização e, se a resposta vier de outra org, não troca o time atual e avisa.
 async function ajAcceptInvite(b, tok, er, inp){
   if(b && b.disabled) return;
   if(!tok){ if(er){ er.textContent='Cole o código do convite (ou peça um convite pro seu e-mail — aí você entra sozinho).'; er.hidden=false; } if(inp) inp.focus(); return; }
   if(b){ b.disabled=true; b.textContent='entrando…'; } // duplo clique não manda 2 pedidos
-  try{ const j=await sbRpc('accept_invite',{ p_token:tok }); if(!j || !j.ok) throw new Error((j&&j.error)||'convite inválido ou expirado'); lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ você entrou no time'; }
+  const cur=(cloudData&&cloudData.org)||null;
+  try{ const j=await sbRpc('accept_invite',{ p_token:tok }); if(!j || !j.ok) throw new Error((j&&j.error)||'convite inválido ou expirado');
+    if(cur && j.org_id && j.org_id!==cur.id){ cloudMsg=ajOtherOrgMsg(cur.name)+' O convite foi registrado, mas o seu time atual não mudou.'; }
+    else { lsSet('sb:team', j.team_id); cloudData=null; cloudMsg='✓ você entrou no time'; } }
   catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui aceitar o convite'); }
   ajSectionPaint();
 }
@@ -643,15 +654,13 @@ async function ajRenderTimes(host){
   const q=ajNorm(AJ.memQ);
   const mems=(d.orgMembers||[]).filter(om=>!q || ajNorm(ajPName(d,om.user_id)).includes(q));
   const teamsOf=uid=>d.teams.filter(t=>(d.teamMembers[t.id]||[]).some(m=>m.user_id===uid)).map(t=>t.name).join(', ');
-  host.innerHTML=ajSecHead('times', lead, (isAdmin?'<button type="button" class="btn sm" id="ajTeamAdd">novo time</button>':'')+'<button type="button" class="btn sm" id="ajInvCode">aceitar convite</button>')+ajCloudMsg()
+  host.innerHTML=ajSecHead('times', lead, (isAdmin?'<button type="button" class="btn sm" id="ajTeamAdd">novo time</button>':''))+ajCloudMsg()+`<p class="ajhint">${esc(ajOtherOrgMsg(d.org.name))}</p>`
     +(teamHtml||`<div class="ajempty"><span class="eic">${ajIcon('times')}</span><h3>Nenhum time ainda</h3><p>Todo convite e toda tarefa compartilhada entram num time.</p></div>`)
     +(isAdmin?`<div class="ajsh2"><h3 class="ajh3">Pessoas da organização (${(d.orgMembers||[]).length})</h3><label class="ajsearch sm">${ajIcon('busca')}<input id="ajMemQ" type="search" placeholder="buscar pessoa" aria-label="buscar pessoa" value="${escA(AJ.memQ)}"></label></div>
       <table class="ajtbl"><thead><tr><th>Pessoa</th><th>Papel</th><th>Times</th><th></th></tr></thead><tbody>${mems.map(om=>`<tr><td>${esc(ajPName(d,om.user_id))}${om.user_id===me?' <small class="dim">· você</small>':''}</td><td>${esc(ajRolePt(om.role))}</td><td class="dim">${esc(teamsOf(om.user_id)||'—')}</td><td class="num">${om.role!=='owner'&&om.user_id!==me?`<button type="button" class="btn sm" data-ajorgrm="${escA(om.user_id)}">tirar da organização</button>`:''}</td></tr>`).join('')||'<tr><td colspan="4" class="dim">ninguém com esse nome</td></tr>'}</tbody></table>`:'');
   host.querySelectorAll('[data-ajgo]').forEach(b=>b.onclick=()=>ajGo(b.dataset.ajgo));
   { const i=$id('ajMemQ'); if(i) i.oninput=()=>{ AJ.memQ=i.value; const pos=i.selectionStart; ajSectionPaint(); const j=$id('ajMemQ'); if(j){ j.focus(); try{ j.setSelectionRange(pos,pos); }catch(_){ } } }; }
   const after=()=>{ cloudData=null; ajSectionPaint(); try{ cloudBtnSync(); }catch(_){ } };
-  // recebeu um convite pra outro time e já está numa organização: o código do convite entra por aqui
-  bindClick('ajInvCode', async()=>{ const b=$id('ajInvCode'); const tok=await sheetAsk({ anchor:b, title:'Aceitar convite', text:'Cole o código que veio na mensagem do convite.', field:{ placeholder:'código do convite' }, ok:'aceitar' }); if(!tok) return; ajAcceptInvite(b, String(tok).trim()); });
   bindClick('ajTeamAdd', async()=>{ const b=$id('ajTeamAdd'); const n=await sheetAsk({ anchor:b, title:'Novo time', text:'Você vira o lead e ele passa a ser o seu time atual.', field:{ placeholder:'nome do time' }, ok:'criar time' }); if(!n) return;
     try{ const rows=await sbPost('teams',{ org_id:d.org.id, name:n }); await sbPost('team_members',{ team_id:rows[0].id, user_id:me, role:'lead' }); lsSet('sb:team', rows[0].id); cloudMsg='✓ time criado'; }catch(e){ cloudMsg=cloudErrMsg(e,'Não consegui criar o time'); } after(); });
   host.querySelectorAll('[data-ajt]').forEach(b=>b.onclick=async()=>{
@@ -712,8 +721,8 @@ async function ajRenderConvites(host){
     b.disabled=true;
     try{ const tid=$id('sbInvTeam').value; const rows=await sbPost('invites',{ org_id:d.org.id, team_id:tid, email:mail, role:$id('sbInvRole').value, created_by:me });
       // o servidor pode gravar e NÃO devolver a linha (RLS do SELECT): relê a lista e acha o convite pelo e-mail
-      let iv=ajInvRow(rows, mail);
-      if(!iv){ cloudData=null; const d2=await ajCloudReady(host, 'convites', '').catch(()=>null); iv=ajInvRow(d2&&d2.invites, mail); }
+      let iv=ajInvRow(rows, mail, tid);
+      if(!iv){ cloudData=null; const d2=await ajCloudReady(host, 'convites', '').catch(()=>null); iv=ajInvRow(d2&&d2.invites, mail, tid); }
       if(!iv){ cloudMsg='✓ convite gravado pra '+mail+' — a mensagem pronta está na lista de pendentes (copiar mensagem). Se não aparecer, atualize a seção.'; ajSectionPaint(); return; }
       if(cloudData && cloudData.invites && !cloudData.invites.includes(iv)) cloudData.invites.push(iv); else if(!cloudData) (d.invites||(d.invites=[])).push(iv);
       ajInvLast={ mail, msg:cloudInviteMsg((d.teams.find(x=>x.id===tid)||{}).name||'', d.org.name, mail, iv.token) }; ajSectionPaint(); }
@@ -731,13 +740,15 @@ async function ajRenderRegras(host){
 async function ajRenderAssinatura(host){
   const d=await ajCloudReady(host, 'assinatura', ''); if(!d) return;
   const b=typeof myBilling!=='undefined'?myBilling:null;
-  const off=typeof billingOn!=='undefined' && !billingOn;
+  // cobrança só é "desligada" se a tabela de planos foi LIDA; falha de leitura não vira "Uso livre"
+  const off=(typeof billingKnown!=='undefined' && !billingKnown) ? 'unknown' : (typeof billingOn!=='undefined' && !billingOn);
   const L=ajBillingLine(b, ajMe(), null, off);
   const canPortal=!!(b && !b.org && b.user_id===ajMe() && b.stripe_customer_id);
   host.innerHTML=ajSecHead('assinatura','')
-    +`<div class="ajplan"><div class="l"><b>${esc(L.name)}</b> ${L.free?'<span class="ajst ok">livre</span>':L.active?'<span class="ajst ok">ativo</span>':'<span class="ajst warn">inativo</span>'}<p>${esc(L.sub)}${L.org&&d.org?' · '+esc(d.org.name):''}</p></div>
-      <div class="r">${canPortal?'<button type="button" class="btn sm" id="sbBillPortal">gerenciar no portal de pagamento</button>':''}${L.org?'<button type="button" class="btn sm" id="ajSupport">falar com o suporte</button>':''}${!L.active&&!L.free?'<button type="button" class="btn primary sm" id="sbBillGo">ver planos</button>':''}</div></div>`;
+    +`<div class="ajplan"><div class="l"><b>${esc(L.name)}</b> ${L.unknown?'':L.free?'<span class="ajst ok">livre</span>':L.active?'<span class="ajst ok">ativo</span>':'<span class="ajst warn">inativo</span>'}<p>${esc(L.sub)}${L.org&&d.org?' · '+esc(d.org.name):''}</p></div>
+      <div class="r">${canPortal?'<button type="button" class="btn sm" id="sbBillPortal">gerenciar no portal de pagamento</button>':''}${L.org?'<button type="button" class="btn sm" id="ajSupport">falar com o suporte</button>':''}${L.unknown?'<button type="button" class="btn sm" id="ajBillRetry">tentar de novo</button>':''}${!L.active&&!L.free&&!L.unknown?'<button type="button" class="btn primary sm" id="sbBillGo">ver planos</button>':''}</div></div>`;
   bindClick('sbBillPortal', ()=>payPortal($id('sbBillPortal')));
+  bindClick('ajBillRetry', async()=>{ try{ await billingSync(); }catch(_){ } ajSectionPaint(); });
   bindClick('sbBillGo', ()=>{ if(typeof auShow==='function') auShow('plans', { backTo:()=>ajustesOpen('assinatura') }); });
   bindClick('ajSupport', ()=>{ if(typeof openExternal==='function') openExternal('mailto:suporte@starfork.com.br?subject=Assinatura%20Starfork'); });
 }

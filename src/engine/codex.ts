@@ -54,7 +54,7 @@ export function codexSpawnError(err: NodeJS.ErrnoException, bin: string, r: Reso
     return `O Codex foi encontrado em ${bin}, mas não consegui iniciá-lo: o arquivo sumiu ou o interpretador dele (node) não existe mais. Reinstale com ${CODEX_INSTALL} e clique em "rodar de novo".` + tail;
   if (err.code === "EACCES")
     return `O Codex foi encontrado em ${bin}, mas sem permissão de execução. Rode \`chmod +x ${bin}\` (ou reinstale com ${CODEX_INSTALL}) e clique em "rodar de novo".` + tail;
-  return `Não consegui iniciar o Codex (${bin}): ${err.message}. Confira em Mais › Ambiente e clique em "rodar de novo".` + tail;
+  return `Não consegui iniciar o Codex (${bin}): ${err.message}. Confira em Ajustes › Verificação e clique em "rodar de novo".` + tail;
 }
 
 export function loadLlmEnv(): Record<string, string> {
@@ -116,7 +116,7 @@ export function codexFriendlyError(raw: string): string {
   if (/usage limit|rate[ _-]?limit|too many requests|\b429\b|quota|limit reached|insufficient_quota/.test(l))
     return "O Codex bateu o limite de uso do seu plano/chave da OpenAI. Espere o limite resetar e mande a mensagem de novo — a tarefa continua no Codex." + tail;
   if (/\b401\b|\b403\b|unauthori[sz]ed|forbidden|not logged in|log ?in again|please (re-?)?log ?in|invalid api key|incorrect api key|authentication|refresh token|token (has )?expired/.test(l))
-    return "O Codex não está logado (ou a chave da OpenAI é inválida/expirou). Abra um terminal, rode `codex login` (ou confira a chave em Configurações → Sua IA) e mande a mensagem de novo — a tarefa continua no Codex." + tail;
+    return "O Codex não está logado (ou a chave da OpenAI é inválida/expirou). Abra um terminal, rode `codex login` (ou confira a chave em Ajustes › Motores e chaves) e mande a mensagem de novo — a tarefa continua no Codex." + tail;
   if (/no saved session|thread not found|no rollout found|resume failed|session not found/.test(l))
     return "A sessão anterior do Codex não foi encontrada neste computador." + tail;
   if (/context (window|length)|maximum context|too long|out of tokens/.test(l))

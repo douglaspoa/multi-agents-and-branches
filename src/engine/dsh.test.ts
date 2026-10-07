@@ -113,7 +113,7 @@ test("--session-id desconhecido → texto que o orquestrador trata como sessão 
   assert.equal(ev.type, "error");
   assert.ok(sessionMissing(ev.text), ev.text);
   assert.ok(sessionMissing(dshErrText('session "s" was recorded in "/a", not "/b"')));
-  assert.match(dshErrText("MISSING_CREDENTIAL: no key"), /Configurações → Sua IA/);
+  assert.match(dshErrText("MISSING_CREDENTIAL: no key"), /Ajustes › Motores e chaves/);
 });
 
 test("golden: patch fixo e patch de modelo idênticos aos do Rust (mesma ordem de chaves)", () => {
@@ -280,7 +280,7 @@ test("dsh saiu com erro (sessão desconhecida): erro humano, sem done", POSIX_NO
   } finally { S.cleanup(); }
 });
 
-test("sem dsh / sem chave → mensagens humanas (instalar / Configurações → Sua IA)", POSIX_NODE, async () => {
+test("sem dsh / sem chave → mensagens humanas (instalar / Ajustes › Motores e chaves)", POSIX_NODE, async () => {
   const S = sandbox();
   try {
     const missing = await withEnv({ HOME: S.home, USERPROFILE: S.home, CARDUME_DSH_HOME: join(S.root, "dshhome") }, () => collect(new DshEngine({ bin: join(S.root, "nao-existe", "dsh") }), S.input));
@@ -291,7 +291,7 @@ test("sem dsh / sem chave → mensagens humanas (instalar / Configurações → 
     const nokey = await withEnv({ HOME: S.home, USERPROFILE: S.home, DEEPSEEK_API_KEY: undefined }, () => collect(new DshEngine({ bin }), S.input));
     assert.deepEqual(nokey.map((e) => e.type), ["status", "error"]);
     assert.equal(nokey[1].text, DSH_KEY_MSG);
-    assert.match(DSH_KEY_MSG, /Configurações → Sua IA/);
+    assert.match(DSH_KEY_MSG, /Ajustes › Motores e chaves/);
     assert.ok(!existsSync(join(S.root, "argv.txt")), "sem chave o dsh nem é iniciado");
   } finally { S.cleanup(); }
 });

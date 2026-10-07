@@ -11,11 +11,11 @@ const i18n = read('src/js/39-i18n-auth.js'), suaia = read('src/js/30-sua-ia.js')
 const lib = read('src-tauri/src/lib.rs'), once = read('src-tauri/src/ai_once.rs'), ideia = read('src-tauri/src/ideia.rs');
 const noComments = (s) => s.split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
 
-const P = new Function(cut(aj, '// @atrap-conta-puro-inicio', '// @atrap-conta-puro-fim') + '\nreturn { ppPcList, ppPcItems, ppAutoOk, ajOrgFormErr, ajInvRow };')();
+const P = new Function(cut(aj, '// @atrap-conta-puro-inicio', '// @atrap-conta-puro-fim') + '\nreturn { ppPcList, ppPcItems, ppAutoOk, ajOrgFormErr, ajInvRow, ajOtherOrgMsg };')();
 const AJ = new Function(cut(aj, '// @ajustes-puro-inicio', '// @ajustes-puro-fim') + '\nreturn { ajBillingLine, ppSteps };')();
 const ENV = new Function(cut(amb, '// @env-puro-inicio', '// @env-puro-fim') + '\nreturn { envKind };')();
 const CLOUD = new Function(cut(cloud, '// @cloud-puro-inicio', '// @cloud-puro-fim') + '\nreturn { cloudErrMsg, cloudInviteMsg, cloudInvitePending };')();
-const AU = new Function(cut(onb, '// @atrap-conta-au-inicio', '// @atrap-conta-au-fim') + '\nreturn { auReadyPlan };')();
+const AU = new Function(cut(onb, '// @atrap-conta-au-inicio', '// @atrap-conta-au-fim') + '\nreturn { auReadyPlan, auIsNewUser };')();
 const I = new Function(i18n + '\nreturn { T, authErrPt };')();
 const SA = new Function(cut(suaia, '// @sua-ia-puro-inicio', '// @sua-ia-puro-fim') + '\nreturn { suaIaTagPt };')();
 
@@ -50,6 +50,8 @@ test('06: "confirme que é você" tem ação: receber o código no e-mail (recup
   assert.match(I.T('auth.err.reauth_needed'), /código/);
   assert.equal(I.T('auth.act.reauth'), 'receber o código no e-mail');
   assert.match(onb, /i\.key==='reauth_needed'\)\{[^\n]*au\.acts=\[\[T\('auth\.act\.reauth'\),\(\)=>auForgot\(em\)\]\]/);
+  assert.match(onb, /const em=\(se&&se\.user&&se\.user\.email\)\|\|email;/, 'o código vai pro e-mail da sessão, não pro último digitado');
+  assert.match(I.T('auth.err.reauth_needed'), /vamos mandar um código/, 'não diz que já mandou antes de mandar');
 });
 
 // ---------------------------------------------------------------- 07 · assinatura com cobrança desligada
@@ -60,9 +62,14 @@ test('07: cobrança desligada = "Uso livre", sem "inativo" nem "ver planos"', ()
   assert.equal(AJ.ajBillingLine({ status: 'canceled' }, 'u1', null, true).free, true, 'assinatura velha também é livre');
   assert.equal(AJ.ajBillingLine({ plan: 'enterprise', org: true }, 'u1', null, true).org, true, 'contrato da org continua aparecendo');
   assert.equal(AJ.ajBillingLine(null, 'u1').active, false, 'cobrança ligada: continua "sem assinatura"');
+  const unk = AJ.ajBillingLine(null, 'u1', null, 'unknown');
+  assert.equal(unk.unknown, true); assert.equal(unk.free, undefined); assert.match(unk.name, /Não consegui ler a assinatura/);
+  const bill = read('src/js/41-assinatura-chaves.js');
+  assert.match(bill, /billingOn=billingPlans\.length>0; billingKnown=true;/, 'só a leitura que deu certo decide');
+  assert.match(cut(aj, 'async function ajRenderAssinatura(', 'const AJ_RENDER='), /\(typeof billingKnown!=='undefined' && !billingKnown\) \? 'unknown'/);
   const sec = cut(aj, 'async function ajRenderAssinatura(', 'const AJ_RENDER=');
   assert.match(sec, /ajBillingLine\(b, ajMe\(\), null, off\)/);
-  assert.match(sec, /!L\.active&&!L\.free\?'<button type="button" class="btn primary sm" id="sbBillGo">ver planos/);
+  assert.match(sec, /!L\.active&&!L\.free&&!L\.unknown\?'<button type="button" class="btn primary sm" id="sbBillGo">ver planos/);
   assert.match(sec, /L\.free\?'<span class="ajst ok">livre<\/span>'/);
 });
 
@@ -112,29 +119,45 @@ test('10: nenhum texto aponta pra "Configurações → Sua IA/Gateway próprio" 
 });
 
 // ---------------------------------------------------------------- 11 · convite pra quem já tem conta / já está numa org
-test('11: a mensagem do convite serve pra quem já tem conta, e "aceitar convite" existe também com organização', () => {
+test('11: a mensagem do convite serve pra quem já tem conta; com organização NÃO há aceite (evita duas orgs)', () => {
   const m = CLOUD.cloudInviteMsg('Loja', 'Lojinha', 'beto@x.dev', 'tok-9');
   assert.match(m, /Entre na sua conta \(ou crie uma, se ainda não tiver\) com o e-mail beto@x\.dev/);
   assert.doesNotMatch(m, /2\. Crie a sua conta/);
   assert.match(m, /Times e pessoas, clique em "aceitar convite"/);
   const times = cut(aj, 'async function ajRenderTimes(', 'let ajInvLast=');
   const inOrg = times.slice(times.indexOf('const me=ajMe(), teamId'));
-  assert.match(inOrg, /id="ajInvCode">aceitar convite<\/button>/, 'com organização também');
-  assert.match(inOrg, /bindClick\('ajInvCode'[\s\S]*ajAcceptInvite\(b, String\(tok\)\.trim\(\)\)/);
+  assert.doesNotMatch(aj, /ajInvCode/, 'sem botão de aceite com organização');
+  assert.match(inOrg, /<p class="ajhint">\$\{esc\(ajOtherOrgMsg\(d\.org\.name\)\)\}<\/p>/);
+  assert.equal(P.ajOtherOrgMsg('Acme'), 'Você já está em Acme. Pra entrar noutra organização, fale com o admin dela ou saia desta primeiro.');
+  const acc = cut(aj, 'async function ajAcceptInvite(', '\n}\n');
+  assert.match(acc, /if\(cur && j\.org_id && j\.org_id!==cur\.id\)\{ cloudMsg=ajOtherOrgMsg\(cur\.name\)/, 'resposta de outra org não mexe no sb:team');
+  assert.match(aj, /TODO\(migration futura\): a correção definitiva é a RPC accept_invite RECUSAR/);
 });
 
 // ---------------------------------------------------------------- 12 · gerar convite sem a linha de volta
 test('12: convite gravado sem linha de volta não quebra o botão nem mostra inglês', () => {
-  assert.equal(P.ajInvRow([], 'a@x.dev'), null);
-  assert.equal(P.ajInvRow([undefined, { email: 'A@x.dev', token: 't1' }], 'a@x.dev').token, 't1');
-  assert.equal(P.ajInvRow([{ email: 'a@x.dev' }], 'a@x.dev'), null, 'sem token não serve');
+  const NOW = Date.parse('2026-10-07T12:00:00Z');
+  assert.equal(P.ajInvRow([], 'a@x.dev', 'T1', NOW), null);
+  assert.equal(P.ajInvRow([undefined, { email: 'A@x.dev', token: 't1', team_id: 'T1' }], 'a@x.dev', 'T1', NOW).token, 't1');
+  assert.equal(P.ajInvRow([{ email: 'a@x.dev', team_id: 'T1' }], 'a@x.dev', 'T1', NOW), null, 'sem token não serve');
+  // lista relida vem order=expires_at.desc: o 1º válido do MESMO time é o recém-criado
+  const lista = [
+    { email: 'a@x.dev', token: 'outro-time', team_id: 'T2', expires_at: '2026-10-20T00:00:00Z' },
+    { email: 'a@x.dev', token: 'novo', team_id: 'T1', expires_at: '2026-10-14T12:00:00Z' },
+    { email: 'a@x.dev', token: 'antigo', team_id: 'T1', expires_at: '2026-10-10T00:00:00Z' },
+    { email: 'a@x.dev', token: 'vencido', team_id: 'T1', expires_at: '2026-10-01T00:00:00Z' },
+  ];
+  assert.equal(P.ajInvRow(lista, 'a@x.dev', 'T1', NOW).token, 'novo');
+  assert.equal(P.ajInvRow([lista[3]], 'a@x.dev', 'T1', NOW), null, 'vencido não serve');
+  assert.equal(P.ajInvRow([{ ...lista[1], accepted_at: 'x' }], 'a@x.dev', 'T1', NOW), null, 'aceito não serve');
+  assert.equal(CLOUD.cloudErrMsg(new Error('null value in column "email" violates not-null constraint')).includes('(null value'), true, 'erro legítimo do servidor continua visível');
   assert.equal(CLOUD.cloudInvitePending([undefined, null, { email: 'b@x.dev' }], 'b@x.dev', Date.now()), true, 'undefined na lista não lança');
   const m = CLOUD.cloudErrMsg(new TypeError("Cannot read properties of undefined (reading 'token')"), 'Não consegui gerar o convite');
   assert.equal(m, 'Não consegui gerar o convite: Não deu certo agora — tente de novo em instantes.');
   assert.match(CLOUD.cloudErrMsg(new Error('brand_new_code xyz')), /\(brand_new_code xyz\)/, 'código desconhecido do servidor continua pequeno');
   const conv = cut(aj, 'async function ajRenderConvites(', 'async function ajRenderRegras(');
   assert.doesNotMatch(conv, /rows\[0\]\.token/);
-  assert.match(conv, /let iv=ajInvRow\(rows, mail\);[\s\S]*iv=ajInvRow\(d2&&d2\.invites, mail\)/);
+  assert.match(conv, /let iv=ajInvRow\(rows, mail, tid\);[\s\S]*iv=ajInvRow\(d2&&d2\.invites, mail, tid\)/);
 });
 
 // ---------------------------------------------------------------- 13 · Primeiros passos por cima
@@ -161,9 +184,9 @@ test('16: GitHub sem gh: "entrar com uma conta" e o comando pra instalar', () =>
 });
 test('17: sem jargão: "Motores e chaves", e nada de "alias"/"id fixo"; sem lista de modelos pra IA não instalada', () => {
   assert.doesNotMatch(aj, /Mesmo componente de Ajustes › IA e modelos/);
-  assert.equal(SA.suaIaTagPt('alias · mais capaz'), 'mais capaz');
-  assert.equal(SA.suaIaTagPt('id fixo · mais novo'), 'mais novo');
-  assert.equal(SA.suaIaTagPt('id fixo'), '');
+  assert.equal(SA.suaIaTagPt('alias · mais capaz'), 'sempre o mais novo · mais capaz');
+  assert.equal(SA.suaIaTagPt('id fixo · mais novo'), 'versão fixa · mais novo');
+  assert.equal(SA.suaIaTagPt('id fixo'), 'versão fixa');
   assert.equal(SA.suaIaTagPt('auto'), '');
   assert.match(suaia, /\$\{s\.state==='install'\?'':`<select class="in suaia-model"/);
 });
@@ -185,4 +208,34 @@ test('19: "aceitar convite" fica ocupado (duplo clique não manda 2 pedidos)', (
 test('bloqueadores 01–03 continuam: sair limpa as chaves e a tela de entrada prende o foco', () => {
   assert.match(cloud, /function sbLogout\(\)[\s\S]*secretsForget\(\)/);
   assert.match(onb, /o\.style\.display='flex'; auInert\(true, document\.body, o\); auTrapWire\(o\);/);
+});
+
+// ---------------------------------------------------------------- revisão
+test('rev 3: conta nova por Google/GitHub também vê "Conta pronta" (created_at recente)', () => {
+  const now = Date.parse('2026-10-07T12:00:00Z');
+  assert.equal(AU.auIsNewUser({ created_at: '2026-10-07T11:55:00Z' }, now), true);
+  assert.equal(AU.auIsNewUser({ created_at: '2026-09-01T10:00:00Z' }, now), false);
+  assert.equal(AU.auIsNewUser({}, now), false); assert.equal(AU.auIsNewUser(null, now), false);
+  assert.match(onb, /await auAfterSession\(\{ fresh:auIsNewUser\(SB\.sess\(\)\.user, Date\.now\(\)\) \}\)/);
+});
+test('rev 6: sair ou sessão caída zera o "você entrou no time" de quem saiu', () => {
+  assert.match(cut(cloud, 'function sbSessionEnded(', 'function sbLogout('), /cloudJustJoined='';/);
+  assert.match(cut(cloud, 'function sbLogout(', 'async function sbFetch('), /cloudJustJoined='';/);
+});
+test('rev 8: conta antiga que acabou de assinar vê "Assinatura ativa", não "Conta pronta"', () => {
+  assert.equal((onb.match(/auShow\('ready',\{ paid:true \}\)/g) || []).length, 3, 'as 3 saídas do pagamento');
+  assert.match(onb, /if\(au\.paid && !au\.fresh\)\{[\s\S]*<h2 class="au-h2">Assinatura ativa<\/h2>/);
+  assert.match(onb, /au\.fresh=!!o\.fresh; au\.paid=false;/);
+});
+test('rev 9: motor TS e telas JS sem "Configurações → Sua IA/Gateway próprio/GitHub" nem "Mais › Ambiente"', () => {
+  const stale = /Configurações (→|›) (Sua IA|Gateway próprio|GitHub|modo das tarefas)|Mais › Ambiente/;
+  for (const f of ['../src/ai-once.ts', '../src/engine/dsh.ts', '../src/engine/claude.ts', '../src/engine/bin-resolve.ts', '../src/engine/codex.ts', 'src/js/13-skills-projetos.js', 'src/js/60-terminal.js']) {
+    assert.doesNotMatch(noComments(read(f)), stale, f);
+  }
+  assert.doesNotMatch(read('src/js/59-ideia.js'), /pesquisa ampliada em <button[^>]*>Ajustes › Verificação/, 'sem repetir o que a mensagem já diz');
+});
+test('os scripts tocados por esta frente compilam inteiros (o recorte por marcador não pega erro de sintaxe fora dele)', () => {
+  for (const f of ['39-i18n-auth.js', '40-nuvem-conta.js', '41-assinatura-chaves.js', '44-onboarding.js', '67-ajustes.js', '30-sua-ia.js', '11-ambiente-updater.js', '29-ia-picker.js', '59-ideia.js', '13-skills-projetos.js', '60-terminal.js']) {
+    assert.doesNotThrow(() => new Function(read('src/js/' + f)), f);
+  }
 });

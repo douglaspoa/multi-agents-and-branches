@@ -26,11 +26,11 @@ import { mobileRule } from "../mobile.ts";
  *    tool_call, tool_result, final, error. Exit 0 = turno concluído. Custo: só tokens (usd 0, como o Codex).
  */
 export const DSH_INSTALL = "npm i -g @deepseek-ai/dsh";
-export const DSH_MISSING_MSG = `O DeepSeek Harness (dsh) não está instalado neste computador — instale com ${DSH_INSTALL} (veja Mais › Ambiente).`;
-export const DSH_KEY_MSG = "Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Configurações → Sua IA.";
+export const DSH_MISSING_MSG = `O DeepSeek Harness (dsh) não está instalado neste computador — instale com ${DSH_INSTALL} (veja Ajustes › Verificação).`;
+export const DSH_KEY_MSG = "Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Ajustes › Motores e chaves.";
 export const DSH_TIMEOUT_MSG = "O DeepSeek não respondeu a tempo — tente de novo.";
 export const dshNodeMsg = (v: string) =>
-  `O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o deste computador é ${v}) — atualize o Node (veja Mais › Ambiente).`;
+  `O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o deste computador é ${v}) — atualize o Node (veja Ajustes › Verificação).`;
 /** Catálogo do dsh (llm-deepseek): rápido = flash; capaz = v4-pro. */
 export const DSH_FAST_MODEL = "deepseek-flash";
 export const DSH_CAPABLE_MODEL = "deepseek-v4-pro";
