@@ -37,6 +37,8 @@ function suaIaObSuggest(list, defEng){
   if(!cand.length) return null;
   return { candidates:cand, pick:cand.length===1?cand[0]:null };
 }
+// etiqueta do modelo sem jargão ("alias", "id fixo"): sobra só o que ajuda a escolher (mais capaz, mais veloz…)
+function suaIaTagPt(tag){ const t=String(tag||''); if(!t || t==='auto') return ''; return t.split('·').map(x=>x.trim()).filter(x=>x && !/^(alias|id fixo)$/i.test(x)).join(' · '); }
 // @sua-ia-puro-fim
 function suaIaOf(id){ const k=typeof aiEngineOf==='function'?aiEngineOf(id):id; return (suaIaList||[]).find(s=>s.id===k)||null; }
 function suaIaEngine(id){ return (typeof AI_ENGINES!=='undefined'?AI_ENGINES:[]).find(e=>e.id===id)||{ id, name:id, color:'var(--muted)', icon:'', models:[] }; }
@@ -44,7 +46,7 @@ function suaIaDefEng(){ return aiEngineOf(aiDefaults().eng); }
 // modelos do cartão: catálogo do seletor (29-ia-picker); gateway = os da config da conta (vêm no status; o 1º é o padrão = '')
 function suaIaModels(s){
   if(s.id==='gateway'){ const ms=s.models||[]; return ms.length?[{ id:'', name:ms[0]+' (padrão do gateway)' }, ...ms.slice(1).map(m=>({ id:m, name:m }))]:[{ id:'', name:'padrão do gateway' }]; }
-  return (suaIaEngine(s.id).models||[]).map(m=>({ id:m.id, name:m.name+(m.tag&&m.tag!=='auto'?' · '+m.tag:'') }));
+  return (suaIaEngine(s.id).models||[]).map(m=>({ id:m.id, name:m.name+(suaIaTagPt(m.tag)?' · '+suaIaTagPt(m.tag):'') }));
 }
 // mesmo modelo, mesma opção: o padrão do gateway salvo pelo nome (ms[0]) é a opção '' (sem "(outro modelo)" duplicado)
 function suaIaNormModel(id, m){
@@ -140,7 +142,7 @@ function suaIaCardHtml(s, opts, shortest, ob){
     ${SUAIA_SECRET_NOTE[s.id]?`<details class="suaia-secret dim" data-suaia-secret="${s.id}"><summary>privacidade nos chats</summary>${esc(SUAIA_SECRET_NOTE[s.id])}</details>`:''}
     ${s.ready?'':suaIaFixesHtml(s.fixes)}${gwCfg}${suaIaKeyHtml(s, hk)}${s.id==='claude'&&s.installed?suaIaSlHtml(s, hk):''}
     <div class="suaia-row">
-      <select class="in suaia-model" data-samodel="${s.id}" aria-label="modelo do ${escA(name)}">${models.map(m=>`<option value="${escA(m.id)}"${m.id===model?' selected':''}>${esc(m.name)}</option>`).join('')}</select>
+      ${s.state==='install'?'':`<select class="in suaia-model" data-samodel="${s.id}" aria-label="modelo do ${escA(name)}">${models.map(m=>`<option value="${escA(m.id)}"${m.id===model?' selected':''}>${esc(m.name)}</option>`).join('')}</select>`}
       <button type="button" class="btn sm" data-sa="test" data-id="${s.id}"${busy==='test'||!s.ready?' disabled':''} title="${s.ready?'faz uma chamada curtinha de verdade':'configure antes de testar'}">${busy==='test'?'testando…':'testar'}</button>
       <button type="button" class="btn sm" data-sa="recheck" data-id="${s.id}"${_suaIaP?' disabled':''}>verificar de novo</button>
       <span style="flex:1"></span>
@@ -318,7 +320,8 @@ async function suaIaKeyGo(id, value, host){
     await suaIaSaveKey(id, value);
     const i=host && host.querySelector(`[data-sakey="${id}"]`); if(i) i.value='';
     const s=suaIaOf(id);
-    suaIaUi.msg[id]={ ok:true, text:s&&s.ready?'✓ chave salva — pronto pra usar':'✓ chave salva'+(s&&s.reason?' · '+s.reason:'') };
+    // chave salva mas a IA ainda não roda aqui (ex.: DeepSeek sem instalar): não é sucesso — diz o que falta
+    suaIaUi.msg[id]=s&&s.ready?{ ok:true, text:'✓ chave salva — pronto pra usar' }:{ ok:false, text:'Chave salva, mas ainda falta um passo'+(s&&s.reason?': '+s.reason:'')+' — veja acima.' };
   }catch(e){ suaIaUi.msg[id]={ ok:false, text:'✕ '+humanErr(e,'Não consegui salvar a chave').msg, raw:String((e&&e.message)||e||'') }; }
   suaIaUi.busy[id]=null; suaIaRefresh();
 }

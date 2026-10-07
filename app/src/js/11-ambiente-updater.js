@@ -19,7 +19,7 @@ function envWhat(c){ const n=String((c&&c.name)||'');
   if(/maestro/i.test(n)) return 'Fluxos de toque automáticos (toca, digita, confere a tela) nos testes de app mobile. Sem ele, os agentes provam com prints e vídeos.';
   if(/motor de ia/i.test(n)) return 'A IA que faz o trabalho. Basta uma: Claude Code, Codex, o gateway da sua empresa ou o DeepSeek Harness (beta).';
   // ANTES do /claude/: o DeepSeek é a opção open source (beta)
-  if(/deepseek/i.test(n)) return 'BETA — DeepSeek Harness (open source): motor pra quem não tem plano da Anthropic nem da OpenAI. Precisa da DEEPSEEK_API_KEY em Configurações → Sua IA.';
+  if(/deepseek/i.test(n)) return 'BETA — DeepSeek Harness (open source): motor pra quem não tem plano da Anthropic nem da OpenAI. Precisa da chave da DeepSeek em Ajustes › Motores e chaves.';
   if(/node/i.test(n)) return 'Roda o motor que coordena os agentes.';
   if(/motor/i.test(n)) return 'Vem dentro do app — é quem liga os agentes às tarefas.';
   if(/^git\b/i.test(n)) return 'Guarda o histórico e dá a cada tarefa a sua cópia isolada do projeto.';
@@ -224,12 +224,16 @@ function ghRender(){
           <div style="font-size:var(--fs-sm)">1) copie o código · 2) autorize no github.com (abre sozinho) · 3) volte aqui — o app reconhece na hora</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><code class="mono" style="font-size:var(--fs-lg);letter-spacing:.12em;padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface-3)">${esc(ghLogin.code)}</code><button class="btn sm" id="ghCopy">copiar</button><button class="btn sm" id="ghOpen">abrir github.com/login/device</button><span class="dim" style="font-size:var(--fs-sm)">esperando autorização…</span></div>
         </div>`) : '';
-  h.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="dim" style="font-size:var(--fs-sm)">nenhuma conta logada no gh.</div>'}
-    ${ghMsg?`<div style="font-size:var(--fs-sm);color:var(--warn)">${esc(ghMsg)}</div>`:''}${login}
-    <div style="display:flex;gap:8px;margin-top:2px"><button class="btn sm" id="ghAdd"${ghLogin&&!ghLogin.done?' disabled':''}>+ entrar com outra conta</button><button class="btn sm" id="ghRefresh">atualizar</button></div>
+  // gh não instalado: o erro traz o comando pra instalar (o mesmo da Verificação), com "copiar"
+  const noGh=!(ghAccs||[]).length && /instalad|not found|os error 2|no such file/i.test(ghMsg||'');
+  const ghFix=noGh?(String((((typeof envChecks!=='undefined'&&envChecks)||[]).find(c=>/github cli/i.test(String(c.name||'')))||{}).fix||'brew install gh && gh auth login').split('\n')[0]):'';
+  h.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${rows||'<div class="dim" style="font-size:var(--fs-sm)">nenhuma conta do GitHub neste computador ainda.</div>'}
+    ${ghMsg?`<div style="font-size:var(--fs-sm);color:var(--warn)">${esc(ghMsg)}</div>`:''}${ghFix?`<div class="ajcmdrow"><span class="dim" style="font-size:var(--fs-sm)">instale o GitHub CLI no Terminal:</span><code class="ajcmd">${esc(ghFix)}</code><button type="button" class="btn sm" data-envfix="${escA(ghFix)}">copiar</button></div>`:''}${login}
+    <div style="display:flex;gap:8px;margin-top:2px"><button class="btn sm" id="ghAdd"${ghLogin&&!ghLogin.done?' disabled':''}>${(ghAccs||[]).length?'+ entrar com outra conta':'+ entrar com uma conta do GitHub'}</button><button class="btn sm" id="ghRefresh">atualizar</button></div>
     <div class="dim" style="font-size:var(--fs-xs)">Cada conta fica guardada no gh. Projetos criados ou publicados pelo Starfork guardam a conta dona e fazem push com ela — trocar a ativa não quebra nenhum; push recusado num projeto antigo descobre sozinho a conta certa. Repositórios de organização com SSO podem pedir <code>gh auth refresh -s repo</code> uma vez.</div></div>`;
   h.querySelectorAll('[data-ghuse]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='trocando…'; ghMsg=''; try{ await invoke('gh_switch_account',{ user:b.dataset.ghuse }); envChecks=null; runEnvCheck(); }catch(e){ ghMsg=humanErr(e,'Não consegui trocar de conta').msg; } await ghMount(); });
   bindClick('ghRefresh', ghMount);
+  h.querySelectorAll('[data-envfix]').forEach(b=>b.onclick=()=>{ if(typeof envCopy==='function') envCopy(b); });
   bindClick('ghAdd', async()=>{ ghMsg=''; try{ const r=await invoke('gh_login_start'); ghLogin={ code:r.code, url:r.url, done:false, ok:false, log:'' }; try{ await navigator.clipboard.writeText(r.code); }catch(_){ } try{ await invoke('open_url',{ url:r.url }); }catch(_){ } ghRender(); ghPoll(); }catch(e){ ghMsg=humanErr(e,'Não consegui iniciar o login no GitHub').msg; ghRender(); } });
   bindClick('ghCopy', ()=>{ navigator.clipboard.writeText(ghLogin.code); const b=$id('ghCopy'); if(b) b.textContent='copiado ✓'; });
   bindClick('ghOpen', ()=>invoke('open_url',{ url:ghLogin.url }).catch(()=>{}));

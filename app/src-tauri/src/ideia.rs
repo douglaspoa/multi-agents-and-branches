@@ -134,7 +134,7 @@ pub fn ideia_ask(id: String, persona_sys: String, prompt: String, model: Option<
 // pesquisa: qual caminho em cada motor
 // ---------------------------------------------------------------------------
 
-pub(crate) const NO_WEB_MSG: &str = "A pesquisa precisa de uma IA com busca na web: Claude, Codex ou DeepSeek. O gateway da empresa não navega — escolha outra IA em Configurações › Sua IA, ou instale a pesquisa ampliada (Agent Reach) no Ambiente pra pesquisar com ele mesmo assim.";
+pub(crate) const NO_WEB_MSG: &str = "A pesquisa precisa de uma IA com busca na web: Claude, Codex ou DeepSeek. O gateway da empresa não navega — escolha outra IA em Ajustes › Motores e chaves, ou instale a pesquisa ampliada (Agent Reach) em Ajustes › Verificação pra pesquisar com ele mesmo assim.";
 
 /// Caminho da pesquisa por motor. PURA — testada. "native" = ferramentas de web do próprio motor; "reach" = o app
 /// coleta fontes públicas com o Agent Reach e o motor (sem ferramentas) escreve; "none" = não dá.

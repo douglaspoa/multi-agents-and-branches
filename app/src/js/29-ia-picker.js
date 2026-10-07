@@ -41,16 +41,16 @@ const AI_ENGINES=[
     models:AI_CLAUDE_MODELS },
   { id:'codex', name:'Codex', vendor:'OpenAI', color:'#10a37f', custom:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.6"/><path d="M8 2.4v11.2M3.15 5.2l9.7 5.6M3.15 10.8l9.7-5.6" stroke-linecap="round"/></svg>',
-    desc:'Codex CLI com o login da sua conta do ChatGPT (Plus/Pro/Team — igual ao Claude Code com o plano Claude). Sem plano do ChatGPT, dá pra usar uma chave da OpenAI. Configure em Configurações → Sua IA.',
+    desc:'Codex CLI com o login da sua conta do ChatGPT (Plus/Pro/Team — igual ao Claude Code com o plano Claude). Sem plano do ChatGPT, dá pra usar uma chave da OpenAI. Configure em Ajustes › Motores e chaves.',
     models:AI_CODEX_FALLBACK.slice() },
   { id:'gateway', name:'Gateway próprio', vendor:'OpenAI-compatível', color:'#5b9df9', custom:true, dynamic:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1.2"/><rect x="2.5" y="9" width="11" height="4" rx="1.2"/><path d="M5 5h.01M5 11h.01" stroke-width="2" stroke-linecap="round"/></svg>',
-    desc:'O endpoint da SUA empresa (vLLM, LiteLLM, Azure, Ollama…). URL, chave e modelos ficam na sua conta: Configurações → Gateway próprio.',
+    desc:'O endpoint da SUA empresa (vLLM, LiteLLM, Azure, Ollama…). URL, chave e modelos ficam na sua conta: Ajustes › Motores e chaves › IA da sua empresa.',
     models:[] },
   // BETA: DeepSeek Harness (dsh, MIT) — open source, pra quem não tem plano da Anthropic nem da OpenAI (ex.: alunos)
   { id:'deepseek', name:'DeepSeek beta', vendor:'open source · beta', color:'#4d6bfe', custom:true, beta:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 9.2c1.6 2.9 5 4.1 8 2.7 2-.9 3.3-2.9 3.5-5-1 .9-2.2 1.2-3.4.9"/><path d="M2.2 9.2C2 6.4 4 4 6.8 3.6c1.6-.2 3.1.4 4.1 1.5"/><circle cx="10.6" cy="6.3" r=".6" fill="currentColor"/></svg>',
-    desc:'BETA — DeepSeek Harness (open source, dsh) com a chave da DeepSeek da sua conta (Configurações → Sua IA). Instale com: npm i -g @deepseek-ai/dsh. Os logs das sessões NÃO são enviados à DeepSeek.',
+    desc:'BETA — DeepSeek Harness (open source, dsh) com a chave da DeepSeek da sua conta (Ajustes › Motores e chaves). Instale com: npm i -g @deepseek-ai/dsh. Os logs das sessões NÃO são enviados à DeepSeek.',
     models:[ {id:'',name:'Padrão (capaz)',tag:'auto · v4-pro'}, {id:'deepseek-v4-pro',name:'DeepSeek V4 Pro',tag:'mais capaz'}, {id:'deepseek-flash',name:'DeepSeek Flash',tag:'mais veloz'} ] },
   { id:'mock', name:'Mock', vendor:'sem IA', color:'var(--muted)',
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.4" stroke-dasharray="2.6 2.2"/></svg>',
@@ -146,7 +146,7 @@ function aiChatRunLabel(){ const d=aiDefaults(); return aiEngineOf(d.eng)==='moc
 // pílula do composer desses chats: a escolha deles JÁ mora no painel Sua IA (vale pra todos) — a pílula mostra qual
 // é e leva até lá; não cria uma segunda configuração
 function aiChatModelPill(id){
-  return { id, popup:'', label:aiChatRunLabel(), title:'IA dos chats = a sua IA padrão — clique pra trocar em Configurações → Sua IA (vale a partir da próxima mensagem)',
+  return { id, popup:'', label:aiChatRunLabel(), title:'IA dos chats = a sua IA padrão — clique pra trocar em Ajustes › Motores e chaves (vale a partir da próxima mensagem)',
     onPick:()=>{ if(typeof suaIaOpenCfg==='function') suaIaOpenCfg(); else if(typeof openCfg==='function') openCfg(); } };
 }
 // modelo pros chats que rodam no CLAUDE (planner, chat do projeto, issues, orquestrador): o padrão do usuário

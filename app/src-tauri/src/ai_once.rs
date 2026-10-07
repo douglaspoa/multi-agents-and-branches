@@ -80,14 +80,14 @@ impl Avail {
     }
 }
 
-pub(crate) const NO_ENGINE_MSG: &str = "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Configurações → Sua IA).";
-pub(crate) const DSH_MISSING_MSG: &str = "O DeepSeek Harness (dsh) não está instalado neste computador — instale com npm i -g @deepseek-ai/dsh (veja Mais › Ambiente).";
-pub(crate) const DSH_KEY_MSG: &str = "Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Configurações → Sua IA.";
+pub(crate) const NO_ENGINE_MSG: &str = "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Ajustes › Motores e chaves › IA da sua empresa, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Ajustes › Motores e chaves).";
+pub(crate) const DSH_MISSING_MSG: &str = "O DeepSeek Harness (dsh) não está instalado neste computador — instale com npm i -g @deepseek-ai/dsh (veja Ajustes › Verificação).";
+pub(crate) const DSH_KEY_MSG: &str = "Falta a chave da DeepSeek (DEEPSEEK_API_KEY) — adicione em Ajustes › Motores e chaves.";
 pub(crate) const DSH_TIMEOUT_MSG: &str = "O DeepSeek não respondeu a tempo — tente de novo.";
 pub(crate) const DSH_FAST_MODEL: &str = "deepseek-flash";
 pub(crate) const DSH_CAPABLE_MODEL: &str = "deepseek-v4-pro";
 pub(crate) const CODEX_TIMEOUT_MSG: &str = "O Codex não respondeu a tempo — tente de novo.";
-pub(crate) const CODEX_MISSING_MSG: &str = "O Codex não está instalado neste computador — npm install -g @openai/codex (veja Mais › Ambiente).";
+pub(crate) const CODEX_MISSING_MSG: &str = "O Codex não está instalado neste computador — npm install -g @openai/codex (veja Ajustes › Verificação).";
 pub(crate) const GATEWAY_CUT_MSG: &str = "a resposta do gateway foi cortada (limite de tokens) — peça algo menor ou aumente o limite no gateway.";
 
 /// A regra ÚNICA (resolve_engine e o Ambiente): preferido se disponível; senão o primeiro disponível na
@@ -324,7 +324,7 @@ pub(crate) fn codex_friendly_error(msg: &str) -> String {
     let l = msg.to_lowercase();
     let short: String = msg.chars().take(300).collect();
     if l.contains("401") || l.contains("unauthorized") || l.contains("api key") || l.contains("not logged") || l.contains("login") {
-        return format!("O Codex está sem login/chave — rode `codex login` num terminal ou configure a chave OpenAI em Configurações → Sua IA.\n\n({short})");
+        return format!("O Codex está sem login/chave — rode `codex login` num terminal ou configure a chave OpenAI em Ajustes › Motores e chaves.\n\n({short})");
     }
     if l.contains("429") || l.contains("rate limit") || l.contains("quota") || l.contains("usage limit") {
         return format!("O Codex está sem cota/limite no momento — espere um pouco e tente de novo.\n\n({short})");
@@ -471,7 +471,7 @@ pub(crate) fn gateway_payload(model: &str, prompt: &str) -> String {
 pub(crate) fn parse_gateway(body: &str) -> Result<String, String> {
     let v: serde_json::Value = serde_json::from_str(body.trim()).map_err(|_| {
         let s: String = body.trim().chars().take(160).collect();
-        if s.is_empty() { "O gateway não respondeu — cheque a URL em Configurações → Gateway próprio.".to_string() }
+        if s.is_empty() { "O gateway não respondeu — cheque a URL em Ajustes › Motores e chaves › IA da sua empresa.".to_string() }
         else { format!("O gateway respondeu algo inesperado (não é JSON): {s}") }
     })?;
     let ch = &v["choices"][0];
@@ -490,7 +490,7 @@ pub(crate) fn parse_gateway(body: &str) -> Result<String, String> {
     let err = v["error"]["message"].as_str().or_else(|| v["error"].as_str()).or_else(|| v["detail"].as_str()).unwrap_or("").to_string();
     let l = err.to_lowercase();
     if l.contains("401") || l.contains("unauthorized") || (l.contains("invalid") && l.contains("key")) || l.contains("authentication") {
-        return Err(format!("O gateway recusou a chave — confira em Configurações → Gateway próprio.\n\n({err})"));
+        return Err(format!("O gateway recusou a chave — confira em Ajustes › Motores e chaves › IA da sua empresa.\n\n({err})"));
     }
     if !err.is_empty() { return Err(format!("O gateway recusou: {err}")); }
     Err(format!("Sem resposta do gateway ({})", body.chars().take(120).collect::<String>()))
@@ -588,8 +588,8 @@ pub(crate) fn dsh_check() -> Result<(), DshIssue> {
     if !bin_exists(&dsh_bin()) { return Err(DshIssue::Missing); }
     match node_version(&node_bin()) {
         Some(v) if dsh_node_ok_v(v) => {}
-        Some(v) => return Err(DshIssue::Node(format!("O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o escolhido pelo app é {}.{}.{}) — atualize o Node (veja Mais › Ambiente).", v.0, v.1, v.2))),
-        None => return Err(DshIssue::Node("O DeepSeek Harness precisa do Node 22.19+ ou 24+ e não achei o Node (veja Mais › Ambiente).".into())),
+        Some(v) => return Err(DshIssue::Node(format!("O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o escolhido pelo app é {}.{}.{}) — atualize o Node (veja Ajustes › Verificação).", v.0, v.1, v.2))),
+        None => return Err(DshIssue::Node("O DeepSeek Harness precisa do Node 22.19+ ou 24+ e não achei o Node (veja Ajustes › Verificação).".into())),
     }
     if dsh_key().is_none() { return Err(DshIssue::Key); }
     Ok(())
@@ -954,7 +954,7 @@ fn run_on(eng: AiEngine, req: &AiOnce, user_model: Option<&str>, exact_secs: Opt
         }
     }
 }
-pub(crate) const GATEWAY_CFG_MSG: &str = "Configure o gateway (URL, chave e modelo) em Configurações → Gateway próprio.";
+pub(crate) const GATEWAY_CFG_MSG: &str = "Configure o gateway (URL, chave e modelo) em Ajustes › Motores e chaves › IA da sua empresa.";
 /// UM comando de instalação do Claude Code (painel e mensagem de "não instalado").
 pub(crate) const CLAUDE_INSTALL_CMD: &str = "npm install -g @anthropic-ai/claude-code && claude";
 pub(crate) const CLAUDE_MISSING_MSG: &str = "O Claude Code não está instalado neste computador — rode `npm install -g @anthropic-ai/claude-code && claude` (o `claude` faz o login).";
@@ -1534,7 +1534,7 @@ pub(crate) fn engines_status_from(pref: &str, p: &Probe) -> Vec<EngineStatus> {
             ms.insert(0, gw.model.clone());
             g.models = ms;
         }
-        None => { g.state = "key"; g.reason = "não configurado — URL, chave e modelo ficam em Gateway próprio".into(); }
+        None => { g.state = "key"; g.reason = "não configurado — URL, chave e modelo ficam em IA da sua empresa".into(); }
     }
     out.push(g);
     // em uso = o que as chamadas usariam entre os PRONTOS de verdade (Codex sem login não conta)

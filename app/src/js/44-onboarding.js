@@ -77,7 +77,7 @@ const AU_LEFT={
 };
 const AU_DOT={ g:'var(--accent)', c:'var(--cyan)', p:'var(--chart-7)' };
 function auLeftHtml(step){
-  if(step==='ready' && typeof state!=='undefined' && state && state.repo) step='ready_repo';
+  if(step==='ready') step=au.readyLeft||'ready'; // a esquerda segue o MESMO próximo passo da direita (auReadyPlan)
   const L=AU_LEFT[step]||AU_LEFT.signup;
   return `<div class="au-lin">
     <div class="au-brand"><span class="au-logo">${(typeof IC!=='undefined'&&IC.starfork)||''}</span><span class="au-brandt">Starfork</span></div>
@@ -128,6 +128,8 @@ function auFail(e, o){
   const email=au.email;
   if(i.key==='invalid_credentials') au.acts=[[T('auth.act.forgot'),()=>auForgot(email)]];
   else if(i.key==='user_exists') au.acts=[[T('auth.act.login'),()=>auShow('login',{ email })],[T('auth.act.forgot'),()=>auForgot(email)]];
+  // trocar a senha pede login recente ("Secure password change"): o código de recuperação vale como reautenticação
+  else if(i.key==='reauth_needed'){ const em=email||((SB.sess()&&SB.sess().user&&SB.sess().user.email)||''); au.acts=[[T('auth.act.reauth'),()=>auForgot(em)]]; }
   else if(i.key==='otp_no_user'||i.key==='user_not_found') au.acts=[[T('auth.act.signup'),()=>auShow('signup',{ email })]];
   else if(i.key==='rate_wait' && o.recover) au.acts=[[T('auth.confirm.have_code'),()=>auShow('confirm',{ email, confirmType:'recovery', resendAt:Date.now()+(i.wait||AUTH_RESEND_S)*1000 })]];
   // o que a tela não sabe explicar vai pro app_errors (sem e-mail nem senha) — o suporte acha pelo código
@@ -144,7 +146,10 @@ async function auForgot(email){
   try{ await auRecover(email); }catch(e){ auFail(e,{ recover:true }); }
 }
 // ---- fluxo pós-sessão: planos (se a cobrança está ligada e não há assinatura) → pronto ----
-async function auAfterSession(){
+// o.fresh = conta NOVA (cadastro confirmado): só ela vê "Conta pronta". Quem já tinha conta (entrar, código,
+// nova senha) volta direto pro app — com um aviso se o convite pendente acabou de colocar a pessoa num time.
+async function auAfterSession(o){
+  o=o||{}; au.joined=undefined; au.readyLeft='';
   lsSet('sb:ended','');
   try{ await cloudLoad(); }catch(_){ }
   try{ cloudBtnSync(); }catch(_){ }
@@ -152,6 +157,7 @@ async function auAfterSession(){
   try{ await billingSync(); }catch(_){ }
   try{ if(typeof secretsSync==='function') secretsSync().then(secretsAvailRefresh).catch(()=>{}); }catch(_){ } // chaves da conta valem já (não espera o ciclo de 30 min)
   if(typeof billingOn!=='undefined' && billingOn && !billingActive()){ auPlanFromSite(); auShow('plans'); return; }
+  if(!o.fresh){ const j=(typeof cloudJoinedMsg==='function')?cloudJoinedMsg():''; auHide(); if(j){ try{ toast(j,'ok'); }catch(_){ } } return; }
   auShow('ready');
 }
 // conta criada pelo site (starfork.com.br/comecar): o plano e o ciclo escolhidos lá vêm no user_metadata —
@@ -235,7 +241,7 @@ function auRenderSignup(R, topbar, dis){
     if(Object.keys(au.err).length){ au.focus=Object.keys(au.err)[0]; auRender(); return; }
     au.busy=true; auRender(); lsSet('sb:email',au.email);
     try{ const j=await sbAuth('signup'+auRedir('/confirmado'),{ email:au.email, password:pass, data:{ name:au.name } });
-      if(j.access_token){ SB.setSess(j); await auAfterSession(); return; }
+      if(j.access_token){ SB.setSess(j); await auAfterSession({ fresh:true }); return; }
       // e-mail já cadastrado + confirmação ligada: o GoTrue responde "sucesso" com identities vazio e NÃO manda
       // e-mail (anti-enumeração). Antes a tela ia pro código e ficava esperando um e-mail que nunca chega.
       const u=j.user||j;
@@ -301,7 +307,7 @@ function auRenderConfirm(R, topbar, dis){
     au.err={}; au.busy=true; auRender();
     try{ const j=await sbAuth('verify',{ type:ct==='magiclink'?'magiclink':ct, email:au.email, token:t });
       if(!j.access_token){ au.busy=false; au.msg=T('auth.confirm.no_session'); au.acts=[[T('auth.act.login'),()=>auShow('login',{ email:au.email })]]; auRender(); return; }
-      SB.setSess(j); if(ct==='recovery'){ auShow('newpass'); return; } await auAfterSession(); }
+      SB.setSess(j); if(ct==='recovery'){ auShow('newpass'); return; } await auAfterSession({ fresh:ct==='signup' }); }
     catch(e){ auFail(e); } };
   const fillFrom=(i,d)=>{ [...d].slice(0,6-i).forEach((c,k)=>{ inputs[i+k].value=c; }); const nx=inputs.find(x=>!x.value)||inputs[5]; nx.focus(); };
   inputs.forEach((inp,i)=>{
@@ -371,13 +377,24 @@ function auRenderNewpass(R, topbar, dis){
 // ambiente sempre como "verificar", mesmo já checado.
 // "Conta pronta": diz o plano (se houver) e leva pra aba Primeiros passos — o checklist mora SÓ lá (antes o "Pronto"
 // repetia o 1-2-3 do tour e dizia "Estrela acesa").
+// @atrap-conta-au-inicio — "Conta pronta" diz UMA coisa só nas duas colunas: o próximo passo real dos Primeiros passos
+// (next = ppSteps(...).next). Computador/IA/projeto faltando → Primeiros passos; tudo pronto → escrever a 1ª demanda.
+function auReadyPlan(next){
+  if(next==='dem' || !next) return { left:'ready_repo', lead:'O computador, a IA e o projeto já estão prontos. Escreva a primeira demanda.', btn:'Escrever a primeira demanda', act:'nova' };
+  if(next==='proj') return { left:'ready', lead:'O computador e a IA já estão prontos. Falta abrir um projeto — uma pasta que já existe ou um novo.', btn:'Ir pra Primeiros passos', act:'pp' };
+  return { left:'ready', lead:'O próximo passo é deixar o computador e a IA prontos — leva uns minutos e cada item se marca sozinho.', btn:'Ir pra Primeiros passos', act:'pp' };
+}
+// @atrap-conta-au-fim
 function auRenderReady(R, topbar){
   const seats=(myBilling&&myBilling.seats)||au.plan.seats||1, planName=(myBilling&&myBilling.plan==='team')?'Time':(myBilling&&myBilling.plan==='enterprise')?'Enterprise':(myBilling?'Solo':'');
   const trial=(myBilling&&myBilling.status==='trialing'&&myBilling.trial_end)?Math.max(0,Math.ceil((new Date(myBilling.trial_end)-Date.now())/864e5)):0;
+  if(au.joined===undefined) au.joined=(typeof cloudJoinedMsg==='function')?cloudJoinedMsg():''; const joined=au.joined;
+  const plan=auReadyPlan((typeof ppSteps==='function'&&typeof ppCtx==='function')?ppSteps(ppCtx()).next:'pc'), left=plan.left;
   R.innerHTML=topbar+`<div class="au-form au-center"><div class="au-check">✓</div><h2 class="au-h2">Conta pronta</h2><p class="au-p">${trial?`Teste de ${trial} dias começou. `:''}${planName?`${seats} assento${seats===1?'':'s'} no plano ${planName}, ativo neste computador.`:'Sua conta está ativa neste computador.'}</p>
-    <p class="au-p">O próximo passo é deixar o computador e a IA prontos — leva uns minutos e cada item se marca sozinho.</p>
-    <button class="au-btn primary big" id="auGo">Ir pra Primeiros passos</button></div>`;
-  bindClick('auGo', ()=>{ auHide(); if(typeof primeirosPassosOpen==='function') primeirosPassosOpen(); else if(window.openTab) window.openTab('flow'); });
+    ${joined?`<p class="au-p"><b>${esc(joined)}</b></p>`:''}<p class="au-p">${esc(plan.lead)}</p>
+    <button class="au-btn primary big" id="auGo">${esc(plan.btn)}</button></div>`;
+  if(left!==au.readyLeft){ au.readyLeft=left; const L=$id('auLeft'); if(L) L.innerHTML=auLeftHtml('ready'); }
+  bindClick('auGo', ()=>{ auHide(); if(plan.act==='nova' && window.openTab){ lsSet('onboarded','1'); window.openTab('nova'); return; } if(typeof primeirosPassosOpen==='function') primeirosPassosOpen(); else if(window.openTab) window.openTab('flow'); });
 }
 const AU_GH='<svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M8 .4a7.6 7.6 0 0 0-2.4 14.8c.4.1.5-.2.5-.4v-1.3c-2.1.5-2.6-1-2.6-1-.3-.9-.8-1.1-.8-1.1-.7-.5.1-.5.1-.5.8.1 1.2.8 1.2.8.7 1.2 1.8.8 2.2.6.1-.5.3-.8.5-1-1.7-.2-3.5-.8-3.5-3.7 0-.8.3-1.5.8-2-.1-.2-.3-1 .1-2 0 0 .6-.2 2.1.8a7.3 7.3 0 0 1 3.8 0c1.5-1 2.1-.8 2.1-.8.4 1 .2 1.8.1 2 .5.5.8 1.2.8 2 0 2.9-1.8 3.5-3.5 3.7.3.2.5.7.5 1.4v2.1c0 .2.1.5.5.4A7.6 7.6 0 0 0 8 .4z"/></svg>';
 // @cor-dado-inicio — logo do Google (as 4 cores da marca)
