@@ -10,31 +10,36 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (s, a, b) => { const i = s.indexOf(a), j = s.indexOf(b, i); assert.ok(i >= 0 && j > i, 'trecho não encontrado: ' + a); return s.slice(i, j); };
 const MESA = read('js/38-mesa.js'), IDEIA = read('js/59-ideia.js'), FABJS = read('js/65-fabrica.js');
-const M = new Function(cut(MESA, '// @puro-inicio', '// @puro-fim') + '\nreturn { mesaCallBudget, mesaCallFloor, mesaPurse, mesaLearnWant, mesaGenCap, mesaTetoNote: typeof mesaTetoNote==="undefined"?null:mesaTetoNote, MESA_MIN_CALL };')();
+const M = new Function(cut(MESA, '// @puro-inicio', '// @puro-fim') + '\nreturn { mesaCallBudget, mesaCallFloor, mesaPurse, mesaLearnWant, mesaGenCap, mesaGate, mesaTetoNote: typeof mesaTetoNote==="undefined"?null:mesaTetoNote, MESA_MIN_CALL };')();
 const F = new Function(cut(FABJS, '// @fabrica-puro-inicio', '// @fabrica-puro-fim') + '\nreturn { fabCriadoEstado, fabParte, fabJaCriadas };')();
 
 // motor de mentira como o CLI real: a fala é cobrada INTEIRA (mesmo passando da reserva) e o custo só chega no fim
-async function simula({ cap, n, pool, custo, est, sess = { gasto: 0, want: 0 }, queue = Array.from({ length: n }, (_, i) => i) }) {
+async function simula({ cap, n, pool, custo, est, umaAteMedir = false, sess = { gasto: 0, want: 0 }, queue = Array.from({ length: n }, (_, i) => i) }) {
   const purse = M.mesaPurse(() => sess.gasto, () => cap, () => Math.max(sess.want, est)); // como a tela: estimativa é o mínimo
-  let lancadas = 0, maxEmVoo = 0, parouNoTeto = false, excedente = 0;
+  let lancadas = 0, maxEmVoo = 0, parouNoTeto = false, excedente = 0, maxAntesDeMedir = 0;
+  const G = M.mesaGate(() => !umaAteMedir || sess.want > 0);
   const worker = async () => {
     while (queue.length) {
+      await G.hold(); if (!queue.length) break;
       const antes = { gasto: sess.gasto, reserva: purse.reserved }, free0 = purse.free();
-      const b = purse.take(Math.min(pool - purse.inflight, queue.length));
+      const b = purse.take(G.slots(Math.min(pool - purse.inflight, queue.length)));
       if (b == null) { if (!purse.inflight) parouNoTeto = true; break; }
       // a garantia: só começa se a sobra cobre a reserva E o piso de uma fala
       assert.ok(antes.gasto + antes.reserva + b <= cap + 1e-9, 'reserva cabe na sobra');
       assert.ok(cap - antes.gasto - antes.reserva >= M.mesaCallFloor(Math.max(sess.want, est), cap) - 1e-9, 'sobra cobre uma fala');
       queue.shift(); lancadas++; maxEmVoo = Math.max(maxEmVoo, purse.inflight);
-      await new Promise((r) => setTimeout(r, 1 + Math.random() * 4));
-      const c = custo();
-      sess.gasto += c; excedente += Math.max(0, c - b); // cobra a fala inteira
-      sess.want = M.mesaLearnWant(sess.want, c, false, b >= free0 - 0.01);
-      purse.give(b);
+      if (!(sess.want > 0)) maxAntesDeMedir = Math.max(maxAntesDeMedir, purse.inflight);
+      await G.run(async () => {
+        await new Promise((r) => setTimeout(r, 1 + Math.random() * 4));
+        const c = custo();
+        sess.gasto += c; excedente += Math.max(0, c - b); // cobra a fala inteira
+        sess.want = M.mesaLearnWant(sess.want, c, false, b >= free0 - 0.01);
+        purse.give(b);
+      });
     }
   };
   await Promise.all(Array.from({ length: Math.min(pool, queue.length) }, worker));
-  return { gasto: sess.gasto, lancadas, sobrou: queue.length, maxEmVoo, parouNoTeto, excedente, sess, queue };
+  return { gasto: sess.gasto, lancadas, sobrou: queue.length, maxEmVoo, parouNoTeto, excedente, sess, queue, maxAntesDeMedir };
 }
 
 test('B1: teto US$ 0,50, 5 personas de ~US$ 0,40, 3 em paralelo (estimativa 0,26): cobrando a fala inteira, não passa do teto', async () => {
@@ -162,4 +167,22 @@ test('B4 + revisão 7: "criado em parte" e "continuar" usam a MESMA regra; retom
   assert.match(mk, /const part=fabParte\(/);
   assert.match(mk, /made=fabJaCriadas\(made, all\.map\(x=>x\.payload\.title\)/);
   assert.match(cut(FABJS, 'function fabFooterHtml', 'function fabConfirmHtml'), /criado em parte/);
+});
+
+test('1ª leva: uma fala por vez até medir o custo — estimativa baixa passa do teto no máximo por UMA fala', async () => {
+  // o cenário do harness: teto 0,50, falas de 0,40, estimativa ~0,25, 3 em paralelo (antes: 0,80 de 0,50)
+  const r = await simula({ cap: 0.5, n: 5, pool: 3, custo: () => 0.4, est: 0.25, umaAteMedir: true });
+  assert.equal(r.maxAntesDeMedir, 1, 'antes de medir, só uma em voo');
+  assert.ok(r.gasto <= 0.4 + 1e-9, `gastou ${r.gasto}: uma fala com a sobra inteira, depois para`);
+  const sem = await simula({ cap: 0.5, n: 5, pool: 3, custo: () => 0.4, est: 0.25 });
+  assert.ok(sem.gasto > 0.5, 'sem a regra, 2 começavam juntas e passava de 0,50');
+  for (let k = 0; k < 200; k++) {
+    const cap = 0.1 + Math.random() * 4, c = 0.05 + Math.random() * 0.9, est = c * (0.2 + Math.random() * 0.8); // estimativa sempre baixa
+    const x = await simula({ cap, n: 1 + Math.floor(Math.random() * 8), pool: 1 + Math.floor(Math.random() * 3), custo: () => c, est, umaAteMedir: true });
+    assert.ok(x.gasto <= cap + c + 1e-9, `teto ${cap} · fala ${c} · gastou ${x.gasto}: excedente ≤ uma fala`);
+    assert.ok(x.maxAntesDeMedir <= 1);
+  }
+  const mesa = cut(MESA, 'async function mesaRunRound', 'async function mesaStop'), ideia = read('js/59-ideia.js');
+  assert.match(mesa, /mesaGate\(\(\)=>\+m\.callWant>0\)/);
+  assert.equal((ideia.match(/mesaGate\(\(\)=>ideiaMeasured\(m\)\)/g) || []).length, 2, 'conversa e decisão');
 });

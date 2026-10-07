@@ -310,6 +310,15 @@ function mesaPurse(spentFn, capFn, wantFn){
 // custo de uma fala completa). Não trava: o piso nunca passa de metade do teto (mesaCallFloor) e a Ideia zera o
 // aprendido quando a IA/modelo muda. Subir o teto NÃO zera: é gasto real medido — zerar faria repetir o estouro.
 function mesaLearnWant(prev, delta, cortada, eraTudo){ const p=+prev||0; if(cortada && eraTudo) return p; return Math.max(p, +delta||0); }
+// ATÉ MEDIR o custo de uma fala nesta sessão (nada aprendido pro motor/modelo atual): UMA fala por vez — com estimativa
+// baixa, o total passa do teto no máximo pelo excedente de uma fala. Medida a 1ª, volta o paralelismo (limitado pela sobra).
+function mesaGate(measured){
+  const G={ own:0, wait:Promise.resolve(),
+    async hold(){ while(!measured() && G.own>0) await G.wait; },
+    slots(n){ return measured()?n:1; },
+    run(fn){ G.own++; const p=(async()=>{ try{ return await fn(); }finally{ G.own--; } })(); G.wait=p.catch(()=>{}); return p; } };
+  return G;
+}
 // teto de "gerar personas": o padrão das mesas, no máximo US$ 0,50 (gerar é uma fala só)
 function mesaGenCap(base){ const b=+base||0; return b>0?Math.min(b, 0.5):0.5; }
 // @puro-fim
@@ -547,11 +556,13 @@ async function mesaRunRound(m, r, run, withFailed){
   // cada persona reserva a sua parte do que sobra do teto ANTES de lançar (as em voo já reservaram a delas)
   const est=mesaCost(1, 1, m.model||'sonnet', typeof roughEstimate==='function'?roughEstimate:null)[1]; // pior caso de 1 fala antes de ter custo real
   const purse=mesaPurse(()=>mesaSpentUsd(m), ()=>mesaCapOf(m), ()=>Math.max(+m.callWant||0, est)); // a estimativa (pior caso) é o mínimo; o medido só sobe
+  const G=mesaGate(()=>+m.callWant>0); // 1 por vez até medir o custo de uma fala
   const worker=async()=>{
     while(queue.length && !run.stop && !capped){
-      const free0=purse.free(), b=purse.take(Math.min(MESA_POOL-purse.inflight, queue.length));
+      await G.hold(); if(!queue.length || run.stop || capped) break;
+      const free0=purse.free(), b=purse.take(G.slots(Math.min(MESA_POOL-purse.inflight, queue.length)));
       if(b==null){ if(!purse.inflight) capped=true; break; } // sobra presa em falas em voo: a última que voltar confere de novo
-      try{ await one(queue.shift(), b, b>=free0-0.01); }finally{ purse.give(b); }
+      await G.run(async()=>{ try{ await one(queue.shift(), b, b>=free0-0.01); }finally{ purse.give(b); } });
     }
   };
   await Promise.all(Array.from({ length:Math.min(MESA_POOL, queue.length) }, worker));

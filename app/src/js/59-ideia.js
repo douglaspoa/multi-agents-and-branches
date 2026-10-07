@@ -286,6 +286,7 @@ function ideiaCapOf(m){ return +(m&&m.capUsd)||0; }
 // o custo aprendido de uma fala vale só pro motor+modelo em que foi medido (trocou a IA = estimativa de novo)
 function ideiaWantKey(){ return ideiaEngine()+':'+(ideiaClaudeModel()||''); }
 function ideiaFalaEst(){ return mesaCost(1, 1, ideiaClaudeModel()||'sonnet', typeof roughEstimate==='function'?roughEstimate:null)[1]; }
+function ideiaMeasured(m){ return m.callWantKey===ideiaWantKey() && +m.callWant>0; } // custo de uma fala já medido pra IA/modelo atual
 function ideiaWant(m){ return Math.max(m.callWantKey===ideiaWantKey()?(+m.callWant||0):0, ideiaFalaEst()); } // estimativa (pior caso) é o mínimo
 function ideiaPurse(m){ const L=ideiaLive(m.id), cur=()=>IDEIA.mem[m.id]||m;
   return L.purse||(L.purse=mesaPurse(()=>ideiaSpent(cur()), ()=>ideiaCapOf(cur()), ()=>ideiaWant(cur()))); }
@@ -410,10 +411,11 @@ async function ideiaRunTurn(m, turn){
     await ideiaSave(m); ideiaPaint(m);
   };
   const queue=todo.slice(), purse=ideiaPurse(m);
-  const worker=async()=>{ while(queue.length && !L.stop && !capHit){ if(!ideiaVisible(m.id)){ L.paused=true; break; }
-    const free0=purse.free(), b=purse.take(Math.min(IDEIA_POOL-purse.inflight, queue.length));
+  const G=mesaGate(()=>ideiaMeasured(m)); // 1 por vez até medir o custo de uma fala
+  const worker=async()=>{ while(queue.length && !L.stop && !capHit){ await G.hold(); if(!queue.length || L.stop || capHit) break; if(!ideiaVisible(m.id)){ L.paused=true; break; }
+    const free0=purse.free(), b=purse.take(G.slots(Math.min(IDEIA_POOL-purse.inflight, queue.length)));
     if(b==null){ if(!purse.inflight) capHit=true; else if(L.research&&L.research.running) L.waitRes=true; break; } // sem sobra: teto (nada em voo) ou a reserva da pesquisa (espera ela)
-    try{ await one(queue.shift(), b, b>=free0-0.01); }finally{ purse.give(b); } } };
+    await G.run(async()=>{ try{ await one(queue.shift(), b, b>=free0-0.01); }finally{ purse.give(b); } }); } };
   try{ await Promise.all(Array.from({ length:Math.min(IDEIA_POOL, queue.length) }, worker)); }
   finally{ L.turn=false; if(L.stop) queue.forEach(p=>{ turn.resp[p.id]={ st:'parada' }; }); if(capHit && !L.stop) ideiaCapStop(m, 'responder a conversa'); await ideiaSave(m); ideiaPaint(m); }
 }
@@ -523,10 +525,11 @@ async function ideiaDecide(m, resuming){
         else r.resp[p.id]=(L.dstop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:ideiaErr(e,'não respondeu') }; }
       await ideiaSave(m); ideiaPaint(m);
     };
-    const worker=async()=>{ while(queue.length && !L.dstop && !capHit){ if(!ideiaVisible(m.id)){ L.dpaused=true; break; }
-      const free0=purse.free(), b=purse.take(Math.min(IDEIA_POOL-purse.inflight, queue.length));
+    const G=mesaGate(()=>ideiaMeasured(m)); // 1 por vez até medir o custo de uma fala
+    const worker=async()=>{ while(queue.length && !L.dstop && !capHit){ await G.hold(); if(!queue.length || L.dstop || capHit) break; if(!ideiaVisible(m.id)){ L.dpaused=true; break; }
+      const free0=purse.free(), b=purse.take(G.slots(Math.min(IDEIA_POOL-purse.inflight, queue.length)));
       if(b==null){ if(!purse.inflight) capHit=true; else if(L.research&&L.research.running) L.dwait=true; break; }
-      try{ await one(queue.shift(), b, b>=free0-0.01); }finally{ purse.give(b); } } };
+      await G.run(async()=>{ try{ await one(queue.shift(), b, b>=free0-0.01); }finally{ purse.give(b); } }); } };
     await Promise.all(Array.from({ length:Math.min(IDEIA_POOL, queue.length) }, worker));
     // rodada completa = ninguém na fila e ninguém parado (quem FALHOU conta: a apuração usa quem respondeu)
     return !queue.length && !L.dstop && !capHit && !ps.some(p=>{ const x=r.resp[p.id]; return x && x.st==='parada'; });
