@@ -26,6 +26,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, rea
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ClaudeEngine, claudeEnv, mapTool, resolveClaude, adjustRuleOf } from "./engine/claude.ts";
+import { ADVISOR_OFF_ENV, advisorArgs, advisorEnvBlocker, advisorEnvNote, advisorForRun, claudeCliVersion, taskHasEvent } from "./advisor.ts";
 import { buildPrompt as codexPrompt, loadLlmEnv } from "./engine/codex.ts";
 import { DSH_FAST_MODEL, DSH_KEY_MSG, dshKey, dshModelFor, isDshLabel } from "./engine/dsh.ts";
 import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
@@ -670,6 +671,8 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   let kicked = false;
   const genericKick = () => merged ? "" : codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
   if (ai === "claude" || ai === "deepseek") {
+    let advOn = false;
+    const advNotes: string[] = [];
     // a pasta foi criada pelo Starfork a partir do repo da pessoa: sem o "Is this a project you trust?" (padrão = sair)
     trustClaudeProject(task.worktree, repo);
     writeClaudeSettings(task.worktree, base, taskId, repo);
@@ -682,6 +685,13 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     args.push("--mcp-config", mcpConfigPath, ...protectArgs(protectOn), "--permission-mode", "bypassPermissions");
     // DeepSeek: o modelo vai no env (ANTHROPIC_MODEL) — `--model deepseek-…` seria validado como id do Claude
     if (model && !dsEnv) args.push("--model", model);
+    // CONSELHEIRO (src/advisor.ts): só o `claude` falando com a Anthropic (o terminal é a sessão principal); DeepSeek
+    // (outro endereço) desliga e explica — as notas saem UMA vez por tarefa
+    const wantAdv = advisorForRun(spec, "builder");
+    const adv = advisorArgs({ engine: dsEnv ? "deepseek" : "claude", model, advisor: wantAdv, cliVersion: wantAdv && !dsEnv ? claudeCliVersion(bin) : null });
+    args.push(...adv.args);
+    advOn = !!adv.on;
+    if (adv.note) advNotes.push(adv.note);
     const kick = first || (sid || merged ? "" : KICKOFF);
     if (kick) args.push(kick);
     kicked = !!kick;
@@ -693,6 +703,16 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
       envRemove = envRemove.filter((k) => !(k in dsEnv));
       orch.store.addEvent(taskId, "Sistema", "note", `terminal DeepSeek (${dsEnv.ANTHROPIC_MODEL.replace(/\[1m\]$/, "")}) dentro do Claude Code — o custo em US$ da barra não é gravado (seria preço de Claude)`, true);
     }
+    // sem conselheiro: desliga até o `/advisor` global da pessoa; com ele, o que no ambiente o impediria (o que sobra
+    // depois do envRemove + o nosso env)
+    if (!advOn) Object.assign(env, ADVISOR_OFF_ENV);
+    else {
+      const eff: Record<string, string | undefined> = { ...process.env };
+      for (const k of envRemove) delete eff[k];
+      const why = advisorEnvBlocker({ ...eff, ...env });
+      if (why) advNotes.push(advisorEnvNote(why));
+    }
+    for (const n of advNotes) if (!taskHasEvent(orch.ws.dbFile, taskId, n)) orch.store.addEvent(taskId, "Sistema", "note", n, true);
   } else if (ai === "codex") {
     args = sid ? ["resume", sid] : [];
     args.push("-c", 'sandbox_mode="danger-full-access"', "-c", 'approval_policy="never"');

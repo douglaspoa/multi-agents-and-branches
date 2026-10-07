@@ -223,8 +223,8 @@ function plRenderCtl(){
   const html=`<span id="plIa"></span><button type="button" class="ndchip${plFields.kind?' set':''}" id="plType" aria-haspopup="dialog" title="tipo da demanda (opcional)"><span class="ndchip-l">Tipo:</span> <b>${esc(plTypeLabel())}</b>${IC_CARET}</button>`;
   if(el.__html!==html){ el.innerHTML=html; el.__html=html; PL_IA=null; }
   const host=$id('plIa'); const { eng, model }=plModelNow();
-  if(host && typeof iaPick==='function'){ if(!PL_IA || !host.contains(PL_IA.pill)) PL_IA=iaPick(host, { value:{ engine:eng, model }, scope:'demanda', recommend:plRecommend,
-      onChange:(v)=>{ plFields.engine=v.engine; plFields.model=v.model||''; plFields.engineLabel=aiRunLabel(v.engine, v.model); const m=plModelMsg(); m.choice={ eng:v.engine, model:v.model, saved:false }; renderPlanner(); plAutoSave(); } });
+  if(host && typeof iaPick==='function'){ if(!PL_IA || !host.contains(PL_IA.pill)) PL_IA=iaPick(host, { value:{ engine:eng, model }, scope:'demanda', recommend:plRecommend, advisor:true, advisorValue:plFields.advisor,
+      onChange:(v)=>{ plFields.engine=v.engine; plFields.model=v.model||''; plFields.advisor=v.advisor; plFields.engineLabel=aiRunLabel(v.engine, v.model); const m=plModelMsg(); m.choice={ eng:v.engine, model:v.model, saved:false }; renderPlanner(); plAutoSave(); } });
     else PL_IA.set({ engine:eng, model }); }
   const b=$id('plType'); if(b) b.onclick=()=>plOpenTypePop(b);
 }
@@ -826,7 +826,7 @@ async function plCreateInner(){
   // a criação SEGUE a prévia (decisão de 29/09): o tipo (escolhido ou o automático) define branch e entrega, igual ao formulário
   const cr=ndKindCreate(plEffKind()), ai=plModelNow();
   const payload={ start:true, title:plFields.title, workflow:null, agents:null,
-    engine:plEngineNorm(ai.eng), model:ai.model||null, approval:'auto',
+    engine:plEngineNorm(ai.eng), model:ai.model||null, advisor:plFields.advisor!==undefined?plFields.advisor:aiDefaults().advisor, approval:'auto',
     owns:cr.owns||(plFields.owns||[]).join(', ')||null, off:(plFields.off||[]).join(', ')||null,
     objective:plFields.objective||null, deliverables:[],
     // entregáveis do planner viram REQUISITOS — uma lista só, cobrada com prova
@@ -856,6 +856,7 @@ document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&$id('plannerOverla
 // aplica o destino Time (local/self/team) a QUALQUER modo de criação;
 // devolve true quando virou cartão do time (não roda nesta máquina)
 async function ntApplyShare(payload){
+  if(payload && payload.advisor===undefined && typeof aiFormAdvisor==='function') payload.advisor=aiFormAdvisor(); // conselheiro do Formulário
   if(window.trfApply) await trfApply(payload); // "/" tarefa de referência → contexto + docs anexados
   const share=($id("ntShareRow").style.display!=='none')?$id("ntShare").value:'local';
   if(share==='team'){ await cloudShareTask(payload); return true; }
@@ -1022,6 +1023,7 @@ async function submitNewTaskInner(start=true){
       if(t) setView('team'); else await refresh();
     } else {
       if(window.trfApply) await trfApply(payload);
+      if(payload.advisor===undefined && typeof aiFormAdvisor==='function') payload.advisor=aiFormAdvisor();
       await invoke('new_task', await trkBeforeNewTask(payload));
       ntSubmitDone(); lastSig=""; await refresh();
     }

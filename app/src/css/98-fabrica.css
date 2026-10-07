@@ -142,6 +142,18 @@
 .ias-mc{height:26px;padding:0 10px;border-radius:13px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:inherit;font-size:var(--fs-xs);font-weight:600;cursor:pointer}
 .ias-mc.on{background:var(--accent-soft);border-color:var(--accent-line);color:var(--text)}.ias-mc small{font-size:11px;color:var(--text-3);margin-left:4px}
 .ias-custom{padding:8px 16px;border-bottom:1px solid var(--border)}.ias-custom .in{width:100%}
+/* CONSELHEIRO (advisor do Claude Code) — linha da folha + marca na pílula (29-ia-picker.js iaAdvHtml) */
+.iapill .iaadv{flex:none;font-size:var(--fs-xs);font-weight:650;color:var(--accent);padding:1px 6px;border-radius:var(--r-pill);background:var(--accent-soft)}
+.ias-adv{padding:10px 16px;border-bottom:1px solid var(--border);display:grid;gap:7px}
+.ias-advh{display:flex;align-items:baseline;gap:8px}.ias-advh b{font-size:var(--fs-sm);font-weight:700}.ias-advh small{font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em}
+.ias-advo{display:flex;gap:6px;flex-wrap:wrap}
+.ias-ac{height:26px;padding:0 10px;border-radius:13px;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);font:inherit;font-size:var(--fs-xs);font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:5px}
+.ias-ac.on{background:var(--accent-soft);border-color:var(--accent-line)}
+.ias-ac small{font-size:11px;font-weight:500;color:var(--text-3)}
+.ias-ac[disabled]{cursor:not-allowed;opacity:.55}
+.ias-advd{margin:0;font-size:var(--fs-xs);color:var(--text-2);line-height:1.45}
+.ias-advw{margin:0;font-size:var(--fs-xs);color:var(--text);line-height:1.45;padding:5px 8px;border-left:2px solid var(--ask);background:var(--surface-2);border-radius:0 6px 6px 0}
+.ias-advw code{font-family:var(--mono);font-size:11px}
 .ias-cost,.ias-rec{padding:8px 16px;font-size:var(--fs-xs);color:var(--text-2);border-bottom:1px solid var(--border)}
 .ias-f{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:10px 16px 12px;flex-wrap:wrap}
 .ias-chk{display:flex;gap:6px;align-items:center;font-size:var(--fs-xs);color:var(--text-2)}

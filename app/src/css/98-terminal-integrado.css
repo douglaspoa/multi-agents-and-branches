@@ -40,6 +40,8 @@
 /* linha da IA: o que roda no terminal (o PTY é um shell) + o comando recomendado */
 .tiairow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:7px 12px 0;font-size:var(--fs-xs);color:var(--muted);min-width:0}
 .tiairow .sp{flex:1 1 0}
+.tiadv{border:1px solid var(--border-strong);background:var(--surface);color:var(--text-2);font:inherit;font-size:var(--fs-xs);padding:2px 9px;border-radius:var(--r-pill);cursor:pointer;white-space:nowrap}
+.tiadv b{font-weight:650;color:var(--text)}.tiadv.on{border-color:var(--accent-line);background:var(--accent-soft)}.tiadv:hover{border-color:var(--accent-line)}
 .tirecg{display:inline-flex;align-items:center;gap:6px;min-width:0;flex:0 1 auto}
 .tirecg .btn{flex:none}
 .tiai{flex:0 1 auto;min-width:120px;max-width:220px;font:inherit;font-size:var(--fs-sm);color:var(--text);background:var(--surface-3);border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:3px 6px;cursor:pointer}

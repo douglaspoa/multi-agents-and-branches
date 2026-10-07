@@ -497,7 +497,7 @@ function fwRenderEntrega(t, main){
   const dur=fmtDurKnown(taskDurationMs(t));
   // sem requisitos: "0/0 requisitos provados" parecia reprovação — vira "—"
   const reqKpi = rows.length ? `<div class="en-kpi"><b>${okN}/${rows.length}</b><span>requisitos provados</span></div>` : `<div class="en-kpi" title="esta demanda não tem critérios de aceite"><b>—</b><span>sem requisitos</span></div>`;
-  const kpis = nonCode
+  let kpis = nonCode
     ? `${reqKpi}
        <div class="en-kpi"><b>${arts.length}</b><span>${arts.length===1?'arquivo entregue':'arquivos entregues'}</span></div>
        <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${cost.usd>0?fmtCost(cost.usd):'duração'}</span></div>`
@@ -505,6 +505,10 @@ function fwRenderEntrega(t, main){
         ${reqKpi}
         <div class="en-kpi"><b>${d?`+${d.additions||0} −${d.deletions||0}`:'—'}</b><span>${d?nPl(diffFiles(d),'arquivo'):'sem diff'}</span></div>
         <div class="en-kpi"><b>${esc(dur||'—')}</b><span>${esc(commitsLabel(t))}${cost.usd>0?' · '+fmtCost(cost.usd):''}</span></div>`;
+  // conselheiro (advisor do Claude Code): o custo das consultas já está no total acima; a parte dele (quando o
+  // Claude Code separa) fica no histórico da tarefa
+  { const adv=(typeof advLabel==='function')?advLabel(t):''; if(adv){ const n=advCalls(t), nm=adv.replace(/^pedido: c/,'C').replace(/ · .*$/,'');
+    kpis+=`<div class="en-kpi" title="o Claude Code pode deixar o conselheiro desligado sem avisar (acesso ao Fable, conta, ambiente); as consultas, quando há, entram no custo da tarefa"><b>${esc(nm)}</b><span>${esc(advEntregaSub(t))}</span></div>`; } }
   const pvSec=enPvHtml(t, nonCode?arts:docs);
   const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
     <div class="en-head">
