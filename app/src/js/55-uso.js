@@ -8,21 +8,21 @@
 
 // @uso-puro-inicio
 const USO_SOURCES={
-  'tarefa':'Tarefas', 'nova-tarefa':'Nova demanda (conversa e formulário)', 'personas':'Fábrica · personas (ex-Mesa)',
+  'tarefa':'Tarefas', 'nova-tarefa':'Nova demanda (conversa e formulário)', 'personas':'Fábrica · mesas e personas',
   'chat-projeto':'Conversa do projeto', 'chat-issues':'Nova issue', 'orquestrador':'Etapas (várias tarefas)',
   'retro':'Revisão e aprendizados', 'previsao':'Previsão', 'titulo-branch':'Títulos e nomes de branch',
-  'commit-pr':'Commit e PR', 'relatorios':'Resumo do período', 'teste':'Testes de conexão', 'autopilot':'Construir sozinho · ex-piloto automático', 'ideia':'Fábrica de apps e features · ex-Ideia', 'fabrica':'Fábrica de apps e features', 'outros':'Outros',
+  'commit-pr':'Commit e PR', 'relatorios':'Resumo do período', 'teste':'Testes de conexão', 'autopilot':'Fábrica · construir sozinho', 'ideia':'Fábrica · ideias', 'fabrica':'Fábrica · varreduras', 'outros':'Outros',
 };
 const USO_ENGINES={ claude:'Claude Code', codex:'Codex', deepseek:'DeepSeek', gateway:'IA da sua empresa' };
-const USO_PERIODS=[['hoje','Hoje'],['7d','7 dias'],['30d','30 dias']];
+const USO_PERIODS=[['hoje','Hoje'],['7d','7 dias'],['30d','30 dias'],['mes','Este mês']]; // "este mês" = o mesmo começo do "uso deste mês" do medidor
 const USO_SUB_NOTE='Em plano de assinatura (Claude Max, ChatGPT) o valor é o equivalente em API — não é cobrança.';
 // voltar pra aba depois disto relê o relatório (a aba guarda o estado entre trocas)
 const USO_STALE_MS=60000;
 function usoSourceLabel(s){ return USO_SOURCES[s]||USO_SOURCES.outros; }
 function usoEngineLabel(e){ return USO_ENGINES[e]||String(e||'outro'); }
-function usoPeriodTxt(p){ return p==='hoje'?'hoje':p==='30d'?'em 30 dias':'em 7 dias'; }
+function usoPeriodTxt(p){ return p==='hoje'?'hoje':p==='mes'?'este mês':p==='30d'?'em 30 dias':'em 7 dias'; }
 // meia-noite local de hoje (o Rust não sabe o fuso): "hoje" começa aqui
-function usoSinceFor(period, now){ if(period!=='hoje') return null; const d=new Date(now); d.setHours(0,0,0,0); return d.getTime(); }
+function usoSinceFor(period, now){ if(period!=='hoje' && period!=='mes') return null; const d=new Date(now); d.setHours(0,0,0,0); if(period==='mes') d.setDate(1); return d.getTime(); }
 // rótulo do custo: tudo informado, tudo estimado ou misto
 function usoCostKind(a){
   const usd=+((a&&a.usd)||0), est=+((a&&a.usdEstimated)||0);

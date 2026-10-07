@@ -342,7 +342,7 @@ pub fn list_in(repo: &Path) -> Vec<serde_json::Value> {
             };
             Some(serde_json::json!({
                 "id": id, "tema": v["tema"], "status": v["status"], "createdAt": v["createdAt"], "updatedAt": v["updatedAt"],
-                "costUsd": v["costUsd"], "personas": v["personas"].as_array().map(|a| a.len()).unwrap_or(0),
+                "costUsd": v["costUsd"], "tokUsd": v["tokUsd"], "personas": v["personas"].as_array().map(|a| a.len()).unwrap_or(0),
                 "rounds": v["rounds"].as_array().map(|a| a.len()).unwrap_or(0),
             }))
         }).collect())
@@ -424,7 +424,7 @@ mod tests {
     #[test]
     fn salva_lista_e_le() {
         let d = tmp("io");
-        save_to(&d, "m1", &serde_json::json!({"tema":"a","updatedAt":1,"personas":[1,2],"rounds":[1]})).unwrap();
+        save_to(&d, "m1", &serde_json::json!({"tema":"a","updatedAt":1,"personas":[1,2],"rounds":[1],"tokUsd":0.3})).unwrap();
         save_to(&d, "m2", &serde_json::json!({"tema":"b","updatedAt":5,"personas":[],"rounds":[]})).unwrap();
         save_to(&d, "personas", &serde_json::json!({"personas":[]})).unwrap();
         assert!(save_to(&d, "../fora", &serde_json::json!({})).is_err());
@@ -434,6 +434,7 @@ mod tests {
         assert_eq!(l.len(), 2, "personas.json não é mesa");
         assert_eq!(l[0]["id"], "m2");
         assert_eq!(l[1]["personas"], 2);
+        assert_eq!(l[1]["tokUsd"].as_f64(), Some(0.3), "gasto por tokens vai pra lista da Fábrica");
         assert!(!mesas_dir(&d).join(".m1.json.tmp").exists());
         delete_in(&d, "m1").unwrap();
         assert_eq!(list_in(&d).len(), 1);

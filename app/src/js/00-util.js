@@ -371,6 +371,9 @@ const ERR_CATALOG=[
   // R8: arquivo/pasta que sumiu (depois de claude/gh/git-missing, que também são ENOENT)
   { id:'not-found', re:/no such file or directory|ENOENT|os error 2\b|cannot find the (file|path) specified[^\n]*|the system cannot find|n[aã]o encontrad[oa]: \//i,
     msg:'Arquivo ou pasta não encontrado — pode ter sido movido, renomeado ou apagado.' },
+  // A14 (mesa de bugs 2): 413 = o servidor recusou pelo TAMANHO (antes caía em "sem conexão" pelo "upload failed")
+  { id:'too-large', re:/\bHTTP[ /]?413\b|status(?: ?code)?"?:? ?"?413\b|\b413 payload|payload too large|request entity too large|entity too large/i,
+    msg:'O arquivo é grande demais pro servidor aceitar (HTTP 413) — reempacote menor ou peça pra aumentar o limite do armazenamento.' },
   // R8: servidor com problema (5xx) ≠ sem internet
   { id:'server', re:/\bHTTP[ /]?5\d\d\b|status(?: code)?:? ?5\d\d\b|\b50[0234] (internal|bad|service|gateway)|internal server error|bad gateway|service unavailable|gateway time-?out|PGRST00[0-3]/i,
     msg:'O servidor está com problema agora — tente de novo em alguns minutos.' },

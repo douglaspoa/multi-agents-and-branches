@@ -72,14 +72,17 @@ function linhaMesclaSpec(fresh, key, val){
   if(val==null) delete spec[key]; else spec[key]=val;
   return spec;
 }
-// A regra ÚNICA de "épico entregue" (Linha, contagem de ativos do Time, cabeçalho, seletor):
-// todos os itens do "pronto quando" provados · ou, sem "pronto quando", todas as tarefas entregues (≥1) · ou status done
+// tarefa do épico ainda ATIVA (rodando, na fila, aguardando, em revisão…): entregue, cancelada ou encerrada não conta
+function lnTaskAtiva(t){ return !!t && !lnTaskOk(t) && t.status!=='cancelled' && t.flag!=='closed'; }
+// A regra ÚNICA de "épico entregue" (Linha, contagem de ativos do Time, cabeçalho, seletor, página do épico):
+// todos os itens do "pronto quando" provados E nenhuma tarefa do épico ainda ativa · ou, sem "pronto quando", todas as
+// tarefas entregues (≥1) · ou status done
 function epEntregue(ep, tasks){
   if(!ep) return false;
   if(ep.status==='done') return true;
-  const dw=Array.isArray((ep.spec||{}).doneWhen)?ep.spec.doneWhen.filter(Boolean):[]; // mesma lista do linhaModelo
-  if(dw.length) return dw.every(d=>d.checkedBy);
   const ts=Array.isArray(tasks)?tasks:[];
+  const dw=Array.isArray((ep.spec||{}).doneWhen)?ep.spec.doneWhen.filter(Boolean):[]; // mesma lista do linhaModelo
+  if(dw.length) return dw.every(d=>d.checkedBy) && !ts.some(lnTaskAtiva);
   return ts.length>0 && ts.every(lnTaskOk);
 }
 // ativo = não arquivado e não entregue
