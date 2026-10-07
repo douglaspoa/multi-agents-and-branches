@@ -24,7 +24,10 @@ function envApply(view, ev){
   else if(e==='ready'){ v.ready=true; v.running=true; v.url=ev.url||v.url; v.fail=null; if(!v.steps.includes('ready')) v.steps.push('ready'); }
   else if(e==='fail'){ v.fail={ code:ev.code||'', msg:String(ev.msg||'Não consegui ligar o site.'), tail:String(ev.tail||'') }; v.ready=false; v.running=false; }
   else if(e==='exit'){ v.exited=true; v.ready=false; v.running=false; v.fail={ code:'exit', msg:String(ev.msg||'O site parou.'), tail:String(ev.tail||'') }; }
-  else if(e==='end'){ v.running=false; if(!v.fail && !v.ready) v.steps=[]; v.ready=false; }
+  // o supervisor saiu SEM avisar falha (só o "parar" do app não manda 'end'): se estava ligando ou no ar, diz que parou
+  // — antes o cartão voltava pro botão grande sem dizer nada
+  else if(e==='end'){ const was=v.running||v.ready; v.running=false; v.ready=false;
+    if(!v.fail){ if(was) v.fail={ code:'end', msg:v.steps.includes('ready')?'O site parou.':'O site parou antes de responder.', tail:'' }; else v.steps=[]; } }
   return v;
 }
 // passo de cada linha: done | cur | wait (o "instalar" só aparece se aconteceu ou se vai acontecer)
@@ -113,7 +116,7 @@ async function envDown(taskId, quiet){
 async function envDetails(taskId){
   const s=envSt(taskId); s.details=!s.details; s.log=null; envPaint(taskId);
   if(!s.details) return;
-  try{ const v=await invoke('env_status',{ taskId, log:true }); s.log=(v&&v.log)||''; }catch(e){ s.log=String(e&&e.message||e); }
+  try{ const v=await invoke('env_status',{ taskId, log:true }); s.log=(v&&v.log)||''; }catch(e){ s.log='Não consegui ler o registro do site: '+((typeof errShort==='function')?errShort(e):String(e&&e.message||e)); }
   envPaint(taskId);
 }
 async function envAskAgent(taskId){
@@ -150,7 +153,7 @@ try{ window.__TAURI__.event.listen('env-progress', (ev)=>{
   const s=envSt(p.taskId);
   s.view=envApply(s.view, p);
   if(p.ev==='ready' && p.url) envOpen(p.taskId, p.url);
-  if(p.ev==='exit' || (p.ev==='end' && !s.view.fail)){ const st=(typeof nvState!=='undefined')?nvState[p.taskId]:null; if(st && typeof nvStop==='function'){ nvStop(p.taskId); st.addr=''; } }
+  if(p.ev==='exit' || (p.ev==='end' && (!s.view.fail || s.view.fail.code==='end'))){ const st=(typeof nvState!=='undefined')?nvState[p.taskId]:null; if(st && typeof nvStop==='function'){ nvStop(p.taskId); st.addr=''; } }
   if(s.details && (p.ev==='fail'||p.ev==='exit')){ s.details=false; } // reabre limpo
   envPaint(p.taskId);
 }); }catch(_){ }

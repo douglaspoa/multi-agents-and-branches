@@ -484,7 +484,7 @@ function fwPrimaryAction(t){
   // exceção do ciclo (teto/rodadas/veredito): a decisão está na seção do topo — o verde leva até ela
   if(t.status==='needs-you') return { id:'fwDecide', html:`${IC.hand} decidir`, title:'a tarefa parou numa exceção (teto, rodadas de revisão ou veredito) — a decisão está no topo da tarefa' };
   if(pendingOf(t.id).length) return { id:'fwAnswer', html:`${IC.hand} responder`, title:'o agente fez uma pergunta — a resposta vai na conversa' };
-  if(fwIsWorking(t)) return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`${IC.stop} parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
+  if(fwIsWorking(t) && t.status!=='queued') return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`${IC.stop} parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
   if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:`${IC.retry} rodar de novo`, title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
   if(t.status==='conflict') return { id:'fwResolve', html:`${IC.bolt} resolver conflito`, title:'a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra' };
   if(t.status==='paused') return { id:'fwResume', html:`${IC.play} continuar`, title:'retoma a tarefa de onde parou' };
@@ -1079,9 +1079,12 @@ function fwRenderPrPage(t, main){
     // sem acesso ao repo (conta errada no gh) ≠ sem rede: diz o que fazer, sem o texto cru do GraphQL
     const noAcc=info.errKind==='access';
     const head=noAcc?'o GitHub logado aqui (gh) não tem acesso a este repositório':'não consegui falar com o GitHub';
-    const det=noAcc?String(info.error).replace(/^GH_NO_ACCESS:\s*/,''):String(info.error);
-    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">${head}</div><div class="mono dim" style="font-size:var(--fs-xs);max-width:560px;white-space:pre-wrap">${esc(det.slice(0,300))}</div><div style="display:flex;gap:8px"><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button>${noAcc?'<button class="btn sm" id="prPgEnv">abrir Ambiente (conta do GitHub)</button>':''}</div></div>`;
+    // o texto cru do gh (stderr) não vai na cara: frase de gente + "ver detalhes" com o original
+    const h=(typeof humanErr==='function')?humanErr(String(info.error)):{ id:'generic', msg:'' };
+    const det=noAcc?'Troque pra conta certa (gh auth switch) ou entre com ela (gh auth login).':h.id!=='generic'?h.msg:'Pode ser a internet, o GitHub fora do ar ou o login do gh vencido.';
+    main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">${head}</div><div class="dim" style="font-size:var(--fs-xs);max-width:560px">${esc(det)}</div><div style="display:flex;gap:8px"><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button>${noAcc?'<button class="btn sm" id="prPgEnv">abrir Ambiente (conta do GitHub)</button>':''}<button class="btn sm ghost" id="prPgErrDet">ver detalhes</button></div></div>`;
     bindClick('prPgEnv', ()=>{ if(window.openTab) window.openTab('env'); });
+    bindClick('prPgErrDet', ()=>{ if(typeof errDetails==='function') errDetails({ msg:head, raw:String(info.error) }); });
     bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='tentando…'; await loadPr(t.id,true); renderWorkspace(); });
     return;
   }
@@ -1468,7 +1471,8 @@ async function fwSendMsg(queueOnly){
     // falhou: o texto e os anexos VOLTAM pro composer (antes a mensagem sumia)
     fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op); if(answered) delete fwAskSent[fwAskKey(answered)];
     // (se ele já começou outra mensagem durante um envio lento, as duas ficam no campo)
-    const cur=(($id('fwInput')||{}).value||'').trim(); fwDraft[t.id]=cur?typed+'\n'+cur:typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
+    // o rascunho DESTA tarefa (fwDraft) — não o campo da tela, que pode ser de outra tarefa aberta durante o envio lento
+    const cur=String(fwDraft[t.id]||'').trim(); fwDraft[t.id]=cur?typed+'\n'+cur:typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
     showErr(e, 'Não consegui enviar — o texto voltou pro campo'); }
   finally{
     clearTimeout(slow);

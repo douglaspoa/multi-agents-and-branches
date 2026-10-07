@@ -207,7 +207,7 @@ function cvPaneHidden(el){
 // painel que saiu de vez (aba fechada / tirada da divisão): o iframe da demanda solta tudo antes de sumir
 function cvPaneDispose(id){
   const el=SPL.panes[id]; if(!el) return;
-  const fr=el.querySelector('iframe.cvrealm'); if(fr){ try{ const w=fr.contentWindow; if(w && typeof w.sfPaneUnload==='function') w.sfPaneUnload(); if(w && w.sfPaneDispose) w.sfPaneDispose(); }catch(_){ } try{ fr.src='about:blank'; }catch(_){ } }
+  const fr=el.querySelector('iframe.cvrealm'); if(fr){ try{ const w=fr.contentWindow; if(w && typeof w.sfPaneDraftOut==='function') w.sfPaneDraftOut(); if(w && typeof w.sfPaneUnload==='function') w.sfPaneUnload(); if(w && w.sfPaneDispose) w.sfPaneDispose(); }catch(_){ } try{ fr.src='about:blank'; }catch(_){ } }
   cvPaneHidden(el); el.remove(); delete SPL.panes[id]; cvNatDispose(id);
 }
 // cabeçalho do painel (só com a tela dividida): nome + cor da demanda, "tirar da divisão"
@@ -243,9 +243,36 @@ function cvPanesTick(){
   cvAskMarks();
   for(const id of SPL.ids){ const el=SPL.panes[id]; const fr=el&&el.querySelector('iframe.cvrealm'); if(!fr) continue; try{ const w=fr.contentWindow; if(w && typeof w.sfPaneTick==='function') w.sfPaneTick(); }catch(_){ } }
 }
+// ---- rascunho do painel ↔ janela principal: o texto e os anexos que você deixou num painel não somem ao desagrupar ou
+// fechar (o iframe vira about:blank). O painel começa com o rascunho da janela principal e devolve o dele ao sair.
+// @cv-rascunho-inicio (testado em app/tests/atrap-tarefa.test.mjs)
+function cvDraftMerge(main, pane){
+  const m=String(main||''), p=String(pane||'');
+  if(!p.trim()) return m; if(!m.trim() || m===p || p.startsWith(m)) return p;
+  return m.startsWith(p) ? m : m+'\n'+p;
+}
+function cvAttsMerge(main, pane){
+  const out=(main||[]).slice(), seen=new Set(out.map(a=>JSON.stringify(a)));
+  for(const a of pane||[]){ const k=JSON.stringify(a); if(!seen.has(k)){ seen.add(k); out.push(a); } }
+  return out;
+}
+// @cv-rascunho-fim
+/** Janela principal: recebe o rascunho de um painel que vai sumir. */
+function cvDraftTake(taskId, text, atts){
+  if(!taskId || typeof fwDraft==='undefined') return;
+  fwDraft[taskId]=cvDraftMerge(fwDraft[taskId], text);
+  const a=cvAttsMerge(fwPend[taskId], atts); if(a.length) fwPend[taskId]=a;
+  if(typeof fwTask!=='undefined' && fwTask===taskId){ const i=$id('fwInput'); if(i && (!i.dataset.tk || i.dataset.tk===taskId) && i.value!==fwDraft[taskId]) i.value=fwDraft[taskId]; }
+}
+/** Janela principal: o rascunho que um painel novo herda. */
+function cvDraftGive(taskId){ return (typeof fwDraft==='undefined') ? null : { text:fwDraft[taskId]||'', atts:(fwPend[taskId]||[]).slice() }; }
 // --- lado do PAINEL (rodando dentro do iframe) ---
 function sfPaneBoot(){
   const [kind, id]=String(SF_PANE).split(':');
+  if(kind==='task' && id){
+    try{ const g=window.parent.cvDraftGive && window.parent.cvDraftGive(id); if(g){ if(g.text) fwDraft[id]=g.text; if(g.atts.length) fwPend[id]=g.atts; } }catch(_){ }
+    window.sfPaneDraftOut=()=>{ try{ const i=$id('fwInput'); if(i && (!i.dataset.tk || i.dataset.tk===id)) fwDraft[id]=i.value; window.parent.cvDraftTake(id, fwDraft[id]||'', fwPend[id]||[]); }catch(_){ } };
+  }
   window.sfPaneTick=()=>{ refresh().catch(()=>{}); };
   // o painel mudou de tamanho (layout trocado, janela, divisória): o cabeçalho remede — modos viram menu e a ação
   // principal vira ícone antes de algum botão sair pra fora (no app real o cabeçalho ficava com a medida antiga)
@@ -255,6 +282,10 @@ function sfPaneBoot(){
   window.addEventListener('pointerdown', ()=>{ try{ window.parent.cvPaneFocus(window.frameElement&&window.frameElement.dataset.tabid); }catch(_){ } }, true);
   refresh().then(()=>{ if(kind==='task' && id) openWorkspace(id); }).catch(()=>{ if(kind==='task' && id) openWorkspace(id); });
 }
+/** Painel (iframe): a edição de arquivo aberta NELE pergunta antes de fechar (a guarda da janela principal não a via). */
+async function sfPaneLeaveOk(){ return (typeof fwEditing!=='undefined' && fwEditing && typeof fwLeaveEditor==='function') ? await fwLeaveEditor() : true; }
+/** Janela principal: a janela do painel de uma aba (ou null). */
+function cvPaneWin(tabId){ const el=SPL.panes && SPL.panes[tabId]; const fr=el && el.querySelector('iframe.cvrealm'); try{ return fr ? fr.contentWindow : null; }catch(_){ return null; } }
 // a demanda do painel pediu pra fechar (× da tela da demanda, Esc): sai da divisão — a aba continua aberta
 function cvPaneRequestClose(tabId){ if(tabId && cvInSplit(tabId)) cvUnsplit(tabId); }
 function cvPaneFocus(tabId){ if(!SPL.ids) return; const i=SPL.ids.indexOf(tabId); if(i<0 || i===(SPL.focus|0)) return; SPL.focus=i; cvSplitSave(); const ov=$id('cvSplit'); if(ov) ov.querySelectorAll('.cvpane').forEach(p=>p.classList.toggle('focus', p.dataset.tabid===tabId));

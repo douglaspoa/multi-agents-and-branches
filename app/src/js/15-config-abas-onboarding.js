@@ -244,6 +244,8 @@ window.openTab=openTab;
 // E6 (bug #9): edição de arquivo aberta na aba de uma tarefa — fechar ESSA aba, ou ir pra aba de OUTRA tarefa
 // (fwOpenInner zera o editor), pergunta antes de descartar. Trocar pra quadro/config mantém a edição (volta intacta).
 async function tabLeaveGuard(targetId, closing){
+  // a aba está num painel da tela dividida: a edição aberta é a DO PAINEL (outra janela) — pergunta lá
+  if(closing && typeof cvPaneWin==='function'){ const w=cvPaneWin(targetId); if(w && typeof w.sfPaneLeaveOk==='function'){ try{ if(!await w.sfPaneLeaveOk()) return false; }catch(_){ } } }
   if(typeof fwEditing==='undefined' || !fwEditing || typeof fwLeaveEditor!=='function' || typeof fwTask==='undefined' || !fwTask) return true;
   const tg=tabById(targetId); if(!tg) return true;
   const losing = closing ? (tg.kind==='task' && tg.taskId===fwTask) : (tg.kind==='task' && tg.taskId!==fwTask);
@@ -459,7 +461,11 @@ document.addEventListener('keydown', async e=>{
   try{ window.__sfLastKey={ k, at:Date.now() }; if(typeof SF_PANE!=='undefined' && SF_PANE) window.parent.__sfLastKey=window.__sfLastKey; }catch(_){ } // o mesmo atalho vindo do menu do app (58-canvas: cvMenuKey) não age 2×
   // tela dividida (58-canvas): ⌘\ divide, ⌘1..3 foca o painel — dentro de um painel, o atalho vai pra janela principal
   if(typeof cvShortcut==='function' && cvShortcut(e)) return;
-  if(typeof SF_PANE!=='undefined' && SF_PANE) return; // abas são da janela principal
+  if(typeof SF_PANE!=='undefined' && SF_PANE){ // abas são da janela principal
+    // ⌘W dentro de um painel: fecha ESTE painel pela porta guardada da janela principal (antes não fazia nada — e o
+    // menu do app, vendo a mesma tecla, também desistia)
+    if(k==='w' && !e.shiftKey){ e.preventDefault(); try{ const id=window.frameElement && window.frameElement.dataset.tabid; if(id && typeof window.parent.tabCloseGuarded==='function') window.parent.tabCloseGuarded(id); }catch(_){ } }
+    return; }
   if(k==='j' && !e.shiftKey){ e.preventDefault(); openTab('projeto',{ sub:'conversa' }); }
   else if(k===',' && !e.shiftKey){ e.preventDefault(); if(typeof ajustesOpen==='function') ajustesOpen(); else openTab('cfg'); }
   else if(k==='b' && !e.shiftKey){ e.preventDefault(); setRailCollapsed(!railIsCol()); }

@@ -97,7 +97,8 @@ function tiRecommended(rec, engineKind, model){
   return { ai, model:m, command:'starfork ia '+ai+(m?' --modelo '+m:'') };
 }
 // "Claude · sonnet" — o MESMO formato no seletor e no recomendado (o modelo vem só do recomendado)
-function tiAiLabel(ai, model){ const x=TI_AIS.find(a=>a.id===ai); return (x?x.short:String(ai||''))+(model?' · '+model:''); }
+// (alias cru "opus"/"sonnet" vira "Opus"/"Sonnet" — a doca dizia "Claude · opus" e o cabeçalho "Opus 5.5")
+function tiAiLabel(ai, model){ const x=TI_AIS.find(a=>a.id===ai); const m=String(model||''); return (x?x.short:String(ai||''))+(m?' · '+(/^[a-z]+$/.test(m)?m[0].toUpperCase()+m.slice(1):m):''); }
 // seletor da IA: a que está rodando (cli; '' = shell sem IA). Só a IA do recomendado leva o modelo (uma fonte só).
 function tiAiSelHtml(cli, rec){
   const opts=TI_AIS.map(x=>`<option value="${x.id}"${x.id===cli?' selected':''}>${esc(tiAiLabel(x.id, x.id===rec.ai?rec.model:'')+(x.exp?' (experimental)':''))}</option>`).join('');

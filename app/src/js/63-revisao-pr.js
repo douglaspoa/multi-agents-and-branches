@@ -472,8 +472,8 @@ function prvRender(t, main, info){
   { const dt=main.querySelector('.prvbody'); if(dt) dt.ontoggle=()=>{ prvBodyOpen[t.id]=dt.open; }; }
   bindClick('prPgOpen', ()=>openExternal(info.url));
   bindClick('prPgCopy', (e)=>copyLink(info.url, e.currentTarget));
-  bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='atualizando…'; await loadPr(t.id,true); renderWorkspace(); });
-  bindClick('prvMerge', async(e)=>{ e.currentTarget.disabled=true; if(await mergePr(t.id)) renderWorkspace(); else { const b=$id('prvMerge'); if(b) b.disabled=!!prvMergeWhy(t, prCache[t.id]); } });
+  bindClick('prPgRefresh', async(e)=>{ const b=e.currentTarget; b.disabled=true; b.textContent='atualizando…'; try{ await loadPr(t.id,true); }finally{ prvDirty(); renderWorkspace(); } });
+  bindClick('prvMerge', async(e)=>{ e.currentTarget.disabled=true; if(await mergePr(t.id)){ prvDirty(); renderWorkspace(); } else { const b=$id('prvMerge'); if(b) b.disabled=!!prvMergeWhy(t, prCache[t.id]); } });
   bindClick('prvFixAll', (e)=>prvFixAll(t, info, e.currentTarget));
   const root=main.querySelector('.prv');
   root.querySelectorAll('[data-prvx]').forEach(b=>b.onclick=async()=>{ const k=b.dataset.prvx;
@@ -481,11 +481,14 @@ function prvRender(t, main, info){
     if(k==='semprova'){ if(await proofOverride(t)) renderWorkspace(); return; }
     if(k==='aceite'||k==='revisor'||k==='fora'){ if(k==='aceite' && first) rvSel[t.id]='r'+first.i; if(k==='fora') rvSel[t.id]='out'; if(k==='revisor') rvUiOf(t.id).loose=true; rvViewM[t.id]='req'; fwMode='revisao'; fwRememberTab(); renderWorkspace(); return; }
     if(k==='conflito'){ await fwResolveConflict(t.id, b); return; }
-    if(k==='checks'){ b.disabled=true; b.textContent='enviando…'; const ok=await fwSendText(t.id, prvChecksMsg(info)); if(ok){ toast('pedido enviado ao agente','ok'); } else { b.disabled=false; b.textContent='pedir correção ao agente'; } } });
-  root.querySelectorAll('[data-prfix]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='enviando…'; let ok=false; try{ ok=await prFixOne(t.id, b.dataset.prfix); }finally{ if(ok) toast('pedido enviado ao agente','ok'); renderWorkspace(); } });
+    if(k==='checks'){ b.disabled=true; b.textContent='enviando…'; const ok=await fwSendText(t.id, prvChecksMsg(info)); if(ok) toast('pedido enviado ao agente','ok'); prvDirty(); renderWorkspace(); } });
+  root.querySelectorAll('[data-prfix]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='enviando…'; let ok=false; try{ ok=await prFixOne(t.id, b.dataset.prfix); }finally{ if(ok) toast('pedido enviado ao agente','ok'); prvDirty(); renderWorkspace(); } });
   root.querySelectorAll('[data-prign]').forEach(b=>b.onclick=()=>{ prIgnAdd(t.id,b.dataset.prign); renderWorkspace(); });
 }
 const prvBodyOpen={}; // taskId → descrição do PR aberta
+// botão que mudou o próprio texto ("atualizando…", "enviando…") precisa de repinta mesmo com o HTML igual — a guarda
+// do prvRender (mesmo HTML = não recria) deixava o botão preso desabilitado pra sempre
+function prvDirty(){ const p=document.querySelector('.prv'); if(p && p.parentElement) p.parentElement.__prvHtml=''; }
 // comentários/reviews do GitHub ainda em aberto (mesma régua da linha do tempo)
 function prvOpenComments(t, info){
   const ign=prIgnSet(t.id);

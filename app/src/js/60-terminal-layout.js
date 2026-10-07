@@ -90,6 +90,16 @@ function tlAskGroup(pend){
       return { id:p.id, ck:p.id+'|'+(p.createdAt||''), prompt:String(p.prompt||''), header:String(m.header||''), options:opts, desc:opts.map((_,i)=>String((m.desc||[])[i]||'')), multi:!!m.multi }; });
   return { key, auq:!!(m0&&m0.src==='auq'), agent:first.agent||'', rows };
 }
+// envio que caiu no meio (parte das respostas já foi): o snapshot passa a trazer o grupo INCOMPLETO, o tlAskGroup o dá
+// como "ainda chegando" e a folha sumia — sem jeito de mandar as que faltam. Guardado o grupo, a folha continua.
+function tlAskResume(g, pend, ask, taskId){
+  const ids=new Set((pend||[]).map(p=>p && p.id));
+  for(const k in ask||{}){ const s=ask[k];
+    if(!s || s.task!==taskId || !s.g || !Object.keys(s.sent||{}).length || (g && g.key!==k)) continue;
+    if(s.g.rows.some(r=>!s.sent[r.id] && ids.has(r.id))) return { g:s.g, st:s };
+  }
+  return null;
+}
 function tlAskNew(g){ return { sent:{}, q:0, sel:g.rows.map(r=>r.options.length?(r.multi?[]:[0]):[]), other:g.rows.map(()=> ''), skip:g.rows.map(()=>false), sending:false, min:false }; }
 // a resposta de cada pergunta (texto que vai pro pending): outra resposta > opções escolhidas; pulada = ''
 function tlAskAnswers(g, st){
@@ -280,7 +290,10 @@ function tlLivePaint(t){
 }
 
 // ---------------------------------------------------------------- folha de pergunta
-function tlAskOf(t){ const g=tlAskGroup(pendingOf(t.id)); if(!g) return null; let st=TL.ask[g.key]; if(!st || st.sel.length!==g.rows.length) st=TL.ask[g.key]=tlAskNew(g); return { g, st }; }
+function tlAskOf(t){
+  const pend=pendingOf(t.id), g=tlAskGroup(pend);
+  const kept=tlAskResume(g, pend, TL.ask, t.id); if(kept) return kept; // envio caiu no meio: a folha fica com o que falta
+  if(!g) return null; let st=TL.ask[g.key]; if(!st || st.sel.length!==g.rows.length) st=TL.ask[g.key]=tlAskNew(g); st.g=g; st.task=t.id; return { g, st }; }
 function tlSheetEl(taskId){ let el=TL.sheets[taskId]; if(!el){ el=document.createElement('div'); el.className='tlsheethost'; TL.sheets[taskId]=el; tlSheetWire(taskId, el);
   el.addEventListener('scroll', ()=>{ if(el.isConnected) el.__sc=tlAskScrollGrab(el); }, true);
   // pergunta nova fica "presa no fim" enquanto a folha acomoda o tamanho; a pessoa rolou (roda, toque, tecla) = solta
@@ -308,7 +321,8 @@ function tlAskPaint(t, focus, grab){
     el.__qk=qk; }
   el.classList.toggle('min', !!a.st.min);
   // foco: quem estava na folha continua nela; pergunta NOVA só pega o foco se você não estava digitando noutro lugar
-  const ae=document.activeElement; const idle=!ae || ae===document.body || (TERM[t.id] && TERM[t.id].host.contains(ae));
+  // (digitando NO TERMINAL não é estar livre: a pergunta roubava o foco e o "1"+Enter de lá respondia sem querer)
+  const ae=document.activeElement; const idle=!ae || ae===document.body;
   if(hadFocus || focus || (fresh && idle && !a.st.min)) tlAskFocus(el, inOther, caret);
 }
 // rolagem da folha entre repinturas (o innerHTML zera): mesma pergunta = volta onde estava; pergunta NOVA = abre no FIM do

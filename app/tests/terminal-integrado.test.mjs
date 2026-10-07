@@ -168,21 +168,21 @@ test('IA do terminal: recomendado do backend ou montado do motor/modelo; seletor
   assert.equal(TI.tiRecommended(null, 'gateway', '').ai, 'claude', 'motor sem CLI no terminal cai no Claude Code');
   assert.equal(TI.tiRecommended({ ai: 'claude', model: 'claude-sonnet-4-5', command: 'x' }).model, 'sonnet', 'modelo no mesmo formato');
   const rec = { ai: 'claude', model: 'sonnet', command: 'starfork ia claude --modelo sonnet' };
-  assert.equal(TI.tiAiLabel('claude', 'sonnet'), 'Claude · sonnet');
+  assert.equal(TI.tiAiLabel('claude', 'sonnet'), 'Claude · Sonnet');
   const sel = TI.tiAiSelHtml('codex', rec);
-  assert.match(sel, /<option value="codex" selected>Codex<\/option>/); assert.match(sel, />Claude · sonnet</, 'o modelo vem do recomendado (uma fonte só)'); assert.match(sel, /value="__cmd">Outro comando…/);
+  assert.match(sel, /<option value="codex" selected>Codex<\/option>/); assert.match(sel, />Claude · Sonnet</, 'o modelo vem do recomendado (uma fonte só)'); assert.match(sel, /value="__cmd">Outro comando…/);
   assert.match(sel, /Gemini \(experimental\)/); assert.match(sel, /opencode \(experimental\)/);
   assert.match(TI.tiAiSelHtml('', rec), /value="" selected disabled>shell \(sem IA\)/);
   assert.match(TI.tiAiSelHtml('aider', rec), /value="aider" selected/);
   const row = TI.tiAiRowHtml({ cli: null, taskAi: 'claude', rec });
-  assert.match(row, /<option value="claude" selected>Claude · sonnet</, 'sem o campo cli: a IA da tarefa, com o modelo do recomendado');
+  assert.match(row, /<option value="claude" selected>Claude · Sonnet</, 'sem o campo cli: a IA da tarefa, com o modelo do recomendado');
   assert.ok(!/data-ti="rec"/.test(row), 'já roda o recomendado: sem botão repetido'); assert.match(row, /starfork ia &lt;nome&gt;/);
   const other = TI.tiAiRowHtml({ cli: 'codex', taskAi: 'claude', rec });
-  assert.match(other, /recomendado:<\/span><button type="button" class="btn sm" data-ti="rec"[^>]*>Claude · sonnet</);
+  assert.match(other, /recomendado:<\/span><button type="button" class="btn sm" data-ti="rec"[^>]*>Claude · Sonnet</);
   assert.match(TI.tiAiRowHtml({ cli: 'gemini', taskAi: 'claude', rec }), /sem chips automáticos nem custo — a IA usa os comandos starfork/);
   assert.ok(!/sem chips automáticos/.test(other));
   const sh = TI.tiAiRowHtml({ cli: '', taskAi: 'claude', rec, shell: true });
-  assert.match(sh, /class="tiairow shell"/); assert.match(sh, /a IA parou/); assert.match(sh, /btn sm primary" data-ti="rec"[^>]*>Continuar com Claude · sonnet</);
+  assert.match(sh, /class="tiairow shell"/); assert.match(sh, /a IA parou/); assert.match(sh, /btn sm primary" data-ti="rec"[^>]*>Continuar com Claude · Sonnet</);
   assert.match(sh, /class="tirecd">ou digite: <code[^>]*>starfork ia claude --modelo sonnet</, 'o comando vira detalhe');
   assert.ok(!/está no shell/.test(sh), 'não parece erro');
   assert.equal(TI.TI_AIS.map((x) => x.id).join(','), 'claude,codex,deepseek,gemini,opencode');
@@ -212,7 +212,7 @@ test('textos: Entregar = conferir provas e abrir PR (igual ao /comando); nada de
 test('terminal não vivo: o seletor mostra a IA da tarefa (recomendado); integrada retoma ao digitar; compositor é botão na linha das ações', () => {
   const rec = { ai: 'claude', model: 'opus', command: 'starfork ia claude --modelo opus' };
   const row = TI.tiAiRowHtml({ cli: null, taskAi: 'codex', rec });
-  assert.match(row, /<option value="claude" selected>Claude · opus</); assert.ok(!/shell \(sem IA\)/.test(row));
+  assert.match(row, /<option value="claude" selected>Claude · Opus</); assert.ok(!/shell \(sem IA\)/.test(row));
   const ti = read('js/64-terminal-integrado.js');
   assert.match(ti, /cli:\(live && s && typeof s\.cli==='string'\)\?s\.cli:null/, '"shell (sem IA)" só com PTY vivo');
   assert.ok(!/termGone/.test(cut(ti, 'function tiBlockedWhy(', '\n}\n')), 'integrada não bloqueia mais a digitação');

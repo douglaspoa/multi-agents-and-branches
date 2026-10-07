@@ -304,26 +304,51 @@ async function termOpen(taskId){
   // o botão pode estar na barra do xterm ou no "retomar sessão" da barra de status (tlBarHtml, redesenho F1)
   const sel='[data-termopen="'+String(taskId).replace(/["\\]/g,'')+'"]';
   const b=st.bar.querySelector(sel)||st.bar.querySelector('[data-termopen]')||(typeof document!=='undefined' && document.querySelector ? document.querySelector(sel) : null);
-  if(b){ b.disabled=true; b.textContent='abrindo…'; }
+  const bTx=b?b.textContent:''; if(b){ b.disabled=true; b.textContent='abrindo…'; }
   try{
     const cols=(st.term&&st.term.cols)||120, rows=(st.term&&st.term.rows)||34;
     const info=await invoke('term_open',{ taskId, cols, rows, resume:true });
     st.attached=true; st.pend=null; st.mode='live'; st.term.reset(); if(info && info.data) st.term.write(info.data);
     termSetAlive(taskId, !!(info && info.alive)); st.term.focus();
     lastSig=''; refresh().catch(()=>{});
-  }catch(e){ showErr(e, 'Não consegui abrir o terminal'); termSetAlive(taskId, false); termSayLine(taskId, 'não consegui abrir o terminal: '+(typeof errShort==='function'?errShort(e):String(e&&e.message||e)), '31'); } // a barra mantém "abrir tarefa de ajuste"
+  }catch(e){ showErr(e, 'Não consegui abrir o terminal');
+    // a barra só repinta quando o HTML muda: o botão que ficou "abrindo…" volta sozinho (antes ficava preso, sem tentar de novo)
+    if(b && b.isConnected){ b.disabled=false; b.textContent=bTx; } st.bar.__html=''; termSetAlive(taskId, false); termSayLine(taskId, 'não consegui abrir o terminal: '+(typeof errShort==='function'?errShort(e):String(e&&e.message||e)), '31'); } // a barra mantém "abrir tarefa de ajuste"
   finally{ st.opening=false; }
 }
 /** Chamado pelo render da tarefa: põe o terminal (já existente) no slot e solta os que saíram da tela. */
 function termMount(t){
   const slot=document.querySelector(`#fwThread[data-term="${CSS.escape(t.id)}"]`); if(!slot) return;
-  const st=termEnsure(t.id);
+  const st=termEnsure(t.id); st.used=Date.now();
   if(st.host.parentNode!==slot){ slot.innerHTML=''; slot.appendChild(st.host); }
   termSweep();
   requestAnimationFrame(()=>termFit(t.id));
 }
 /** Terminais que não estão mais na tela param de receber eventos (a sessão segue viva no app). */
-function termSweep(){ for(const id in TERM){ if(!TERM[id].host.isConnected) termDetach(id); } }
+function termSweep(){
+  for(const id in TERM){ if(!TERM[id].host.isConnected) termDetach(id); }
+  // xterm fora da tela não fica pra sempre na memória: passou de TERM_KEEP, os mais antigos são descartados
+  // (a sessão continua viva no app; reabrir a tarefa pede o retrato de novo ao term_attach)
+  const list=Object.keys(TERM).map(id=>({ id, on:TERM[id].host.isConnected, used:TERM[id].used||0, busy:!!(TERM[id].opening||TERM[id].hloading) }));
+  for(const id of termDropIds(list, TERM_KEEP, typeof fwTask!=='undefined'?fwTask:null)) termDispose(id);
+}
+// @term-sweep-puro-inicio (testado em app/tests/atrap-tarefa.test.mjs)
+const TERM_KEEP=6;
+/** Quais terminais descartar: só os fora da tela, sem abertura/leitura em voo, nunca a tarefa aberta; os mais antigos primeiro. */
+function termDropIds(list, keep, cur){
+  const over=(list||[]).length-keep; if(over<=0) return [];
+  return list.filter(x=>!x.on && !x.busy && x.id!==cur).sort((a,b)=>(a.used||0)-(b.used||0)).slice(0, over).map(x=>x.id);
+}
+// @term-sweep-puro-fim
+function termDispose(taskId){
+  const st=TERM[taskId]; if(!st) return;
+  termDetach(taskId); clearTimeout(st.rt); clearTimeout(st.hrt);
+  try{ st.ro && st.ro.disconnect(); }catch(_){ }
+  try{ st.term && st.term.dispose(); }catch(_){ }
+  st.host.remove(); delete TERM[taskId];
+  // a folha de pergunta da tarefa (60-terminal-layout) vai junto se também está fora da tela
+  if(typeof TL!=='undefined' && TL.sheets[taskId] && !TL.sheets[taskId].isConnected){ try{ TL.sheets[taskId].__ro && TL.sheets[taskId].__ro.disconnect(); }catch(_){ } delete TL.sheets[taskId]; }
+}
 
 try{
   window.__TAURI__.event.listen('term-data', ev=>{ const p=ev&&ev.payload; const st=p&&TERM[p.taskId]; if(!st||!st.attached||!st.term) return; if(st.pend){ st.pend.push(p.data); return; } if(st.mode==='hist') return; st.term.write(p.data); }); // retrato em voo (inclusive hist→vivo): guarda

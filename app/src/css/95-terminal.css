@@ -219,3 +219,5 @@ html.sfpane .fw:has(.fwchat.tl) .fwciclo{max-height:34vh;overflow:auto}
 .en-req.ad .en-adnote{color:var(--text-2)}
 .tlgr{flex-wrap:wrap;column-gap:10px}
 .tlgr b{white-space:nowrap}
+/* pane estreito (3 painéis a 920): "responder no terminal · pular · próxima" quebram linha em vez de sair pela borda */
+.tlsheethost.tight .tlsf{flex-wrap:wrap;row-gap:4px}
