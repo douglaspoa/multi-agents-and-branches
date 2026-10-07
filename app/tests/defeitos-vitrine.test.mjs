@@ -17,7 +17,7 @@ test('portão de provas: ligado sempre que há requisitos — "2/3 com prova —
   const l = G.proofGateLine(G.proofGateOf(rows, true, null), 3, esc);
   assert.equal(l.on, true);
   assert.equal(l.html, '<b>Portão de provas</b>: 2/3 com prova — aprovar exige a prova ou um motivo');
-  assert.deepEqual(l.pill, ['portão ligado', 'warn']);
+  assert.deepEqual(l.pill, ['falta prova', 'warn']);
   const ok = G.proofGateLine(G.proofGateOf([R('ok')], true, null), 1, esc);
   assert.match(ok.html, /1\/1 com prova — liberado pra aprovar/);
   assert.deepEqual(ok.pill, ['provas ok', 'good']);
@@ -43,7 +43,7 @@ test('commits: à frente da base; alterações não commitadas ditas com todas a
   assert.equal(C(3, false, false), '3 commits');
   assert.equal(C(1, true, false), '1 commit + alterações não commitadas');
   assert.equal(C(0, true, false), 'alterações não commitadas');
-  assert.equal(C(0, false, false), 'nenhum commit ainda');
+  assert.equal(C(0, false, false), 'nada salvo ainda');
   assert.equal(C(0, false, true), 'integrado', 'mergeada: a branch some, não é "0 commits"');
   assert.match(pr, /invoke\("task_commit_info",\{taskId\}\)/, 'o front usa o comando que conta pela worktree');
   for (const f of ['21-pull-request.js', '22-quadro-fluxo.js', '27-entregas.js']) assert.ok(!/nPl\(c\.length,'commit'\)/.test(read(f)), f);

@@ -242,7 +242,7 @@ function enVerifHtml(t){
   if(g.st==='none' && gl.pill) pillShown=done?[gl.pill[0],'muted']:gl.pill;
   else if(g.st==='none') pillShown=['opcional','muted'];
   return `<section class="en-sec en-verif vf-${done&&['notrun','stale'].includes(g.st)?'done':g.st}" id="enVerif">
-    <div class="seclbl2">Verificação <span class="dim">· testes e checagens automáticas, rodadas de verdade (exit code e log)</span><span style="flex:1"></span>
+    <div class="seclbl2">Verificação <span class="dim">· testes e checagens automáticas, rodadas de verdade, com o resultado de cada uma</span><span style="flex:1"></span>
       <span class="vf-pill ${pillShown[1]}">${pillShown[0]}</span>${runBtn}<button class="btn sm ghost" data-encfg="1" title="quais checagens rodam neste projeto (fica em .cardume/checks.json)">${IC.wrench||''} checagens</button></div>
     ${gl.on?`<div class="vf-sum vf-gate">${IC.check||''}<span>${gl.html}</span></div>`:''}
     <div class="vf-sum">${sum}</div>
@@ -455,10 +455,16 @@ function enWireLive(t){
   bindClick('enLiveMob', async()=>{ const pv=taskPreviewTarget(t); if(!pv) return; const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
     if(tun){ if(typeof fwTunnelOff==='function') await fwTunnelOff(t); return; }
     toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); });
-  bindClick('enLiveUp', (e)=>{ e.currentTarget.disabled=true; pvStartUp(t); });
-  bindClick('enLiveAsk', (e)=>{ e.currentTarget.disabled=true; pvAskAgent(t); });
+  // no fim (subiu, cancelou o "Vai rodar…", falhou, pedido enviado) a Entrega repinta mesmo com o HTML igual — senão o
+  // botão desabilitado ficava preso (a guarda do fwRenderEntrega só troca o DOM quando o HTML muda)
+  const back=()=>{ enDirty(); pvRerender(t.id); };
+  bindClick('enLiveUp', (e)=>{ e.currentTarget.disabled=true; pvStartUp(t).catch(err=>showErr(err, 'Não subiu o app')).finally(back); });
+  bindClick('enLiveAsk', (e)=>{ e.currentTarget.disabled=true; pvAskAgent(t).catch(()=>{}).finally(back); });
   bindClick('enLiveStop', (e)=>{ e.preventDefault(); pvStop(t); });
 }
+function enDirty(){ const p=document.querySelector('.enpage'); if(p && p.parentElement) p.parentElement._enHtml=''; }
+// tipo da demanda em palavras de gente (o cabeçalho da Entrega dizia "DOCS · REVISÃO")
+const EN_TYPE_TX={ feat:'novidade', fix:'correção', docs:'documentação', chore:'manutenção', refactor:'arrumação do código', perf:'desempenho', design:'design', invest:'investigação', review:'revisão', build:'entrega' };
 function fwRenderEntrega(t, main){
   const done=taskIsDone(t);
   fwReqProofsEnsure(t.id); fwArtsEnsure(t); // 1 leitura em voo por tarefa (antes: uma nova a cada render)
@@ -502,7 +508,7 @@ function fwRenderEntrega(t, main){
   const pvSec=enPvHtml(t, nonCode?arts:docs);
   const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
     <div class="en-head">
-      <div class="en-ht"><span class="ndeyebrow">${esc(TYPE_PT[taskType(t)]||'demanda')} · ${done?'concluída':nonCode&&['review','delivered'].includes(t.status)?'pronta pra você conferir':esc(PHASES[taskPhase(t)-1]||'')}</span><h2 class="en-h1">${esc(t.title)}</h2>${t.objective?`<p class="en-obj">${esc(t.objective)}</p>`:''}</div>
+      <div class="en-ht"><span class="ndeyebrow">${esc(EN_TYPE_TX[taskType(t)]||'demanda')} · ${done?'concluída':nonCode&&['review','delivered'].includes(t.status)?'pronta pra você conferir':esc(PHASES[taskPhase(t)-1]||'')}</span><h2 class="en-h1">${esc(t.title)}</h2>${t.objective?`<p class="en-obj">${esc(t.objective)}</p>`:''}</div>
       <div class="en-kpis">${kpis}${enStampEntregue(t)}</div>
     </div>
     ${enLiveHtml(t)}
@@ -539,7 +545,7 @@ function fwRenderEntrega(t, main){
   main.querySelectorAll('[data-enopendir]').forEach(b=>b.onclick=()=>invoke('open_folder',{ path:b.dataset.enopendir }).catch(e=>showErr(e, 'Não abriu a pasta')));
   bindClick('enGen', ()=>entregaGenReport(t));
   bindClick('enSave', (e)=>enSaveDeliverables(t, !done, e.currentTarget));
-  bindClick('enJustClose', async(e)=>{ e.currentTarget.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Falhou'); } renderWorkspace(); });
+  bindClick('enJustClose', async(e)=>{ e.currentTarget.disabled=true; try{ await invoke('set_task_flag',{ taskId:t.id, flag:'closed' }); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Não consegui encerrar a tarefa'); } enDirty(); renderWorkspace(); });
   bindClick('enChDir', async()=>{ const p=await enPickDir(enBaseDir()); if(p&&String(p).trim()){ lsSet('entregaDir', String(p).trim()); renderWorkspace(); } });
   enWireLive(t);
   if(!nonCode) enWireVerif(t, main);

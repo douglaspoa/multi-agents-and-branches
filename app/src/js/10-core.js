@@ -368,9 +368,11 @@ function pushNotif(title, body, taskId){
     .catch(()=>{ const n=notifApi(); if(n) try{ n.sendNotification({ title, body: String(body||'').slice(0,180) }); }catch(_){} });
 }
 function notifRoute(id){
-  if(id==='view:team'){ const b=document.querySelector('#viewSeg button[data-v="team"]'); if(b) b.click(); return; }
+  // A9: a vista "Time" saiu da Central — a notificação do time abre a ABA Time (antes clicava o #viewSeg escondido e ficava na Central)
+  if(id==='view:team'){ if(window.openTab) window.openTab('time'); else if(typeof setView==='function') setView('team'); return; }
   if(id && (state.tasks||[]).some(t=>t.id===id)){
     selected=id;
+    if(window.openTab && typeof activeTab!=='undefined' && activeTab!=='flow') window.openTab('flow'); // com outra aba na frente a tarefa ficava escondida
     const b=document.querySelector('#viewSeg button[data-v="flow"]'); if(b && !activeIs('flow')) b.click();
     render();
   }
@@ -499,6 +501,8 @@ async function refresh(){
     lastSig='';                                   // ao fechar, força um render completo
     // as telas hoje são ABAS: a barra lateral continua à mostra ao lado — mantém ela viva (só troca o que mudou)
     if(typeof renderRail==='function') safe(renderRail);
+    // a página Projeto (cabeçalho + cartão de contagens) também está à mostra em Conversa/Agentes/Skills — antes congelava
+    if(typeof g1TabOn==='function' && g1TabOn('projeto') && typeof projPageRender==='function') safe(projPageRender);
     const fw=$id('fwOverlay');
     if(fw && fw.style.display!=='none' && fwTask){ try{ fwLiveUpdate(); }catch(_){} }
     if(typeof cvPanesTick==='function') try{ cvPanesTick(); }catch(e){ tickErr('cvPanesTick', e); } // tela dividida: os painéis acompanham

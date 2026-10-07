@@ -10,6 +10,14 @@
 .pgh-scope svg{width:13px;height:13px;color:var(--muted)}
 .pgh-sum{font-size:var(--fs-base);color:var(--text-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .pgh-sum b{color:var(--text)}
+/* gasto e teto de sessão (Ideia, Mesa): sempre visíveis — a linha do título quebra em vez de esconder o dinheiro ou o título */
+.pgh-money{font-size:var(--fs-base);color:var(--text-2);white-space:nowrap;flex:none}
+.pgh-money b{color:var(--text)}
+.pgh-t:has(.pgh-money){flex-wrap:wrap;row-gap:8px}
+.pgh-t:has(.pgh-money) .pgh-title{flex:0 1 auto;min-width:min(16ch,100%)}
+/* A5: varredura — o seletor App/Feature e o medidor descem de linha; o título não some a 920 */
+.pgh-t:has(.fab-meter){flex-wrap:wrap;row-gap:8px}
+.pgh-t:has(.fab-meter) .pgh-title{flex:0 1 auto;min-width:min(16ch,100%)}
 .pgh-sp{flex:1}
 .pgh-sub{font-size:var(--fs-base);color:var(--text-2);margin:4px 0 0;max-width:90ch}
 .pgh-primary svg,.btn.primary>svg{width:13px;height:13px;margin-right:4px;vertical-align:-2px}

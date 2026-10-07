@@ -51,6 +51,10 @@
 .tsspark .b{width:100%;border-radius:4px 4px 0 0;background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 22%,transparent));min-height:2px}
 .tsspark .dl{font-size:var(--fs-xs);color:var(--muted)}
 .tsboard{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px;align-items:start}
+/* A7: 5 colunas com largura mínima não cabem entre ~1200 e ~1370 px — o quadro rola na horizontal em vez de cortar "Concluídas" */
+.tsboard.ts5{overflow-x:auto;padding-bottom:4px}
+.tsboard.ts5 .tscard .foot{flex-wrap:wrap;row-gap:6px} /* coluna estreita: o "assumir" desce de linha em vez de sair do cartão */
+.tsboard.ts5 .tskh{min-width:0}.tsboard.ts5 .tskh .n{flex:none}
 /* ---- PADRONIZAÇÃO do Time na linguagem nova da Central ---- */
 .tmain h1{font-size:var(--fs-xl);letter-spacing:-.015em;margin-bottom:4px}
 .tssub{font-size:var(--fs-sm)}
@@ -352,7 +356,7 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .lbnav:hover,.lbx:hover{border-color:var(--accent);color:var(--accent)}
 .lbprev{left:22px}.lbnext{right:22px}.lbx{top:18px;right:22px;font-size:15px}
 /* ===== entrada e assinatura (44-onboarding.js) — design "onboarding-planos" ===== */
-.au{position:fixed;inset:0;z-index:116;background:var(--bg);display:flex;align-items:stretch;justify-content:stretch;font-family:var(--display);color:var(--text)}
+.au{position:fixed;inset:0;z-index:150;background:var(--bg);display:flex;align-items:stretch;justify-content:stretch;font-family:var(--display);color:var(--text)}
 .au-wrap{display:grid;grid-template-columns:minmax(300px,38%) 1fr;width:100%;height:100%}
 @media(max-width:900px){.au-wrap{grid-template-columns:1fr}.au-left{display:none}}
 .au-wrap.full{grid-template-columns:1fr}.au-wrap.full .au-left{display:none}
@@ -473,7 +477,7 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .aipick-pl .aieng{grid-template-columns:repeat(auto-fit,minmax(120px,1fr))}
 
 /* página de entrega de uma tarefa do time (aba cttask) */
-#ctPageMain{flex:1;min-height:0;overflow:auto}
+#ctPageMain,#epicPageMain{flex:1;min-height:0;overflow:auto}
 .ctp-who{display:flex;align-items:center;gap:9px;margin-top:12px;font:400 var(--fs-sm) var(--display);color:var(--text-2)}
 .ctp-who b{color:var(--text);font-weight:600}
 .ctp-who .tsav{width:22px;height:22px;font-size:var(--fs-ini)}

@@ -271,6 +271,62 @@ function mesaNoteBody(m, dec, criadas){
   L.push(`Rastro: mesa ${m.tema} · \`.cardume/mesas/${m.id}.json\``);
   return L.join('\n\n');
 }
+// TETO DA SESSÃO POR CHAMADA (B1/B2 da mesa de bugs 2): várias personas rodam em paralelo e o custo só chega no fim de
+// cada chamada — conferir o gasto antes de lançar deixava a mesa passar 3× do teto. Agora cada chamada RESERVA a sua
+// parte do que sobra (teto − gasto − o já reservado pelas chamadas em voo) e vai pro motor com esse teto
+// (`--max-budget-usd` no Claude). O CLI confere o gasto DEPOIS de cada mensagem: uma fala é cobrada inteira e pode
+// passar da reserva. A garantia é: NUNCA começa uma fala que a sobra não cobre (pela estimativa/custo medido de uma
+// fala); o total pode passar do teto só pelo que as falas em andamento passarem da estimativa.
+const MESA_MIN_CALL=0.03; // = fabrica.rs MIN_CHAMADA
+// quanto a PRÓXIMA chamada pode gastar: a sobra dividida pelas vagas que ainda vão abrir agora (slots), nunca além da
+// sobra nem de `max`; arredonda pra BAIXO no centavo (a soma das reservas nunca passa do teto). null = não cabe.
+// `want` = quanto uma fala costuma custar: com sobra curta, menos falas em paralelo (cada uma com o bastante pra
+// terminar) em vez de várias que passam do teto. Sobra menor que o piso (mesaCallFloor) não lança — inclusive a 1ª fala.
+// `max` (opcional, null = sem limite): o teto próprio da atividade (a pesquisa); ≤ mínimo = não lança.
+function mesaCallBudget(spent, reserved, cap, slots, max, want){
+  const sobra=(+cap||0)-(+spent||0)-(+reserved||0);
+  if(!(+cap>0) || !(sobra>=mesaCallFloor(want, cap))) return null;
+  let n=Math.max(1, Math.floor(+slots)||1);
+  if(+want>0) n=Math.max(1, Math.min(n, Math.floor(sobra/+want)));
+  let b=Math.max(MESA_MIN_CALL, sobra/n);
+  if(max!=null) b=Math.min(b, +max||0);
+  b=Math.floor(Math.min(b, sobra)*100+1e-9)/100;
+  return b>=MESA_MIN_CALL?b:null;
+}
+// piso de uma fala: a estimativa (ou o custo já medido), nunca mais que metade do teto (senão uma estimativa alta
+// travaria a sessão pra sempre), nunca menos que o mínimo
+function mesaCallFloor(want, cap){ const w=+want||0, c=+cap||0; return Math.max(MESA_MIN_CALL, c>0?Math.min(w, c*0.5):w); }
+// a "carteira" de uma sessão: reserva antes de lançar, devolve quando a chamada termina (o custo real já entrou no gasto)
+function mesaPurse(spentFn, capFn, wantFn){
+  const P={ reserved:0, inflight:0,
+    free(){ return (+capFn()||0)-(+spentFn()||0)-P.reserved; },
+    want(){ return wantFn?(+wantFn()||0):0; },
+    take(slots, max){ const b=mesaCallBudget(spentFn(), P.reserved, capFn(), slots, max, P.want()); if(b!=null){ P.reserved+=b; P.inflight++; } return b; },
+    give(b){ P.reserved=Math.max(0, Math.round((P.reserved-(+b||0))*1e6)/1e6); P.inflight=Math.max(0, P.inflight-1); } };
+  return P;
+}
+// aprende quanto uma fala custa nesta sessão pelo GASTO REAL dela (delta do gasto: US$ do Claude ou estimativa por
+// tokens dos outros motores). Fala cortada no teto da chamada que tinha a sobra inteira não ensina nada (não diz o
+// custo de uma fala completa). Não trava: o piso nunca passa de metade do teto (mesaCallFloor) e a Ideia zera o
+// aprendido quando a IA/modelo muda. Subir o teto NÃO zera: é gasto real medido — zerar faria repetir o estouro.
+function mesaLearnWant(prev, delta, cortada, eraTudo){ const p=+prev||0; if(cortada && eraTudo) return p; return Math.max(p, +delta||0); }
+// ATÉ MEDIR o custo de uma fala nesta sessão (nada aprendido pro motor/modelo atual): UMA fala por vez — com estimativa
+// baixa, o total passa do teto no máximo pelo excedente de uma fala. Medida a 1ª, volta o paralelismo (limitado pela sobra).
+function mesaGate(measured){
+  const G={ own:0, wait:Promise.resolve(),
+    async hold(){ while(!measured() && G.own>0) await G.wait; },
+    slots(n){ return measured()?n:1; },
+    run(fn){ G.own++; const p=(async()=>{ try{ return await fn(); }finally{ G.own--; } })(); G.wait=p.catch(()=>{}); return p; } };
+  return G;
+}
+// teto de "gerar personas": o padrão das mesas, no máximo US$ 0,50 (gerar é uma fala só)
+function mesaGenCap(base){ const b=+base||0; return b>0?Math.min(b, 0.5):0.5; }
+// A6: "Continuar com mais US$ X" — o teto novo parte do MAIOR entre teto e gasto e soma pelo menos o custo de UMA fala
+// (`want`), senão a sobra nova não cobria a próxima fala e a mesa pausava de novo na hora, com o mesmo botão
+function mesaCapNext(cap, spent, base, want){
+  const add=Math.ceil(Math.max(+base||0, +want>0?+want+0.005:0, MESA_MIN_CALL)*100-1e-9)/100; // +meio centavo sobre a fala: a sobra (teto − gasto, em float) nunca fica 1e-16 abaixo dela
+  return { cap:Math.round((Math.max(+cap||0, +spent||0)+add)*100)/100, add };
+}
 // @puro-fim
 
 Object.assign(IC, {
@@ -293,6 +349,8 @@ function mesaCapBase(){
   try{ lsSet('mesaCapUsd', String(v)); }catch(_){ }
   return v; }
 function mesaCapOf(m){ return mesaCapUsdOf(m, usdBrlRate()); }
+// quanto uma fala custa nesta mesa: o medido, nunca menos que a estimativa (o mesmo `want` da carteira do mesaRunRound)
+function mesaWantOf(m){ return Math.max(+(m&&m.callWant)||0, mesaCost(1, 1, (m&&m.model)||'sonnet', typeof roughEstimate==='function'?roughEstimate:null)[1]); }
 // personas (editor único em Fábrica › Personas): padrão + ajustes deste computador + criadas aqui + geradas pro projeto
 function mesaPersonaStore(){ try{ const o=JSON.parse(lsGet('fab:personas')||'{}'); return { over:o.over||{}, custom:Array.isArray(o.custom)?o.custom:[] }; }catch(_){ return { over:{}, custom:[] }; } }
 function mesaPersonaList(gen){ const st=mesaPersonaStore(); return mesaPersonaMerge(MESA_PERSONAS, st.over, st.custom, gen==null?MESA.gen:gen); }
@@ -396,11 +454,20 @@ function mesaCorrupt(id){
 }
 
 // ---- chamada de UMA persona ----
-async function mesaAsk(m, sys, prompt, json){
-  const r=await invoke('mesa_ask',{ repo:m.repo, id:m.id, personaSys:sys, prompt, model:m.model||null, json:!!json });
+// budget: o teto DESTA chamada (US$) reservado na carteira da sessão; acc.usd soma o que esta chamada custou
+// eraTudo: a reserva era a sobra inteira (fala cortada aí não ensina o custo)
+async function mesaAsk(m, sys, prompt, json, budget, acc, eraTudo){
+  let r;
+  try{ r=await invoke('mesa_ask',{ repo:m.repo, id:m.id, personaSys:sys, prompt, model:m.model||null, json:!!json, budgetUsd:budget>0?budget:null }); }
+  catch(e){ if(/MESA_STOPPED|demorou mais/.test(String(e&&e.message||e))) m.costUnsure=true; throw e; } // fala parada no meio: o CLI não informa o custo
+  const c0=mesaSpentUsd(m);
+  if(r && r.engine) m.motor=r.engine; else if(r) m.motor='claude';
   m.costUsd=(+m.costUsd||0)+(+(r&&r.costUsd)||0); // erro do claude também cobra — entra no gasto
   { const tok=(+(r&&r.inTok)||0)+(+(r&&r.outTok)||0); // fora do Claude: US$ 0 + tokens → teto por tokens
     if(!(+(r&&r.costUsd)>0) && tok>0){ m.tokens=(+m.tokens||0)+tok; m.tokUsd=(+m.tokUsd||0)+mesaTokUsd(r.engine, r.inTok, r.outTok, r.cachedTok); } }
+  const delta=mesaSpentUsd(m)-c0;
+  if(budget>0) m.callWant=mesaLearnWant(m.callWant, delta, !!(r&&r.budgetHit&&r.error), !!eraTudo);
+  if(acc) acc.usd=(+acc.usd||0)+delta;
   if(r && r.error) throw new Error(r.error);
   return String((r&&r.text)||'');
 }
@@ -457,12 +524,12 @@ async function mesaRunRound(m, r, run, withFailed){
     :(r.argumento && prevVote)?mesaArgPrompt(m.tema, m.personas, prevVote.resp, m.cands, mesaTally(m.cands, mesaVotesOf(prevVote), m.personas), r.argumento)
     :mesaR2Prompt(m.tema, m.personas, m.rounds[0].resp, m.cands);
   const STOP=new Error('MESA_STOPPED');
-  const one=async p=>{
-    const sys=mesaPersonaSys(p);
+  const one=async(p, budget, eraTudo)=>{
+    const sys=mesaPersonaSys(p), acc={ usd:0 };
     const chk=()=>{ if(run.stop) throw STOP; };
     try{
       chk();
-      const text=await mesaAsk(m, sys, prompt, true); chk();
+      const text=await mesaAsk(m, sys, prompt, true, budget, acc, eraTudo); chk();
       if(r.tipo==='posicao'){
         const x=mesaParsePosition(text);
         r.resp[p.id]={ st:'ok', texto:x.texto, propostas:x.propostas, aviso:x.aviso||'', at:Date.now() };
@@ -470,11 +537,13 @@ async function mesaRunRound(m, r, run, withFailed){
       } else {
         const first=mesaParseVote(text, candIds);
         let out=mesaVoteOutcome(first, null, text), raw=text;
-        if(out.kind==='retry'){ // voto malformado: UMA nova tentativa pedindo só o JSON
+        const left=Math.floor((budget-acc.usd)*100)/100; // a nova tentativa usa o que sobrou da reserva desta persona
+        if(out.kind==='retry' && left>=MESA_MIN_CALL){ // voto malformado: UMA nova tentativa pedindo só o JSON
           r.resp[p.id]={ st:'pendente', aviso:'voto malformado — pedindo de novo só o JSON' }; mesaPaint(m);
-          raw=await mesaAsk(m, sys, prompt+MESA_RETRY, true); chk();
+          raw=await mesaAsk(m, sys, prompt+MESA_RETRY, true, left, acc); chk();
           out=mesaVoteOutcome(first, mesaParseVote(raw, candIds), raw);
         }
+        if(out.kind==='retry') out=mesaVoteOutcome(first, mesaParseVote('', candIds), raw); // sem reserva pra tentar de novo: descarta
         if(out.kind==='ok'){
           r.resp[p.id]={ st:'ok', texto:out.vote.fala, voto:out.vote, aviso:out.warns.join(' · '), at:Date.now() };
           if(out.warns.length) r.avisos.push(p.nome+': '+out.warns.join(' · '));
@@ -485,15 +554,23 @@ async function mesaRunRound(m, r, run, withFailed){
       }
     }catch(e){
       const msg=String(e&&e.message||e);
-      r.resp[p.id]=(run.stop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:mesaErrMsg(e), at:Date.now() };
+      // a fala passou da PARTE dela (não da sessão): volta pra fila UMA vez e a mesa segue; a 2ª vez vira falha visível
+      if(/MESA_BUDGET/.test(msg) && !run.stop){ if(!again.has(p.id)){ again.add(p.id); r.resp[p.id]={ st:'pendente', aviso:'passou da parte dela no teto — de novo, com mais folga' }; queue.push(p); } else r.resp[p.id]={ st:'falhou', erro:'passou duas vezes da parte dela no teto — aumente o teto e tente de novo', at:Date.now() }; }
+      else r.resp[p.id]=(run.stop||/MESA_STOPPED/.test(msg))?{ st:'parada' }:{ st:'falhou', erro:mesaErrMsg(e), at:Date.now() };
     }
     await mesaSave(m); mesaPaint(m);
   };
-  const queue=todo.slice(); let capped=false;
+  const queue=todo.slice(), again=new Set(); let capped=false;
+  // cada persona reserva a sua parte do que sobra do teto ANTES de lançar (as em voo já reservaram a delas)
+  const est=mesaCost(1, 1, m.model||'sonnet', typeof roughEstimate==='function'?roughEstimate:null)[1]; // pior caso de 1 fala antes de ter custo real
+  const purse=mesaPurse(()=>mesaSpentUsd(m), ()=>mesaCapOf(m), ()=>Math.max(+m.callWant||0, est)); // a estimativa (pior caso) é o mínimo; o medido só sobe
+  const G=mesaGate(()=>+m.callWant>0); // 1 por vez até medir o custo de uma fala
   const worker=async()=>{
     while(queue.length && !run.stop && !capped){
-      if(mesaCapHit(mesaSpentUsd(m), mesaCapOf(m))){ capped=true; break; }
-      await one(queue.shift());
+      await G.hold(); if(!queue.length || run.stop || capped) break;
+      const free0=purse.free(), b=purse.take(G.slots(Math.min(MESA_POOL-purse.inflight, queue.length)));
+      if(b==null){ if(!purse.inflight) capped=true; break; } // sobra presa em falas em voo: a última que voltar confere de novo
+      await G.run(async()=>{ try{ await one(queue.shift(), b, b>=free0-0.01); }finally{ purse.give(b); } });
     }
   };
   await Promise.all(Array.from({ length:Math.min(MESA_POOL, queue.length) }, worker));
@@ -517,7 +594,8 @@ async function mesaStartWith(o){
   if(personas.length<2){ toast('Escolha pelo menos 2 personas pra mesa.','warn'); return false; }
   let cap=+o.capUsd; if(!(cap>0)){ toast('Defina o teto da mesa em US$ (maior que 0).','warn'); return false; }
   try{ lsSet('mesaCapUsd', String(cap)); }catch(_){ }
-  const m={ id:mesaNewId(), v:1, repo, tema, model:o.model||null, capUsd:cap, // o MOTOR é a IA dos chats (mesa_ask); aqui só o modelo capBase:cap, createdAt:Date.now(), updatedAt:Date.now(), status:'rodando',
+  const m={ id:mesaNewId(), v:1, repo, tema, model:o.model||null, capUsd:cap, // o MOTOR é a IA dos chats (mesa_ask); aqui só o modelo
+    capBase:cap, createdAt:Date.now(), updatedAt:Date.now(), status:'rodando',
     personas:personas.map(p=>({ id:p.id, nome:p.nome, papel:p.papel, desc:p.desc, gerada:!!p.gerada })),
     rounds:[{ n:1, tipo:'posicao', titulo:'Posições', resp:{}, avisos:[] }], cands:[], chats:{}, escolhas:{}, criadas:null, costUsd:0 };
   MESA.repo=repo; MESA.cur=m; MESA.view='mesa'; MESA.target='mesa'; MESA.draft=''; MESA.tab='dec';
@@ -534,14 +612,14 @@ async function mesaGenerate(temaArg){
   const tmp={ id:'personas', repo, model:(typeof aiClaudeModel==='function'?aiClaudeModel():null), costUsd:0 };
   let ok=false;
   try{
-    const text=await mesaAsk(tmp, MESA_GEN_SYS, mesaGenPrompt(tema), true);
+    const text=await mesaAsk(tmp, MESA_GEN_SYS, mesaGenPrompt(tema), true, mesaGenCap(mesaCapBase()), null, true); // gerar também tem teto
     const ps=mesaParsePersonas(text, mesaPersonaList([]).map(p=>p.id));
-    if(!ps.length){ toast(`A IA não devolveu personas válidas — tente de novo (custou ${fmtCost(tmp.costUsd)}).`,'warn'); return; }
-    await invoke('mesa_save',{ repo, id:'personas', data:{ personas:ps, tema, at:Date.now() } });
+    if(!ps.length){ toast(`A IA não devolveu personas válidas — tente de novo (custou ${fmtCost(mesaSpentUsd(tmp))}).`,'warn'); return; }
+    await invoke('mesa_save',{ repo, id:'personas', data:{ personas:ps, tema, at:Date.now(), costUsd:mesaSpentUsd(tmp) } }); // o gasto fica junto das personas (e no livro de uso, origem "personas")
     ok=true;
     if(MESA.repo===repo){ MESA.gen=ps; if(MESA.pick) ps.forEach(p=>MESA.pick.add(p.id)); }
-    toast(`${ps.length} personas geradas pra ${MESA.repo===repo?'este projeto':'o projeto '+pathBase(repo)} (custou ${fmtCost(tmp.costUsd)}).`,'ok');
-  }catch(e){ if(!/MESA_STOPPED/.test(String(e&&e.message||e))) showErr(e,'Não consegui gerar as personas'+(tmp.costUsd?' (custou '+fmtCost(tmp.costUsd)+')':'')); }
+    toast(`${ps.length} personas geradas pra ${MESA.repo===repo?'este projeto':'o projeto '+pathBase(repo)} (custou ${fmtCost(mesaSpentUsd(tmp))}).`,'ok');
+  }catch(e){ if(!/MESA_STOPPED/.test(String(e&&e.message||e))) showErr(e,'Não consegui gerar as personas'+(mesaSpentUsd(tmp)?' (custou '+fmtCost(mesaSpentUsd(tmp))+')':'')); }
   finally{ MESA.genBusy=false; if(!ok || MESA.repo===repo) mesaRender(); if(typeof fabHubRender==='function') fabHubRender(); }
   return ok;
 }
@@ -562,7 +640,8 @@ async function mesaArgue(){
   }
   const p=(m.personas||[]).find(x=>x.id===MESA.target); if(!p) return;
   if(MESA.chatBusy) return;
-  if(mesaCapHit(mesaSpentUsd(m), mesaCapOf(m))){ m.capAviso={ what:'perguntar pra '+p.nome, kind:'ask', base:m.capBase||mesaCapBase()||2, at:Date.now() }; mesaRender(); return; }
+  const askBudget=mesaCallBudget(mesaSpentUsd(m), 0, mesaCapOf(m), 1, null, Math.max(+m.callWant||0, mesaCost(1, 1, m.model||'sonnet', typeof roughEstimate==='function'?roughEstimate:null)[1])); // uma pergunta só: leva toda a sobra (se cobrir uma fala)
+  if(askBudget==null){ m.capAviso={ what:'perguntar pra '+p.nome, kind:'ask', base:m.capBase||mesaCapBase()||2, at:Date.now() }; mesaRender(); return; }
   MESA.draft=''; if(inp) inp.value='';
   const chat=(m.chats[p.id]=m.chats[p.id]||[]);
   const vr=mesaVoteRounds(m), last=vr[vr.length-1], r1=(m.rounds[0].resp||{})[p.id]||{}, lr=(last&&last.resp[p.id])||{};
@@ -573,11 +652,11 @@ async function mesaArgue(){
   try{
     // "parar" clicado enquanto o resume corria: o resume apagaria a marca do Rust — a flag local segura
     if(MESA.chatStop) throw new Error('MESA_STOPPED');
-    const ans=await mesaAsk(m, mesaPersonaSys(p), mesaAskPrompt(m.tema, p, hist, text), false);
+    const ans=await mesaAsk(m, mesaPersonaSys(p), mesaAskPrompt(m.tema, p, hist, text), false, askBudget, null, true);
     chat.push({ who:'bot', text:ans||'(sem resposta)' });
   }catch(e){
     const msg=String(e&&e.message||e);
-    chat.push({ who:'sys', text:/MESA_STOPPED/.test(msg)?'Parado.':(p.nome+' não respondeu: '+mesaErrMsg(e)) });
+    chat.push({ who:'sys', text:/MESA_STOPPED/.test(msg)?'Parado.':/MESA_BUDGET/.test(msg)?(p.nome+' passou do que sobrava no teto e foi cortada — aumente o teto pra perguntar de novo.'):(p.nome+' não respondeu: '+mesaErrMsg(e)) });
   }finally{ MESA.chatBusy=false; MESA.chatMesaId=''; MESA.chatStop=false; await mesaSave(m); chatPinBottom('mesaChat'); mesaPaint(m); }
 }
 
@@ -769,16 +848,24 @@ function mesaTableHtml(m, D){
   }).join('');
   return `<div class="g2tablew"><table class="g2vtable"><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
 }
+// o que o teto garante, dito com honestidade (B1/B2): Claude confere depois de cada fala; os outros motores não têm
+// teto por chamada (o app estima pelos tokens). Fala parada no meio não informa o custo.
+function mesaTetoNote(motor, unsure){
+  const t=motor&&motor!=='claude'?'sem teto por chamada neste motor: o app estima pelos tokens e não começa uma fala que a sobra não cobre':'não começa uma fala que a sobra do teto não cobre · a IA confere o gasto depois de cada fala, então o total pode passar um pouco';
+  return `<p class="g2help tetonote">${t}${unsure?' · <b>o gasto pode estar subestimado</b>: uma fala parada no meio não informa o custo':''}</p>`;
+}
 function mesaMesaHtml(m){
   const st=mesaStatusOf(m), running=mesaRunning(m), run=MESA.runs[m.id];
   const cap=mesaCapOf(m), spent=mesaSpentUsd(m);
   const acts=(running?`<button class="btn" id="mesaStop"${run&&run.stop?' disabled':''}>${IC.stopsq}${run&&run.stop?'parando…':'Parar'}</button>`:'')+
     (!running && ['pausada','parada','interrompida'].includes(st) && !m.capAviso?`<button class="btn primary" id="mesaCont">${IC.play}${m.status==='interrompida'?'Tentar de novo':'Continuar'}</button>`:'')+
     `<button type="button" class="btn icon quiet" id="mesaMore" title="Mais: tentar de novo com quem falhou · abrir pasta" aria-label="Mais ações" aria-haspopup="menu">${IC.dots||'⋯'}</button>`;
-  const sum=`${mesaStBadge(st)} <span>${(m.personas||[]).length} personas · ${(m.rounds||[]).length} rodada${(m.rounds||[]).length===1?'':'s'} · <b>${mesaEsc(fmtCost(spent,{ usdOnly:true }))}${cap>0?' de '+mesaEsc(fmtCost(cap,{ usdOnly:true })):''}</b> (≈ R$ ${mesaEsc(fmtNumBR(spent*usdBrlRate(), true))})${+m.tokUsd>0?' · teto por tokens (parte estimada pelos tokens da IA)':''}</span>`;
-  const head=mesaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Mesa: '+m.tema, scope:'projeto', scopeLabel:pathBase(m.repo), sum, right:acts, sub:`Mesa: ${(m.personas||[]).length} pontos de vista que debatem e votam features. Nada vira demanda sem você aprovar.` }):`<h1>Mesa: ${mesaEsc(m.tema)}</h1>`);
+  const money=`${mesaStBadge(st)} gastou <b>${mesaEsc('US$ '+fmtNumBR(spent, true))}</b>${cap>0?' de <b>'+mesaEsc('US$ '+fmtNumBR(cap, true))+'</b>':''}`; // gasto e teto sempre visíveis (B3)
+  const sum=`<span>${(m.personas||[]).length} personas · ${(m.rounds||[]).length} rodada${(m.rounds||[]).length===1?'':'s'} · ≈ R$ ${mesaEsc(fmtNumBR(spent*usdBrlRate(), true))}${+m.tokUsd>0?' · teto por tokens (parte estimada pelos tokens da IA)':''}</span>`;
+  const head=mesaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Mesa: '+m.tema, scope:'projeto', scopeLabel:pathBase(m.repo), money, sum, right:acts, sub:`Mesa: ${(m.personas||[]).length} pontos de vista que debatem e votam features. Nada vira demanda sem você aprovar.` }):`<h1>Mesa: ${mesaEsc(m.tema)}</h1>`);
   const D=mesaDecisionOf(m);
-  const capAv=m.capAviso?`<div class="g2capbox" role="status"><span><b>Aviso do Starfork:</b> a mesa chegou no teto de ${mesaEsc(fmtCost(cap,{ usdOnly:true }))} (gastou ${mesaEsc(fmtCost(spent,{ usdOnly:true }))}) antes de ${mesaEsc(m.capAviso.what)}.</span><div class="g2row"><button type="button" class="btn sm primary" id="mesaCapUp">Continuar com mais ${mesaEsc(fmtCost(m.capAviso.base,{ usdOnly:true }))}</button><button type="button" class="btn sm quiet" id="mesaCapNo">Parar aqui</button></div></div>`:'';
+  const capNx=m.capAviso?mesaCapNext(cap, spent, +m.capAviso.base||mesaCapBase()||2, mesaWantOf(m)):null, U=v=>'US$ '+fmtNumBR(v, true); // A6: um formato só (antes "US$ 1" e "US$ 1,00" misturados)
+  const capAv=m.capAviso?`<div class="g2capbox" role="status"><span><b>Aviso do Starfork:</b> ${cap>0?`o que sobra do teto de ${mesaEsc(U(cap))} (gastou ${mesaEsc(U(spent))}) não cobre mais uma fala — parou antes de ${mesaEsc(m.capAviso.what)}.`:`esta mesa não tem teto. Defina um teto pra ${mesaEsc(m.capAviso.what)}: toda sessão para sozinha nele.`}</span><div class="g2row"><button type="button" class="btn sm primary" id="mesaCapUp">${cap>0?`Continuar com mais ${mesaEsc(U(capNx.add))} (teto ${mesaEsc(U(capNx.cap))})`:'Definir teto de '+mesaEsc(U(capNx.cap))}</button><button type="button" class="btn sm quiet" id="mesaCapNo">Parar aqui</button></div></div>`:'';
   let left='';
   if(D){
     const nome=pid=>((m.personas||[]).find(p=>p.id===pid)||{}).nome||pid;
@@ -800,7 +887,7 @@ function mesaMesaHtml(m){
     right=`<div class="g2rpanel"><div class="g2htabs" role="tablist"><button type="button" role="tab" data-mtab="dec" class="${MESA.tab==='dec'?'on':''}" aria-selected="${MESA.tab==='dec'}">Sua decisão</button><button type="button" role="tab" data-mtab="arg" class="${MESA.tab==='arg'?'on':''}" aria-selected="${MESA.tab==='arg'}">Argumentar</button></div>${dec}${arg}`+
       `<div class="g2pfoot"><span class="g2msg"><b>${apN} aprovada${apN===1?'':'s'}</b>${apN>pend?` · ${apN-pend} já criada${apN-pend===1?'':'s'}`:''}</span><span class="g2sp"></span><button class="btn primary" id="mesaCreate"${!pend||MESA.creating||running?' disabled':''}>${MESA.creating?'criando…':`Criar épico com ${pend} demanda${pend===1?'':'s'}`}</button></div></div>`;
   } else right=`<div class="g2rpanel"><div class="g2rp-b"><div class="g2k">Sua decisão</div><p class="g2help">A tabela de votos aparece quando a rodada 2 (debate e voto) terminar. Até lá, acompanhe as posições à esquerda.</p></div></div>`;
-  return head+capAv+`<div class="g2mesa"><div class="mesascroll g2scroll">${left}</div>${right}</div>`;
+  return head+mesaTetoNote(m.motor, m.costUnsure)+capAv+`<div class="g2mesa"><div class="mesascroll g2scroll">${left}</div>${right}</div>`;
 }
 function mesaCriadasHtml(m){
   const c=m.criadas; if(!c||!((c.itens||[]).length||(c.faltou||[]).length)) return '';
@@ -824,7 +911,9 @@ function mesaWire(body){
   bindClick('mesaStop', ()=>MESA.cur&&mesaStop(MESA.cur));
   bindClick('mesaCont', ()=>MESA.cur&&mesaRun(MESA.cur, { retryFailed:true }));
   bindClick('mesaCreate', mesaCreate);
-  bindClick('mesaCapUp', async()=>{ const m=MESA.cur; if(!m||!m.capAviso) return; const kind=m.capAviso.kind; m.capUsd=mesaCapOf(m)+(+m.capAviso.base||mesaCapBase()||2); m.capAviso=null; await mesaSave(m);
+  bindClick('mesaCapUp', async()=>{ const m=MESA.cur; if(!m||!m.capAviso) return; const kind=m.capAviso.kind;
+    m.capUsd=mesaCapNext(mesaCapOf(m), mesaSpentUsd(m), +m.capAviso.base||mesaCapBase()||2, mesaWantOf(m)).cap; m.capAviso=null; // A6: a partir do que já gastou, com pelo menos uma fala de sobra
+    await mesaSave(m);
     if(kind==='ask') mesaArgue(); else mesaRun(m); }); // pergunta a UMA persona: refaz só a pergunta (o texto continua na caixa), não a mesa inteira
   bindClick('mesaCapNo', async()=>{ const m=MESA.cur; if(!m) return; m.capAviso=null; await mesaSave(m); mesaRender(); });
   bindClick('mesaMore', ev=>{ const m=MESA.cur; if(!m||typeof g2SheetMenu!=='function') return; const f=mesaFailed(m);

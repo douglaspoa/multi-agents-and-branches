@@ -319,7 +319,7 @@ export function applyHook(store: Store, taskId: string, eff: HookEffect): void {
   // turno novo, fim de turno ou sessão fechada: nenhum hook espera mais a pergunta (Esc no TTY mata o hook)
   if (eff.turnEnd || eff.ended || eff.status === "running") store.closeAuqQuestions(taskId);
   if (eff.busy !== undefined) store.termSetBusy(taskId, eff.busy);
-  if (eff.status && !["merged", "aborted"].includes(task.status)) store.setStatus(taskId, eff.status);
+  if (eff.status && !["merged", "done", "aborted"].includes(task.status)) store.setStatus(taskId, eff.status);
   if (eff.status === "running") store.setStage(taskId, role?.role ?? "builder");
   if (eff.claim) {
     try { store.addClaim(taskId, agent, eff.claim.path, eff.claim.mode); } catch { /* claim é melhor-esforço */ }
@@ -745,7 +745,7 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     env.PATH = toolPath(bin, process.env.PATH);
   }
   // integrada NUNCA sai de integrada (abrir o terminal pra perguntar não é voltar a construir)
-  if (!merged) { orch.store.setStage(taskId, role.role); orch.store.setStatus(taskId, "running"); }
+  if (!merged && !["done", "aborted"].includes(task.status)) { orch.store.setStage(taskId, role.role); orch.store.setStatus(taskId, "running"); }
   orch.store.addEvent(taskId, "Sistema", "status", `${sid || resumeLast ? `abrindo o terminal (${ai}) e retomando a sessão` : `abrindo o terminal (${ai})`}${merged ? " — tarefa integrada: só conversa" : ""}`, true);
   const busy = aiHasHooks(ai) && kicked;
   return { ai, program: bin, args, env, envRemove, resumed: !!(sid || resumeLast), sessionId: sid || null, cwd: task.worktree, busy };

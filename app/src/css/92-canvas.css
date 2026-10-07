@@ -300,3 +300,8 @@ html.sfpane .enpage,html.sfpane .fwchat,html.sfpane .fwmain{overflow-wrap:anywhe
 /* painel baixo E estreito: "Agora: …" já diz onde está — o "etapa n de N" sai em vez de ficar cortado */
 @media (max-height:520px) and (max-width:600px){ html.sfpane .cicst-now:not(:empty)~.cicst-pos{display:none} }
 .cvovr.ad .cvovm{background:transparent;border:1.5px dashed var(--text-2);color:var(--text-2)} /* adiado com motivo (redesenho F1): tracejado, neutro */
+/* mesa-bugs-2 (A11 · 3 painéis a 920): a barra de status da app não aparece dentro do painel; os números da Entrega
+   encolhem com reticências em vez de cortar na borda */
+html.sfpane .appmain>.bus{display:none!important}
+html.sfpane .en-kpis{min-width:0;max-width:100%}
+html.sfpane .en-kpi span{min-width:0}

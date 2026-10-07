@@ -29,7 +29,7 @@ function renderProjMenu(){ // legado: o menu suspenso saiu da sidebar (Projetos 
   m.innerHTML = `<div class="phead">Projetos</div>${rows}${projErr?`<div class="projerr" title="${escA(projErr)}">${esc(humanErr(projErr,"Não consegui abrir o projeto").msg)}</div>`:""}<div class="psep"></div>`+
     `<div class="projadd" id="projAdd"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3.5v9M3.5 8h9" stroke-linecap="round"/></svg>Abrir projeto…</div>`+
     `<div class="projadd projmanage" id="projManage"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Gerenciar projetos</div>`;
-  m.querySelectorAll('.prow').forEach(r=>r.onclick=(e)=>{ if(e.target.closest('.px')) return; switchProject(r.dataset.path); });
+  m.querySelectorAll('.prow').forEach(r=>r.onclick=(e)=>{ if(e.target.closest('.px')) return; switchProject(r.dataset.path).catch(()=>{}); });
   m.querySelectorAll('.px').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); const wasActive=b.dataset.rm===state.repo; try{ await invoke("remove_project",{path:b.dataset.rm}); }catch(_){}; if(wasActive){ selected=null; lastSig=""; clearProjectCaches(); await refresh(); } await loadProjects(); });
   $id("projAdd").onclick = pickFolder;
   bindClick("projManage", ()=>{ closeProjMenu(); if(window.openTab) window.openTab('projetos'); });
@@ -40,7 +40,9 @@ async function switchProject(path){
     projErr=""; closeProjMenu(); selected=null; lastSig=""; clearProjectCaches();
     await refresh(); await loadProjects();
     if(window.pilWatch) window.pilWatch().catch(()=>{}); // projeto com piloto que terminou → aviso (56-piloto)
-  }catch(err){ projErr=String(err); openProjMenu(); }
+  }catch(err){ projErr=String(err); openProjMenu(); // (sem o menu antigo, openProjMenu mostra o erro traduzido)
+    // L14 (mesa-bugs-2): a falha SOBE — quem chamou não segue como se tivesse trocado (abria a página do projeto anterior)
+    const e=new Error(errText(err)); e.shown=true; throw e; }
 }
 async function pickFolder(){
   let dir;
@@ -53,7 +55,7 @@ async function pickFolder(){
     await refresh(); await loadProjects();
   }catch(err){ projErr=String(err); openProjMenu(); }
 }
-$id("newTaskBtn").onclick = async()=>{ if(await gitGate()) openNewTask(); };
+$id("newTaskBtn").onclick = ()=>ntOpenFormTab(); // aba própria (o openTab já passa pelo gitGate)
 // menu "mais" do topo (redesign: topbar enxuta)
 { const mb=$id('moreBtn'), mm=$id('moreMenu');
   if(mb&&mm){
@@ -82,18 +84,24 @@ function pubSetState(s){ // 'form' | 'prog' | done html
   $id('pubDone').style.display = (s!=='form'&&s!=='prog')?'block':'none';
   if(s!=='form'&&s!=='prog') $id('pubDone').innerHTML=s;
 }
+// A13: fechar no meio do envio NÃO cancela nem esquece — o envio segue, o resultado chega num aviso, e reabrir mostra o
+// progresso (nunca o formulário de novo: era o risco de publicar 2×). Esc fecha (A15).
+let pubBusy=false;
+function pubOpen(){ return $id('pubOverlay').style.display!=='none'; }
 function closePub(){ $id('pubOverlay').style.display='none'; }
 { const b=$id('pubRelBtn');
   if(b) b.onclick=()=>{
-    if(!SB.sess()){ toast('Entre na sua conta primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
-    pubSetState('form');
+    if(!SB.sess() && !pubBusy){ toast('Entre na sua conta primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
+    if(!pubBusy) pubSetState('form');
     $id('pubOverlay').style.display='flex';
-    $id('pubNotes').focus();
+    (pubBusy?$id('pubClose'):$id('pubNotes')).focus();
   }; }
 $id('pubClose').onclick=closePub;
 $id('pubCancel').onclick=closePub;
 $id('pubOverlay').addEventListener('click',e=>{ if(e.target.id==='pubOverlay') closePub(); });
+$id('pubOverlay').addEventListener('keydown',e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closePub(); } });
 $id('pubGo').onclick=async()=>{
+  if(pubBusy) return; pubBusy=true;
   const notes=$id('pubNotes').value.trim()||'Melhorias e correções.';
   pubSetState('prog');
   const stats=['enviando o pacote…','publicando o aviso de versão…','quase lá…'];
@@ -105,11 +113,13 @@ $id('pubGo').onclick=async()=>{
     let s=SB.sess(); if(!s||!s.access_token){ try{ s=await sbRefresh(); }catch(_){ s=null; } }
     if(!s||!s.access_token) throw new Error('Sua sessão expirou — entre de novo na sua conta (botão Entrar, no rodapé da barra lateral) e publique outra vez.');
     const msg=await invoke('publish_release',{ url:SB.url(), anon:SB.key(), token:s.access_token, notes });
-    clearInterval(tick);
+    clearInterval(tick); pubBusy=false;
+    if(!pubOpen()) toast('Release publicada — '+String(msg||'').slice(0,140),'ok'); // fechou no meio: o resultado não some
     pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--accent);font-size:20px;line-height:1">✓</span><div><b style="font-size:var(--fs-base)">Release publicada!</b><div class="dim" style="font-size:var(--fs-sm);margin-top:4px">${esc(msg)}</div></div></div><div style="display:flex;margin-top:14px"><span style="flex:1"></span><button class="btn primary" id="pubOk">fechar</button></div>`);
     bindClick('pubOk', closePub);
   }catch(e){
-    clearInterval(tick);
+    clearInterval(tick); pubBusy=false;
+    if(!pubOpen()) showErr(e,'Não consegui publicar a versão');
     const ph=humanErr(e,'Não consegui publicar a versão');
     pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:var(--fs-base)">Não deu</b><div class="dim" style="font-size:var(--fs-sm);margin-top:4px" title="${escA(errText(e))}">${esc(ph.msg)}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${ph.action?`<button class="btn primary" id="pubFix">${esc(ph.action.label)}</button>`:''}<button class="btn" id="pubBack">tentar de novo</button></div>`);
     bindClick('pubBack', ()=>pubSetState('form'));
@@ -120,8 +130,8 @@ $id('pubGo').onclick=async()=>{
 { const ts=$id('topSearch');
   if(ts){ ts.oninput=()=>{ flowQuery=ts.value; if(!activeIs('flow')) setView('flow'); lastSig=''; renderFlow(); };
     ts.onkeydown=(e)=>{ if(e.key==='Escape'){ ts.value=''; flowQuery=''; lastSig=''; renderFlow(); ts.blur(); } }; } }
-$id("ntClose").onclick = closeNewTask;
-$id("ntCancel").onclick = closeNewTask;
+$id("ntClose").onclick = ()=>ntUserClose(); // o usuário fechando: mesma guarda do X da aba (formulário preenchido pergunta)
+$id("ntCancel").onclick = ()=>ntUserClose();
 $id("ntCreate").onclick = ()=>{
   ntGate(); if($id('ntCreate').disabled) return;
   // build & fix: o wizard já colheu o "Quem executa?" — cria direto com progresso

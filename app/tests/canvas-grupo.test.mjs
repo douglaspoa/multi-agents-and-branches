@@ -86,7 +86,7 @@ test('fechar UM membro: sai do grupo e da tela, os outros se rearranjam e o foco
   const b = app(['flow', 'cfg', 'task:A', 'task:B', 'task:C'], ['task:A', 'task:B', 'task:C'], 'cfg', 0);
   b.closeTab('task:C'); assert.equal(b.activeTab, 'cfg'); assert.deepEqual(b.SPL.ids, ['task:A', 'task:B']);
   // ⌘W com o grupo na tela fecha o membro EM FOCO
-  assert.match(tabsJs, /k==='w' && !e\.shiftKey\)\{ e\.preventDefault\(\); const t=tabById\(\(typeof cvGroupMember==='function' && cvGroupMember\(\)\) \|\| activeTab\)/);
+  assert.match(tabsJs, /e\.preventDefault\(\); const t=tabById\(\(typeof cvGroupMember==='function' && cvGroupMember\(\)\) \|\| activeTab\)[^\n]*\n[^\n]*\n\s*await tabCloseGuarded\(t\.id\);/);
   assert.match(canvas, /if\(k==='w'\)\{ const t=cvTabOf\(cvGroupMember\(\)\|\|activeTab\)/, '⌘W vindo do menu do app (foco no Navegador nativo) também');
   const c = app(['flow', 'task:A', 'web:x'], ['task:A', 'web:x'], 'task:A', 1); assert.equal(c.cvGroupMember(), 'web:x');
 });

@@ -217,7 +217,7 @@ function load(opts = {}) {
   vm.runInContext(MESA_PURE + '\n' + PILOTO_PURE + '\n' + IDEIA_SRC + '\n;globalThis.__I=IDEIA;', ctx);
   return { ctx, el, calls, toasts, tabs, listeners, run: (c) => vm.runInContext(c, ctx) };
 }
-const idea0 = (extra = {}) => Object.assign({ id: 'i-test-1', v: 1, titulo: 'App de rotina de skincare', turns: [], report: null, decision: null, project: null, costUsd: 0, tokUsd: 0 }, extra);
+const idea0 = (extra = {}) => Object.assign({ id: 'i-test-1', v: 1, titulo: 'App de rotina de skincare', turns: [], report: null, decision: null, project: null, costUsd: 0, tokUsd: 0, capUsd: 5 }, extra); // toda ideia tem teto da sessão (B2)
 
 test('aba registrada no motor de abas: instância múltipla, overlay próprio, sem exigir projeto; entradas na Nova demanda, no +, na Mesa e na tela inicial', () => {
   const abas = read('js/15-config-abas-onboarding.js');
@@ -269,7 +269,7 @@ test('mandar a ideia: cria o arquivo, a mesa inteira responde (Pesquisadora + 5)
   const asked = [];
   const { run, calls } = load({ invoke: (c, a) => { if (c === 'ideia_ask') { asked.push(a); return Promise.resolve({ text: 'resposta de ' + a.personaSys.slice(8, 20), costUsd: 0.01 }); } return Promise.resolve(c === 'ideia_research_mode' ? { engine: 'claude', mode: 'native' } : null); } });
   await run('openIdeia(true)');
-  run('$id("ideiaNewIn").value="um app de rotina de skincare com lembretes"');
+  run('$id("ideiaNewIn").value="um app de rotina de skincare com lembretes"; $id("ideiaNewCap").value="2"');
   await run('ideiaStart()');
   for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
   assert.equal(asked.length, 6);
@@ -354,7 +354,7 @@ test('pesquisa: progresso pelo evento, PARAR derruba só a pesquisa (<id>-r), re
   release(); await p;
   const rs = calls.filter(([c]) => c === 'ideia_research').map(([, a]) => a);
   assert.equal(rs.length, 2, 'a 1ª veio com fato sem fonte → UMA correção na mesma sessão');
-  assert.deepEqual(plain([rs[1].fix, rs[1].sessionId, rs[1].budgetUsd]), [true, 's1', null]);
+  assert.deepEqual(plain([rs[1].fix, rs[1].sessionId, rs[1].budgetUsd]), [true, 's1', 0.7], 'a correção também tem teto: o que sobrou da reserva da pesquisa (B2)');
   assert.equal(rs[0].budgetUsd, 1, 'teto padrão US$ 1 vai pro Claude');
   const m = run('IDEIA.cur');
   assert.equal(m.report.status, 'ok');

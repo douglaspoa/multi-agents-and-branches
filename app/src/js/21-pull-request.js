@@ -38,6 +38,7 @@ function prIsStale(taskId){ const i=prCache[taskId]; const wait=(i&&i.errKind&&P
 function prAgoTx(at){ if(!at) return ''; const s=Math.max(0,(Date.now()-at)/1000); return s<15?'atualizado agora':s<60?`atualizado há ${Math.round(s)}s`:s<3600?`atualizado há ${Math.round(s/60)} min`:`atualizado há ${Math.round(s/3600)}h`; }
 // re-pinta quem estiver mostrando o PR desta tarefa (a aba da tarefa)
 function prRerender(taskId){
+  if(typeof prvDirty==='function') prvDirty(); // a aba PR repinta mesmo com o HTML igual (o botão "enviando…" volta)
   try{ if(typeof fwTask!=='undefined' && fwTask===taskId && typeof renderWorkspace==='function') renderWorkspace(); }catch(e){ console.error('prRerender ws', e); }
 }
 // ---- selos do PR (mesma cara no painel lateral e na página do PR) ----
@@ -289,7 +290,7 @@ function proofGateLine(g, total, escF){
   const cnt=`<b>Portão de provas</b>: ${ok}/${n} com prova`;
   if(g.st==='proven') return { on:true, pill:['provas ok','good'], html:cnt+' — liberado pra aprovar' };
   if(g.st==='override') return { on:true, pill:['aprovado com motivo','warn'], html:cnt+' — liberado sem prova, com motivo registrado: <b>'+e(g.ov&&g.ov.reason||'')+'</b>' };
-  return { on:true, pill:['portão ligado','warn'], html:cnt+' — aprovar exige a prova ou um motivo' };
+  return { on:true, pill:['falta prova','warn'], html:cnt+' — aprovar exige a prova ou um motivo' };
 }
 function proofAskMsg(missing){
   return 'Antes de eu aprovar, falta a PROVA destes requisitos. Para cada um: mostre funcionando de verdade (print, vídeo ou saída de teste), '+
@@ -326,8 +327,14 @@ async function proofOverride(t){
   return true;
 }
 // ÚNICA porta de "aprovar e abrir PR" (cabeçalho, card da Central, Entrega, resumo, aba PR): prova → verificação → PR
+// duplo clique em "aprovar e abrir PR" rodava 2 preparações (2× push e 2× texto do PR): uma por tarefa de cada vez
+const approveBusy=new Set();
 async function approveGate(t){
-  if(!t) return;
+  if(!t || approveBusy.has(t.id)) return;
+  approveBusy.add(t.id);
+  try{ await approveGateRun(t); }finally{ approveBusy.delete(t.id); }
+}
+async function approveGateRun(t){
   if(typeof entregaNonCode==='function' && entregaNonCode(t)){ approveShowEntrega(t); return; }
   if((typeof reqProofCache!=='undefined') && reqProofCache[t.id]===undefined && typeof loadReqProofs==='function') await loadReqProofs(t.id).catch(()=>{});
   const pg=proofGate(t);
@@ -346,6 +353,8 @@ function prPrepOpen(taskId, base){
     if(typeof openWorkspace==='function'){ openWorkspace(t.id); setTimeout(()=>{ try{ fwMode='entrega'; renderWorkspace(); }catch(_){ } }, 50); }
     return;
   }
+  // já preparando ESTE PR (2º clique, outra porta): mostra o andamento, não começa outra preparação (2× push / 2× texto)
+  if(prepRunning.has(taskId)){ if(prepTaskId===taskId) $id('prepOverlay').style.display='flex'; else toast('o PR desta tarefa já está sendo preparado','info'); return; }
   prepTaskId=taskId;
   lsSet('prBase:'+taskId, base||'main'); // lembra a base escolhida (antes nunca era salva — a página sempre dizia "main")
   const ov=$id('prepOverlay'); ov.style.display='flex';
@@ -362,8 +371,10 @@ function prPrepOpen(taskId, base){
   const close=()=>{ ov.style.display='none'; };
   $id('prepClose').onclick=close;
   $id('prepCancelB').onclick=close;
-  prPrepRun(t, base||'main');
+  prepRunning.add(taskId);
+  prPrepRun(t, base||'main').catch(e=>showErr(e, 'Não consegui preparar o PR')).finally(()=>prepRunning.delete(taskId));
 }
+const prepRunning=new Set();
 function prepMark(n, st, txt){ // st: run|ok|fail|skip
   const s=document.querySelector('#prep'+n+' .ps'); if(!s) return;
   s.className='ps '+st; s.textContent= st==='ok'?'✓' : st==='fail'?'✕' : st==='run'?'◌' : '·';
@@ -556,7 +567,7 @@ function commitsLabelOf(n, dirty, done){
   if(n==null) return '… commits';
   if(n>0) return n+(n===1?' commit':' commits')+(dirty?' + alterações não commitadas':'');
   if(dirty) return 'alterações não commitadas';
-  return done?'integrado':'nenhum commit ainda';
+  return done?'integrado':'nada salvo ainda';
 }
 // @commits-rotulo-fim
 function commitsLabel(t){ const c=commitsCache[t.id]; return commitsLabelOf(c===undefined?null:c.length, !!commitsDirty[t.id], typeof taskIsDone==='function' && taskIsDone(t)); }
@@ -608,7 +619,7 @@ function flowTaskCard(t, acc){
   const d=diffOf(t.id), rev=reviewOf(t.id), c=commitsCache[t.id];
   const cchips = c===undefined ? skeletonHtml('lista',{ n:1, compact:true, inline:true, label:'carregando os commits' })
     : c.length ? c.slice(0,8).map(x=>commitChip(x,t.agent)).join("")+(c.length>8?`<span class="dim" style="font-size:var(--fs-xs);padding:3px 6px">+${c.length-8}</span>`:"")
-    : (t.status==='merged'?'<span class="dim" style="font-size:var(--fs-xs)">integrada na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:var(--fs-xs)">nenhum commit ainda</span>');
+    : (t.status==='merged'?'<span class="dim" style="font-size:var(--fs-xs)">integrada na '+esc(t.base)+'</span>':'<span class="dim" style="font-size:var(--fs-xs)">nada salvo ainda</span>');
   const live = ACTIVE_ST.has(t.status) && !pendingOf(t.id).length ? (()=>{ const ev=lastEventOf(t.id); return `<div class="flive"><span class="pulse" style="--pc:${col}"></span><span class="lx">${esc(ev?ev.text:'iniciando…')}</span></div>`; })() : '';
   const flagBadge = t.flag==='blocked'?`<span class="flagbadge blk">${IC.pause} bloqueada</span>`:''; // cancelada/concluída já saem no selo de status
   const asking = pendingOf(t.id).length>0;

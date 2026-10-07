@@ -146,7 +146,7 @@ function viewOpen(kind, tab){
   const f={ orq:()=>{ if(fresh&&window.orqFresh) window.orqFresh(); window.openOrq&&window.openOrq(); },
             projetos:()=>openProjetos(), nova:()=>openNovaStart(),
             planner:()=>{ if(fresh||!window.plShow) openPlanner(); else window.plShow(); },
-            form:()=>{ if(fresh||!window.ntShow) openNewTask(); else window.ntShow(); },
+            form:()=>{ if(fresh||!window.ntShow){ if(fresh && typeof resetNewTask==='function') resetNewTask(); window.ntOpening=openNewTask(); } else window.ntShow(); }, // aba nova = formulário LIMPO (não herda a outra aba)
             skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), memoria:()=>window.openMemoria&&window.openMemoria(), mesa:()=>window.openMesa&&window.openMesa(), uso:()=>window.openUso&&window.openUso(), piloto:()=>window.openPiloto&&window.openPiloto(), pilotorun:()=>window.openPilotoRun&&window.openPilotoRun(), ideia:()=>window.openIdeia&&window.openIdeia(fresh), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
             web:()=>{ if(window.cvShowView) window.cvShowView(tab); }, device:()=>{ if(window.cvShowView) window.cvShowView(tab); }, doc:()=>{ if(window.cvShowView) window.cvShowView(tab); },
@@ -156,7 +156,7 @@ function viewOpen(kind, tab){
               // aba de tarefa de OUTRO projeto (você trocou de projeto depois de abrir): volta pro projeto dela antes
               if(tab && tab.repo && state.repo && tab.repo!==state.repo && window.switchProject){
                 const tr=tab.repo, id=tab.id, tid=tabTaskId;
-                window.switchProject(tr).then(()=>{ if(activeTab===id && state.repo===tr) fwOpenInner(tid, path); });
+                window.switchProject(tr).then(()=>{ if(activeTab===id && state.repo===tr) fwOpenInner(tid, path); }).catch(()=>{});
                 return; }
               fwOpenInner(tabTaskId, path); },
             cttask:()=>{ if(window.ctPageOpenInner) window.ctPageOpenInner(tab); },
@@ -213,6 +213,7 @@ function viewRoute(kind, opts){
 // @puro-rotas-fim
 function openTab(kind, opts){
   { const r=viewRoute(kind, opts); kind=r.kind; opts=r.opts; if(r.from && opts.from==null) opts.from=r.from; }
+  if(typeof auBlocksApp==='function' && typeof auOpen==='function' && typeof SB!=='undefined' && auBlocksApp(auOpen(), SB.sess())) return; // tela de entrada aberta sem sessão: nada abre por trás (bloqueador 03)
   // criar demanda/plano exige um projeto aberto: sem projeto, leva pra Projetos em vez de abrir um formulário sem destino
   if(['nova','form','planner','orq'].includes(kind) && typeof state!=='undefined' && !state.repo){
     // "Começar sem portões": a tela inicial já cria o projeto a partir do pedido — leva pra lá, não pra Projetos
@@ -243,6 +244,9 @@ window.openTab=openTab;
 // E6 (bug #9): edição de arquivo aberta na aba de uma tarefa — fechar ESSA aba, ou ir pra aba de OUTRA tarefa
 // (fwOpenInner zera o editor), pergunta antes de descartar. Trocar pra quadro/config mantém a edição (volta intacta).
 async function tabLeaveGuard(targetId, closing){
+  // a aba está num painel da tela dividida: a edição aberta é a DO PAINEL (outra janela) — pergunta lá
+  if(closing && typeof cvPaneWin==='function'){ const w=cvPaneWin(targetId); if(w && typeof w.sfPaneLeaveOk==='function'){ try{ if(!await w.sfPaneLeaveOk()) return false; }catch(_){ } } }
+  if(closing && typeof ndTabCloseOk==='function' && !await ndTabCloseOk(tabById(targetId))) return false; // A4: Nova demanda com trabalho não salvo
   if(typeof fwEditing==='undefined' || !fwEditing || typeof fwLeaveEditor!=='function' || typeof fwTask==='undefined' || !fwTask) return true;
   const tg=tabById(targetId); if(!tg) return true;
   const losing = closing ? (tg.kind==='task' && tg.taskId===fwTask) : (tg.kind==='task' && tg.taskId!==fwTask);
@@ -259,6 +263,7 @@ function closeTab(id){
   const grpNext=(typeof cvOnTabClosed==='function') ? cvOnTabClosed(TABS[i]) : null;
   if(kind==='task' && typeof nvOnTaskTabClose==='function') nvOnTaskTabClose(TABS[i].taskId); // Prévia: o proxy da tarefa morre com a aba
   if(kind==='task' && typeof envOnTaskTabClose==='function') envOnTaskTabClose(TABS[i].taskId); // "Subir ambiente": o site da demanda morre com a aba
+  if(kind==='form' && id===activeTab && typeof ntFormTabClosed==='function') ntFormTabClosed(); // o rascunho/link desta aba não vaza pra próxima criação
   TABS.splice(i,1);
   // esconde o overlay do kind se nenhuma OUTRA aba do mesmo kind sobrou
   // (overlay compartilhado — a tela dividida serve Navegador/Simulador/Documento e as demandas divididas — só some sem ninguém usando)
@@ -269,6 +274,7 @@ function closeTab(id){
   if(activeTab!==id){ renderTabs(); return; }
   activeTab=(TABS[i-1]||TABS[0]).id;
   renderTabs(); showActiveView(); if(typeof cvOnViewChange==='function') cvOnViewChange();
+  if(typeof MULTI_KINDS!=='undefined' && MULTI_KINDS.has((tabById(activeTab)||{}).kind)) renderTabs(); // título vivo com o estado JÁ restaurado da aba que ficou
 }
 // R7: reordenar abas arrastando. A aba fixa (Central) fica sempre na frente; soltar sobre outra aba põe a
 // arrastada no lugar dela. Devolve true quando mudou. Pura sobre TABS (testada em app/tests/central.test.mjs).
@@ -326,7 +332,8 @@ function renderTabs(){
   const bar=$id('tabBar'); if(!bar) return;
   bar.style.display='flex'; bar.setAttribute('data-tauri-drag-region','');
   // título vivo das abas múltiplas (ex.: a demanda que está sendo montada)
-  for(const t of TABS){ if(t.id===activeTab && MULTI_KINDS.has(t.kind)){ const api=tabStateApi(t.kind); try{ const st=api&&api.get&&api.get(); if(st&&st._title) t.title=String(st._title).slice(0,28); else if(st&&st._title===''){ t.title=(VIEW_META[t.kind]||{}).title||t.kind; } }catch(_){ } } }
+  for(const t of TABS){ if(t.id===activeTab && MULTI_KINDS.has(t.kind) && !t.fresh){ // aba recém-aberta: os globais ainda são da aba anterior (o título dela vazava)
+ const api=tabStateApi(t.kind); try{ const st=api&&api.get&&api.get(); if(st&&st._title) t.title=String(st._title).slice(0,28); else if(st&&st._title===''){ t.title=(VIEW_META[t.kind]||{}).title||t.kind; } }catch(_){ } } }
   // numera só as abas que ainda têm o título genérico ("Montar conversando 1, 2…")
   const counts={}; TABS.forEach(t=>{ if(t.title===((VIEW_META[t.kind]||{}).title||t.kind)) counts[t.kind]=(counts[t.kind]||0)+1; });
   const seen={};
@@ -447,6 +454,14 @@ const SHORTCUT_WORDS=new Set(['ou','e']);
 function shortcutsFlat(list){ return (list||[]).flatMap(g=>g[1]); }
 function shortcutKeysText(keys){ return (keys||[]).join(' '); }
 function shortcutsHelpText(list){ return 'Atalhos: '+shortcutsFlat(list).map(([k,d])=>shortcutKeysText(k)+' '+d).join(' · ')+' · arraste uma aba pra reordenar'; }
+// fechar a aba: ⌘W no Mac (Ctrl+W lá é do terminal — apaga a palavra); fora do Mac, Ctrl+W — mas dentro do terminal
+// (xterm) o Ctrl+W é do terminal. ⌘ não é tecla de terminal: ⌘W fecha mesmo com o foco no xterm.
+function tabCloseKey(e, os){
+  if((e.key||'').toLowerCase()!=='w' || e.shiftKey || e.altKey) return false;
+  if(e.metaKey) return true;
+  if(os==='mac' || !e.ctrlKey) return false;
+  return !(e.target && typeof e.target.closest==='function' && e.target.closest('.xterm'));
+}
 // @puro-atalhos-fim
 const SHORTCUTS_HELP=shortcutsHelpText(SHORTCUTS);
 document.addEventListener('keydown', async e=>{
@@ -455,14 +470,17 @@ document.addEventListener('keydown', async e=>{
   try{ window.__sfLastKey={ k, at:Date.now() }; if(typeof SF_PANE!=='undefined' && SF_PANE) window.parent.__sfLastKey=window.__sfLastKey; }catch(_){ } // o mesmo atalho vindo do menu do app (58-canvas: cvMenuKey) não age 2×
   // tela dividida (58-canvas): ⌘\ divide, ⌘1..3 foca o painel — dentro de um painel, o atalho vai pra janela principal
   if(typeof cvShortcut==='function' && cvShortcut(e)) return;
-  if(typeof SF_PANE!=='undefined' && SF_PANE) return; // abas são da janela principal
+  if(typeof SF_PANE!=='undefined' && SF_PANE){ // abas são da janela principal
+    // ⌘W dentro de um painel: fecha ESTE painel pela porta guardada da janela principal (antes não fazia nada — e o
+    // menu do app, vendo a mesma tecla, também desistia)
+    if(tabCloseKey(e, osKind())){ e.preventDefault(); try{ const id=window.frameElement && window.frameElement.dataset.tabid; if(id && typeof window.parent.tabCloseGuarded==='function') window.parent.tabCloseGuarded(id); }catch(_){ } }
+    return; }
   if(k==='j' && !e.shiftKey){ e.preventDefault(); openTab('projeto',{ sub:'conversa' }); }
   else if(k===',' && !e.shiftKey){ e.preventDefault(); if(typeof ajustesOpen==='function') ajustesOpen(); else openTab('cfg'); }
   else if(k==='b' && !e.shiftKey){ e.preventDefault(); setRailCollapsed(!railIsCol()); }
-  else if(k==='w' && !e.shiftKey){ e.preventDefault(); const t=tabById((typeof cvGroupMember==='function' && cvGroupMember()) || activeTab); if(!t || t.pin) return; // grupo na tela: fecha o membro em foco
-    // aba de tarefa com o editor aberto: pergunta antes de descartar o que não foi salvo (igual ao "fechar")
-    if(t.kind==='task' && typeof fwLeaveEditor==='function' && !await fwLeaveEditor()) return;
-    if(tabById(t.id)) closeTab(t.id); }
+  else if(k==='w' && !e.shiftKey){ if(!tabCloseKey(e, osKind())) return; e.preventDefault(); const t=tabById((typeof cvGroupMember==='function' && cvGroupMember()) || activeTab); if(!t || t.pin) return; // grupo na tela: fecha o membro em foco
+    // pela porta guardada (tabLeaveGuard): pergunta antes de descartar a edição — a da janela OU a do painel
+    await tabCloseGuarded(t.id); }
   // R7: ⌘1…⌘9 passa pela MESMA guarda do clique na aba — antes ia direto e jogava fora a edição não salva do arquivo
   else if(/^[1-9]$/.test(k) && !e.shiftKey){ e.preventDefault(); const i=k==='9'?TABS.length-1:(+k-1); const t=TABS[i]; if(t && t.id!==activeTab && await tabLeaveGuard(t.id, false)) activateTab(t.id); }
   // pela TECLA produzida (e.key), não pela posição física (e.code): no ABNT2 os colchetes ficam em outro lugar

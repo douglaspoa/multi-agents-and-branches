@@ -38,8 +38,9 @@ function plChipsFull(say, chips){
   const items=[]; let m;
   while((m=re.exec(txt))){ const n=+m[1]; if(n!==items.length+1) continue; items.push(n+') '+m[2].trim().replace(/[?.,]+$/,'').replace(/\s+(ou|e|or)$/i,'').slice(0,48)); }
   if(items.length>=2 && items.length<=8 && items.length>c.length) return items;
-  return c.slice(0,8);
+  return c.slice(0,PL_CHIPS_MAX); // A2 (mesa-bugs-2): antes cortava em 8 em silêncio — a caixa de chips rola (css #plChips)
 }
+const PL_CHIPS_MAX=24;
 function plLastSay(msgs){ const l=(msgs||[]).filter(m=>m&&m.who==='bot'); return l.length?String(l[l.length-1].text||''):''; }
 let plAfterEdit=new Set(); // tarefas do épico com os chips de "depois de" abertos pra editar
 let plBusyAt=0, plBusyTick=null;
@@ -107,10 +108,13 @@ function plStartWith(text, opts){
   text=String(text||'').trim(); if(!window.openTab) return;
   const before=plOpenSeq;
   window.openTab('planner', opts||{});
+  const tid=activeTab; // a aba que ESTE pedido abriu: outra aba Conversar aberta no meio da espera não recebe o pedido
   let n=0; const go=()=>{
     const o=$id('plannerOverlay'), t=(typeof tabById==='function')?tabById(activeTab):null;
-    const ready=plOpenSeq>before && plOpenDone===plOpenSeq && o && o.style.display!=='none' && t && t.kind==='planner';
-    if(!ready){ if(++n<60) setTimeout(go,100); return; }
+    const ready=plOpenSeq>before && plOpenDone===plOpenSeq && o && o.style.display!=='none' && t && t.kind==='planner' && t.id===tid;
+    // L8 (mesa-bugs-2): passou de 6 s e o pedido sumia calado. Agora espera até ~30 s e, se ainda não abriu, o pedido
+    // NUNCA some: vai pra caixa da conversa (se ela está na tela) ou fica num aviso com "tentar de novo"
+    if(!ready){ if(++n<PL_START_TRIES){ setTimeout(go,100); return; } if(text) plStartGiveUp(text, o, t, tid); return; }
     if(!text) return;
     if(plMsgs.some(m=>m.who==='you') || plBusy){
       const i=$id('plInput'); if(i){ if(!i.value.trim()) i.value=text; i.dispatchEvent(new Event('input')); i.focus(); }
@@ -120,6 +124,14 @@ function plStartWith(text, opts){
     plSend(text);
   };
   setTimeout(go,60);
+}
+const PL_START_TRIES=300;
+function plStartGiveUp(text, o, t, tid){
+  const i=$id('plInput');
+  if(i && o && o.style.display!=='none' && t && t.kind==='planner' && (!tid || t.id===tid)){
+    if(!i.value.trim()){ i.value=text; i.dispatchEvent(new Event('input')); }
+    toast('A conversa demorou pra abrir — seu pedido ficou na caixa. É só enviar.','warn'); return 'caixa'; }
+  toast('A conversa não abriu a tempo — seu pedido não se perdeu.','warn', { label:'tentar de novo', fn:()=>plStartWith(text) }); return 'aviso';
 }
 window.plStartWith=plStartWith;
 async function plNew(confirmed){
@@ -267,6 +279,7 @@ function renderPlanner(){
   mesh.querySelectorAll('textarea.plfv').forEach(t=>{ chatGrow(t); t.addEventListener('input',()=>chatGrow(t)); });
   mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); if(typeof estSchedule==='function') estSchedule(); }));
   bindClick('plCreate', plCreate);
+  if(plCreating){ const c=$id('plCreate'); if(c){ c.disabled=true; c.textContent='criando…'; } }
   if(!plPlan && typeof estSchedule==='function'){ estSchedule(); } // previsão: recalcula com debounce (cache pelo conteúdo) — a linha de previsão relê estLast
   plWireResult(mesh);
   if(!plPlan) plWirePreview(mesh.querySelector('.plmeshfoot'));
@@ -348,7 +361,8 @@ function plPlanToOrq(plan, briefing, repo, now, ai){
   return { id:'orq-'+ts.toString(36)+'p', title:String((plan&&plan.epic)||'Plano').slice(0,80), summary:String((plan&&plan.outcome)||''), briefing:String(briefing||''), createdAt:ts, status:'planned', model:String(ai.model||''), engine:String(ai.engine||'claude'), phases, repo:repo||'' };
 }
 // a MESMA IA que o plCreate vai usar (motor do plano; modelo escolhido ou o padrão do usuário)
-function plModelNow(){ return { eng:String(plFields.engine||'claude'), model:plFields.model||aiDefaults().model||'' }; }
+// o modelo PADRÃO só vale se for do MESMO motor (Codex escolhido nunca vai com o modelo do Claude): senão vai vazio = padrão do motor
+function plModelNow(){ const eng=String(plFields.engine||'claude'), d=aiDefaults(); return { eng, model:plFields.model||(aiEngineOf(d.eng)===aiEngineOf(eng)?d.model:'')||'' }; }
 // tipo que a criação usa: o escolhido no chip, senão o palpite pelo que a IA já montou (o mesmo que a prévia mostra)
 function plEffKind(){ return plFields.kind || ndGuessType(plGuessText()) || 'build'; }
 function plEngineNorm(e){ e=String(e||defaultAiEngine()).toLowerCase(); return ['claude','codex','gateway','logcomex','deepseek','mock'].includes(e)?e:(e.includes('codex')?'codex':(e.includes('deepseek')||/^dsh\b/.test(e))?'deepseek':e.includes('gateway')?'gateway':'claude'); }
@@ -425,7 +439,8 @@ function plWireModelCard(th, rerender){
 const plStrs=(a,n)=>(Array.isArray(a)?a:[]).map(s=>String((s&&typeof s==='object')?(s.text||s.id||''):s).trim()).filter(Boolean).slice(0,n);
 function plPlanFrom(p){
   // idx = posição ORIGINAL em p.tasks (é a referência que `after` usa); tarefa sem título cai fora, mas os índices das outras não deslocam
-  const all=(Array.isArray(p.tasks)?p.tasks:[]).slice(0,8);
+  // A3 (mesa-bugs-2): antes cortava em 8 em silêncio (etapas 9+ e as dependências sumiam). Acima do teto, o card avisa (cut)
+  const src=Array.isArray(p.tasks)?p.tasks:[], all=src.slice(0,PL_PLAN_MAX);
   const tasks=all.map((x,i)=>(x&&x.title)?{ idx:i, title:String(x.title).slice(0,90), objective:String(x.objective||''),
     requirements:plStrs(x.requirements,6), owns:String(x.owns||'').trim(),
     verify:String(x.verify||'').trim().slice(0,240), covers:plStrs(x.covers,8),
@@ -443,8 +458,9 @@ function plPlanFrom(p){
   const reqs=(Array.isArray(p.requirements)?p.requirements:[]).map(r=>(r&&typeof r==='object')?{ id:String(r.id||'').trim(), text:String(r.text||'').trim() }:{ id:'', text:String(r).trim() }).filter(r=>r.text).slice(0,12);
   reqs.forEach((r,i)=>{ if(!r.id || reqs.some((o,j)=>j<i&&o.id===r.id)) r.id='R'+(i+1); });
   return { epic:String(p.epic||plFields.title||'Épico').slice(0,80), outcome:String(p.outcome||'').trim().slice(0,300),
-    requirements:reqs, doneWhen:plStrs(p.doneWhen,6), boundaries:plStrs(p.boundaries,6), tasks:plSortWaves(tasks) };
+    requirements:reqs, doneWhen:plStrs(p.doneWhen,6), boundaries:plStrs(p.boundaries,6), tasks:plSortWaves(tasks), cut:Math.max(0, src.length-all.length) };
 }
+const PL_PLAN_MAX=20;
 // onda = 1 + maior onda dos pré-requisitos MARCADOS (pré-requisito desmarcado no card não conta); sem `after`, onda 1.
 // Ciclo mantém a wave da tarefa. Roda de novo a cada edição estrutural do card e ao aprovar.
 function plWaves(tasks){
@@ -510,6 +526,7 @@ function plPlanCardHtml(bare){
       ${dw.map((d,i)=>`<div class="ppdwrow"><span class="mono">D${i+1}</span><input class="ppedit" data-ppdw="${i}" value="${escA(d)}" placeholder="checagem que uma pessoa roda sem abrir tarefa"${dis}><button type="button" class="ppx" data-ppdwx="${i}" title="remover"${dis}>${IC.x}</button></div>`).join('')}
       <button type="button" class="ppadd" id="ppDwAdd"${dis}>+ checagem</button></div>
     <div class="pplist">${rows}</div>
+    ${PLP().cut?`<div class="ppwarn">A IA propôs ${PLP().tasks.length+PLP().cut} etapas — aqui cabem as ${PL_PLAN_MAX} primeiras. Peça na conversa pra juntar etapas, ou crie as outras depois.</div>`:''}
     ${plPlanCtx.origin&&noTeam?`<div class="ppwarn">Desdobrar usa o backlog do <b>time</b> — entre na conta e escolha um time pra aprovar.</div>`:''}
     ${plPlanCtx.origin?'':plWhereHtml(noTeam, n)}
     <div class="ppfoot">${plPlanCtx.origin?'':plPreviewHtml(plPreviewFields())}<span class="ppfoot-sp"></span><button class="btn sm${plPlanCtx.origin?'':' quiet'}" id="ppDiscard"${PLP().locked?' disabled':''}>${plPlanCtx.origin?'cancelar':'Seguir como 1 tarefa'}</button><button class="btn primary sm" id="ppApprove"${((plPlanCtx.origin?noTeam:(plWhere(noTeam)==='time'&&noTeam))||PLP().locked||(busyHere))?' disabled':''}${busyHere?' title="espere a IA responder — ela pode ajustar o plano"':''}>${PLP().locked?'criando…':plApproveLabel(n, plPlanCtx.origin?'origin':plWhere(noTeam))}</button></div>
@@ -563,8 +580,11 @@ function plWhereHtml(noTeam, n){
     `<button type="button" class="g2wopt${w==='time'?' on':''}" role="radio" aria-checked="${w==='time'}" data-plwhere="time"${noTeam?' disabled':''}><b>No quadro do time${team?' · '+esc(team):''}</b><span>${noTeam?'entre na conta e escolha um time pra usar esta opção':`vira épico com ${n} ${n===1?'cartão':'cartões'}; quem pegar roda no computador dele`}</span></button></div>`;
 }
 // aprovar "aqui neste computador": o épico proposto vira plano do orquestrador e abre o grafo pra aprovar e rodar
+let plApproving=false; // L4 (mesa-bugs-2): duplo clique criava 2 planos — uma aprovação por vez
 async function plApproveLocal(btn){
-  const P=PLP(); if(!P) return;
+  const P=PLP(); if(!P || plApproving) return;
+  plApproving=true; const bHtml=btn?btn.innerHTML:''; if(btn){ btn.disabled=true; btn.textContent='criando…'; }
+  try{
   plWaves(P.tasks); plSortWaves(P.tasks);
   if(!P.tasks.some(t=>t.on)){ toast('Marque pelo menos uma etapa.','warn'); return; }
   const ai=plModelNow();
@@ -579,6 +599,7 @@ async function plApproveLocal(btn){
   await orqOpenPlan(op.id);
   plPlan=null; plAfterEdit=new Set(); await plClearDraft();
   toast('Etapas montadas neste computador — confira o grafo e aprove pra rodar.','ok');
+  }finally{ plApproving=false; const b2=$id('ppApprove'); if(b2 && b2.textContent==='criando…'){ b2.disabled=false; b2.innerHTML=bHtml; } }
 }
 async function plCreateEpic(){
   if(!PLP()) return;
@@ -643,7 +664,7 @@ async function plCreateEpic(){
 function renderPlannerMeterOnly(){
   const m=$id('plMeter'); if(m) m.innerHTML=plMeterHtml();
   document.querySelectorAll('#plMesh .plfield[data-k]').forEach(el=>{ const f=PL_MESH.find(x=>x.k===el.dataset.k); if(!f)return; el.className='plfield '+plState(f.k); const src=el.querySelector('.plfsrc'); if(src){ const st=plState(f.k); src.textContent=st==='ask'?'perguntando':(st==='ok'?f.src:'falta'); } });
-  const c=$id('plCreate'); if(c){ c.disabled=!plReady()||plBusy; c.classList.toggle('primary', plReady() && !plPlan); }
+  const c=$id('plCreate'); if(c){ c.disabled=!plReady()||plBusy||plCreating; c.classList.toggle('primary', plReady() && !plPlan); }
   { const snd=$id('plSend'); if(snd) snd.classList.toggle('primary', !(plPlan||plReady())); }
   const hint=document.querySelector('.plmeshfoot .plcreatehint'); if(hint) hint.textContent=plCreateHint();
 }
@@ -786,8 +807,13 @@ function plCreateHint(){
   if(plBusy) return 'espere a IA responder pra criar';
   return plReady()?'o essencial está fechado — pode criar':'falta: '+PL_MESH.filter(f=>f.req&&!plHas(f.k)).map(f=>f.label).join(', ');
 }
+let plCreating=false; // C8: enquanto cria, editar o resumo não religa o botão (renderPlannerMeterOnly)
 async function plCreate(){
-  if(!plReady() || plBusy) return; // R8: criar com a IA respondendo fechava a aba e a resposta caía no vazio
+  if(!plReady() || plBusy || plCreating) return; // R8: criar com a IA respondendo fechava a aba e a resposta caía no vazio
+  plCreating=true;
+  try{ return await plCreateInner(); } finally{ plCreating=false; }
+}
+async function plCreateInner(){
   const b=$id('plCreate'); const bHtml=b?b.innerHTML:''; if(b){ b.disabled=true; b.textContent='criando…'; }
   const arts=plFields.artifacts||{};
   const plReqs=[...new Set([...(plFields.requirements||[]), ...(plFields.deliverables||[])].map(x=>String(x).trim()).filter(Boolean))];
@@ -795,7 +821,7 @@ async function plCreate(){
   const minR=Math.max(1,+((typeof ntPolicy!=='undefined'&&ntPolicy.minRequirements)||1));
   if(plReqs.length<minR){
     plMsgs.push({who:'sys', text:`A política deste repo exige pelo menos ${minR} requisito(s) verificáveis — feche os requisitos antes de criar.`});
-    renderPlanner(); return;
+    plCreating=false; renderPlanner(); return;
   }
   // a criação SEGUE a prévia (decisão de 29/09): o tipo (escolhido ou o automático) define branch e entrega, igual ao formulário
   const cr=ndKindCreate(plEffKind()), ai=plModelNow();
@@ -808,8 +834,8 @@ async function plCreate(){
     planApproval:/ask|review/i.test(plFields.autonomy||'')?'review':'auto',
     refs:plRefs.slice(), branchType:cr.branchType, issue:null, issueUrl: plFields.issueUrl || undefined }; // BUG-8: não lê o campo de issue do FORMULÁRIO (outra aba)
   // tarefas referenciadas com "/" em qualquer mensagem sua viram contexto da tarefa criada
-  if(window.trfApply) await trfApply(payload, plMsgs.filter(m=>m.who==='you').map(m=>m.text).join('\n'));
-  try{ const nid=await invoke('new_task', await trkBeforeNewTask(payload)); if(typeof budgetApply==='function') await budgetApply(nid); if(typeof estSaveFor==='function') await estSaveFor(nid); await plClearDraft(); closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
+  try{ if(window.trfApply) await trfApply(payload, plMsgs.filter(m=>m.who==='you').map(m=>m.text).join('\n')); // C8: dentro do try — se lança, o botão volta
+    const nid=await invoke('new_task', await trkBeforeNewTask(payload)); if(typeof budgetApply==='function') await budgetApply(nid); if(typeof estSaveFor==='function') await estSaveFor(nid); await plClearDraft(); closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
   await refresh(); }
   catch(e){ showErr(e, 'Falha ao criar'); const b2=$id('plCreate')||b; if(b2){ b2.disabled=false; b2.innerHTML=bHtml||(IC.cright+' criar e rodar'); } }
 }
@@ -852,7 +878,20 @@ async function cloudPrReviewCheck(prUrl){
 }
 // BUG-18: duplo clique criava 2 tarefas (o overlapCheck tem await antes de desativar o botão) — uma submissão por vez
 let ntSubmitting=false;
-async function submitNewTask(start=true){ if(ntSubmitting) return; ntSubmitting=true; try{ return await submitNewTaskInner(start); } finally{ ntSubmitting=false; } }
+// a criação vale pra ABA que clicou: o rascunho em edição e a aba são lidos AGORA (trocar de aba durante o envio
+// trocava os globais — a criação apagava o rascunho de outra aba e fechava o Formulário errado)
+let ntSubmitCtx={ tab:null, draft:null };
+async function submitNewTask(start=true){ if(ntSubmitting) return; ntSubmitting=true;
+  { const cur=(typeof tabById==='function')?tabById(activeTab):null; ntSubmitCtx={ tab:(cur&&cur.kind==='form')?cur.id:null, draft:(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null }; }
+  try{ return await submitNewTaskInner(start); } finally{ ntSubmitting=false; } }
+// criou: substitui SÓ o rascunho que esta aba editava e fecha SÓ a aba dela (limpa os campos se ela ainda é a da tela)
+function ntSubmitDone(){
+  const c=ntSubmitCtx; ntSubmitCtx={ tab:null, draft:null };
+  if(c.draft){ invoke('remove_task',{taskId:c.draft}).catch(()=>{}); }
+  const mine=!c.tab || c.tab===activeTab;
+  if(mine) resetNewTask();
+  closeNewTask(c.tab||undefined);
+}
 async function submitNewTaskInner(start=true){
   if(ntMode==='review'){
     const pr = $id("ntPr").value.trim();
@@ -861,7 +900,7 @@ async function submitNewTaskInner(start=true){
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="revisando…";
     const done=await cloudPrReviewCheck(pr).catch(()=>null);
     if(done && !await askYes('Atenção: este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Starfork — o parecer está no cartão dele na aba Time.\n\nRodar OUTRO review mesmo assim?')){ btn.innerHTML=orig; btn.disabled=false; return; }
-    try{ await invoke("review_pr", { prUrl: pr, agents }); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
+    try{ await invoke("review_pr", { prUrl: pr, agents }); ntSubmitDone(); lastSig=""; await refresh(); }
     catch(e){ showErr(e, 'Falha ao iniciar o review'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -872,8 +911,8 @@ async function submitNewTaskInner(start=true){
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="corrigindo…";
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
     const team=$id('ntFixTeam').value;
-    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, approval:'auto', owns:$id("ntFixOwns").value.trim()||null, off:null, objective:$id("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:$id('ntFixArtDoc').checked?'FIX.md':null, proof:$id("ntFixArtProof").checked || !!ntPolicy.proofRequired, tests:$id("ntFixArtTests").checked || !!ntPolicy.testsRequired, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, linkedTo: ntLinkedTo };
-    try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
+    const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, models:ntModels||null /* L7: o "modelo por agente" vale na correção também */, approval:'auto', owns:$id("ntFixOwns").value.trim()||null, off:null, objective:$id("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:$id('ntFixArtDoc').checked?'FIX.md':null, proof:$id("ntFixArtProof").checked || !!ntPolicy.proofRequired, tests:$id("ntFixArtTests").checked || !!ntPolicy.testsRequired, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, linkedTo: ntLinkedTo };
+    try{ const t=await ntApplyShare(payload); ntSubmitDone(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ showErr(e, 'Falha ao criar o fix'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -899,7 +938,7 @@ async function submitNewTaskInner(start=true){
     ];
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="gerando design…";
     const payload={ start:true, title:dt, workflow:null, agents:$id('ntDzAgent').value||null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntDzRefs.slice(), branchType:'design', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
-    try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
+    try{ const t=await ntApplyShare(payload); ntSubmitDone(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ showErr(e, 'Falha ao criar o design'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -923,7 +962,7 @@ async function submitNewTaskInner(start=true){
     ];
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="investigando…";
     const payload={ start:true, title:it, workflow:null, agents:$id('ntInvAgent').value||null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:'INVESTIGATION.md', proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntInvRefs.slice(), branchType:'invest', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
-    try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
+    try{ const t=await ntApplyShare(payload); ntSubmitDone(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ showErr(e, 'Falha ao criar a investigação'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -979,14 +1018,12 @@ async function submitNewTaskInner(start=true){
   try{
     if(start){
       const t=await ntApplyShare(payload);
-      if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
-      closeNewTask(); resetNewTask(); lastSig="";
+      ntSubmitDone(); lastSig="";
       if(t) setView('team'); else await refresh();
     } else {
       if(window.trfApply) await trfApply(payload);
       await invoke('new_task', await trkBeforeNewTask(payload));
-      if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
-      closeNewTask(); resetNewTask(); lastSig=""; await refresh();
+      ntSubmitDone(); lastSig=""; await refresh();
     }
   }
   catch(e){ showErr(e, 'Falha ao criar tarefa'); }

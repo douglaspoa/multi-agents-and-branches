@@ -41,16 +41,16 @@ const AI_ENGINES=[
     models:AI_CLAUDE_MODELS },
   { id:'codex', name:'Codex', vendor:'OpenAI', color:'#10a37f', custom:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.6"/><path d="M8 2.4v11.2M3.15 5.2l9.7 5.6M3.15 10.8l9.7-5.6" stroke-linecap="round"/></svg>',
-    desc:'Codex CLI com o login da sua conta do ChatGPT (Plus/Pro/Team — igual ao Claude Code com o plano Claude). Sem plano do ChatGPT, dá pra usar uma chave da OpenAI. Configure em Configurações → Sua IA.',
+    desc:'Codex CLI com o login da sua conta do ChatGPT (Plus/Pro/Team — igual ao Claude Code com o plano Claude). Sem plano do ChatGPT, dá pra usar uma chave da OpenAI. Configure em Ajustes › Motores e chaves.',
     models:AI_CODEX_FALLBACK.slice() },
   { id:'gateway', name:'Gateway próprio', vendor:'OpenAI-compatível', color:'#5b9df9', custom:true, dynamic:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="2.5" y="3" width="11" height="4" rx="1.2"/><rect x="2.5" y="9" width="11" height="4" rx="1.2"/><path d="M5 5h.01M5 11h.01" stroke-width="2" stroke-linecap="round"/></svg>',
-    desc:'O endpoint da SUA empresa (vLLM, LiteLLM, Azure, Ollama…). URL, chave e modelos ficam na sua conta: Configurações → Gateway próprio.',
+    desc:'O endpoint da SUA empresa (vLLM, LiteLLM, Azure, Ollama…). URL, chave e modelos ficam na sua conta: Ajustes › Motores e chaves › IA da sua empresa.',
     models:[] },
   // BETA: DeepSeek Harness (dsh, MIT) — open source, pra quem não tem plano da Anthropic nem da OpenAI (ex.: alunos)
   { id:'deepseek', name:'DeepSeek beta', vendor:'open source · beta', color:'#4d6bfe', custom:true, beta:true,
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.2 9.2c1.6 2.9 5 4.1 8 2.7 2-.9 3.3-2.9 3.5-5-1 .9-2.2 1.2-3.4.9"/><path d="M2.2 9.2C2 6.4 4 4 6.8 3.6c1.6-.2 3.1.4 4.1 1.5"/><circle cx="10.6" cy="6.3" r=".6" fill="currentColor"/></svg>',
-    desc:'BETA — DeepSeek Harness (open source, dsh) com a chave da DeepSeek da sua conta (Configurações → Sua IA). Instale com: npm i -g @deepseek-ai/dsh. Os logs das sessões NÃO são enviados à DeepSeek.',
+    desc:'BETA — DeepSeek Harness (open source, dsh) com a chave da DeepSeek da sua conta (Ajustes › Motores e chaves). Instale com: npm i -g @deepseek-ai/dsh. Os logs das sessões NÃO são enviados à DeepSeek.',
     models:[ {id:'',name:'Padrão (capaz)',tag:'auto · v4-pro'}, {id:'deepseek-v4-pro',name:'DeepSeek V4 Pro',tag:'mais capaz'}, {id:'deepseek-flash',name:'DeepSeek Flash',tag:'mais veloz'} ] },
   { id:'mock', name:'Mock', vendor:'sem IA', color:'var(--muted)',
     icon:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="8" cy="8" r="5.4" stroke-dasharray="2.6 2.2"/></svg>',
@@ -146,7 +146,7 @@ function aiChatRunLabel(){ const d=aiDefaults(); return aiEngineOf(d.eng)==='moc
 // pílula do composer desses chats: a escolha deles JÁ mora no painel Sua IA (vale pra todos) — a pílula mostra qual
 // é e leva até lá; não cria uma segunda configuração
 function aiChatModelPill(id){
-  return { id, popup:'', label:aiChatRunLabel(), title:'IA dos chats = a sua IA padrão — clique pra trocar em Configurações → Sua IA (vale a partir da próxima mensagem)',
+  return { id, popup:'', label:aiChatRunLabel(), title:'IA dos chats = a sua IA padrão — clique pra trocar em Ajustes › Motores e chaves (vale a partir da próxima mensagem)',
     onPick:()=>{ if(typeof suaIaOpenCfg==='function') suaIaOpenCfg(); else if(typeof openCfg==='function') openCfg(); } };
 }
 // modelo pros chats que rodam no CLAUDE (planner, chat do projeto, issues, orquestrador): o padrão do usuário
@@ -336,6 +336,9 @@ function iaPick(el, opts){
       const cur=list.find(x=>x.id===pick.engine)||list[0];
       const rec0=typeof opts.recommend==='function'?opts.recommend():null, rec=rec0?Object.assign({}, rec0, { model:IA_PICK_ALIAS[rec0.model]||rec0.model }):null;
       const known=cur.models.some(m=>m.id===pick.model);
+      // o innerHTML refaz os botões (escolha, ou carregamento que chega depois): o foco volta pro MESMO controle
+      const ae=document.activeElement, had=ae===sh||sh.contains(ae);
+      const fk=had&&ae!==sh?['iaeng','iamodel','iacustom','iacustomin','iarec','iadef','iaok'].find(k=>k in ae.dataset):null, fv=fk?ae.dataset[fk]:null;
       sh.innerHTML=`<div class="ias-h"><b>Com qual IA?</b><span>${esc(IA_PICK_SCOPE[opts.scope]||opts.scope||IA_PICK_SCOPE.demanda)}</span><em>esc fecha</em></div>`+
         list.map(x=>`<button type="button" class="ias-opt${x.id===pick.engine?' on':''}" data-iaeng="${escA(x.id)}"${x.ready?'':' disabled aria-disabled="true"'}><span class="ias-rd" aria-hidden="true"></span><b>${esc(x.name)}${x.beta?' <small>beta</small>':''}</b>${x.state?`<em class="${x.ready?'ok':'w'}">${esc(x.state)}</em>`:''}<span class="ias-d">${esc(x.hint)}</span></button>`).join('')+
         `<div class="ias-models">${cur.models.map(m=>`<button type="button" class="ias-mc${m.id===pick.model&&!custom?' on':''}" data-iamodel="${escA(m.id)}">${esc(m.name)}${rec&&rec.engine===cur.id&&rec.model===m.id?'<small>recomendado</small>':''}</button>`).join('')}`+
@@ -351,6 +354,7 @@ function iaPick(el, opts){
       sh.querySelectorAll('[data-iarec]').forEach(b=>b.onclick=()=>{ pick=iaPickNorm(rec); custom=false; draw(); });
       sh.querySelectorAll('[data-iadef]').forEach(c=>c.onchange=()=>{ asDef=c.checked; });
       sh.querySelectorAll('[data-iaok]').forEach(b=>b.onclick=commit);
+      if(had){ const sel=fk?`[data-${fk.replace(/[A-Z]/g,c=>'-'+c.toLowerCase())}${fv?`="${CSS.escape(fv)}"`:''}]`:''; const f=(sel&&sh.querySelector(sel))||sh.querySelector('.ias-opt.on')||sh; try{ f.focus({ preventScroll:true }); }catch(_){ } }
       place();
     }
     function commit(){
@@ -367,11 +371,16 @@ function iaPick(el, opts){
       sh.classList.toggle('up', y<r.top);
     }
     const onOut=e=>{ if(!sh.contains(e.target) && !el.contains(e.target)) close(false); };
-    const onKey=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); return; } g2Trap(sh, e); };
+    const onKey=e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); close(true); return; }
+      // ↑↓ andam pelas IAs e modelos (Enter/Espaço escolhem)
+      if((e.key==='ArrowDown'||e.key==='ArrowUp') && sh.contains(document.activeElement) && !document.activeElement.matches('input')){
+        const l=[...sh.querySelectorAll('.ias-opt:not([disabled]),.ias-mc')]; if(l.length){ e.preventDefault(); const i=l.indexOf(document.activeElement), d=e.key==='ArrowDown'?1:-1; l[i<0?0:(i+d+l.length)%l.length].focus(); } return; }
+      g2Trap(sh, e); };
     function close(refocus){ sh.remove(); document.removeEventListener('mousedown', onOut, true); document.removeEventListener('keydown', onKey, true); window.removeEventListener('resize', place);
       if(_iaPickOpen && _iaPickOpen.sheet===sh) _iaPickOpen=null; const p=el.querySelector('.iapill'); if(p){ p.setAttribute('aria-expanded','false'); if(refocus) try{ p.focus({ preventScroll:true }); }catch(_){ } } }
     document.body.appendChild(sh); pill.setAttribute('aria-expanded','true');
     _iaPickOpen={ ctl, sheet:sh, close };
+    sh.focus({ preventScroll:true }); // dentro da folha antes do 1º draw: ele já devolve o foco à IA marcada
     draw();
     setTimeout(()=>{ document.addEventListener('mousedown', onOut, true); document.addEventListener('keydown', onKey, true); }, 0);
     window.addEventListener('resize', place);

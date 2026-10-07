@@ -158,7 +158,7 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   assert.match(ws, /if\(th && !th\.dataset\.term\)/);
   // layout A (60-terminal-layout): a coluna inteira vira terminal + painel; o slot do terminal mora no tlChatHtml
   assert.match(ws, /chat\.innerHTML=isTerm \? tlChatHtml\(t, composer\)/);
-  assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t, sheetGrab\);[^\n]*\} else termSweep\(\);/);
+  assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t, sheetGrab, termHadFocus\);[^\n]*\} else termSweep\(\);/);
   // terminal integrado (64): o dock (sugestões/anexar/botões) entra entre o terminal e o compositor
   assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}<div id="tlBudget">\$\{tlBudgetHtml\(t\)\}<\/div>\$\{typeof tiDockHtml==='function'\?tiDockHtml\(t\):''\}\$\{composer\}/);
   assert.match(src('34-orquestrador.js'), /termMode:'auto', start:startNow/);

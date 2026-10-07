@@ -140,7 +140,7 @@ test('doca: "Responder" com 1·2·3; IA ocupada → só "Interromper (esc)"; she
   assert.match(busy, /data-ti="esc"[^>]*>Interromper <span class="kbd">esc<\/span>/);
   assert.equal(TI.tiReplyHtml({ busy: true, live: false, rec }), '', 'sem terminal vivo não há o que interromper');
   const sh = TI.tiReplyHtml({ shell: true, rec });
-  assert.match(sh, /<span class="tirl">a IA parou<\/span><button type="button" class="btn sm primary tirecbtn" data-ti="rec"[^>]*>Continuar com Claude · opus<\/button>/);
+  assert.match(sh, /<span class="tirl">a IA parou<\/span><button type="button" class="btn sm primary tirecbtn" data-ti="rec"[^>]*>Continuar com Claude · Opus<\/button>/);
   assert.equal(TI.tiReplyHtml({ rec }), '', 'nada a responder: a faixa some');
   // a linha de comandos: IA ▾ · Anexar · ✎ | Etapa · Skills · Tarefa · Revisão / PR — sem o rótulo "compositor" solto
   const dock = cut(ti, 'function tiDockHtml(t){', '\n}\n');

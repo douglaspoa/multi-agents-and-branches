@@ -196,7 +196,7 @@ function ndRenderStart(){
   bindClick('ndIntentGo', ndContinue);
   { const d=body.querySelector('#ndMore'); if(d) d.ontoggle=()=>{ lsSet('nd:more', d.open?'1':'0'); }; }
   body.querySelectorAll('[data-ndtype]').forEach(b=>b.onclick=()=>{ ndType=b.dataset.ndtype; ndRenderStart(); });
-  { const s=body.querySelector('#ndProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p && p!==state.repo && window.switchProject){ await window.switchProject(p); } ndRenderStart(); }; }
+  { const s=body.querySelector('#ndProj'); if(s) s.onchange=async()=>{ const p=s.value; if(p && p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(_){ } } ndRenderStart(); }; }
   // 1º clique no card SELECIONA o método; o botão Continuar (ou 2º clique no mesmo card) segue —
   // o caminho escolhido substitui esta aba (cada aba é um fluxo isolado). Com texto na caixa, "conversando" já leva o texto.
   const go=()=>{ const m=ndMethod; if(m==='chat' && ndIntent.trim()){ ndContinue(); return; } if(m==='form') window.ntPresetType=ndType; if(window.openTab) window.openTab(m==='chat'?'planner':m==='form'?'form':'orq', { replace:true }); };

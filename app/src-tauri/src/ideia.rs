@@ -19,7 +19,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
 
-use super::{ai_once, claude_bin, claude_cmd, claude_json, home_dir_s, mesa, push_model, tool_line, usage_ledger};
+use super::{ai_once, claude_bin, claude_cmd, home_dir_s, mesa, push_model, tool_line, usage_ledger};
 
 /// Resposta de uma persona (s): só opina, sem ferramentas.
 const ASK_SECS: u64 = 300;
@@ -71,7 +71,7 @@ pub fn list_in(dir: &Path) -> Vec<serde_json::Value> {
                 None => return Some(serde_json::json!({ "id": id, "titulo": format!("(arquivo {n} ilegível)"), "corrompida": true, "updatedAt": 0 })),
             };
             Some(serde_json::json!({
-                "id": id, "titulo": v["titulo"], "createdAt": v["createdAt"], "updatedAt": v["updatedAt"], "costUsd": v["costUsd"],
+                "id": id, "titulo": v["titulo"], "createdAt": v["createdAt"], "updatedAt": v["updatedAt"], "costUsd": v["costUsd"], "tokUsd": v["tokUsd"],
                 "turnos": v["turns"].as_array().map(|a| a.len()).unwrap_or(0),
                 "pesquisa": v["report"]["status"], "decisao": v["decision"]["status"], "projeto": v["project"]["dir"],
             }))
@@ -112,7 +112,7 @@ pub(crate) fn persona_args(sys: &str, model: &Option<String>) -> Vec<String> {
 /// UMA persona responde UMA vez sobre a ideia. `{ text, costUsd }` (Claude) ou `{ text, costUsd:0, inTok, outTok,
 /// cachedTok, engine }` (outros motores — a tela estima pelo token, como na mesa); `{ error, costUsd }` se cobrou e falhou.
 #[tauri::command(async)]
-pub fn ideia_ask(id: String, persona_sys: String, prompt: String, model: Option<String>, json: Option<bool>) -> Result<serde_json::Value, String> {
+pub fn ideia_ask(id: String, persona_sys: String, prompt: String, model: Option<String>, json: Option<bool>, budget_usd: Option<f64>) -> Result<serde_json::Value, String> {
     if ideia_path(Path::new("."), &id).is_err() { return Err("id de ideia inválido".into()); }
     let dir = ideias_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -123,23 +123,18 @@ pub fn ideia_ask(id: String, persona_sys: String, prompt: String, model: Option<
     if eng != ai_once::AiEngine::Claude { return mesa::ask_other_as("ideia", eng, &id, &sys, &prompt, &dir); }
     let model = model.filter(|m| !m.trim().is_empty());
     let mut cmd = claude_cmd(&claude_bin());
-    cmd.args(persona_args(&sys, &model)).current_dir(&dir);
+    cmd.args(persona_args(&sys, &model)).args(mesa::budget_args(budget_usd)).current_dir(&dir); // teto DESTA fala (parte do teto da ideia)
     let started = Instant::now();
     let out = mesa::run_stoppable(cmd, ASK_SECS, &id, Some(prompt))?;
     usage_ledger::record_claude_output(&usage_ledger::Tag::new("ideia", &dir, &model, &None), &out, started);
-    let cost = mesa::cost_of(&out);
-    match claude_json(&out) {
-        Ok(v) => Ok(serde_json::json!({ "text": v["result"].as_str().unwrap_or(""), "costUsd": cost })),
-        Err(e) if cost > 0.0 => Ok(serde_json::json!({ "error": e, "costUsd": cost })),
-        Err(e) => Err(e),
-    }
+    mesa::ask_reply(&out, budget_usd)
 }
 
 // ---------------------------------------------------------------------------
 // pesquisa: qual caminho em cada motor
 // ---------------------------------------------------------------------------
 
-pub(crate) const NO_WEB_MSG: &str = "A pesquisa precisa de uma IA com busca na web: Claude, Codex ou DeepSeek. O gateway da empresa não navega — escolha outra IA em Configurações › Sua IA, ou instale a pesquisa ampliada (Agent Reach) no Ambiente pra pesquisar com ele mesmo assim.";
+pub(crate) const NO_WEB_MSG: &str = "A pesquisa precisa de uma IA com busca na web: Claude, Codex ou DeepSeek. O gateway da empresa não navega — escolha outra IA em Ajustes › Motores e chaves, ou instale a pesquisa ampliada (Agent Reach) em Ajustes › Verificação pra pesquisar com ele mesmo assim.";
 
 /// Caminho da pesquisa por motor. PURA — testada. "native" = ferramentas de web do próprio motor; "reach" = o app
 /// coleta fontes públicas com o Agent Reach e o motor (sem ferramentas) escreve; "none" = não dá.
@@ -671,7 +666,7 @@ mod tests {
     fn arquivo_da_ideia_travado_na_pasta() {
         let d = tmp("io");
         for bad in ["", "../x", "a/b", "x.json", "i-1-r"] { assert!(ideia_path(&d, bad).is_err(), "{bad}"); }
-        save_in(&d, "i-1", &serde_json::json!({"titulo":"skincare","updatedAt":1,"turns":[1,2],"report":{"status":"ok"}})).unwrap();
+        save_in(&d, "i-1", &serde_json::json!({"titulo":"skincare","updatedAt":1,"turns":[1,2],"report":{"status":"ok"},"costUsd":0.0,"tokUsd":0.42})).unwrap();
         save_in(&d, "i-2", &serde_json::json!({"titulo":"pou","updatedAt":5,"turns":[],"project":{"dir":"/x"}})).unwrap();
         std::fs::write(d.join("i-3.json"), "{ quebrado").unwrap();
         let l = list_in(&d);
@@ -680,6 +675,7 @@ mod tests {
         assert_eq!(l[0]["projeto"], "/x");
         assert_eq!(l[1]["turnos"], 2);
         assert_eq!(l[1]["pesquisa"], "ok");
+        assert_eq!(l[1]["tokUsd"].as_f64(), Some(0.42), "gasto por tokens (Codex/DeepSeek/gateway) vai pra lista da Fábrica");
         assert_eq!(l[2]["corrompida"], true);
         assert!(read_in(&d, "nao-tem").unwrap().is_null());
         assert!(read_in(&d, "i-3").is_err());

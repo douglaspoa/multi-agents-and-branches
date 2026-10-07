@@ -152,6 +152,42 @@ pub(crate) fn cost_of(out: &std::process::Output) -> f64 {
         .unwrap_or(0.0)
 }
 
+/// Teto de UMA chamada (`--max-budget-usd`): a tela divide o que sobra do teto da sessão (mesa/ideia) entre as chamadas
+/// em voo e manda a parte de cada uma. Arredonda pra BAIXO no centavo (nunca passa da reserva). PURA.
+pub(crate) fn budget_args(budget_usd: Option<f64>) -> Vec<String> {
+    match budget_usd.filter(|b| b.is_finite() && *b > 0.0).map(|b| (b * 100.0 + 1e-9).floor() / 100.0).filter(|b| *b > 0.0) {
+        Some(b) => vec!["--max-budget-usd".into(), format!("{b:.2}")],
+        None => vec![],
+    }
+}
+/// O claude parou no teto da chamada (`subtype: error_max_budget_usd`). PURA.
+pub(crate) fn hit_budget(stdout: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(String::from_utf8_lossy(stdout).trim().as_bytes())
+        .ok()
+        .map(|v| v["subtype"].as_str().unwrap_or("").contains("budget"))
+        .unwrap_or(false)
+}
+/// Marca do "parou no teto desta chamada" — a tela devolve a persona pra fila e mostra o aviso de teto.
+pub const BUDGET: &str = "MESA_BUDGET";
+/// Resposta de UMA chamada ao claude: texto, erro que cobrou, ou o teto da chamada batido (MESA_BUDGET).
+/// O CLI confere o teto DEPOIS de cada mensagem: a fala é cobrada inteira. Se ela veio com texto, o texto é
+/// aproveitado (descartar e re-enfileirar pagaria 2×) e `budgetHit` só avisa que passou da reserva.
+pub(crate) fn ask_reply(out: &std::process::Output, budget_usd: Option<f64>) -> Result<serde_json::Value, String> {
+    let cost = cost_of(out);
+    if hit_budget(&out.stdout) {
+        let text = serde_json::from_slice::<serde_json::Value>(String::from_utf8_lossy(&out.stdout).trim().as_bytes())
+            .ok().and_then(|v| v["result"].as_str().map(|s| s.trim().to_string())).unwrap_or_default();
+        if !text.is_empty() { return Ok(serde_json::json!({ "text": text, "costUsd": cost, "budgetHit": true })); }
+        let b = budget_usd.unwrap_or(0.0);
+        return Ok(serde_json::json!({ "error": format!("{BUDGET}: a fala parou no teto desta chamada (US$ {b:.2}) — aumente o teto da sessão pra continuar"), "costUsd": cost, "budgetHit": true }));
+    }
+    match claude_json(out) {
+        Ok(v) => Ok(serde_json::json!({ "text": v["result"].as_str().unwrap_or(""), "costUsd": cost })),
+        Err(e) if cost > 0.0 => Ok(serde_json::json!({ "error": e, "costUsd": cost })),
+        Err(e) => Err(e),
+    }
+}
+
 /// Repo EXPLÍCITO que não existe mais = erro (cair no projeto ativo gravaria a mesa no projeto errado).
 fn mesa_repo(state: &State<AppState>, repo: Option<String>) -> Result<PathBuf, String> {
     if let Some(r) = repo.as_ref().map(|r| r.trim()).filter(|r| !r.is_empty()) {
@@ -179,7 +215,7 @@ pub fn cap_sys(sys: String) -> String {
 #[allow(clippy::too_many_arguments)]
 pub fn mesa_ask(
     state: State<AppState>, repo: Option<String>, id: String, persona_sys: String, prompt: String,
-    model: Option<String>, json: Option<bool>,
+    model: Option<String>, json: Option<bool>, budget_usd: Option<f64>,
 ) -> Result<serde_json::Value, String> {
     if !ok_id(&id) { return Err("id de mesa inválido".into()); }
     let repo = mesa_repo(&state, repo)?;
@@ -201,18 +237,14 @@ pub fn mesa_ask(
     ];
     let model = model.filter(|m| !m.trim().is_empty());
     if let Some(m) = model.clone() { args.push("--model".into()); args.push(m); }
+    args.extend(budget_args(budget_usd)); // teto DESTA chamada (parte do teto da mesa reservada pela tela)
     args.extend(protect_args(protect_on(&repo))); // por último: a flag é variádica
     let mut cmd = claude_cmd(&claude_bin());
     cmd.args(&args).current_dir(&repo);
     let started = std::time::Instant::now();
     let out = run_stoppable(cmd, ASK_SECS, &id, Some(prompt))?;
     crate::usage_ledger::record_claude_output(&crate::usage_ledger::Tag::new("personas", &repo, &model, &None), &out, started); // livro de uso
-    let cost = cost_of(&out);
-    match claude_json(&out) {
-        Ok(v) => Ok(serde_json::json!({ "text": v["result"].as_str().unwrap_or(""), "costUsd": cost })),
-        Err(e) if cost > 0.0 => Ok(serde_json::json!({ "error": e, "costUsd": cost })),
-        Err(e) => Err(e),
-    }
+    ask_reply(&out, budget_usd)
 }
 
 /// A persona num motor que NÃO é o Claude (Codex/DeepSeek/gateway, ai_once::chat_turn): sem sessão, só-leitura,
@@ -310,7 +342,7 @@ pub fn list_in(repo: &Path) -> Vec<serde_json::Value> {
             };
             Some(serde_json::json!({
                 "id": id, "tema": v["tema"], "status": v["status"], "createdAt": v["createdAt"], "updatedAt": v["updatedAt"],
-                "costUsd": v["costUsd"], "personas": v["personas"].as_array().map(|a| a.len()).unwrap_or(0),
+                "costUsd": v["costUsd"], "tokUsd": v["tokUsd"], "personas": v["personas"].as_array().map(|a| a.len()).unwrap_or(0),
                 "rounds": v["rounds"].as_array().map(|a| a.len()).unwrap_or(0),
             }))
         }).collect())
@@ -345,6 +377,35 @@ pub fn mesa_list(state: State<AppState>, repo: Option<String>) -> Result<Vec<ser
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn teto_por_chamada_vira_max_budget_e_nunca_arredonda_pra_cima() {
+        assert_eq!(budget_args(Some(0.166)), ["--max-budget-usd", "0.16"], "arredonda pra baixo: a soma das reservas não passa do teto");
+        assert_eq!(budget_args(Some(0.5)), ["--max-budget-usd", "0.50"]);
+        assert!(budget_args(None).is_empty());
+        assert!(budget_args(Some(0.0)).is_empty() && budget_args(Some(-1.0)).is_empty() && budget_args(Some(f64::NAN)).is_empty() && budget_args(Some(0.004)).is_empty());
+    }
+
+    #[test]
+    fn teto_da_chamada_batido_vira_mesa_budget_com_o_custo() {
+        #[cfg(unix)]
+        let ok = || { use std::os::unix::process::ExitStatusExt; std::process::ExitStatus::from_raw(0) };
+        #[cfg(windows)]
+        let ok = || { use std::os::windows::process::ExitStatusExt; std::process::ExitStatus::from_raw(0) };
+        let out = |s: &str| std::process::Output { status: ok(), stdout: s.as_bytes().to_vec(), stderr: vec![] };
+        let hit = ask_reply(&out(r#"{"type":"result","subtype":"error_max_budget_usd","is_error":true,"total_cost_usd":0.17}"#), Some(0.16)).unwrap();
+        assert!(hit["error"].as_str().unwrap().starts_with(BUDGET));
+        assert_eq!(hit["costUsd"].as_f64(), Some(0.17));
+        assert_eq!(hit["budgetHit"].as_bool(), Some(true));
+        // passou da reserva mas a fala veio inteira: aproveita o texto e conta o custo (nada de pagar 2×)
+        let paga = ask_reply(&out(r#"{"type":"result","subtype":"error_max_budget_usd","is_error":true,"result":"minha posição","total_cost_usd":0.4}"#), Some(0.16)).unwrap();
+        assert_eq!(paga["text"].as_str(), Some("minha posição"));
+        assert_eq!(paga["costUsd"].as_f64(), Some(0.4));
+        assert!(paga.get("error").is_none());
+        let fine = ask_reply(&out(r#"{"type":"result","subtype":"success","is_error":false,"result":"oi","total_cost_usd":0.1}"#), Some(0.16)).unwrap();
+        assert_eq!(fine["text"].as_str(), Some("oi"));
+        assert!(fine.get("error").is_none());
+    }
     fn tmp(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("cardume-mesa-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
@@ -363,7 +424,7 @@ mod tests {
     #[test]
     fn salva_lista_e_le() {
         let d = tmp("io");
-        save_to(&d, "m1", &serde_json::json!({"tema":"a","updatedAt":1,"personas":[1,2],"rounds":[1]})).unwrap();
+        save_to(&d, "m1", &serde_json::json!({"tema":"a","updatedAt":1,"personas":[1,2],"rounds":[1],"tokUsd":0.3})).unwrap();
         save_to(&d, "m2", &serde_json::json!({"tema":"b","updatedAt":5,"personas":[],"rounds":[]})).unwrap();
         save_to(&d, "personas", &serde_json::json!({"personas":[]})).unwrap();
         assert!(save_to(&d, "../fora", &serde_json::json!({})).is_err());
@@ -373,6 +434,7 @@ mod tests {
         assert_eq!(l.len(), 2, "personas.json não é mesa");
         assert_eq!(l[0]["id"], "m2");
         assert_eq!(l[1]["personas"], 2);
+        assert_eq!(l[1]["tokUsd"].as_f64(), Some(0.3), "gasto por tokens vai pra lista da Fábrica");
         assert!(!mesas_dir(&d).join(".m1.json.tmp").exists());
         delete_in(&d, "m1").unwrap();
         assert_eq!(list_in(&d).len(), 1);

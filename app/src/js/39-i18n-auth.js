@@ -5,14 +5,14 @@
 // chave que faltar no idioma cai no pt-BR (nunca some texto).
 const I18N={ 'pt-BR':{
   // ---- erros do servidor (GoTrue) — sempre com o próximo passo ----
-  'auth.err.invalid_credentials':'E-mail ou senha incorretos. Confira a senha (Caps Lock ligado?) ou crie uma nova.',
+  'auth.err.invalid_credentials':'E-mail ou senha incorretos. Confira a senha (Caps Lock ligado?) ou crie uma senha nova em “esqueci a senha”.',
   'auth.err.email_not_confirmed':'Seu e-mail ainda não foi confirmado. Digite o código de 6 dígitos que enviamos no cadastro — ou peça um novo.',
-  'auth.err.user_exists':'Já existe uma conta com esse e-mail. Entre com a sua senha ou crie uma nova.',
+  'auth.err.user_exists':'Já existe uma conta com esse e-mail. Entre com a sua senha — se não lembrar, crie uma senha nova em “esqueci a senha”.',
   'auth.err.weak_password':'Senha fraca demais. Use {min}+ caracteres misturando letras e números.',
   'auth.err.weak_password_length':'Senha curta demais: use pelo menos {min} caracteres.',
   'auth.err.weak_password_pwned':'Essa senha aparece em vazamentos conhecidos e é fácil de adivinhar. Escolha outra — uma frase com números funciona bem.',
   'auth.err.weak_password_chars':'A senha precisa misturar letras maiúsculas, minúsculas, números e símbolos.',
-  'auth.err.rate_wait':'Por segurança, espere {s} s antes de pedir outro código.',
+  'auth.err.rate_wait':'Por segurança, espere {s} s antes de pedir outro código (libera às {hh}).',
   'auth.err.rate_email':'Limite de e-mails atingido por agora. Espere alguns minutos e tente de novo — o último código enviado continua valendo por 10 minutos.',
   'auth.err.rate_request':'Muitas tentativas seguidas. Espere um minuto e tente de novo.',
   'auth.err.otp_invalid':'Código inválido ou expirado. Use o código do e-mail mais recente (vale 10 minutos) ou peça um novo.',
@@ -24,7 +24,7 @@ const I18N={ 'pt-BR':{
   'auth.err.email_send_failed':'Não conseguimos enviar o e-mail agora. Tente de novo em alguns minutos.',
   'auth.err.same_password':'A nova senha precisa ser diferente da atual.',
   'auth.err.session_expired':'Sua sessão expirou. Entre de novo para continuar.',
-  'auth.err.reauth_needed':'Por segurança, entre de novo antes de trocar a senha.',
+  'auth.err.reauth_needed':'Por segurança, confirme que é você antes de trocar a senha: vamos mandar um código pro seu e-mail e aí você define a senha nova.',
   'auth.err.user_not_found':'Não achamos essa conta. Confira o e-mail ou crie uma conta.',
   'auth.err.user_banned':'Esta conta está bloqueada. Fale com o administrador do seu time.',
   'auth.err.email_login_disabled':'Entrar com e-mail está desativado no momento. Fale com o suporte do Starfork.',
@@ -100,7 +100,7 @@ const I18N={ 'pt-BR':{
   'auth.newpass.go':'Salvar senha', 'auth.newpass.busy':'salvando…', 'auth.newpass.back':'voltar ao login',
   'auth.newpass.done':'Senha alterada ✓',
   'auth.act.cancel':'cancelar',
-  'auth.act.login':'entrar', 'auth.act.forgot':'esqueci a senha', 'auth.act.signup':'criar conta', 'auth.act.resend':'reenviar código',
+  'auth.act.login':'entrar', 'auth.act.forgot':'esqueci a senha', 'auth.act.reauth':'receber o código no e-mail', 'auth.act.signup':'criar conta', 'auth.act.resend':'reenviar código',
   'auth.expired':'Sua sessão expirou — entre de novo pra continuar de onde parou.',
   'auth.cloud.nosess':'Você não está conectado. Entre (ou crie a sua conta) pra ver organização, times e convites.',
   'auth.cloud.open':'Entrar ou criar conta',
@@ -203,10 +203,14 @@ function authErrInfo(x){
   out.key=key; out.field=AUTH_FIELD[key]||'';
   return out;
 }
+// hora em que o limite libera (hh:mm:ss, pt-BR)
+function authFreeAt(now, s){ const d=new Date(now+Math.max(0,Number(s)||0)*1000); const p=n=>String(n).padStart(2,'0'); return p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()); }
 // mensagem pronta (idioma atual). Desconhecido → genérico; a UI mostra o código em letra pequena (authErrRef).
 function authErrPt(x, vars){
   const i=authErrInfo(x);
-  return T('auth.err.'+i.key, Object.assign({ s:i.wait, min:i.min, provider:'' }, vars||{}));
+  // limite de envio: diz A HORA em que libera (sem contagem na tela, "espere 42 s" não dizia quando)
+  const hh=i.wait!=null?authFreeAt(Date.now(), i.wait):'';
+  return T('auth.err.'+i.key, Object.assign({ s:i.wait, min:i.min, provider:'', hh }, vars||{}));
 }
 // "código: brand_new_code · HTTP 400" — só pra erro que a tela não sabe explicar (suporte consegue rastrear)
 function authErrRef(x){

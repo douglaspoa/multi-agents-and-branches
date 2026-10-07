@@ -156,7 +156,7 @@ pub(crate) fn month_use(ledger: &Path, since: i64) -> Result<std::collections::B
 }
 
 /// Meia-noite do dia 1 (aproximação em UTC) — só quando o front não manda o início do mês local.
-fn month_start_utc(now: i64) -> i64 {
+pub(crate) fn month_start_utc(now: i64) -> i64 {
     let days = now.div_euclid(86_400_000);
     // civil-from-days (Howard Hinnant) → dia do mês
     let z = days + 719_468;

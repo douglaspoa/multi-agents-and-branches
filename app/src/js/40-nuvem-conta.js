@@ -94,7 +94,7 @@ async function loginOAuth(provider){
     // troca o code por sessão (PKCE)
     const j=await sbAuth('token?grant_type=pkce',{ auth_code:code, code_verifier:verifier });
     if(!j.access_token) throw sbAuthError(400,{ error_code:'bad_oauth_callback' });
-    SB.setSess(j); cloudMsg=''; await cloudLoad(); cloudBtnSync(); renderCloud(); try{ loginGateSync(); }catch(_){}
+    SB.setSess(j); cloudMsg=''; try{ if(typeof secretsSync==='function') secretsSync().then(secretsAvailRefresh).catch(()=>{}); }catch(_){ } await cloudLoad(); cloudBtnSync(); renderCloud(); try{ loginGateSync(); }catch(_){}
   }catch(e){
     // erro do Rust (porta ocupada, 3 min sem retorno) já vem em pt-BR como string; o resto passa pelo tradutor
     const pname=provider==='github'?'GitHub':'Google';
@@ -123,8 +123,9 @@ function sbRefresh(){
 // sessão caiu (refresh_token inválido): limpa o que é da conta e mostra o login com o aviso — nada de erro cru
 function sbSessionEnded(reason){
   lsSet('sb:ended', reason||'expired');
-  cloudData=null; cloudAutoInvTried=false;
+  cloudData=null; cloudAutoInvTried=false; cloudJustJoined='';
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
+  try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // quem entrar depois não usa as chaves de quem caiu
   try{ cloudBtnSync(); }catch(_){ }
 }
 // sair da conta: UM caminho só (cabeçalho, painel Conta e tela de entrada). Revoga o refresh_token no
@@ -132,8 +133,9 @@ function sbSessionEnded(reason){
 function sbLogout(){
   const s=SB.sess();
   SB.setSess(null); lsSet('sb:ended','');
-  cloudData=null; cloudAutoInvTried=false; cloudMsg='';
+  cloudData=null; cloudAutoInvTried=false; cloudJustJoined=''; cloudMsg='';
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
+  try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // chaves da conta não ficam pro próximo (bloqueador 02)
   if(s && s.access_token) sbAuth('logout?scope=local', null, { token:s.access_token, timeout:5000 }).catch(()=>{});
   try{ cloudBtnSync(); }catch(_){ }
   try{ renderCloud(); }catch(_){ }
@@ -179,20 +181,22 @@ function cloudErrMsg(e, ctx){
   const hit=CLOUD_ERR.find(([re])=>re.test(raw));
   if(hit) return pre+hit[1];
   if(isPtText(raw)) return pre+raw.charAt(0).toUpperCase()+raw.slice(1);
-  return pre+'Não deu certo agora — tente de novo em instantes.'+(raw?' ('+raw.slice(0,80)+')':'');
+  // erro de programa (TypeError "Cannot read properties of undefined…") não vai pra tela: inglês cru não ajuda ninguém
+  const jsErr=(e instanceof TypeError) || /cannot read propert|is not a function|is not defined/i.test(raw);
+  return pre+'Não deu certo agora — tente de novo em instantes.'+(raw&&!jsErr?' ('+raw.slice(0,80)+')':'');
 }
 // a mensagem do convite (UMA só: a do "gerar convite" e a do "copiar mensagem" da lista eram cópias).
 // Desde a 0020 o convite pro e-mail entra SOZINHO ao criar a conta — o token é só o plano B.
 function cloudInviteMsg(teamName, orgName, email, token){
   return `Você foi convidado(a) pro time ${teamName} da ${orgName} no Starfork.\n`
     +`1. Baixe o Starfork em starfork.com.br e abra o app\n`
-    +`2. Crie a sua conta com o e-mail ${email} — você entra no time sozinho\n`
-    +`3. Se não entrar: em Ajustes › Times e pessoas › "aceitar convite", cole este código:\n${token}`;
+    +`2. Entre na sua conta (ou crie uma, se ainda não tiver) com o e-mail ${email} — você entra no time sozinho\n`
+    +`3. Se não entrar: em Ajustes › Times e pessoas, clique em "aceitar convite" e cole este código:\n${token}`;
 }
 // já existe convite AINDA VÁLIDO pra esse e-mail? (vencido não conta — dá pra convidar de novo)
 function cloudInvitePending(invites, mail, now){
   const m=String(mail||'').trim().toLowerCase();
-  return (invites||[]).some(x=>String(x.email||'').toLowerCase()===m && !x.accepted_at && (!x.expires_at || new Date(x.expires_at).getTime()>now));
+  return (invites||[]).some(x=>x && String(x.email||'').toLowerCase()===m && !x.accepted_at && (!x.expires_at || new Date(x.expires_at).getTime()>now));
 }
 // @cloud-puro-fim
 const sbGet = (q)=>sbFetch('/rest/v1/'+q);
@@ -214,6 +218,13 @@ function openCloud(){ if(typeof ajustesOpen==='function') ajustesOpen(cloudCfgOp
 function closeCloud(){ cloudMsg=''; if(!SB.sess()){ if(typeof auShow==='function') auShow(lsGet('sb:email')?'login':'signup'); return; } if(typeof ajustesBack==='function') ajustesBack(); }
 
 let cloudAutoInvTried=false;
+let cloudJustJoined=''; // time em que o convite pendente acabou de te colocar (a tela "pronto"/um aviso conta e zera)
+// "você entrou no time X da Y" — lê e zera (uma vez só)
+function cloudJoinedMsg(){
+  const tid=cloudJustJoined; cloudJustJoined=''; if(!tid || !cloudData || !cloudData.org) return '';
+  const t=(cloudData.teams||[]).find(x=>x.id===tid);
+  return 'Você entrou no time '+(t?t.name:'do convite')+' da '+cloudData.org.name+'.';
+}
 async function cloudLoad(){
   let orgs = await sbGet('orgs?select=*');
   // sem org: se existe convite pendente pro MEU e-mail, entra sozinho (sem token) — era isso
@@ -221,7 +232,7 @@ async function cloudLoad(){
   if((!orgs || !orgs.length) && !cloudAutoInvTried){
     cloudAutoInvTried=true;
     try{ const j=await sbRpc('accept_pending_invites',{}); const joined=(j&&j.ok&&Array.isArray(j.joined))?j.joined:[];
-      if(joined.length){ lsSet('sb:team', joined[0].team_id); orgs = await sbGet('orgs?select=*'); } }catch(_){ }
+      if(joined.length){ lsSet('sb:team', joined[0].team_id); cloudJustJoined=joined[0].team_id; orgs = await sbGet('orgs?select=*'); } }catch(_){ }
   }
   if(!orgs || !orgs.length){ cloudData = { org:null, teams:[], members:[], teamMembers:{}, orgMembers:[], invites:[], profileByUser:{}, meRole:'member' }; try{ billingSync(); }catch(_){} return; }
   const org = orgs[0]; // v1: uma org por usuário

@@ -12,7 +12,12 @@ if(SF_PANE){
   document.documentElement.classList.add('sfpane');
   try{
     const T=window.parent.__TAURI__, unl=[];
-    const listen=(name, fn)=>{ if(!['env-progress','checks-progress'].includes(name)) return Promise.resolve(()=>{}); return T.event.listen(name, fn).then(u=>{ unl.push(u); return u; }); };
+    // só os eventos que a tela da demanda usa (nada de notificação duplicada); o terminal ao vivo (term-data/term-exit)
+    // passa SÓ o desta demanda — sem eles o terminal congelava dentro do painel, e sem o filtro todo PTY inundava cada painel
+    const PANE_EV=['env-progress','checks-progress','term-data','term-exit'], PANE_TID=String(SF_PANE).replace(/^task:/,'');
+    const listen=(name, fn)=>{ if(!PANE_EV.includes(name)) return Promise.resolve(()=>{});
+      const f=/^term-/.test(name) ? (ev=>{ const p=ev&&ev.payload; if(p && String(p.taskId)===PANE_TID) fn(ev); }) : fn;
+      return T.event.listen(name, f).then(u=>{ unl.push(u); return u; }); };
     const api=Object.assign({}, T, { event:Object.assign({}, T.event, { listen }) });
     try{ window.__TAURI__=api; }catch(_){ }
     if(window.__TAURI__!==api) try{ Object.defineProperty(window, '__TAURI__', { value:api, configurable:true, writable:true }); }catch(_){ }
@@ -366,6 +371,9 @@ const ERR_CATALOG=[
   // R8: arquivo/pasta que sumiu (depois de claude/gh/git-missing, que também são ENOENT)
   { id:'not-found', re:/no such file or directory|ENOENT|os error 2\b|cannot find the (file|path) specified[^\n]*|the system cannot find|n[aã]o encontrad[oa]: \//i,
     msg:'Arquivo ou pasta não encontrado — pode ter sido movido, renomeado ou apagado.' },
+  // A14 (mesa de bugs 2): 413 = o servidor recusou pelo TAMANHO (antes caía em "sem conexão" pelo "upload failed")
+  { id:'too-large', re:/\bHTTP[ /]?413\b|status(?: ?code)?"?:? ?"?413\b|\b413 payload|payload too large|request entity too large|entity too large/i,
+    msg:'O arquivo é grande demais pro servidor aceitar (HTTP 413) — reempacote menor ou peça pra aumentar o limite do armazenamento.' },
   // R8: servidor com problema (5xx) ≠ sem internet
   { id:'server', re:/\bHTTP[ /]?5\d\d\b|status(?: code)?:? ?5\d\d\b|\b50[0234] (internal|bad|service|gateway)|internal server error|bad gateway|service unavailable|gateway time-?out|PGRST00[0-3]/i,
     msg:'O servidor está com problema agora — tente de novo em alguns minutos.' },
@@ -411,6 +419,7 @@ function errDetails(h){
 // mostra o erro traduzido num toast com o botão que resolve (+ "ver detalhes" com o texto cru)
 function showErr(e, ctx){
   const h=humanErr(e, ctx);
+  if(e && typeof e==='object' && e.shown) return h; // já mostrado na origem (ex.: switchProject) — não repete o aviso
   console.warn('[erro]', ctx||'', h.raw);
   const det={ label:'ver detalhes', fn:()=>errDetails(h) };
   toast(h.msg, 'err', h.action||det, h.action?det:null);
@@ -486,6 +495,7 @@ function pageHead(o){
   const m=o.more; const more=m ? `<button class="btn icon quiet pgh-more"${m.id?` id="${E(m.id)}"`:''} title="${E(m.title||'Mais ações')}" aria-label="${E(m.title||'Mais ações')}" aria-haspopup="menu">${icn('dots')}</button>` : '';
   return `<header class="pghead"${o.id?` id="${E(o.id)}"`:''}><div class="pgh-t"><h1 class="pgh-title">${E(o.title||'')}</h1>`
     + (sc?`<span class="pgh-scope" title="Pra quem vale o que está nesta página">${icn(sc[0])}${E(scLabel)}</span>`:'')
+    + (o.money?`<span class="pgh-money">${o.money}</span>`:'') // gasto/teto: nunca encolhe nem some (B3) — a linha quebra antes
     + (o.sum?`<span class="pgh-sum">${o.sum}</span>`:'') + `<span class="pgh-sp"></span>${o.right||''}${prim}${more}</div>`
     + (o.sub?`<p class="pgh-sub">${E(o.sub)}</p>`:'') + (o.tabs||'') + `</header>`;
 }
@@ -503,6 +513,24 @@ function parseUsd(v){
   else if(/^\d{1,3}(\.\d{3})+$/.test(b)) b=b.replace(/\./g,'');
   if(!/^-?\d*\.?\d+$/.test(b)) return NaN;
   return Math.round(Number(b)*100)/100;
+}
+// L9 (mesa-bugs-2): "GH_FAIL::<pasta>::<texto>" do create_project = a pasta e o git EXISTEM, só o GitHub recusou.
+// A tela mostra a frase (nunca o prefixo cru) e o retry REAPROVEITA a pasta (antes criava "nome-2" a cada tentativa).
+function ghFailOf(e){ const m=String((e&&e.message)||e||'').match(/^GH_FAIL::(.+?)::([\s\S]*)$/); return m?{ path:m[1], msg:m[2] }:null; }
+function ghFailText(g){
+  const why=((String(g&&g.msg||'').match(/Motivo:\s*([^\n]+)/)||[])[1]||'').trim();
+  return 'A pasta do projeto foi criada, mas o GitHub recusou criar o repositório'+(why&&why!=='sem detalhe do gh'?' ('+(why.length>120?why.slice(0,117)+'…':why)+')':'')+'. Tente de novo — a mesma pasta é reaproveitada — ou desmarque o GitHub pra seguir só neste computador.';
+}
+// a pasta da tentativa anterior só vale pro MESMO nome: trocou o nome, cria do zero (r = { path, slug })
+function ghRetryFor(r, slug){ return (r && r.path && r.slug===slug) ? r.path : ''; }
+// cria a pasta do projeto (com ou sem GitHub); retryPath = pasta de uma tentativa em que só o GitHub falhou
+async function projCreateQuick(slug, gh, retryPath){
+  if(retryPath){
+    if(!gh) return invoke('open_project',{ path:retryPath });
+    return invoke('create_project',{ parent:retryPath.replace(/[\\/][^\\/]+$/,''), name:retryPath.split(/[\\/]/).pop(), github:true, private:true, owner:'' });
+  }
+  if(gh){ const target=String(await invoke('quick_project_target',{ name:slug })||''); return invoke('create_project',{ parent:target.replace(/[\\/][^\\/]+$/,''), name:target.split(/[\\/]/).pop(), github:true, private:true, owner:'' }); }
+  return invoke('quick_create_project',{ name:slug });
 }
 // @helpers-comuns-fim
 // teto padrão por tarefa (US$; 0 = sem teto) — Configurações

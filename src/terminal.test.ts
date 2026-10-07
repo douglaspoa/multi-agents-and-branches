@@ -395,6 +395,37 @@ test("integrada reaberta: branch apagada → pasta destacada no commit do merge;
   }
 });
 
+test("conversar (chat headless) numa tarefa integrada/concluída não troca o status — o 'parar' no meio não a devolve pra revisão", async () => {
+  const { root, repo } = repoFixture();
+  const prev = process.env.CARDUME_NOTIFY;
+  process.env.CARDUME_NOTIFY = "0";
+  const orch = new Orchestrator(repo);
+  try {
+    for (const [id, st] of [["mg2", "merged"], ["dn2", "done"], ["ab2", "aborted"]] as const) {
+      await orch.createTask(spec(id, { autoPr: "no", engine: "mock", roles: [{ role: "builder", name: "Vega", engine: "mock" }] } as Partial<TaskSpec>));
+      orch.store.setStatus(id, st);
+      const seen: string[] = [];
+      const real = orch.store.setStatus.bind(orch.store);
+      orch.store.setStatus = ((t: string, v: string) => { if (t === id) seen.push(v); return real(t, v as never); }) as typeof orch.store.setStatus;
+      try { await orch.talkToAgent(id, "o que foi feito?"); } finally { orch.store.setStatus = real; }
+      assert.ok(!seen.includes("thinking"), `${st}: não vira 'thinking' durante o turno (${seen.join(",")})`);
+      assert.equal(orch.store.getTask(id)!.status, st);
+    }
+    // controle: tarefa em revisão continua indo pra 'thinking' durante o turno
+    await orch.createTask(spec("rv2", { autoPr: "no", engine: "mock", roles: [{ role: "builder", name: "Vega", engine: "mock" }] } as Partial<TaskSpec>));
+    orch.store.setStatus("rv2", "review");
+    const seen: string[] = [];
+    const real = orch.store.setStatus.bind(orch.store);
+    orch.store.setStatus = ((t: string, v: string) => { if (t === "rv2") seen.push(v); return real(t, v as never); }) as typeof orch.store.setStatus;
+    try { await orch.talkToAgent("rv2", "ajusta"); } finally { orch.store.setStatus = real; }
+    assert.ok(seen.includes("thinking"), seen.join(","));
+  } finally {
+    orch.close();
+    if (prev === undefined) delete process.env.CARDUME_NOTIFY; else process.env.CARDUME_NOTIFY = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("integrada nunca sai de integrada: hooks (prompt/Stop), fim de turno (sem commit/gate) e saída da IA", async () => {
   const { root, repo } = repoFixture();
   const prev = process.env.CARDUME_NOTIFY;

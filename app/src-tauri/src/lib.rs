@@ -2317,7 +2317,7 @@ fn create_project_in(
         if let Some(err) = fail {
             // prefixo GH_FAIL::<pasta>:: → a tela oferece "abrir mesmo assim sem GitHub" (a pasta e o git já existem)
             return Err(format!(
-                "GH_FAIL::{}::A pasta e o git foram criados em {}, mas o GitHub recusou criar o repositório.\n\nMotivo: {}\n\nConfira a conta do GitHub em Configurações → GitHub e tente de novo (a pasta é reaproveitada), ou abra o projeto agora só no seu computador.",
+                "GH_FAIL::{}::A pasta e o git foram criados em {}, mas o GitHub recusou criar o repositório.\n\nMotivo: {}\n\nConfira a conta do GitHub em Ajustes › GitHub e tente de novo (a pasta é reaproveitada), ou abra o projeto agora só no seu computador.",
                 repo.display(),
                 repo.display(),
                 if err.is_empty() { "sem detalhe do gh".to_string() } else { err }
@@ -4236,7 +4236,7 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     // MODO TERMINAL: "■ parar" = Esc no CLI (interrompe o turno; a sessão segue aberta pra próxima mensagem)
     if term::is_terminal(&state, &task_id) && term::mgr().and_then(|m| m.live(&task_id)).is_some() {
         term::interrupt(&state, &task_id)?;
-        return set_task_status(&state, &task_id, "review");
+        return stop_task_status(&state, &task_id);
     }
     // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
     // vivo (setsid) — live_task_pid cai no lock busy_pid do banco.
@@ -4253,9 +4253,45 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
             }
         }
     }
-    // volta pra review (não 'aborted') pra poder continuar conversando
-    set_task_status(&state, &task_id, "review")?;
-    Ok(())
+    // volta pra review (não 'aborted') pra poder continuar conversando — salvo tarefa já integrada/concluída
+    stop_task_status(&state, &task_id)
+}
+
+/// "■ parar" só INTERROMPE a IA: tarefa já integrada/concluída (merged/done/cancelled/aborted, ou encerrada à mão com
+/// flag='closed') que voltou a conversar continua como estava — antes voltava pra 'review' e saía de Concluídas.
+/// As outras voltam pra 'review' (dá pra continuar conversando). Devolve se o status mudou.
+fn stop_set_review(conn: &Connection, task_id: &str) -> Result<bool, String> {
+    let flag = if task_has_col_raw(conn, "flag") { " AND (flag IS NULL OR flag!='closed')" } else { "" };
+    let sql = format!("UPDATE task SET status='review' WHERE id=?1 AND status NOT IN ('merged','done','cancelled','aborted'){}", flag);
+    conn.execute(&sql, params![task_id]).map(|n| n > 0).map_err(|e| e.to_string())
+}
+fn stop_task_status(state: &State<AppState>, task_id: &str) -> Result<(), String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    stop_set_review(&conn, task_id).map(|_| ())
+}
+#[cfg(test)]
+mod stop_task_status_tests {
+    use super::*;
+    fn st(c: &Connection, id: &str) -> String { c.query_row("SELECT status FROM task WHERE id=?1", params![id], |r| r.get(0)).unwrap() }
+    #[test]
+    fn parar_tarefa_integrada_nao_muda_o_status() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE task (id TEXT PRIMARY KEY, status TEXT, flag TEXT);
+          INSERT INTO task VALUES ('m','merged',NULL),('d','done',NULL),('x','cancelled',NULL),('a','aborted',NULL),('c','review','closed'),('r','running',NULL),('t','thinking',NULL),('e','error',NULL);").unwrap();
+        for id in ["m", "d", "x", "a", "c"] { assert!(!stop_set_review(&c, id).unwrap(), "{id}: integrada/concluída não muda"); }
+        assert_eq!(st(&c, "a"), "aborted");
+        assert_eq!(st(&c, "m"), "merged"); assert_eq!(st(&c, "d"), "done"); assert_eq!(st(&c, "x"), "cancelled"); assert_eq!(st(&c, "c"), "review");
+        for id in ["r", "t", "e"] { assert!(stop_set_review(&c, id).unwrap(), "{id}: em andamento volta pra review"); assert_eq!(st(&c, id), "review"); }
+    }
+    #[test]
+    fn banco_antigo_sem_coluna_flag_continua_funcionando() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE task (id TEXT PRIMARY KEY, status TEXT); INSERT INTO task VALUES ('m','merged'),('r','running');").unwrap();
+        assert!(!stop_set_review(&c, "m").unwrap()); assert_eq!(st(&c, "m"), "merged");
+        assert!(stop_set_review(&c, "r").unwrap()); assert_eq!(st(&c, "r"), "review");
+    }
 }
 
 /// CONT + TERM no grupo, espera até `grace_ms` o processo sair; senão KILL e mais um respiro curto.
@@ -6983,7 +7019,7 @@ fn env_ai_item(pref: &str, av: &ai_once::Avail, codex_login: bool) -> EnvCheck {
         None => EnvCheck {
             kind: "req".into(), name, ok: false,
             detail: "nenhum encontrado — instale o Claude Code OU o Codex, configure um gateway da sua empresa, ou use o DeepSeek Harness (beta, open source — só a DEEPSEEK_API_KEY)".into(),
-            fix: "npm install -g @anthropic-ai/claude-code && claude\nnpm install -g @openai/codex && codex login\nconfigure um gateway em Configurações → Gateway próprio\nnpm i -g @deepseek-ai/dsh\nconfigure a DEEPSEEK_API_KEY em Configurações → Sua IA (DeepSeek, beta)".into(),
+            fix: "npm install -g @anthropic-ai/claude-code && claude\nnpm install -g @openai/codex && codex login\nconfigure um gateway em Ajustes › Motores e chaves › IA da sua empresa\nnpm i -g @deepseek-ai/dsh\nconfigure a DEEPSEEK_API_KEY em Ajustes › Motores e chaves (DeepSeek, beta)".into(),
         },
     }
 }
@@ -7070,7 +7106,7 @@ fn env_dsh_status_item(name: String, found: &str, version: &str, st: Result<(), 
         },
         Ok(()) => EnvCheck { kind: "opt".into(), name, ok: true, detail: format!("{found} — beta (developer preview)"), fix: String::new() },
         Err(e) if e.contains("Node") => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — indisponível: {e}"), fix: node_fix_hint() },
-        Err(e) if e.contains("DEEPSEEK_API_KEY") => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — instalado, mas SEM a chave da DeepSeek"), fix: "configure a DEEPSEEK_API_KEY em Configurações → Sua IA".into() },
+        Err(e) if e.contains("DEEPSEEK_API_KEY") => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — instalado, mas SEM a chave da DeepSeek"), fix: "configure a DEEPSEEK_API_KEY em Ajustes › Motores e chaves".into() },
         Err(e) => EnvCheck { kind: "opt".into(), name, ok: false, detail: format!("{found} — {e}"), fix: "npm i -g @deepseek-ai/dsh".into() },
     }
 }
@@ -7171,13 +7207,13 @@ fn env_check() -> Vec<EnvCheck> {
     let codex_where = |v: &str| format!("{xb} · versão {}{}", v.trim_start_matches("codex-cli").trim(), if xres.via.is_empty() { String::new() } else { format!(" (achado em: {})", xres.via) });
     out.push(match &codex_v {
         Some(v) if codex_login => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: true, detail: codex_where(v), fix: String::new() },
-        Some(v) => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("{} — instalado, mas SEM login (nem chave OpenAI em Configurações → Sua IA)", codex_where(v)), fix: "codex login".into() },
+        Some(v) => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("{} — instalado, mas SEM login (nem chave OpenAI em Ajustes › Motores e chaves)", codex_where(v)), fix: "codex login".into() },
         None if xres.bin.is_some() => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("achado em {xb}, mas `codex --version` não rodou (shim do npm sem node?)"), fix: "npm install -g @openai/codex".into() },
         None => EnvCheck { kind: "opt".into(), name: "Codex (opcional)".into(), ok: false, detail: format!("não encontrado — procurei em {} lugares (PATH, nvm, volta, asdf, fnm, npm, Homebrew, app ChatGPT, shell de login)", xres.searched.len()), fix: "npm install -g @openai/codex && codex login".into() },
     });
     out.push(match &gw {
         Some(g) => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: true, detail: format!("{} · modelo {}", g.base, g.model), fix: String::new() },
-        None => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: false, detail: "não configurado".into(), fix: "configure em Configurações → Gateway próprio (URL, chave e modelo)".into() },
+        None => EnvCheck { kind: "opt".into(), name: "Gateway de IA (opcional)".into(), ok: false, detail: "não configurado".into(), fix: "configure em Ajustes › Motores e chaves › IA da sua empresa (URL, chave e modelo)".into() },
     });
     out.push(env_dsh_item());
     // provas mobile (opcionais): Simulador iOS, Emulador Android, Maestro — fonte única no motor (src/mobile.ts)
@@ -8358,7 +8394,7 @@ fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>
                 let lines: Vec<&str> = r.log.lines().collect();
                 let tail = lines[lines.len().saturating_sub(8)..].join("\n");
                 if tail.contains("os error 2") || tail.contains("not found") && r.exit_code == Some(127) {
-                    format!("comando não encontrado nesta máquina ({}) — verifique o Ambiente", r.cmd)
+                    format!("comando não encontrado nesta máquina ({}) — veja Ajustes › Verificação", r.cmd)
                 } else { tail.chars().take(600).collect() }
             };
             RepoCheck { name: r.label, ok: r.ok, detail }
@@ -8605,6 +8641,46 @@ struct AllTask {
     sort_order: Option<i64>,
     repo: String,
     proj: String,
+    /// L12 (mesa-bugs-2): sem estes a Central tratava PR aberto de OUTRO projeto como "pronta pra revisar" e o
+    /// filtro Tipo errava (o tipo sai da branch/kind) — os mesmos campos do snapshot do projeto aberto
+    branch: String,
+    kind: String,
+    pr_url: Option<String>,
+}
+
+/// kind / prUrl saem do spec_json PELO SQLITE (json_extract) — sem desserializar o spec inteiro de cada tarefa de
+/// cada projeto. spec quebrado (json_valid=0) vira NULL em vez de derrubar a consulta do projeto todo.
+const ALL_TASK_SPEC_SQL: &str = "CASE WHEN json_valid(spec_json) THEN json_extract(spec_json,'$.kind') END, \
+     CASE WHEN json_valid(spec_json) THEN json_extract(spec_json,'$.prUrl') END";
+/// normaliza o que veio do SQL: sem kind = 'build' (o padrão do snapshot); prUrl vazio = None
+fn all_task_spec_norm(kind: Option<String>, pr: Option<String>) -> (String, Option<String>) {
+    (kind.filter(|k| !k.is_empty()).unwrap_or_else(|| "build".to_string()), pr.filter(|s| !s.is_empty()))
+}
+/// kind / prUrl de um spec_json — a MESMA regra, pela mesma consulta (usada nos testes e onde não há conexão aberta)
+#[cfg(test)]
+fn all_task_spec(spec_json: &str) -> (String, Option<String>) {
+    let c = Connection::open_in_memory().expect("sqlite em memória");
+    c.query_row(&format!("SELECT {} FROM (SELECT ?1 AS spec_json)", ALL_TASK_SPEC_SQL), params![spec_json], |r| {
+        Ok(all_task_spec_norm(r.get::<_, Option<String>>(0).unwrap_or(None), r.get::<_, Option<String>>(1).unwrap_or(None)))
+    }).expect("consulta do spec")
+}
+#[cfg(test)]
+mod all_task_spec_tests {
+    use super::*;
+    #[test]
+    fn le_kind_e_pr_do_spec() {
+        let (k, pr) = all_task_spec(r#"{"kind":"review","prUrl":"https://github.com/o/r/pull/7"}"#);
+        assert_eq!(k, "review");
+        assert_eq!(pr.as_deref(), Some("https://github.com/o/r/pull/7"));
+    }
+    #[test]
+    fn spec_vazio_ou_quebrado_cai_no_padrao() {
+        for raw in ["", "{}", "não é json", r#"{"prUrl":""}"#] {
+            let (k, pr) = all_task_spec(raw);
+            assert_eq!(k, "build");
+            assert!(pr.is_none(), "{raw}");
+        }
+    }
 }
 
 /// Tarefas de TODOS os projetos salvos (board integrado). Lê o state.sqlite de
@@ -8620,12 +8696,16 @@ fn list_all_tasks() -> Vec<AllTask> {
             Err(_) => continue,
         };
         let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
-        let mut st = match conn.prepare(&format!("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,{} FROM task ORDER BY created_at", finished_at_sql(task_has_col(&conn, "closed_at")))) {
+        let mut st = match conn.prepare(&format!("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,{},branch,{} FROM task ORDER BY created_at", finished_at_sql(task_has_col(&conn, "closed_at")), ALL_TASK_SPEC_SQL)) {
             Ok(s) => s,
             Err(_) => continue,
         };
         let rows = st.query_map([], |r| {
+            let (kind, pr_url) = all_task_spec_norm(r.get::<_, Option<String>>(11).unwrap_or(None), r.get::<_, Option<String>>(12).unwrap_or(None));
             Ok(AllTask {
+                branch: r.get::<_, Option<String>>(10).unwrap_or(None).unwrap_or_default(),
+                kind,
+                pr_url,
                 id: r.get(0)?,
                 title: r.get(1)?,
                 status: r.get(2)?,
@@ -10695,7 +10775,7 @@ mod env_ai_tests {
         let nada = env_ai_item("claude", &av(false, false, false), false);
         assert!(!nada.ok && nada.kind == "req");
         assert_eq!(nada.fix.lines().count(), 5);
-        assert!(nada.fix.contains("claude-code") && nada.fix.contains("@openai/codex") && nada.fix.contains("Gateway") && nada.fix.contains("@deepseek-ai/dsh"));
+        assert!(nada.fix.contains("claude-code") && nada.fix.contains("@openai/codex") && nada.fix.contains("IA da sua empresa") && nada.fix.contains("@deepseek-ai/dsh"));
         // só o DeepSeek: é uma opção do "Motor de IA" (beta)
         let so_ds = env_ai_item("deepseek", &ai_once::Avail { claude: false, codex: false, gateway: false, deepseek: true }, false);
         assert!(so_ds.ok && so_ds.detail.contains("DeepSeek (beta)") && so_ds.detail.contains("sua IA padrão"), "{}", so_ds.detail);
@@ -10714,7 +10794,7 @@ mod env_ai_tests {
         let velho = env_dsh_status_item(n(), "0.2.0 · /x/dsh", "0.2.0", Err("O DeepSeek Harness precisa do Node 22.19+ ou 24+ (o escolhido pelo app é 22.12.0)".into()));
         assert!(!velho.ok && velho.detail.contains("indisponível") && velho.detail.contains("22.19") && velho.fix == node_fix_hint());
         let sem_chave = env_dsh_status_item(n(), "0.2.0 · /x/dsh", "0.2.0", Err(ai_once::DSH_KEY_MSG.into()));
-        assert!(!sem_chave.ok && sem_chave.fix.contains("Configurações → Sua IA"));
+        assert!(!sem_chave.ok && sem_chave.fix.contains("Ajustes › Motores e chaves"));
     }
     /// dsh_status() DE VERDADE (HOME temporário sem chave, dsh falso) alimentando o item do Ambiente.
     #[cfg(unix)]
@@ -10737,7 +10817,7 @@ mod env_ai_tests {
         let item = env_dsh_status_item("DeepSeek Harness (opcional · beta)".into(), "0.2.0-rc.2 · dsh", "0.2.0-rc.2", st);
         assert!(!item.ok);
         if err.contains("Node") { assert_eq!(item.fix, node_fix_hint(), "node do teste < 22.19: {err}"); }
-        else { assert_eq!(err, ai_once::DSH_KEY_MSG); assert!(item.fix.contains("Configurações → Sua IA"), "{}", item.fix); }
+        else { assert_eq!(err, ai_once::DSH_KEY_MSG); assert!(item.fix.contains("Ajustes › Motores e chaves"), "{}", item.fix); }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

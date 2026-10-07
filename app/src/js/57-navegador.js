@@ -260,7 +260,7 @@ async function nvGo(taskId, url, force){
   try{
     const info=await invoke('browser_open', { taskId, url:u });
     st.proxy=info; nvLive.add(taskId);
-  }catch(e){ st.err=String(e&&e.message||e); st.proxy=null; }
+  }catch(e){ console.error('browser_open', e); st.err=(typeof errShort==='function')?errShort(e):String(e&&e.message||e); st.proxy=null; } // frase de gente (o cru fica no console)
   st.opening=false;
   if(st.proxy){ nvUnmount(taskId); st.frozen=false; nvMount(taskId); }
   nvPaint(taskId);

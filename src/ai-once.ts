@@ -31,9 +31,9 @@ export type AiTier = "rapido" | "capaz";
 export interface AiAvail { claude: boolean; codex: boolean; gateway: boolean; deepseek?: boolean }
 
 export const NO_ENGINE_MSG =
-  "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Configurações → Gateway próprio, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Configurações → Sua IA).";
+  "Nenhuma IA disponível neste computador — instale o Claude Code (npm install -g @anthropic-ai/claude-code) ou o Codex (npm install -g @openai/codex), configure um gateway em Ajustes › Motores e chaves › IA da sua empresa, ou use o DeepSeek Harness (beta: npm i -g @deepseek-ai/dsh + DEEPSEEK_API_KEY em Ajustes › Motores e chaves).";
 export const CODEX_TIMEOUT_MSG = "O Codex não respondeu a tempo — tente de novo.";
-export const CODEX_MISSING_MSG = "O Codex não está instalado neste computador — npm install -g @openai/codex (veja Mais › Ambiente).";
+export const CODEX_MISSING_MSG = "O Codex não está instalado neste computador — npm install -g @openai/codex (veja Ajustes › Verificação).";
 export const GATEWAY_CUT_MSG = "a resposta do gateway foi cortada (limite de tokens) — peça algo menor ou aumente o limite no gateway.";
 
 const ORDER: AiEngineKind[] = ["claude", "codex", "gateway"]; // sem deepseek: beta não é fallback silencioso
@@ -200,7 +200,7 @@ function unwrapJsonMsg(m: string): string {
 export function codexFriendlyError(msg: string): string {
   const l = msg.toLowerCase();
   const short = msg.slice(0, 300);
-  if (/401|unauthorized|api key|not logged|login/.test(l)) return `O Codex está sem login/chave — rode \`codex login\` num terminal ou configure a chave OpenAI em Configurações → Sua IA.\n\n(${short})`;
+  if (/401|unauthorized|api key|not logged|login/.test(l)) return `O Codex está sem login/chave — rode \`codex login\` num terminal ou configure a chave OpenAI em Ajustes › Motores e chaves.\n\n(${short})`;
   if (/429|rate limit|quota|usage limit/.test(l)) return `O Codex está sem cota/limite no momento — espere um pouco e tente de novo.\n\n(${short})`;
   if (/stream disconnected|network|timed out|connection/.test(l)) return `O Codex não conseguiu falar com a OpenAI — cheque a internet/VPN e tente de novo.\n\n(${short})`;
   return `O Codex falhou: ${short}`;
@@ -247,7 +247,7 @@ export function parseGateway(body: string): { text?: string; error?: string } {
   let v: any;
   try { v = JSON.parse(String(body ?? "").trim()); } catch {
     const s = String(body ?? "").trim().slice(0, 160);
-    return { error: s ? `O gateway respondeu algo inesperado (não é JSON): ${s}` : "O gateway não respondeu — cheque a URL em Configurações → Gateway próprio." };
+    return { error: s ? `O gateway respondeu algo inesperado (não é JSON): ${s}` : "O gateway não respondeu — cheque a URL em Ajustes › Motores e chaves › IA da sua empresa." };
   }
   const ch = v?.choices?.[0];
   const c = ch?.message?.content;
@@ -257,7 +257,7 @@ export function parseGateway(body: string): { text?: string; error?: string } {
     return text.trim() ? { text: text.trim() } : { error: "O gateway devolveu uma resposta vazia — tente de novo." };
   }
   const err: string = typeof v?.error?.message === "string" ? v.error.message : typeof v?.error === "string" ? v.error : typeof v?.detail === "string" ? v.detail : "";
-  if (/401|unauthorized|authentication|invalid.*key/i.test(err)) return { error: `O gateway recusou a chave — confira em Configurações → Gateway próprio.\n\n(${err})` };
+  if (/401|unauthorized|authentication|invalid.*key/i.test(err)) return { error: `O gateway recusou a chave — confira em Ajustes › Motores e chaves › IA da sua empresa.\n\n(${err})` };
   if (err) return { error: `O gateway recusou: ${err}` };
   return { error: `Sem resposta do gateway (${String(body).slice(0, 120)})` };
 }
@@ -506,6 +506,6 @@ async function runEngine(engine: AiEngineKind, prompt: string, o: AiOnceOpts, de
   if (engine === "codex") return codexRun(deps.codexBin ?? resolveCodex(), prompt, o, userModel, acc);
   if (engine === "deepseek") return dshRun(deps.dshBin ?? resolveDsh(), prompt, o, userModel, acc);
   const g = gatewayCfg();
-  if (!g) throw new Error("Configure o gateway (URL, chave e modelo) em Configurações → Gateway próprio.");
+  if (!g) throw new Error("Configure o gateway (URL, chave e modelo) em Ajustes › Motores e chaves › IA da sua empresa.");
   return gatewayCall(userModel ? { ...g, model: userModel } : g, prompt, Math.max(o.timeout, 90_000), acc);
 }

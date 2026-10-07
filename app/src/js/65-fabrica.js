@@ -77,7 +77,21 @@ function fabMeter(sess){
   const pct=Math.max(0, Math.min(100, Math.round(g/teto*100)));
   const msg={ rodando:'rodando · o gasto atualiza a cada etapa', pronta:'parou sozinha ao terminar · nada roda em segundo plano', teto:`parou no teto de ${fabUsd(teto)} — mostra o que achou até ali`,
     parada:'você parou — ficou o que já tinha', vazia:'terminou sem opção que passasse na triagem', falhou:'a varredura falhou', interrompida:'o app fechou no meio — rode de novo' }[st]||'nada roda até você mandar · para sozinha no teto';
-  return { teto, gasto:g, pct, msg };
+  // A4: a IA confere o gasto ENTRE um passo e outro — pode passar um pouco do teto; dizer quanto, em vez de a barra travar em 100% calada
+  const passou=Math.round((g-teto)*100)/100;
+  return { teto, gasto:g, pct, msg:passou>=0.01?`${msg} · passou ${fabUsd(passou)} do teto (a IA confere o gasto entre um passo e outro)`:msg, passou:passou>=0.01?passou:0 };
+}
+// A2: o teto digitado da varredura — número > 0 (até o máximo) ou recusa; nunca cai calado no último teto salvo
+function fabTetoIn(raw, max){
+  const v=parseFloat(String(raw==null?'':raw).trim().replace(/^US\$\s*/i,'').replace(',','.'));
+  if(!(v>0) || !isFinite(v)) return { ok:false, msg:'Diga um teto maior que zero em US$ (ex.: 3) — a varredura para sozinha nele.' };
+  return v>max ? { ok:true, v:max, cortou:true } : { ok:true, v };
+}
+// A3: o que a tela diz quando a varredura terminou SEM opção — "você parou" não é "ninguém passou na triagem"
+function fabVazioTxt(status, teto){
+  if(status==='teto') return { t:`Parou no teto de ${fabUsd(teto)} antes de juntar opções com fonte.`, d:'Aumente o teto ou estreite o foco.' };
+  if(status==='parada') return { t:'Você parou a varredura antes de ela juntar opções.', d:'Rode de novo quando quiser — nada fica rodando.' };
+  return { t:'Nenhuma opção passou na triagem.', d:'A triagem exige 2 fontes independentes.' };
 }
 // owns DISJUNTOS: o caminho que uma tarefa anterior já tem (ou que está dentro dele) sai das seguintes
 function fabDisjoint(tarefas){
@@ -160,15 +174,17 @@ function fabDefaultMode(hasRepo){ return hasRepo?'feature':'app'; }
 // UMA lista de sessões: ideias (59), mesas (38), varreduras (aqui) e pilotos (56). Linha normalizada:
 // { k:'i'|'m'|'v'|'p', id, tema, small, onde, repo, sit, sitCls, custo, at, bad }
 const FAB_KIND={ i:'IDEIA', m:'MESA', v:'VARREDURA', p:'PILOTO' };
+// A16: ideia/mesa com Codex/DeepSeek/gateway gastam em tokUsd (estimado pelos tokens) — o mesmo gasto que a página dela mostra
+function fabSessCusto(x){ return (+(x&&x.costUsd)||0)+(+(x&&x.tokUsd)||0); }
 function fabSessRows(src){
   src=src||{}; const out=[], base=p=>String(p||'').split(/[\\/]/).filter(Boolean).pop()||'';
   (src.ideias||[]).forEach(x=>{ if(!x||!x.id) return;
     const st=x.corrompida?['arquivo ilegível','blk']:x.projeto?['projeto criado','ok']:x.decisao==='ok'?['MVP decidido · falta criar','rev']:x.pesquisa==='ok'?['pesquisada','ok']:x.turnos?['conversando','run']:['nova','idle'];
-    out.push({ k:'i', id:x.id, tema:x.titulo||'(sem título)', small:x.corrompida?'o arquivo foi editado fora do app e não dá pra ler':(x.turnos?x.turnos+' mensage'+(x.turnos===1?'m':'ns'):'sem conversa ainda'), onde:x.projeto?base(x.projeto):'', repo:x.projeto||'', sit:st[0], sitCls:st[1], custo:+x.costUsd||0, at:+x.updatedAt||0, bad:!!x.corrompida }); });
+    out.push({ k:'i', id:x.id, tema:x.titulo||'(sem título)', small:x.corrompida?'o arquivo foi editado fora do app e não dá pra ler':(x.turnos?x.turnos+' mensage'+(x.turnos===1?'m':'ns'):'sem conversa ainda'), onde:x.projeto?base(x.projeto):'', repo:x.projeto||'', sit:st[0], sitCls:st[1], custo:fabSessCusto(x), at:+x.updatedAt||0, bad:!!x.corrompida }); });
   (src.mesas||[]).forEach(x=>{ if(!x||!x.id) return;
     const live=(src.liveMesas||[]).includes(x.id), s0=x.status==='rodando'&&!live?'interrompida':(x.status||'concluida');
     const st={ rodando:['rodando','run'], pausada:['parou no teto','blk'], parada:['parada','idle'], interrompida:['interrompida · continuar','rev'], concluida:['concluída','ok'], corrompida:['arquivo ilegível','blk'] }[s0]||[s0,'idle'];
-    out.push({ k:'m', id:x.id, tema:x.status==='corrompida'?'Mesa '+x.id:(x.tema||'(sem tema)'), small:x.status==='corrompida'?'o arquivo foi editado fora do app e não dá pra ler':`${+x.personas||0} personas · ${+x.rounds||0} rodada${+x.rounds===1?'':'s'}`, onde:base(x.repo), repo:x.repo||'', sit:st[0], sitCls:st[1], custo:+x.costUsd||0, at:+x.updatedAt||0, bad:x.status==='corrompida' }); });
+    out.push({ k:'m', id:x.id, tema:x.status==='corrompida'?'Mesa '+x.id:(x.tema||'(sem tema)'), small:x.status==='corrompida'?'o arquivo foi editado fora do app e não dá pra ler':`${+x.personas||0} personas · ${+x.rounds||0} rodada${+x.rounds===1?'':'s'}`, onde:base(x.repo), repo:x.repo||'', sit:st[0], sitCls:st[1], custo:fabSessCusto(x), at:+x.updatedAt||0, bad:x.status==='corrompida' }); });
   (src.varreduras||[]).forEach(x=>{ if(!x||!x.id) return;
     const n=(x.opcoes||[]).length, st={ rodando:['rodando','run'], pronta:['concluída','ok'], teto:['parou no teto','blk'], parada:['parada','idle'], vazia:['sem opção na triagem','idle'], falhou:['falhou','blk'], interrompida:['interrompida','rev'] }[x.status]||[x.status||'—','idle'];
     out.push({ k:'v', id:x.id, tema:x.foco||'(sem foco)', small:`${n} opç${n===1?'ão':'ões'}${x.mode==='feature'?' · feature':' · app novo'}`, onde:x.mode==='feature'?base(x.projeto):'', repo:x.mode==='feature'?(x.projeto||''):'', mode:x.mode||'app', sit:st[0], sitCls:st[1], custo:+x.gasto||0, at:+x.updatedAt||+x.createdAt||0, bad:false }); });
@@ -193,6 +209,24 @@ function fabRoute(kind, ctx){
   if(kind==='ideias') return { kind:'fabrica', view:'sessoes', filter:'i' };
   if(kind==='nova') return { kind:'planner' };
   return { kind };
+}
+// o que a opção escolhida virou (B4): épico da Feature criado POR INTEIRO, criado EM PARTE (parou no meio: N de M
+// tarefas, dá pra continuar sem duplicar), ou levada pro "Começar por uma ideia" (App novo)
+// a MESMA regra decide o que a tela mostra e o que o "continuar" retoma: épico com id = dá pra retomar
+function fabParte(criado){ return criado && !criado.ideia && criado.epicId ? criado : null; }
+function fabCriadoEstado(criado, total){
+  if(!criado) return null;
+  if(criado.ideia) return { kind:'ideia' };
+  if(!fabParte(criado)) return { kind:'feito', n:((criado.tasks)||[]).length, m:+total||0 };
+  const n=((criado.tasks)||[]).length, m=Math.max(+total||0, n);
+  return criado.partial || (m>0 && n<m) ? { kind:'parcial', n, m } : { kind:'feito', n, m };
+}
+// retomada sem duplicar: as já gravadas na sessão + as que existem no projeto com esse épico (a marca pode não ter
+// sido gravada depois do new_task), casadas pelo título na ordem do plano; para no 1º buraco (as dependências seguem a ordem)
+function fabJaCriadas(made, titles, existing){
+  const out=(made||[]).slice(), ex=(existing||[]).filter(t=>t && !out.includes(t.id));
+  for(let k=out.length;k<(titles||[]).length;k++){ const j=ex.findIndex(t=>t.title===titles[k]); if(j<0) break; out.push(ex[j].id); ex.splice(j,1); }
+  return out;
 }
 // @fabrica-puro-fim
 
@@ -251,8 +285,10 @@ try{ window.__TAURI__.event.listen('fabrica-progress', async ev=>{
   if(p.reload || p.fase==='fim'){ try{ FAB.by[m]=await fabCall()('fabrica_read',{ id:p.id }); }catch(_){ } }
   if(p.fase==='fim'){
     const f=FAB.by[m], n=(f.opcoes||[]).length;
-    const msg={ pronta:`Fábrica pronta: ${n} opç${n===1?'ão':'ões'} · gastou ${fabUsd(f.gasto)}.`, teto:`Parou no teto de ${fabUsd(f.teto)} com ${n} opç${n===1?'ão':'ões'}.`, vazia:'A Fábrica terminou sem opção que passasse na triagem.', parada:'Fábrica parada.', falhou:'A Fábrica falhou: '+(f.erro||'') }[f.status];
-    if(msg) toast(msg, f.status==='pronta'?'ok':f.status==='falhou'?'err':'warn');
+    // A1: falha vira frase de gente + "ver detalhes" (o erro cru do motor fica lá dentro)
+    if(f.status==='falhou') showErr(f.erro||'erro sem detalhe', 'A varredura falhou');
+    const msg={ pronta:`Fábrica pronta: ${n} opç${n===1?'ão':'ões'} · gastou ${fabUsd(f.gasto)}.`, teto:`Parou no teto de ${fabUsd(f.teto)} com ${n} opç${n===1?'ão':'ões'}.`, vazia:'A Fábrica terminou sem opção que passasse na triagem.', parada:'Fábrica parada.' }[f.status];
+    if(msg) toast(msg, f.status==='pronta'?'ok':'warn');
     fabLoadOverlaps();
   }
   if(fabVisible() && FAB.mode===m){ if(p.reload||p.fase==='fim') fabRender(); else fabPaintLive(); }
@@ -261,7 +297,11 @@ try{ window.__TAURI__.event.listen('fabrica-progress', async ev=>{
 async function fabStart(){
   const inp=$id('fabFoco'); const foco=String(inp&&inp.value||'').trim(); FAB.foco[FAB.mode]=foco;
   if(foco.length<4){ toast(FAB.mode==='app'?'Diga o território, ex.: "apps pra pequenas clínicas".':'Diga o foco, ex.: "o que os usuários mais pedem?".','warn'); if(inp) inp.focus(); return; }
-  const tIn=$id('fabTeto'); if(tIn){ let v=parseFloat(String(tIn.value).replace(',','.')); if(v>FAB_TETO_MAX){ v=FAB_TETO_MAX; toast(`O teto máximo por sessão é ${fabUsd(FAB_TETO_MAX)} — usei esse.`,'warn'); } if(v>0){ FAB.teto=v; try{ lsSet('fabTeto', String(v)); }catch(_){ } } }
+  const tIn=$id('fabTeto'); if(tIn){ const t=fabTetoIn(tIn.value, FAB_TETO_MAX); // A2: teto inválido recusa (antes rodava calado com o último salvo)
+    if(!t.ok){ toast(t.msg,'warn'); tIn.setAttribute('aria-invalid','true'); tIn.focus(); tIn.select(); return; }
+    tIn.removeAttribute('aria-invalid');
+    if(t.cortou) toast(`O teto máximo por sessão é ${fabUsd(FAB_TETO_MAX)} — usei esse.`,'warn');
+    FAB.teto=t.v; try{ lsSet('fabTeto', String(t.v)); }catch(_){ } }
   const feat=FAB.mode==='feature';
   if(feat && (typeof state==='undefined' || !state.repo)){ toast('Abra o projeto da feature primeiro.','warn'); return; }
   if(FAB.busy) return; FAB.busy=true; FAB.confirm=null; FAB.disc={};
@@ -306,7 +346,7 @@ async function fabToIdeia(i){
   const id='i-'+Date.now().toString(36)+'-'+(Math.random().toString(36).slice(2)+'0000').slice(0,4)+'x';
   const m={ id, v:1, titulo, createdAt:Date.now(), updatedAt:Date.now(), turns:[fabIdeaTurn(op, s.foco, typeof ideiaPanel==='function'?ideiaPanel():[])],
     report:{ status:'ok', data, md:(typeof ideiaReportMd==='function'?ideiaReportMd(data, titulo, { engine:'Fábrica', date }):''), engine:s.engine||'', costUsd:0, at:Date.now(), sites:(data.fontes||[]).length, avisos:data.avisos||[] },
-    decision:null, project:null, costUsd:0, tokUsd:0, tokens:0, fabrica:{ sessao:s.id, idx:i, foco:s.foco, mockHtml:op.mock&&op.mock.estado==='ok'?op.mock.html:'' } };
+    decision:null, project:null, costUsd:0, tokUsd:0, tokens:0, capUsd:typeof ideiaSessCapBase==='function'?ideiaSessCapBase():2, fabrica:{ sessao:s.id, idx:i, foco:s.foco, mockHtml:op.mock&&op.mock.estado==='ok'?op.mock.html:'' } };
   try{
     await invoke('ideia_save',{ id, data:m });
     await invoke('fabrica_choose',{ id:s.id, idx:i, criado:{ ideia:id } });
@@ -320,13 +360,13 @@ async function fabMakeEpic(i){
   const s=fabSess(), op=s&&s.opcoes&&s.opcoes[i]; if(!op || FAB.busy) return;
   if(typeof state==='undefined' || state.repo!==s.projeto){ if(window.switchProject && s.projeto){ try{ await window.switchProject(s.projeto); }catch(e){ showErr(e,'Não consegui abrir o projeto'); return; } } else { toast('Abra o projeto da feature primeiro.','warn'); return; } }
   // criação que parou no meio: RETOMA com o mesmo épico e as tarefas já criadas (nada duplicado)
-  const part=s.escolha && s.escolha.idx===i && s.escolha.criado && s.escolha.criado.partial ? s.escolha.criado : null;
+  const part=fabParte(s.escolha && s.escolha.idx===i ? s.escolha.criado : null);
   const slug=typeof ideiaSlug==='function'?ideiaSlug(op.titulo):'feature';
   const epicId=part?part.epicId:'fab-'+slug+'-'+Date.now().toString(36).slice(-4), mockRef=`mock-${slug}.html`;
   const plan=fabFeaturePlan(op, (FAB.ov[s.id]||{})[i], mockRef), why=fabPlanoProblema(plan);
   if(why){ toast('Não dá pra criar o épico: '+why+'.','warn'); return; }
   FAB.busy=true; fabRender();
-  const made=part?(part.tasks||[]).slice():[];
+  let made=part?(part.tasks||[]).slice():[];
   let mockPath=part?part.mockPath||'':'';
   const mark=async(partial)=>{ const criado={ partial, epicId, epic:plan.epic, tasks:made.slice(), mockPath, projeto:s.projeto }; await invoke('fabrica_choose',{ id:s.id, idx:i, criado }); s.escolha={ idx:i, criado }; };
   try{
@@ -334,6 +374,8 @@ async function fabMakeEpic(i){
     if(!mockPath && op.mock && op.mock.estado==='ok' && plan.tasks.some(t=>t.mock)) mockPath=await invoke('write_ref_file',{ name:mockRef, text:op.mock.html });
     const pol=typeof ntPolicy!=='undefined'?ntPolicy:{};
     const all=fabPayloads(plan, ideiaTaskPayloads(plan, epicId, { engine:defaultAiEngine(), model:defaultAiModel(), proof:pol.proofRequired, tests:pol.testsRequired }), mockPath);
+    if(part){ try{ if(typeof refresh==='function') await refresh(); }catch(_){ } // confere no projeto as que já existem com esse épico
+      made=fabJaCriadas(made, all.map(x=>x.payload.title), ((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>t.epic&&t.epic.epicId===epicId)); }
     for(let k=made.length;k<all.length;k++){
       const { afterIdx, payload }=all[k];
       payload.after=afterIdx.map(j=>made[j]).filter(Boolean);
@@ -346,7 +388,7 @@ async function fabMakeEpic(i){
     if(typeof lastSig!=='undefined') lastSig=''; try{ await refresh(); }catch(_){ }
     toast(`Épico criado em ${fabProjName(s.projeto)} · ${made.length} tarefas · nada roda até você iniciar`,'ok');
   }catch(e){ showErr(e, made.length?`Parou depois de criar ${made.length} tarefa(s) — clique de novo pra continuar de onde parou`:'Não consegui criar o épico'); }
-  finally{ FAB.busy=false; fabRender(); }
+  finally{ FAB.busy=false; fabRender(); fabFocusIn(i, '[data-fmk],[data-fbuild]'); }
 }
 
 // ---------------- tela ----------------
@@ -388,6 +430,8 @@ function fabVotesHtml(op){
 }
 function fabFooterHtml(s, i, op){
   const feat=s.mode==='feature', d=(s.descartes||{})[i], ch=s.escolha&&s.escolha.idx===i&&s.escolha.criado;
+  const ce=ch&&fabCriadoEstado(ch, feat?fabFeaturePlan(op, (FAB.ov[s.id]||{})[i], 'mock.html').tasks.length:0);
+  if(ce && ce.kind==='parcial') return `<div class="fab-partial" role="status"><b>Épico criado em parte (${ce.n} de ${ce.m} tarefa${ce.m===1?'':'s'})</b> — a criação parou no meio. Continuar cria só as que faltam, sem repetir.</div><div class="row1"><button type="button" class="btn sm primary" data-fmk="${i}"${FAB.busy?' disabled':''}>${FAB.busy?'criando…':`Continuar de onde parou (faltam ${ce.m-ce.n})`}</button></div>`;
   if(ch) return `<div class="fab-done">${IC.ok||''} ${feat?'Épico criado neste projeto — as tarefas estão em rascunho':'Levada pro Começar por uma ideia'}${!feat&&ch.ideia?` <button type="button" class="btn sm" data-fideia="${fabEsc(ch.ideia)}">abrir</button>`:''}</div>`;
   if(d) return `<div class="fab-discarded">Descartada — motivo: <b>${fabEsc(d)}</b> <button type="button" class="fab-lnk" data-fundisc="${i}">desfazer</button></div>`;
   if(FAB.confirm===i) return fabConfirmHtml(s, i, op);
@@ -402,7 +446,7 @@ function fabConfirmHtml(s, i, op){
       `<div class="note">o projeto só nasce quando você clicar em criar lá · <b>nada roda até você iniciar</b></div><div class="row1"><button type="button" class="btn sm primary" data-fmk="${i}"${busy?' disabled':''}>Levar pro Começar por uma ideia</button><button type="button" class="btn sm" data-funbuild>Voltar</button></div></div>`;
   }
   const plan=fabFeaturePlan(op, (FAB.ov[s.id]||{})[i], 'mock.html'), q=plan.tasks.filter(t=>t.aguarda).length, proj=fabProjName(s.projeto), why=fabPlanoProblema(plan);
-  const part=s.escolha && s.escolha.idx===i && s.escolha.criado && s.escolha.criado.partial ? s.escolha.criado : null;
+  const part=fabParte(s.escolha && s.escolha.idx===i ? s.escolha.criado : null);
   if(why) return `<div class="fab-confirm"><h5>Ainda não dá pra montar o épico</h5><div class="note">${fabEsc(why)}.</div><div class="row1"><button type="button" class="btn sm" data-funbuild>Voltar</button></div></div>`;
   return `<div class="fab-confirm"><h5>Vai criar 1 épico + ${plan.tasks.length} tarefas em ${fabEsc(proj)}</h5><ol>${plan.tasks.map((t,k)=>`<li class="${t.aguarda?'q':''}"><b>tarefa ${k}</b><span>${fabEsc(k===0?'confirmar impacto (só leitura)':t.title)}${t.owns?` · arquivos: <code>${fabEsc(t.owns)}</code>`:''}${t.mock?' · leva o mock':''}${t.aguarda?` · inicie depois de ${fabEsc(t.aguarda)} (mesma área)`:''}</span></li>`).join('')}</ol>`+
     `<div class="note">${part?`<b>retomando:</b> ${(part.tasks||[]).length} tarefa(s) já criadas não se repetem · `:''}${q?`${q} tarefa${q===1?'':'s'} mexe${q===1?'':'m'} na área de uma demanda ativa e não começa${q===1?'':'m'} sozinha${q===1?'':'s'} · `:''}cada tarefa mexe em arquivos diferentes · <b>nada roda até você iniciar</b>${op.ideiaNossa?' · <b>ideia nossa: sem pedido registrado</b>':''}${op.grande?' · <b>grande: considere dividir antes</b>':''}</div>`+
@@ -434,7 +478,7 @@ function fabCardHtml(s, op, i){
   }
   body+=`<div>${k('Mesa')}${fabVotesHtml(op)}</div>${op.objecao?`<div class="fab-obj"><b>Júlia:</b> “${fabEsc(op.objecao)}”</div>`:''}`+
     ((op.avisos||[]).length?`<div class="dim fab-av">${op.avisos.map(fabEsc).join(' · ')}</div>`:'');
-  return `<article class="fab-oc${out?' out':''}" aria-label="${fabEsc('opção '+(i+1)+': '+op.titulo)}">${fabMockHtml(op, feat)}<div class="bd">${body}</div><div class="ft">${fabFooterHtml(s, i, op)}</div></article>`;
+  return `<article class="fab-oc${out?' out':''}" data-fi="${i}" tabindex="-1" aria-label="${fabEsc('opção '+(i+1)+': '+op.titulo)}">${fabMockHtml(op, feat)}<div class="bd">${body}</div><div class="ft">${fabFooterHtml(s, i, op)}</div></article>`;
 }
 function fabProgressHtml(s){
   const fases=s.mode==='feature'?[['fontes','fontes do projeto'],['varredura','varredura'],['triagem','triagem'],['mesa','mesa'],['mocks','mocks']]:[['varredura','varredura'],['triagem','triagem'],['mesa','mesa'],['mocks','mocks']];
@@ -469,9 +513,13 @@ function fabResultHtml(s){
   const ops=s.opcoes||[], feat=s.mode==='feature';
   if(s.status==='rodando' && !ops.length) return fabProgressHtml(s);
   let h=s.status==='rodando'?fabProgressHtml(s):'';
-  if(['falhou','interrompida'].includes(s.status) && !ops.length) return h+`<div class="fab-note warn" role="alert">${fabEsc(s.erro||'A varredura parou.')}</div>`;
+  if(['falhou','interrompida'].includes(s.status) && !ops.length){ // A1: frase de gente; o erro cru só em "ver detalhes"
+    const he=s.erro&&typeof humanErr==='function'?humanErr(s.erro, s.status==='falhou'?'A varredura falhou':'A varredura parou'):null;
+    return h+`<div class="fab-note warn" role="alert">${fabEsc(he?he.msg:(s.status==='interrompida'?'O app fechou no meio da varredura — rode de novo.':'A varredura falhou.'))}${he&&he.raw?`<details class="g2tech"><summary>ver detalhes</summary><pre class="mono">${fabEsc(he.raw)}</pre></details>`:''}</div>`;
+  }
   if(!ops.length && s.status!=='rodando'){
-    return h+`<div class="fab-empty"><b>${s.status==='teto'?`Parou no teto de ${fabUsd(s.teto)} antes de juntar opções com fonte.`:'Nenhuma opção passou na triagem.'}</b><p>${s.status==='teto'?'Aumente o teto ou estreite o foco.':'A triagem exige 2 fontes independentes.'} Tente um foco mais concreto: quem sofre + onde${feat?' (ex.: "o que quem usa a Carteira mais pede?")':' (ex.: "recepção de clínica odontológica que confirma consulta no WhatsApp")'}.</p>${(s.cortadas||[]).length?`<p class="dim">Cortadas: ${s.cortadas.slice(0,5).map(c=>fabEsc(`${c.titulo} (${c.motivo})`)).join(' · ')}</p>`:''}</div>`;
+    const vz=fabVazioTxt(s.status, s.teto);
+    return h+`<div class="fab-empty"><b>${fabEsc(vz.t)}</b><p>${fabEsc(vz.d)}${s.status==='parada'?'':` Tente um foco mais concreto: quem sofre + onde${feat?' (ex.: "o que quem usa a Carteira mais pede?")':' (ex.: "recepção de clínica odontológica que confirma consulta no WhatsApp")'}.`}</p>${(s.cortadas||[]).length?`<p class="dim">Cortadas: ${s.cortadas.slice(0,5).map(c=>fabEsc(`${c.titulo} (${c.motivo})`)).join(' · ')}</p>`:''}</div>`;
   }
   const nc=(s.cortadas||[]).length;
   h+=`<div class="fab-sumline">Foco: <b>${fabEsc(s.foco)}</b> · ${+s.encontradas||ops.length} oportunidade${(+s.encontradas||ops.length)===1?'':'s'} encontrada${(+s.encontradas||ops.length)===1?'':'s'}, ${ops.length} com fontes suficientes${ops.some(o=>(o.votos||[]).length)?' · a mesa votou em lote':''}</div>`;
@@ -497,6 +545,9 @@ function fabRender(){
   fabWire(body);
   try{ const t=(typeof TABS!=='undefined'?TABS:[]).find(x=>x.kind==='varredura'); const nt=title.slice(0,28); if(t && t.title!==nt){ t.title=nt; if(typeof renderTabs==='function') renderTabs(); } }catch(_){ }
 }
+// foco num controle do cartão i depois de redesenhar (o innerHTML novo perde o foco); sem controle, o próprio cartão
+function fabFocusIn(i, sel){ const card=document.querySelector(`#varBody .fab-oc[data-fi="${i}"]`); if(!card) return; const el=card.querySelector(sel)||card; try{ el.focus(); }catch(_){ } }
+function fabUnconfirm(){ const i=FAB.confirm; FAB.confirm=null; fabRender(); if(i!=null) fabFocusIn(i, '[data-fbuild],[data-fmk]'); }
 function fabWire(body){
   bindClick('fabGo', fabStart);
   bindClick('fabStop', fabStop);
@@ -504,8 +555,10 @@ function fabWire(body){
   const f=$id('fabFoco'); if(f) f.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); fabStart(); } };
   const p=$id('fabProj'); if(p) p.onchange=async()=>{ if(FAB.by.feature && FAB.by.feature.status==='rodando'){ toast('Espere a varredura terminar (ou pare) pra trocar de projeto.','warn'); fabRender(); return; } if(window.switchProject){ try{ await window.switchProject(p.value); }catch(e){ showErr(e,'Não consegui abrir o projeto'); } } FAB.by.feature=null; fabRender(); };
   body.querySelectorAll('[data-fmode]').forEach(b=>b.onclick=()=>{ fabCapture(); FAB.mode=b.dataset.fmode; FAB.confirm=null; FAB.disc={}; fabRender(); fabLoadOverlaps(); });
-  body.querySelectorAll('[data-fbuild]').forEach(b=>b.onclick=()=>{ FAB.confirm=+b.dataset.fbuild; fabRender(); });
-  body.querySelectorAll('[data-funbuild]').forEach(b=>b.onclick=()=>{ FAB.confirm=null; fabRender(); });
+  body.querySelectorAll('[data-fbuild]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.fbuild; FAB.confirm=i; fabRender(); fabFocusIn(i, '[data-fmk],[data-funbuild]'); }); // A15: o foco vai pra confirmação (antes caía no <body>)
+  body.querySelectorAll('[data-funbuild]').forEach(b=>b.onclick=fabUnconfirm);
+  // A15: Esc fecha a confirmação e devolve o foco pro botão que a abriu
+  body.onkeydown=e=>{ if(e.key==='Escape' && FAB.confirm!=null && !e.defaultPrevented){ e.preventDefault(); fabUnconfirm(); } };
   body.querySelectorAll('[data-fdisc]').forEach(b=>b.onclick=()=>{ const i=+b.dataset.fdisc; FAB.disc[i]=!FAB.disc[i]; fabRender(); });
   body.querySelectorAll('[data-fwhy]').forEach(b=>b.onclick=()=>fabDiscard(+b.dataset.fwhy, b.dataset.why));
   body.querySelectorAll('[data-fundisc]').forEach(b=>b.onclick=()=>fabDiscard(+b.dataset.fundisc, ''));
@@ -662,7 +715,11 @@ function fabPDraftFromInputs(){
   return Object.assign({}, base, { nome:g('fabPNome'), papel:g('fabPPapel'), desc:g('fabPDesc'), ativa:!!($id('fabPAtiva')||{}).checked });
 }
 function fabPSaveSoon(){
-  const d=fabPDraftFromInputs(); if(!d) return; FAB_HUB.pDraft=d; FAB_HUB.saved='salvando…'; const sv=$id('fabPSaved'); if(sv) sv.textContent='salvando…';
+  const d=fabPDraftFromInputs(); if(!d) return; FAB_HUB.pDraft=d;
+  // C3: nome vazio não salva (a lista ficava com um item sem nome e dizia "salvo ✓")
+  if(!String(d.nome||'').trim()){ clearTimeout(FAB_HUB.saveT); FAB_HUB.saved='dê um nome pra salvar'; const sv0=$id('fabPSaved'); if(sv0) sv0.textContent=FAB_HUB.saved; const n=$id('fabPNome'); if(n) n.setAttribute('aria-invalid','true'); return; }
+  { const n=$id('fabPNome'); if(n) n.removeAttribute('aria-invalid'); }
+  FAB_HUB.saved='salvando…'; const sv=$id('fabPSaved'); if(sv) sv.textContent='salvando…';
   clearTimeout(FAB_HUB.saveT);
   FAB_HUB.saveT=setTimeout(async()=>{ try{ await mesaPersonaSave(d, (typeof state!=='undefined'&&state.repo)||''); if(d.origem==='gerada'){ FAB_HUB.genRepo=''; await fabLoadGen(); } FAB_HUB.saved='salvo ✓'; }catch(e){ FAB_HUB.saved='não salvou'; showErr(e,'Não consegui salvar a persona'); }
     FAB_HUB.pDraft=null; const s2=$id('fabPSaved'); if(s2) s2.textContent=FAB_HUB.saved; const it=document.querySelector(`[data-fpsel="${CSS.escape(d.id)}"] b`); if(it) it.textContent=d.nome; }, 450);

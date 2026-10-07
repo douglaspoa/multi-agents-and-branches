@@ -39,7 +39,7 @@ test('portão de prova: sem prova = não feito OU feito sem arquivo; motivo vale
 
 test('portão de prova vale em TODA porta de aprovação (cabeçalho, card da Central, Entrega, resumo, aba PR)', () => {
   // uma porta só: prova → verificação → PR
-  const gate = cut(pr, 'async function approveGate(t){', '\n}\n');
+  const gate = cut(pr, 'async function approveGateRun(t){', '\n}\n'); // approveGate = trava contra duplo clique + approveGateRun
   assert.match(gate, /proofGate\(t\)[\s\S]*st==='unproven'[\s\S]*approveShowEntrega[\s\S]*chkEnsure\(t\)[\s\S]*chkApproveClick\(t\)/);
   // cabeçalho: sem prova o verde é "pedir a prova ao agente"; "aprovar sem prova…" é secundário (e está no ⋯)
   assert.match(ws, /proofGate\(t\)\.st==='unproven'\)\s*\? \{ id:'fwAskProof', html:`\$\{IC\.ai\} pedir a prova ao agente`/);
