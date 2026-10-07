@@ -36,7 +36,7 @@ function formWorld() {
     async function submitNewTaskInner(){ return W.inner && W.inner({ get draft(){ return ntEditingDraft; }, set draft(v){ ntEditingDraft=v; }, set linked(v){ ntLinkedTo=v; }, get linked(){ return ntLinkedTo; } }); }
     const invoke=(c,a)=>{ if(c==='remove_task') W.removed.push(a.taskId); return Promise.resolve(); };
     const $id=()=>({ style:{ set display(v){ if(v==='none') W.overlayHidden++; } } });
-    const window={ openTab:(k)=>{ if(W.openRefuse) return; const t={ id:k+':'+(++W.seq), kind:k }; W.TABS.push(t); W.activeTab=t.id; resetNewTask(); window.ntOpening=Promise.resolve(); } };
+    const window={ openTab:(k)=>{ if(W.openRefuse) return; const t={ id:k+':'+(++W.seq), kind:k }; W.TABS.push(t); W.activeTab=t.id; resetNewTask(); window.ntOpening=W.switchTo ? Promise.resolve().then(()=>{ W.activeTab=W.switchTo; }) : Promise.resolve(); } };
     ${src.replace(/\bactiveTab\b/g, 'W.activeTab')}
     return { closeNewTask, ntFormTabClosed, ntOpenFormTab, submitNewTask, ntSubmitDone, g:{ get draft(){ return ntEditingDraft; }, set draft(v){ ntEditingDraft=v; }, get linked(){ return ntLinkedTo; }, set linked(v){ ntLinkedTo=v; } } };`;
   const api = new Function('W', body)(W);
@@ -112,4 +112,51 @@ test('11 · painel do canvas: term-data/term-exit chegam, só os da demanda do p
   listened['term-exit']({ payload: { taskId: 't2', code: 0 } });
   listened['env-progress']({ payload: { line: 'x' } });
   assert.deepEqual(got, [['term-data', { taskId: 't1', data: 'oi' }], ['term-exit', { taskId: 't1', code: 0 }], ['env-progress', { line: 'x' }]]);
+});
+
+test('revisão · X/Cancelar do Formulário fecham (o MouseEvent do onclick não vira id de aba)', async () => {
+  assert.match(read('js/33-switcher-projetos.js'), /\$id\("ntClose"\)\.onclick = \(\)=>closeNewTask\(\);[^\n]*\n\$id\("ntCancel"\)\.onclick = \(\)=>closeNewTask\(\);/);
+  const { W, ntOpenFormTab, closeNewTask } = formWorld();
+  await ntOpenFormTab(); const mine = W.activeTab;
+  closeNewTask({ type: 'click', target: {} });
+  assert.deepEqual(W.closed, [mine], 'evento no lugar do id: fecha a aba ativa do Formulário');
+});
+
+test('revisão · trocou de aba enquanto o Formulário abria: quem chamou não preenche nada', async () => {
+  const { W, ntOpenFormTab } = formWorld();
+  W.TABS.push({ id: 'form:bia', kind: 'form' }); W.switchTo = 'form:bia';
+  assert.equal(await ntOpenFormTab(), false);
+});
+
+test('revisão · "Recomeçar do zero" mantém o rascunho em edição; editar o MESMO rascunho volta pra aba dele', () => {
+  assert.match(form, /onOk:\(\)=>\{ const ed=\(typeof ntEditingDraft!=='undefined'\)\?ntEditingDraft:null; resetNewTask\(\); if\(ed\) ntEditingDraft=ed;/);
+  const ed = cut(read('js/24-perguntas-agente.js'), 'async function editDraft(t){', 'if(!await ntOpenFormTab()) return;');
+  // roda o trecho de reaproveitar: aba de fundo com o rascunho → ativa ela; ativa editando ele → fica; outro rascunho → segue pra abrir aba nova
+  const run = (TABS, activeTab, ntEditingDraft, id) => { let act = null;
+    const f = new Function('TABS', 'activeTab', 'ntEditingDraft', 'activateTab', 'ntPaneDelegate', 't', ed.replace('async function editDraft(t){', '') + '\nreturn "nova";');
+    const r = f(TABS, activeTab, ntEditingDraft, (id2) => { act = id2; }, () => false, { id }); return act || r; };
+  const T = [{ id: 'flow', kind: 'flow' }, { id: 'form:1', kind: 'form', state: { ntEditingDraft: 'd1' } }, { id: 'form:2', kind: 'form', state: null }];
+  assert.equal(run(T, 'flow', null, 'd1'), 'form:1', 'aba de fundo com o rascunho');
+  assert.equal(run(T, 'form:2', 'd2', 'd2'), 'form:2', 'a aba ativa já edita esse rascunho');
+  assert.equal(run(T, 'form:2', null, 'd9'), 'nova', 'outro rascunho: aba nova');
+});
+
+test('revisão · previsão usa o modelo do MESMO motor (Codex não estima com o modelo do Claude)', () => {
+  const src = cut(picker, 'function aiEngineOf(e)', '\n') + '\n' + cut(planner, 'function plModelNow(){', '\n') + '\n' + cut(read('js/33-previsao.js'), 'function estDraft(){', '\nfunction estKey');
+  const run = (fields) => new Function('plFields', src + '\nfunction aiDefaults(){ return { eng:"claude", model:"claude-opus-5-5" }; }\nreturn estDraft().model;')(fields);
+  assert.equal(run({ engine: 'codex', model: '' }), '');
+  assert.equal(run({ engine: 'claude', model: '' }), 'claude-opus-5-5');
+  assert.equal(run({ engine: 'codex', model: 'gpt-5' }), 'gpt-5');
+});
+
+test('revisão · no painel do canvas, correção linkada / entrega do design / editar rascunho abrem na JANELA PRINCIPAL', () => {
+  for (const f of ['async function openFromDesign(t){\n  if(ntPaneDelegate(\'openFromDesign\', t)) return;', 'async function openLinkedFix(t){\n  if(ntPaneDelegate(\'openLinkedFix\', t)) return;']) assert.ok(form.includes(f), f);
+  assert.match(read('js/24-perguntas-agente.js'), /ntPaneDelegate\('editDraft', t\)/);
+  const d = cut(form, 'function ntPaneDelegate(fn, t){', '\n}\n') + '\n}';
+  const got = [];
+  const parent = { state: { tasks: [{ id: 't2', title: 'da janela principal' }] }, openLinkedFix: (x) => got.push(x) };
+  const win = { parent };
+  assert.equal(new Function('SF_PANE', 'window', d + '\nreturn ntPaneDelegate("openLinkedFix", { id:"t2", title:"do painel" });')('task:t1', win), true);
+  assert.deepEqual(got, [{ id: 't2', title: 'da janela principal' }], 'a janela principal recebe a tarefa dela');
+  assert.equal(new Function('SF_PANE', 'window', d + '\nreturn ntPaneDelegate("openLinkedFix", { id:"t2" });')(null, win), false, 'fora do painel: abre aqui mesmo');
 });

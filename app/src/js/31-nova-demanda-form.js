@@ -391,6 +391,7 @@ let ntLinkedTo=null; // id da tarefa de origem quando esta é uma correção lin
 // design aprovado → cria a tarefa de ENTREGA linkada, com os artefatos do
 // design (mockup/DESIGN.md) anexados como referência obrigatória.
 async function openFromDesign(t){
+  if(ntPaneDelegate('openFromDesign', t)) return;
   const isInv=(t.branch||'').startsWith('invest/');
   try{
     let arts=[]; try{ arts = await loadArtifacts(t.id, t.status) || []; }catch(_){ arts=[]; }
@@ -458,6 +459,7 @@ function renderBd(){
   el.innerHTML='<div class="imhint" style="border-left:2px solid var(--warn)">não veio proposta — tente de novo ou crie as tarefas manualmente no backlog</div>';
 }
 async function openLinkedFix(t){
+  if(ntPaneDelegate('openLinkedFix', t)) return;
   const fromInvest=(t.branch||'').startsWith('invest/');
   if(!await ntOpenFormTab()) return; // aba própria (antes: modal sem aba que fechava a aba de outro Formulário)
   setNtMode('fix');
@@ -517,7 +519,7 @@ document.querySelectorAll('#ntTypeTabs [data-nttype]').forEach(b=>b.onclick=()=>
 // ⋯ do cabeçalho: importar .md · recomeçar do zero (folha ancorada confirma)
 bindClick('ntMore', ev=>{ const a=ev.currentTarget; if(typeof g2SheetMenu!=='function') return;
   g2SheetMenu(a, [ ntMode==='build'?{ label:'Importar .md', hint:'frontmatter + Objetivo / Entregáveis / Requisitos', fn:()=>importTaskMd() }:null,
-    { label:'Recomeçar do zero', hint:'apaga o que está preenchido nesta aba', danger:true, fn:()=>g2SheetConfirm(a, { title:'Recomeçar do zero?', sub:'os campos desta aba são limpos', ok:'Recomeçar', danger:true, onOk:()=>{ resetNewTask(); wizN=1; wizRender(); ntGate(); } }) } ]); });
+    { label:'Recomeçar do zero', hint:'apaga o que está preenchido nesta aba', danger:true, fn:()=>g2SheetConfirm(a, { title:'Recomeçar do zero?', sub:'os campos desta aba são limpos', ok:'Recomeçar', danger:true, onOk:()=>{ const ed=(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null; resetNewTask(); if(ed) ntEditingDraft=ed; wizN=1; wizRender(); ntGate(); } }) } ]); });
 // coluna da direita: "Pedido até aqui" + "Padrões que valem aqui" (só leitura)
 function ntSideRender(){
   const mb=document.querySelector('#ntOverlay .mbody'); if(!mb) return;
@@ -550,11 +552,18 @@ function ntSideRender(){
 function ntFormTabClosed(){ if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; ntLinkedTo=null; }
 // fecha SÓ a aba do próprio formulário (tabId, ou a ativa se for Formulário) — nunca a aba de outro Formulário
 function closeNewTask(tabId){
+  if(typeof tabId!=='string') tabId=undefined; // handler ligado direto (onclick=closeNewTask) passa o evento
   const has=typeof tabById==='function', cur=has?tabById(activeTab):null;
   const t=has?(tabId?tabById(tabId):(cur&&cur.kind==='form'?cur:null)):null;
   if(t && t.kind==='form'){ closeTab(t.id); return; }
   if(tabId) return; // a aba dele já foi fechada: nada mais a fazer (não mexe na tela de outra aba)
   $id("ntOverlay").style.display="none"; ntFormTabClosed();
+}
+// dentro de um PAINEL do canvas (iframe sem barra de abas) o Formulário abre como aba da JANELA PRINCIPAL
+function ntPaneDelegate(fn, t){
+  if(typeof SF_PANE==='undefined' || !SF_PANE) return false;
+  try{ const P=window.parent; if(!P || P===window || typeof P[fn]!=='function') return false;
+    const pt=((P.state&&P.state.tasks)||[]).find(x=>x.id===(t&&t.id))||t; P[fn](pt); return true; }catch(_){ return false; }
 }
 // abre o Formulário SEMPRE como aba própria e LIMPA (correção linkada, entrega do design, botão Nova tarefa, chat).
 // Devolve false se não abriu (sem projeto/git: o openTab já avisou) — quem chama não preenche nada.
@@ -564,6 +573,7 @@ async function ntOpenFormTab(){
   const t=(typeof tabById==='function')?tabById(activeTab):null;
   if(!(t && t.kind==='form' && t.id!==before)) return false; // recusou (a aba ativa é de OUTRO Formulário): não preenche nada
   try{ await window.ntOpening; }catch(_){ }
+  if(activeTab!==t.id) return false; // trocou de aba enquanto abria: não preenche a aba errada
   return true;
 }
 function ntShow(){ setNtMode(ntMode); $id("ntOverlay").style.display="flex"; }

@@ -4257,12 +4257,12 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     stop_task_status(&state, &task_id)
 }
 
-/// "■ parar" só INTERROMPE a IA: tarefa já integrada/concluída (merged/done/cancelled, ou encerrada à mão com
+/// "■ parar" só INTERROMPE a IA: tarefa já integrada/concluída (merged/done/cancelled/aborted, ou encerrada à mão com
 /// flag='closed') que voltou a conversar continua como estava — antes voltava pra 'review' e saía de Concluídas.
 /// As outras voltam pra 'review' (dá pra continuar conversando). Devolve se o status mudou.
 fn stop_set_review(conn: &Connection, task_id: &str) -> Result<bool, String> {
     let flag = if task_has_col_raw(conn, "flag") { " AND (flag IS NULL OR flag!='closed')" } else { "" };
-    let sql = format!("UPDATE task SET status='review' WHERE id=?1 AND status NOT IN ('merged','done','cancelled'){}", flag);
+    let sql = format!("UPDATE task SET status='review' WHERE id=?1 AND status NOT IN ('merged','done','cancelled','aborted'){}", flag);
     conn.execute(&sql, params![task_id]).map(|n| n > 0).map_err(|e| e.to_string())
 }
 fn stop_task_status(state: &State<AppState>, task_id: &str) -> Result<(), String> {
@@ -4279,8 +4279,9 @@ mod stop_task_status_tests {
     fn parar_tarefa_integrada_nao_muda_o_status() {
         let c = Connection::open_in_memory().unwrap();
         c.execute_batch("CREATE TABLE task (id TEXT PRIMARY KEY, status TEXT, flag TEXT);
-          INSERT INTO task VALUES ('m','merged',NULL),('d','done',NULL),('x','cancelled',NULL),('c','review','closed'),('r','running',NULL),('t','thinking',NULL),('e','error',NULL);").unwrap();
-        for id in ["m", "d", "x", "c"] { assert!(!stop_set_review(&c, id).unwrap(), "{id}: integrada/concluída não muda"); }
+          INSERT INTO task VALUES ('m','merged',NULL),('d','done',NULL),('x','cancelled',NULL),('a','aborted',NULL),('c','review','closed'),('r','running',NULL),('t','thinking',NULL),('e','error',NULL);").unwrap();
+        for id in ["m", "d", "x", "a", "c"] { assert!(!stop_set_review(&c, id).unwrap(), "{id}: integrada/concluída não muda"); }
+        assert_eq!(st(&c, "a"), "aborted");
         assert_eq!(st(&c, "m"), "merged"); assert_eq!(st(&c, "d"), "done"); assert_eq!(st(&c, "x"), "cancelled"); assert_eq!(st(&c, "c"), "review");
         for id in ["r", "t", "e"] { assert!(stop_set_review(&c, id).unwrap(), "{id}: em andamento volta pra review"); assert_eq!(st(&c, id), "review"); }
     }
