@@ -29,6 +29,9 @@ test('xterm fora da tela é descartado: só os mais antigos, nunca a tarefa aber
   assert.deepEqual(T.termDropIds(l, 6, null), ['t0', 't3'], 'na tela ou abrindo: fica');
   assert.equal(T.TERM_KEEP, 6);
   assert.match(term, /function termSweep\(\)\{[\s\S]*termDropIds\(list, TERM_KEEP[\s\S]*termDispose\(id\)/);
+  const B = new Function(cut(term, '// @term-sweep-puro-inicio', '// @term-sweep-puro-fim') + '\nreturn termBusy;')();
+  assert.equal(B({ pend: [] }), true, 'attach em voo (retrato chegando) conta como ocupado'); assert.equal(B({ pend: null }), false);
+  assert.equal(B({ opening: true }), true); assert.equal(B({ hloading: true }), true); assert.equal(B({}), false);
   assert.match(cut(term, 'function termDispose(taskId){', '\n}\n'), /st\.ro\.disconnect\(\)[\s\S]*st\.term\.dispose\(\)[\s\S]*delete TERM\[taskId\][\s\S]*delete TL\.sheets\[taskId\]/);
 });
 
@@ -50,10 +53,20 @@ test('folha de pergunta: envio que cai no meio NÃO some — fica com a que falt
   assert.match(tl, /function tlAskOf\(t\)\{[\s\S]*tlAskResume\(g, pend, TL\.ask, t\.id\)[\s\S]*st\.g=g; st\.task=t\.id;/);
 });
 
-test('pergunta nova não rouba o foco de quem está no terminal ("1"+Enter não responde sem querer)', () => {
-  const paint = cut(tl, 'function tlAskPaint(t, focus, grab){', '\n}\n');
-  assert.match(paint, /const idle=!ae \|\| ae===document\.body;/);
-  assert.ok(!/TERM\[t\.id\]\.host\.contains\(ae\)/.test(paint), 'o xterm com foco não conta como "livre"');
+test('pergunta nova não rouba o foco de quem está no terminal — nem depois do renderWorkspace (foco caiu no body)', () => {
+  const F = new Function('esc', 'escA', cut(tl, '// @tl-puro-inicio', '// @tl-puro-fim') + '\nreturn tlAskTakesFocus;')(esc, esc);
+  const base = { hadFocus: false, focus: false, fresh: true, min: false };
+  assert.equal(F({ ...base, termFocus: true, onBody: true }), false, 'xterm tinha o foco antes do render (agora no body): a folha NÃO pega');
+  assert.equal(F({ ...base, termFocus: true, onBody: false }), false, 'foco ainda no xterm: não pega');
+  assert.equal(F({ ...base, termFocus: false, onBody: true }), true, 'ninguém digitando: a pergunta nova pega o foco');
+  assert.equal(F({ ...base, termFocus: false, onBody: false }), false, 'digitando noutro campo: não pega');
+  assert.equal(F({ ...base, fresh: false, termFocus: false, onBody: true }), false, 'repinta da mesma folha: não rouba');
+  assert.equal(F({ ...base, termFocus: true, onBody: true, focus: true }), true, 'pedido explícito (responder/abrir a folha): pega');
+  assert.equal(F({ ...base, termFocus: true, onBody: true, hadFocus: true }), true, 'quem já estava na folha continua nela');
+  // o caminho do render passa o "terminal tinha o foco" até a folha (e o 20 devolve o foco ao xterm depois)
+  assert.match(ws, /tlWire\(t, sheetGrab, termHadFocus\); if\(termHadFocus && !chat\.querySelector\('\.tlsheet:focus-within'\)\) setTimeout\(\(\)=>tlFocusTerm\(t\.id\), 0\)/);
+  assert.match(tl, /function tlWire\(t, grab, termFocus\)\{[\s\S]*tlAskPaint\(t, false, grab, termFocus\)/);
+  assert.match(cut(tl, 'function tlAskPaint(t, focus, grab, termFocus){', '\n}\n'), /tlAskTakesFocus\(\{ hadFocus, focus, fresh, min:a\.st\.min, termFocus:tf, onBody:/);
 });
 
 test('aba PR: botões "atualizando…/enviando…" repintam mesmo com o HTML igual', () => {
@@ -75,10 +88,15 @@ test('Entrega: subir/pedir/encerrar repintam no fim (o botão não fica preso de
   assert.match(en, /EN_TYPE_TX\[taskType\(t\)\]\|\|'demanda'/); assert.ok(!/exit code/.test(en));
 });
 
-test('envio que falha na tarefa A não puxa o rascunho da tarefa B (campo da tela)', () => {
-  const c = cut(ws, '// falhou: o texto e os anexos VOLTAM pro composer', "showErr(e, 'Não consegui enviar");
-  assert.match(c, /const cur=String\(fwDraft\[t\.id\]\|\|''\)\.trim\(\)/);
-  assert.ok(!/\$id\('fwInput'\)/.test(c), 'não lê o campo da tela');
+test('xterm descartado enquanto o attach voava: o PTY é solto de novo (contador de quem assiste não fica >0)', async () => {
+  const fn = cut(term, 'async function termAttach(taskId){', '\n}\n') + '\n}';
+  const calls = []; const TERM = {};
+  const st = { term: {}, attached: false };
+  TERM.t1 = st;
+  const invokeQuiet = async (c, a) => { calls.push(c); if (c === 'term_attach') { delete TERM.t1; return { alive: true, data: 'x' }; } return null; };
+  const termAttach = new Function('TERM', 'invokeQuiet', 'termSetAlive', 'termHistLoad', fn + '\nreturn termAttach;')(TERM, invokeQuiet, () => { throw new Error('não devia pintar'); }, () => { throw new Error('não devia ler'); });
+  await termAttach('t1'); await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(calls, ['term_attach', 'term_detach']);
 });
 
 test('duplo clique em "aprovar e abrir PR": uma preparação só', async () => {
@@ -93,24 +111,70 @@ test('duplo clique em "aprovar e abrir PR": uma preparação só', async () => {
   assert.match(open, /if\(prepRunning\.has\(taskId\)\)\{/); assert.match(open, /prepRunning\.add\(taskId\);[\s\S]*\.finally\(\(\)=>prepRunning\.delete\(taskId\)\)/);
 });
 
-test('canvas: o rascunho do painel volta pra janela principal ao desagrupar/fechar (e o painel começa com ele)', () => {
-  const C = new Function(cut(canvas, '// @cv-rascunho-inicio', '// @cv-rascunho-fim') + '\nreturn { cvDraftMerge, cvAttsMerge };')();
-  assert.equal(C.cvDraftMerge('', 'texto do painel'), 'texto do painel');
-  assert.equal(C.cvDraftMerge('começo', 'começo e mais'), 'começo e mais', 'o painel continuou o rascunho herdado');
-  assert.equal(C.cvDraftMerge('principal', ''), 'principal', 'painel vazio não apaga');
-  assert.equal(C.cvDraftMerge('A', 'B'), 'A\nB', 'os dois diferentes: nada se perde');
-  assert.equal(C.cvDraftMerge('abc mais', 'abc'), 'abc mais');
-  assert.deepEqual(C.cvAttsMerge([{ p: 'a.png' }], [{ p: 'a.png' }, { p: 'b.png' }]), [{ p: 'a.png' }, { p: 'b.png' }]);
-  assert.deepEqual(C.cvAttsMerge(undefined, []), []);
+test('canvas: o rascunho MUDA de dono — o painel leva, devolve ao sair; nada ressuscita nem duplica', () => {
+  const src = cut(canvas, '// @cv-rascunho-inicio', '// --- lado do PAINEL');
+  const world = () => new Function('W', 'let fwTask=W.cur; const fwDraft=W.d, fwPend=W.p; const $id=()=>W.input;\n' + src + '\nreturn { cvDraftGive, cvDraftTake };');
+  const mk = (d, p, input) => { const W = { d, p, input, cur: 't1' }; return { W, ...world()(W) }; };
+  // herda "A" → a principal fica sem; o painel envia (campo vazio) e fecha → nada volta (sem reenvio)
+  { const { W, cvDraftGive, cvDraftTake } = mk({ t1: 'A' }, { t1: [{ p: 'x.png' }] }, { dataset: { tk: 't1' }, value: 'A' });
+    const g = cvDraftGive('t1');
+    assert.deepEqual(g, { text: 'A', atts: [{ p: 'x.png' }] });
+    assert.equal(W.d.t1, '', 'a principal não guarda cópia'); assert.equal(W.p.t1, undefined); assert.equal(W.input.value, '', 'nem no campo montado');
+    cvDraftTake('t1', '', []);
+    assert.equal(W.d.t1, '', 'mensagem enviada pelo painel não volta ao compositor'); assert.equal(W.p.t1, undefined, 'anexos enviados não voltam'); }
+  // apagou "A" e escreveu "B" no painel → "B" (não "A\nB"); apagou tudo → vazio (não ressuscita)
+  { const { W, cvDraftGive, cvDraftTake } = mk({ t1: 'A' }, {}, null); cvDraftGive('t1'); cvDraftTake('t1', 'B', []); assert.equal(W.d.t1, 'B'); }
+  { const { W, cvDraftGive, cvDraftTake } = mk({ t1: 'A' }, {}, null); cvDraftGive('t1'); cvDraftTake('t1', '   ', []); assert.equal(W.d.t1, ''); }
+  // a principal ganhou texto NOVO depois de entregar → os dois ficam
+  { const { W, cvDraftGive, cvDraftTake } = mk({ t1: 'A' }, {}, null); cvDraftGive('t1'); W.d.t1 = 'C'; W.p.t1 = [{ p: 'c.png' }];
+    cvDraftTake('t1', 'B', [{ p: 'c.png' }, { p: 'b.png' }]); assert.equal(W.d.t1, 'C\nB'); assert.deepEqual(W.p.t1, [{ p: 'c.png' }, { p: 'b.png' }], 'sem anexo duplicado'); }
+  // o campo da tarefa aberta na janela mostra o que voltou
+  { const inp = { dataset: { tk: 't1' }, value: '' }; const { cvDraftGive, cvDraftTake } = mk({ t1: '' }, {}, inp); cvDraftGive('t1'); cvDraftTake('t1', 'do painel', []); assert.equal(inp.value, 'do painel'); }
   assert.match(cut(canvas, 'function cvPaneDispose(id){', '\n}\n'), /w\.sfPaneDraftOut\(\)[\s\S]*fr\.src='about:blank'/, 'devolve ANTES de virar about:blank');
-  assert.match(canvas, /window\.sfPaneDraftOut=\(\)=>\{[\s\S]*window\.parent\.cvDraftTake\(id, fwDraft\[id\]\|\|'', fwPend\[id\]\|\|\[\]\)/);
-  assert.match(canvas, /window\.parent\.cvDraftGive && window\.parent\.cvDraftGive\(id\)/);
 });
 
-test('⌘W dentro do painel fecha o painel pela porta guardada — e a guarda olha a edição DO painel', () => {
-  assert.match(tabs, /if\(typeof SF_PANE!=='undefined' && SF_PANE\)\{[\s\S]{0,300}k==='w'[\s\S]{0,200}window\.parent\.tabCloseGuarded\(id\)/);
+test('envio que falha: o texto volta pro CAMPO desta tarefa (o render do finally não o zera) e não pega o de outra', () => {
+  const blk = cut(ws, '    fwOptim[t.id]=(fwOptim[t.id]||[]).filter(x=>x!==op); if(answered)', "    showErr(e, 'Não consegui enviar");
+  const run = (draft, input) => { const W = { fwDraft: { ...draft }, fwPend: {}, fwOptim: {}, input };
+    new Function('W', 't', 'typed', 'atts', 'op', 'answered', 'const fwDraft=W.fwDraft, fwPend=W.fwPend, fwOptim=W.fwOptim; const $id=()=>W.input;\n' + blk)(W, { id: 'A' }, 'msg A', [{ p: 'a.png' }], {}, null); return W; };
+  // ficou na A: campo vazio (desabilitado no envio) → recebe o texto
+  { const inp = { dataset: { tk: 'A' }, value: '' }; const W = run({ A: '' }, inp); assert.equal(W.fwDraft.A, 'msg A'); assert.equal(inp.value, 'msg A'); assert.deepEqual(W.fwPend.A, [{ p: 'a.png' }]);
+    // o que o renderWorkspace faz primeiro (20:959): campo → rascunho. Agora o rascunho continua com o texto
+    W.fwDraft[inp.dataset.tk] = inp.value; assert.equal(W.fwDraft.A, 'msg A'); }
+  // foi pra B e digitou lá: o campo da B não é tocado e o texto da B não entra na A
+  { const inp = { dataset: { tk: 'B' }, value: 'Rascunho da B' }; const W = run({ A: '', B: 'Rascunho da B' }, inp); assert.equal(W.fwDraft.A, 'msg A'); assert.equal(inp.value, 'Rascunho da B'); }
+});
+
+test('fechar aba pelo teclado: ⌘W no Mac (Ctrl+W é do terminal), Ctrl+W fora do Mac exceto dentro do xterm', () => {
+  const K = new Function(cut(tabs, '// @puro-atalhos-inicio', '// @puro-atalhos-fim') + '\nreturn tabCloseKey;')();
+  const term = { closest: (sel) => sel === '.xterm' }, field = { closest: () => null };
+  const ev = (o) => ({ key: 'w', shiftKey: false, altKey: false, metaKey: false, ctrlKey: false, target: field, ...o });
+  assert.equal(K(ev({ metaKey: true }), 'mac'), true);
+  assert.equal(K(ev({ metaKey: true, target: term }), 'mac'), true, '⌘W com o foco no terminal fecha (⌘ não é do terminal)');
+  assert.equal(K(ev({ ctrlKey: true }), 'mac'), false, 'Mac: Ctrl+W não fecha a aba');
+  assert.equal(K(ev({ ctrlKey: true, target: term }), 'mac'), false);
+  assert.equal(K(ev({ ctrlKey: true }), 'win'), true, 'Windows/Linux: Ctrl+W fecha');
+  assert.equal(K(ev({ ctrlKey: true, target: term }), 'linux'), false, '…mas dentro do terminal é "apagar palavra"');
+  assert.equal(K(ev({ metaKey: true, shiftKey: true }), 'mac'), false);
+  assert.equal(K(ev({ key: 'q', metaKey: true }), 'mac'), false);
+});
+
+test('⌘W fecha pela porta guardada: na janela (membro do grupo) e dentro do painel — a guarda olha a edição DO painel', async () => {
+  const handler = cut(tabs, "document.addEventListener('keydown', async e=>{", '\n});\n') + '\n});';
+  const mk = (pane) => { const W = { guarded: [], closed: [], parentGuarded: [] };
+    const body = `let h; const document={ addEventListener:(n,f)=>{ h=f; } }; const window=W.win; const SF_PANE=${pane ? "'task:t2'" : 'null'};
+      const cvShortcut=()=>false, cvGroupMember=()=>'task:t2', activeTab='task:t1', osKind=()=>'mac', TABS=[];
+      const tabById=id=>({ id, kind:'task' }); const tabCloseGuarded=async id=>{ W.guarded.push(id); }; const closeTab=id=>W.closed.push(id);
+      ${cut(tabs, '// @puro-atalhos-inicio', '// @puro-atalhos-fim')}
+      ${handler}
+      return h;`;
+    W.win = { frameElement: { dataset: { tabid: 'task:t2' } }, parent: { tabCloseGuarded: async (id) => { W.parentGuarded.push(id); } } };
+    return { W, h: new Function('W', body)(W) }; };
+  const ev = (o) => ({ key: 'w', metaKey: true, ctrlKey: false, shiftKey: false, altKey: false, target: { closest: () => null }, preventDefault() {}, ...o });
+  { const { W, h } = mk(false); await h(ev()); assert.deepEqual(W.guarded, ['task:t2'], 'membro em foco, pela tabCloseGuarded'); assert.deepEqual(W.closed, [], 'nunca o closeTab direto');
+    await h(ev({ metaKey: false, ctrlKey: true })); assert.deepEqual(W.guarded, ['task:t2'], 'Ctrl+W no Mac: nada'); }
+  { const { W, h } = mk(true); await h(ev()); assert.deepEqual(W.parentGuarded, ['task:t2'], 'no painel: fecha ESTE painel pela janela principal'); }
   assert.match(cut(tabs, 'async function tabLeaveGuard(targetId, closing){', '\n}\n'), /cvPaneWin\(targetId\)[\s\S]*w\.sfPaneLeaveOk\(\)/);
-  assert.match(canvas, /async function sfPaneLeaveOk\(\)\{ return \(typeof fwEditing!=='undefined' && fwEditing && typeof fwLeaveEditor==='function'\) \? await fwLeaveEditor\(\) : true; \}/);
 });
 
 test('"Subir ambiente": o supervisor que morre sem avisar falha diz que o site parou (não volta calado)', () => {
@@ -129,11 +193,19 @@ test('"Subir ambiente": o supervisor que morre sem avisar falha diz que o site p
   assert.match(amb, /s\.log='Não consegui ler o registro do site: '\+/);
 });
 
-test('erros crus: prévia (navegador) e PR (stderr do gh) falam como gente; o original fica em "ver detalhes"', () => {
-  assert.match(nav, /st\.err=\(typeof errShort==='function'\)\?errShort\(e\)/);
-  const p = cut(ws, 'function fwRenderPrPage(t, main){', "  if(!info.exists){");
-  assert.ok(!/esc\(det\.slice\(0,300\)\)/.test(p), 'o texto cru não vai pra tela');
-  assert.match(p, /id="prPgErrDet">ver detalhes/); assert.match(p, /errDetails\(\{ msg:head, raw:String\(info\.error\) \}\)/);
+test('aba PR com erro do gh: sem acesso mostra a frase do backend (repositório + SSO); o resto sem stderr cru', () => {
+  const fn = cut(ws, 'function fwRenderPrPage(t, main){', '\n}\n') + '\n}';
+  const paint = (error, errKind) => { const main = { innerHTML: '' }; const bound = {};
+    new Function('prCache', 'bindClick', 'esc', 'humanErr', 'IC', 'fn', fn + '\nreturn fwRenderPrPage;')({ t1: { exists: false, error, errKind } }, (id, f) => { bound[id] = f; }, esc, () => ({ id: 'generic', msg: '' }), {})({ id: 't1', branch: 'b' }, main);
+    return { html: main.innerHTML, bound }; };
+  const no = paint('GH_NO_ACCESS: a conta logada no gh não tem acesso a org/repo — se a org usa SSO, rode `gh auth refresh -s repo`', 'access');
+  assert.match(no.html, /org\/repo/); assert.match(no.html, /gh auth refresh -s repo/); assert.ok(!/GH_NO_ACCESS/.test(no.html));
+  const net = paint('gh: error connecting to api.github.com\nexit status 1', 'network');
+  assert.ok(!/api\.github\.com|exit status/.test(net.html), 'stderr não vai pra tela'); assert.ok(net.bound.prPgErrDet, '"ver detalhes" leva o original');
+});
+
+test('erros crus: prévia (navegador) fala como gente e o original vai pro console', () => {
+  assert.match(nav, /catch\(e\)\{ console\.error\('browser_open', e\); st\.err=\(typeof errShort==='function'\)\?errShort\(e\)/);
 });
 
 test('cosméticos: tarefa na fila não mostra "parar"; doca sem alias cru; 3 painéis a 920 sem cortes', () => {
@@ -142,6 +214,6 @@ test('cosméticos: tarefa na fila não mostra "parar"; doca sem alias cru; 3 pai
   assert.equal(L('claude', 'opus'), 'Claude · Opus'); assert.equal(L('claude', 'claude-opus-5-5'), 'Claude · claude-opus-5-5'); assert.equal(L('claude', ''), 'Claude');
   assert.match(cvCss, /html\.sfpane \.appmain>\.bus\{display:none!important\}/);
   assert.match(cvCss, /html\.sfpane \.en-kpi span\{min-width:0\}/);
-  assert.match(tCss, /\.tlsheethost\.tight \.tlsf\{flex-wrap:wrap;row-gap:4px\}/);
+  assert.match(tCss, /\.tlsf\{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap;row-gap:4px;/, 'pular/próxima quebram linha em qualquer painel estreito (não só no .tight por altura)');
   assert.match(pr, /pill:\['falta prova','warn'\]/);
 });

@@ -208,6 +208,8 @@ async function termAttach(taskId){
   st.attached=true; st.pend=[]; // o que chegar ENQUANTO o retrato vem fica guardado e é escrito depois dele
   try{
     const info=await invokeQuiet('term_attach',{ taskId });
+    // descartado enquanto o retrato vinha (termDispose): solta o PTY de novo — senão o contador de quem assiste fica >0
+    if(TERM[taskId]!==st){ if(info && info.alive) invokeQuiet('term_detach',{ taskId }).catch(()=>{}); return; }
     if(info && info.alive){
       st.mode='live'; st.term.reset(); if(info.data) st.term.write(info.data);
       const pend=st.pend; st.pend=null; for(const d of pend||[]) st.term.write(d);
@@ -329,11 +331,13 @@ function termSweep(){
   for(const id in TERM){ if(!TERM[id].host.isConnected) termDetach(id); }
   // xterm fora da tela não fica pra sempre na memória: passou de TERM_KEEP, os mais antigos são descartados
   // (a sessão continua viva no app; reabrir a tarefa pede o retrato de novo ao term_attach)
-  const list=Object.keys(TERM).map(id=>({ id, on:TERM[id].host.isConnected, used:TERM[id].used||0, busy:!!(TERM[id].opening||TERM[id].hloading) }));
+  const list=Object.keys(TERM).map(id=>({ id, on:TERM[id].host.isConnected, used:TERM[id].used||0, busy:termBusy(TERM[id]) }));
   for(const id of termDropIds(list, TERM_KEEP, typeof fwTask!=='undefined'?fwTask:null)) termDispose(id);
 }
 // @term-sweep-puro-inicio (testado em app/tests/atrap-tarefa.test.mjs)
 const TERM_KEEP=6;
+/** Em voo: abrindo, lendo o histórico ou com o retrato do attach chegando (st.pend é a fila do attach) — não descarta. */
+function termBusy(st){ return !!(st && (st.opening || st.hloading || Array.isArray(st.pend))); }
 /** Quais terminais descartar: só os fora da tela, sem abertura/leitura em voo, nunca a tarefa aberta; os mais antigos primeiro. */
 function termDropIds(list, keep, cur){
   const over=(list||[]).length-keep; if(over<=0) return [];

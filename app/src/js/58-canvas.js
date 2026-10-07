@@ -244,12 +244,14 @@ function cvPanesTick(){
   for(const id of SPL.ids){ const el=SPL.panes[id]; const fr=el&&el.querySelector('iframe.cvrealm'); if(!fr) continue; try{ const w=fr.contentWindow; if(w && typeof w.sfPaneTick==='function') w.sfPaneTick(); }catch(_){ } }
 }
 // ---- rascunho do painel ↔ janela principal: o texto e os anexos que você deixou num painel não somem ao desagrupar ou
-// fechar (o iframe vira about:blank). O painel começa com o rascunho da janela principal e devolve o dele ao sair.
+// fechar (o iframe vira about:blank). O rascunho MUDA de dono: o painel leva o da janela principal (que fica vazia) e
+// devolve o dele ao sair — sem cópia dos dois lados (mensagem já enviada pelo painel não volta; texto apagado não ressuscita).
 // @cv-rascunho-inicio (testado em app/tests/atrap-tarefa.test.mjs)
+// main = o que a janela principal ganhou DEPOIS de entregar o rascunho ao painel (normalmente vazio)
 function cvDraftMerge(main, pane){
   const m=String(main||''), p=String(pane||'');
-  if(!p.trim()) return m; if(!m.trim() || m===p || p.startsWith(m)) return p;
-  return m.startsWith(p) ? m : m+'\n'+p;
+  if(!p.trim()) return m; if(!m.trim() || m===p) return p;
+  return m+'\n'+p;
 }
 function cvAttsMerge(main, pane){
   const out=(main||[]).slice(), seen=new Set(out.map(a=>JSON.stringify(a)));
@@ -261,11 +263,17 @@ function cvAttsMerge(main, pane){
 function cvDraftTake(taskId, text, atts){
   if(!taskId || typeof fwDraft==='undefined') return;
   fwDraft[taskId]=cvDraftMerge(fwDraft[taskId], text);
-  const a=cvAttsMerge(fwPend[taskId], atts); if(a.length) fwPend[taskId]=a;
+  const a=cvAttsMerge(fwPend[taskId], atts); if(a.length) fwPend[taskId]=a; else delete fwPend[taskId];
   if(typeof fwTask!=='undefined' && fwTask===taskId){ const i=$id('fwInput'); if(i && (!i.dataset.tk || i.dataset.tk===taskId) && i.value!==fwDraft[taskId]) i.value=fwDraft[taskId]; }
 }
-/** Janela principal: o rascunho que um painel novo herda. */
-function cvDraftGive(taskId){ return (typeof fwDraft==='undefined') ? null : { text:fwDraft[taskId]||'', atts:(fwPend[taskId]||[]).slice() }; }
+/** Janela principal: entrega o rascunho ao painel novo — e deixa de tê-lo (inclusive no campo que ainda está montado). */
+function cvDraftGive(taskId){
+  if(typeof fwDraft==='undefined') return null;
+  const g={ text:fwDraft[taskId]||'', atts:(fwPend[taskId]||[]).slice() };
+  fwDraft[taskId]=''; delete fwPend[taskId];
+  const i=$id('fwInput'); if(i && i.dataset.tk===taskId) i.value='';
+  return g;
+}
 // --- lado do PAINEL (rodando dentro do iframe) ---
 function sfPaneBoot(){
   const [kind, id]=String(SF_PANE).split(':');

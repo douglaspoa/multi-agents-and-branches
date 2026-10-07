@@ -987,7 +987,7 @@ function renderWorkspace(){
     <div class="fwthread" id="fwThread">${fwThreadHtml(t)}</div>${composer}`;
   chat.dataset.tk=t.id;
   // MODO TERMINAL (60-terminal.js + layout A em 60-terminal-layout.js): terminal, painel de requisitos e folha de pergunta
-  if(isTerm){ termMount(t); tlWire(t, sheetGrab); if(termHadFocus && !chat.querySelector('.tlsheet:focus-within')) setTimeout(()=>tlFocusTerm(t.id), 0); } else termSweep();
+  if(isTerm){ termMount(t); tlWire(t, sheetGrab, termHadFocus); if(termHadFocus && !chat.querySelector('.tlsheet:focus-within')) setTimeout(()=>tlFocusTerm(t.id), 0); } else termSweep();
   bindClick('fwSteer', ()=>{ const inp=fwInputShow(); if(inp){ inp.focus(); inp.placeholder='descreva a mudança de rumo'; } });
   bindClick('fwCtxBar', ()=>{ fwCtxOpen=!fwCtxOpen; lsSet('fwCtxOpen', fwCtxOpen?'1':'0'); renderWorkspace(); });
   bindClick('fwSelX', ()=>{ fwSelA=0; fwSelB=0; renderWorkspace(); });
@@ -1081,7 +1081,8 @@ function fwRenderPrPage(t, main){
     const head=noAcc?'o GitHub logado aqui (gh) não tem acesso a este repositório':'não consegui falar com o GitHub';
     // o texto cru do gh (stderr) não vai na cara: frase de gente + "ver detalhes" com o original
     const h=(typeof humanErr==='function')?humanErr(String(info.error)):{ id:'generic', msg:'' };
-    const det=noAcc?'Troque pra conta certa (gh auth switch) ou entre com ela (gh auth login).':h.id!=='generic'?h.msg:'Pode ser a internet, o GitHub fora do ar ou o login do gh vencido.';
+    // sem acesso: a frase do backend (GH_NO_ACCESS, lib.rs) já é de gente e traz o repositório e o passo de SSO
+    const det=noAcc?String(info.error).replace(/^GH_NO_ACCESS:\s*/,''):h.id!=='generic'?h.msg:'Pode ser a internet, o GitHub fora do ar ou o login do gh vencido.';
     main.innerHTML=`<div class="empty" style="display:flex;flex-direction:column;gap:12px;align-items:center"><div style="color:var(--warn)">${head}</div><div class="dim" style="font-size:var(--fs-xs);max-width:560px">${esc(det)}</div><div style="display:flex;gap:8px"><button class="btn sm" id="prPgRefresh">↻ tentar de novo</button>${noAcc?'<button class="btn sm" id="prPgEnv">abrir Ambiente (conta do GitHub)</button>':''}<button class="btn sm ghost" id="prPgErrDet">ver detalhes</button></div></div>`;
     bindClick('prPgEnv', ()=>{ if(window.openTab) window.openTab('env'); });
     bindClick('prPgErrDet', ()=>{ if(typeof errDetails==='function') errDetails({ msg:head, raw:String(info.error) }); });
@@ -1473,6 +1474,8 @@ async function fwSendMsg(queueOnly){
     // (se ele já começou outra mensagem durante um envio lento, as duas ficam no campo)
     // o rascunho DESTA tarefa (fwDraft) — não o campo da tela, que pode ser de outra tarefa aberta durante o envio lento
     const cur=String(fwDraft[t.id]||'').trim(); fwDraft[t.id]=cur?typed+'\n'+cur:typed; (fwPend[t.id]=fwPend[t.id]||[]).unshift(...atts);
+    // o campo desta tarefa na tela recebe o texto também: o renderWorkspace do finally copia o CAMPO pro rascunho (e o zerava)
+    { const i=$id('fwInput'); if(i && i.dataset.tk===t.id) i.value=fwDraft[t.id]; }
     showErr(e, 'Não consegui enviar — o texto voltou pro campo'); }
   finally{
     clearTimeout(slow);

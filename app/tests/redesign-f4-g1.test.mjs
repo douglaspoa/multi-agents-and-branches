@@ -181,7 +181,7 @@ test('Esc NUNCA fecha uma aba (D24): tarefa, Nova demanda, épico e tarefa do co
   assert.match(read('js/32-planner.js'), /!\$id\('plannerOverlay'\)\.classList\.contains\('astab'\)&&!escBusy\(e\)\) closePlanner\(\);/);
   assert.ok(!/closeTabOfKind\('epic'\); \}\n\}, true\);/.test(read('js/46-epico-time.js')));
   assert.ok(!/closeTabOfKind\('cttask'\);\n\}, true\);/.test(read('js/45-entrega-time.js')));
-  assert.match(abas, /else if\(k==='w' && !e\.shiftKey\)\{ e\.preventDefault\(\);/);
+  assert.match(abas, /else if\(k==='w'\)\{ if\(!tabCloseKey\(e, osKind\(\)\)\) return; e\.preventDefault\(\);/);
 });
 test('"+" das abas: Criar (Nova demanda · Novo projeto… → Fábrica) e Abrir (demanda · Conversa do projeto ⌘J · Navegador · Simulador · Documento); "Ideia nova" saiu', () => {
   const cv = read('js/58-canvas.js'); const plus = cut(cv, 'function cvPlusMenu(anchor, opts){', 'm.innerHTML=');

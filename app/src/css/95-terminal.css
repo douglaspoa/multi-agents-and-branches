@@ -118,7 +118,7 @@
 .tlopt:focus-visible{outline:2px solid transparent;box-shadow:var(--ring-inset)}
 .tlother{flex:none;padding:0 16px 10px}
 .tlother .in{width:100%;font-size:var(--fs-base)}
-.tlsf{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;padding:9px 12px 9px 16px;border-top:1px solid var(--border);font-size:var(--fs-xs);color:var(--muted)}
+.tlsf{flex:none;display:flex;align-items:center;gap:6px;flex-wrap:wrap;row-gap:4px;padding:9px 12px 9px 16px;border-top:1px solid var(--border);font-size:var(--fs-xs);color:var(--muted)}
 .tlkeys{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
 .tlsf .btn,.tlsf .lnk{flex:none}
 .tlsf .kbd{margin:0 2px 0 6px}
@@ -219,5 +219,3 @@ html.sfpane .fw:has(.fwchat.tl) .fwciclo{max-height:34vh;overflow:auto}
 .en-req.ad .en-adnote{color:var(--text-2)}
 .tlgr{flex-wrap:wrap;column-gap:10px}
 .tlgr b{white-space:nowrap}
-/* pane estreito (3 painéis a 920): "responder no terminal · pular · próxima" quebram linha em vez de sair pela borda */
-.tlsheethost.tight .tlsf{flex-wrap:wrap;row-gap:4px}

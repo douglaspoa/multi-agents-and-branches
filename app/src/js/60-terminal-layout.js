@@ -100,6 +100,8 @@ function tlAskResume(g, pend, ask, taskId){
   }
   return null;
 }
+/** A folha pega o foco? Quem já estava nela / pediu, sim; pergunta NOVA só se ninguém digita em lugar nenhum — o terminal conta. */
+function tlAskTakesFocus(o){ return !!(o.hadFocus || o.focus || (o.fresh && !o.min && !o.termFocus && o.onBody)); }
 function tlAskNew(g){ return { sent:{}, q:0, sel:g.rows.map(r=>r.options.length?(r.multi?[]:[0]):[]), other:g.rows.map(()=> ''), skip:g.rows.map(()=>false), sending:false, min:false }; }
 // a resposta de cada pergunta (texto que vai pro pending): outra resposta > opções escolhidas; pulada = ''
 function tlAskAnswers(g, st){
@@ -222,7 +224,7 @@ function tlChatHtml(t, composer){
   return `<div class="tlwrap" data-tlwrap="${escA(t.id)}"><div class="tlcol${typeof tiCompOn==='function'&&!tiCompOn(t)?' ti-nocomp':''}"><div class="tltermbar" id="tlBar">${tlBarHtml(t)}</div>${termSlotHtml(t)}<div id="tlBudget">${tlBudgetHtml(t)}</div>${typeof tiDockHtml==='function'?tiDockHtml(t):''}${composer}</div><div class="tlside" id="tlSide">${tlSideHtml(t)}</div></div>`;
 }
 /** Depois do innerHTML: liga o painel, mede a largura e põe a folha (se houver pergunta). */
-function tlWire(t, grab){
+function tlWire(t, grab, termFocus){
   const wrap=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"]`); if(!wrap) return;
   const side=$id('tlSide'); if(side){ side.__html=side.innerHTML; side.onclick=(e)=>tlSideClick(t.id, e); side.onkeydown=(e)=>{ if((e.key==='Enter'||e.key===' ') && e.target.closest('[data-tl="unfold"]')){ e.preventDefault(); tlSideAct(t.id, 'unfold'); } }; }
   { const bud=$id('tlBudget'); if(bud) bud.onclick=async(e)=>{ const b=e.target.closest('[data-tlbud]'); if(!b) return; const p=pendingOf(t.id).find(x=>fwIsBudgetAsk(x)); if(!p) return;
@@ -230,7 +232,7 @@ function tlWire(t, grab){
       try{ await resolvePending(p.id, b.dataset.tlbud); lastSig=''; refresh().catch(()=>{}); }catch(err){ showErr(err, 'Não consegui enviar a resposta'); }
       finally{ delete TL.budSending[t.id]; const bd=$id('tlBudget'); if(bd){ bd.__html=''; } } }; }
   tlWatchWidth(t.id, wrap);
-  tlAskPaint(t, false, grab);
+  tlAskPaint(t, false, grab, termFocus);
   if(typeof tiWire==='function') tiWire(t); // terminal integrado: dock (sugestões, anexar, botões → comando)
 }
 function tlSideClick(taskId, e){
@@ -301,7 +303,7 @@ function tlSheetEl(taskId){ let el=TL.sheets[taskId]; if(!el){ el=document.creat
   if(typeof ResizeObserver==='function'){ el.__ro=new ResizeObserver(()=>{ if(el.__pin) tlAskScrollEnd(el); }); el.__ro.observe(el); } } return el; }
 /** Antes de o renderWorkspace refazer a coluna: onde estava o foco da folha (o host sai do DOM e perde o foco). */
 function tlSheetFocusGrab(taskId){ const el=TL.sheets[taskId]; const ae=document.activeElement; if(!el || !ae || !el.contains(ae)) return null; return { other:ae.matches('[data-tl="other"]'), caret:ae.selectionStart!=null?ae.selectionStart:null }; }
-function tlAskPaint(t, focus, grab){
+function tlAskPaint(t, focus, grab, termFocus){
   const slot=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"] .tlcol`);
   const a=tlAskOf(t);
   const host=TL.sheets[t.id];
@@ -321,9 +323,10 @@ function tlAskPaint(t, focus, grab){
     el.__qk=qk; }
   el.classList.toggle('min', !!a.st.min);
   // foco: quem estava na folha continua nela; pergunta NOVA só pega o foco se você não estava digitando noutro lugar
-  // (digitando NO TERMINAL não é estar livre: a pergunta roubava o foco e o "1"+Enter de lá respondia sem querer)
-  const ae=document.activeElement; const idle=!ae || ae===document.body;
-  if(hadFocus || focus || (fresh && idle && !a.st.min)) tlAskFocus(el, inOther, caret);
+  // (digitando NO TERMINAL não é estar livre: a pergunta roubava o foco e o "1"+Enter de lá respondia sem querer.
+  // termFocus vem do renderWorkspace: o innerHTML tira o xterm do DOM e o foco cai no body ANTES desta pintura)
+  const ae=document.activeElement, tf=!!termFocus || !!(TERM[t.id] && TERM[t.id].host.contains(ae));
+  if(tlAskTakesFocus({ hadFocus, focus, fresh, min:a.st.min, termFocus:tf, onBody:!ae || ae===document.body })) tlAskFocus(el, inOther, caret);
 }
 // rolagem da folha entre repinturas (o innerHTML zera): mesma pergunta = volta onde estava; pergunta NOVA = abre no FIM do
 // texto, onde está a frase que de fato pergunta (o começo fica a uma rolagem, com a sombra avisando)
