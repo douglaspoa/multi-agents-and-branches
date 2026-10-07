@@ -433,7 +433,7 @@ pub(crate) fn period_since(period: &str, now: i64, since: Option<i64>) -> i64 {
     match period {
         "hoje" => since.filter(|s| *s > 0 && *s <= now).unwrap_or(now - DAY_MS),
         // "este mês" (C2): o front manda o 1º dia do mês no fuso local — o mesmo começo do "uso deste mês" do medidor
-        "mes" => since.filter(|s| *s > 0 && *s <= now).unwrap_or(now - 30 * DAY_MS),
+        "mes" => since.filter(|s| *s > 0 && *s <= now).unwrap_or_else(|| crate::plan_usage::month_start_utc(now)), // sem since: dia 1 do mês (UTC)
         "30d" => now - 30 * DAY_MS,
         _ => now - 7 * DAY_MS,
     }
@@ -939,6 +939,8 @@ mod tests {
         assert_eq!(period_since("hoje", 100_000_000, Some(90_000_000)), 90_000_000);
         assert_eq!(period_since("hoje", 100_000_000, Some(200_000_000)), 100_000_000 - 86_400_000);
         assert_eq!(period_since("mes", 100_000_000, Some(50_000_000)), 50_000_000, "este mês: desde o dia 1 que o front mandou");
+        // sem since: dia 1 do mês corrente em UTC (07/10/2026 15:00 UTC → 01/10/2026 00:00 UTC)
+        assert_eq!(period_since("mes", 1_791_385_200_000, None), 1_790_812_800_000);
     }
 
     #[test]

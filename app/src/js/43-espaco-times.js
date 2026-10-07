@@ -36,7 +36,35 @@ function tsSt(t){ return taskSt(tsNorm(t)); }
 function tsWho(t){ return (t&&(t.assignee||t.created_by))||''; }
 // "em andamento" = MESMA etapa da Central (antes: running/thinking/queued/plan-review, e plano pra aprovar contava como rodando)
 function tsRunningOf(uid){ return (teamTasks||[]).filter(t=>tsWho(t)===uid && tsBucket(t)==='andamento'); }
+// revisão: ao assumir, a Central abre na Execução com a tarefa selecionada SEM zerar busca e filtros — limpa só o
+// filtro que esconderia ESTA tarefa. f = filtros atuais; fn = { bucket, type, agents, inPeriod }. Devolve os nomes a limpar.
+function tsClaimHiders(t, f, fn){
+  if(!t) return [];
+  const out=[], q=String(f.query||'').trim().toLowerCase();
+  if(q && !String(t.title||'').toLowerCase().includes(q)) out.push('busca');
+  if(f.status && f.status!=='all' && fn.bucket(t)!==f.status) out.push('situação');
+  if(f.epic && f.epic!=='all' && ((t.epic&&t.epic.epicId)||'')!==f.epic) out.push('épico');
+  if(f.type && f.type!=='all' && fn.type(t)!==f.type) out.push('tipo');
+  if(f.agent && f.agent!=='all' && !(fn.agents(t)||[]).includes(f.agent)) out.push('agente');
+  if(!fn.inPeriod(t)) out.push('período');
+  if(f.proj && f.proj!=='all' && f.proj!==f.repo) out.push('projeto');
+  return out;
+}
 // @atrap-time-fim
+function tsClaimShow(localId){
+  try{ selected=localId; }catch(_){ }
+  flowScope='exec'; lsSet('flowScope','exec');
+  const t=((typeof state!=='undefined'&&state.tasks)||[]).find(x=>x.id===localId);
+  const h=t?tsClaimHiders(t, { query:flowQuery, status:flowStatus, epic:flowEpic, type:flowType, agent:flowAgent, proj:projFilter, repo:state.repo },
+    { bucket:flowBucket, type:taskType, agents:taskAgents, inPeriod }):[];
+  const set={ 'busca':()=>{ flowQuery=''; ['topSearch','ffSearch'].forEach(id=>{ const e=$id(id); if(e) e.value=''; }); }, 'situação':()=>{ flowStatus='all'; flowSetF('flowStatus','all'); },
+    'épico':()=>{ flowEpic='all'; flowSetF('flowEpic','all'); }, 'tipo':()=>{ flowType='all'; flowSetF('flowType','all'); }, 'agente':()=>{ flowAgent='all'; flowSetF('flowAgent','all'); },
+    'período':()=>{ flowPeriod='all'; flowSetF('flowPeriod','all'); }, 'projeto':()=>{ projFilter='all'; lsSet('projFilter','all'); } };
+  h.forEach(k=>set[k]&&set[k]());
+  if(window.openTab) window.openTab('flow');
+  if(typeof curView==='function' && curView()!=='flow') setView('flow'); else { lastSig=''; if(typeof render==='function') render(); }
+  return h;
+}
 // iniciais como no resto do app ("Douglas S." → DS; e-mail → só a parte antes do @)
 function tsIni(n){ const w=String(n||'?').replace(/@.*/,'').split(/[\s._-]+/).filter(Boolean); return ((w.length>1?w[0][0]+w[1][0]:(w[0]||'?').slice(0,2))).toUpperCase(); }
 function tsAv(uid, on){ const n=tmName(uid); return `<span class="tsav${on?' on':''}" style="background:${agentColor(n)}" title="${escA(n)}">${esc(tsIni(n))}</span>`; }
@@ -318,9 +346,8 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     teamTasks=null; lastSig=''; allTasksAt=0; await refresh();
     // A8: "assumir" LEVA pra sua Execução (a aba Central, com a tarefa selecionada) e diz o que aconteceu — antes só
     // trocava o #viewSeg escondido e a aba continuava no Time, sem retorno
-    if(!opts.silent){ try{ selected=localId; }catch(_){ }
-      if(typeof flowJump==='function') flowJump({}); else { flowScope='exec'; lsSet('flowScope','exec'); if(window.openTab) window.openTab('flow'); setView('flow'); }
-      toast('Você assumiu “'+String(ct.title||'a tarefa').slice(0,60)+'” — ela está na sua Execução.','ok'); }
+    if(!opts.silent){ const cl=tsClaimShow(localId);
+      toast('Você assumiu “'+String(ct.title||'a tarefa').slice(0,60)+'” — ela está na sua Execução.'+(cl.length?' Limpei '+(cl.length===1?'o filtro':'os filtros')+' de '+cl.join(', ')+' que a escondia'+(cl.length===1?'':'m')+'.':''),'ok'); }
     return localId;
   }catch(e){ if(opts.silent) throw e; showErr(e, 'Não deu pra assumir & iniciar'); if(btn){ btn.disabled=false; btn.textContent='assumir & iniciar'; } }
 }

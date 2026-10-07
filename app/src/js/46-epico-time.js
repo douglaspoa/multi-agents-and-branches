@@ -201,7 +201,7 @@ function epicPageRender(){
     </div>
     <div class="en-grid">
       <section class="en-sec">
-        <div class="seclbl2">Pronto quando <span class="dim">· D1, D2… = critérios; o épico só fecha com tudo marcado${can?'':' · só quem criou (ou admin) marca'}</span></div>${dwHtml}
+        <div class="seclbl2">Pronto quando <span class="dim">· D1, D2… = critérios; o épico só fecha com tudo marcado e nenhuma tarefa ainda ativa${can?'':' · só quem criou (ou admin) marca'}</span></div>${dwHtml}
         ${reqs.length?`<div class="seclbl2" style="margin-top:14px">Requisitos <span class="dim">· R1, R2… = requisitos (as tarefas dizem quais cobrem)</span></div>${reqs.map(r=>`<div class="en-del"><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(r.id||'')}</span> ${esc(r.text||'')}</div>`).join('')}`:''}
         ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${esc(b)}</div>`).join('')}`:''}
         ${typeof aeEpicHistHtml==='function'?aeEpicHistHtml(sp, can, tasks, ep.id):''}
@@ -258,8 +258,9 @@ async function epicToggleDoneRun(ep, idx, on){
   if(on){ dw[idx].checkedBy=cloudUserId(); dw[idx].checkedAt=new Date().toISOString(); }
   else { delete dw[idx].checkedBy; delete dw[idx].checkedAt; delete dw[idx].evidence; }
   spec.doneWhen=dw;
-  const all=dw.length>0 && dw.every(d=>d.checkedBy);
   const c=epCache[ep.id]; const started=!!(c&&(c.tasks||[]).some(t=>t.status!=='backlog'));
+  // a regra ÚNICA de entregue (69: epEntregue): tudo marcado E nenhuma tarefa do épico ainda ativa — só então grava done
+  const all=dw.length>0 && dw.every(d=>d.checkedBy) && (typeof epEntregue!=='function' || epEntregue({ ...ep, status:'open', spec }, (c&&c.tasks)||[]));
   const status= all ? 'done' : (ep.status==='done' ? (started?'in-progress':'open') : ep.status);
   try{ await epicPatch(ep, { spec, status }); }
   catch(e){ showErr(e, 'Não consegui salvar a marcação'); epicPageRender(); }

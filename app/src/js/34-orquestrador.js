@@ -402,7 +402,8 @@ function orqWire(body,pos){
   bindClick('orqApprove', ()=>orqWhere()==='time'?orqApproveTeam():orqApprove());
   bindClick('orqOpenEpic', ()=>{ const e=orq.plan&&orq.plan.epic; if(e && typeof openEpicPage==='function') openEpicPage({ id:e.id, name:e.name }); });
   body.querySelectorAll('[data-orqwhere]').forEach(b=>b.onclick=()=>{ if(b.disabled) return; orq.where=b.dataset.orqwhere; orqRender(); });
-  bindClick('orqDetails', ev=>{ const p=orq.plan; if(!p||typeof g2Sheet!=='function') return; const lv={}, seen=new Set(); const lvl=k=>{ if(lv[k]) return lv[k]; if(seen.has(k)) return 1; seen.add(k); const ph=p.phases.find(x=>x.key===k)||{}; const v=1+Math.max(0,...(ph.dependsOn||[]).map(lvl)); seen.delete(k); return lv[k]=v; }; // ciclo nos dados não trava a tela const w={}; p.phases.forEach(x=>{ (w[lvl(x.key)]=w[lvl(x.key)]||[]).push(x.name); });
+  bindClick('orqDetails', ev=>{ const p=orq.plan; if(!p||typeof g2Sheet!=='function') return; const lv={}, seen=new Set(); const lvl=k=>{ if(lv[k]) return lv[k]; if(seen.has(k)) return 1; seen.add(k); const ph=p.phases.find(x=>x.key===k)||{}; const v=1+Math.max(0,...(ph.dependsOn||[]).map(lvl)); seen.delete(k); return lv[k]=v; }; // ciclo nos dados não trava a tela
+    const w={}; p.phases.forEach(x=>{ (w[lvl(x.key)]=w[lvl(x.key)]||[]).push(x.name); });
     g2Sheet(ev.currentTarget, `<div class="ias-h"><b>Ver detalhes</b><span>como as etapas rodam por baixo</span><em>esc fecha</em></div><div class="g2sb">${Object.keys(w).map(Number).sort((a,b)=>a-b).map(n=>`<span><b>onda ${n}:</b> ${w[n].map(esc).join(' · ')}</span>`).join('')}<span class="g2help">Regras: cada etapa mexe em arquivos diferentes; sem objetivo, a próxima começa assim que esta entregar; nada roda sem a sua aprovação.</span></div>`); });
   orqWireInsp(body);
 }

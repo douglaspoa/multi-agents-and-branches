@@ -255,7 +255,7 @@
 .planmeter .pm-head{padding:5px 6px;color:var(--muted)}
 .planmeter .pm-head:hover{background:var(--surface-2);color:var(--text-2)}
 .planmeter .pm-title{flex:none;font-weight:600;letter-spacing:.02em}
-.planmeter .pm-sum{flex:1 0 auto;max-width:100%;min-width:0;display:block;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-2)} /* C1: bloco (não flex) — sem espaço, corta o FIM com reticência; flex-end cortava o começo ("ana 91 %") */
+.planmeter .pm-sum{flex:1 1 auto;min-width:0;display:block;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-2)} /* C1: bloco (não flex) — sem espaço, corta o FIM com reticência; flex-end cortava o começo ("ana 91 %") */
 .planmeter .pm-chev{flex:none;width:12px;height:12px;transition:transform .15s}
 .planmeter.min .pm-chev{transform:rotate(180deg)}
 .planmeter .pm-empty .pm-title{color:var(--text-2);font-weight:500}
@@ -330,7 +330,7 @@
 .rpbadge{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:700 var(--fs-xs)/1 var(--ui);color:var(--pc);border:1.5px solid var(--pc);background:color-mix(in srgb,var(--pc) 12%,transparent)}
 .sbnav2{flex:none;display:flex;flex-direction:column;gap:2px;padding:8px 12px 8px;border-top:1px solid var(--border)}
 .sbnav2 .sbitem{width:100%;justify-content:flex-start;gap:9px}
-.planmeter .pm-lbl{color:var(--muted);white-space:nowrap;flex:0 100 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;margin-right:2px} /* C1: sem espaço, o rótulo encolhe ANTES do número */
+.planmeter .pm-lbl{color:var(--muted);white-space:nowrap;flex:0 100000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;margin-right:2px} /* C1: sem espaço, o rótulo encolhe ANTES do número */
 
 /* ==== redesenho F1: Central em TABELA (66-central-tabela) — ordenável, percurso de etapas, ação por linha, linha que abre.
    Densa e estática (nada de split-flap: veto da mesa); cores = tokens de status do 10-base. ==== */

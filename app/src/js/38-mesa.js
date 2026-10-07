@@ -594,7 +594,8 @@ async function mesaStartWith(o){
   if(personas.length<2){ toast('Escolha pelo menos 2 personas pra mesa.','warn'); return false; }
   let cap=+o.capUsd; if(!(cap>0)){ toast('Defina o teto da mesa em US$ (maior que 0).','warn'); return false; }
   try{ lsSet('mesaCapUsd', String(cap)); }catch(_){ }
-  const m={ id:mesaNewId(), v:1, repo, tema, model:o.model||null, capUsd:cap, // o MOTOR é a IA dos chats (mesa_ask); aqui só o modelo capBase:cap, createdAt:Date.now(), updatedAt:Date.now(), status:'rodando',
+  const m={ id:mesaNewId(), v:1, repo, tema, model:o.model||null, capUsd:cap, // o MOTOR é a IA dos chats (mesa_ask); aqui só o modelo
+    capBase:cap, createdAt:Date.now(), updatedAt:Date.now(), status:'rodando',
     personas:personas.map(p=>({ id:p.id, nome:p.nome, papel:p.papel, desc:p.desc, gerada:!!p.gerada })),
     rounds:[{ n:1, tipo:'posicao', titulo:'Posições', resp:{}, avisos:[] }], cands:[], chats:{}, escolhas:{}, criadas:null, costUsd:0 };
   MESA.repo=repo; MESA.cur=m; MESA.view='mesa'; MESA.target='mesa'; MESA.draft=''; MESA.tab='dec';
@@ -864,7 +865,7 @@ function mesaMesaHtml(m){
   const head=mesaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Mesa: '+m.tema, scope:'projeto', scopeLabel:pathBase(m.repo), money, sum, right:acts, sub:`Mesa: ${(m.personas||[]).length} pontos de vista que debatem e votam features. Nada vira demanda sem você aprovar.` }):`<h1>Mesa: ${mesaEsc(m.tema)}</h1>`);
   const D=mesaDecisionOf(m);
   const capNx=m.capAviso?mesaCapNext(cap, spent, +m.capAviso.base||mesaCapBase()||2, mesaWantOf(m)):null, U=v=>'US$ '+fmtNumBR(v, true); // A6: um formato só (antes "US$ 1" e "US$ 1,00" misturados)
-  const capAv=m.capAviso?`<div class="g2capbox" role="status"><span><b>Aviso do Starfork:</b> ${cap>0?`o que sobra do teto de ${mesaEsc(U(cap))} (gastou ${mesaEsc(U(spent))}) não cobre mais uma fala — parou antes de ${mesaEsc(m.capAviso.what)}.`:`esta mesa não tem teto. Defina um teto pra ${mesaEsc(m.capAviso.what)}: toda sessão para sozinha nele.`}</span><div class="g2row"><button type="button" class="btn sm primary" id="mesaCapUp">${cap>0?`Continuar com mais ${mesaEsc(U(capNx.add))} (teto ${mesaEsc(U(capNx.cap))})`:'Definir teto de '+mesaEsc(U(capNx.add))}</button><button type="button" class="btn sm quiet" id="mesaCapNo">Parar aqui</button></div></div>`:'';
+  const capAv=m.capAviso?`<div class="g2capbox" role="status"><span><b>Aviso do Starfork:</b> ${cap>0?`o que sobra do teto de ${mesaEsc(U(cap))} (gastou ${mesaEsc(U(spent))}) não cobre mais uma fala — parou antes de ${mesaEsc(m.capAviso.what)}.`:`esta mesa não tem teto. Defina um teto pra ${mesaEsc(m.capAviso.what)}: toda sessão para sozinha nele.`}</span><div class="g2row"><button type="button" class="btn sm primary" id="mesaCapUp">${cap>0?`Continuar com mais ${mesaEsc(U(capNx.add))} (teto ${mesaEsc(U(capNx.cap))})`:'Definir teto de '+mesaEsc(U(capNx.cap))}</button><button type="button" class="btn sm quiet" id="mesaCapNo">Parar aqui</button></div></div>`:'';
   let left='';
   if(D){
     const nome=pid=>((m.personas||[]).find(p=>p.id===pid)||{}).nome||pid;

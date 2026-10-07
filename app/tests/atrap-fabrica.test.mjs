@@ -3,7 +3,7 @@
 // `node --test app/tests/atrap-fabrica.test.mjs`
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import vm from 'node:vm';
 
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
@@ -74,16 +74,26 @@ test('A6: "Continuar com mais US$" sai do aviso — o teto novo cobre a próxima
   assert.match(w, /mesaCapNext\(/); assert.match(w, /\n\s*await mesaSave\(m\);/, 'o save não pode ficar dentro do comentário');
   const av = cut(MESA, 'const capNx=', 'let left=');
   assert.doesNotMatch(av, /fmtCost\(/, 'um formato só de US$ no aviso (antes "US$ 1" e "US$ 1,00")');
+  assert.match(av, /'Definir teto de '\+mesaEsc\(U\(capNx\.cap\)\)/, 'mesa sem teto que já gastou: o botão diz o teto que vai gravar (gasto + X)');
 });
 
 test('A7: o Quadro do Time rola na horizontal em vez de cortar "Concluídas"', () => {
   assert.match(read('css/60-grafo-times-nova-demanda.css'), /\.tsboard\.ts5\{[^}]*overflow-x:auto/);
 });
 
-test('A8: "assumir" leva pra sua Execução (aba Central) e avisa', () => {
+test('A8 + revisão: "assumir" leva pra Execução com a tarefa selecionada SEM zerar os filtros — só limpa o que a esconde', () => {
   const c = cut(TIME, 'async function teamClaimStart', 'async function teamDeleteCard');
-  assert.match(c, /flowJump\(\{\}\)/); assert.match(c, /toast\('Você assumiu/); assert.match(c, /selected=localId/);
-  assert.doesNotMatch(c, /flowScope='exec'; lsSet\('flowScope','exec'\); setView\('flow'\); \}/);
+  assert.match(c, /tsClaimShow\(localId\)/); assert.match(c, /toast\('Você assumiu/); assert.doesNotMatch(c, /flowJump\(/);
+  const H = new Function(cut(TIME, '// @atrap-time-inicio', '// @atrap-time-fim') + '\nreturn tsClaimHiders;')();
+  const fn = { bucket: () => 'andamento', type: () => 'build', agents: () => ['dev'], inPeriod: () => true };
+  const t = { title: 'Filtro por data', epic: { epicId: 'e1' } };
+  const f0 = { query: '', status: 'all', epic: 'all', type: 'all', agent: 'all', proj: 'all', repo: '/r' };
+  assert.deepEqual(H(t, f0, fn), [], 'nada esconde: nenhum filtro mexido');
+  assert.deepEqual(H(t, { ...f0, query: 'filtro', status: 'andamento', epic: 'e1', proj: '/r' }, fn), [], 'filtros que mostram a tarefa ficam');
+  assert.deepEqual(H(t, { ...f0, query: 'pagamento', status: 'aguardando', proj: '/outro' }, fn), ['busca', 'situação', 'projeto']);
+  assert.deepEqual(H(t, f0, { ...fn, inPeriod: () => false }), ['período']);
+  const show = cut(TIME, 'function tsClaimShow', '\n}\n');
+  assert.doesNotMatch(show, /flowClearFilters|flowJump/);
 });
 
 test('A9: notificação do time abre a ABA Time (não o #viewSeg escondido)', () => {
@@ -116,6 +126,18 @@ test('A11: épico sem "pronto quando" com tudo entregue é concluído na página
   assert.match(pg, /epStatusView\(ep, tasks0, c\.loaded/); assert.match(pg, /ep-st-\$\{escA\(sv\.st\)\}/);
   assert.match(pg, /!dw\.length&&!sv\.entregue&&can/, 'não pede "marcar como concluído" no que já está entregue');
   assert.doesNotMatch(pg, /épico antigo/);
+});
+
+test('revisão: "pronto quando" todo marcado com tarefa ainda ATIVA não é entregue (regra única do 69)', () => {
+  const dw = [{ id: 'D1', text: 'a', checkedBy: 'u' }, { id: 'D2', text: 'b', checkedBy: 'u' }];
+  const ep = { id: 'e', status: 'open', spec: { doneWhen: dw } };
+  for (const st of ['running', 'backlog', 'queued', 'review', 'error'])
+    assert.equal(E.epEntregue(ep, [{ status: 'merged' }, { status: st }]), false, st + ' ainda ativa');
+  assert.equal(E.epEntregue(ep, [{ status: 'merged' }, { status: 'cancelled' }, { status: 'review', flag: 'closed' }]), true, 'cancelada/encerrada não conta');
+  assert.equal(E.epEntregue(ep, []), true, 'tudo provado e nenhuma tarefa');
+  assert.equal(E.epEntregue({ ...ep, status: 'done' }, [{ status: 'running' }]), true, 'status done continua entregue');
+  assert.equal(E.epStatusView(ep, [{ status: 'running' }], true, E.epEntregue).entregue, false);
+  assert.match(cut(EPICO, 'async function epicToggleDoneRun', 'async function epicSetStatus'), /epEntregue\(\{ \.\.\.ep, status:'open', spec \}/, 'marcar o último item só grava done sem tarefa ativa');
 });
 
 test('A12: "+ épico" e a página do épico definem o "pronto quando"', () => {
@@ -168,7 +190,8 @@ test('A17: pesquisa da Ideia fora do Claude só começa se a reserva cobre o pio
 });
 
 test('C1–C5: medidor corta no fim, Uso sem rótulo repetido nem "ex-", persona sem nome não salva, "por entrega" e "1 time"', () => {
-  assert.doesNotMatch(cut(read('css/40-sidebar-quadro.css'), '.planmeter .pm-sum{', '}'), /justify-content:flex-end/);
+  const pm = cut(read('css/40-sidebar-quadro.css'), '.planmeter .pm-sum{', '}');
+  assert.doesNotMatch(pm, /justify-content:flex-end/); assert.match(pm, /flex:1 1 auto;min-width:0/, 'encolhe: nunca passa da largura do botão');
   const S = new Function(cut(USO, '// @uso-puro-inicio', '// @uso-puro-fim') + '\nreturn { USO_SOURCES, USO_PERIODS, usoSinceFor };')();
   const labels = Object.values(S.USO_SOURCES);
   assert.equal(new Set(labels).size, labels.length, 'cada origem com um nome');
@@ -179,4 +202,25 @@ test('C1–C5: medidor corta no fim, Uso sem rótulo repetido nem "ex-", persona
   assert.match(cut(FABJS, 'function fabPSaveSoon', 'function fabOpenSess'), /if\(!String\(d\.nome\|\|''\)\.trim\(\)\)\{[^\n]*return; \}/);
   assert.match(TIME, /done\?fmtCost\(custo\/done,\{usdOnly:true\}\)\+' por entrega':inP\.length\?'nenhuma entrega no período'/);
   assert.match(TIME, /nPl\(\(cloudData\.teams\|\|\[\]\)\.length,'time','times'\)/);
+});
+
+test('revisão: nenhum código engolido por comentário de fim de linha nos js do app', () => {
+  const dir = new URL('../src/js/', import.meta.url);
+  const CODE = /\b(const|let|var) [A-Za-z_$][\w$]*\s*=(?!=)|\bawait [A-Za-z_$][\w$.]*\(|;\s*(if\(|return\b|const |let )|\b[A-Za-z_$][\w$.]*\([^)]*\);\s*[A-Za-z_$}]|\b[A-Za-z_$][\w$]*:[^,\s]+, ?[A-Za-z_$][\w$]*:[^,\s]+,|\b[A-Za-z_$][\w$.]*=[^=\s][^;]*;\s*[A-Za-z_$]/;
+  const EXC = ["63-revisao-pr.js:const rvUi={};"]; // comentário que descreve o formato do objeto (não é código)
+  const achados = [];
+  for (const f of readdirSync(dir).filter((x) => x.endsWith('.js'))) {
+    readFileSync(new URL(f, dir), 'utf8').split('\n').forEach((l, i) => {
+      const re = /(^|[\s;{}),])\/\/(?!\/)/g; let m;
+      while ((m = re.exec(l))) {
+        const pre = l.slice(0, m.index + m[1].length);
+        if (/:$/.test(pre) || !pre.trim()) break; // URL, ou linha só de comentário
+        if ((pre.match(/'/g) || []).length % 2 || (pre.match(/"/g) || []).length % 2 || (pre.match(/`/g) || []).length % 2) continue; // dentro de string
+        const c = l.slice(m.index + m[1].length + 2);
+        if (CODE.test(c) && !EXC.some((x) => (f + ':' + l.trim()).startsWith(x))) achados.push(f + ':' + (i + 1) + ': // ' + c.slice(0, 90));
+        break;
+      }
+    });
+  }
+  assert.deepEqual(achados, [], 'código depois de // na mesma linha não roda');
 });
