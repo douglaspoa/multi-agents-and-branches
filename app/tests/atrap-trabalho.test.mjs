@@ -109,19 +109,19 @@ test('L8 · Conversar que demora: o pedido vai pra caixa (ou fica num aviso com 
   const mk = (inp) => { const toasts = []; const f = new Function('E', `const { $id, toast }=E; function plStartWith(){ E.retried=true; } ${src} return plStartGiveUp;`);
     const E = { $id: () => inp, toast: (m, k, a) => toasts.push([m, k, a]) }; return { f: f(E), toasts, E }; };
   const inp = { value: '', dispatchEvent() {} };
-  const A = mk(inp); assert.equal(A.f('troque o botão', { style: { display: 'flex' } }, { kind: 'planner' }), 'caixa');
+  const A = mk(inp); assert.equal(A.f('troque o botão', { style: { display: 'flex' } }, { id: 'planner:1', kind: 'planner' }, 'planner:1'), 'caixa');
   assert.equal(inp.value, 'troque o botão'); assert.match(A.toasts[0][0], /ficou na caixa/);
   const B = mk(null); assert.equal(B.f('troque o botão', null, null), 'aviso');
   assert.equal(B.toasts[0][2].label, 'tentar de novo'); B.toasts[0][2].fn(); assert.equal(B.E.retried, true);
-  assert.match(cut(planner, 'function plStartWith(', '\n}\n'), /if\(text\) plStartGiveUp\(text, o, t\)/);
+  assert.match(cut(planner, 'function plStartWith(', '\n}\n'), /if\(text\) plStartGiveUp\(text, o, t, tid\)/);
   assert.match(src, /PL_START_TRIES=300/);
 });
 
 // ---------------------------------------------------------------- L6: anexos
 test('L6 · anexo repetido não entra 2×, arquivo > 25 MB é barrado antes do base64, erro visível', () => {
-  const A = new Function(cut(anexos, '// @puro-anexos-inicio', '// @puro-anexos-fim') + '\nreturn { attKey, attFileKey, attNewFiles, attTooBig, ATT_MAX_BYTES };')();
-  const f1 = { name: 'print.png', size: 1000 }, f2 = { name: 'spec.md', size: 20 };
-  const have = [{ name: 'print-2.png', rel: '.cardume/refs/print-2.png', src: A.attFileKey(f1) }];
+  const A = new Function(cut(anexos, '// @puro-anexos-inicio', '// @puro-anexos-fim') + '\nreturn { attKey, attFileKey, attFileVer, attNewFiles, attTooBig, ATT_MAX_BYTES };')();
+  const f1 = { name: 'print.png', size: 1000, lastModified: 5 }, f2 = { name: 'spec.md', size: 20, lastModified: 6 };
+  const have = [{ name: 'print-2.png', rel: '.cardume/refs/print-2.png', src: A.attFileKey(f1), srcVer: A.attFileVer(f1) }];
   assert.deepEqual(A.attNewFiles(have, [f1, f2, f2]).map((f) => f.name), ['spec.md'], 'o mesmo arquivo (e o repetido no mesmo lote) não entra de novo');
   assert.equal(A.attTooBig({ size: A.ATT_MAX_BYTES + 1 }), true); assert.equal(A.attTooBig({ size: 5 }), false);
   const imp = cut(anexos, 'async function attImportFiles', '\n}\n');
@@ -177,11 +177,11 @@ test('A7 · conector com JSON quebrado: não diz "✓ conexão salva", não salv
 test('L10 · retry da criação reaproveita a issue já criada (30 min); erro HTTP do painel em pt-BR', () => {
   const T = new Function(cut(iss, '// @puro-trkmade-inicio', '// @puro-trkmade-fim') + cut(iss, '// @puro-trkhttp-inicio', '// @puro-trkhttp-fim') + '\nreturn { trkMadeKey, trkMadeGet, trkMadeSet, trkHttpMsg, TRK_MADE_MS };')();
   const p = { title: 'Botão some', objective: 'no celular', requirements: ['aparece', ' '] };
-  const k = T.trkMadeKey(p); assert.equal(k, T.trkMadeKey({ ...p, requirements: ['aparece'] }));
+  const k = T.trkMadeKey(p, '/r'); assert.equal(k, T.trkMadeKey({ ...p, requirements: ['aparece'] }, '/r'));
   T.trkMadeSet(k, { code: 'FND-1', url: 'u' }, 1000);
   assert.equal(T.trkMadeGet(k, 2000).code, 'FND-1');
   assert.equal(T.trkMadeGet(k, 1000 + T.TRK_MADE_MS + 1), null, 'expira');
-  assert.match(cut(iss, 'async function trkBeforeNewTask', '\n}\n'), /const key=trkMadeKey\(payload\), prev=trkMadeGet\(key\);/);
+  assert.match(cut(iss, 'async function trkBeforeNewTask', '\n}\n'), /const key=trkMadeKey\(payload, [^\n]*prev=trkMadeGet\(key, 0, code=>trkTasksFor\(code\)\.length>0\);/);
   assert.match(T.trkHttpMsg(401), /recusou o acesso \(HTTP 401\) — confira a chave/);
   assert.match(T.trkHttpMsg(503), /problema agora/);
   assert.ok(!/throw new Error\('HTTP '\+r\.status/.test(iss), 'o corpo cru da resposta não vai pra tela');
@@ -238,4 +238,134 @@ test('C4 · correção linkada sem jargão; C9 · "Resumo do dia" (é um dia do 
   assert.ok(!/LINKADA|\(id '|branch '\+/.test(f));
   assert.match(fluxo, /data-cdsub="res"[^>]*>Resumo do dia</);
   assert.ok(!/clone a pasta/.test(epico)); assert.match(epico, /Abrir pasta que já tenho/);
+});
+
+// ================================================================ revisão adversarial (commit 5cd1649) — COMPORTAMENTO
+const fluxFn = (names, globals) => new Function('G', `with(G){ ${names.map((n) => cut(fluxo, n, '\n}\n') + '\n}').join('\n')} return { ${names.map((n) => n.match(/function (\w+)/)[1]).join(',')} }; }`);
+test('rev 1 · o select de Tipo conta cada tipo SEM o próprio filtro de tipo (escolher "Correção" não some com os outros)', () => {
+  const G = { flowEpic: 'all', flowType: 'fix', flowAgent: 'all', flowQuery: '', inPeriod: () => true, taskType: (t) => t.ty, taskAgents: () => [] };
+  const { flowOtherFiltersOk } = fluxFn(['function flowOtherFiltersOk('], G)(G);
+  const ts = [{ ty: 'fix', title: 'a' }, { ty: 'build', title: 'b' }, { ty: 'build', title: 'c' }];
+  assert.equal(ts.filter((t) => flowOtherFiltersOk(t)).length, 1, 'a lista continua filtrada por tipo');
+  const noType = ts.filter((t) => flowOtherFiltersOk(t, 'type'));
+  assert.equal(noType.filter((t) => t.ty === 'build').length, 2, 'o select ainda mostra "Feature (2)"');
+  assert.match(fluxo, /const tyCount=k=>byNoType\.filter\(t=>taskType\(t\)===k\)\.length;/);
+});
+test('rev 2 · concluir (flag) ou abrir PR em outro projeto atualiza o cache (assinatura muda)', async () => {
+  let resp = [{ id: 'x', status: 'review', sortOrder: null }];
+  const G = { allTasksAt: 0, allTasksSig: '', allTasksCache: [], allTasksOk: false, lastSig: 'L', curView: () => 'flow', invoke: async () => resp, Date };
+  const { loadAllTasks } = fluxFn(['async function loadAllTasks('], G)(G);
+  await loadAllTasks(true); assert.equal(G.allTasksCache[0].flag, undefined);
+  resp = [{ id: 'x', status: 'review', sortOrder: null, flag: 'closed' }]; await loadAllTasks(true);
+  assert.equal(G.allTasksCache[0].flag, 'closed', 'encerrar muda a assinatura');
+  resp = [{ id: 'x', status: 'review', sortOrder: null, flag: 'closed', prUrl: 'https://gh/pr/1' }]; await loadAllTasks(true);
+  assert.equal(G.allTasksCache[0].prUrl, 'https://gh/pr/1', 'PR aberto muda a assinatura');
+});
+test('rev 3 · cabeçalho da Central e barra de status contam pela régua única (bloqueada fora mesmo com o botão ligado)', () => {
+  const taskEncerrada = new Function(cut(util, 'function taskEncerrada(t)', '\n') + '\nreturn taskEncerrada;')();
+  const live = new Function('taskEncerrada', cut(fluxo, '// @proj-vivas-inicio', '// @proj-vivas-fim') + '\nreturn projLiveTasks;')(taskEncerrada);
+  let got = null; const el = {};
+  const G = { $id: () => el, flowShowBlocked: true, flowScope: 'exec', projLiveTasks: live, boardSource: () => [{ status: 'running' }, { status: 'review', flag: 'blocked' }],
+    flowCounts: (ts) => ({ n: ts.length }), centralSumHtml: (fc) => 'N=' + fc.n, projList: () => [], projFilter: 'all', projShort: (x) => x, pathBase: (x) => x, state: { repo: '/r' }, pageHead: (o) => (got = o.sum) };
+  fluxFn(['function renderFlowHead('], G)(G).renderFlowHead();
+  assert.equal(got, 'N=1', 'a bloqueada não entra no cabeçalho');
+  assert.match(read('js/26-sidebar-projetos.js'), /const live=L\(projLiveTasks\(boardSource\(\)\)\);/);
+  assert.ok(!/flowLiveTasks\(\)/.test(cut(fluxo, 'function renderFlowHead', '\n}\n')));
+});
+test('rev 4 · rascunho aberto pra editar / correção pré-preenchida fechados SEM mexer não perguntam; mexeu, pergunta', () => {
+  const W = new Function(cut(form, '// @puro-ndwork-inicio', '// @puro-ndwork-fim') + '\nreturn { ndTabLoses, ntWorkSig };')();
+  const st = { fields: { ntTitle: { v: 'Rascunho antigo' }, ntObj: { v: 'obj' } }, ntReq: ['r1'], ntEditingDraft: 'd1' };
+  st.ntBaseSig = W.ntWorkSig(st);
+  assert.equal(W.ndTabLoses('form', st), '', 'rascunho intacto (está no banco)');
+  const mexeu = { ...st, fields: { ...st.fields, ntObj: { v: 'obj editado' } } };
+  assert.equal(W.ndTabLoses('form', mexeu), 'o que você preencheu no formulário');
+  const fix = { fields: { ntFixTitle: { v: 'Corrigir: x' }, ntFixObj: { v: 'Correção da tarefa "x".' } }, ntFixReq: ['a', 'b'] }; fix.ntBaseSig = W.ntWorkSig(fix);
+  assert.equal(W.ndTabLoses('form', fix), '', 'correção linkada só pré-preenchida');
+  assert.equal(W.ndTabLoses('form', { fields: { ntTitle: { v: 'novo' } } }), 'o que você preencheu no formulário', 'formulário limpo + digitou');
+  assert.match(read('js/24-perguntas-agente.js'), /ntMarkBase\(\); \/\/ o rascunho está no banco/);
+  for (const f of ['async function openLinkedFix', 'async function openFromDesign']) assert.match(cut(form, f, '\n}\n'), /ntMarkBase\(\)/);
+});
+test('rev 5 · botão fechar/cancelar do Formulário passa pela guarda (não fecha calado)', async () => {
+  const calls = [];
+  const f = new Function('E', `const { tabById, tabCloseGuarded, closeNewTask }=E; let activeTab='form:1'; const window={}; ${cut(form, 'function ntUserClose()', '\n')} return ntUserClose;`);
+  await f({ tabById: (id) => ({ id, kind: 'form' }), tabCloseGuarded: async (id) => { calls.push(['guard', id]); return false; }, closeNewTask: () => calls.push(['direto']) })();
+  assert.deepEqual(calls, [['guard', 'form:1']], 'pergunta (guarda) e não fecha direto');
+});
+test('rev 6 · erro que a troca de projeto já mostrou não aparece 2×', () => {
+  const toasts = [];
+  const showErr = new Function('humanErr', 'toast', 'errDetails', 'console', cut(util, 'function showErr(e, ctx){', '\n}\n') + '\n}\nreturn showErr;')(
+    (e) => ({ msg: String(e && e.message || e), id: 'generic', raw: '' }), (m) => toasts.push(m), () => {}, { warn() {} });
+  const e = new Error('sem workspace'); e.shown = true; showErr(e, 'Não consegui abrir o projeto');
+  assert.equal(toasts.length, 0); showErr(new Error('outro'), 'x'); assert.equal(toasts.length, 1);
+});
+test('rev 7 · pedido da tela inicial não cai noutra aba Conversar aberta durante a espera', () => {
+  const sent = [], toasts = [], q = [];
+  const inp = { value: '', dispatchEvent() {}, focus() {} }, ov = { style: { display: 'flex' } };
+  const E = { activeTab: 'flow', plOpenSeq: 0, plOpenDone: 0, tabs: { 'planner:1': { id: 'planner:1', kind: 'planner' }, 'planner:2': { id: 'planner:2', kind: 'planner' } } };
+  const f = new Function('E', `let activeTab; Object.defineProperty(globalThis,'__E',{value:E,configurable:true});
+    const $id=(id)=>id==='plInput'?E.inp:E.ov; const tabById=(id)=>E.tabs[id]; const toast=(m,k,a)=>E.toasts.push(m); const plSend=(t)=>E.sent.push(t); const plMsgs=[]; const plBusy=false;
+    const setTimeout=(fn)=>E.q.push(fn); const window={ openTab:()=>{ activeTab='planner:1'; E.plOpenSeq++; } };
+    let plOpenSeq=0, plOpenDone=0;
+    ${cut(planner, 'function plStartWith(', '\n}\n')}\n}\n${cut(planner, 'const PL_START_TRIES=', 'window.plStartWith=plStartWith;')}
+    return { go:(t)=>{ plStartWith(t); activeTab='planner:2'; plOpenSeq=1; plOpenDone=1; } };`);
+  Object.assign(E, { inp, ov, toasts, sent, q });
+  f(E).go('pedido da Bia');
+  for (let i = 0; i < 400 && q.length; i++) q.shift()();
+  assert.deepEqual(sent, [], 'não enviou na aba errada'); assert.equal(inp.value, '', 'nem pôs na caixa da outra aba');
+  assert.match(toasts[0], /não abriu a tempo/);
+});
+test('rev 8 · issue reaproveitada só pro MESMO projeto e só enquanto nenhuma tarefa nasceu com ela', () => {
+  const T = new Function(cut(iss, '// @puro-trkmade-inicio', '// @puro-trkmade-fim') + '\nreturn { trkMadeKey, trkMadeGet, trkMadeSet };')();
+  const p = { title: 'Botão some', objective: 'no celular', requirements: ['aparece'] };
+  assert.notEqual(T.trkMadeKey(p, '/a'), T.trkMadeKey(p, '/b'), 'outro projeto = outra chave');
+  const k = T.trkMadeKey(p, '/a'); T.trkMadeSet(k, { code: 'FND-9' }, 1000);
+  assert.equal(T.trkMadeGet(k, 2000, () => false).code, 'FND-9', 'retry depois de falhar: reaproveita');
+  assert.equal(T.trkMadeGet(k, 2000, (c) => c === 'FND-9'), null, 'a tarefa nasceu com ela: a próxima demanda igual cria outra');
+  assert.equal(T.trkMadeGet(k, 2000, () => false), null, 'e a entrada foi apagada');
+});
+test('rev 9 · conector com JSON quebrado tem saída: "descartar edição" e "gerar de novo" zeram a edição', () => {
+  const wire = cut(iss, 'function trkConnWire(body){', '\n}\n');
+  assert.match(wire, /on\('trkJsonUndo', \(\)=>\{ trkJsonOpen=false; trkKeepForm\(\); trkJsonBad=null;/);
+  assert.match(wire, /trk\.connector=c; trkJsonBad=null;/);
+  assert.match(cut(iss, 'function trkConnHtml(){', '\n}\n'), /trkJsonBad!=null\?'<button class="btn sm" id="trkJsonUndo"/);
+  // e o keep sem a caixa aberta não lê o JSON quebrado (a saída funciona)
+  const keep = new Function('E', `let trk={ connector:{a:1} }, trkJsonOpen=false, trkMsg='', trkJsonBad='{ruim'; const $id=(id)=>id==='trkJson'?{value:'{ruim'}:null; const document={ querySelectorAll:()=>[] }; const trkUserVars=()=>({}); const lsSet=()=>{};
+    ${cut(iss, 'function trkKeepForm(){', '\n}\n')}\n}\nreturn ()=>({ ok:trkKeepForm(), c:trk.connector });`)();
+  assert.deepEqual(keep(), { ok: true, c: { a: 1 } });
+});
+test('rev 10 · o plano do orquestrador usa o mesmo teto do épico (não corta em 8)', () => {
+  const orq = read('js/34-orquestrador.js');
+  const norm = new Function('PL_PLAN_MAX', 'const ORQ_KINDS={ build:{agent:"Construtor"} };' + cut(orq, 'function orqNormPhases(', '\n}\n') + '\n}\nreturn orqNormPhases;')(20);
+  assert.equal(norm(Array.from({ length: 12 }, (_, i) => ({ key: 'n' + (i + 1), name: 'E' + i }))).length, 12);
+});
+test('rev 11 · pasta da tentativa com GitHub recusado só é reaproveitada pro MESMO nome', () => {
+  const ghRetryFor = new Function(cut(util, 'function ghRetryFor(', '\n') + '\nreturn ghRetryFor;')();
+  const r = { path: '/D/Starfork/app', slug: 'app' };
+  assert.equal(ghRetryFor(r, 'app'), '/D/Starfork/app'); assert.equal(ghRetryFor(r, 'app-novo'), '', 'trocou o nome: cria do zero');
+  assert.equal(ghRetryFor(null, 'app'), '');
+  assert.match(piloto, /PIL_FORM\.ghRetry=\{ path:g\.path, slug \}/); assert.match(ideia, /m\.ghRetry=\{ path:g\.path, slug \}/);
+});
+test('rev 12 · textos: vazio da aba "Em aberto" e botão "relatório do dia"', () => {
+  assert.match(fluxo, /title:'Nada em aberto'/);
+  assert.ok(!/relatório do período'/.test(read('js/12-chat-prefs-daily.js')));
+});
+test('rev 14 · anexar de novo o mesmo arquivo: igual não repete; EDITADO entra como versão nova (substitui a anterior)', async () => {
+  const A = new Function(cut(anexos, '// @puro-anexos-inicio', '// @puro-anexos-fim') + '\nreturn { attVersion, attNewFiles, attFileKey, attFileVer };')();
+  const old = { name: 'spec.md', src: 'f:spec.md', srcVer: '20|1' };
+  assert.equal(A.attVersion([old], 'f:spec.md', '20|1'), 'dup');
+  assert.equal(A.attVersion([old], 'f:spec.md', '25|2'), 0);
+  assert.deepEqual(A.attNewFiles([old], [{ name: 'spec.md', size: 25, lastModified: 2 }]).length, 1, 'editado passa');
+  assert.deepEqual(A.attNewFiles([old], [{ name: 'spec.md', size: 20, lastModified: 1 }]).length, 0, 'igual não passa');
+  // pelo seletor (caminho): tamanho diferente = versão nova substitui
+  const toasts = [], have = [{ name: 'spec.md', src: 'p:/x/spec.md', srcVer: '20' }];
+  const pick = new Function('E', `const { invoke, toast, showErr, pathBase }=E; ${cut(anexos, '// @puro-anexos-inicio', '// @puro-anexos-fim')} function attBusy(){ return ()=>{}; } ${cut(anexos, 'async function attPick', '\n}\n')}\n}\nreturn attPick;`)({
+    invoke: async (c) => c === 'pick_ref_files' ? ['/x/spec.md'] : { name: 'spec-2.md', size: 31 }, toast: (m) => toasts.push(m), showErr() {}, pathBase: (p) => p.split('/').pop() });
+  const out = await pick(null, have);
+  assert.equal(out.length, 1); assert.equal(have.length, 0, 'a versão anterior saiu'); assert.match(toasts[0], /Versão nova/);
+  const have2 = [{ name: 'spec.md', src: 'p:/x/spec.md', srcVer: '31' }];
+  assert.equal((await pick(null, have2)).length, 0, 'mesmo tamanho = repetido'); assert.equal(have2.length, 1);
+});
+test('rev · todo arquivo tocado nesta frente é JS válido (um comentário // no meio da linha quebrou o 22 uma vez)', () => {
+  for (const f of ['00-util', '12-chat-prefs-daily', '13-skills-projetos', '14-issues-projeto', '22-quadro-fluxo', '24-perguntas-agente', '25-grafo', '26-sidebar-projetos', '30-anexos', '31-nova-demanda-form', '32-planner', '33-switcher-projetos', '34-orquestrador', '56-piloto', '59-ideia', '66-central-tabela', '68-casca-g1'])
+    assert.doesNotThrow(() => new Function(read('js/' + f + '.js')), f);
 });

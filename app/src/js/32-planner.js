@@ -108,12 +108,13 @@ function plStartWith(text, opts){
   text=String(text||'').trim(); if(!window.openTab) return;
   const before=plOpenSeq;
   window.openTab('planner', opts||{});
+  const tid=activeTab; // a aba que ESTE pedido abriu: outra aba Conversar aberta no meio da espera não recebe o pedido
   let n=0; const go=()=>{
     const o=$id('plannerOverlay'), t=(typeof tabById==='function')?tabById(activeTab):null;
-    const ready=plOpenSeq>before && plOpenDone===plOpenSeq && o && o.style.display!=='none' && t && t.kind==='planner';
+    const ready=plOpenSeq>before && plOpenDone===plOpenSeq && o && o.style.display!=='none' && t && t.kind==='planner' && t.id===tid;
     // L8 (mesa-bugs-2): passou de 6 s e o pedido sumia calado. Agora espera até ~30 s e, se ainda não abriu, o pedido
     // NUNCA some: vai pra caixa da conversa (se ela está na tela) ou fica num aviso com "tentar de novo"
-    if(!ready){ if(++n<PL_START_TRIES){ setTimeout(go,100); return; } if(text) plStartGiveUp(text, o, t); return; }
+    if(!ready){ if(++n<PL_START_TRIES){ setTimeout(go,100); return; } if(text) plStartGiveUp(text, o, t, tid); return; }
     if(!text) return;
     if(plMsgs.some(m=>m.who==='you') || plBusy){
       const i=$id('plInput'); if(i){ if(!i.value.trim()) i.value=text; i.dispatchEvent(new Event('input')); i.focus(); }
@@ -125,9 +126,9 @@ function plStartWith(text, opts){
   setTimeout(go,60);
 }
 const PL_START_TRIES=300;
-function plStartGiveUp(text, o, t){
+function plStartGiveUp(text, o, t, tid){
   const i=$id('plInput');
-  if(i && o && o.style.display!=='none' && t && t.kind==='planner'){
+  if(i && o && o.style.display!=='none' && t && t.kind==='planner' && (!tid || t.id===tid)){
     if(!i.value.trim()){ i.value=text; i.dispatchEvent(new Event('input')); }
     toast('A conversa demorou pra abrir — seu pedido ficou na caixa. É só enviar.','warn'); return 'caixa'; }
   toast('A conversa não abriu a tempo — seu pedido não se perdeu.','warn', { label:'tentar de novo', fn:()=>plStartWith(text) }); return 'aviso';

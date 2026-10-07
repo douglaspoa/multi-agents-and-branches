@@ -280,7 +280,8 @@ async function trkBeforeNewTask(payload){
     const reqs=(payload.requirements||[]).filter(Boolean);
     const description=[payload.objective||'', reqs.length?'Requisitos:\n'+reqs.map(r=>'- '+r).join('\n'):''].filter(Boolean).join('\n\n');
     // L10 (mesa-bugs-2): a criação da TAREFA falhou depois da issue nascer e a pessoa tentou de novo → reaproveita a issue
-    const key=trkMadeKey(payload), prev=trkMadeGet(key);
+    // a issue já está ligada a uma tarefa que nasceu (a criação deu certo) → não é retry: esquece e cria outra
+    const key=trkMadeKey(payload, (typeof state!=='undefined'&&state.repo)||''), prev=trkMadeGet(key, 0, code=>trkTasksFor(code).length>0);
     if(prev){ payload.issue=prev.code; if(prev.url) payload.issueUrl=prev.url; return payload; }
     const i=await trkCreateIssue(payload.title, description, (payload.deliverables||[]).join('; '));
     if(i&&i.code){ payload.issue=i.code; if(i.url) payload.issueUrl=i.url; trkMadeSet(key, i); }
@@ -289,8 +290,8 @@ async function trkBeforeNewTask(payload){
 }
 // @puro-trkmade-inicio — issue criada por pedido de tarefa (mesmo título+objetivo+requisitos), lembrada por 30 min
 const TRK_MADE_MS=30*60*1000, trkMade=new Map();
-function trkMadeKey(p){ return JSON.stringify([String(p&&p.title||'').trim(), String(p&&p.objective||'').trim(), ((p&&p.requirements)||[]).map(x=>String(x).trim()).filter(Boolean)]); }
-function trkMadeGet(k, now){ const x=trkMade.get(k); if(!x) return null; if((now||Date.now())-x.at>TRK_MADE_MS){ trkMade.delete(k); return null; } return x; }
+function trkMadeKey(p, repo){ return JSON.stringify([String(repo||''), String(p&&p.title||'').trim(), String(p&&p.objective||'').trim(), ((p&&p.requirements)||[]).map(x=>String(x).trim()).filter(Boolean)]); }
+function trkMadeGet(k, now, used){ const x=trkMade.get(k); if(!x) return null; if((now||Date.now())-x.at>TRK_MADE_MS || (used && used(x.code))){ trkMade.delete(k); return null; } return x; }
 function trkMadeSet(k, i, now){ if(i&&i.code) trkMade.set(k, { code:i.code, url:i.url||'', at:now||Date.now() }); }
 // @puro-trkmade-fim
 async function trkCreateIssue(title, description, goal, extra){
@@ -445,7 +446,7 @@ function trkConnHtml(){
       <div class="trk-ops">${ops}</div>
       <div class="trk-ops" style="margin-top:10px">${(c.statuses||[]).map(s=>`<span class="trk-st"><i style="background:${TRK_KINDS[s.kind]||'var(--muted)'}"></i>${esc(s.label||s.id)}</span>`).join('<span class="dim">→</span>')}</div>
       ${c.notes?`<p class="trk-rs" style="margin-top:10px">${esc(c.notes)}</p>`:''}
-      <div class="trk-bar" style="margin-top:12px"><button class="btn sm" id="trkJsonT">${trkJsonOpen?'fechar':'editar'} conector (JSON)</button><span style="flex:1"></span>${trkTest?`<span class="trk-rs" style="color:${trkTest.startsWith('✓')?'var(--good)':'var(--warn)'}">${esc(trkTest)}</span>`:''}<button class="btn" id="trkTestBtn"${trkBusy==='test'?' disabled':''}>${trkBusy==='test'?'testando…':'testar conexão'}</button></div>
+      <div class="trk-bar" style="margin-top:12px"><button class="btn sm" id="trkJsonT">${trkJsonOpen?'fechar':'editar'} conector (JSON)</button>${trkJsonBad!=null?'<button class="btn sm" id="trkJsonUndo" title="volta pro conector salvo e fecha a caixa">descartar edição</button>':''}<span style="flex:1"></span>${trkTest?`<span class="trk-rs" style="color:${trkTest.startsWith('✓')?'var(--good)':'var(--warn)'}">${esc(trkTest)}</span>`:''}<button class="btn" id="trkTestBtn"${trkBusy==='test'?' disabled':''}>${trkBusy==='test'?'testando…':'testar conexão'}</button></div>
       ${trkJsonOpen?`<textarea class="in mono" id="trkJson" rows="14" style="font-size:var(--fs-xs);margin-top:10px" aria-label="conector em JSON"${trkJsonBad!=null?' aria-invalid="true"':''}>${esc(trkJsonBad!=null?trkJsonBad:JSON.stringify(c,null,2))}</textarea>`:''}</div>
     <div class="trk-bar"><span style="flex:1"></span><button class="btn primary" id="trkConnSave">salvar e continuar →</button></div>`:''}`;
 }
@@ -485,7 +486,7 @@ function trkConnWire(body){
       const out=await invoke('tracker_ai_build',{ docs:trk.docs||'', files:trkDocFiles });
       const m=String(out).match(/\{[\s\S]*\}/); const c=JSON.parse(m?m[0]:out);
       if(!c.baseUrl||!c.ops||!c.ops.list) throw new Error('a doc não deixou claro como LISTAR as issues — complete a documentação e gere de novo');
-      trk.connector=c; if(!trk.name&&c.name) trk.name=c.name; trkSecretSt={}; trkTest='';
+      trk.connector=c; trkJsonBad=null; if(!trk.name&&c.name) trk.name=c.name; trkSecretSt={}; trkTest=''; // conector novo substitui a edição quebrada
       trkMsg='✓ conexão montada — confira as chaves e teste.';
     }catch(e){ trkMsg=humanErr(e,'Não consegui montar a conexão').msg; }
     trkBusy=''; await trkSecretsRefresh(); issRender();
@@ -500,6 +501,7 @@ function trkConnWire(body){
     if(!await askYes('Liberar a sua chave '+n+' para ser enviada a '+h+'?\n\nSó confirme se este é o servidor oficial do painel.')) return;
     await invoke('tracker_bind_secret',{ name:n, host:h }); await trkSecretsRefresh(); issRender();
   });
+  on('trkJsonUndo', ()=>{ trkJsonOpen=false; trkKeepForm(); trkJsonBad=null; trkMsg=''; issRender(); }); // saída da edição quebrada (sem ler a caixa)
   on('trkJsonT', ()=>{ const ok=trkKeepForm(); if(ok) trkJsonOpen=!trkJsonOpen; issRender(); }); // JSON quebrado: a caixa não fecha (o texto sumiria)
   on('trkTestBtn', async()=>{
     trkKeepForm(); trkBusy='test'; trkTest=''; issRender();

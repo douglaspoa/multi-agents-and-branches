@@ -333,7 +333,7 @@ function wireDaily(){
 const dailyBusy={ ai:false, doc:false };
 // @puro-inicio dailyBtnState — estado de um botão: escrevendo (busy) › carregando o dia › dia sem atividade › livre
 function dailyBtnState(k, st){
-  const on=k==='ai'?'escrevendo…':'escrevendo o relatório…', off=k==='ai'?'Resumo curto':'Gerar relatório do período';
+  const on=k==='ai'?'escrevendo…':'escrevendo o relatório…', off=k==='ai'?'Resumo curto':'Gerar relatório do dia';
   if(st.busy) return { disabled:true, label:on, title:'' };
   if(st.loading) return { disabled:true, label:off, title:'espere o dia carregar' };
   if(!st.has) return { disabled:true, label:off, title:'dia sem atividade — troque a data' };

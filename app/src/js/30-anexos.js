@@ -4,11 +4,15 @@
 // INTEIRO na mensagem e a imagem vira miniatura — antes só o caminho ia pro chat.
 async function attPick(taskId, have){
   let paths=[]; try{ paths=await invoke('pick_ref_files'); }catch(e){ showErr(e, 'Não consegui abrir o seletor de arquivos'); } // L6: antes só no console
-  const seen=new Set((have||[]).map(attKey)), all=(paths||[]); paths=all.filter(p=>!seen.has('p:'+p));
-  if(all.length && !paths.length) toast('Esse anexo já está na mensagem.','info');
+  paths=paths||[];
   const out=[]; const done=attBusy(paths.length);
   try{ for(const p of paths){
-    try{ const a=await invoke('import_attachment',{ path:p, taskId:taskId||null }); if(a) a.src='p:'+p; out.push(a); }
+    try{ const a=await invoke('import_attachment',{ path:p, taskId:taskId||null }); if(!a) continue; a.src='p:'+p; a.srcVer=String(+a.size||0);
+      // o mesmo arquivo de novo: igual = não entra 2×; EDITADO (tamanho mudou) = a versão nova substitui a anterior
+      const v=attVersion(have, a.src, a.srcVer);
+      if(v==='dup'){ toast('"'+(a.name||pathBase(p))+'" já está na mensagem.','info'); continue; }
+      if(v>=0){ have.splice(v,1); toast('Versão nova de "'+(a.name||pathBase(p))+'" — substituí a anterior.','info'); }
+      out.push(a); }
     catch(e){ console.error('import_attachment',e); showErr(e, 'Não consegui importar '+pathBase(p)); }
   } }finally{ done(); }
   return out;
@@ -16,9 +20,14 @@ async function attPick(taskId, have){
 // @puro-anexos-inicio — L6 (mesa-bugs-2): anexo repetido não entra 2× e arquivo grande é barrado ANTES de virar base64 (travava)
 const ATT_MAX_BYTES=25*1000*1000; // o mesmo teto do Rust (import_attachment_data: "anexo maior que 25 MB")
 // chave da ORIGEM (o Rust renomeia a cópia: "print.png" vira "print-2.png" — a cópia não serve pra comparar)
+// src = de onde veio (caminho ou nome do arquivo); srcVer = a versão (tamanho|modificação) — editado = versão nova
 function attKey(a){ return a ? String(a.src||a.rel||((a.name||'')+'|'+(a.size||''))) : ''; }
-function attFileKey(f){ return 'f:'+(f&&f.name||'')+'|'+(+(f&&f.size)||0); }
-function attNewFiles(have, files){ const seen=new Set((have||[]).map(attKey)); const out=[]; for(const f of (files||[])){ const k=attFileKey(f); if(seen.has(k)) continue; seen.add(k); out.push(f); } return out; }
+function attFileKey(f){ return 'f:'+(f&&f.name||''); }
+function attFileVer(f){ return (+(f&&f.size)||0)+'|'+(+(f&&f.lastModified)||0); }
+// 'dup' = mesma origem e mesma versão; índice ≥0 = mesma origem, versão diferente (a anterior sai); -1 = novo
+function attVersion(have, src, ver){ const i=(have||[]).findIndex(a=>a && a.src===src); if(i<0) return -1; return String(have[i].srcVer||'')===String(ver||'') ? 'dup' : i; }
+// arquivos colados/arrastados: repetidos (mesma versão) ficam de fora ANTES de ler o arquivo; o lote também não repete
+function attNewFiles(have, files){ const out=[], seen=new Set(); for(const f of (files||[])){ const k=attFileKey(f)+'#'+attFileVer(f); if(seen.has(k) || attVersion(have, attFileKey(f), attFileVer(f))==='dup') continue; seen.add(k); out.push(f); } return out; }
 function attTooBig(f){ return !!f && (+f.size||0)>ATT_MAX_BYTES; }
 // @puro-anexos-fim
 // "importando…" enquanto copia (arquivo grande demora): aviso só quando passa de um instante
@@ -59,7 +68,9 @@ async function attImportFiles(files, taskId, have){
   const out=[]; const done=attBusy(files.length);
   try{ for(const f of files){
     if(attTooBig(f)){ toast('"'+(f.name||'o arquivo')+'" tem '+attFmtSize(f.size)+' — o limite de um anexo é 25 MB.','warn'); continue; }
-    try{ const b64=await attFileToB64(f); const a=await invoke('import_attachment_data',{ name:attPastedName(f), dataB64:b64, taskId:taskId||null }); if(a) a.src=attFileKey(f); out.push(a); }
+    try{ const b64=await attFileToB64(f); const a=await invoke('import_attachment_data',{ name:attPastedName(f), dataB64:b64, taskId:taskId||null });
+      if(a){ a.src=attFileKey(f); a.srcVer=attFileVer(f); const v=attVersion(have, a.src, a.srcVer); if(typeof v==='number' && v>=0){ have.splice(v,1); toast('Versão nova de "'+(f.name||a.name)+'" — substituí a anterior.','info'); } }
+      out.push(a); }
     catch(e){ console.error('import_attachment_data',e); showErr(e, 'Não consegui importar '+(f.name||'o conteúdo colado')); }
   } }finally{ done(); }
   return out;

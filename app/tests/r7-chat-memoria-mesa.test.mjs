@@ -86,7 +86,7 @@ test('dailyBtnState: escrevendo › carregando › sem atividade › livre (tít
   assert.deepEqual(dailyBtnState('doc', { busy: true, loading: true, has: true }), { disabled: true, label: 'escrevendo o relatório…', title: '' });
   assert.equal(dailyBtnState('ai', { busy: false, loading: true, has: true }).title, 'espere o dia carregar');
   assert.deepEqual(dailyBtnState('ai', { busy: false, loading: false, has: false }), { disabled: true, label: 'Resumo curto', title: 'dia sem atividade — troque a data' });
-  assert.deepEqual(dailyBtnState('doc', { busy: false, loading: false, has: true }), { disabled: false, label: 'Gerar relatório do período', title: null });
+  assert.deepEqual(dailyBtnState('doc', { busy: false, loading: false, has: true }), { disabled: false, label: 'Gerar relatório do dia', title: null });
 });
 
 test('cfgValidate: faixas com aviso em vez de ajuste silencioso', () => {

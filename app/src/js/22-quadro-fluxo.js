@@ -32,7 +32,7 @@ async function loadAllTasks(force){
   // escrevendo) fazia o board recarregar sem parar e "comer" o clique. A cada ~4s basta.
   if(!force && Date.now()-allTasksAt < 4000) return;
   allTasksAt=Date.now();
-  try{ const r=await invoke('list_all_tasks'); allTasksOk=true; const sig=r.map(t=>t.id+':'+t.status+':'+(t.sortOrder??'')).join(','); if(sig!==allTasksSig){ allTasksSig=sig; allTasksCache=r;
+  try{ const r=await invoke('list_all_tasks'); allTasksOk=true; const sig=r.map(t=>[t.id,t.status,t.sortOrder??'',t.flag||'',t.prUrl||'',t.stage||''].join(':')).join(','); /* flag/PR/etapa também mudam as contagens */ if(sig!==allTasksSig){ allTasksSig=sig; allTasksCache=r;
     // NÃO re-renderiza o Fluxo direto aqui: isso pulava o guard de clique (uiHoldUntil)
     // e destruía o card entre mousedown/mouseup. Marca sujo e deixa o refresh (guardado)
     // aplicar no próximo tick, respeitando o clique em andamento.
@@ -174,10 +174,11 @@ function flowVisible(tasks){
 }
 // todos os filtros MENOS o de status (épico, tipo, período, agente, busca): os chips contam por aqui — C1 (mesa-bugs-2):
 // com a busca "cores" a lista tinha 1 linha e os chips seguiam "Todas 3 · Em andamento 2"
-function flowOtherFiltersOk(t){
+// skip='type': o select de Tipo conta cada opção com todos os filtros MENOS o próprio tipo (senão escolher um tipo sumia com os outros)
+function flowOtherFiltersOk(t, skip){
   const q=flowQuery.trim().toLowerCase();
   return (flowEpic==='all'||((t.epic&&t.epic.epicId)||'')===flowEpic) &&
-    (flowType==='all'||taskType(t)===flowType) &&
+    (skip==='type'||flowType==='all'||taskType(t)===flowType) &&
     inPeriod(t) &&
     (flowAgent==='all'||taskAgents(t).includes(flowAgent)) &&
     (!q || (t.title||'').toLowerCase().includes(q));
@@ -208,7 +209,8 @@ function renderFlowFilters(){
   const agents=[...new Set((state.tasks||[]).flatMap(taskAgents))].sort((a,b)=>a.localeCompare(b));
   if(flowAgent!=='all' && agents.length && !agents.includes(flowAgent)) flowAgent='all'; // lista vazia = ainda carregando: não perde o filtro salvo
   const agOpts=['all',...agents].map(a=>`<option value="${escA(a)}"${flowAgent===a?' selected':''}>${a==='all'?'Todos os agentes':esc(a)}</option>`).join('');
-  const tyCount=k=>byPeriod.filter(t=>taskType(t)===k).length;
+  const byNoType=srcAll.filter(t=>flowScopeOk(t)&&flowOtherFiltersOk(t,'type'));
+  const tyCount=k=>byNoType.filter(t=>taskType(t)===k).length;
   if(flowType!=='all' && !TYPE_ORDER.includes(flowType)){ flowType='all'; flowSetF('flowType','all'); } // valor antigo (build…) que nenhuma tarefa usa
   // tipo salvo que hoje tem 0 tarefas continua na lista (senão o select mostrava "Todos" e a lista vinha vazia sem explicação)
   const tyOpts=[['all','Todos os tipos']].concat(TYPE_ORDER.filter(k=>tyCount(k)>0||k===flowType).map(k=>[k, (TYPE_PT[k]||k)+' ('+tyCount(k)+')']))
@@ -336,7 +338,7 @@ function flowEmptyHtml(){
   if(q) return emptyHtml({ icon:'search', title:'Nenhuma tarefa com “'+q+'” no nome', help:'Confira a grafia ou busque por outra palavra do título.', action:{ id:'flowClearSearch', label:'limpar busca', primary:false } });
   if(anyF) return emptyHtml({ icon:'search', title:'Nenhuma tarefa neste filtro', help:'Os filtros escolhidos estão escondendo as tarefas.', action:{ id:'flowClearFilters', label:'limpar filtros', primary:false } });
   if(flowScope==='done') return emptyHtml({ icon:'checkc', title:'Nada concluído ainda', help:'Quando você concluir ou mergear uma entrega, ela aparece aqui com as provas e os documentos.' });
-  return emptyHtml({ icon:'spark', title:'Nenhuma tarefa em andamento', help:'Descreva o que precisa ser feito e os agentes cuidam do resto.', action:{ id:'flowEmptyNew', label:'Nova demanda' } });
+  return emptyHtml({ icon:'spark', title:'Nada em aberto', help:'Descreva o que precisa ser feito e os agentes cuidam do resto.', action:{ id:'flowEmptyNew', label:'Nova demanda' } });
 }
 // barra de navegação NOVA nas demais vistas (Kanban/Grafo/Atividade/Time) —
 // mesma linguagem da home; o seg2 antigo não aparece mais em lugar nenhum
@@ -484,7 +486,7 @@ function renderFlowHead(){
   const el=$id('flowHead'); if(!el) return;
   // só troca o DOM se mudou: reescrever a cada render piscava e zerava o #coordChip (preenchido a cada 2s)
   const put=h=>{ if(el.__html===h && el.firstChild) return; el.__html=h; el.innerHTML=h; };
-  const fc=flowCounts(flowLiveTasks());
+  const fc=flowCounts(projLiveTasks(boardSource())); // régua única (projLiveTasks): não depende do botão Bloqueadas
   let sum;
   if(flowScope==='done'){
     let src; try{ src=boardSource(); }catch(_){ src=(state.tasks||[]); }

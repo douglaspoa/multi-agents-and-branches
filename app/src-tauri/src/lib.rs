@@ -8648,13 +8648,21 @@ struct AllTask {
     pr_url: Option<String>,
 }
 
-/// kind / prUrl do spec_json — a MESMA leitura do snapshot (Task) pra tarefa de outro projeto
+/// kind / prUrl saem do spec_json PELO SQLITE (json_extract) — sem desserializar o spec inteiro de cada tarefa de
+/// cada projeto. spec quebrado (json_valid=0) vira NULL em vez de derrubar a consulta do projeto todo.
+const ALL_TASK_SPEC_SQL: &str = "CASE WHEN json_valid(spec_json) THEN json_extract(spec_json,'$.kind') END, \
+     CASE WHEN json_valid(spec_json) THEN json_extract(spec_json,'$.prUrl') END";
+/// normaliza o que veio do SQL: sem kind = 'build' (o padrão do snapshot); prUrl vazio = None
+fn all_task_spec_norm(kind: Option<String>, pr: Option<String>) -> (String, Option<String>) {
+    (kind.filter(|k| !k.is_empty()).unwrap_or_else(|| "build".to_string()), pr.filter(|s| !s.is_empty()))
+}
+/// kind / prUrl de um spec_json — a MESMA regra, pela mesma consulta (usada nos testes e onde não há conexão aberta)
+#[cfg(test)]
 fn all_task_spec(spec_json: &str) -> (String, Option<String>) {
-    let spec: serde_json::Value = serde_json::from_str(spec_json).unwrap_or_default();
-    (
-        spec.get("kind").and_then(|v| v.as_str()).unwrap_or("build").to_string(),
-        spec.get("prUrl").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string()),
-    )
+    let c = Connection::open_in_memory().expect("sqlite em memória");
+    c.query_row(&format!("SELECT {} FROM (SELECT ?1 AS spec_json)", ALL_TASK_SPEC_SQL), params![spec_json], |r| {
+        Ok(all_task_spec_norm(r.get::<_, Option<String>>(0).unwrap_or(None), r.get::<_, Option<String>>(1).unwrap_or(None)))
+    }).expect("consulta do spec")
 }
 #[cfg(test)]
 mod all_task_spec_tests {
@@ -8688,12 +8696,12 @@ fn list_all_tasks() -> Vec<AllTask> {
             Err(_) => continue,
         };
         let _ = conn.busy_timeout(std::time::Duration::from_millis(1500));
-        let mut st = match conn.prepare(&format!("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,{},branch,spec_json FROM task ORDER BY created_at", finished_at_sql(task_has_col(&conn, "closed_at")))) {
+        let mut st = match conn.prepare(&format!("SELECT id,title,status,stage,agent,flag,engine,created_at,sort_order,{},branch,{} FROM task ORDER BY created_at", finished_at_sql(task_has_col(&conn, "closed_at")), ALL_TASK_SPEC_SQL)) {
             Ok(s) => s,
             Err(_) => continue,
         };
         let rows = st.query_map([], |r| {
-            let (kind, pr_url) = all_task_spec(&r.get::<_, Option<String>>(11).unwrap_or(None).unwrap_or_default());
+            let (kind, pr_url) = all_task_spec_norm(r.get::<_, Option<String>>(11).unwrap_or(None), r.get::<_, Option<String>>(12).unwrap_or(None));
             Ok(AllTask {
                 branch: r.get::<_, Option<String>>(10).unwrap_or(None).unwrap_or_default(),
                 kind,

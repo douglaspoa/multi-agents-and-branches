@@ -111,7 +111,7 @@ function renderBus(){
   if(tasks.length===0){ setHtmlGuarded(el, '<span class="dim">nenhuma tarefa neste projeto ainda</span>'); el.title=''; return; }
   // MESMA contagem da Central/Kanban/chips (flowCounts sobre boardSource) — antes contava por conta própria
   // ("3 rodando · 4 esperando você" contra "5 em andamento · 5 aguardando você" no cabeçalho)
-  const live=L(flowLiveTasks());
+  const live=L(projLiveTasks(boardSource())); // régua única com a lateral/Projeto/cabeçalho da Central
   const fc=flowCounts(live);
   const allProj=projFilter==='all' && projList().length>1;
   const costs=L(state.costs);

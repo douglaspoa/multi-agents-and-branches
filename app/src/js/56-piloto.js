@@ -245,13 +245,13 @@ async function pilHand(){
   const slug=(typeof emSlug==='function'?emSlug(PIL_FORM.name||idea):'')||'meu-projeto';
   PIL_BUSY=true; PIL_ERR=''; pilRenderForm();
   try{
-    const path=await projCreateQuick(slug, !!PIL_FORM.gh, PIL_FORM.ghRetry||''); // L9: retry reaproveita a pasta (antes "nome-2")
+    const path=await projCreateQuick(slug, !!PIL_FORM.gh, ghRetryFor(PIL_FORM.ghRetry, slug)); // L9: retry reaproveita a pasta (antes "nome-2")
     if(typeof selected!=='undefined') selected=null; if(typeof lastSig!=='undefined') lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches();
     try{ await refresh(); }catch(_){ } if(typeof loadProjects==='function') try{ await loadProjects(); }catch(_){ }
     PIL_BUSY=false; PIL_FORM=Object.assign({}, PILOTO_FORM0); pilRenderForm();
     if(typeof toast==='function') toast('Projeto criado em '+String(path||'').replace(/^\/Users\/[^/]+/,'~')+' — siga pela Nova demanda.','ok');
     if(window.plStartWith) window.plStartWith(idea, { replace:true });
-  }catch(e){ PIL_BUSY=false; const g=ghFailOf(e); if(g) PIL_FORM.ghRetry=g.path; // L9: nada de "GH_FAIL::…" cru
+  }catch(e){ PIL_BUSY=false; const g=ghFailOf(e); if(g) PIL_FORM.ghRetry={ path:g.path, slug }; // L9: nada de "GH_FAIL::…" cru
     PIL_ERR=g?ghFailText(g):(typeof emErrMsg==='function')?emErrMsg(String(e&&e.message||e)).msg:pilErr(e,'Não consegui criar o projeto'); pilRenderForm(); }
 }
 function pilWireForm(){

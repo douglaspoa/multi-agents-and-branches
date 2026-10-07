@@ -39,6 +39,7 @@ async function editDraft(t){
   renderNtList('ntDeliverables',ntDel); renderNtList('ntRequirements',ntReq); renderNtRefs();
   wizN=1; if(typeof wizRender==='function') wizRender();
   ntGate();
+  if(typeof ntMarkBase==='function') ntMarkBase(); // o rascunho está no banco: fechar sem mexer não pergunta
 }
 const startingTasks=new Set();
 async function startTask(taskId){
