@@ -508,7 +508,7 @@ function fwRenderEntrega(t, main){
   // conselheiro (advisor do Claude Code): o custo das consultas já está no total acima; a parte dele (quando o
   // Claude Code separa) fica no histórico da tarefa
   { const adv=(typeof advLabel==='function')?advLabel(t):''; if(adv){ const n=advCalls(t), nm=adv.replace(/^pedido: c/,'C').replace(/ · .*$/,'');
-    kpis+=`<div class="en-kpi" title="o Claude Code pode deixar o conselheiro desligado sem avisar (acesso ao Fable, conta, ambiente); as consultas, quando há, entram no custo da tarefa"><b>${esc(nm)}</b><span>${n?'pedido · consultado '+n+'×':'pedido · nenhuma consulta registrada'}</span></div>`; } }
+    kpis+=`<div class="en-kpi" title="o Claude Code pode deixar o conselheiro desligado sem avisar (acesso ao Fable, conta, ambiente); as consultas, quando há, entram no custo da tarefa"><b>${esc(nm)}</b><span>${esc(advEntregaSub(t))}</span></div>`; } }
   const pvSec=enPvHtml(t, nonCode?arts:docs);
   const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
     <div class="en-head">

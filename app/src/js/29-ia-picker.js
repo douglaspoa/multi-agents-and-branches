@@ -127,6 +127,9 @@ function advForTask(engine, model, adv){ const a=advNorm(adv); return a && advPa
 function advCalls(t){ const n=+(t&&t.spec&&t.spec.advisorCalls)||0; return n>0?n:0; }
 function advLabel(t){ const a=advNorm(t&&t.spec&&t.spec.advisor); if(!a || aiEngineOf(t.engine)!=='claude') return ''; const n=advCalls(t);
   return 'pedido: conselheiro ('+(ADV_OPTS.find(x=>x.id===a)||{}).name+')'+(n?' · consultado '+n+'×':''); }
+// Entrega: no modo TERMINAL não há sinal de consulta (sem stream) — nunca "nenhuma consulta" lá
+function advEntregaSub(t){ const n=advCalls(t); if(t&&t.spec&&t.spec.termMode==='terminal') return n?'pedido · consultado '+n+'×':'pedido · no modo terminal as consultas não aparecem aqui (o custo já está no total)';
+  return n?'pedido · consultado '+n+'×':'pedido · nenhuma consulta registrada'; }
 // @advisor-puro-fim
 function setSelValue(sel, v){ if(!sel) return; v=v||''; if(![...sel.options].some(o=>o.value===v)) sel.add(new Option(v, v)); sel.value=v; }
 // ---- padrão do USUÁRIO (Configurações → Sua IA): vale pra toda demanda nova, do formulário ou do chat ----

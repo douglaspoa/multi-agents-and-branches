@@ -16,7 +16,7 @@ let DEF = '';
 const ctx = { console, esc: (s) => String(s), escA: (s) => String(s), lsGet: (k) => (k === 'defaultAdvisor' ? DEF : ''), envChecks: null };
 vm.createContext(ctx);
 vm.runInContext(cut(SRC, '// @advisor-puro-inicio', '// @advisor-puro-fim') + fn(SRC, 'aiEngineOf') + fn(SRC, 'aiDefaults') + fn(SRC, 'advCliVersion') + fn(SRC, 'aiAdvisorFill') + fn(SRC, 'iaAdvHtml') +
-  '\nglobalThis.P={ advNorm, advPair, advCliOk, advForTask, advLabel, advCalls, aiAdvisorFill, iaAdvHtml, aiDefaults, ADV_WHY, ADV_MIN_CLI, ADV_OPTS, ADV_FABLE_NOTE };', ctx);
+  '\nglobalThis.P={ advNorm, advPair, advCliOk, advForTask, advLabel, advCalls, advEntregaSub, aiAdvisorFill, iaAdvHtml, aiDefaults, ADV_WHY, ADV_MIN_CLI, ADV_OPTS, ADV_FABLE_NOTE };', ctx);
 const P = ctx.P;
 
 test('front ≡ motor: mesmos pares aceitos/recusados e mesma regra de versão', () => {
@@ -152,4 +152,15 @@ test('Time: o cartão compartilhado não leva o conselheiro; quem assume usa o P
   };
   await run(false); await run(true);
   assert.deepEqual(made.map((p) => p.advisor), ['', 'off'], 'o "opus" do autor some: padrão de quem roda (vazio) e automático desligado');
+});
+
+test('texto honesto por modo: terminal nunca diz "nenhuma consulta"; headless mostra consultado N× ou nenhuma', () => {
+  const term = { engine: 'claude', spec: { termMode: 'terminal', advisor: 'opus' } };
+  assert.equal(P.advLabel(term), 'pedido: conselheiro (Opus)', 'faixa: só o pedido');
+  assert.equal(P.advEntregaSub(term), 'pedido · no modo terminal as consultas não aparecem aqui (o custo já está no total)');
+  assert.doesNotMatch(P.advLabel(term) + P.advEntregaSub(term), /nenhuma consulta/);
+  const auto = { engine: 'claude', spec: { termMode: 'auto', advisor: 'opus' } };
+  assert.equal(P.advEntregaSub(auto), 'pedido · nenhuma consulta registrada');
+  assert.equal(P.advEntregaSub({ engine: 'claude', spec: { advisor: 'opus', advisorCalls: 2 } }), 'pedido · consultado 2×');
+  assert.equal(P.advLabel({ engine: 'claude', spec: { advisor: 'opus', advisorCalls: 2 } }), 'pedido: conselheiro (Opus) · consultado 2×');
 });
