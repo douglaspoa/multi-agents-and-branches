@@ -16,7 +16,7 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -121,7 +121,9 @@ pub struct PtySession {
     writer: Mutex<Box<dyn Write + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
     scroll: Arc<Mutex<Scrollback>>,
-    attached: Arc<AtomicBool>,
+    /// QUANTAS telas olham (janela principal + painéis do canvas): cada attach +1, cada detach −1 (nunca abaixo de 0).
+    /// Era um booleano: o detach de uma tela (aba escondida, fit com largura 0) cortava o term-data das outras.
+    attached: Arc<AtomicUsize>,
     alive: Arc<AtomicBool>,
     log_path: Option<PathBuf>,
     size: Mutex<(u16, u16)>,
@@ -153,10 +155,12 @@ impl PtySession {
     /// nada se perde nem duplica entre o retrato e o 1º evento.
     pub fn attach(&self) -> String {
         let sb = self.scroll.lock().unwrap_or_else(|e| e.into_inner());
-        self.attached.store(true, Ordering::SeqCst);
+        self.attached.fetch_add(1, Ordering::SeqCst);
         sb.text()
     }
-    pub fn detach(&self) { self.attached.store(false, Ordering::SeqCst); }
+    pub fn detach(&self) { let _ = self.attached.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)); }
+    #[cfg(test)]
+    pub fn watchers(&self) -> usize { self.attached.load(Ordering::SeqCst) }
     pub fn snapshot(&self) -> String { self.scroll.lock().unwrap_or_else(|e| e.into_inner()).text() }
     pub fn persist(&self) { persist_scroll(&self.scroll, self.log_path.as_deref()); }
     /// Mata o GRUPO (TERM → espera → KILL). Devolve se morreu.
@@ -305,7 +309,7 @@ impl PtyManager {
             writer: Mutex::new(writer),
             child: Mutex::new(child),
             scroll: scroll.clone(),
-            attached: Arc::new(AtomicBool::new(false)),
+            attached: Arc::new(AtomicUsize::new(0)),
             alive: Arc::new(AtomicBool::new(true)),
             log_path: spec.log_path.clone(),
             size: Mutex::new((cols, rows)),
@@ -339,7 +343,7 @@ impl PtyManager {
             let flush = |pending: &mut Vec<u8>| {
                 let text = split_utf8(pending);
                 if text.is_empty() { return; }
-                let send = { let mut sb = sc.lock().unwrap_or_else(|e| e.into_inner()); sb.push(text.as_bytes()); att.load(Ordering::SeqCst) };
+                let send = { let mut sb = sc.lock().unwrap_or_else(|e| e.into_inner()); sb.push(text.as_bytes()); att.load(Ordering::SeqCst) > 0 };
                 if send { sink.data(&tid, &text); }
             };
             while let Ok(first) = rx.recv() {
@@ -474,6 +478,35 @@ mod tests {
     fn spec(dir: &Path, cap: usize) -> SpawnSpec {
         SpawnSpec { program: fake_cli(dir).display().to_string(), args: vec![], cwd: dir.to_path_buf(), env: vec![("STARFORK_T".into(), "1".into())], env_remove: vec![],
             cols: 100, rows: 30, log_path: Some(dir.join("term").join("t.log")), scroll_cap: cap, engine: "fake".into() }
+    }
+
+    #[test]
+    fn duas_telas_anexadas_um_detach_nao_corta_a_outra_e_detach_a_mais_nao_fica_negativo() {
+        let d = tmpdir("conta");
+        let sink = Arc::new(TestSink::default());
+        let m = Arc::new(PtyManager::new(sink.clone(), None));
+        let s = m.spawn("t1", spec(&d, SCROLL_CAP)).unwrap();
+        let t0 = Instant::now();
+        while !s.snapshot().contains("FAKE-CLI pronto") && t0.elapsed() < Duration::from_secs(5) { std::thread::sleep(Duration::from_millis(20)); }
+        s.attach(); s.attach(); // janela principal + painel do canvas
+        assert_eq!(s.watchers(), 2);
+        s.detach(); // a janela principal escondeu a aba
+        s.write_bytes(b"um\r").unwrap();
+        assert!(sink.wait_for("t1", "ECO:um", 5000), "o painel continua recebendo: {:?}", sink.text("t1"));
+        s.detach(); s.detach(); s.detach(); // detach a mais não fica negativo
+        assert_eq!(s.watchers(), 0);
+        std::thread::sleep(Duration::from_millis(BATCH_MS * 3));
+        let before = sink.text("t1");
+        s.write_bytes(b"dois\r").unwrap();
+        let t1 = Instant::now();
+        while !s.snapshot().contains("ECO:dois") && t1.elapsed() < Duration::from_secs(5) { std::thread::sleep(Duration::from_millis(20)); }
+        std::thread::sleep(Duration::from_millis(BATCH_MS * 3));
+        assert_eq!(sink.text("t1"), before, "ninguém olhando = sem eventos");
+        s.attach(); // um attach volta a emitir (não precisou "pagar" os detaches a mais)
+        assert_eq!(s.watchers(), 1);
+        s.write_bytes(b"tres\r").unwrap();
+        assert!(sink.wait_for("t1", "ECO:tres", 5000));
+        m.kill("t1");
     }
 
     #[test]

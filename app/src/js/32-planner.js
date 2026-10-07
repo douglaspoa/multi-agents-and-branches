@@ -348,7 +348,8 @@ function plPlanToOrq(plan, briefing, repo, now, ai){
   return { id:'orq-'+ts.toString(36)+'p', title:String((plan&&plan.epic)||'Plano').slice(0,80), summary:String((plan&&plan.outcome)||''), briefing:String(briefing||''), createdAt:ts, status:'planned', model:String(ai.model||''), engine:String(ai.engine||'claude'), phases, repo:repo||'' };
 }
 // a MESMA IA que o plCreate vai usar (motor do plano; modelo escolhido ou o padrão do usuário)
-function plModelNow(){ return { eng:String(plFields.engine||'claude'), model:plFields.model||aiDefaults().model||'' }; }
+// o modelo PADRÃO só vale se for do MESMO motor (Codex escolhido nunca vai com o modelo do Claude): senão vai vazio = padrão do motor
+function plModelNow(){ const eng=String(plFields.engine||'claude'), d=aiDefaults(); return { eng, model:plFields.model||(aiEngineOf(d.eng)===aiEngineOf(eng)?d.model:'')||'' }; }
 // tipo que a criação usa: o escolhido no chip, senão o palpite pelo que a IA já montou (o mesmo que a prévia mostra)
 function plEffKind(){ return plFields.kind || ndGuessType(plGuessText()) || 'build'; }
 function plEngineNorm(e){ e=String(e||defaultAiEngine()).toLowerCase(); return ['claude','codex','gateway','logcomex','deepseek','mock'].includes(e)?e:(e.includes('codex')?'codex':(e.includes('deepseek')||/^dsh\b/.test(e))?'deepseek':e.includes('gateway')?'gateway':'claude'); }
@@ -852,7 +853,20 @@ async function cloudPrReviewCheck(prUrl){
 }
 // BUG-18: duplo clique criava 2 tarefas (o overlapCheck tem await antes de desativar o botão) — uma submissão por vez
 let ntSubmitting=false;
-async function submitNewTask(start=true){ if(ntSubmitting) return; ntSubmitting=true; try{ return await submitNewTaskInner(start); } finally{ ntSubmitting=false; } }
+// a criação vale pra ABA que clicou: o rascunho em edição e a aba são lidos AGORA (trocar de aba durante o envio
+// trocava os globais — a criação apagava o rascunho de outra aba e fechava o Formulário errado)
+let ntSubmitCtx={ tab:null, draft:null };
+async function submitNewTask(start=true){ if(ntSubmitting) return; ntSubmitting=true;
+  { const cur=(typeof tabById==='function')?tabById(activeTab):null; ntSubmitCtx={ tab:(cur&&cur.kind==='form')?cur.id:null, draft:(typeof ntEditingDraft!=='undefined')?ntEditingDraft:null }; }
+  try{ return await submitNewTaskInner(start); } finally{ ntSubmitting=false; } }
+// criou: substitui SÓ o rascunho que esta aba editava e fecha SÓ a aba dela (limpa os campos se ela ainda é a da tela)
+function ntSubmitDone(){
+  const c=ntSubmitCtx; ntSubmitCtx={ tab:null, draft:null };
+  if(c.draft){ invoke('remove_task',{taskId:c.draft}).catch(()=>{}); }
+  const mine=!c.tab || c.tab===activeTab;
+  if(mine) resetNewTask();
+  closeNewTask(c.tab||undefined);
+}
 async function submitNewTaskInner(start=true){
   if(ntMode==='review'){
     const pr = $id("ntPr").value.trim();
@@ -861,7 +875,7 @@ async function submitNewTaskInner(start=true){
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="revisando…";
     const done=await cloudPrReviewCheck(pr).catch(()=>null);
     if(done && !await askYes('Atenção: este PR já foi revisado '+(done.mine?'por VOCÊ':'por '+done.name)+' ('+done.when+') pelo Starfork — o parecer está no cartão dele na aba Time.\n\nRodar OUTRO review mesmo assim?')){ btn.innerHTML=orig; btn.disabled=false; return; }
-    try{ await invoke("review_pr", { prUrl: pr, agents }); closeNewTask(); resetNewTask(); lastSig=""; await refresh(); }
+    try{ await invoke("review_pr", { prUrl: pr, agents }); ntSubmitDone(); lastSig=""; await refresh(); }
     catch(e){ showErr(e, 'Falha ao iniciar o review'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -873,7 +887,7 @@ async function submitNewTaskInner(start=true){
     // builder só (agents=null → 1 builder), sem plano/docs, branch fix/
     const team=$id('ntFixTeam').value;
     const payload={ start:true, title:ft, workflow:team.startsWith('wf:')?team.slice(3):null, agents:team.startsWith('ag:')?team.slice(3):null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, approval:'auto', owns:$id("ntFixOwns").value.trim()||null, off:null, objective:$id("ntFixObj").value.trim()||ft, deliverables:[], requirements:ntFixReq.map(x=>x.trim()).filter(Boolean), doc:$id('ntFixArtDoc').checked?'FIX.md':null, proof:$id("ntFixArtProof").checked || !!ntPolicy.proofRequired, tests:$id("ntFixArtTests").checked || !!ntPolicy.testsRequired, planApproval:'auto', refs:ntFixRefs.slice(), branchType:'fix', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, linkedTo: ntLinkedTo };
-    try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
+    try{ const t=await ntApplyShare(payload); ntSubmitDone(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ showErr(e, 'Falha ao criar o fix'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -899,7 +913,7 @@ async function submitNewTaskInner(start=true){
     ];
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="gerando design…";
     const payload={ start:true, title:dt, workflow:null, agents:$id('ntDzAgent').value||null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:docCk?'DESIGN.md':null, proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntDzRefs.slice(), branchType:'design', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
-    try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
+    try{ const t=await ntApplyShare(payload); ntSubmitDone(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ showErr(e, 'Falha ao criar o design'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -923,7 +937,7 @@ async function submitNewTaskInner(start=true){
     ];
     const btn=$id("ntCreate"); const orig=btn.innerHTML; btn.disabled=true; btn.textContent="investigando…";
     const payload={ start:true, title:it, workflow:null, agents:$id('ntInvAgent').value||null, engine:$id("ntEngine").value||defaultAiEngine(), model:($id("ntModel")||{}).value||null, approval:'auto', owns:'.cardume/', off:null, objective, deliverables:[], requirements, doc:'INVESTIGATION.md', proof:false, tests:false, autoPr:'no', planApproval:'auto', refs:ntInvRefs.slice(), branchType:'invest', issue:null, issueUrl: (($id('ntIssueUrl')||{}).value||'').trim() || undefined, base:null, linkedTo: ntLinkedTo };
-    try{ const t=await ntApplyShare(payload); closeNewTask(); resetNewTask(); lastSig=""; if(t) setView('team'); else await refresh(); }
+    try{ const t=await ntApplyShare(payload); ntSubmitDone(); lastSig=""; if(t) setView('team'); else await refresh(); }
     catch(e){ showErr(e, 'Falha ao criar a investigação'); }
     finally{ btn.innerHTML=orig; btn.disabled=false; }
     return;
@@ -979,14 +993,12 @@ async function submitNewTaskInner(start=true){
   try{
     if(start){
       const t=await ntApplyShare(payload);
-      if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
-      closeNewTask(); resetNewTask(); lastSig="";
+      ntSubmitDone(); lastSig="";
       if(t) setView('team'); else await refresh();
     } else {
       if(window.trfApply) await trfApply(payload);
       await invoke('new_task', await trkBeforeNewTask(payload));
-      if(ntEditingDraft){ invoke('remove_task',{taskId:ntEditingDraft}).catch(()=>{}); ntEditingDraft=null; }
-      closeNewTask(); resetNewTask(); lastSig=""; await refresh();
+      ntSubmitDone(); lastSig=""; await refresh();
     }
   }
   catch(e){ showErr(e, 'Falha ao criar tarefa'); }

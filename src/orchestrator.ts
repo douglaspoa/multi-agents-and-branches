@@ -1982,7 +1982,9 @@ export class Orchestrator {
     const prev: AgentStatus = recreated && ["merged", "done", "aborted", "cancelled", "error"].includes(task.status) ? "review" : task.status;
     const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `Você: ${message}`, true);
-    this.store.setStatus(taskId, "thinking");
+    // integrada/concluída que volta a conversar NÃO vira 'thinking' (o busy_pid já sinaliza o turno): o "parar" mata
+    // o processo antes do fim do turno restaurar o status, e a tarefa caía pra 'review' (saía de Concluídas)
+    if (!(prev === task.status && ["merged", "done", "aborted"].includes(task.status))) this.store.setStatus(taskId, "thinking");
     let failed = false;
     try {
       const chatRule = noAskTool(role.engine) ? Orchestrator.CHAT_RULE_TEXT : Orchestrator.CHAT_RULE_ASK;

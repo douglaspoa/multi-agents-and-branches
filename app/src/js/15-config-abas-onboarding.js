@@ -146,7 +146,7 @@ function viewOpen(kind, tab){
   const f={ orq:()=>{ if(fresh&&window.orqFresh) window.orqFresh(); window.openOrq&&window.openOrq(); },
             projetos:()=>openProjetos(), nova:()=>openNovaStart(),
             planner:()=>{ if(fresh||!window.plShow) openPlanner(); else window.plShow(); },
-            form:()=>{ if(fresh||!window.ntShow) openNewTask(); else window.ntShow(); },
+            form:()=>{ if(fresh||!window.ntShow){ if(fresh && typeof resetNewTask==='function') resetNewTask(); window.ntOpening=openNewTask(); } else window.ntShow(); }, // aba nova = formulário LIMPO (não herda a outra aba)
             skills:()=>openSkills(), issues:()=>openIssues(), issuesbulk:()=>openIssuesBulk(), prefs:()=>openPrefs(), memoria:()=>window.openMemoria&&window.openMemoria(), mesa:()=>window.openMesa&&window.openMesa(), uso:()=>window.openUso&&window.openUso(), piloto:()=>window.openPiloto&&window.openPiloto(), pilotorun:()=>window.openPilotoRun&&window.openPilotoRun(), ideia:()=>window.openIdeia&&window.openIdeia(fresh), cfg:()=>openCfg(), daily:()=>openDaily(), chat:()=>openPc(), env:()=>openEnv(),
             conta:()=>window.openCloud&&window.openCloud(), agents:()=>window.openAgents&&window.openAgents(),
             web:()=>{ if(window.cvShowView) window.cvShowView(tab); }, device:()=>{ if(window.cvShowView) window.cvShowView(tab); }, doc:()=>{ if(window.cvShowView) window.cvShowView(tab); },
@@ -260,6 +260,7 @@ function closeTab(id){
   const grpNext=(typeof cvOnTabClosed==='function') ? cvOnTabClosed(TABS[i]) : null;
   if(kind==='task' && typeof nvOnTaskTabClose==='function') nvOnTaskTabClose(TABS[i].taskId); // Prévia: o proxy da tarefa morre com a aba
   if(kind==='task' && typeof envOnTaskTabClose==='function') envOnTaskTabClose(TABS[i].taskId); // "Subir ambiente": o site da demanda morre com a aba
+  if(kind==='form' && id===activeTab && typeof ntFormTabClosed==='function') ntFormTabClosed(); // o rascunho/link desta aba não vaza pra próxima criação
   TABS.splice(i,1);
   // esconde o overlay do kind se nenhuma OUTRA aba do mesmo kind sobrou
   // (overlay compartilhado — a tela dividida serve Navegador/Simulador/Documento e as demandas divididas — só some sem ninguém usando)
@@ -270,6 +271,7 @@ function closeTab(id){
   if(activeTab!==id){ renderTabs(); return; }
   activeTab=(TABS[i-1]||TABS[0]).id;
   renderTabs(); showActiveView(); if(typeof cvOnViewChange==='function') cvOnViewChange();
+  if(typeof MULTI_KINDS!=='undefined' && MULTI_KINDS.has((tabById(activeTab)||{}).kind)) renderTabs(); // título vivo com o estado JÁ restaurado da aba que ficou
 }
 // R7: reordenar abas arrastando. A aba fixa (Central) fica sempre na frente; soltar sobre outra aba põe a
 // arrastada no lugar dela. Devolve true quando mudou. Pura sobre TABS (testada em app/tests/central.test.mjs).
@@ -327,7 +329,8 @@ function renderTabs(){
   const bar=$id('tabBar'); if(!bar) return;
   bar.style.display='flex'; bar.setAttribute('data-tauri-drag-region','');
   // título vivo das abas múltiplas (ex.: a demanda que está sendo montada)
-  for(const t of TABS){ if(t.id===activeTab && MULTI_KINDS.has(t.kind)){ const api=tabStateApi(t.kind); try{ const st=api&&api.get&&api.get(); if(st&&st._title) t.title=String(st._title).slice(0,28); else if(st&&st._title===''){ t.title=(VIEW_META[t.kind]||{}).title||t.kind; } }catch(_){ } } }
+  for(const t of TABS){ if(t.id===activeTab && MULTI_KINDS.has(t.kind) && !t.fresh){ // aba recém-aberta: os globais ainda são da aba anterior (o título dela vazava)
+ const api=tabStateApi(t.kind); try{ const st=api&&api.get&&api.get(); if(st&&st._title) t.title=String(st._title).slice(0,28); else if(st&&st._title===''){ t.title=(VIEW_META[t.kind]||{}).title||t.kind; } }catch(_){ } } }
   // numera só as abas que ainda têm o título genérico ("Montar conversando 1, 2…")
   const counts={}; TABS.forEach(t=>{ if(t.title===((VIEW_META[t.kind]||{}).title||t.kind)) counts[t.kind]=(counts[t.kind]||0)+1; });
   const seen={};

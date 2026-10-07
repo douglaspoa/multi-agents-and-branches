@@ -53,7 +53,7 @@ async function pickFolder(){
     await refresh(); await loadProjects();
   }catch(err){ projErr=String(err); openProjMenu(); }
 }
-$id("newTaskBtn").onclick = async()=>{ if(await gitGate()) openNewTask(); };
+$id("newTaskBtn").onclick = ()=>ntOpenFormTab(); // aba própria (o openTab já passa pelo gitGate)
 // menu "mais" do topo (redesign: topbar enxuta)
 { const mb=$id('moreBtn'), mm=$id('moreMenu');
   if(mb&&mm){
@@ -120,8 +120,8 @@ $id('pubGo').onclick=async()=>{
 { const ts=$id('topSearch');
   if(ts){ ts.oninput=()=>{ flowQuery=ts.value; if(!activeIs('flow')) setView('flow'); lastSig=''; renderFlow(); };
     ts.onkeydown=(e)=>{ if(e.key==='Escape'){ ts.value=''; flowQuery=''; lastSig=''; renderFlow(); ts.blur(); } }; } }
-$id("ntClose").onclick = closeNewTask;
-$id("ntCancel").onclick = closeNewTask;
+$id("ntClose").onclick = ()=>closeNewTask(); // sem argumento: o MouseEvent não é id de aba
+$id("ntCancel").onclick = ()=>closeNewTask();
 $id("ntCreate").onclick = ()=>{
   ntGate(); if($id('ntCreate').disabled) return;
   // build & fix: o wizard já colheu o "Quem executa?" — cria direto com progresso

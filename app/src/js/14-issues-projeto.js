@@ -938,17 +938,17 @@ function trkIssueSpec(i){
 // @puro-issuespec-fim
 async function trkIssueToTask(i){
   const sp=trkIssueSpec(i);
-  // listas ANTES de abrir (o formulário as renderiza ao abrir); campos de texto depois
-  ntReq=[...new Set(sp.reqs)]; ntDel=sp.goal?[sp.goal]:[];
   // tudo que a issue já responde vem preenchido — cai em "Quem executa?"; sem requisitos suficientes pela política, para na etapa deles
-  window.ntPresetStep=()=>ntReq.length>=Math.max(1,+((typeof ntPolicy!=='undefined'&&ntPolicy.minRequirements)||1))?3:2;
-  if(window.openTab) window.openTab('form'); else await openNewTask();
+  window.ntPresetStep=()=>[...new Set(sp.reqs)].length>=Math.max(1,+((typeof ntPolicy!=='undefined'&&ntPolicy.minRequirements)||1))?3:2;
+  if(!await ntOpenFormTab()) return; // aba nova começa limpa: as listas entram depois
+  ntReq=[...new Set(sp.reqs)]; ntDel=sp.goal?[sp.goal]:[];
   setNtMode('build');
   $id('ntTitle').value=sp.title.slice(0,90); $id('ntObj').value=sp.objective||sp.title;
   $id('ntIssue').value=i.code; { const u=$id('ntIssueUrl'); if(u) u.value=i.url||''; }
   { const b=$id('ntBranchType'); if(b&&sp.bug) b.value='fix'; }
   renderNtList('ntRequirements',ntReq); renderNtList('ntDeliverables',ntDel);
   { const e=$id('ntArtProof'); if(e) e.checked=true; }
+  if(typeof ntGate==='function') ntGate();
 }
 function trkDetailHtml(){
   const i=trkIssues.find(x=>x.code===trkSel); if(!i) return '';

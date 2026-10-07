@@ -79,7 +79,7 @@ try{ if(typeof invoke==='function') estLoadEnabled(); }catch(_){ }
 function estDraft(){
   if(typeof plFields==='undefined') return null;
   const items=[...new Set([...(plFields.requirements||[]), ...(plFields.deliverables||[])].map(x=>String(x).trim()).filter(Boolean))];
-  const model=plFields.model||((typeof aiDefaults==='function'&&aiDefaults().model)||'');
+  const model=(typeof plModelNow==='function')?plModelNow().model:(plFields.model||''); // padrão só se for do MESMO motor (regra do planner)
   return { title:String(plFields.title||'').trim(), objective:String(plFields.objective||'').trim(), items, model, roles:['builder'] }; // planner: workflow null → 1 builder
 }
 function estKey(d){ return JSON.stringify([d.title, d.objective, d.items, d.model]); }

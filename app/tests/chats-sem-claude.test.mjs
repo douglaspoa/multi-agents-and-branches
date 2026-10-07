@@ -187,7 +187,7 @@ test('"virar tarefa" (pcToTask) passa pela porta única: gateway leva o históri
     const store = { 'pcsid:/r': sid };
     const { ctx, calls } = chatCtx(store, replies);
     const msgs = [{ role: 'user', text: 'quero filtrar pedidos por data' }, { role: 'assistant', text: 'em qual tela?' }, { role: 'sys', text: 'aviso' }];
-    Object.assign(ctx, { state: { repo: '/r' }, pcGate: () => '', pcGateSt: () => ({}), pcMsgs: () => msgs, pcRender() {}, openNewTask: async () => {}, setNtMode() {}, renderNtList() {},
+    Object.assign(ctx, { state: { repo: '/r' }, pcGate: () => '', pcGateSt: () => ({}), pcMsgs: () => msgs, pcRender() {}, openNewTask: async () => {}, ntOpenFormTab: async () => true, setNtMode() {}, renderNtList() {},
       $id: () => ctx.__el(), toast() {}, showErr: (e) => { throw new Error('showErr: ' + (e && e.message || e)); }, aiClaudeModel: () => '' });
     vm.runInContext(cut(read('12-chat-prefs-daily.js'), 'async function pcToTask(){', '\nfunction openPc(){') + '\nglobalThis.__go=pcToTask;', ctx);
     await ctx.__go();

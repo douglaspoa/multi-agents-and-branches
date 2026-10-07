@@ -17,7 +17,12 @@ function openAsk(pendingId){
 // o rascunho antigo é substituído (remove_task + criação nova)
 let ntEditingDraft=null;
 async function editDraft(t){
-  if(window.openTab) window.openTab('form'); else await openNewTask(); // abre a Nova demanda como ABA
+  if(typeof ntPaneDelegate==='function' && ntPaneDelegate('editDraft', t)) return;
+  // o MESMO rascunho já está aberto numa aba: volta pra ela (com o que você já editou) em vez de abrir outra
+  if(typeof TABS!=='undefined' && typeof activateTab==='function'){
+    const open=TABS.find(x=>x.kind==='form' && (x.id===activeTab ? ntEditingDraft===t.id : !!(x.state && x.state.ntEditingDraft===t.id)));
+    if(open){ activateTab(open.id); return; } }
+  if(!await ntOpenFormTab()) return; // abre a Nova demanda como ABA própria e limpa
   setNtMode('build');
   ntEditingDraft=t.id;
   $id('ntTitle').value=t.title||'';
