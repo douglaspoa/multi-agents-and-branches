@@ -20,9 +20,40 @@ function auShow(step, opts){
   au.msg=''; au.msgKind=''; au.msgRef=''; au.acts=null; au.err={}; au.focus=''; au.busy=false;
   Object.assign(au, opts||{}); if(step) au.step=step;
   const o=auEl(); if(!o) return; const R=$id('auRight'); if(R) R.dataset.step=''; // tela nova: não herda o que foi digitado noutra
-  o.style.display='flex'; auRender();
+  o.style.display='flex'; auInert(true, document.body, o); auTrapWire(o); auRender();
 }
-function auHide(){ const o=auEl(); if(o) o.style.display='none'; au.waiting=false; if(_auTimer){ clearInterval(_auTimer); _auTimer=null; }
+// @puro-au-foco-inicio — bloqueador 03 da mesa-bugs-2: com a tela de entrada aberta, o app por trás fica inerte
+// (fora do Tab e do leitor de tela) e o Tab dá a volta DENTRO da tela. Só desfaz o que ela mesma marcou.
+function auInert(on, body, overlay){
+  for(const el of Array.from((body&&body.children)||[])){
+    if(el===overlay || ['SCRIPT','STYLE','LINK','TEMPLATE'].includes(el.tagName)) continue;
+    if(on){ if(el.hasAttribute('inert')) continue; el.setAttribute('inert',''); el.setAttribute('aria-hidden','true'); el.setAttribute('data-au-inert','1'); }
+    else if(el.getAttribute('data-au-inert')==='1'){ el.removeAttribute('inert'); el.removeAttribute('aria-hidden'); el.removeAttribute('data-au-inert'); }
+  }
+}
+// Tab no último item volta pro primeiro (Shift+Tab no primeiro vai pro último); foco fora da tela volta pra dentro
+function auTrapNext(list, cur, back){
+  if(!list.length) return null;
+  const i=list.indexOf(cur);
+  if(i<0) return back?list[list.length-1]:list[0];
+  if(back && i===0) return list[list.length-1];
+  if(!back && i===list.length-1) return list[0];
+  return null; // meio da lista: o navegador segue normal
+}
+// abrir abas/planejador por trás da tela de entrada SEM sessão não pode (atalho, Enter, chamada solta)
+function auBlocksApp(open, hasSess){ return !!open && !hasSess; }
+// @puro-au-foco-fim
+function auTrapWire(o){
+  if(o.__auTrap) return; o.__auTrap=true;
+  const sel='a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+  document.addEventListener('keydown', e=>{
+    if(e.key!=='Tab' || !auOpen()) return;
+    const list=Array.from(o.querySelectorAll(sel)).filter(el=>el.offsetParent!==null || el===document.activeElement);
+    const nx=auTrapNext(list, document.activeElement, e.shiftKey);
+    if(nx){ e.preventDefault(); nx.focus(); }
+  }, true);
+}
+function auHide(){ const o=auEl(); if(o){ o.style.display='none'; auInert(false, document.body, o); } au.waiting=false; if(_auTimer){ clearInterval(_auTimer); _auTimer=null; }
   // 1º uso: o tour de boas-vindas só começa DEPOIS da entrada (antes ele abria por baixo do gate de login)
   setTimeout(()=>{ if(window.obMaybeStart) window.obMaybeStart(); }, 350); }
 function auOpen(){ return !!auEl() && auEl().style.display!=='none'; }

@@ -134,6 +134,7 @@ function sbLogout(){
   SB.setSess(null); lsSet('sb:ended','');
   cloudData=null; cloudAutoInvTried=false; cloudMsg='';
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
+  try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // chaves da conta não ficam pro próximo (bloqueador 02)
   if(s && s.access_token) sbAuth('logout?scope=local', null, { token:s.access_token, timeout:5000 }).catch(()=>{});
   try{ cloudBtnSync(); }catch(_){ }
   try{ renderCloud(); }catch(_){ }

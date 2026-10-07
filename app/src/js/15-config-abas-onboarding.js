@@ -213,6 +213,7 @@ function viewRoute(kind, opts){
 // @puro-rotas-fim
 function openTab(kind, opts){
   { const r=viewRoute(kind, opts); kind=r.kind; opts=r.opts; if(r.from && opts.from==null) opts.from=r.from; }
+  if(typeof auBlocksApp==='function' && typeof auOpen==='function' && typeof SB!=='undefined' && auBlocksApp(auOpen(), SB.sess())) return; // tela de entrada aberta sem sessão: nada abre por trás (bloqueador 03)
   // criar demanda/plano exige um projeto aberto: sem projeto, leva pra Projetos em vez de abrir um formulário sem destino
   if(['nova','form','planner','orq'].includes(kind) && typeof state!=='undefined' && !state.repo){
     // "Começar sem portões": a tela inicial já cria o projeto a partir do pedido — leva pra lá, não pra Projetos

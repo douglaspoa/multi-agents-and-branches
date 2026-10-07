@@ -93,24 +93,39 @@ async function payPortal(btn){
 // aparecia como "Individual · mensal … renova em " vazio.
 // ========== chaves de modelo VINCULADAS À CONTA (user_secrets → llm.env) ==========
 let secretsCache=null;
+// @puro-chaves-dono-inicio — de quem é o llm.env local. Marca 'sb:llmEnvOwner' = id da conta que espelhou o cofre aqui
+// ('local' = gravado sem conta). Bloqueadores 01/02 da mesa-bugs-2: com o cofre vazio, só "adota" o arquivo local se ele
+// NÃO é espelho de conta nenhuma (vazio/legado ou 'local'). Espelho desta conta + cofre vazio = a pessoa removeu a última
+// chave (não pode voltar); espelho de OUTRA conta = troca de conta no mesmo Mac (não pode subir pro cofre do outro).
+function secretsAdoptLocal(owner, uid){ return !owner || owner==='local'; }
+// @puro-chaves-dono-fim
 async function secretsSync(){
   if(!SB.sess()) return;
   try{
+    const uid=cloudUserId();
     let rows=await sbGet('user_secrets?select=name,value&order=name');
-    if(!rows.length){
+    if(!rows.length && secretsAdoptLocal(lsGet('sb:llmEnvOwner'), uid)){
       // primeira vez: adota o llm.env local existente (migração sem clique)
       const local=await invoke('read_llm_env').catch(()=>'');
       const pairs=String(local||'').split('\n').map(l=>l.trim()).filter(l=>/^[A-Z][A-Z0-9_]{2,63}=/.test(l));
       for(const l of pairs){ const i=l.indexOf('=');
         await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
-          body: JSON.stringify({ user_id:cloudUserId(), name:l.slice(0,i), value:l.slice(i+1) }) });
+          body: JSON.stringify({ user_id:uid, name:l.slice(0,i), value:l.slice(i+1) }) });
       }
       if(pairs.length) rows=await sbGet('user_secrets?select=name,value&order=name');
     }
+    if(!SB.sess() || cloudUserId()!==uid) return; // saiu/trocou de conta no meio: não escreve o cofre de uma no arquivo da outra
     secretsCache=rows;
     // nuvem → arquivo local (600) que os motores leem
     await invoke('write_llm_env',{ content: rows.map(r=>r.name+'='+r.value).join('\n')+(rows.length?'\n':'') });
+    lsSet('sb:llmEnvOwner', uid);
   }catch(_){ }
+}
+// sair da conta (sbLogout): as chaves desta conta saem DESTE computador (o cofre na nuvem fica intacto) —
+// quem entrar depois começa sem chave e nada da conta anterior é adotado.
+async function secretsForget(){
+  secretsCache=null;
+  try{ await invoke('write_llm_env',{ content:'' }); lsSet('sb:llmEnvOwner',''); }catch(_){ }
 }
 // chave nova/removida (ex.: DEEPSEEK_API_KEY) vale JÁ no seletor/Ambiente: zera o cache de 30s da disponibilidade
 // (o Rust também esquece as prontas/saldo do medidor do plano — e o medidor relê na hora)
@@ -123,6 +138,7 @@ async function secretSet(name, value){
 }
 async function secretDel(name){
   await sbFetch('/rest/v1/user_secrets?user_id=eq.'+cloudUserId()+'&name=eq.'+encodeURIComponent(name), { method:'DELETE' });
+  try{ lsSet('sb:llmEnvOwner', cloudUserId()); }catch(_){ } // o arquivo local agora é espelho desta conta: a chave removida não volta pela "adoção" (bloqueador 01)
   await secretsSync();
   await secretsAvailRefresh();
 }
