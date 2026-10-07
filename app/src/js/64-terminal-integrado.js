@@ -446,15 +446,18 @@ function tiChipsPaint(t){ const box=$id('tiChips'), dock=$id('tiDock'); if(!t ||
  * Manda um texto pro terminal (chip, comando de botão). Vivo/retomável: term_send (entra na fila se ele estiver no meio
  * de um turno; sem PTY, abre a sessão já com o texto). Rodando em segundo plano: o mesmo caminho do compositor (talk_task).
  */
-async function tiSend(taskId, text){
+async function tiSend(taskId, text, o){
   const t=tiTask(taskId); if(!t || !String(text||'').trim()) return false;
   const st=TERM[taskId];
   if(tiBudgetOpen(t)){ toast('a tarefa está pausada no teto de custo — decida no cartão do teto primeiro', 'warn'); return false; }
   if(termHeadless(t) || (st && !st.alive && st.hinfo && st.hinfo.resumes===false)) return (typeof fwSendText==='function') ? fwSendText(taskId, text) : false;
   const live=!!(st && st.alive), busy=!!(t.busy || ACTIVE_ST.has(t.status) || t.status==='thinking' || pendingOf(taskId).length);
-  try{ await invoke('term_send', { taskId, text, mode:'queue' }); }
+  // o.interrupt (Pedir revisão do detector de loop): Esc no turno e manda já — não espera o loop acabar sozinho
+  const now=!!(o && o.interrupt && live);
+  try{ await invoke('term_send', { taskId, text, mode:now?'interrupt':'queue' }); }
   catch(e){ showErr(e, 'Não consegui mandar pro terminal'); return false; }
-  if(live && busy) toast('na fila — o agente lê assim que terminar o turno', 'info');
+  if(now) toast('interrompi o turno e mandei o pedido', 'info');
+  else if(live && busy) toast('na fila — o agente lê assim que terminar o turno', 'info');
   else if(!live){ toast('retomando a sessão no terminal com o pedido…', 'info'); if(typeof termGoLive==='function') termGoLive(taskId); }
   lastSig=''; refresh().catch(()=>{});
   tlFocusTerm(taskId);

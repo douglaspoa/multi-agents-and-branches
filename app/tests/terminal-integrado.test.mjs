@@ -155,7 +155,7 @@ test('ganchos: arquivos registrados, suggest fora de todo feed, xterm do histór
   assert.match(read('js/27-entregas.js'), /data-tidoc=/);
   const ti = read('js/64-terminal-integrado.js');
   assert.ok(!/window\.confirm|[^.]confirm\(/.test(ti), 'nada de confirm (quebrado no Tauri)');
-  assert.match(ti, /invoke\('term_send', \{ taskId, text, mode:'queue' \}\)/);
+  assert.match(ti, /invoke\('term_send', \{ taskId, text, mode:now\?'interrupt':'queue' \}\)/);
   assert.match(ti, /invoke\('term_switch_ai', \{ taskId, ai, model:model\|\|null \}\)/);
   assert.match(ti, /showErr\(e, 'Não consegui trocar a IA do terminal'\)/, 'sem o comando no backend: erro legível, não quebra');
 });

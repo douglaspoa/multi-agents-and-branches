@@ -48,6 +48,8 @@ export interface RunInput {
    * prompt, então sem isto a continuação de uma tarefa "esquece" as skills. Igual groundRule.
    */
   skillsRule?: string;
+  /** Detector de loop (src/loop-detect.ts): cada resultado de ferramenta do turno (o orquestrador grava a janela). */
+  onAttempt?: (a: import("../loop-detect.ts").ToolAttempt) => void;
 }
 
 /**

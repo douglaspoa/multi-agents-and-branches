@@ -94,18 +94,20 @@ function cicloPaint(t){
   const plan=d?'':((typeof cicloPlanHtml==='function')?cicloPlanHtml(t):'');
   cicLearnEnsure(t);
   const learn=cicloLearnHtml(t);
-  const sig=t.id+'|'+strip+'|'+JSON.stringify(d)+'|'+plan+'|'+(typeof taskCost==='function'?taskCost(t.id).usd.toFixed(4):'')+'|'+learn.length+':'+Object.keys(typeof LEARN_EDIT!=='undefined'?LEARN_EDIT:{}).join(',')+':'+((cicLearn[t.id]||{}).sig||'');
+  const loop=(typeof loopBannerHtml==='function')?loopBannerHtml(t):''; // detector de loop (70-loop): em cima de tudo
+  const sig=t.id+'|'+loop+'|'+strip+'|'+JSON.stringify(d)+'|'+plan+'|'+(typeof taskCost==='function'?taskCost(t.id).usd.toFixed(4):'')+'|'+learn.length+':'+Object.keys(typeof LEARN_EDIT!=='undefined'?LEARN_EDIT:{}).join(',')+':'+((cicLearn[t.id]||{}).sig||'');
   if(host.__sig===sig) return;
   const keep=document.activeElement && host.contains(document.activeElement) ? document.activeElement.id : '';
   host.__sig=sig;
   { const oc=(typeof FW_HEAD!=='undefined' && FW_HEAD.orq)||null; if(oc && host.contains(oc)) oc.remove(); } // o nó dos chips do orquestrador sobrevive ao innerHTML
-  host.innerHTML=strip+(d?cicloDecisionHtml(t, d, ui):plan)+learn;
+  host.innerHTML=loop+strip+(d?cicloDecisionHtml(t, d, ui):plan)+learn;
   host.hidden=!host.innerHTML;
   cicMotion(t, host);
   ['cicUsd','cicWhy'].forEach(id=>{ const el=$id(id); if(el) el.oninput=()=>{ const u=cicUi[t.id]=cicUi[t.id]||{}; u[id==='cicUsd'?'usd':'why']=el.value; }; });
   const on=(id, k)=>{ const b=$id(id); if(b) b.onclick=()=>cicloAct(t, k); };
   on('cicRelease','release'); on('cicStop','stop'); on('cicGo','go'); on('cicRound','round');
   const why=$id('cicWhy'); if(why) why.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const b=$id('cicRelease')||$id('cicGo'); if(b) b.click(); } };
+  if(loop && typeof loopWire==='function') loopWire(host, t);
   if(typeof cicloStripWire==='function') cicloStripWire(host, t);
   if(typeof fwOrqChipsPlace==='function') fwOrqChipsPlace();
   if(learn && typeof learnWire==='function') learnWire(host, { repo:()=>state.repo, items:()=>(cicLearn[t.id]||{}).items||[], repaint:()=>{ host.__sig=''; cicloPaint(t); }, after:async()=>{ delete cicLearn[t.id]; host.__sig=''; cicloPaint(t); } });

@@ -7,6 +7,7 @@ import { codexResolution, notFoundMsg, toolPath, type Resolution } from "./bin-r
 import { adjustRuleOf, exitGraceMs, killProcess } from "./claude.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { mobileRule } from "../mobile.ts";
+import { codexAttempt } from "../loop-detect.ts";
 
 /**
  * Motor Codex CLI (OpenAI) — e, via provider custom, QUALQUER endpoint
@@ -317,6 +318,7 @@ export class CodexEngine implements AgentEngine {
       resetIdle();
       const le = codexLineError(line);
       if (le) lastErr = le;
+      if (input.onAttempt) { try { const a = codexAttempt(line); if (a) input.onAttempt(a); } catch { /* detector de loop é extra */ } }
       for (const ev of mapCodexLine(line, seen)) {
         if (ev.type === "done" && !sawDone) { sawDone = true; armDoneTimer(); }
         if (ev.type === "error") sawError = true;

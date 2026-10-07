@@ -712,6 +712,9 @@ mod budget_spec_tests {
         assert_eq!(b["taskKind"], "codigo");
         assert_eq!(b["planApproval"], "review");
         assert!(b.get("objective").is_none());
+        let l = task_front_spec(&serde_json::json!({"loop":{"kind":"erro","n":3,"what":"`npm test` falhou 3×"}})).expect("tem loop");
+        assert_eq!(l["loop"]["n"], 3, "o aviso do detector de loop chega no front");
+        assert!(task_front_spec(&serde_json::json!({"loop":null})).is_none(), "aviso apagado (null) não vai");
     }
 }
 
@@ -1150,8 +1153,9 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 /// o antes/depois vem por `task_agent_edit`) e as propostas de remoção (agentProposals, curtas).
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
-    // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal)
-    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns"] {
+    // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal);
+    // loop = aviso do detector de loop (src/loop-detect.ts: a IA repetindo o mesmo erro)
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "loop"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     // Cadeado 1 na faixa: a tarefa pausa pra aprovar o plano?

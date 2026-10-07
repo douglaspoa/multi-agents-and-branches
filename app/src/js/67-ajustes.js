@@ -11,7 +11,7 @@ const AJ_GROUPS=[['ia','IA e modelos'],['pc','Este computador'],['conta','Conta 
 const AJ_SECTIONS=[
   { id:'motores', grp:'ia', label:'Motores e chaves', scope:'computador', kw:'ia claude code codex deepseek gemini opencode gateway ia da sua empresa chave api openai lgcx outras chaves modelo padrão testar privacidade medidor porcentagem plano seletor' },
   { id:'custo', grp:'pc', label:'Custo e limites', scope:'computador', kw:'teto tarefa aviso custo cotação dólar real tarefas ao mesmo tempo paralelo fila retomar limite' },
-  { id:'modo', grp:'pc', label:'Como as tarefas rodam', scope:'computador', kw:'modo terminal automático aprovação navegador dos agentes janela previsão tempo custo antes de rodar' },
+  { id:'modo', grp:'pc', label:'Como as tarefas rodam', scope:'computador', kw:'modo terminal automático aprovação navegador dos agentes janela previsão tempo custo antes de rodar loop repetindo mesmo erro pausar' },
   { id:'aparencia', grp:'pc', label:'Aparência', scope:'computador', kw:'tema claro escuro sistema cor' },
   { id:'aprendizado', grp:'pc', label:'Aprendizado', scope:'computador', kw:'aprendizado contínuo retro revisão memória sugerir automático desligado' },
   { id:'github', grp:'pc', label:'GitHub', scope:'computador', kw:'github conta gh pr push envio sso trocar entrar' },
@@ -454,6 +454,7 @@ function ajRenderModo(host){
     <div class="ajrows">`
     +ajRow('Navegador dos agentes', 'Quando o agente abre um site pra testar ou tirar print. Por padrão roda em segundo plano, sem janela; ligue pra acompanhar ou fazer login.', ajSw('cfgBrowserVisible', false, 'mostrar a janela'))
     +ajRow('Previsão de tempo e custo antes de rodar', 'Custa uma chamada curta de IA por demanda (aparece em Uso › Previsão). Desligado: nenhuma chamada extra.', ajSw('cfgEstimate', true, 'prever'))
+    +ajRow('Pausar a tarefa quando a IA repetir o mesmo erro', 'Desligado: a tarefa só avisa e segue. Ligado: a tarefa para logo depois do aviso, com o trabalho como está — você decide o próximo passo.', ajSw('cfgLoopPause', typeof loopPauseOn==='function' && loopPauseOn(), 'pausar'))
     +`</div>`;
   let loaded, stored;
   const paint=v=>host.querySelectorAll('[data-ajmode]').forEach(b=>{ const on=b.dataset.ajmode===v; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
@@ -466,6 +467,7 @@ function ajRenderModo(host){
     try{ await ajSetting('taskMode', v==='auto'?'auto':'terminal'); await ajSetting('taskModeSet','2'); loaded=v; stored=v; ajSaved(); }catch(e){ showErr(e,'Não salvou o modo das tarefas'); paint(loaded); }
   });
   { const bv=$id('cfgBrowserVisible'); if(bv) bv.onchange=async()=>{ try{ await ajSetting('browserVisible', bv.checked?'1':'0'); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
+  { const lp=$id('cfgLoopPause'); if(lp) lp.onchange=()=>{ lsSet('loopPause', lp.checked?'1':'0'); ajSaved(); }; }
   { const es=$id('cfgEstimate'); if(es) es.onchange=async()=>{ try{ await ajSetting('estimateEnabled', es.checked?'1':'0'); if(typeof estSetEnabled==='function') estSetEnabled(es.checked); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
 }
 function ajRenderAparencia(host){

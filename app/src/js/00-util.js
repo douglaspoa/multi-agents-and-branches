@@ -469,8 +469,11 @@ function taskEncerrada(t){ return !!t && (t.flag==='closed' || ['merged','done',
 function taskAguardaVoce(t, pend){
   if(!t || t.status==='draft' || taskEncerrada(t)) return false;
   const p = pend || (typeof pendingOf==='function' ? (x=>pendingOf(x.id).length>0) : (()=>false));
-  return !!p(t) || AGUARDA_ST.includes(t.status);
+  return !!p(t) || AGUARDA_ST.includes(t.status) || !!taskLoop(t);
 }
+// DETECTOR DE LOOP (motor: src/loop-detect.ts): spec.loop = { kind:'erro'|'repete', n, what, text, sig, at } enquanto a IA
+// repete o mesmo erro; some quando a ação passa ou você intervém. Entra no "aguardando você" acima — sem status novo.
+function taskLoop(t){ const l=t&&t.spec&&t.spec.loop; return (l && typeof l==='object' && !taskEncerrada(t)) ? l : null; }
 function taskProntaRevisar(t, pend){ return !!t && !taskEncerrada(t) && !t.prUrl && ['review','delivered'].includes(t.status) && !taskAguardaVoce(t, pend); }
 // tarefas VIVAS por padrão (sem encerradas; bloqueadas escondidas = mesma visibilidade da Central)
 function aguardaSrc(tasks){ if(tasks) return tasks; try{ return flowLiveTasks(); }catch(_){ return (typeof state!=='undefined'&&state.tasks)||[]; } }

@@ -145,7 +145,7 @@ function ctRow(t){
     ia:t.orchestration?'Orquestrador':ia, stages:stages.map(s=>({ label:s.label, state:s.state, word:s.word })), pos:sum?sum.pos:0, n:stages.length, label:sum?sum.label:'', now:sum?sum.now:'',
     nreq, ok, ad, loaded, cross, gateSt:g.st, canAskProof:!cross && ['review','delivered'].includes(t.status) && g.st==='unproven' && !t.prUrl,
     pr:(typeof prNumOf==='function')?prNumOf(t):'', prUrl:t.prUrl||'', status:t.status, blocked:t.flag==='blocked', asking,
-    needsYou:asking || CT_NEEDS_ST.has(t.status), // a barra de "precisa de você" — rascunho e "Revisar" não ganham
+    needsYou:asking || CT_NEEDS_ST.has(t.status) || !!(typeof taskLoop==='function' && taskLoop(t)), // a barra de "precisa de você" — rascunho e "Revisar" não ganham
     budget:(typeof budgetNoticeHtml==='function' && !cross)?budgetNoticeHtml(t):'',
     bucket:b, st, stLabel:stShort(st), stColor:stColor(st), rank:(typeof railRank==='function')?(6-railRank(st)):0, ts, ago:(typeof agoShort==='function')?agoShort(ts):'' };
 }

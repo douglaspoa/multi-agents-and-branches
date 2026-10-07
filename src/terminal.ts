@@ -33,6 +33,7 @@ import { resolveToolCached, toolPath } from "./engine/bin-resolve.ts";
 import { protectArgs, protectEnabled } from "./engine/protect.ts";
 import { engineKind, Orchestrator, deliverPrompt } from "./orchestrator.ts";
 import { Store } from "./store.ts";
+import { attemptFromHook, loopReset, loopTrack, stripAnsi } from "./loop-detect.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import type { AgentStatus, TaskSpec } from "./types.ts";
 
@@ -84,10 +85,12 @@ export const CODEX_LIMITS = [
 
 /** Marca dos comandos do Starfork nos hooks/statusLine — a fusão troca só os nossos e preserva o resto. */
 export const HOOK_MARK = "--starfork-task";
-export const CLAUDE_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "Notification", "SessionEnd"] as const;
+// PostToolUseFailure: o Claude Code manda a falha de ferramenta (comando com saída ≠ 0, edição que não aplicou) por
+// este evento, não pelo PostToolUse — é a fonte do detector de loop (src/loop-detect.ts)
+export const CLAUDE_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "Notification", "SessionEnd"] as const;
 export const CODEX_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"] as const;
 /** Hooks que só alimentam o feed rodam em segundo plano (não seguram a ferramenta); os que mudam estado são síncronos. */
-const ASYNC_HOOKS = new Set(["PreToolUse", "PostToolUse", "Notification"]);
+const ASYNC_HOOKS = new Set(["PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification"]);
 /** Pergunta nativa do Claude Code (várias perguntas, opções com descrição, multiSelect, "outra resposta"). */
 export const AUQ_TOOL = "AskUserQuestion";
 /** O hook espera a pessoa (como o ask_human). Passou disso, o Claude Code cai no picker dele no próprio terminal. */
@@ -138,7 +141,7 @@ export function mergeClaudeSettings(existing: Settings | null | undefined, base:
   for (const ev of CLAUDE_HOOK_EVENTS) {
     const h: { type: string; command: string; timeout: number; async?: boolean } = { type: "command", command: shellCmd(hookArgv(base, ev, taskId, repo)), timeout: 30 };
     if (ASYNC_HOOKS.has(ev)) h.async = true;
-    (hooks[ev] = hooks[ev] ?? []).push(ev === "PreToolUse" || ev === "PostToolUse" ? { matcher: "*", hooks: [h] } : { hooks: [h] });
+    (hooks[ev] = hooks[ev] ?? []).push(ev === "PreToolUse" || ev === "PostToolUse" || ev === "PostToolUseFailure" ? { matcher: "*", hooks: [h] } : { hooks: [h] });
   }
   // pergunta do agente (AskUserQuestion): hook SÍNCRONO que segura a ferramenta até a pessoa responder na folha do
   // app e devolve allow + updatedInput.answers (o Claude Code aceita como resposta do usuário — sem tecla no PTY)
@@ -260,6 +263,8 @@ export function mapHook(event: string, p: Record<string, any>): HookEffect {
       const failed = r && typeof r === "object" && (r.is_error === true || r.success === false || (typeof r.error === "string" && r.error));
       return { events: failed ? [{ type: "note", text: `${p.tool_name ?? "ferramenta"} falhou: ${clip(typeof r.error === "string" ? r.error : r.stderr ?? "", 200)}`, ok: false }] : [] };
     }
+    case "PostToolUseFailure":
+      return { events: p.is_interrupt === true ? [] : [{ type: "note", text: `${p.tool_name ?? "ferramenta"} falhou: ${clip(stripAnsi(String(p.error ?? "")), 200)}`, ok: false }] };
     case "Notification": {
       const msg = clip(p.message ?? "", 300);
       if (!msg) return { events: [] };
@@ -1078,6 +1083,9 @@ export function hookCli(event: string, taskArg: string, repoArg: string, argvPay
       }
       const wasBusy = (store.termGet(taskId)?.busy ?? 0) === 1;
       applyHook(store, taskId, eff);
+      // detector de loop: mensagem da pessoa zera; resultado de ferramenta entra na janela da tarefa
+      if (event === "UserPromptSubmit") loopReset(store, taskId);
+      else loopTrack(store, taskId, attemptFromHook(event, p));
       // chips de reserva: o agente não chamou suggest_replies, mas a fala termina com opções claras
       if (eff.turnEnd && full) {
         try {

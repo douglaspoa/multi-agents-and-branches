@@ -10,6 +10,7 @@ import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
 import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
 import { mobileRule } from "../mobile.ts";
+import { claudeAttempts } from "../loop-detect.ts";
 
 /**
  * Perfil do Chrome pra este agente. O perfil é PERSISTENTE por repo (login feito uma vez
@@ -503,6 +504,7 @@ export class ClaudeEngine implements AgentEngine {
     // erro) pra ENRIQUECER o texto da morte — senão "código 1" some o porquê real
     // (ex.: limite de uso) e os detectores de retry/espera não conseguem agir.
     let lastErr = "";
+    const toolUses = new Map<string, { name: string; input: unknown }>(); // tool_use → tool_result (detector de loop)
     const CAUSE_RE = /session limit|usage limit|hit your .{0,24}limit|limit reached|rate[ _-]?limit|too many requests|\b429\b|quota|overloaded|resets? (at|\d)|try again later|insufficient|unauthorized|forbidden|\b401\b|\b403\b/i;
     rl.on("line", (line) => {
       resetIdle();
@@ -520,6 +522,7 @@ export class ClaudeEngine implements AgentEngine {
         const rl = rateLimitOf(line);
         if (rl) recordClaudeRateLimit(rl);
       }
+      if (input.onAttempt) { try { for (const a of claudeAttempts(line, toolUses)) input.onAttempt(a); } catch { /* detector de loop é extra */ } }
       for (const ev of mapLine(line, costBase)) {
         if (ev.type === "done" && !sawDone) { sawDone = true; armDoneTimer(); }
         queue.push(ev);

@@ -378,6 +378,7 @@ function flowBucket(t){
 function taskSt(t){
   if(!t) return '';
   if(pendingOf(t.id).length) return 'asking';
+  if(typeof taskLoop==='function' && taskLoop(t)) return 'needs-you'; // detector de loop: a IA repetindo o mesmo erro (70-loop)
   if(t.flag==='closed' && !['merged','done','cancelled'].includes(t.status)) return 'closed';
   if(flowBucket(t)==='praberto') return 'pr-open';
   return t.status;

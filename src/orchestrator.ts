@@ -29,6 +29,7 @@ import { ensureHandoff, handoffRule, hasHandoff, HANDOFF_REL, readHandoff } from
 import { loadConfig } from "./config.ts";
 import { oldVerdict, saveSample, type SampleResult } from "./amostra.ts";
 import { recordUsage } from "./usage-ledger.ts";
+import { loopReset, loopTrack, type ToolAttempt } from "./loop-detect.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 
 /**
@@ -1308,6 +1309,7 @@ export class Orchestrator {
           agentName: r.name,
           dbFile: this.ws.dbFile,
           forceAlt: usingAlt,
+          onAttempt: (a: ToolAttempt) => { loopTrack(this.store, taskId, a); },
           ...(attemptNo > 0 ? { promptOverride: Orchestrator.continuePrompt(deathKind) } : {}),
         };
         try {
@@ -1733,6 +1735,7 @@ export class Orchestrator {
       const open = this.store.openInstructions(taskId);
       if (!open.length) break;
       this.store.addEvent(taskId, role.name, "note", `aplicando ${open.length} instrução(ões) enviada(s) por você`, true, role.role);
+      loopReset(this.store, taskId); // a pessoa interveio: o detector de loop recomeça
       this.store.setStatus(taskId, "running");
       this.prepEpic(spec, worktree);
       const engine = this.engineFor(role.engine, role.model, spec.autonomy.approval);
@@ -1749,6 +1752,7 @@ export class Orchestrator {
           dbFile: this.ws.dbFile,
           skillsRule: this.skillsContext(role), // resume não reenvia system prompt → skills por turno
           resume: { sessionId, instruction },
+          onAttempt: (a: ToolAttempt) => { loopTrack(this.store, taskId, a); },
         })) {
           if (ev.type === "session") {
             sessionId = ev.text;
@@ -1982,13 +1986,14 @@ export class Orchestrator {
     const prev: AgentStatus = recreated && ["merged", "done", "aborted", "cancelled", "error"].includes(task.status) ? "review" : task.status;
     const sid = switching ? "" : (task.session_id || "");
     this.store.addEvent(taskId, "Você", "note", `Você: ${message}`, true);
+    loopReset(this.store, taskId); // mensagem da pessoa = intervenção: o detector de loop recomeça
     // integrada/concluída que volta a conversar NÃO vira 'thinking' (o busy_pid já sinaliza o turno): o "parar" mata
     // o processo antes do fim do turno restaurar o status, e a tarefa caía pra 'review' (saía de Concluídas)
     if (!(prev === task.status && ["merged", "done", "aborted"].includes(task.status))) this.store.setStatus(taskId, "thinking");
     let failed = false;
     try {
       const chatRule = noAskTool(role.engine) ? Orchestrator.CHAT_RULE_TEXT : Orchestrator.CHAT_RULE_ASK;
-      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext(role) };
+      const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext(role), onAttempt: (a: ToolAttempt) => { loopTrack(this.store, taskId, a); } };
       const input = sid
         ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
         : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${this.historyDigest(taskId)}${chatRule}` };
