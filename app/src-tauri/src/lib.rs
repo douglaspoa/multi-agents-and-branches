@@ -4236,7 +4236,7 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     // MODO TERMINAL: "■ parar" = Esc no CLI (interrompe o turno; a sessão segue aberta pra próxima mensagem)
     if term::is_terminal(&state, &task_id) && term::mgr().and_then(|m| m.live(&task_id)).is_some() {
         term::interrupt(&state, &task_id)?;
-        return set_task_status(&state, &task_id, "review");
+        return stop_task_status(&state, &task_id);
     }
     // App reiniciado perde o mapa de processos, mas o turno do MOTOR continua
     // vivo (setsid) — live_task_pid cai no lock busy_pid do banco.
@@ -4253,9 +4253,44 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
             }
         }
     }
-    // volta pra review (não 'aborted') pra poder continuar conversando
-    set_task_status(&state, &task_id, "review")?;
-    Ok(())
+    // volta pra review (não 'aborted') pra poder continuar conversando — salvo tarefa já integrada/concluída
+    stop_task_status(&state, &task_id)
+}
+
+/// "■ parar" só INTERROMPE a IA: tarefa já integrada/concluída (merged/done/cancelled, ou encerrada à mão com
+/// flag='closed') que voltou a conversar continua como estava — antes voltava pra 'review' e saía de Concluídas.
+/// As outras voltam pra 'review' (dá pra continuar conversando). Devolve se o status mudou.
+fn stop_set_review(conn: &Connection, task_id: &str) -> Result<bool, String> {
+    let flag = if task_has_col_raw(conn, "flag") { " AND (flag IS NULL OR flag!='closed')" } else { "" };
+    let sql = format!("UPDATE task SET status='review' WHERE id=?1 AND status NOT IN ('merged','done','cancelled'){}", flag);
+    conn.execute(&sql, params![task_id]).map(|n| n > 0).map_err(|e| e.to_string())
+}
+fn stop_task_status(state: &State<AppState>, task_id: &str) -> Result<(), String> {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    stop_set_review(&conn, task_id).map(|_| ())
+}
+#[cfg(test)]
+mod stop_task_status_tests {
+    use super::*;
+    fn st(c: &Connection, id: &str) -> String { c.query_row("SELECT status FROM task WHERE id=?1", params![id], |r| r.get(0)).unwrap() }
+    #[test]
+    fn parar_tarefa_integrada_nao_muda_o_status() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE task (id TEXT PRIMARY KEY, status TEXT, flag TEXT);
+          INSERT INTO task VALUES ('m','merged',NULL),('d','done',NULL),('x','cancelled',NULL),('c','review','closed'),('r','running',NULL),('t','thinking',NULL),('e','error',NULL);").unwrap();
+        for id in ["m", "d", "x", "c"] { assert!(!stop_set_review(&c, id).unwrap(), "{id}: integrada/concluída não muda"); }
+        assert_eq!(st(&c, "m"), "merged"); assert_eq!(st(&c, "d"), "done"); assert_eq!(st(&c, "x"), "cancelled"); assert_eq!(st(&c, "c"), "review");
+        for id in ["r", "t", "e"] { assert!(stop_set_review(&c, id).unwrap(), "{id}: em andamento volta pra review"); assert_eq!(st(&c, id), "review"); }
+    }
+    #[test]
+    fn banco_antigo_sem_coluna_flag_continua_funcionando() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE task (id TEXT PRIMARY KEY, status TEXT); INSERT INTO task VALUES ('m','merged'),('r','running');").unwrap();
+        assert!(!stop_set_review(&c, "m").unwrap()); assert_eq!(st(&c, "m"), "merged");
+        assert!(stop_set_review(&c, "r").unwrap()); assert_eq!(st(&c, "r"), "review");
+    }
 }
 
 /// CONT + TERM no grupo, espera até `grace_ms` o processo sair; senão KILL e mais um respiro curto.

@@ -117,7 +117,7 @@ async function pcToTask(){
       if((state.repo||'')!==repo){ toast('Não consegui voltar pro projeto '+pathBase(repo)+'.','warn'); return; }
     }
     $id('pcOverlay').style.display='none';
-    await openNewTask();
+    if(!await ntOpenFormTab()) return; // aba própria do Formulário
     setNtMode('build');
     $id('ntTitle').value=(spec.title||'').slice(0,90);
     $id('ntObj').value=spec.objective||'';

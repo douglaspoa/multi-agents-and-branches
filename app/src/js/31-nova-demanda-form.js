@@ -394,7 +394,7 @@ async function openFromDesign(t){
   const isInv=(t.branch||'').startsWith('invest/');
   try{
     let arts=[]; try{ arts = await loadArtifacts(t.id, t.status) || []; }catch(_){ arts=[]; }
-    await openNewTask();
+    if(!await ntOpenFormTab()) return; // aba própria (antes: modal sem aba)
     setNtMode('build');
     ntLinkedTo=t.id; renderNtLink();
     $id('ntTitle').value = t.title.replace(/^(design|por que|investigar)[:\s—-]*/i,'').trim() || t.title;
@@ -405,6 +405,7 @@ async function openFromDesign(t){
     renderNtRefs();
     $id('ntArtProof').checked=true;
     $id('ntArtTests').checked=true;
+    if(typeof renderTabs==='function') renderTabs(); // título da aba = a entrega
   }catch(e){ showErr(e, 'Não consegui montar a entrega'); console.error('openFromDesign:', e); }
 }
 
@@ -458,7 +459,7 @@ function renderBd(){
 }
 async function openLinkedFix(t){
   const fromInvest=(t.branch||'').startsWith('invest/');
-  await openNewTask();
+  if(!await ntOpenFormTab()) return; // aba própria (antes: modal sem aba que fechava a aba de outro Formulário)
   setNtMode('fix');
   ntLinkedTo=t.id;
   $id('ntFixTitle').value='Corrigir: '+t.title.replace(/^por que\s*/i,'');
@@ -475,7 +476,7 @@ async function openLinkedFix(t){
   ];
   renderNtList('ntFixReqs', ntFixReq);
   ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; });
-  renderNtLink();
+  renderNtLink(); if(typeof renderTabs==='function') renderTabs(); // título da aba = a correção
   const o=$id('ntFixObj'); o.focus(); o.setSelectionRange(o.value.length,o.value.length); o.scrollTop=o.scrollHeight;
 }
 function renderNtLink(){
@@ -545,7 +546,26 @@ function ntSideRender(){
 // o toggle Formulário|Markdown mora na linha do eyebrow (à direita); a barra "SPEC" solta some
 { const seg=document.querySelector('#ntRight .ntviewbar .seg2'), pr=document.querySelector('#wizHead .nf-progrow'), vb=document.querySelector('#ntRight .ntviewbar');
   if(seg&&pr){ seg.style.marginLeft='auto'; pr.appendChild(seg); } if(vb) vb.style.display='none'; }
-function closeNewTask(){ $id("ntOverlay").style.display="none"; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; if(window.closeTabOfKind) window.closeTabOfKind('form'); }
+// a aba ATIVA do Formulário foi fechada: o rascunho em edição e o link dela não valem pra próxima criação
+function ntFormTabClosed(){ if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; ntLinkedTo=null; }
+// fecha SÓ a aba do próprio formulário (tabId, ou a ativa se for Formulário) — nunca a aba de outro Formulário
+function closeNewTask(tabId){
+  const has=typeof tabById==='function', cur=has?tabById(activeTab):null;
+  const t=has?(tabId?tabById(tabId):(cur&&cur.kind==='form'?cur:null)):null;
+  if(t && t.kind==='form'){ closeTab(t.id); return; }
+  if(tabId) return; // a aba dele já foi fechada: nada mais a fazer (não mexe na tela de outra aba)
+  $id("ntOverlay").style.display="none"; ntFormTabClosed();
+}
+// abre o Formulário SEMPRE como aba própria e LIMPA (correção linkada, entrega do design, botão Nova tarefa, chat).
+// Devolve false se não abriu (sem projeto/git: o openTab já avisou) — quem chama não preenche nada.
+async function ntOpenFormTab(){
+  if(!window.openTab){ resetNewTask(); await openNewTask(); return true; }
+  const before=activeTab; window.ntOpening=null; window.openTab('form');
+  const t=(typeof tabById==='function')?tabById(activeTab):null;
+  if(!(t && t.kind==='form' && t.id!==before)) return false; // recusou (a aba ativa é de OUTRO Formulário): não preenche nada
+  try{ await window.ntOpening; }catch(_){ }
+  return true;
+}
 function ntShow(){ setNtMode(ntMode); $id("ntOverlay").style.display="flex"; }
 window.ntShow=ntShow;
 // estado por aba: todos os campos do formulário + listas em memória
@@ -557,7 +577,7 @@ window.TAB_STATE_form={
     ntMode=st.ntMode||'build'; ntModels=st.ntModels||''; ntDocsPreset=!!st.ntDocsPreset; ntLinkedTo=st.ntLinkedTo||null; ntDel=st.ntDel||[]; ntReq=st.ntReq||[]; ntRefs=st.ntRefs||[]; ntFixReq=st.ntFixReq||[]; ntDzRefs=st.ntDzRefs||[]; ntFixRefs=st.ntFixRefs||[]; ntInvRefs=st.ntInvRefs||[]; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=st.ntEditingDraft||null;
     renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtList('ntFixReqs',ntFixReq); renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtRefs(); renderNtLink(); }
 };
-function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); if(typeof ntKindReset==='function') ntKindReset(); }
+function resetNewTask(){ ntModels=''; closeHow(); ["ntTitle","ntObj","ntOwns","ntOff","ntPr","ntFixTitle","ntFixObj","ntFixOwns","ntBase","ntIssue","ntPrBase","ntDzTitle","ntDzObj","ntDzScreens","ntInvTitle","ntInvObj","ntModel"].forEach(id=>{const e=$id(id); if(e) e.value="";}); ['ntDzMock','ntDzDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); setNtMode('build'); aiApplyDefaults(); $id("ntArtDoc").checked=false; $id("ntArtProof").checked=false; $id("ntArtTests").checked=false; { const e=$id('ntLight'); if(e) e.checked=false; } $id("ntAutoPr").value="ask"; $id("ntPlan").value="auto"; $id("ntBranchType").value="feat"; $id("ntIssue").value=""; ntDel=[]; ntReq=[]; ntRefs=[]; ntFixReq=[]; ntDzRefs=[]; ntFixRefs=[]; ntInvRefs=[]; renderDzRefs(); renderFixRefs(); renderInvRefs(); renderNtList('ntFixReqs',ntFixReq); { const e=$id('ntInvRepro'); if(e) e.checked=true; } ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; }); { const e=$id('ntFixTeam'); if(e) e.value=''; } ntLinkedTo=null; if(typeof ntEditingDraft!=='undefined') ntEditingDraft=null; renderNtLink(); renderNtList("ntDeliverables",ntDel); renderNtList("ntRequirements",ntReq); renderNtRefs(); if(typeof ntKindReset==='function') ntKindReset(); }
 // objetivo / detalhes / contexto / sintoma: colar (⌘V) um print ou arrastar um arquivo pro texto vira ANEXO da
 // demanda (mesma lista do botão "anexar") — igual ao composer dos chats; texto colado continua texto
 [['ntObj',()=>ntRefs,renderNtRefs],['ntFixObj',()=>ntFixRefs,renderFixRefs],['ntDzObj',()=>ntDzRefs,renderDzRefs],['ntInvObj',()=>ntInvRefs,renderInvRefs]].forEach(([id,arr,render])=>attWireRefField(id,arr,render));

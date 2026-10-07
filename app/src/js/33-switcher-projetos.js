@@ -53,7 +53,7 @@ async function pickFolder(){
     await refresh(); await loadProjects();
   }catch(err){ projErr=String(err); openProjMenu(); }
 }
-$id("newTaskBtn").onclick = async()=>{ if(await gitGate()) openNewTask(); };
+$id("newTaskBtn").onclick = ()=>ntOpenFormTab(); // aba própria (o openTab já passa pelo gitGate)
 // menu "mais" do topo (redesign: topbar enxuta)
 { const mb=$id('moreBtn'), mm=$id('moreMenu');
   if(mb&&mm){

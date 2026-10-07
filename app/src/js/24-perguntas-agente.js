@@ -17,7 +17,7 @@ function openAsk(pendingId){
 // o rascunho antigo é substituído (remove_task + criação nova)
 let ntEditingDraft=null;
 async function editDraft(t){
-  if(window.openTab) window.openTab('form'); else await openNewTask(); // abre a Nova demanda como ABA
+  if(!await ntOpenFormTab()) return; // abre a Nova demanda como ABA própria e limpa
   setNtMode('build');
   ntEditingDraft=t.id;
   $id('ntTitle').value=t.title||'';

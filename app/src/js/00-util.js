@@ -12,7 +12,12 @@ if(SF_PANE){
   document.documentElement.classList.add('sfpane');
   try{
     const T=window.parent.__TAURI__, unl=[];
-    const listen=(name, fn)=>{ if(!['env-progress','checks-progress'].includes(name)) return Promise.resolve(()=>{}); return T.event.listen(name, fn).then(u=>{ unl.push(u); return u; }); };
+    // só os eventos que a tela da demanda usa (nada de notificação duplicada); o terminal ao vivo (term-data/term-exit)
+    // passa SÓ o desta demanda — sem eles o terminal congelava dentro do painel, e sem o filtro todo PTY inundava cada painel
+    const PANE_EV=['env-progress','checks-progress','term-data','term-exit'], PANE_TID=String(SF_PANE).replace(/^task:/,'');
+    const listen=(name, fn)=>{ if(!PANE_EV.includes(name)) return Promise.resolve(()=>{});
+      const f=/^term-/.test(name) ? (ev=>{ const p=ev&&ev.payload; if(p && String(p.taskId)===PANE_TID) fn(ev); }) : fn;
+      return T.event.listen(name, f).then(u=>{ unl.push(u); return u; }); };
     const api=Object.assign({}, T, { event:Object.assign({}, T.event, { listen }) });
     try{ window.__TAURI__=api; }catch(_){ }
     if(window.__TAURI__!==api) try{ Object.defineProperty(window, '__TAURI__', { value:api, configurable:true, writable:true }); }catch(_){ }

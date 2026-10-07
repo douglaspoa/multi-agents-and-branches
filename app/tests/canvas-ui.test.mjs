@@ -138,7 +138,9 @@ test('cada DEMANDA num painel é o app inteiro num iframe (estado próprio) — 
   const pane = cut(util, 'const SF_PANE=', '\n}\n');
   assert.match(pane, /new URLSearchParams\(location\.search\)\.get\('sfpane'\)/);
   assert.match(pane, /window\.parent\.__TAURI__/, 'fala com o Rust pela ponte da janela principal');
-  assert.match(pane, /\['env-progress','checks-progress'\]\.includes\(name\)/, 'só os eventos da demanda (nada de notificação duplicada)');
+  assert.match(pane, /PANE_EV=\['env-progress','checks-progress','term-data','term-exit'\]/, 'só os eventos da demanda (nada de notificação duplicada) — o terminal ao vivo incluso');
+  assert.match(pane, /if\(!PANE_EV\.includes\(name\)\) return Promise\.resolve/);
+  assert.match(pane, /\/\^term-\/\.test\(name\) \? \(ev=>\{ const p=ev&&ev\.payload; if\(p && String\(p\.taskId\)===PANE_TID\) fn\(ev\); \}\)/, 'terminal: só o PTY desta demanda');
   assert.match(pane, /window\.setInterval=function\(fn, ms, \.\.\.a\)\{ return booting \? 0 : _si/, 'nenhum laço do app inteiro na carga');
   assert.match(pane, /\(booting && \(\+ms\|\|0\)>=1000\) \? 0 :/, 'nem tarefa agendada de boot (nuvem, cobrança, onboarding)');
   assert.match(core, /if\(typeof SF_PANE!=='undefined' && SF_PANE\)\{ try\{ if\(window\.parent\.state && window\.parent\.state\.tasks\) snap=Object\.assign\(\{\}, window\.parent\.state\); \}/, 'snapshot da janela principal (sem IPC a mais)');
