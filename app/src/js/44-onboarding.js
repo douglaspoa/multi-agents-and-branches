@@ -26,10 +26,15 @@ function auShow(step, opts){
 // (fora do Tab e do leitor de tela) e o Tab dá a volta DENTRO da tela. Só desfaz o que ela mesma marcou.
 function auInert(on, body, overlay){
   for(const el of Array.from((body&&body.children)||[])){
-    if(el===overlay || ['SCRIPT','STYLE','LINK','TEMPLATE'].includes(el.tagName)) continue;
+    if(el===overlay || auInertSkip(el)) continue;
     if(on){ if(el.hasAttribute('inert')) continue; el.setAttribute('inert',''); el.setAttribute('aria-hidden','true'); el.setAttribute('data-au-inert','1'); }
     else if(el.getAttribute('data-au-inert')==='1'){ el.removeAttribute('inert'); el.removeAttribute('aria-hidden'); el.removeAttribute('data-au-inert'); }
   }
+}
+// avisos (toast e regiões aria-live) continuam valendo por cima da tela de entrada
+function auInertSkip(el){
+  return ['SCRIPT','STYLE','LINK','TEMPLATE'].includes(el.tagName) || ['a11yLiveStatus','a11yLiveAlert','appToast'].includes(el.id)
+    || /(^|\s)a11y-live(\s|$)/.test(typeof el.className==='string'?el.className:'');
 }
 // Tab no último item volta pro primeiro (Shift+Tab no primeiro vai pro último); foco fora da tela volta pra dentro
 function auTrapNext(list, cur, back){
@@ -48,6 +53,8 @@ function auTrapWire(o){
   const sel='a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
   document.addEventListener('keydown', e=>{
     if(e.key!=='Tab' || !auOpen()) return;
+    const act=document.activeElement, dlg=act && act.closest && act.closest('[role=dialog]');
+    if(dlg && !o.contains(dlg) && !dlg.closest('[inert]')) return; // janela viva fora da tela de entrada (folha de confirmação): o trap dela manda
     const list=Array.from(o.querySelectorAll(sel)).filter(el=>el.offsetParent!==null || el===document.activeElement);
     const nx=auTrapNext(list, document.activeElement, e.shiftKey);
     if(nx){ e.preventDefault(); nx.focus(); }
@@ -143,6 +150,7 @@ async function auAfterSession(){
   try{ cloudBtnSync(); }catch(_){ }
   try{ if(typeof appVersionPing==='function') appVersionPing(); }catch(_){ } // /admin vê a versão logo após o login
   try{ await billingSync(); }catch(_){ }
+  try{ if(typeof secretsSync==='function') secretsSync().then(secretsAvailRefresh).catch(()=>{}); }catch(_){ } // chaves da conta valem já (não espera o ciclo de 30 min)
   if(typeof billingOn!=='undefined' && billingOn && !billingActive()){ auPlanFromSite(); auShow('plans'); return; }
   auShow('ready');
 }

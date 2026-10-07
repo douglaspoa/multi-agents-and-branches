@@ -487,7 +487,7 @@ function ajRenderSistema(host){
   bindClick('ajPP', ()=>primeirosPassosOpen());
   bindClick('ajKbd', ()=>{ if(typeof openShortcuts==='function') openShortcuts(); });
   bindClick('ajSrvShow', ()=>{ const s=$id('ajSrv'), b=$id('ajSrvShow'); if(!s) return; s.hidden=!s.hidden; b.textContent=s.hidden?'mostrar':'esconder'; b.setAttribute('aria-expanded', String(!s.hidden)); });
-  const relog=(url,key)=>{ lsSet('sb:url',url); lsSet('sb:key',key); SB.setSess(null); cloudData=null; cloudMsg=''; try{ cloudBtnSync(); }catch(_){ } ajSectionPaint(); };
+  const relog=(url,key)=>{ sbLogout(); lsSet('sb:url',url); lsSet('sb:key',key); ajSectionPaint(); }; // sai pelo caminho único (limpa as chaves locais) e só depois troca o servidor
   bindClick('sbSaveCfg', ()=>relog($id('sbUrl').value.trim(), $id('sbKey').value.trim()));
   bindClick('sbCfgLocal', ()=>relog(SB_LOCAL.url, SB_LOCAL.key));
   bindClick('sbCfgCloud', ()=>relog('', ''));

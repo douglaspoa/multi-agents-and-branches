@@ -94,7 +94,7 @@ async function loginOAuth(provider){
     // troca o code por sessão (PKCE)
     const j=await sbAuth('token?grant_type=pkce',{ auth_code:code, code_verifier:verifier });
     if(!j.access_token) throw sbAuthError(400,{ error_code:'bad_oauth_callback' });
-    SB.setSess(j); cloudMsg=''; await cloudLoad(); cloudBtnSync(); renderCloud(); try{ loginGateSync(); }catch(_){}
+    SB.setSess(j); cloudMsg=''; try{ if(typeof secretsSync==='function') secretsSync().then(secretsAvailRefresh).catch(()=>{}); }catch(_){ } await cloudLoad(); cloudBtnSync(); renderCloud(); try{ loginGateSync(); }catch(_){}
   }catch(e){
     // erro do Rust (porta ocupada, 3 min sem retorno) já vem em pt-BR como string; o resto passa pelo tradutor
     const pname=provider==='github'?'GitHub':'Google';
@@ -125,6 +125,7 @@ function sbSessionEnded(reason){
   lsSet('sb:ended', reason||'expired');
   cloudData=null; cloudAutoInvTried=false;
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
+  try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // quem entrar depois não usa as chaves de quem caiu
   try{ cloudBtnSync(); }catch(_){ }
 }
 // sair da conta: UM caminho só (cabeçalho, painel Conta e tela de entrada). Revoga o refresh_token no

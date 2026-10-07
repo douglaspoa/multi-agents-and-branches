@@ -352,7 +352,7 @@ button.en-kpi{cursor:pointer}button.en-kpi:hover{border-color:var(--accent)}butt
 .lbnav:hover,.lbx:hover{border-color:var(--accent);color:var(--accent)}
 .lbprev{left:22px}.lbnext{right:22px}.lbx{top:18px;right:22px;font-size:15px}
 /* ===== entrada e assinatura (44-onboarding.js) — design "onboarding-planos" ===== */
-.au{position:fixed;inset:0;z-index:116;background:var(--bg);display:flex;align-items:stretch;justify-content:stretch;font-family:var(--display);color:var(--text)}
+.au{position:fixed;inset:0;z-index:150;background:var(--bg);display:flex;align-items:stretch;justify-content:stretch;font-family:var(--display);color:var(--text)}
 .au-wrap{display:grid;grid-template-columns:minmax(300px,38%) 1fr;width:100%;height:100%}
 @media(max-width:900px){.au-wrap{grid-template-columns:1fr}.au-left{display:none}}
 .au-wrap.full{grid-template-columns:1fr}.au-wrap.full .au-left{display:none}

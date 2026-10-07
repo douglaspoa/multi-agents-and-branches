@@ -138,7 +138,7 @@ function a11yTrapTab(e){
   if(e.key!=='Tab' || e.metaKey || e.ctrlKey || e.altKey) return;
   const act=document.activeElement;
   if(act && act.matches && act.matches('textarea[data-tab-indent]')) return; // editor que usa Tab pra indentar
-  const top=a11yTop(); if(!top) return;
+  const top=a11yTop(); if(!top || (top.closest && top.closest('[inert]'))) return; // janela inerte (atrás da tela de entrada): quem manda é o trap dela
   const f=a11yFocusables(top); if(!f.length){ e.preventDefault(); return; }
   const cur=f.indexOf(act);
   if(cur<0 && act && act!==top && top.contains(act)) return; // dentro, num focável que a lista não conhece (área rolável): o navegador segue

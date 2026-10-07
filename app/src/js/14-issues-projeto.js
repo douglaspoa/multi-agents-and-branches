@@ -450,7 +450,7 @@ function trkKeepForm(){
   if(touched) lsSet('trk:uvars', JSON.stringify(uv));
 }
 async function trkSecretSave(name, value){
-  if(trkCloudOn()) await secretSet(name, value);
+  if(typeof SB!=='undefined' && SB.sess()) await secretSet(name, value); // logado (com ou sem time): cofre da conta — o arquivo é só espelho
   else { const cur=String(await invoke('read_llm_env').catch(()=>'')||'').split('\n').filter(l=>l.trim()&&!l.startsWith(name+'=')); cur.push(name+'='+value); await invoke('write_llm_env',{ content:cur.join('\n')+'\n' }); }
 }
 function trkConnWire(body){
