@@ -71,7 +71,7 @@ pub fn list_in(dir: &Path) -> Vec<serde_json::Value> {
                 None => return Some(serde_json::json!({ "id": id, "titulo": format!("(arquivo {n} ilegível)"), "corrompida": true, "updatedAt": 0 })),
             };
             Some(serde_json::json!({
-                "id": id, "titulo": v["titulo"], "createdAt": v["createdAt"], "updatedAt": v["updatedAt"], "costUsd": v["costUsd"],
+                "id": id, "titulo": v["titulo"], "createdAt": v["createdAt"], "updatedAt": v["updatedAt"], "costUsd": v["costUsd"], "tokUsd": v["tokUsd"],
                 "turnos": v["turns"].as_array().map(|a| a.len()).unwrap_or(0),
                 "pesquisa": v["report"]["status"], "decisao": v["decision"]["status"], "projeto": v["project"]["dir"],
             }))
@@ -666,7 +666,7 @@ mod tests {
     fn arquivo_da_ideia_travado_na_pasta() {
         let d = tmp("io");
         for bad in ["", "../x", "a/b", "x.json", "i-1-r"] { assert!(ideia_path(&d, bad).is_err(), "{bad}"); }
-        save_in(&d, "i-1", &serde_json::json!({"titulo":"skincare","updatedAt":1,"turns":[1,2],"report":{"status":"ok"}})).unwrap();
+        save_in(&d, "i-1", &serde_json::json!({"titulo":"skincare","updatedAt":1,"turns":[1,2],"report":{"status":"ok"},"costUsd":0.0,"tokUsd":0.42})).unwrap();
         save_in(&d, "i-2", &serde_json::json!({"titulo":"pou","updatedAt":5,"turns":[],"project":{"dir":"/x"}})).unwrap();
         std::fs::write(d.join("i-3.json"), "{ quebrado").unwrap();
         let l = list_in(&d);
@@ -675,6 +675,7 @@ mod tests {
         assert_eq!(l[0]["projeto"], "/x");
         assert_eq!(l[1]["turnos"], 2);
         assert_eq!(l[1]["pesquisa"], "ok");
+        assert_eq!(l[1]["tokUsd"].as_f64(), Some(0.42), "gasto por tokens (Codex/DeepSeek/gateway) vai pra lista da Fábrica");
         assert_eq!(l[2]["corrompida"], true);
         assert!(read_in(&d, "nao-tem").unwrap().is_null());
         assert!(read_in(&d, "i-3").is_err());

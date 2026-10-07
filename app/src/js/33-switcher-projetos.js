@@ -82,18 +82,24 @@ function pubSetState(s){ // 'form' | 'prog' | done html
   $id('pubDone').style.display = (s!=='form'&&s!=='prog')?'block':'none';
   if(s!=='form'&&s!=='prog') $id('pubDone').innerHTML=s;
 }
+// A13: fechar no meio do envio NÃO cancela nem esquece — o envio segue, o resultado chega num aviso, e reabrir mostra o
+// progresso (nunca o formulário de novo: era o risco de publicar 2×). Esc fecha (A15).
+let pubBusy=false;
+function pubOpen(){ return $id('pubOverlay').style.display!=='none'; }
 function closePub(){ $id('pubOverlay').style.display='none'; }
 { const b=$id('pubRelBtn');
   if(b) b.onclick=()=>{
-    if(!SB.sess()){ toast('Entre na sua conta primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
-    pubSetState('form');
+    if(!SB.sess() && !pubBusy){ toast('Entre na sua conta primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
+    if(!pubBusy) pubSetState('form');
     $id('pubOverlay').style.display='flex';
-    $id('pubNotes').focus();
+    (pubBusy?$id('pubClose'):$id('pubNotes')).focus();
   }; }
 $id('pubClose').onclick=closePub;
 $id('pubCancel').onclick=closePub;
 $id('pubOverlay').addEventListener('click',e=>{ if(e.target.id==='pubOverlay') closePub(); });
+$id('pubOverlay').addEventListener('keydown',e=>{ if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); closePub(); } });
 $id('pubGo').onclick=async()=>{
+  if(pubBusy) return; pubBusy=true;
   const notes=$id('pubNotes').value.trim()||'Melhorias e correções.';
   pubSetState('prog');
   const stats=['enviando o pacote…','publicando o aviso de versão…','quase lá…'];
@@ -105,11 +111,13 @@ $id('pubGo').onclick=async()=>{
     let s=SB.sess(); if(!s||!s.access_token){ try{ s=await sbRefresh(); }catch(_){ s=null; } }
     if(!s||!s.access_token) throw new Error('Sua sessão expirou — entre de novo na sua conta (botão Entrar, no rodapé da barra lateral) e publique outra vez.');
     const msg=await invoke('publish_release',{ url:SB.url(), anon:SB.key(), token:s.access_token, notes });
-    clearInterval(tick);
+    clearInterval(tick); pubBusy=false;
+    if(!pubOpen()) toast('Release publicada — '+String(msg||'').slice(0,140),'ok'); // fechou no meio: o resultado não some
     pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--accent);font-size:20px;line-height:1">✓</span><div><b style="font-size:var(--fs-base)">Release publicada!</b><div class="dim" style="font-size:var(--fs-sm);margin-top:4px">${esc(msg)}</div></div></div><div style="display:flex;margin-top:14px"><span style="flex:1"></span><button class="btn primary" id="pubOk">fechar</button></div>`);
     bindClick('pubOk', closePub);
   }catch(e){
-    clearInterval(tick);
+    clearInterval(tick); pubBusy=false;
+    if(!pubOpen()) showErr(e,'Não consegui publicar a versão');
     const ph=humanErr(e,'Não consegui publicar a versão');
     pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:var(--fs-base)">Não deu</b><div class="dim" style="font-size:var(--fs-sm);margin-top:4px" title="${escA(errText(e))}">${esc(ph.msg)}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${ph.action?`<button class="btn primary" id="pubFix">${esc(ph.action.label)}</button>`:''}<button class="btn" id="pubBack">tentar de novo</button></div>`);
     bindClick('pubBack', ()=>pubSetState('form'));

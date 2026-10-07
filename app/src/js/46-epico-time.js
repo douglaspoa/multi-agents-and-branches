@@ -49,6 +49,27 @@ window.taskOriginHtml=taskOriginHtml;
 function epEffSt(t){ if(!t) return ''; return ('team_id' in t && typeof tsSt==='function') ? tsSt(t) : taskSt(t); }
 function epDelivered(t){ const st=epEffSt(t); return ['merged','done','closed'].includes(st); }
 function epInReview(t){ return ['review','delivered','pr-open'].includes(epEffSt(t)); }
+// @atrap-epico-inicio (testado em app/tests/atrap-fabrica.test.mjs)
+// "pronto quando" digitado numa linha: itens separados por ";" (ou quebra de linha) → [{ id:'D1', text }] (no máximo 8)
+function epDoneWhenParse(txt){
+  return String(txt==null?'':txt).split(/[;\n]+/).map(x=>x.replace(/\s+/g,' ').trim().replace(/^[-•*]\s*/,'')).filter(Boolean).slice(0,8).map((text,i)=>({ id:'D'+(i+1), text:text.slice(0,200) }));
+}
+// o que a página do épico mostra de status: a regra ÚNICA de entregue (69-linha: epEntregue) vence o status gravado —
+// épico sem "pronto quando" com todas as tarefas entregues é "concluído" aqui também, como no Time e na Linha (A11)
+function epStatusView(ep, tasks, loaded, entregueFn){
+  const st=(ep&&ep.status)||'open';
+  if(st==='archived') return { st, entregue:false };
+  const ent=st==='done' || (!!loaded && typeof entregueFn==='function' && !!entregueFn(ep, tasks));
+  return { st:ent?'done':st, entregue:ent };
+}
+// @atrap-epico-fim
+// pergunta o "pronto quando" numa folha (não modal); null = cancelou · [] = deixou vazio (fecha quando as tarefas forem entregues)
+async function epDoneWhenAsk(anchor, initial){
+  if(typeof sheetAsk!=='function') return [];
+  const v=await sheetAsk({ anchor, title:'Pronto quando', text:'O épico fica concluído quando tudo isto estiver provado. Separe os itens com ";". Vazio = concluído quando todas as tarefas forem entregues.', field:{ placeholder:'ex.: dá pra filtrar por data; o filtro fica salvo', value:initial||'' }, ok:'salvar', allowEmpty:true });
+  return v==null?null:epDoneWhenParse(v);
+}
+window.epDoneWhenAsk=epDoneWhenAsk;
 window.epColor=epColor; window.epNameOf=epNameOf; window.epTaskBadge=epTaskBadge; window.epDelivered=epDelivered;
 
 function openEpicPage(ep){
@@ -104,7 +125,7 @@ function epicPageRender(){
   const sp=ep.spec||{};
   const dw=Array.isArray(sp.doneWhen)?sp.doneWhen:[], reqs=Array.isArray(sp.requirements)?sp.requirements:[], bounds=Array.isArray(sp.boundaries)?sp.boundaries:[];
   const conv=Array.isArray(sp.conversation)?sp.conversation:[];
-  const legacy=!sp.outcome && !dw.length && !reqs.length; // épico antigo (só nome): continua válido
+  const tasks0=c.tasks||[], sv=epStatusView(ep, tasks0, c.loaded, typeof epEntregue==='function'?epEntregue:null); // A11: mesma regra do Time e da Linha
   const okN=dw.filter(d=>d&&d.checkedBy).length;
   const tasks=c.tasks||[];
   const isDone=epDelivered, isRev=epInReview; // R5-2: mesma regra de "entregue" do Time e da fila
@@ -158,13 +179,13 @@ function epicPageRender(){
         <div><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(d.id||('D'+(i+1)))}</span> ${esc(d.text||'')}</div>
         ${d.checkedBy?`<div class="ep-dwby">marcado por ${epWho(d.checkedBy)}${d.checkedAt?' · há '+agoTx(d.checkedAt):''}${d.evidence?' · '+esc(d.evidence):''}</div>`:''}
       </span></label>`).join('')
-    : `<div class="en-empty">${legacy?'épico antigo, sem "pronto quando"':'sem checagens definidas'}${ep.status==='done'?' — já está concluído':can?' — ele fecha pelo botão abaixo':' — quem criou o épico (ou um admin) fecha quando terminar'}</div>`;
+    : `<div class="en-empty">sem "pronto quando"${sv.entregue?' — todas as tarefas foram entregues: concluído':' — fica concluído quando todas as tarefas forem entregues'}${can&&!sv.entregue?' (ou defina os critérios abaixo)':''}</div>`;
   // R3-C2: status aparece UMA vez (sobretítulo); os números viram uma faixa compacta ABAIXO da descrição
   // (antes eram 5 blocos ao lado, apertando o texto, e "em andamento" aparecia 3 vezes)
   // F4 (G1, mesa tela 24): padrão de página — título UMA vez (= título da aba), selo do time, status no resumo, ↻ no ⋯;
   // sem "fechar esc" (⌘W fecha a aba); "onda" virou "etapa" na interface
   const tmNm=(((typeof cloudData!=='undefined'&&cloudData&&cloudData.teams)||[]).find(x=>x.id===(typeof cloudTeamId==='function'?cloudTeamId():''))||{}).name;
-  main.innerHTML=`<div class="enpage">${pageHead({ title:'Épico · '+(ep.name||'Épico'), scope:'time', scopeLabel:tmNm||'', sum:`<span class="ep-st ep-st-${escA(ep.status||'open')}">${esc(EP_ST_PT[ep.status]||ep.status||'')}</span>${typeof aeEpicBadge==='function'?' · '+aeEpicBadge(sp):''}`, more:{ id:'epicPageMore', title:'Atualizar · abrir no Time · issue' } })}
+  main.innerHTML=`<div class="enpage">${pageHead({ title:'Épico · '+(ep.name||'Épico'), scope:'time', scopeLabel:tmNm||'', sum:`<span class="ep-st ep-st-${escA(sv.st)}">${esc(EP_ST_PT[sv.st]||sv.st||'')}</span>${typeof aeEpicBadge==='function'?' · '+aeEpicBadge(sp):''}`, more:{ id:'epicPageMore', title:'Atualizar · abrir no Time · issue' } })}
     <div class="en-head">
       <div class="en-ht">
         ${sp.outcome?`<p class="en-obj">${esc(sp.outcome)}</p>`:''}
@@ -185,7 +206,7 @@ function epicPageRender(){
         ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${esc(b)}</div>`).join('')}`:''}
         ${typeof aeEpicHistHtml==='function'?aeEpicHistHtml(sp, can, tasks, ep.id):''}
         ${can&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">${IC.clock} próximas etapas começam sozinhas</button></div>`:''}
-        ${!dw.length&&ep.status!=='done'&&can?`<div style="margin-top:14px"><button class="btn sm" id="epLegacyDone">✓ marcar épico como concluído</button></div>`:''}
+        ${!dw.length&&!sv.entregue&&can?`<div class="row1" style="margin-top:14px;gap:8px;display:flex;flex-wrap:wrap"><button class="btn sm primary" id="epDwSet">definir pronto quando</button><button class="btn sm" id="epLegacyDone">✓ marcar épico como concluído</button></div>`:''}
       </section>
       <section class="en-sec"><div class="seclbl2">Tarefas <span class="dim" title="${escA(EP_WAVE_TIP)}">· por etapa (a próxima começa quando esta termina); clique pra abrir</span></div>${tasksHtml}</section>
     </div>
@@ -202,6 +223,9 @@ function epicPageRender(){
     await epCardStart(t, b); await epicPageLoad(ep.id); if(epTab&&epTab.id===ep.id) epicPageRender(); });
   main.querySelectorAll('[data-epundo]').forEach(b=>b.onclick=()=>{ if(window.aeEpicUndo) aeEpicUndo(ep, b.dataset.epundo); });
   bindClick('epLegacyDone', ()=>epicSetStatus(ep,'done'));
+  bindClick('epDwSet', async ev=>{ const dw2=await epDoneWhenAsk(ev&&ev.currentTarget); if(!dw2 || !dw2.length) return; // A12: definir depois de criado
+    let spec0=ep.spec||{}; try{ const f=(await sbGet('epics?select=spec&id=eq.'+ep.id))[0]; if(f&&f.spec) spec0=f.spec; }catch(_){ }
+    try{ await epicPatch(ep, { spec:(typeof linhaMesclaSpec==='function'?linhaMesclaSpec(spec0,'doneWhen',dw2):{ ...spec0, doneWhen:dw2 }) }); toast('Pronto quando definido — '+dw2.length+' ite'+(dw2.length===1?'m':'ns')+'.','ok'); }catch(e){ showErr(e,'Não consegui salvar o pronto quando'); } });
   bindClick('epAutoOn', ()=>epicAutoOn(ep));
   // ⋯ = menu de verdade (aria-haspopup=menu): atualizar não trava o botão (a página é redesenhada inteira)
   { const mb=main.querySelector('#epicPageMore'); if(mb && typeof g1Menu==='function') mb.onclick=()=>g1Menu(mb, [

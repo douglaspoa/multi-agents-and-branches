@@ -368,9 +368,11 @@ function pushNotif(title, body, taskId){
     .catch(()=>{ const n=notifApi(); if(n) try{ n.sendNotification({ title, body: String(body||'').slice(0,180) }); }catch(_){} });
 }
 function notifRoute(id){
-  if(id==='view:team'){ const b=document.querySelector('#viewSeg button[data-v="team"]'); if(b) b.click(); return; }
+  // A9: a vista "Time" saiu da Central — a notificação do time abre a ABA Time (antes clicava o #viewSeg escondido e ficava na Central)
+  if(id==='view:team'){ if(window.openTab) window.openTab('time'); else if(typeof setView==='function') setView('team'); return; }
   if(id && (state.tasks||[]).some(t=>t.id===id)){
     selected=id;
+    if(window.openTab && typeof activeTab!=='undefined' && activeTab!=='flow') window.openTab('flow'); // com outra aba na frente a tarefa ficava escondida
     const b=document.querySelector('#viewSeg button[data-v="flow"]'); if(b && !activeIs('flow')) b.click();
     render();
   }

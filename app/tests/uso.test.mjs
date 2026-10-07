@@ -55,9 +55,9 @@ test('relatório: totais, origens em pt-BR, IA, projeto e tarefas com custo info
   assert.match(html, /informado <b>US\$ 3,50 \(≈ R\$/);
   assert.match(html, /estimado por tokens <b>US\$ 0,03 \(≈ R\$/);
   assert.match(html, /<div class="uso-tech uso-split">/, 'selos técnicos escondidos (uso-tech)');
-  const order = ['Tarefas', 'Nova demanda (conversa e formulário)', 'Fábrica · personas (ex-Mesa)', 'Títulos e nomes de branch'].map((l) => html.indexOf(l));
+  const order = ['Tarefas', 'Nova demanda (conversa e formulário)', 'Fábrica · mesas e personas', 'Títulos e nomes de branch'].map((l) => html.indexOf(l));
   assert.ok(order.every((i) => i > 0) && order.every((v, i, a) => !i || a[i - 1] < v), 'origens na ordem: ' + order);
-  assert.match(html, /Fábrica · personas \(ex-Mesa\)[\s\S]*?estimado por tokens/);
+  assert.match(html, /Fábrica · mesas e personas[\s\S]*?estimado por tokens/);
   assert.match(html, /1,5 mi do cache/);
   assert.match(html, /Claude Code/);
   assert.match(html, /Codex/);

@@ -321,6 +321,12 @@ function mesaGate(measured){
 }
 // teto de "gerar personas": o padrão das mesas, no máximo US$ 0,50 (gerar é uma fala só)
 function mesaGenCap(base){ const b=+base||0; return b>0?Math.min(b, 0.5):0.5; }
+// A6: "Continuar com mais US$ X" — o teto novo parte do MAIOR entre teto e gasto e soma pelo menos o custo de UMA fala
+// (`want`), senão a sobra nova não cobria a próxima fala e a mesa pausava de novo na hora, com o mesmo botão
+function mesaCapNext(cap, spent, base, want){
+  const add=Math.ceil(Math.max(+base||0, +want>0?+want+0.005:0, MESA_MIN_CALL)*100-1e-9)/100; // +meio centavo sobre a fala: a sobra (teto − gasto, em float) nunca fica 1e-16 abaixo dela
+  return { cap:Math.round((Math.max(+cap||0, +spent||0)+add)*100)/100, add };
+}
 // @puro-fim
 
 Object.assign(IC, {
@@ -343,6 +349,8 @@ function mesaCapBase(){
   try{ lsSet('mesaCapUsd', String(v)); }catch(_){ }
   return v; }
 function mesaCapOf(m){ return mesaCapUsdOf(m, usdBrlRate()); }
+// quanto uma fala custa nesta mesa: o medido, nunca menos que a estimativa (o mesmo `want` da carteira do mesaRunRound)
+function mesaWantOf(m){ return Math.max(+(m&&m.callWant)||0, mesaCost(1, 1, (m&&m.model)||'sonnet', typeof roughEstimate==='function'?roughEstimate:null)[1]); }
 // personas (editor único em Fábrica › Personas): padrão + ajustes deste computador + criadas aqui + geradas pro projeto
 function mesaPersonaStore(){ try{ const o=JSON.parse(lsGet('fab:personas')||'{}'); return { over:o.over||{}, custom:Array.isArray(o.custom)?o.custom:[] }; }catch(_){ return { over:{}, custom:[] }; } }
 function mesaPersonaList(gen){ const st=mesaPersonaStore(); return mesaPersonaMerge(MESA_PERSONAS, st.over, st.custom, gen==null?MESA.gen:gen); }
@@ -851,11 +859,12 @@ function mesaMesaHtml(m){
   const acts=(running?`<button class="btn" id="mesaStop"${run&&run.stop?' disabled':''}>${IC.stopsq}${run&&run.stop?'parando…':'Parar'}</button>`:'')+
     (!running && ['pausada','parada','interrompida'].includes(st) && !m.capAviso?`<button class="btn primary" id="mesaCont">${IC.play}${m.status==='interrompida'?'Tentar de novo':'Continuar'}</button>`:'')+
     `<button type="button" class="btn icon quiet" id="mesaMore" title="Mais: tentar de novo com quem falhou · abrir pasta" aria-label="Mais ações" aria-haspopup="menu">${IC.dots||'⋯'}</button>`;
-  const money=`${mesaStBadge(st)} gastou <b>${mesaEsc(fmtCost(spent,{ usdOnly:true }))}</b>${cap>0?' de <b>'+mesaEsc(fmtCost(cap,{ usdOnly:true }))+'</b>':''}`; // gasto e teto sempre visíveis (B3)
+  const money=`${mesaStBadge(st)} gastou <b>${mesaEsc('US$ '+fmtNumBR(spent, true))}</b>${cap>0?' de <b>'+mesaEsc('US$ '+fmtNumBR(cap, true))+'</b>':''}`; // gasto e teto sempre visíveis (B3)
   const sum=`<span>${(m.personas||[]).length} personas · ${(m.rounds||[]).length} rodada${(m.rounds||[]).length===1?'':'s'} · ≈ R$ ${mesaEsc(fmtNumBR(spent*usdBrlRate(), true))}${+m.tokUsd>0?' · teto por tokens (parte estimada pelos tokens da IA)':''}</span>`;
   const head=mesaCrumb()+(typeof pageHead==='function'?pageHead({ title:'Mesa: '+m.tema, scope:'projeto', scopeLabel:pathBase(m.repo), money, sum, right:acts, sub:`Mesa: ${(m.personas||[]).length} pontos de vista que debatem e votam features. Nada vira demanda sem você aprovar.` }):`<h1>Mesa: ${mesaEsc(m.tema)}</h1>`);
   const D=mesaDecisionOf(m);
-  const capAv=m.capAviso?`<div class="g2capbox" role="status"><span><b>Aviso do Starfork:</b> ${cap>0?`o que sobra do teto de ${mesaEsc(fmtCost(cap,{ usdOnly:true }))} (gastou ${mesaEsc(fmtCost(spent,{ usdOnly:true }))}) não cobre mais uma fala — parou antes de ${mesaEsc(m.capAviso.what)}.`:`esta mesa não tem teto. Defina um teto pra ${mesaEsc(m.capAviso.what)}: toda sessão para sozinha nele.`}</span><div class="g2row"><button type="button" class="btn sm primary" id="mesaCapUp">${cap>0?'Continuar com mais ':'Definir teto de '}${mesaEsc(fmtCost(m.capAviso.base,{ usdOnly:true }))}</button><button type="button" class="btn sm quiet" id="mesaCapNo">Parar aqui</button></div></div>`:'';
+  const capNx=m.capAviso?mesaCapNext(cap, spent, +m.capAviso.base||mesaCapBase()||2, mesaWantOf(m)):null, U=v=>'US$ '+fmtNumBR(v, true); // A6: um formato só (antes "US$ 1" e "US$ 1,00" misturados)
+  const capAv=m.capAviso?`<div class="g2capbox" role="status"><span><b>Aviso do Starfork:</b> ${cap>0?`o que sobra do teto de ${mesaEsc(U(cap))} (gastou ${mesaEsc(U(spent))}) não cobre mais uma fala — parou antes de ${mesaEsc(m.capAviso.what)}.`:`esta mesa não tem teto. Defina um teto pra ${mesaEsc(m.capAviso.what)}: toda sessão para sozinha nele.`}</span><div class="g2row"><button type="button" class="btn sm primary" id="mesaCapUp">${cap>0?`Continuar com mais ${mesaEsc(U(capNx.add))} (teto ${mesaEsc(U(capNx.cap))})`:'Definir teto de '+mesaEsc(U(capNx.add))}</button><button type="button" class="btn sm quiet" id="mesaCapNo">Parar aqui</button></div></div>`:'';
   let left='';
   if(D){
     const nome=pid=>((m.personas||[]).find(p=>p.id===pid)||{}).nome||pid;
@@ -901,7 +910,9 @@ function mesaWire(body){
   bindClick('mesaStop', ()=>MESA.cur&&mesaStop(MESA.cur));
   bindClick('mesaCont', ()=>MESA.cur&&mesaRun(MESA.cur, { retryFailed:true }));
   bindClick('mesaCreate', mesaCreate);
-  bindClick('mesaCapUp', async()=>{ const m=MESA.cur; if(!m||!m.capAviso) return; const kind=m.capAviso.kind; m.capUsd=Math.max(mesaCapOf(m), mesaSpentUsd(m))+(+m.capAviso.base||mesaCapBase()||2); m.capAviso=null; // a partir do que já gastou (se passou do teto, o "+US$ X" ainda cabe uma fala) await mesaSave(m); // teto novo: o custo de uma fala é reaprendido
+  bindClick('mesaCapUp', async()=>{ const m=MESA.cur; if(!m||!m.capAviso) return; const kind=m.capAviso.kind;
+    m.capUsd=mesaCapNext(mesaCapOf(m), mesaSpentUsd(m), +m.capAviso.base||mesaCapBase()||2, mesaWantOf(m)).cap; m.capAviso=null; // A6: a partir do que já gastou, com pelo menos uma fala de sobra
+    await mesaSave(m);
     if(kind==='ask') mesaArgue(); else mesaRun(m); }); // pergunta a UMA persona: refaz só a pergunta (o texto continua na caixa), não a mesa inteira
   bindClick('mesaCapNo', async()=>{ const m=MESA.cur; if(!m) return; m.capAviso=null; await mesaSave(m); mesaRender(); });
   bindClick('mesaMore', ev=>{ const m=MESA.cur; if(!m||typeof g2SheetMenu!=='function') return; const f=mesaFailed(m);

@@ -171,6 +171,9 @@ function ideiaResearchCost(engine, model){
   if(e==='claude'){ if(/opus/.test(m)) return [0.8,3.0]; if(/haiku/.test(m)) return [0.05,0.3]; return [0.2,1.0]; }
   return ({ codex:[0.05,0.5], deepseek:[0.01,0.1], gateway:[0.02,0.4] })[e]||[0.1,1.0];
 }
+// A17: Codex/DeepSeek/gateway não têm teto por chamada — a pesquisa só começa se a parte reservada do teto da ideia
+// cobre o PIOR CASO previsto (como a Fábrica faz); no Claude o motor para no teto da chamada
+function ideiaResearchFits(engine, budget, worst){ if(!(+budget>0)) return false; return String(engine||'claude')==='claude' || +budget>=(+worst||0); }
 // ---- decisão (as 2 rodadas da mesa, curtas) ----
 function ideiaR1Prompt(idea){
   const brief=ideiaReportBrief(idea.report&&idea.report.data), hist=ideiaHistory(idea, 4);
@@ -466,6 +469,8 @@ async function ideiaResearch(m){
     const lim=purse.free()-mesaCallFloor(purse.want(), ideiaCapOf(m));
     budget=purse.take(1, engine==='claude'?Math.min(ideiaCap(), lim):lim);
     if(budget==null){ ideiaCapStop(m, 'pesquisar'); return; }
+    { const worst=ideiaResearchCost(engine, model)[1];
+      if(!ideiaResearchFits(engine, budget, worst)){ purse.give(budget); budget=null; ideiaCapStop(m, `pesquisar (nesta IA a pesquisa não tem teto próprio: precisa de ${fmtCost(worst,{ usdOnly:true })} livres no teto pro pior caso)`); return; } }
     m.report=Object.assign({}, prev||{}, { status:'rodando', erro:'', startedAt:Date.now(), engine });
     await ideiaSave(m); ideiaPaint(m);
     try{ await ideiaCall()('mesa_resume',{ id:m.id+'-r' }); }catch(_){ }
@@ -661,7 +666,8 @@ async function ideiaCapRaise(m){
   const i=$id('ideiaCapNew'), spent=ideiaSpent(m), c=ideiaCapCheck(i?i.value:'', spent);
   if(!c.ok){ const er=$id('ideiaCapErr'); if(er){ er.hidden=false; er.textContent=c.err; } if(i){ i.classList.add('err'); i.focus(); } return; }
   const what=m.capAviso&&m.capAviso.what;
-  m.capUsd=c.cap; m.capAviso=null; // o custo medido de uma fala continua valendo (é gasto real, não chute) await ideiaSave(m); ideiaRender(); IDEIA.capNew=null; // depois do render: a captura leria o campo antigo
+  m.capUsd=c.cap; m.capAviso=null; // o custo medido de uma fala continua valendo (é gasto real, não chute)
+  await ideiaSave(m); ideiaRender(); IDEIA.capNew=null; // depois do render: a captura leria o campo antigo
   const L=ideiaLive(m.id), t=(m.turns||[]).slice(-1)[0];
   if(t && !L.turn && Object.values(t.resp||{}).some(x=>x.st==='na fila')) ideiaRunTurn(m, t);
   else if(m.decision && m.decision.status==='parada' && what==='decidir o MVP') ideiaDecide(m, true);
@@ -743,7 +749,7 @@ function ideiaResearchHtml(m){
   } else if(mode && mode.mode==='none'){
     body=`<div class="g2help">${iEsc(mode.msg)} Sem busca na web nesta IA? <button type="button" class="lnk" id="ideiaGoCfg">trocar a IA</button> ou ligar a pesquisa ampliada em <button type="button" class="lnk" id="ideiaGoEnv">Ajustes › Verificação</button>.</div>`;
   } else {
-    const capRow=eng==='claude'?`<label class="g2inline"><span class="g2help">Teto da pesquisa US$</span><input class="in" id="ideiaCap" type="text" inputmode="decimal" value="${iEsc(String(ideiaCap()).replace('.',','))}" aria-label="teto da pesquisa em dólares"></label>`:`<span class="g2help">estimativa pelos tokens — ${iEsc(eng)} não tem teto por pesquisa</span>`;
+    const capRow=eng==='claude'?`<label class="g2inline"><span class="g2help">Teto da pesquisa US$</span><input class="in" id="ideiaCap" type="text" inputmode="decimal" value="${iEsc(String(ideiaCap()).replace('.',','))}" aria-label="teto da pesquisa em dólares"></label>`:`<span class="g2help">estimativa pelos tokens — ${iEsc(eng)} não tem teto por chamada: só começa se o teto da ideia tiver ${iEsc(fmtCost(hi,{ usdOnly:true }))} livres (o pior caso)</span>`;
     body=`<div class="g2row">${capRow}<button type="button" class="btn sm ${rep&&rep.status==='ok'?'':'primary'}" id="ideiaResGo">${rep&&rep.status==='ok'?'Pesquisar de novo':'Pesquisar'}</button></div><span class="g2help">deve custar ${iEsc(fmtCostRange(lo,hi))} · usa ${iEsc((mode&&mode.tools)||'a web da sua IA')} · cada afirmação marcada: fato, dedução ou suposição</span>`+
       (rep && rep.erro && rep.status!=='rodando'?`<div class="g2err" role="alert">${iEsc(rep.erro)}</div>`:'');
   }

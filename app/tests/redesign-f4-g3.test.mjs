@@ -268,7 +268,7 @@ test('Uso: filtro por IA vai pro Rust (usage_report engine) e o total do cabeça
   const h = ctx.usoHtml({ totals: { usd: 2, calls: 3 }, bySource: [{ source: 'fabrica', usd: 1, calls: 1 }], byEngine: [], byProject: [], tasks: [] }, { period: '30d', engine: 'codex' });
   assert.match(h, /· <b>US\$ 2 \(≈ R\$ 11,00\)<\/b> em 30 dias/);
   assert.match(h, /<option value="codex" selected>Codex<\/option>/);
-  assert.match(h, /Fábrica de apps e features/);
+  assert.match(h, /Fábrica · varreduras/);
   assert.match(read('../src-tauri/src/usage_ledger.rs'), /pub\(crate\) fn usage_report\(period: String, project: Option<String>, since: Option<i64>, engine: Option<String>\)/);
 });
 
