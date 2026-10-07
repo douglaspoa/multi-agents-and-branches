@@ -101,9 +101,9 @@
 .tlmin{flex:none;width:26px;height:24px;border:0;background:transparent;color:var(--muted);border-radius:var(--r-xs);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transform:rotate(90deg)}
 .tlmin svg{width:14px;height:14px}
 .tlmin:hover{color:var(--text);background:var(--surface-3)}
-.tlq{padding:12px 16px 6px;font-size:var(--fs-md);font-weight:600;color:var(--text);line-height:1.4;text-wrap:pretty;overflow-wrap:anywhere}
+.tlq{flex:0 3 auto;min-height:3.6em;overflow-y:auto;overscroll-behavior:contain;padding:12px 16px 6px;font-size:var(--fs-md);font-weight:600;color:var(--text);line-height:1.4;text-wrap:pretty;overflow-wrap:anywhere}
 .tlmulti{font-size:var(--fs-xs);font-weight:500;color:var(--muted);margin-left:4px}
-.tlopts{display:flex;flex-direction:column;padding:2px 8px 8px;overflow:auto;min-height:0}
+.tlopts{flex:0 1 auto;display:flex;flex-direction:column;padding:2px 8px 8px;overflow:auto;overscroll-behavior:contain;min-height:4.4em}
 .tlopt{display:grid;grid-template-columns:22px minmax(0,1fr);gap:9px;align-items:start;padding:8px;border-radius:var(--r-sm);border:1px solid transparent;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer}
 .tlopt:hover,.tlopt.cur{background:var(--surface-2)}
 .tlopt .k{font-family:var(--mono);font-size:var(--fs-xs);color:var(--muted);border:1px solid var(--border-strong);border-radius:5px;text-align:center;line-height:18px;font-variant-numeric:tabular-nums}
@@ -128,7 +128,7 @@
 .tlsheethost.min{align-items:flex-end}
 /* pane pequeno (canvas em grade): folha compacta — sem descrição das opções, menos respiro */
 .tlsheethost.tight .tlot small,.tlsheethost.tight .tlkeys{display:none}
-.tlsheethost.tight .tlq{padding:8px 12px 2px;font-size:var(--fs-base)}
+.tlsheethost.tight .tlq{padding:8px 12px 2px;font-size:var(--fs-base);min-height:2.8em}
 .tlsheethost.tight .tlopt{padding:3px 8px}
 .tlsheethost.tight .tlother{display:none} /* pane pequeno: "outra resposta" sai da folha — o compositor embaixo responde a pergunta da vez */
 .tlsheethost.tight .tlsf{padding:6px 10px}
