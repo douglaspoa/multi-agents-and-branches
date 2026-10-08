@@ -304,10 +304,6 @@ export function starforkReport(d: ReportData): string {
   if (d.noProofReason) L.push(`**Aprovado sem prova**${d.noProofBy ? ` por ${md(d.noProofBy)}` : ""}: ${md(d.noProofReason)}`, "");
   if (d.reviewOverride) L.push(`**Seguiu sem nova revisão:** ${md(d.reviewOverride)}`, "");
   if (d.rounds.length) L.push(`**Revisão:** ${d.rounds.map((r) => `rodada ${r.round} (${md(r.reviewer)}) — ${r.verdict === "aprova" ? "aprova" : r.verdict === "muda" ? `muda (${r.items.length})` : "ilegível"}`).join(" · ")}`, "");
-  const per = d.costByRole.filter((c) => c.usd > 0).map((c) => `${ROLE_PT[c.role] ?? c.role} (${md(c.name)}) ${fmtUsdBr(c.usd)}`).join(" · ");
-  // capUsd 0 só existe no piloto com `--budget-usd 0` (sem teto por escolha explícita, mantido por compatibilidade)
-  L.push(`**Custo:** ${fmtUsdBr(d.totalUsd)} ${d.capUsd > 0 ? `de ${fmtUsdBr(d.capUsd)} de teto` : "— sem teto (explícito)"}${per ? ` — ${per}` : ""}`, "");
-  if (d.releases.length) L.push("**Liberações de teto**", "", ...d.releases.map((r) => `- +${fmtUsdBr(r.usd)} (teto ${fmtUsdBr(r.capBefore)} → ${fmtUsdBr(r.capAfter)}): ${md(r.reason)}`), "");
   if (d.runs.length) L.push(`**Versões:** ${d.runs.map((r) => `${ROLE_PT[r.role] ?? r.role} \`${runTag(r)}\``).join(" · ")}`, "");
   if (d.orgPolicy?.length) L.push(`**Política da organização:** ${d.orgPolicy.map(md).join(" · ")}`, "");
   return L.join("\n").trimEnd() + "\n";

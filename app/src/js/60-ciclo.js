@@ -319,9 +319,6 @@ function cicloReport(d){
   if(d.noProofReason) L.push(`**Aprovado sem prova**${d.noProofBy?` por ${md(d.noProofBy)}`:''}: ${md(d.noProofReason)}`,'');
   if(d.reviewOverride) L.push(`**Seguiu sem nova revisão:** ${md(d.reviewOverride)}`,'');
   if(d.rounds.length) L.push(`**Revisão:** ${d.rounds.map(r=>`rodada ${r.round} (${md(r.reviewer)}) — ${r.verdict==='aprova'?'aprova':r.verdict==='muda'?`muda (${r.items.length})`:'ilegível'}`).join(' · ')}`,'');
-  const per=d.costByRole.filter(c=>c.usd>0).map(c=>`${CIC_ROLE_PT[c.role]||c.role} (${md(c.name)}) ${cicUsdBr(c.usd)}`).join(' · ');
-  L.push(`**Custo:** ${cicUsdBr(d.totalUsd)} ${d.capUsd>0?`de ${cicUsdBr(d.capUsd)} de teto`:'— sem teto (explícito)'}${per?` — ${per}`:''}`,'');
-  if(d.releases.length) L.push('**Liberações de teto**','',...d.releases.map(r=>`- +${cicUsdBr(r.usd)} (teto ${cicUsdBr(r.capBefore)} → ${cicUsdBr(r.capAfter)}): ${md(r.reason)}`),'');
   if(d.runs.length) L.push(`**Versões:** ${d.runs.map(r=>`${CIC_ROLE_PT[r.role]||r.role} \`${tag(r)}\``).join(' · ')}`,'');
   if(d.orgPolicy&&d.orgPolicy.length) L.push(`**Política da organização:** ${d.orgPolicy.map(md).join(' · ')}`,'');
   return L.join('\n').trimEnd()+'\n';
