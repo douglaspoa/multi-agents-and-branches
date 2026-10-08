@@ -42,6 +42,12 @@ echo "→ build release"
 mkdir -p "$APP/Contents/MacOS"
 cp app/src-tauri/target/release/cardume-app "$APP/Contents/MacOS/Starfork"
 
+# Marca de instalação DEV (raiz do fonte + commit/branch) — ANTES de assinar: Resources é selado
+# pelo codesign. É ela que libera "Publicar release pro time" no app aberto pelo Finder (sem CARDUME_CLI).
+source scripts/build-mark.sh
+write_dev_mark "$APP" .
+echo "→ marca dev: $(git rev-parse --short HEAD) ($(git rev-parse --abbrev-ref HEAD))"
+
 # Developer ID quando existir (identidade definitiva); senão ad-hoc.
 # NUNCA usar "Apple Development" aqui: sem provisioning profile o Gatekeeper
 # marca o app como malware e move pro Lixo (aconteceu — não repetir).

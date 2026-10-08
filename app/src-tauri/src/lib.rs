@@ -31,6 +31,7 @@ mod ideia;
 mod fabrica;
 mod plan_usage;
 mod projetos_conta;
+mod release;
 mod pty;
 mod term;
 mod term_hist;
@@ -5230,75 +5231,13 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
 }
 
 /// Publica a release (zip portátil + latest.json) no canal do time usando a
-/// SESSÃO logada do app — nada de senha em env. Só funciona na instalação dev
-/// (CARDUME_CLI aponta pro fonte, onde vive o dist/).
+/// SESSÃO logada do app — nada de senha em env. Só na instalação dev (CARDUME_CLI ou a
+/// marca do deploy-local.sh) e só de um pacote da main — regras e ordem do upload em release.rs.
 #[tauri::command(async)]
 fn publish_release(url: String, anon: String, token: String, notes: Option<String>) -> Result<String, String> {
-    let cli = std::env::var("CARDUME_CLI").map_err(|_| "só a instalação de desenvolvimento publica releases")?;
-    // CARDUME_CLI → .../src/cli.ts → raiz do produto
-    let root = PathBuf::from(&cli).parent().and_then(|p| p.parent()).map(|p| p.to_path_buf()).ok_or("CARDUME_CLI inesperado")?;
-    let zip = root.join("dist").join("Starfork-portable.zip");
-    let bin = root.join("dist").join("Starfork-portable.app").join("Contents").join("MacOS").join("Starfork");
-    if !zip.exists() { return Err(format!("rode scripts/package-app.sh antes — sem {}", zip.display())); }
-    let mtime_ms = |p: &PathBuf| -> Option<i64> {
-        std::fs::metadata(p).and_then(|m| m.modified()).ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as i64)
-    };
-    let build_ms = mtime_ms(&bin).ok_or("binário do portable não encontrado")?;
-    // GUARD: se o app DEV (deploy-local) é bem mais novo que o portable, o pacote
-    // está DEFASADO — publicar mandaria um build velho pros colegas. Barra.
-    let dev_bin = root.join("dist").join("Starfork.app").join("Contents").join("MacOS").join("Starfork");
-    let old_dev_bin = root.join("dist").join("Constellation.app").join("Contents").join("MacOS").join("Constellation");
-    if let Some(dev_ms) = mtime_ms(&dev_bin).or_else(|| mtime_ms(&old_dev_bin)) {
-        // 30min de folga: ignora o skew de reempacotar+redeploy na mesma sessão,
-        // mas pega o caso real (portable de dias atrás, esquecido).
-        if dev_ms > build_ms + 1_800_000 {
-            return Err("o pacote portable está DEFASADO (seu build atual é bem mais novo) — rode `scripts/package-app.sh` pra reempacotar com o código de agora ANTES de publicar, senão os colegas recebem uma versão antiga.".to_string());
-        }
-    }
-    let size = std::fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
-    // 1) zip — primeiro com o nome novo e, em seguida, com o antigo (Constellation-portable.zip):
-    // clientes de antes do rename (ou links velhos) continuam achando o release.
-    // Só o Starfork-portable.zip pode falhar a publicação; o alias antigo é best-effort.
-    let mut warn = String::new();
-    for name in ["Starfork-portable.zip", "Constellation-portable.zip"] {
-        let mut c1 = Command::new("curl");
-        c1.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
-            "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
-            "-H", "x-upsert: true", "-H", "Content-Type: application/zip",
-            "--data-binary"]).arg(format!("@{}", zip.display()))
-            .arg(format!("{url}/storage/v1/object/releases/{name}"));
-        let r1 = output_timeout(c1, 300)?;
-        let code1 = String::from_utf8_lossy(&r1.stdout).trim().to_string();
-        if code1 != "200" {
-            if name == "Starfork-portable.zip" { return Err(format!("upload do {name} falhou (HTTP {code1}) — você é o owner do canal?")); }
-            warn = format!(" · aviso: alias {name} não subiu (HTTP {code1})");
-        }
-    }
-    // 2) latest.json
-    let d = build_ms / 1000;
-    let version = {
-        let out = Command::new("date").args(["-r", &d.to_string(), "+%d/%m %H:%M"]).output().map_err(|e| e.to_string())?;
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
-    };
-    let meta = serde_json::json!({
-        "buildMs": build_ms, "version": version, "file": "Starfork-portable.zip",
-        "size": size, "notes": notes.unwrap_or_else(|| "Melhorias e correções.".into()),
-        "publishedAt": chrono_iso_now(),
-    });
-    let tmp = std::env::temp_dir().join("constellation-latest.json");
-    std::fs::write(&tmp, meta.to_string()).map_err(|e| e.to_string())?;
-    let mut c2 = Command::new("curl");
-    c2.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
-        "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
-        "-H", "x-upsert: true", "-H", "Content-Type: application/json",
-        "--data-binary"]).arg(format!("@{}", tmp.display()))
-        .arg(format!("{url}/storage/v1/object/releases/latest.json"));
-    let r2 = output_timeout(c2, 60)?;
-    let code2 = String::from_utf8_lossy(&r2.stdout).trim().to_string();
-    if code2 != "200" { return Err(format!("latest.json falhou (HTTP {code2})")); }
-    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time recebem o aviso de atualizar em até ~2 min{warn}", size as f64 / 1048576.0))
+    let src = release::dev_source().ok_or("só a instalação de desenvolvimento publica releases — instale o app pelo scripts/deploy-local.sh (no checkout do repositório) e tente de novo.")?;
+    let pkg = release::preflight(&src, true)?;
+    release::upload(&url, &anon, &token, &pkg, notes)
 }
 fn chrono_iso_now() -> String {
     let out = Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output().ok();
@@ -6361,11 +6300,12 @@ fn apns_push(token: String, title: String, body: String, category: Option<String
     if code == "200" { Ok(code) } else { Err(format!("APNs respondeu {code}")) }
 }
 
-/// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte)? O updater
-/// se esconde nela — atualizar por cima destruiria o ambiente do Douglas.
+/// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte, ou a marca
+/// dev-source.json que o deploy-local.sh grava no .app)? O updater se esconde nela —
+/// atualizar por cima destruiria o ambiente do Douglas — e "Publicar release" aparece.
 #[tauri::command(async)]
 fn is_dev_install() -> bool {
-    std::env::var("CARDUME_CLI").map(|v| !v.is_empty()).unwrap_or(false)
+    release::dev_source().is_some()
 }
 
 /// Destino do update: instala no lugar, exceto o rename único Constellation.app →

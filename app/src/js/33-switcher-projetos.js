@@ -121,7 +121,10 @@ $id('pubGo').onclick=async()=>{
     clearInterval(tick); pubBusy=false;
     if(!pubOpen()) showErr(e,'Não consegui publicar a versão');
     const ph=humanErr(e,'Não consegui publicar a versão');
-    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:var(--fs-base)">Não deu</b><div class="dim" style="font-size:var(--fs-sm);margin-top:4px" title="${escA(errText(e))}">${esc(ph.msg)}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${ph.action?`<button class="btn primary" id="pubFix">${esc(ph.action.label)}</button>`:''}<button class="btn" id="pubBack">tentar de novo</button></div>`);
+    // as recusas do publish_release já vêm em pt-BR com O QUE FAZER (rode package-app.sh, faça merge na main…):
+    // mostra inteira — o humanErr genérico corta em 140 caracteres e some justamente a instrução
+    const shown=ph.id==='generic' ? 'Não consegui publicar a versão: '+errText(e) : ph.msg;
+    pubSetState(`<div style="display:flex;gap:10px;align-items:flex-start"><span style="color:var(--warn);font-size:20px;line-height:1">✕</span><div><b style="font-size:var(--fs-base)">Não deu</b><div class="dim" style="font-size:var(--fs-sm);margin-top:4px;white-space:pre-wrap" title="${escA(errText(e))}">${esc(shown)}</div></div></div><div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${ph.action?`<button class="btn primary" id="pubFix">${esc(ph.action.label)}</button>`:''}<button class="btn" id="pubBack">tentar de novo</button></div>`);
     bindClick('pubBack', ()=>pubSetState('form'));
     if(ph.action) bindClick('pubFix', ()=>{ closePub(); ph.action.fn(); });
   }
