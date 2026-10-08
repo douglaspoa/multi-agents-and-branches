@@ -305,9 +305,17 @@ function cicloReport(d){
   const L=['## Relatório Starfork',''];
   if(d.requirements.length){
     L.push('**Requisitos × provas**','','| Requisito | Prova |','|---|---|');
-    for(const r of d.requirements) L.push(`| ${md(r.text)} | ${r.status==='provado'?`provado — ${r.evidence.map(e=>'`'+md(e)+'`').join(', ')||'evidência no disco'}`:r.status} |`);
+    const lk=d.proofs||{};
+    const code=e=>'`'+md(e)+'`';
+    // com prova publicada (branch starfork-provas): miniatura clicável / link do vídeo + nome como legenda
+    const cell=(r,i)=>r.status!=='provado'?r.status
+      : !r.evidence.some(e=>lk[e])?`provado — ${r.evidence.map(code).join(', ')||'evidência no disco'}`
+      : 'provado<br>'+r.evidence.map(e=>!lk[e]?code(e):lk[e].kind==='img'?`![R${i+1}](${lk[e].url})<br>${code(e)}`:`[▶ ${md(e)}](${lk[e].url})`).join('<br>');
+    d.requirements.forEach((r,i)=>L.push(`| ${md(r.text)} | ${cell(r,i)} |`));
     L.push('');
+    if(Object.keys(lk).length) L.push('*Provas no branch `starfork-provas` deste repositório (fora do código do PR) — clique na miniatura pra ver no tamanho real.*','');
   }
+  if(d.proofNote) L.push(`*${md(d.proofNote)}*`,'');
   if(d.noProofReason) L.push(`**Aprovado sem prova**${d.noProofBy?` por ${md(d.noProofBy)}`:''}: ${md(d.noProofReason)}`,'');
   if(d.reviewOverride) L.push(`**Seguiu sem nova revisão:** ${md(d.reviewOverride)}`,'');
   if(d.rounds.length) L.push(`**Revisão:** ${d.rounds.map(r=>`rodada ${r.round} (${md(r.reviewer)}) — ${r.verdict==='aprova'?'aprova':r.verdict==='muda'?`muda (${r.items.length})`:'ilegível'}`).join(' · ')}`,'');
@@ -327,12 +335,14 @@ function cicloReportFor(t){
     const ov=(typeof proofOvGet==='function')?proofOvGet(t.id):null;
     const byRole={}; for(const c of (typeof costsOf==='function'?costsOf(t.id):[])){ const k=(c.role||'')+'|'+c.agent; (byRole[k]=byRole[k]||{ role:c.role||'', name:c.agent, usd:0 }).usd+=(+c.usd||0); }
     const who=(typeof cloudUser==='function'&&cloudUser()&&cloudUser().name)||'';
+    const pv=(typeof provasOf==='function')?provasOf(t.id):null; // provas no PR (60-provas-pr): links do branch starfork-provas
     return '\n\n'+cicloReport({
       requirements:rows.map(r=>({ text:r.text, status:r.st==='ok'&&r.evidence.length?'provado':'sem prova', evidence:r.st==='ok'?r.evidence:[] })),
       noProofReason:ov&&ov.reason||'', noProofBy:ov&&ov.reason?who:'', reviewOverride:(sp.reviewOverride&&sp.reviewOverride.reason)||'',
       costByRole:Object.values(byRole), totalUsd:taskCost(t.id).usd, capUsd:(sp.autopilot && !(+sp.budgetUsd>0))?0:budgetOf(t),
       releases:Array.isArray(sp.budgetReleases)?sp.budgetReleases:[], rounds:Array.isArray(sp.reviewRounds)?sp.reviewRounds:[], runs:Array.isArray(sp.roleRuns)?sp.roleRuns:[],
       orgPolicy:sp.orgPolicy&&Array.isArray(sp.orgPolicy.rules)?sp.orgPolicy.rules:undefined,
+      proofs:pv&&pv.links&&Object.keys(pv.links).length?pv.links:undefined, proofNote:(pv&&pv.note)||undefined,
     });
   }catch(e){ console.error('relatório starfork', e); return ''; }
 }

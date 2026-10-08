@@ -30,6 +30,7 @@ import { loadConfig } from "./config.ts";
 import { oldVerdict, saveSample, type SampleResult } from "./amostra.ts";
 import { recordUsage } from "./usage-ledger.ts";
 import { ASK_STYLE } from "./ask-style.ts";
+import { attachProofs, proofKind, replaceReport, type AttachResult } from "./pr-provas.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 
 /**
@@ -1557,6 +1558,13 @@ export class Orchestrator {
         await commitLoose();
         await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
         this.store.addEvent(taskId, agent, "note", `PR atualizado (push): ${spec.prUrl}`, true);
+        // provas novas desde a abertura: sobem pro branch de provas e o Relatório Starfork do corpo é reescrito
+        const att = await this.attachProofs(taskId, task);
+        if (Object.keys(att.links).length || att.note) {
+          const r = await rewritePrReport(spec.prUrl, await this.reportFor(taskId, task, att), task.worktree, ghEnvFor(this.ws.repo));
+          if (r.changed) this.store.addEvent(taskId, agent, "note", `Relatório Starfork do PR atualizado (${Object.keys(att.links).length} prova(s) anexada(s))`, true);
+          else if (r.error) this.store.addEvent(taskId, agent, "note", `não consegui atualizar o relatório do PR: ${r.error.slice(0, 140)}`, false);
+        }
         return { ok: true, url: spec.prUrl };
       } catch (err) {
         const msg = String((err as { stderr?: string }).stderr || (err as Error).message || err).trim().slice(0, 300);
@@ -1582,7 +1590,9 @@ export class Orchestrator {
         ? `${String(o.body).trim()}\n\n`
         : `## O quê\n${spec.objective || spec.title}\n\n` +
           ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "");
-      const body = head + (await this.reportFor(taskId, task)) + "\n" +
+      const att = await this.attachProofs(taskId, task); // provas → branch starfork-provas (nunca lança; falha vira nota)
+      if (Object.keys(att.links).length) this.store.addEvent(taskId, agent, "note", `${Object.keys(att.links).length} prova(s) anexada(s) ao PR (branch starfork-provas)`, true);
+      const body = head + (await this.reportFor(taskId, task, att)) + "\n" +
         (o.auto ? `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._` : o.draft ? `_Rascunho aberto pelo agente no terminal do Starfork._` : `_Aberto pelo agente no terminal do Starfork (requisitos provados)._`);
       // --draft no FIM: o gh falso dos testes lê a branch pela posição ($6)
       const args = ["pr", "create", "--base", base, "--head", task.branch, "--title", title, "--body", body, ...(o.draft ? ["--draft"] : [])];
@@ -1611,10 +1621,8 @@ export class Orchestrator {
   }
 
   /** Relatório Starfork do PR (requisitos × provas, motivos, custo por papel, liberações, rodadas e versão por papel). */
-  async reportFor(taskId: string, task?: TaskRow): Promise<string> {
-    const t = task ?? this.store.getTask(taskId);
-    if (!t) return "";
-    const spec = this.freshSpec(taskId) ?? (JSON.parse(t.spec_json) as TaskSpec);
+  /** Requisitos × provas desta tarefa (requirements.json da worktree, ou a cópia guardada em .cardume/artifacts/<id>/). */
+  private async reqProofs(taskId: string, t: TaskRow): Promise<{ artDir: string; requirements: ReportData["requirements"] }> {
     const artDir = join(t.worktree, ".cardume", "artifacts");
     let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
     for (const p of [join(artDir, "requirements.json"), join(this.ws.repo, ".cardume", "artifacts", taskId, "requirements.json")]) {
@@ -1625,6 +1633,28 @@ export class Orchestrator {
       const proven = r.status === "done" && ev.some((e) => evidenceExists(artDir, t.worktree, e));
       return { text: String(r.req ?? "requisito"), status: r.status === "deferred" ? "adiado" : proven ? "provado" : "sem prova", evidence: proven ? ev.filter((e) => evidenceExists(artDir, t.worktree, e)) : [] };
     });
+    return { artDir, requirements };
+  }
+
+  /**
+   * PROVAS NO PR: as imagens/vídeos que provam requisitos sobem pro branch órfão `starfork-provas` (pasta <tarefa>/)
+   * do próprio repositório, com o git e a conta do GitHub da tarefa. Nunca lança (falha = nota no relatório).
+   * `decide` = resposta do app à pergunta do repositório público (grava a opção do projeto).
+   */
+  async attachProofs(taskId: string, task?: TaskRow, o: { decide?: "on" | "off" } = {}): Promise<AttachResult> {
+    const t = task ?? this.store.getTask(taskId);
+    if (!t || !existsSync(t.worktree)) return { links: {}, note: "" };
+    const { artDir, requirements } = await this.reqProofs(taskId, t);
+    const files = requirements.filter((r) => r.status === "provado").flatMap((r) => r.evidence)
+      .filter((e) => proofKind(e)).map((e) => ({ name: e, path: evidencePath(artDir, t.worktree, e) })).filter((f) => f.path);
+    return attachProofs({ dir: t.worktree, prefix: taskId, files, ghEnv: ghEnvFor(this.ws.repo), gitEnv: netEnv(), decide: o.decide });
+  }
+
+  async reportFor(taskId: string, task?: TaskRow, att?: Pick<AttachResult, "links" | "note">): Promise<string> {
+    const t = task ?? this.store.getTask(taskId);
+    if (!t) return "";
+    const spec = this.freshSpec(taskId) ?? (JSON.parse(t.spec_json) as TaskSpec);
+    const { requirements } = await this.reqProofs(taskId, t);
     const costByRole = (this.store.db.prepare(`SELECT COALESCE(role, '') AS role, agent AS name, SUM(usd) AS usd FROM cost WHERE task_id = ? GROUP BY role, agent ORDER BY MIN(id)`).all(taskId) as { role: string; name: string; usd: number }[]).map((c) => ({ role: c.role, name: c.name, usd: Number(c.usd) || 0 }));
     return starforkReport({
       requirements, costByRole, totalUsd: this.store.taskSpend(taskId),
@@ -1632,6 +1662,8 @@ export class Orchestrator {
       capUsd: spec.autopilot && !(Number(spec.budgetUsd) > 0) ? 0 : effectiveCap(spec.budgetUsd, readCostCapSetting()),
       reviewOverride: spec.reviewOverride?.reason, releases: spec.budgetReleases ?? [], rounds: spec.reviewRounds ?? [], runs: spec.roleRuns ?? [],
       orgPolicy: spec.orgPolicy?.rules,
+      ...(att && Object.keys(att.links).length ? { proofs: att.links } : {}),
+      ...(att?.note ? { proofNote: att.note } : {}),
     });
   }
 
@@ -2463,16 +2495,39 @@ export function deliverPrompt(kind: "doc" | "tests" | "proof" | "all"): string {
  * citada assim reprovava) e caminho do repo relativo à worktree ("tests/login.test.ts"). Recusa ".", "..",
  * pastas, absolutos fora dessas pastas e symlink que aponta pra fora. */
 export function evidenceExists(artDir: string, worktree: string, e: string): boolean {
+  return !!evidencePath(artDir, worktree, e);
+}
+/** O caminho REAL da evidência (mesmas regras do evidenceExists) — "" quando não vale. */
+export function evidencePath(artDir: string, worktree: string, e: string): string {
   const raw = String(e ?? "").trim();
-  if (!raw || raw === "." || raw === "..") return false;
+  if (!raw || raw === "." || raw === "..") return "";
   const real = (p: string) => { try { return realpathSync(p); } catch { return ""; } };
   const roots = [real(artDir), real(worktree)].filter(Boolean);
   const inside = (p: string) => roots.some((r) => { const rel = relative(r, p); return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel); });
   const name = raw.replace(/^(\.\/)?(\.cardume\/artifacts\/)?/, "");
   const cands = isAbsolute(raw) ? [raw] : [join(artDir, name), join(worktree, raw)];
-  return cands.some((p) => {
+  for (const p of cands) {
     const r = real(p);
-    if (!r || !inside(r)) return false;
-    try { return statSync(r).isFile(); } catch { return false; }
-  });
+    if (!r || !inside(r)) continue;
+    try { if (statSync(r).isFile()) return r; } catch { /* some */ }
+  }
+  return "";
+}
+
+/** Reescreve a seção "## Relatório Starfork" do corpo de um PR aberto (gh pr view → replaceReport → gh pr edit). Nunca lança. */
+export async function rewritePrReport(prUrl: string, report: string, cwd: string, env?: NodeJS.ProcessEnv): Promise<{ changed: boolean; error?: string }> {
+  try {
+    const { stdout } = await run(ghBin(), ["pr", "view", prUrl, "--json", "body", "-q", ".body"], { cwd, env: env ?? netEnv(), timeout: Math.min(netTimeoutMs(), 30_000) });
+    const body = stdout.replace(/\n$/, "");
+    const next = replaceReport(body, report);
+    if (next.trim() === body.trim()) return { changed: false };
+    // REST e não `gh pr edit`: o pr edit do gh 2.6x falha em repositório com Projects (classic) desativado
+    // ("Projects (classic) is being deprecated…") e o corpo nunca era trocado
+    const m = prUrl.match(/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/);
+    const args = m ? ["api", "-X", "PATCH", `repos/${m[1]}/${m[2]}/pulls/${m[3]}`, "-f", `body=${next}`, "--silent"] : ["pr", "edit", prUrl, "--body", next];
+    await run(ghBin(), args, { cwd, env: env ?? netEnv(), timeout: netTimeoutMs() });
+    return { changed: true };
+  } catch (e) {
+    return { changed: false, error: String((e as { stderr?: string }).stderr || (e as Error).message || e).trim() };
+  }
 }

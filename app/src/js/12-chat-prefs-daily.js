@@ -161,6 +161,7 @@ async function openPrefs(){
   // Proteção dos agentes é LOCAL (vale nesta máquina, por pasta do projeto) — não depende de conta/nuvem
   { const h=$id('prefsProtHost'); if(h){ if(typeof protectPrefsHtml==='function'){ if(!protectLoaded) await protectLoad(); h.innerHTML=protectPrefsHtml(repoPath); protectPrefsWire(repoPath); } else h.innerHTML=''; } }
   if(typeof prefsChecksRender==='function') prefsChecksRender(); // checagens: sem conta e sem GitHub também
+  if(typeof provasPrefsRender==='function') provasPrefsRender(repoPath); // provas no PR: opção do projeto (.git/config)
   $id('prefsRepo').textContent=pathBase(repoPath);
   const cloudOk=!!(SB.sess()&&cloudData&&cloudData.org);
   const k=cloudOk?await prefsKey():null; prefsK=k?Object.assign({ path:repoPath }, k):null; // a chave (org+repo) fica presa ao projeto carregado

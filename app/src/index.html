@@ -416,6 +416,7 @@
         <p class="pgnote" id="prefsConvOff" hidden></p>
         <textarea class="in ta mono" id="prefsText" rows="14" style="font-size:var(--fs-sm)" placeholder="# Convenções do projeto&#10;&#10;- Ex.: use unittest, NÃO pytest.&#10;- Ex.: nada de dados de produção em prints — conta demo teste.local@x.com.&#10;- Ex.: componentes em src/ui/, um arquivo por componente.&#10;- Ex.: o backend NORMALIZA os dados; o front só consome — não trate por-tool no front."></textarea></div></section>
       <section class="rsec"><div class="rsec-h"><h4>Proteção dos agentes</h4><span class="pgh-scope">Este computador</span></div><div class="rsec-b" id="prefsProtHost"></div></section>
+      <section class="rsec"><div class="rsec-h"><h4>Provas no PR</h4><span class="pgh-scope">Este projeto</span></div><div class="rsec-b" id="prefsProvasHost"></div></section>
       <section class="rsec"><div class="rsec-h"><h4>Checagens antes de aprovar</h4><span class="pgh-scope">Este projeto</span></div><div class="rsec-b"><p class="pgnote" style="margin:0 0 6px">Rodam na cópia de cada tarefa. Com alguma falhando, “aprovar e abrir PR” fica bloqueado. Funciona sem conta e sem GitHub.</p><div class="prefs-sec" id="prefsChecks"></div></div></section>
       <p class="pgnote">Onde salvar memórias novas agora fica em <button class="lnk" id="prefsGoMem">Memória</button>.</p>
       <div id="prefsMemHost" hidden></div>
@@ -742,6 +743,7 @@
 <script src="js/60-terminal-layout.js"></script>
 <script src="js/59-ideia.js"></script>
 <script src="js/60-ciclo.js"></script>
+<script src="js/60-provas-pr.js"></script>
 <script src="js/61-meu-time.js"></script>
 <script src="js/62-curador.js"></script>
 <script src="js/63-politica-org.js"></script>
