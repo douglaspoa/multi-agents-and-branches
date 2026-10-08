@@ -1817,21 +1817,9 @@ fn write_team_epics(state: State<AppState>, json: String) -> Result<(), String> 
 fn epic_link_cli(state: State<AppState>, task_id: String, epic_id: Option<String>, epic_title: Option<String>, done_when: Option<Vec<String>>, seq: Option<i64>,
                  by_agent: Option<String>, by_task: Option<String>) -> Result<String, String> {
     let repo = active_repo(&state)?;
-    let mut args = vec![
-        "--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "epic".into(), "apply-link".into(), task_id,
-        "--json".into(), "--repo".into(), repo.display().to_string(),
-        "--by-agent".into(), by_agent.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Starfork".to_string()),
-    ];
-    match epic_id.filter(|s| !s.trim().is_empty()) {
-        Some(e) => {
-            args.push("--epic-id".into()); args.push(e);
-            if let Some(t) = epic_title.filter(|s| !s.trim().is_empty()) { args.push("--epic-title".into()); args.push(t); }
-            args.push("--patch".into());
-            args.push(serde_json::json!({ "doneWhen": done_when.unwrap_or_default(), "seq": seq.unwrap_or(0) }).to_string());
-        }
-        None => args.push("--clear".into()),
-    }
-    if let Some(t) = by_task.filter(|s| !s.trim().is_empty()) { args.push("--by-task".into()); args.push(t); }
+    let by = by_agent.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Starfork".to_string());
+    let args = epic_requests::link_cli_args(&cli_path(&repo), &repo.display().to_string(), &task_id, epic_id.as_deref(), epic_title.as_deref(),
+        &done_when.unwrap_or_default(), seq.unwrap_or(0), &by, by_task.as_deref());
     let out = node_cmd().args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").env_remove("CARDUME_TASK").output().map_err(|e| e.to_string())?;
     agent_edits::parse_cli_edit(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
 }

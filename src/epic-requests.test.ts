@@ -276,3 +276,27 @@ test("MCP/starfork: create_epic e `starfork epico vincular` pelo mesmo caminho (
     e.done();
   }
 });
+
+test("título com vírgula chega inteiro; `apply-link --clear t1`; `epic tasks`/`epic list --json` do cwd da worktree via CARDUME_DB", async () => {
+  const e = setup();
+  try {
+    const wt = e.add("t1", "Login, logout e sessão", "draft", { epicId: EPIC });
+    e.add("t2", "Outra", "draft");
+    const r = resolveTaskRefs(e.store, e.dir, ["Login, logout e sessão"]);
+    assert.ok(r.ok && r.tasks.length === 1 && r.tasks[0].localId === "t1");
+    const f = await epicRequestFlow({ store: e.store, cardumeDir: e.dir, kind: "unlink", by: { agent: "Você" }, taskRefs: ["Login, logout e sessão"], waitMs: 0 });
+    assert.equal(f.status, "pending", f.message);
+    e.store.close();
+    const env = { CARDUME_DB: join(e.dir, "state.sqlite") };
+    const n = await run(["epic", "new", "E", "--tasks", "t1,t2", "--no-wait", "--json"], env, wt);
+    assert.deepEqual(listRequests(e.dir).find((x) => x.req.kind === "create")!.req.tasks.map((t) => t.localId), ["t1", "t2"], n.out);
+    const tk = JSON.parse((await run(["epic", "tasks", EPIC, "--json", "--no-wait"], env, wt)).out.trim().split("\n").pop()!);
+    assert.equal(tk.epicId, EPIC);
+    assert.ok(tk.tasks.some((t: { id: string }) => t.id === "t1"), "leu o banco do projeto, não o da worktree");
+    const cl = await run(["epic", "apply-link", "--clear", "t1", "--json", "--repo", e.repo], {});
+    assert.equal(JSON.parse(cl.out.trim()).mode, "applied", cl.out);
+    writeFileSync(join(requestsDir(e.dir), "epics.json"), JSON.stringify({ at: "agora", epics: [{ id: EPIC, name: "Arq", status: "open", tasks: 2 }] }));
+    const ls = JSON.parse((await run(["epic", "list", "--json"], env, wt)).out.trim());
+    assert.deepEqual(ls.epics, [{ id: EPIC, name: "Arq", status: "open", tasks: 2 }]);
+  } finally { e.done(); }
+});

@@ -20,8 +20,8 @@ import { contextDir, prepEpicTurn, readEpicContext, resolveTaskTarget, type Epic
 import { taskToYaml } from "./util/yaml.ts";
 
 export const EPIC_REQ_LIMITS = { title: 140, text: 2000, item: 300, items: 30, tasks: 30 };
-/** Espera padrão pelo app (o tick dele roda a cada ~3s). */
-export const EPIC_REQ_WAIT_MS = 12_000;
+/** Espera padrão pelo app: o tick roda a cada ~3s (janela escondida: até ~15s). */
+export const EPIC_REQ_WAIT_MS = 20_000;
 
 export type EpicReqKind = "create" | "link" | "unlink";
 export interface NewEpicInput { title: string; description?: string; outcome?: string; doneWhen?: string[] }
@@ -38,6 +38,8 @@ export interface EpicRequest {
   epicId?: string;
   epicTitle?: string;
   tasks: EpicReqTask[];
+  /** quanto quem pediu ficou esperando (ms) — depois disso o app avisa o agente por recado */
+  waitMs?: number;
 }
 export interface EpicReqResult {
   id: string;
@@ -241,7 +243,7 @@ export function flowFromResult(req: { id: string; kind: EpicReqKind; dup?: boole
 export function flowText(r: EpicFlowResult): string {
   const L = [r.message];
   if (r.epicId) L.push(`épico: ${r.epicTitle ? `"${r.epicTitle}" ` : ""}(id ${r.epicId})`);
-  for (const x of r.linked) L.push(`  ✓ ${x.title || x.ref}${x.localId ? ` · ${x.localId}` : ""}${x.mode === "unchanged" ? " (já estava assim)" : ""}`);
+  for (const x of r.linked) L.push(`  ✓ ${x.title || x.ref}${x.localId ? ` · ${x.localId}` : ""}${x.mode === "unchanged" ? " (já estava assim)" : x.mode === "published" ? " (rascunho publicado no quadro do time, já no épico)" : ""}`);
   for (const x of r.failed) L.push(`  ✕ ${x.title || x.ref}: ${x.why}`);
   if (r.requestId && r.status !== "pending") L.push(`(pedido ${r.requestId})`);
   return L.join("\n");
@@ -257,7 +259,8 @@ export async function epicRequestFlow(opts: {
   const rb = roleBlock(by);
   if (rb) return bad(rb.replace("muda spec", "cria nem vincula épico"));
   let tasks: EpicReqTask[] = [];
-  const refs = (opts.taskRefs ?? []).flatMap((x) => String(x).split(",")).map(clean).filter(Boolean);
+  // vírgula só separa nas listas `--tasks a,b` (quem chama já dividiu); título com vírgula chega inteiro
+  const refs = (opts.taskRefs ?? []).map(clean).filter(Boolean);
   if (kind !== "create" || refs.length) {
     const r = resolveTaskRefs(store, cardumeDir, refs);
     if (!r.ok) return bad(r.message);
@@ -280,9 +283,9 @@ export async function epicRequestFlow(opts: {
     if (!e.ok) return bad(e.message);
     epicId = e.epicId; epicTitle = e.epicTitle;
   }
-  const w = writeRequest(cardumeDir, { kind, by, epic, epicId, epicTitle, tasks });
-  if (by.taskId && !w.dup && store.getTask(by.taskId)) store.addEvent(by.taskId, by.agent, "note", `pediu ao app: ${KIND_PT[kind]}${epic ? ` "${epic.title}"` : epicTitle ? ` "${epicTitle}"` : ""}${tasks.length ? ` (${tasks.length} tarefa(s))` : ""} · pedido ${w.id}`, true);
   const waitMs = Math.max(0, opts.waitMs ?? EPIC_REQ_WAIT_MS);
+  const w = writeRequest(cardumeDir, { kind, by, epic, epicId, epicTitle, tasks, waitMs });
+  if (by.taskId && !w.dup && store.getTask(by.taskId)) store.addEvent(by.taskId, by.agent, "note", `pediu ao app: ${KIND_PT[kind]}${epic ? ` "${epic.title}"` : epicTitle ? ` "${epicTitle}"` : ""}${tasks.length ? ` (${tasks.length} tarefa(s))` : ""} · pedido ${w.id}`, true);
   const res = waitMs ? await waitResult(cardumeDir, w.id, waitMs) : readResult(cardumeDir, w.id);
   return flowFromResult({ id: w.id, kind, dup: w.dup }, res, waitMs);
 }

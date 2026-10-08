@@ -50,6 +50,9 @@ pub fn write_result(dir: &Path, id: &str, json: &str) -> Result<(), String> {
     if v.get("ok").and_then(|x| x.as_bool()).is_none() || v.get("message").and_then(|x| x.as_str()).is_none() {
         return Err("resultado sem ok/message".into());
     }
+    if !matches!(v.get("status").and_then(|x| x.as_str()), Some("done" | "partial" | "refused")) {
+        return Err("resultado com status desconhecido (done | partial | refused)".into());
+    }
     let f = dir.join(format!("{id}.result.json"));
     let tmp = dir.join(format!("{id}.result.json.tmp"));
     std::fs::write(&tmp, v.to_string()).map_err(|e| e.to_string())?;
@@ -64,6 +67,26 @@ pub fn write_epics(dir: &Path, json: &str) -> Result<(), String> {
     let tmp = dir.join("epics.json.tmp");
     std::fs::write(&tmp, v.to_string()).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, dir.join("epics.json")).map_err(|e| e.to_string())
+}
+
+/// PURA: argumentos do `cardume epic apply-link` (o nome do épico vai DENTRO do --patch: um nome começando com
+/// "--" nunca vira flag). `epic_id` None = desvincular (`--clear`).
+#[allow(clippy::too_many_arguments)]
+pub fn link_cli_args(cli: &str, repo: &str, task_id: &str, epic_id: Option<&str>, epic_title: Option<&str>, done_when: &[String], seq: i64, by_agent: &str, by_task: Option<&str>) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "--disable-warning=ExperimentalWarning".into(), cli.into(), "epic".into(), "apply-link".into(), task_id.into(),
+        "--json".into(), "--repo".into(), repo.into(), "--by-agent".into(), by_agent.into(),
+    ];
+    match epic_id.filter(|s| !s.trim().is_empty()) {
+        Some(e) => {
+            args.push("--epic-id".into()); args.push(e.into());
+            args.push("--patch".into());
+            args.push(serde_json::json!({ "doneWhen": done_when, "seq": seq, "epicTitle": epic_title.unwrap_or("") }).to_string());
+        }
+        None => args.push("--clear".into()),
+    }
+    if let Some(t) = by_task.filter(|s| !s.trim().is_empty()) { args.push("--by-task".into()); args.push(t.into()); }
+    args
 }
 
 #[cfg(test)]
@@ -85,13 +108,37 @@ mod tests {
         assert!(write_result(&dir, "zz", r#"{"id":"zz","ok":true,"message":"x"}"#).is_err(), "pedido inexistente");
         assert!(write_result(&dir, "a", r#"{"id":"b","ok":true,"message":"x"}"#).is_err(), "resultado de outro pedido");
         assert!(write_result(&dir, "a", r#"{"id":"a","message":"x"}"#).is_err(), "sem ok");
+        assert!(write_result(&dir, "a", r#"{"id":"a","ok":true,"status":"talvez","message":"x"}"#).is_err(), "status desconhecido");
         write_result(&dir, "a", r#"{"id":"a","ok":false,"status":"refused","message":"sem login"}"#).unwrap();
         assert!(!dir.join("a.result.json.tmp").exists());
         let p = read_pending(&dir);
         assert_eq!(p.len(), 1, "respondido sai da fila");
         assert_eq!(p[0]["id"], "b");
+        assert!(dir.join("a.json").is_file() && dir.join("a.result.json").is_file(), "resultado recente fica pro `epic status`");
+        // respondido há mais de 7 dias: pedido + resultado saem
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(8 * 24 * 3600);
+        std::fs::File::options().write(true).open(dir.join("a.result.json")).unwrap().set_modified(old).unwrap();
+        read_pending(&dir);
+        assert!(!dir.join("a.json").exists() && !dir.join("a.result.json").exists(), "limpeza de 7 dias");
         assert!(write_epics(&dir, r#"{"at":"x"}"#).is_err());
         write_epics(&dir, r#"{"at":"x","epics":[{"id":"e","name":"E"}]}"#).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn argumentos_do_apply_link() {
+        let dw = vec!["D1: login ok".to_string()];
+        let a = link_cli_args("cli.ts", "/r", "t1", Some("e1"), Some("--clear"), &dw, 3, "Orion", Some("autor"));
+        assert_eq!(&a[2..6], &["epic", "apply-link", "t1", "--json"]);
+        assert!(!a.contains(&"--clear".to_string()), "nome do épico não vira flag");
+        let i = a.iter().position(|x| x == "--patch").unwrap();
+        let p: serde_json::Value = serde_json::from_str(&a[i + 1]).unwrap();
+        assert_eq!(p["doneWhen"][0], "D1: login ok");
+        assert_eq!(p["seq"], 3);
+        assert_eq!(p["epicTitle"], "--clear");
+        assert_eq!(a[a.iter().position(|x| x == "--epic-id").unwrap() + 1], "e1");
+        assert_eq!(a.last().unwrap(), "autor");
+        let u = link_cli_args("cli.ts", "/r", "t1", None, None, &[], 0, "Orion", None);
+        assert!(u.contains(&"--clear".to_string()) && !u.contains(&"--epic-id".to_string()) && !u.contains(&"--patch".to_string()));
     }
 }

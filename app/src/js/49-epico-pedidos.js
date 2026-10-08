@@ -11,6 +11,7 @@
 const ER_NO_LOGIN='o Starfork não está logado na nuvem — o épico é do TIME. Entre na sua conta (botão Conta, no rodapé da barra lateral), escolha um time e peça de novo. Nada foi criado nem alterado.';
 const ER_NO_TEAM='o Starfork está logado, mas sem time escolhido — o épico é do TIME. Escolha um time no botão Conta (rodapé da barra lateral) e peça de novo. Nada foi criado nem alterado.';
 const erFold=s=>String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
+const ER_MAX_AGE_MS=3*86400000;
 const erTx=s=>String(s==null?'':s).replace(/\s+/g,' ').trim();
 const erUuid=s=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s||''));
 const erEnc=s=>encodeURIComponent(String(s==null?'':s));
@@ -32,7 +33,7 @@ function erValidate(r){
     if(t.localId&&!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(String(t.localId))) return 'id de tarefa inválido: '+t.localId;
     if(!t.cloudId&&!t.localId) return 'tarefa sem id no pedido'; }
   if(r.kind==='create'){
-    const e=r.epic||{}; const title=erTx(e.title);
+    const e=r.epic||{}; if(typeof e.title!=='string') return 'épico sem título'; const title=erTx(e.title);
     if(!title) return 'épico sem título';
     if(title.length>140) return 'título do épico longo demais (máx. 140)';
     for(const k of ['description','outcome']) if(e[k]!==undefined&&(typeof e[k]!=='string'||e[k].length>2000)) return k+' inválido(a) ou longo(a) demais';
@@ -40,11 +41,15 @@ function erValidate(r){
     if([title,e.description,e.outcome,...(e.doneWhen||[])].some(erSecret)) return 'o texto parece conter um segredo — não gravo isso no épico';
   }
   if(r.kind==='link'){
+    if(r.epicTitle!==undefined&&typeof r.epicTitle!=='string') return 'nome de épico inválido';
     if(!r.epicId&&!erTx(r.epicTitle)) return 'diga a qual épico vincular';
     if(r.epicId&&!erUuid(r.epicId)) return 'id de épico inválido (épico do time é um uuid)';
     if(!r.tasks.length) return 'diga quais tarefas vincular';
   }
   if(r.kind==='unlink'&&!r.tasks.length) return 'diga quais tarefas tirar do épico';
+  // pedido esquecido (app fechado por dias): não executa no escuro semanas depois
+  const age=Date.now()-new Date(r.at||0).getTime();
+  if(!(age<ER_MAX_AGE_MS)) return 'o pedido expirou (feito há mais de '+Math.round(ER_MAX_AGE_MS/86400000)+' dias, com o app fechado) — nada foi feito; peça de novo se ainda fizer sentido';
   return null;
 }
 // PURA: o épico pelo NOME, entre os do time (sem caixa/acento) → { ep } | { err }
@@ -65,7 +70,7 @@ function erEpicSpec(r){
 }
 // PURA: desfecho → resultado que o CLI mostra
 function erResult(r, ep, linked, failed){
-  const n=linked.length, f=failed.length;
+  const n=linked.length, f=failed.length, ch=linked.filter(x=>x.mode!=='unchanged').length;
   const verb=r.kind==='unlink'?'tirada(s) do épico':'vinculada(s)';
   let status, ok, message;
   if(r.kind==='create'){
@@ -74,7 +79,8 @@ function erResult(r, ep, linked, failed){
   } else {
     ok=n>0; status=!n?'refused':f?'partial':'done';
     message=!n?'nenhuma tarefa foi '+(r.kind==='unlink'?'tirada do épico':'vinculada')+'.'
-      :n+' tarefa(s) '+verb+(ep&&r.kind==='link'?' ao épico "'+ep.name+'"':'')+(f?' — '+f+' falharam':'')+'. Nada foi recriado nem reiniciado.';
+      :!ch&&!f?'nada mudou — '+(n===1?'a tarefa já estava':'as '+n+' tarefas já estavam')+' '+(r.kind==='unlink'?'fora do épico':'neste épico')+(ep&&r.kind==='link'?' ("'+ep.name+'")':'')+'.'
+      :ch+' tarefa(s) '+verb+(ep&&r.kind==='link'?' ao épico "'+ep.name+'"':'')+(f?' — '+f+' falharam':'')+'. Nada foi recriado nem reiniciado.';
   }
   return { id:r.id, ok, status, message, ...(ep?{ epicId:ep.id, epicTitle:ep.name }:{}), linked, failed, at:new Date().toISOString() };
 }
@@ -115,7 +121,7 @@ async function erCloudOne(t, ep, proj){
   if(card){
     if(lt&&!tmap()[lt.id]) tmapSet(lt.id, card.id);
     if((card.epic_id||null)!==want){
-      await sbFetch('/rest/v1/tasks?id=eq.'+erEnc(card.id),{ method:'PATCH', body:JSON.stringify({ epic_id:want }) });
+      await erPatchEpicId(card.id, want, card.title);
       sbPost('task_activity',{ task_id:card.id, user_id:cloudUserId(), kind:'edited', body:want?'épico: '+ep.name:'saiu do épico' }).catch(()=>{});
       return { lid:lt?lt.id:(card.local_id&&!String(card.local_id).startsWith('card-')?card.local_id:null), cardId:card.id, title:card.title, mode:'applied' };
     }
@@ -134,9 +140,14 @@ async function erCloudOne(t, ep, proj){
   const row=((await sbGet('tasks?select=id,epic_id&project_id=eq.'+erEnc(proj.id)+'&local_id=eq.'+erEnc(lt.id)))||[])[0];
   if(!row) throw new Error('não consegui publicar o cartão da tarefa no time');
   tmapSet(lt.id, row.id);
-  if(row.epic_id!==want) await sbFetch('/rest/v1/tasks?id=eq.'+erEnc(row.id),{ method:'PATCH', body:JSON.stringify({ epic_id:want }) });
+  if(row.epic_id!==want) await erPatchEpicId(row.id, want, lt.title);
   sbPost('task_activity',{ task_id:row.id, user_id:cloudUserId(), kind:'created', body:lt.title }).catch(()=>{});
-  return { lid:lt.id, cardId:row.id, title:lt.title, mode:'applied' };
+  return { lid:lt.id, cardId:row.id, title:lt.title, mode:'published' };
+}
+// troca o épico do cartão e CONFERE: sob RLS, PATCH sem permissão volta 200 com zero linhas (não pode virar "vinculada")
+async function erPatchEpicId(cardId, want, title){
+  const res=await sbFetch('/rest/v1/tasks?id=eq.'+erEnc(cardId),{ method:'PATCH', headers:{ 'Prefer':'return=representation' }, body:JSON.stringify({ epic_id:want }) });
+  if(!Array.isArray(res)||!res.length) throw new Error('não tem permissão pra mudar o épico da tarefa "'+(title||cardId)+'" (o cartão não mudou)');
 }
 // contexto do épico pro motor (EPIC.md das tarefas daqui) — antes de mexer na spec local
 async function erWriteContext(epicId, proj){
@@ -166,11 +177,13 @@ async function erApplyOne(r){
   let proj=null;
   if(r.tasks.length){
     try{ proj=await cloudEnsureProject(); }
-    catch(e){ r.tasks.forEach(t=>failed.push({ ref:t.ref||t.localId||t.cloudId, title:t.title||'', why:typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e) })); }
+    catch(e){ if(typeof aeIsPermanent==='function' && !aeIsPermanent(e) && !/escolha um time|remote/.test(String(e&&e.message||e))) throw e;
+      r.tasks.forEach(t=>failed.push({ ref:t.ref||t.localId||t.cloudId, title:t.title||'', why:typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e) })); }
   }
   if(proj) for(const t of r.tasks){ // fase 1: nuvem
     try{ done.push({ t, x:await erCloudOne(t, r.kind==='unlink'?null:ep, proj) }); }
-    catch(e){ failed.push({ ref:t.ref||t.localId||t.cloudId, title:t.title||'', why:(typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e)) }); }
+    catch(e){ if(typeof aeIsPermanent==='function' && !aeIsPermanent(e) && !/permissão|outro projeto|outra conta|não existe/.test(String(e&&e.message||e))) throw e; // rede: o pedido inteiro volta pra fila (repetir é seguro)
+      failed.push({ ref:t.ref||t.localId||t.cloudId, title:t.title||'', why:(typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e)) }); }
   }
   // fase 2: contexto do épico (o EPIC.md local nasce dele); fase 3: spec LOCAL pelo motor
   const epFresh=ep&&done.some(d=>d.x.lid)?(await erWriteContext(ep.id, proj))||ep:ep;
@@ -182,7 +195,7 @@ async function erApplyOne(r){
       try{
         const out=JSON.parse(await invoke('epic_link_cli',{ taskId:x.lid, epicId:r.kind==='unlink'?null:ep.id, epicTitle:r.kind==='unlink'?null:ep.name,
           doneWhen:r.kind==='unlink'?null:(typeof aeDoneWhenLines==='function'?aeDoneWhenLines(sp):[]), seq:+sp.doneWhenSeq||0, byAgent:by.agent||'agente', byTask:by.taskId||null }));
-        if(out.mode==='applied') mode='applied';
+        if(out.mode==='applied' && mode!=='published') mode='applied';
       }catch(e){ failed.push({ ref:t.ref||x.lid, title:x.title||t.title||'', why:'o cartão mudou, mas a tarefa local não: '+String(e&&e.message||e) }); continue; }
     }
     linked.push({ ref:t.ref||x.lid||x.cardId, title:x.title||t.title||'', ...(x.lid?{ localId:x.lid }:{}), ...(x.cardId?{ cloudId:x.cardId }:{}), mode });
@@ -210,14 +223,16 @@ async function erTick(){
     const pend=await invokeQuiet('epic_requests_pending').catch(()=>[]);
     if(!Array.isArray(pend)||!pend.length) return;
     if(logged && typeof cloudScopeOk==='function' && !cloudScopeOk()) return; // conta ainda carregando o mapa dela: espera (nada se perde)
-    let any=false;
+    let any=false; const repo0=state.repo;
     for(const r of pend){
+      if(state.repo!==repo0) break; // trocou de projeto no meio: o resto fica pro próximo tick, no projeto certo
       let res;
       try{ res=await erApplyOne(r); delete erRetry[r.id]; }
       catch(e){ // transitório: fica na fila e tenta de novo; depois de 5 voltas desiste com o motivo
         const n=(erRetry[r.id]||0)+1; erRetry[r.id]=n;
         if(n<5){ console.warn('pedido de épico (tento de novo)', r&&r.id, e&&e.message||e); continue; }
         delete erRetry[r.id]; res=erRefused(r, 'desisti depois de '+n+' tentativas: '+(typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e))); }
+      if(state.repo!==repo0){ console.warn('pedido de épico: projeto trocou no meio — resultado fica pro próximo tick', r.id); break; }
       await invokeQuiet('epic_request_done',{ id:r.id, result:JSON.stringify(res) }).catch(e=>console.warn('resultado do pedido', e));
       erAfter(r, res); any=true;
     }
@@ -232,7 +247,8 @@ function erAfter(r, res){
     if(res.epicId && typeof aeRefreshTeam==='function') aeRefreshTeam(res.epicId);
   } else toast('Pedido de épico de '+who+' recusado: '+res.message.split('\n')[0], 'warn');
   const t=by.taskId&&(state.tasks||[]).find(x=>x.id===by.taskId);
-  const late=Date.now()-new Date(r.at||0).getTime()>12000; // o CLI/MCP espera ~12s; depois disso ele só sabe por aqui
+  const waited=Number.isFinite(+r.waitMs)?+r.waitMs:20000; // quanto o CLI/MCP esperou; depois disso ele só sabe por aqui
+  const late=Date.now()-new Date(r.at||0).getTime()>waited;
   if(t && late && (t.busy || (typeof ACTIVE_ST!=='undefined'&&ACTIVE_ST.has(t.status))))
     invokeQuiet('add_instruction',{ taskId:t.id, text:'Seu pedido de épico ('+r.id+') foi '+(res.ok?'EXECUTADO':'RECUSADO')+' pelo app: '+res.message+(res.epicId?' (épico '+res.epicId+')':'')+(res.ok?'':' Não repita igual; se for essencial, pergunte ao humano.') }).catch(()=>{});
 }

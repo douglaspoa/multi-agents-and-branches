@@ -170,3 +170,47 @@ test('tick: grava o resultado; erro de rede fica na fila e desiste com motivo de
   await nolog.api.erTick();
   assert.match(JSON.parse(nolog.calls.find((x) => x[0] === 'epic_request_done')[1].result).message, /não está logado/);
 });
+
+test('RLS que filtra o PATCH (200 com zero linhas) NÃO vira "vinculada"; pedido velho expira; tudo igual = "nada mudou"; rascunho publicado é dito', async () => {
+  const c = load();
+  c.cards[CARD] = { id: CARD, local_id: 't-run', project_id: PROJ, title: 'Tarefa rodando', status: 'running', epic_id: null };
+  c.epics.push({ id: EP, team_id: 't1', name: 'Arq' });
+  const real = c.sbFetch; c.sbFetch = async (p, o) => (o.method === 'PATCH' ? [] : real(p, o));
+  const r = await c.api.erApplyOne(req('link', { epicId: EP, tasks: [{ ref: 't-run', localId: 't-run', title: 'Tarefa rodando' }] }));
+  assert.equal(r.status, 'refused'); assert.match(r.failed[0].why, /permissão/);
+  assert.ok(!c.calls.some((x) => x[0] === 'epic_link_cli'), 'spec local não muda se a nuvem não mudou');
+  const old = load();
+  const ex = await old.api.erApplyOne(req('create', { at: new Date(Date.now() - 4 * 86400000).toISOString(), epic: { title: 'X' } }));
+  assert.equal(ex.status, 'refused'); assert.match(ex.message, /expirou/);
+  assert.ok(!old.calls.some((x) => x[0] === 'post'));
+  const same = load(); same.epics.push({ id: EP, team_id: 't1', name: 'Arq' });
+  same.cards[CARD] = { id: CARD, local_id: 't-run', project_id: PROJ, title: 'Tarefa rodando', status: 'running', epic_id: EP };
+  same.invoke = async (cmd, a) => { same.calls.push([cmd, a]); return JSON.stringify({ ok: true, mode: 'unchanged', message: 'já' }); };
+  const u = await same.api.erApplyOne(req('link', { epicId: EP, tasks: [{ ref: 't-run', localId: 't-run' }] }));
+  assert.match(u.message, /nada mudou — a tarefa já estava neste épico/);
+  const pub = load(); pub.epics.push({ id: EP, team_id: 't1', name: 'Arq' });
+  const p = await pub.api.erApplyOne(req('link', { epicId: EP, tasks: [{ ref: 'Rascunho', localId: 't-draft', title: 'Rascunho' }] }));
+  assert.equal(p.linked[0].mode, 'published');
+  const titleObj = load();
+  assert.match(titleObj.api.erValidate(req('create', { epic: { title: { x: 1 } } })), /sem título/);
+});
+
+test('tick: lista dos épicos no formato que o `cardume epic list` lê; recado ao agente SÓ depois do tempo que ele esperou; troca de projeto no meio para', async () => {
+  const c = load({ pending: [req('create', { epic: { title: 'X' }, waitMs: 0 })], teamTasks: [{ epic_id: EP }, { epic_id: EP }] });
+  c.epics.push({ id: EP, team_id: 't1', name: 'Arq', status: 'open' });
+  await c.api.erTick();
+  const lists = c.calls.filter((x) => x[0] === 'write_team_epics').map((x) => JSON.parse(x[1].json));
+  const l = lists[0]; // a 1ª volta (antes do refresh do quadro zerar teamTasks)
+  assert.ok(l.at);
+  assert.deepEqual(J(l.epics.find((e) => e.id === EP)), { id: EP, name: 'Arq', status: 'open', tasks: 2 });
+  const ins = c.calls.find((x) => x[0] === 'add_instruction');
+  assert.ok(ins, 'o agente que pediu (rodando) e já não espera recebe o desfecho');
+  assert.match(ins[1].text, /req-1.*EXECUTADO/);
+  const fresh = load({ pending: [req('create', { epic: { title: 'X' }, waitMs: 60000 })] });
+  await fresh.api.erTick();
+  assert.ok(!fresh.calls.some((x) => x[0] === 'add_instruction'), 'quem ainda espera lê o resultado direto');
+  const sw = load({ pending: [req('create', { epic: { title: 'X' } })] });
+  const realPost = sw.sbPost; sw.sbPost = async (t, b) => { sw.state.repo = '/outro'; return realPost(t, b); };
+  await sw.api.erTick();
+  assert.ok(!sw.calls.some((x) => x[0] === 'epic_request_done'), 'resultado não vai pro projeto errado');
+});
