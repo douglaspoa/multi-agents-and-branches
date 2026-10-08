@@ -363,7 +363,8 @@ export const INTEGRADO_RULE =
   `Você está no terminal integrado do Starfork: a pessoa conversa com você pelo app. Ferramentas do MCP cardume:\n` +
   `- suggest_replies: termine TODA resposta chamando suggest_replies (ou \`starfork sugerir\` no shell) com 2–4 próximas perguntas/ações curtas que o humano provavelmente mandaria (viram botões no app) — inclusive quando só respondeu uma pergunta.\n` +
   `- Quando o humano pedir na conversa: status / o que falta → task_status; marcar pronta pra revisão ou esperando ele → set_status; abrir PR → open_pr; ` +
-  `tarefa nova ou quebrar esta → create_task; skills → list_skills e use_skill.\n` +
+  `tarefa nova ou quebrar esta → create_task; skills → list_skills e use_skill; ` +
+  `agrupar tarefas num épico → create_epic (épico novo) ou link_tasks_to_epic (épico existente; list_epics mostra os do time) — vincula tarefas JÁ existentes, NUNCA recrie uma tarefa pra trocar o épico; tirar do épico → unlink_tasks_from_epic.\n` +
   `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n`;
 export const INTEGRADO_CLAUDE_CMDS = `- Comandos deste projeto: ${STARFORK_COMMANDS.map((c) => "/" + c.name).join(", ")}.\n`;
 
@@ -376,6 +377,10 @@ export const SHELL_COMMANDS: { cmd: string; tool: string; desc: string }[] = [
   { cmd: "starfork skills", tool: "list_skills", desc: "skills do projeto e pessoais" },
   { cmd: "starfork skill <nome>", tool: "use_skill", desc: "imprime as instruções da skill pra você seguir" },
   { cmd: "starfork tarefa \"<título>\" [--objetivo …] [--requisito …]… [--fora-do-epico]", tool: "create_task", desc: "tarefa NOVA no projeto (rascunho — o humano inicia pelo quadro)" },
+  { cmd: "starfork epico novo \"<título>\" [--descricao …] [--outcome …] [--pronto …]… [--tarefas id1,id2]", tool: "create_epic", desc: "cria um ÉPICO no time (o app executa) e já vincula tarefas existentes" },
+  { cmd: "starfork epico vincular <épico> <tarefa>…", tool: "link_tasks_to_epic", desc: "põe tarefas EXISTENTES num épico (id ou nome) — sem recriar nem reiniciar" },
+  { cmd: "starfork epico desvincular <tarefa>…", tool: "unlink_tasks_from_epic", desc: "tira tarefas do épico (elas continuam como estão)" },
+  { cmd: "starfork epico status [<pedido>] · starfork epicos", tool: "epic_request_status", desc: "desfecho dos pedidos de épico · épicos do time" },
   { cmd: "starfork pr [--rascunho] [--titulo …] [--corpo …]", tool: "open_pr", desc: "abre o PR (exige provas, a não ser --rascunho)" },
   { cmd: "starfork requisito \"<texto>\"", tool: "add_requirement", desc: "registra um requisito novo pedido pelo humano" },
   { cmd: "starfork entregavel \"<item>\"", tool: "add_deliverable", desc: "registra um entregável novo" },

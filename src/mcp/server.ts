@@ -3,6 +3,7 @@
 //   ask_human(question, options?) — pergunta ao humano; BLOQUEIA até a UI responder.
 //   claim(path, mode)             — reivindica um caminho no barramento.
 //   add_deliverable · add_requirement · map_requirement · set_issue · check_done_when · edit_task · edit_epic · epic_tasks
+//   create_epic · link_tasks_to_epic · unlink_tasks_from_epic · epic_request_status · list_epics (pedido que o app executa — src/epic-requests.ts)
 //   TERMINAL INTEGRADO (lógica em src/terminal-integrado.ts):
 //   suggest_replies(options)      — 2–4 respostas prováveis do humano → evento "suggest" (o app vira botões).
 //   task_status()                 — requisitos × provas, entregáveis, artefatos, PR e o que falta pra provado/entregue.

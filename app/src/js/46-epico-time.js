@@ -289,7 +289,8 @@ async function epicCompileContext(epicId, forTask){
   const stPt=s=>stLabel(s);
   const byId={}; sibs.forEach(t=>{ byId[t.id]=t; });
   const L=['# Épico: '+epCut(ep.name,90), '', '<!-- Compilado pelo Starfork ao assumir a tarefa. Descreve por propósito; o código é a fonte do resto. -->', '',
-    'id do épico: '+ep.id+' — a ideia mudou? atualize com mcp__cardume__edit_epic (épico) / mcp__cardume__edit_task (irmãs, pelo id abaixo; requisito se remove pelo TEXTO e vira proposta). Nenhum agente é acionado.', ''];
+    'id do épico: '+ep.id+' — a ideia mudou? atualize com mcp__cardume__edit_epic (épico) / mcp__cardume__edit_task (irmãs, pelo id abaixo; requisito se remove pelo TEXTO e vira proposta). Nenhum agente é acionado.',
+    'Organizar épicos: mcp__cardume__link_tasks_to_epic põe tarefas EXISTENTES num épico, mcp__cardume__unlink_tasks_from_epic tira, mcp__cardume__create_epic cria um novo (shell: starfork epico vincular|desvincular|novo). Nunca recrie uma tarefa pra trocar o épico.', ''];
   L.push('## Objetivo', epCut(sp.outcome||sp.description||('Épico do time "'+ep.name+'".'),400)); if(sp.outcome&&sp.description) L.push(epCut(sp.description,300)); L.push('');
   if(reqs.length){ L.push('## Requisitos do épico'); reqs.slice(0,12).forEach(r=>L.push('- '+(r.id||'R?')+': '+epCut(r.text,200))); L.push(''); }
   if(dw.length){ L.push('## Pronto quando (o épico só fecha com tudo marcado)'); dw.slice(0,8).forEach((d,i)=>L.push('- '+(d.checkedBy?'[x]':'[ ]')+' '+(d.id||('D'+(i+1)))+': '+epCut(d.text,200))); L.push(''); }
