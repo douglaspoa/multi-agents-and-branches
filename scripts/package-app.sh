@@ -17,6 +17,7 @@ source scripts/build-mark.sh
 # que falhar no meio não pode ficar com o carimbo do anterior
 rm -f dist/Starfork-portable.json
 PKG_HEAD=$(git rev-parse HEAD)
+PKG_DIRTY=$(tree_dirty .)
 
 echo "→ 1/4 bundle do motor (esbuild)"
 rm -rf app/src-tauri/resources
@@ -135,13 +136,10 @@ TXT
 if [ "$(git rev-parse HEAD)" != "$PKG_HEAD" ]; then
   echo "✖ o checkout mudou de commit durante o empacotamento — rode scripts/package-app.sh de novo" >&2; exit 1
 fi
-write_portable_meta . dist/Starfork-portable.zip dist/Starfork-portable.json
+BUILD_DIRTY=$PKG_DIRTY write_portable_meta . dist/Starfork-portable.zip dist/Starfork-portable.json
 echo "✔ dist/Starfork-portable.zip pronto — instale em outro Mac: descompacta, arrasta pra /Applications, abre (botão direito → Abrir na 1ª vez)."
 
-# publica no canal de releases quando as credenciais do owner estão no ambiente
-if [ -n "${CONSTELLATION_EMAIL:-}" ] && [ -n "${CONSTELLATION_PASSWORD:-}" ]; then
-  echo "→ 5/5 publicando release"
-  node scripts/publish-release.mjs "${RELEASE_NOTES:-}" || echo "⚠ publicação falhou (o zip local continua válido)"
-else
-  echo "ℹ release NÃO publicada (defina CONSTELLATION_EMAIL/CONSTELLATION_PASSWORD pra publicar o ⬆ atualizar)"
-fi
+# publicar NÃO é daqui: a release do time sai só pelo botão "Publicar release pro time" do app
+# instalado pelo deploy-local — ele confere commit/main/sujeira e o zip no canal antes de avisar
+# o time (o antigo scripts/publish-release.mjs pulava tudo isso e foi removido).
+echo "ℹ pra mandar pro time: no app, Publicar release pro time (só sai se este pacote é da main)."

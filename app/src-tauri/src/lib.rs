@@ -5236,7 +5236,7 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
 #[tauri::command(async)]
 fn publish_release(url: String, anon: String, token: String, notes: Option<String>) -> Result<String, String> {
     let src = release::dev_source().ok_or("só a instalação de desenvolvimento publica releases — instale o app pelo scripts/deploy-local.sh (no checkout do repositório) e tente de novo.")?;
-    let pkg = release::preflight(&src, true)?;
+    let pkg = release::preflight(&src)?;
     release::upload(&url, &anon, &token, &pkg, notes)
 }
 fn chrono_iso_now() -> String {

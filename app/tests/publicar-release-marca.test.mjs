@@ -44,6 +44,14 @@ test('deploy-local: a marca dev grava raiz do fonte + commit/branch; sujeira det
   writeFileSync(join(d, 'a.txt'), '2');
   sh(d, 'write_dev_mark "$1" "$2"', a, d);
   assert.equal(JSON.parse(readFileSync(markOf(a), 'utf8')).dirty, true);
+  assert.equal(sh(d, 'tree_dirty .').trim(), 'true');
+  // sujeira vista ANTES do build continua valendo mesmo se a árvore for limpa no fim
+  git(d, 'checkout', '--', 'a.txt');
+  assert.equal(sh(d, 'tree_dirty .').trim(), 'false');
+  sh(d, 'BUILD_DIRTY=true write_dev_mark "$1" .', a);
+  assert.equal(JSON.parse(readFileSync(markOf(a), 'utf8')).dirty, true);
+  sh(d, 'BUILD_DIRTY=false write_dev_mark "$1" .', a);
+  assert.equal(JSON.parse(readFileSync(markOf(a), 'utf8')).dirty, false);
   rmSync(d, { recursive: true, force: true });
 });
 
@@ -85,6 +93,11 @@ test('ordem nos scripts: marca antes de assinar; portable sem marca antes de ass
   assert.ok(cp > 0 && strip > cp && strip < sign, 'remove a marca do portable depois de copiar o template e ANTES de assinar');
   assert.ok(meta > zip, 'carimbo do commit só depois do zip pronto');
   assert.ok(pk.indexOf('PKG_HEAD') < pk.indexOf('cargo build'), 'commit capturado antes do build');
+  assert.ok(pk.indexOf('PKG_DIRTY=$(tree_dirty .)') < pk.indexOf('cargo build') && pk.includes('BUILD_DIRTY=$PKG_DIRTY write_portable_meta'), 'sujeira capturada antes do build');
+  assert.ok(dl.indexOf('DL_HEAD=$(git rev-parse HEAD)') < dl.indexOf('cargo build') && dl.includes('BUILD_DIRTY=$DL_DIRTY write_dev_mark'), 'deploy-local: commit/sujeira de antes do build');
+  // um único caminho de publicação, o que confere tudo: o script antigo (sem regra nenhuma) saiu
+  assert.ok(!existsSync(join(ROOT, 'scripts/publish-release.mjs')));
+  assert.doesNotMatch(pk, /publish-release\.mjs"|node scripts\/publish-release/);
 });
 
 test('recusas do publish_release chegam inteiras e sem cair num erro de catálogo errado', () => {

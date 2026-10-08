@@ -17,6 +17,8 @@ _build_mark_json() {
   # só arquivos versionados: resources/ e dist/ são ignorados; um .rs novo que entra no build
   # aparece como alteração no mod que o referencia
   if [ -n "$(git -C "$root" status --porcelain --untracked-files=no)" ]; then dirty=true; fi
+  # BUILD_DIRTY=true: o chamador viu sujeira ANTES de compilar (limpar depois não lava o binário)
+  if [ "${BUILD_DIRTY:-}" = true ]; then dirty=true; fi
   node -e '
     const [commit, branch, dirty, ...kv] = process.argv.slice(1);
     const o = { commit, branch, dirty: dirty === "true", builtAt: new Date().toISOString() };
@@ -34,6 +36,11 @@ write_dev_mark() {
 
 strip_dev_mark() {
   rm -f "$1/Contents/Resources/dev-source.json"
+}
+
+# sujeira do checkout agora ("true"/"false") — capture ANTES do build e passe em BUILD_DIRTY
+tree_dirty() {
+  if [ -n "$(git -C "$1" status --porcelain --untracked-files=no)" ]; then echo true; else echo false; fi
 }
 
 write_portable_meta() {
