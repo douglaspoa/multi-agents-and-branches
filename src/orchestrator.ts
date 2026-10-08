@@ -2521,7 +2521,11 @@ export async function rewritePrReport(prUrl: string, report: string, cwd: string
     const body = stdout.replace(/\n$/, "");
     const next = replaceReport(body, report);
     if (next.trim() === body.trim()) return { changed: false };
-    await run(ghBin(), ["pr", "edit", prUrl, "--body", next], { cwd, env: env ?? netEnv(), timeout: netTimeoutMs() });
+    // REST e não `gh pr edit`: o pr edit do gh 2.6x falha em repositório com Projects (classic) desativado
+    // ("Projects (classic) is being deprecated…") e o corpo nunca era trocado
+    const m = prUrl.match(/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/);
+    const args = m ? ["api", "-X", "PATCH", `repos/${m[1]}/${m[2]}/pulls/${m[3]}`, "-f", `body=${next}`, "--silent"] : ["pr", "edit", prUrl, "--body", next];
+    await run(ghBin(), args, { cwd, env: env ?? netEnv(), timeout: netTimeoutMs() });
     return { changed: true };
   } catch (e) {
     return { changed: false, error: String((e as { stderr?: string }).stderr || (e as Error).message || e).trim() };

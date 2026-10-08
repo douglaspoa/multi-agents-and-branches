@@ -48,7 +48,8 @@ case "$1 $2" in
   "repo view") [ -f "$D/falha" ] && { echo "HTTP 401: Bad credentials" >&2; exit 1; }; echo "{\\"nameWithOwner\\":\\"o/r\\",\\"visibility\\":\\"$(cat "$D/vis.txt")\\"}";;
   "pr create") while [ $# -gt 0 ]; do [ "$1" = "--body" ] && printf '%s' "$2" > "$D/body.md"; shift; done; echo "https://github.com/o/r/pull/77";;
   "pr view") cat "$D/body.md";;
-  "pr edit") while [ $# -gt 0 ]; do [ "$1" = "--body" ] && printf '%s' "$2" > "$D/body.md"; shift; done;;
+  "pr edit") echo "GraphQL: Projects (classic) is being deprecated" >&2; exit 1;;
+  "api -X") [ "$3" = "PATCH" ] || exit 1; while [ $# -gt 0 ]; do case "$1" in body=*) printf '%s' "\${1#body=}" > "$D/body.md";; esac; shift; done;;
   *) echo "gh falso: $*" >&2; exit 1;;
 esac
 `);
