@@ -783,7 +783,7 @@ async function epicStart(eid, btn){
     let here=null;
     for(const x of p.now.slice(0, q.go)){
       try{
-        if(x.kind==='local'){ await startTask(x.id); const t=(state.tasks||[]).find(y=>y.id===x.id); if(t && t.status!=='draft') res.started++; else res.failed++; continue; } // startTask já avisa o erro
+        if(x.kind==='local'){ if(await startTask(x.id)) res.started++; else res.failed++; continue; } // startTask já avisa o erro
         const pj=await epProjOf(x.ct); here=here||await repoRemoteIds();
         if(pj && pj.repo_remote && here.remote && !remoteSame(pj.repo_remote, here)){ await epArm([x], true, eid); res.elsewhere++; continue; }
         await teamClaimStart(x.ct, null, { silent:true }); res.started++;
@@ -827,7 +827,7 @@ async function epAutoLocalTick(){
       if(epWaveLeft(t.epic&&t.epic.epicId, w)) continue;
       if(epLiveCount()>=slotMax) break; // sem vaga: tenta no próximo tick
       delete m[id]; epAutoLocalPut(m); // sai da lista ANTES de iniciar: nunca dois inícios
-      await startTask(id);
+      if(!await startTask(id)) continue; // falhou: o startTask já avisou (e não fica tentando pra sempre)
       pushNotif('▶ Começou sozinha', (t.title||'tarefa')+(w>1?' — a onda anterior do épico foi entregue':' — abriu vaga pra mais um agente'), id);
     }
     if(ch) epAutoLocalPut(m);
