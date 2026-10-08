@@ -381,6 +381,9 @@
 .ctst i{width:7px;height:7px;border-radius:50%;background:var(--stc);flex:none}
 .ct-act{text-align:right;white-space:nowrap}
 .ct-act .btn{min-width:72px;justify-content:center}
+.ct-act .ctacts{display:inline-flex;align-items:center;gap:4px}
+.ct-act .btn.ctmore{min-width:0;width:28px;padding:0;color:var(--text-2)}
+.ct-act .btn.ctmore:hover{color:var(--text);background:var(--surface-2)}
 .ctexp td{background:var(--surface-2);padding:0 10px 10px}
 .ctexpb{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);padding:9px 12px}
 .ctexpb .sp{flex:1 1 0}
