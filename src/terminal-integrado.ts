@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { evidenceExists, type Orchestrator } from "./orchestrator.ts";
 import { parseSkillMd, skillsDir } from "./learn.ts";
 import { norm } from "./req-map.ts";
+import { ASK_STYLE } from "./ask-style.ts";
 import { slugify, type AgentStatus, type TaskRow, type TaskSpec } from "./types.ts";
 
 // ======================= suggest_replies =======================
@@ -365,7 +366,8 @@ export const INTEGRADO_RULE =
   `- Quando o humano pedir na conversa: status / o que falta → task_status; marcar pronta pra revisão ou esperando ele → set_status; abrir PR → open_pr; ` +
   `tarefa nova ou quebrar esta → create_task; skills → list_skills e use_skill; ` +
   `agrupar tarefas num épico → create_epic (épico novo) ou link_tasks_to_epic (épico existente; list_epics mostra os do time) — vincula tarefas JÁ existentes, NUNCA recrie uma tarefa pra trocar o épico; tirar do épico → unlink_tasks_from_epic.\n` +
-  `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n`;
+  `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n` +
+  `- Perguntar ao humano (AskUserQuestion, ask_human ou \`starfork perguntar\`):${ASK_STYLE}\n`;
 export const INTEGRADO_CLAUDE_CMDS = `- Comandos deste projeto: ${STARFORK_COMMANDS.map((c) => "/" + c.name).join(", ")}.\n`;
 
 // ======================= `starfork …` no shell (qualquer IA) =======================
@@ -384,7 +386,7 @@ export const SHELL_COMMANDS: { cmd: string; tool: string; desc: string }[] = [
   { cmd: "starfork pr [--rascunho] [--titulo …] [--corpo …]", tool: "open_pr", desc: "abre o PR (exige provas, a não ser --rascunho)" },
   { cmd: "starfork requisito \"<texto>\"", tool: "add_requirement", desc: "registra um requisito novo pedido pelo humano" },
   { cmd: "starfork entregavel \"<item>\"", tool: "add_deliverable", desc: "registra um entregável novo" },
-  { cmd: "starfork perguntar \"<pergunta>\" [--opcao a --opcao b]", tool: "ask_human", desc: "pergunta ao humano pelo app (espera a resposta)" },
+  { cmd: "starfork perguntar \"<pergunta curta?>\" [--contexto \"tópico\"]… [--opcao \"Rótulo — descrição\"]…", tool: "ask_human", desc: "pergunta ao humano pelo app (espera a resposta): 1 frase com '?', contexto em 3–5 tópicos, opções com rótulo curto + descrição" },
   { cmd: "starfork mapa --json '{\"req\":…,\"code\":[…]}'", tool: "map_requirement", desc: "liga um requisito aos trechos de código/testes" },
 ];
 export const SECTION_BEGIN = "<!-- starfork:inicio -->";
@@ -398,6 +400,7 @@ export function shellInstructions(): string {
     `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n` +
     `- Pra falar com o Starfork use as ferramentas do MCP "cardume" (se a sua IA tiver) OU estes comandos no shell (mesmo efeito):\n` +
     SHELL_COMMANDS.map((c) => `  - \`${c.cmd}\` — ${c.desc} (= ${c.tool})`).join("\n") + "\n" +
+    `- Perguntar ao humano:${ASK_STYLE}\n` +
     `- Termine TODA resposta chamando \`starfork sugerir\` (ou a tool suggest_replies) com 2–4 próximas perguntas/ações curtas — inclusive quando só respondeu uma pergunta.\n` +
     `- Quando terminar: \`starfork status\`; se não faltar prova, \`starfork etapa review --nota "o que foi provado"\`. PR só quando o humano pedir.\n`;
 }

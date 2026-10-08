@@ -9,6 +9,7 @@ import { loadLlmEnv } from "./codex.ts";
 import { protectEnabled, PROTECT_RULE } from "./protect.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { mobileRule } from "../mobile.ts";
+import { ASK_STYLE } from "../ask-style.ts";
 
 /**
  * Motor DeepSeek Harness (`dsh`, MIT — github.com/deepseek-ai/deepseek-harness) — BETA (o dsh está em
@@ -320,7 +321,7 @@ const ROLE_INSTR: Record<string, string> = {
   builder: "Seu papel é BUILDER: implemente a tarefa descrita.",
 };
 const ASK_RULE =
-  " Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e AGUARDE a resposta) e mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo). Se não entendeu algo ou NÃO CONSEGUIR cumprir um requisito, pergunte via mcp__cardume__ask_human — nunca invente nem entregue silenciosamente sem um requisito.";
+  " Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e AGUARDE a resposta) e mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo). Se não entendeu algo ou NÃO CONSEGUIR cumprir um requisito, pergunte via mcp__cardume__ask_human — nunca invente nem entregue silenciosamente sem um requisito." + ASK_STYLE;
 const GROUND_RULE =
   " EXECUTE ANTES DE AFIRMAR: rode o projeto/testes de verdade nesta worktree (envs semeadas — veja .cardume/AMBIENTE.md) antes de qualquer conclusão; leitura de código não é verificação. Scripts descartáveis em .cardume/tmp/ (fora do diff). NUNCA abra Pull Request por conta própria.";
 

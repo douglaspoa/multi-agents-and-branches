@@ -10,6 +10,7 @@ import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
 import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
 import { mobileRule } from "../mobile.ts";
+import { ASK_STYLE } from "../ask-style.ts";
 
 /**
  * Perfil do Chrome pra este agente. O perfil é PERSISTENTE por repo (login feito uma vez
@@ -296,7 +297,7 @@ export class ClaudeEngine implements AgentEngine {
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${specGapRule}${scratchRule}${previewRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${editRule}${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}${mobRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${ASK_STYLE}${editRule}${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}${mobRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
     // groundRule/parallelRule valem pra TODO turno (pipeline, chat/resume e

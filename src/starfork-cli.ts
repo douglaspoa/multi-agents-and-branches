@@ -9,6 +9,7 @@
 import { dirname } from "node:path";
 import { callTool, ctxFromEnv } from "./mcp/tools.ts";
 import { SHELL_COMMANDS } from "./terminal-integrado.ts";
+import { askContextText } from "./ask-style.ts";
 import { AI_LABEL, AiMissingError, iaExit, iaPrep, isTermAi, TERM_AIS } from "./terminal.ts";
 
 export interface Io { out: (s: string) => void; err: (s: string) => void }
@@ -128,8 +129,10 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
     case "entregavel":
     case "entregável":
       return tool(io, "add_deliverable", { item: text });
-    case "perguntar":
-      return tool(io, "ask_human", { question: text, ...(many(a, "opcao", "opção", "option").length ? { options: many(a, "opcao", "opção", "option") } : {}) });
+    case "perguntar": {
+      const ctx = many(a, "contexto", "context"), opts = many(a, "opcao", "opção", "option");
+      return tool(io, "ask_human", { question: text, ...(ctx.length ? { context: askContextText(ctx) } : {}), ...(opts.length ? { options: opts } : {}) });
+    }
     case "mapa": {
       let args: Record<string, unknown>;
       try { args = JSON.parse(one(a, "json") ?? text); } catch { io.err("starfork mapa: passe o JSON do map_requirement em --json '{\"req\":\"…\",\"code\":[{\"file\":\"…\",\"lines\":\"1-9\"}]}'"); return 1; }

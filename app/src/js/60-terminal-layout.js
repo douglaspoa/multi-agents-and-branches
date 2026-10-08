@@ -10,7 +10,7 @@
 // Claude Code como resposta do usuário. Única exceção aprovada a "aba, não modal": ancorada ao terminal, não à janela.
 // Fontes únicas: reqRows/proofGate/proofGateLine/proofAsk/approveGate/approveNoProof (21/27), taskSt/stMeta, enThumbHtml.
 
-// @tl-puro-inicio (puro: só esc/escA — testado em app/tests/terminal-layout.test.mjs)
+// @tl-puro-inicio (puro: só esc/escA e o mdToHtml — testado em app/tests/terminal-layout.test.mjs e pergunta-legivel.test.mjs)
 const TL_NARROW=820; // largura da coluna do terminal abaixo da qual o painel vira faixa sozinho (spec do redesenho F1: painel < 820 px)
 const TL_IN_TERMINAL='(responder no terminal)'; // = AUQ_IN_TERMINAL (src/terminal.ts): o hook solta e o picker do CLI aparece no TTY
 const TL_SKIP_HUMAN='(sem resposta — siga com a melhor suposição e registre-a em .cardume/artifacts/ASSUMPTIONS.md)';
@@ -87,7 +87,7 @@ function tlAskGroup(pend){
   const rows=mine
     .slice().sort((a,b)=>((meta(a)||{}).idx|0)-((meta(b)||{}).idx|0))
     .map(p=>{ const m=meta(p)||{}; const opts=Array.isArray(p.options)?p.options.map(String):[];
-      return { id:p.id, ck:p.id+'|'+(p.createdAt||''), prompt:String(p.prompt||''), header:String(m.header||''), options:opts, desc:opts.map((_,i)=>String((m.desc||[])[i]||'')), multi:!!m.multi }; });
+      return { id:p.id, ck:p.id+'|'+(p.createdAt||''), prompt:String(p.prompt||''), header:String(m.header||''), q:m.src==='ask'?String(m.question||''):'', options:opts, desc:opts.map((_,i)=>String((m.desc||[])[i]||'')), multi:!!m.multi }; });
   return { key, auq:!!(m0&&m0.src==='auq'), agent:first.agent||'', rows };
 }
 // envio que caiu no meio (parte das respostas já foi): o snapshot passa a trazer o grupo INCOMPLETO, o tlAskGroup o dá
@@ -102,7 +102,7 @@ function tlAskResume(g, pend, ask, taskId){
 }
 /** A folha pega o foco? Quem já estava nela / pediu, sim; pergunta NOVA só se ninguém digita em lugar nenhum — o terminal conta. */
 function tlAskTakesFocus(o){ return !!(o.hadFocus || o.focus || (o.fresh && !o.min && !o.termFocus && o.onBody)); }
-function tlAskNew(g){ return { sent:{}, q:0, sel:g.rows.map(r=>r.options.length?(r.multi?[]:[0]):[]), other:g.rows.map(()=> ''), skip:g.rows.map(()=>false), sending:false, min:false }; }
+function tlAskNew(g){ return { sent:{}, q:0, ctxOpen:g.rows.map(()=>false), sel:g.rows.map(r=>r.options.length?(r.multi?[]:[0]):[]), other:g.rows.map(()=> ''), skip:g.rows.map(()=>false), sending:false, min:false }; }
 // a resposta de cada pergunta (texto que vai pro pending): outra resposta > opções escolhidas; pulada = ''
 function tlAskAnswers(g, st){
   return g.rows.map((r,i)=>{
@@ -130,18 +130,133 @@ function tlAskKey(g, st, key, inInput){
   if(key==='ArrowLeft'){ if(s.q>0){ s.q--; s.cursor=null; } return { st:s, act:null }; }
   return { st:s, act:null, pass:true };
 }
+// ---- pergunta LEGÍVEL (08/10: "está ruim de ler, só um texto gigante") ----
+// O agente manda um parágrafo de 20 linhas com a pergunta no fim. A folha separa: TÍTULO = a frase que pergunta (termina
+// em "?"); o resto é CONTEXTO em markdown leve (mdToHtml — fonte única): parágrafos por frase-chave, " - item" inline vira
+// lista, "RÓTULO EM CAIXA ALTA:" vira callout, hashes/portas/caminhos/'ids' em mono. Contexto longo começa recolhido.
+const TL_TITLE_MAX=200;     // pergunta inteira até aqui (numa linha só) = já é o título
+const TL_CTX_FOLD_LINES=6;  // contexto com mais linhas (≈72ch) que isso abre recolhido
+const TL_QEND=/\?["'”»)\]]*$/;
+/** Frases: corta em . ! ? … fora de parênteses/aspas, seguido de espaço + começo de frase. Abreviação comum não corta. */
+function tlSentences(s){
+  s=String(s||''); const out=[]; let depth=0, q=-1, start=0;
+  for(let i=0;i<s.length;i++){
+    const c=s[i];
+    if(c==='('||c==='['){ depth++; continue; } if((c===')'||c===']')){ if(depth>0) depth--; continue; }
+    if(c==='"'||c==='“'||c==='”'){ q=(c==='“'||(c==='"'&&q<0))?i:-1; continue; }
+    if(q>=0 && i-q>240) q=-1; if(depth>0 && i-start>600) depth=0; // aspas/parêntese sem par não travam o resto
+    if(!/[.!?…]/.test(c) || depth>0 || q>=0) continue;
+    let j=i+1; while(j<s.length && /[.!?…"'”»)\]]/.test(s[j])) j++;
+    if(j>=s.length || !/\s/.test(s[j])) continue;
+    let k=j; while(k<s.length && /\s/.test(s[k])) k++;
+    if(k>=s.length || !/[A-ZÀ-Ý0-9"'“«(`*•-]/.test(s[k])) continue;
+    if(c==='.' && /(?:^|[\s(])(?:ex|etc|p|sr|sra|dr|vs|obs|aprox|pág|cf|n[oº]?)\.$/i.test(s.slice(Math.max(0,i-7), i+1))) continue;
+    out.push(s.slice(start,j).trim()); start=k; i=k-1;
+  }
+  const rest=s.slice(start).trim(); if(rest) out.push(rest);
+  return out;
+}
+/** prompt → { title, ctx }. Curta = título inteira; senão a(s) frase(s) com "?" (a última, + a anterior se também pergunta). */
+function tlAskSplit(prompt, header, q){
+  const raw=String(prompt||'').replace(/\r\n/g,'\n').trim();
+  q=String(q||'').trim(); if(q && raw.startsWith(q)) return { title:q, ctx:raw.slice(q.length).trim() }; // ask_human com context
+  if(raw.length<=TL_TITLE_MAX && !raw.includes('\n')) return { title:raw, ctx:'' };
+  const paras=raw.split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);
+  const QS=/\?["'”»)\]]*(?:\s|$)/; // "?" que fecha frase (o de URL ?a=1 não conta)
+  let pi=-1; for(let i=paras.length-1;i>=0;i--) if(QS.test(paras[i])){ pi=i; break; }
+  if(pi<0){ // ninguém pergunta ("escolha uma opção."): título = header do AskUserQuestion ou a última frase curta
+    if(header) return { title:header, ctx:raw };
+    const LP=paras[paras.length-1];
+    if(LP.includes('\n')){ const ls=LP.split('\n'), t=ls.pop().trim(); // lista em linhas: a última linha é o pedido; a lista fica inteira
+      if(t.length<=TL_TITLE_MAX && !/^\s*[-*•\d]/.test(t)) return { title:t, ctx:paras.slice(0,-1).concat([ls.join('\n')]).join('\n\n').trim() };
+      return { title:'O agente precisa de você', ctx:raw }; }
+    const ss=tlSentences(LP); const t=ss[ss.length-1]||'';
+    if(t.length<=TL_TITLE_MAX && t!==raw){ ss.pop(); return { title:t, ctx:paras.slice(0,-1).concat(ss.length?[ss.join(' ')]:[]).join('\n\n') }; }
+    return { title:header||'O agente precisa de você', ctx:raw };
+  }
+  const P=paras[pi];
+  if(!P.includes('\n') && P.length<=280 && TL_QEND.test(P) && tlSentences(P).length<=2) return { title:P, ctx:paras.filter((_,i)=>i!==pi).join('\n\n') };
+  const lines=P.split('\n'); let li=lines.length-1; while(li>0 && !QS.test(lines[li])) li--;
+  const ss=tlSentences(lines[li]); let qi=-1; for(let i=ss.length-1;i>=0;i--) if(TL_QEND.test(ss[i])){ qi=i; break; }
+  if(qi<0) for(let i=ss.length-1;i>=0;i--) if(/\?/.test(ss[i])){ qi=i; break; }
+  let from=qi; if(qi>0 && TL_QEND.test(ss[qi-1]) && (ss[qi-1]+ss[qi]).length<=TL_TITLE_MAX*1.4) from=qi-1;
+  const title=ss.slice(from, qi+1).join(' ');
+  const before=ss.slice(0, from).join(' '), after=ss.slice(qi+1).join(' ');
+  const line=[before, after].filter(Boolean).join(' ');
+  const P2=lines.slice(0, li).concat(line?[line]:[]).concat(lines.slice(li+1)).join('\n').trim();
+  const ctx=paras.slice(0, pi).concat(P2?[P2]:[]).concat(paras.slice(pi+1)).join('\n\n');
+  return { title, ctx };
+}
+/** Termos técnicos em mono (fora do `código` que já veio): hash, porta, host:porta, caminho, arquivo.ext, 'identificador'. */
+function tlMono(s){
+  return String(s||'').split(/(`[^`]*`|\[[^\]\n]*\]\([^)\s]*\))/).map((p,i)=> i%2 ? p : p
+    .replace(/'([A-Za-z_][\w.:-]*)'/g, '`$1`')
+    .replace(/(^|[\s(])((?:\.{1,2}\/|~\/|\/)?[\w.@-]+(?:\/[\w.@-]+)+\/?)(?=$|[\s),;:!?]|\.(?:\s|$))/g, (m,a,p)=> (/^(?:\.{0,2}\/|~\/|\/)/.test(p) || (p.match(/\//g)||[]).length>=2 || /\.[a-z]{1,5}$/i.test(p)) && !/^https?:/i.test(p) ? a+'`'+p+'`' : m)
+    .replace(/(^|[\s(])([\w-]+\.(?:ts|tsx|js|mjs|cjs|jsx|json|ya?ml|md|png|jpe?g|rs|py|sql|toml|css|html|sh|txt|log|lock|sqlite))(?=$|[\s),;:!?]|\.(?:\s|$))/g, '$1`$2`')
+    .replace(/\b(porta|port)\s+(\d{2,5})\b/gi, '$1 `$2`')
+    .replace(/\b((?:localhost|127\.0\.0\.1|0\.0\.0\.0):\d{2,5})\b/g, '`$1`')
+    .replace(/(^|[\s(])(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])([0-9a-f]{7,40})(?=$|[\s),;:.!?])/g, '$1`$2`')
+  ).join('');
+}
+const TL_KEY_START=/^(?:Resultado|Resumo|Conclus[ãa]o|Além disso|O motivo|Motivo|Porém|Mas|Por isso|Então|Ou seja|Obs|Nota|Importante|Atenção|Diferenças?|Detalhes?|Contexto|Problema|Causa|Próximos passos)\b/i;
+/** Um trecho corrido → markdown: lista inline (" - a … - b …"), parágrafos por frase-chave, "Rótulo:" em negrito. */
+function tlProseMd(text){
+  const t=String(text||'').replace(/\s+/g,' ').trim(); if(!t) return '';
+  const bul=/(^|[:.;!?…])\s+[-•]\s+(?=\S)/g; const hits=[...t.matchAll(bul)];
+  const bold=(s)=>s.replace(/^([A-ZÀ-Ý][\wÀ-ÿ]*(?: [\wÀ-ÿ]+){0,2}):(\s|$)/, '**$1:**$2');
+  const paras=(s)=>{ const ss=tlSentences(s), out=[]; let cur=[];
+    for(const x of ss){ const len=cur.join(' ').length; if(cur.length && (TL_KEY_START.test(x) || cur.length>=2 || len>=240)){ out.push(cur.join(' ')); cur=[]; } cur.push(x); }
+    if(cur.length) out.push(cur.join(' ')); return out.map(bold).join('\n\n'); };
+  if(hits.length<2) return paras(t);
+  const lead=t.slice(0, hits[0].index+hits[0][1].length).trim();
+  const items=hits.map((h,i)=>t.slice(h.index+h[0].length, i+1<hits.length?hits[i+1].index+hits[i+1][1].length:t.length).trim());
+  // o último item vai até o fim da 1ª frase; o que sobra volta a ser texto corrido
+  const ls=tlSentences(items[items.length-1]); items[items.length-1]=ls.shift()||''; const tail=ls.join(' ');
+  return [lead?paras(lead):'', items.filter(Boolean).map(x=>'- '+x).join('\n'), tail?paras(tail):''].filter(Boolean).join('\n\n');
+}
+const TL_CAPS=/(^|[.!?…]["'”)]*\s+|\n)([A-ZÀ-Ý][A-ZÀ-Ý0-9]*(?:[ /&-][A-ZÀ-Ý0-9]+){0,4}):\s+/g;
+/** contexto → blocos { md } | { label, md } (callout pros "RÓTULO EM CAIXA ALTA:"). Já em markdown (com quebras) = respeita. */
+function tlCtxBlocks(ctx){
+  const raw=String(ctx||'').replace(/\r\n/g,'\n').trim(); if(!raw) return [];
+  const cuts=[]; if(!/```/.test(raw)) for(const m of raw.matchAll(TL_CAPS)){ const lab=m[2]; if(!/[A-ZÀ-Ý]{4,}/.test(lab) || lab.length>40) continue; cuts.push({ at:m.index+m[1].length, end:m.index+m[0].length, label:lab }); }
+  const segs=[]; let pos=0, label=null;
+  for(const c of cuts){ segs.push({ label, text:raw.slice(pos, c.at) }); pos=c.end; label=c.label; }
+  segs.push({ label, text:raw.slice(pos) });
+  const md=(s)=>{ s=s.trim(); if(!s) return ''; return tlMono(/\n/.test(s) ? s : tlProseMd(s)); };
+  return segs.map(s=>({ label:s.label, md:md(s.text) })).filter(s=>s.md || s.label).map(s=>s.label?s:{ md:s.md });
+}
+/** linhas (≈72ch) que o contexto ocupa — decide se abre recolhido */
+function tlCtxLines(blocks){ return (blocks||[]).reduce((n,b)=>n+(b.label?1:0)+String(b.md||'').split('\n').reduce((k,l)=>k+(l.trim()?Math.max(1, Math.ceil(l.length/72)):0.5), 0), 0); }
+/** título: escapado, `código` em mono, parêntese longo em tom menor (o que pergunta fica na frente) */
+function tlTitleHtml(s){
+  return esc(tlMono(s)).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\(([^()<]{24,})\)/g,'<span class="tlqp">($1)</span>');
+}
+/** opção "Rótulo — descrição" (ask_human não tem campo de descrição): separa pra mostrar a descrição em linha menor */
+function tlOptSplit(o, desc){
+  const s=String(o||''); if(desc) return { label:s, desc:String(desc) };
+  const m=s.match(/^(.{2,60}?)\s+[—–]\s+(.+)$/); return m?{ label:m[1].trim(), desc:m[2].trim() }:{ label:s, desc:'' };
+}
+function tlCtxHtml(blocks){
+  const md=(s)=>(typeof mdToHtml==='function'?mdToHtml(s):'<p>'+esc(s)+'</p>');
+  return blocks.map(b=>b.label?`<div class="tlcall"><span class="tlcallk">${esc(b.label)}</span>${md(b.md)}</div>`:md(b.md)).join('');
+}
 function tlSheetHtml(g, st){
   const r=g.rows[st.q]||g.rows[0]; const many=g.rows.length>1; const last=st.q>=g.rows.length-1;
   const done=(i)=>st.skip[i] || String(st.other[i]||'').trim() || (st.sel[i]||[]).length;
-  const tabs=many?`<span class="tlqtabs" role="tablist" aria-label="perguntas">${g.rows.map((x,i)=>`<button type="button" role="tab" class="tlqt${i===st.q?' on':done(i)&&i!==st.q?' done':''}" data-tlq="${i}" aria-selected="${i===st.q}">${i+1}. ${esc(x.header||x.prompt.slice(0,28))}</button>`).join('')}</span>`:'';
+  const tabs=many?`<span class="tlqtabs" role="tablist" aria-label="perguntas">${g.rows.map((x,i)=>`<button type="button" role="tab" class="tlqt${i===st.q?' on':done(i)&&i!==st.q?' done':''}" data-tlq="${i}" aria-selected="${i===st.q}">${i+1}. ${esc(x.header||tlAskSplit(x.prompt, '', x.q).title.slice(0,28))}</button>`).join('')}</span>`:'';
   const cur=st.sel[st.q]||[]; const other=String(st.other[st.q]||'');
   const opts=r.options.map((o,i)=>{ const on=!other && cur.includes(i);
-    return `<button type="button" class="tlopt${on?' sel':''}${st.cursor===i?' cur':''}" data-tlopt="${i}" role="${r.multi?'checkbox':'radio'}" aria-checked="${on}"><span class="k">${i+1}</span><span class="tlot"><b>${esc(o)}</b>${r.desc[i]?`<small>${esc(r.desc[i])}</small>`:''}</span></button>`; }).join('');
+    const d=tlOptSplit(o, r.desc[i]);
+    return `<button type="button" class="tlopt${on?' sel':''}${st.cursor===i?' cur':''}" data-tlopt="${i}" role="${r.multi?'checkbox':'radio'}" aria-checked="${on}"><span class="k">${i+1}</span><span class="tlot"><b>${esc(d.label)}</b>${d.desc?`<small>${esc(d.desc)}</small>`:''}</span></button>`; }).join('');
+  const sp=tlAskSplit(r.prompt, r.header, r.q), blocks=tlCtxBlocks(sp.ctx); const uid=escA(String(g.key).replace(/[^\w-]/g,'-'));
+  const fold=tlCtxLines(blocks)>TL_CTX_FOLD_LINES, open=!fold || !!(st.ctxOpen&&st.ctxOpen[st.q]);
+  const ctx=blocks.length?`<div class="tlctx${open?'':' fold'}" id="tlCtx-${uid}">${tlCtxHtml(blocks)}</div>`+
+    (fold?`<button type="button" class="tlctxt" data-tl="askctx" aria-expanded="${open}" aria-controls="tlCtx-${uid}">${open?'recolher contexto':'ver contexto completo'}</button>`:''):'';
   const n=r.options.length;
   return `<div class="tlsheet${st.sending?' sending':''}" role="dialog" aria-modal="false" aria-label="${escA('pergunta do agente'+(g.agent?' '+g.agent:''))}" tabindex="-1">`+
     `<div class="tlsh"><span class="tlshk">${esc(g.agent||'O agente')} pergunta</span>${tabs}<span class="sp"></span><button type="button" class="tlmin" data-tl="askmin" title="esconder a pergunta (Esc) — ela continua esperando você" aria-label="esconder a pergunta">${TL_IC.fold}</button></div>`+
-    `<div class="tlq" id="tlQ">${esc(r.prompt)}${r.multi?' <span class="tlmulti">escolha uma ou mais</span>':''}</div>`+
-    (n?`<div class="tlopts" role="${r.multi?'group':'radiogroup'}" aria-labelledby="tlQ">${opts}</div>`:'')+
+    `<div class="tlq" id="tlQ-${uid}">${tlTitleHtml(sp.title)}${r.multi?' <span class="tlmulti">escolha uma ou mais</span>':''}</div>`+ctx+
+    (n?`<div class="tlopts" role="${r.multi?'group':'radiogroup'}" aria-labelledby="tlQ-${uid}">${opts}</div>`:'')+
     `<div class="tlother"><input class="in" data-tl="other" placeholder="${n?'outra resposta…':'sua resposta…'}" aria-label="${n?'outra resposta':'sua resposta'}" value="${escA(other)}"></div>`+
     `<div class="tlsf"><span class="tlkeys">${n?`<span class="kbd">↑↓</span> escolher <span class="kbd">1–${Math.min(9,n)}</span> atalho `:''}${many?'<span class="kbd">←→</span> pergunta ':''}<span class="kbd">Enter</span> ${last?'envia':'próxima'}</span>`+
     `<span class="sp"></span>${g.auq?'<button type="button" class="lnk" data-tl="askterm" title="o Claude mostra a pergunta no próprio terminal">responder no terminal</button>':''}<button type="button" class="btn sm" data-tl="askskip">pular</button><button type="button" class="btn sm primary" data-tl="asknext"${st.sending?' disabled':''}>${st.sending?'enviando…':last?(many?'enviar respostas':'enviar'):'próxima'}</button></div></div>`;
@@ -297,10 +412,7 @@ function tlAskOf(t){
   const kept=tlAskResume(g, pend, TL.ask, t.id); if(kept) return kept; // envio caiu no meio: a folha fica com o que falta
   if(!g) return null; let st=TL.ask[g.key]; if(!st || st.sel.length!==g.rows.length) st=TL.ask[g.key]=tlAskNew(g); st.g=g; st.task=t.id; return { g, st }; }
 function tlSheetEl(taskId){ let el=TL.sheets[taskId]; if(!el){ el=document.createElement('div'); el.className='tlsheethost'; TL.sheets[taskId]=el; tlSheetWire(taskId, el);
-  el.addEventListener('scroll', ()=>{ if(el.isConnected) el.__sc=tlAskScrollGrab(el); }, true);
-  // pergunta nova fica "presa no fim" enquanto a folha acomoda o tamanho; a pessoa rolou (roda, toque, tecla) = solta
-  ['wheel','touchstart','pointerdown','keydown'].forEach(ev=>el.addEventListener(ev, ()=>{ el.__pin=false; }, { passive:true, capture:true }));
-  if(typeof ResizeObserver==='function'){ el.__ro=new ResizeObserver(()=>{ if(el.__pin) tlAskScrollEnd(el); }); el.__ro.observe(el); } } return el; }
+  el.addEventListener('scroll', ()=>{ if(el.isConnected) el.__sc=tlAskScrollGrab(el); }, true); } return el; }
 /** Antes de o renderWorkspace refazer a coluna: onde estava o foco da folha (o host sai do DOM e perde o foco). */
 function tlSheetFocusGrab(taskId){ const el=TL.sheets[taskId]; const ae=document.activeElement; if(!el || !ae || !el.contains(ae)) return null; return { other:ae.matches('[data-tl="other"]'), caret:ae.selectionStart!=null?ae.selectionStart:null }; }
 function tlAskPaint(t, focus, grab, termFocus){
@@ -328,22 +440,15 @@ function tlAskPaint(t, focus, grab, termFocus){
   const ae=document.activeElement, tf=!!termFocus || !!(TERM[t.id] && TERM[t.id].host.contains(ae));
   if(tlAskTakesFocus({ hadFocus, focus, fresh, min:a.st.min, termFocus:tf, onBody:!ae || ae===document.body })) tlAskFocus(el, inOther, caret);
 }
-// rolagem da folha entre repinturas (o innerHTML zera): mesma pergunta = volta onde estava; pergunta NOVA = abre no FIM do
-// texto, onde está a frase que de fato pergunta (o começo fica a uma rolagem, com a sombra avisando)
-function tlAskScrollGrab(el){ const q=el.querySelector('.tlq'), o=el.querySelector('.tlopts'), s=el.querySelector('.tlsheet'); return q?{ q:q.scrollTop, o:o?o.scrollTop:0, s:s?s.scrollTop:0 }:null; }
+// rolagem da folha entre repinturas (o innerHTML zera): mesma pergunta = volta onde estava; pergunta NOVA = abre no TOPO —
+// o título já é a frase que pergunta (tlAskSplit) e o contexto vem recolhido logo abaixo, com as opções à vista
+function tlAskScrollGrab(el){ const q=el.querySelector('.tlq'), c=el.querySelector('.tlctx'), o=el.querySelector('.tlopts'), s=el.querySelector('.tlsheet'); return q?{ q:q.scrollTop, c:c?c.scrollTop:0, o:o?o.scrollTop:0, s:s?s.scrollTop:0 }:null; }
 function tlAskScrollPut(el, sc){
-  const put=()=>{ const q=el.querySelector('.tlq'), o=el.querySelector('.tlopts'), s=el.querySelector('.tlsheet'); if(!q||!s) return;
-    if(sc){ q.scrollTop=sc.q; if(o) o.scrollTop=sc.o; s.scrollTop=sc.s; } else tlAskScrollEnd(el); };
-  if(!sc) el.__pin=true;
-  if(el.__ro){ const q=el.querySelector('.tlq'); if(q) el.__ro.observe(q); }
+  const put=()=>{ const q=el.querySelector('.tlq'), c=el.querySelector('.tlctx'), o=el.querySelector('.tlopts'), s=el.querySelector('.tlsheet'); if(!q||!s) return;
+    if(sc){ q.scrollTop=sc.q; if(c) c.scrollTop=c.classList.contains('fold')?0:(sc.c||0); if(o) o.scrollTop=sc.o; s.scrollTop=sc.s; } else tlAskScrollStart(el); };
   put(); requestAnimationFrame(put); // a coluna recém-montada só ganha altura no quadro seguinte
 }
-function tlAskScrollEnd(el){
-  const q=el.querySelector('.tlq'), s=el.querySelector('.tlsheet'); if(!q||!s) return;
-  q.scrollTop=q.scrollHeight;
-  // pane pequeno (a folha inteira rola): o fim da pergunta + a 1ª opção logo acima de pular/próxima
-  if(s.scrollHeight>s.clientHeight+1){ const sf=el.querySelector('.tlsf'), op=el.querySelector('.tlopt'); const qb=q.getBoundingClientRect().bottom-s.getBoundingClientRect().top+s.scrollTop; s.scrollTop=Math.max(0, qb+(op?op.offsetHeight+6:0)-s.clientHeight+(sf?sf.offsetHeight:0)); }
-}
+function tlAskScrollStart(el){ for(const k of ['.tlq','.tlctx','.tlopts','.tlsheet']){ const n=el.querySelector(k); if(n) n.scrollTop=0; } }
 // a opção com foco nunca fica escondida atrás da borda (o focus é preventScroll pra não mexer na página)
 function tlAskKeepVisible(b){
   for(let a=b.parentElement; a && !a.classList.contains('tlsheethost'); a=a.parentElement){
@@ -360,10 +465,11 @@ function tlSheetPlace(col, el){
   const comp=col.querySelector(':scope > .fwinput'), dock=col.querySelector(':scope > .tidock'); const ch=(comp?comp.offsetHeight:0)+(dock?dock.offsetHeight:0); const H=col.clientHeight; // compositor escondido = 0
   const room=H-ch; const tight=room<320;
   el.style.bottom=(tight?8:ch+12)+'px';
-  el.classList.toggle('tight', H<300 || room<200);
+  el.classList.toggle('tight', H<340 || room<200); // a folha cheia precisa de ~340px pra título + opções + rodapé
 }
 function tlAskFocus(el, inOther, caret){
   requestAnimationFrame(()=>{
+    if(el.__focusCtx){ el.__focusCtx=false; const c=el.querySelector('[data-tl="askctx"]'); if(c){ c.focus({ preventScroll:true }); return; } }
     if(inOther){ const i=el.querySelector('[data-tl="other"]'); if(i){ i.focus({ preventScroll:true }); if(caret!=null) try{ i.setSelectionRange(caret, caret); }catch(_){ } return; } }
     const b=el.querySelector('.tlopt.cur')||el.querySelector('.tlopt.sel')||el.querySelector('.tlopt')||el.querySelector('[data-tl="other"]')||el.querySelector('.tlpill');
     if(b){ b.focus({ preventScroll:true }); if(b.classList.contains('tlopt')) tlAskKeepVisible(b); }
@@ -381,6 +487,7 @@ function tlSheetWire(taskId, el){
     const k=b.dataset.tl;
     if(k==='askmin'){ st.min=true; repaint(); tlFocusTerm(taskId); return; }
     if(k==='askmax'){ st.min=false; repaint(true); return; }
+    if(k==='askctx'){ if(!st.ctxOpen) st.ctxOpen=g.rows.map(()=>false); st.ctxOpen[st.q]=!st.ctxOpen[st.q]; el.__focusCtx=true; repaint(true); return; }
     if(k==='askskip'){ st.skip[st.q]=true; st.other[st.q]=''; if(st.q<g.rows.length-1){ st.q++; repaint(true); } else tlAskSend(taskId); return; }
     if(k==='asknext'){ if(st.q<g.rows.length-1){ st.q++; repaint(true); } else tlAskSend(taskId); return; }
     if(k==='askterm'){ tlAskSend(taskId, true); return; }
@@ -392,7 +499,7 @@ function tlSheetWire(taskId, el){
     if(e.metaKey||e.ctrlKey||e.altKey) return;
     const inInput=!!e.target.closest('[data-tl="other"]');
     // Enter num botão (pular, responder no terminal…) é o clique dele
-    if(e.key==='Enter' && e.target.closest('button[data-tl]')) return;
+    if((e.key==='Enter'||e.key===' ') && e.target.closest('button[data-tl]')) return;
     { const fo=e.target.closest('[data-tlopt]'); if(fo) c.st.cursor=+fo.dataset.tlopt; } // Espaço/setas partem da opção com foco
     const r=tlAskKey(c.g, c.st, e.key, inInput);
     if(r.pass) return;
