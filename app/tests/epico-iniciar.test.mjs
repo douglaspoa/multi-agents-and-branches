@@ -10,7 +10,12 @@ const cut = (src, from, to) => { const a = src.indexOf(from); const b = src.inde
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const ep = read('js/46-epico-time.js'), ct = read('js/66-central-tabela.js'), fl = read('js/22-quadro-fluxo.js'), nv = read('js/42-nuvem-sync-mobile.js');
-const EP = new Function(cut(ep, '// @ep-iniciar-puro-inicio', '// @ep-iniciar-puro-fim') + '\nreturn { epStartPlan, epStartAskText, epStartDoneText };')();
+const EP = new Function(cut(ep, '// @ep-iniciar-puro-inicio', '// @ep-iniciar-puro-fim') + '\nreturn { epStartPlan, epStartAskText, epStartDoneText, epWaveOpen, epJoinItems };')();
+const epqBucket = new Function(cut(ep, 'function epqBucket(', '\nfunction epqEpicTasks(') + '\nreturn epqBucket;')();
+// startTask de verdade (24), com o motor e a tela falsos
+const startTaskWith = (deps) => new Function('state', 'ACTIVE_ST', 'slotMax', 'askYes', 'invoke', 'refresh', 'toast', 'showErr', 'document', 'CSS',
+  'let lastSig;\n' + cut(read('js/24-perguntas-agente.js'), 'const startingTasks=new Set();', '\nasync function pauseTask(') + '\nreturn startTask;')(
+  deps.state, new Set(['running']), deps.slotMax ?? 4, deps.askYes ?? (async () => true), deps.invoke, async () => {}, () => {}, () => {}, { querySelectorAll: () => [] }, { escape: (x) => x });
 const CT = new Function('esc', 'escA', cut(ct, '// @ct-puro-inicio', '// @ct-puro-fim') + '\nreturn { ctTableHtml };')(esc, esc);
 const CW = new Function(cut(nv, 'function ctArmed', '// @exec-inicio') + '\nreturn { ctArmed, ctWaiting };')();
 
@@ -52,7 +57,11 @@ test('onda atual = a 1ª com algo não entregue; entregue/cancelada não seguram
 });
 
 test('já armado vira "pausar épico"; nada a iniciar some o botão; de outra pessoa fica de fora', () => {
-  assert.equal(EP.epStartPlan([D('a', 1, { b: 'run', startable: false }), D('b', 2, { armed: true })]).mode, 'pause');
+  const pz = EP.epStartPlan([D('a', 1, { b: 'run', startable: false }), D('b', 2, { armed: true })]);
+  assert.equal(pz.mode, 'pause'); assert.equal(pz.canPause, true);
+  // tarefa nova no épico depois de armar (ou início que falhou): "Iniciar" volta, e "Pausar" continua disponível
+  const mix = EP.epStartPlan([D('a', 1, { b: 'run', startable: false }), D('b', 2, { armed: true }), D('c', 2)]);
+  assert.equal(mix.mode, 'start'); assert.equal(mix.canPause, true);
   assert.equal(EP.epStartPlan([D('a', 1, { b: 'run', startable: false }), D('b', 1, { b: 'ok', startable: false })]).mode, '');
   assert.equal(EP.epStartPlan([]).mode, '');
   const p = EP.epStartPlan([D('a', 1), D('z', 1, { mine: false })]);
@@ -77,7 +86,8 @@ test('cartão da nuvem: armado sem `after` também começa sozinho; "na espera d
   assert.equal(CW.ctArmed(c({ autoStart: true }, 'running')), false);
   assert.equal(CW.ctArmed(c({ wave: 2 })), false);
   // o tick: armado sem after espera a onda anterior inteira; com after vale só o after
-  assert.match(ep, /const ready=rows\.filter\(t=>ctArmed\(t\) && ctMineFor\(t, me\) && !epDepsLeft\(t\)\.length && \(\(\(t\.spec\|\|\{\}\)\.after\|\|\[\]\)\.length \|\| !epWaveLeft\(t\.epic_id, epqWave\(t\)\)\)\);/);
+  assert.match(ep, /const ready=rows\.filter\(t=>ctArmed\(t\) && ctMineFor\(t, me\) && !epStartBusy\.has\(t\.epic_id\) && !epDepsLeft\(t\)\.length && \(\(\(t\.spec\|\|\{\}\)\.after\|\|\[\]\)\.length \|\| !epWaveLeft\(t\.epic_id, epqWave\(t\)\)\)\);/);
+  assert.match(ep, /if\(cloudEpicId\(eid\) && SB\.sess\(\) && !\(epQueue\.sibsOk&&epQueue\.sibsOk\.has\(eid\)\)\) return 1;/, 'irmãs da nuvem não lidas: espera, nunca começa antes');
   assert.match(ep, /async function epicAutoStartTick\(\)\{\n  epAutoLocalTick\(\);/, 'rascunho local armado roda mesmo sem nuvem');
 });
 
@@ -121,4 +131,58 @@ test('rascunho armado aparece "na espera" na tabela e a página lista as tarefas
   assert.match(ct, /const st=\(t\.status==='draft' && typeof epAutoLocalHas==='function' && epAutoLocalHas\(t\.id\)\)\?'waiting':taskSt\(t\)/);
   assert.match(ep, /const tasks=\(c\.tasks\|\|\[\]\)\.concat\(locOnly\);/);
   assert.match(ep, /data-eplocgo="\$\{escA\(t\._local\)\}"/);
+});
+
+test('onda anterior aberta segura a próxima; entregue, cancelada e interrompida não seguram', () => {
+  const L = [{ wave: 1, b: 'rev' }, { wave: 1, b: 'ok' }, { wave: 2, b: 'queue' }];
+  assert.equal(EP.epWaveOpen(L, 2), 1, 'em revisão ainda segura');
+  assert.equal(EP.epWaveOpen(L, 1), 0, 'a própria onda não se segura');
+  assert.equal(EP.epWaveOpen([{ wave: 1, b: 'ok' }, { wave: 1, b: 'off' }], 2), 0);
+  assert.equal(EP.epWaveOpen([{ wave: 1, b: 'ok' }, { wave: 2, b: 'run' }], 3), 1, 'onda 2 rodando segura a 3');
+});
+
+test('junção nuvem × local: cada tarefa uma vez, concluída/começada não é "a iniciar", cartão de outra pessoa marcado', () => {
+  const d = { c2l: { cardB: 'locB' }, armedLoc: { locC: {} }, me: 'eu', mine: (ct, me) => (ct.assignee ? ct.assignee === me : ct.created_by === me),
+    bucket: epqBucket, st: (t) => (t.flag === 'closed' ? 'closed' : t.status), started: () => false, cardWave: (ct) => Math.max(1, +(ct.spec || {}).wave || 1) };
+  const cloud = [
+    { id: 'cardA', local_id: 'locA', status: 'running', spec: { wave: 1 } }, // ligado pelo local_id
+    { id: 'cardB', status: 'review', spec: { wave: 1 } },                    // ligado pelo mapa (tmap)
+    { id: 'cardD', status: 'backlog', created_by: 'eu', spec: { wave: 2, autoStart: true } },
+    { id: 'cardE', status: 'backlog', assignee: 'outra', spec: { wave: 2 } },
+    { id: 'cardF', status: 'backlog', created_by: 'eu', flag: 'closed', spec: { wave: 2 } },
+  ];
+  const locals = [
+    { id: 'locA', status: 'running', epic: { wave: 1 } }, { id: 'locB', status: 'review', epic: { wave: 1 } },
+    { id: 'locC', status: 'draft', epic: { wave: 1 } }, { id: 'locG', status: 'draft', flag: 'closed', epic: { wave: 1 } },
+  ];
+  const it = EP.epJoinItems(cloud, locals, d);
+  const by = Object.fromEntries(it.map((x) => [x.id, x]));
+  assert.deepEqual(it.map((x) => x.id).sort(), ['cardD', 'cardE', 'cardF', 'locA', 'locB', 'locC', 'locG'], 'cartão ligado vira a tarefa local, sem repetir');
+  assert.equal(by.locA.kind, 'local'); assert.equal(by.locA.startable, false);
+  assert.equal(by.locC.startable, true); assert.equal(by.locC.armed, true);
+  assert.equal(by.locG.startable, false, 'rascunho concluído pelo ⋯ não volta a ser iniciado');
+  assert.equal(by.cardF.startable, false, 'cartão concluído também não');
+  assert.equal(by.cardD.armed, true); assert.equal(by.cardD.mine, true); assert.equal(by.cardE.mine, false);
+  const p = EP.epStartPlan(it);
+  assert.equal(p.wave, 1); assert.deepEqual(p.now.map((x) => x.id), ['locC']); assert.deepEqual(p.wait.map((x) => x.id), ['cardD']); assert.equal(p.others, 1);
+});
+
+test('startTask devolve se o motor aceitou (o "Iniciar épico" conta por aqui)', async () => {
+  const st = { tasks: [] };
+  assert.equal(await startTaskWith({ state: st, invoke: async () => null })('t1'), true);
+  assert.equal(await startTaskWith({ state: st, invoke: async () => { throw new Error('já está rodando'); } })('t1'), true);
+  assert.equal(await startTaskWith({ state: st, invoke: async () => { throw new Error('quebrou'); } })('t1'), false);
+  const cheio = { tasks: [{ status: 'running' }, { status: 'running' }] };
+  let chamou = false;
+  assert.equal(await startTaskWith({ state: cheio, slotMax: 2, askYes: async () => false, invoke: async () => { chamou = true; } })('t1'), false, 'acima do limite e a pessoa disse não');
+  assert.equal(chamou, false);
+});
+
+test('tick local: relê a lista antes de gravar, apaga tarefa sumida e não corre junto com o "Iniciar épico"', () => {
+  const tick = cut(ep, 'async function epAutoLocalTick(){', '\n}\n');
+  assert.match(tick, /const drop=id=>\{ const cur=epAutoLocalGet\(\);/);
+  assert.match(tick, /const e=epAutoLocalGet\(\)\[id\]; if\(!e\) continue;/, 'pausado no meio do laço não volta');
+  assert.match(tick, /if\(e\.epic && epStartBusy\.has\(e\.epic\)\) continue;/);
+  assert.match(tick, /drop\(id\); \/\/ sai da lista ANTES de iniciar/);
+  assert.ok(tick.indexOf('drop(id); // sai da lista ANTES') < tick.indexOf('await startTask(id)'));
 });
