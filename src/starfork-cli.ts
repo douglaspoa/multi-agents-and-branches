@@ -2,7 +2,8 @@
 // motor com `starfork <sub> …`). Serve QUALQUER IA (até a que não fala MCP) e a pessoa que digita no shell:
 //   ia-prep <ia> [--modelo m] [--resume] [--msg-file p]  — lançamento da IA como script de sh (o shim roda; ver terminal.ts)
 //   _ia-exit <ia> [--falha]                                — a IA saiu: term_session.cli = '' (--falha: nem subiu)
-//   status · sugerir · etapa · skills · skill · tarefa · pr · requisito · entregavel · perguntar · mapa · ajuda
+//   status · sugerir · etapa · skills · skill · tarefa · epico (novo|vincular|desvincular|status|lista) · epicos · pr ·
+//   requisito · entregavel · perguntar · mapa · ajuda
 // Os comandos de tarefa são as MESMAS ferramentas do MCP (src/mcp/tools.ts › callTool) com o contexto do ambiente
 // (CARDUME_DB/CARDUME_TASK/CARDUME_AGENT/CARDUME_ROLE, que o terminal exporta). Saída em texto; erro → código 1.
 import { dirname } from "node:path";
@@ -134,6 +135,24 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
       try { args = JSON.parse(one(a, "json") ?? text); } catch { io.err("starfork mapa: passe o JSON do map_requirement em --json '{\"req\":\"…\",\"code\":[{\"file\":\"…\",\"lines\":\"1-9\"}]}'"); return 1; }
       return tool(io, "map_requirement", args);
     }
+    case "epico":
+    case "épico": {
+      const [op = "", ...pos] = a.pos;
+      const tarefas = many(a, "tarefas", "tarefa", "tasks").flatMap((x) => x.split(",")).map((x) => x.trim()).filter(Boolean);
+      if (op === "novo" || op === "new") return tool(io, "create_epic", {
+        title: pos.join(" "), description: one(a, "descricao", "descrição", "description"), outcome: one(a, "outcome", "resultado"),
+        done_when: many(a, "pronto", "done-when"), task_ids: tarefas,
+      });
+      if (op === "vincular" || op === "link") return tool(io, "link_tasks_to_epic", { epic: pos[0] ?? "", task_ids: [...pos.slice(1), ...tarefas] });
+      if (op === "desvincular" || op === "unlink") return tool(io, "unlink_tasks_from_epic", { task_ids: [...pos, ...tarefas] });
+      if (op === "status") return tool(io, "epic_request_status", pos[0] ? { request_id: pos[0] } : {});
+      if (op === "lista" || op === "list" || !op) return tool(io, "list_epics", {});
+      io.err(`starfork epico: use novo | vincular | desvincular | status | lista\n\n${helpText()}`);
+      return 1;
+    }
+    case "epicos":
+    case "épicos":
+      return tool(io, "list_epics", {});
     case "ajuda":
     case "help":
     case "--help":

@@ -164,6 +164,54 @@ export const TOOLS = [
     },
   },
   {
+    name: "create_epic",
+    description:
+      "CRIA um ÉPICO no time (o épico é da nuvem do time: o app do Starfork executa com a sessão dele) e, se você passar task_ids, já VINCULA essas tarefas EXISTENTES a ele — sem recriar nem reiniciar nenhuma. Use quando o humano pedir pra agrupar tarefas num épico novo. Devolve o id do épico e as tarefas vinculadas. Sem login/time no app → RECUSADO (diga ao humano pra entrar na conta e escolher um time). App fechado → o pedido fica PENDENTE (nada criado ainda); confira depois com epic_request_status. Pra pôr tarefas num épico que JÁ existe, use link_tasks_to_epic.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Nome curto do épico." },
+        description: { type: "string", description: "Descrição (opcional)." },
+        outcome: { type: "string", description: "1 frase: pra quem, o que muda e o sinal de que funcionou (opcional)." },
+        done_when: { type: "array", items: { type: "string" }, description: "'Pronto quando' — checagens que uma PESSOA roda (viram D1, D2…). Opcional." },
+        task_ids: { type: "array", items: { type: "string" }, description: "Tarefas EXISTENTES a vincular (id local, id do cartão ou título). Opcional." },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "link_tasks_to_epic",
+    description:
+      "VINCULA tarefas que JÁ EXISTEM (rascunhos, rodando, em revisão…) a um épico do time — sem recriar, reiniciar nem conversar com elas: só o épico delas muda (spec, TASK.yaml e o cartão do time); quem está rodando recebe um recado no próximo turno. Também MOVE de um épico pra outro. NUNCA recrie uma tarefa pra trocar o épico. O app executa (precisa estar aberto e logado no time; senão fica pendente/recusado, nunca falso). Veja os épicos com list_epics.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        epic: { type: "string", description: "Id do épico ou o NOME dele (o app procura entre os épicos do time). Vazio = o épico desta tarefa." },
+        task_ids: { type: "array", items: { type: "string" }, description: "Tarefas a vincular: id local, id do cartão da nuvem ou título." },
+      },
+      required: ["task_ids"],
+    },
+  },
+  {
+    name: "unlink_tasks_from_epic",
+    description: "TIRA tarefas do épico em que estão (elas continuam como estão — nada é recriado nem reiniciado). O app executa na nuvem do time.",
+    inputSchema: {
+      type: "object",
+      properties: { task_ids: { type: "array", items: { type: "string" }, description: "Tarefas: id local, id do cartão ou título." } },
+      required: ["task_ids"],
+    },
+  },
+  {
+    name: "epic_request_status",
+    description: "Desfecho dos pedidos de épico (create_epic / link / unlink): feito, recusado (com o motivo) ou ainda pendente (app fechado). Sem id = os 10 mais recentes.",
+    inputSchema: { type: "object", properties: { request_id: { type: "string", description: "Id do pedido (opcional)." } } },
+  },
+  {
+    name: "list_epics",
+    description: "Lista os épicos do TIME (id — nome · status · nº de tarefas), pra escolher em qual vincular. A lista vem do app (aberto e logado).",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
     name: "suggest_replies",
     description:
       "No FIM de todo turno em que você para esperando o humano, sugira de 2 a 4 respostas CURTAS (até 60 caracteres) e concretas que ele provavelmente mandaria a seguir (ex.: \"pode seguir\", \"mostra o diff\", \"abre o PR\"). O app mostra como botões que mandam o texto pro terminal. Não substitui a sua resposta: chame depois de responder.",
@@ -470,6 +518,35 @@ export async function callTool(ctx: ToolCtx, name: string, args: any): Promise<T
     } catch (e) {
       return { text: `falha editando: ${(e as Error).message}`, isError: true };
     }
+  }
+
+  if (name === "create_epic" || name === "link_tasks_to_epic" || name === "unlink_tasks_from_epic") {
+    const { epicRequestFlow, flowText } = await import("../epic-requests.ts");
+    const me = store.getTask(TASK);
+    const by: EditAuthor = { agent: AGENT, taskId: TASK || undefined, taskTitle: me?.title, role: ROLE || undefined };
+    const arr = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x)) : typeof v === "string" && v.trim() ? [v] : []);
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    try {
+      const r = await epicRequestFlow({
+        store, cardumeDir: dirname(DB), by,
+        kind: name === "create_epic" ? "create" : name === "link_tasks_to_epic" ? "link" : "unlink",
+        epic: name === "create_epic" ? { title: String(args?.title ?? ""), description: str(args?.description), outcome: str(args?.outcome), doneWhen: arr(args?.done_when) } : undefined,
+        epicRef: str(args?.epic), taskRefs: arr(args?.task_ids),
+        waitMs: process.env.CARDUME_EPIC_WAIT_MS !== undefined ? Number(process.env.CARDUME_EPIC_WAIT_MS) || 0 : undefined,
+      });
+      return { text: flowText(r), isError: !r.ok };
+    } catch (e) {
+      return { text: `falha no pedido de épico: ${(e as Error).message}`, isError: true };
+    }
+  }
+  if (name === "epic_request_status") {
+    const { requestStatusText } = await import("../epic-requests.ts");
+    const r = requestStatusText(dirname(DB), typeof args?.request_id === "string" ? args.request_id : undefined);
+    return { text: r.text, isError: !r.ok };
+  }
+  if (name === "list_epics") {
+    const { epicsListText } = await import("../epic-requests.ts");
+    return { text: epicsListText(dirname(DB)) };
   }
 
   if (name === "suggest_replies") {

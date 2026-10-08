@@ -367,5 +367,9 @@ test("prompt: a regra de editar spec só vai pra builder/planner de tarefa de é
   assert.match(specEditRule({ role: "builder", spec: { epicId: EPIC } }), /edit_task.*edit_epic.*PROPOSTA/s);
   assert.match(specEditRule({ role: "planner", spec: { epicId: EPIC } }), new RegExp(EPIC));
   assert.equal(specEditRule({ role: "reviewer", spec: { epicId: EPIC } }), "");
-  assert.equal(specEditRule({ role: "builder", spec: {} }), "");
+  // sem épico: só o bloco de ÉPICOS (criar/vincular) — o agente não diz mais "o CLI não cria épicos"
+  const noEpic = specEditRule({ role: "builder", spec: {} });
+  assert.match(noEpic, /create_epic.*link_tasks_to_epic.*NUNCA recrie/s);
+  assert.doesNotMatch(noEpic, /edit_task/);
+  assert.match(specEditRule({ role: "builder", spec: { epicId: EPIC } }), /create_epic/);
 });

@@ -185,7 +185,8 @@ export function renderEpicMd(ctx: EpicContext, items: EpicTaskItem[], forTaskId?
   const L = [
     `# Épico: ${cut(ctx.title, 90)}`, "",
     `<!-- Gerado pelo Starfork a cada turno a partir do épico do time (atualizado ${ctx.updatedAt}). -->`, "",
-    `**id do épico:** \`${ctx.epicId}\` — a ideia mudou? mcp__cardume__edit_epic (épico) / mcp__cardume__edit_task (irmãs: pelo id abaixo OU pelo título). mcp__cardume__epic_tasks lista as irmãs ao vivo. Nenhum agente é acionado.`, "",
+    `**id do épico:** \`${ctx.epicId}\` — a ideia mudou? mcp__cardume__edit_epic (épico) / mcp__cardume__edit_task (irmãs: pelo id abaixo OU pelo título). mcp__cardume__epic_tasks lista as irmãs ao vivo. Nenhum agente é acionado.`,
+    `Organizar épicos: mcp__cardume__link_tasks_to_epic põe tarefas EXISTENTES neste (ou noutro) épico, mcp__cardume__unlink_tasks_from_epic tira e mcp__cardume__create_epic cria um épico novo (no shell: \`starfork epico vincular|desvincular|novo\`). Nunca recrie uma tarefa pra trocar o épico.`, "",
   ];
   if (ctx.outcome || ctx.description) { L.push("## Objetivo", cut(ctx.outcome || ctx.description || "", 400)); if (ctx.outcome && ctx.description) L.push(cut(ctx.description, 300)); L.push(""); }
   if (ctx.requirements?.length) { L.push("## Requisitos do épico"); ctx.requirements.slice(0, 12).forEach((r) => L.push(`- ${r.id}: ${cut(r.text, 200)}`)); L.push(""); }

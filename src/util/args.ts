@@ -19,6 +19,8 @@ export const TEXT_FLAGS = new Set([
   // task edit / epic edit (src/agent-edits.ts)
   "req-add", "req-remove", "deliv-add", "note", "by-agent", "by-task", "description", "outcome", "done-when-add", "done-when-remove",
   "patch", "undo", "edit-id", "reject", "by-role",
+  // epic new / link / apply-link (src/epic-requests.ts)
+  "tasks", "epic-title", "wait",
   // claude-statusline install (src/claude-statusline.ts)
   "node",
   // piloto automático (src/autopilot.ts)
@@ -31,7 +33,7 @@ export const TEXT_FLAGS = new Set([
 
 /** Flags SEM valor (booleanas). */
 export const BOOL_FLAGS = new Set([
-  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design", "resume",
+  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design", "resume", "clear",
 ]);
 
 const isKnownFlag = (tok: string) => tok.startsWith("--") && (TEXT_FLAGS.has(tok.slice(2)) || BOOL_FLAGS.has(tok.slice(2)) || tok === "--artifact-doc");

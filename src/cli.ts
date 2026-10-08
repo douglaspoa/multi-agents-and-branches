@@ -1,6 +1,6 @@
 import { rm } from "node:fs/promises";
 import { existsSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { Orchestrator, branchName, defaultEngine } from "./orchestrator.ts";
 import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
@@ -22,6 +22,7 @@ import { starforkCli } from "./starfork-cli.ts";
 import { browserProxyCli } from "./browser-proxy.ts";
 import { envCli } from "./env-up.ts";
 import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
+import { applyLocalLink, epicRequestFlow, epicsListText, flowText, requestStatusText, teamEpicsAt, teamEpicsList, type EpicFlowResult, type EpicReqKind } from "./epic-requests.ts";
 import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
 
 // ---------- parse de flags simples (src/util/args.ts) ----------
@@ -863,6 +864,67 @@ async function cmdEpicTasks(repo: string, id: string | undefined, a: Args) {
   }
 }
 
+// ---------- épico pelo terminal: criar e vincular/desvincular tarefas existentes (src/epic-requests.ts) ----------
+/** No terminal de uma tarefa o cwd é a worktree: o projeto vem do CARDUME_DB (como no MCP). */
+function epicRepo(a: Args): string {
+  return a.flags.repo ?? (process.env.CARDUME_DB ? dirname(dirname(process.env.CARDUME_DB)) : process.cwd());
+}
+function printFlow(r: EpicFlowResult, json: boolean): void {
+  if (json) console.log(JSON.stringify(r));
+  else if (r.status === "pending") console.log(c.yellow("… ") + flowText(r));
+  else if (r.ok) console.log(c.green("✓") + " " + flowText(r));
+  else console.error(c.red("✕ " + flowText(r)));
+  if (!r.ok) process.exitCode = 1;
+}
+async function cmdEpicRequest(kind: EpicReqKind, a: Args) {
+  const store = openStore(epicRepo(a));
+  try {
+    const cardumeDir = new Workspace(epicRepo(a)).dir;
+    const pos = a._.slice(2);
+    const tasksFlag = (a.multi.tasks ?? []).flatMap((x) => x.split(",")); // só a lista --tasks a,b divide por vírgula
+    const waitMs = a.flags["no-wait"] ? 0 : a.flags.wait !== undefined ? Math.max(0, Number(a.flags.wait) || 0) * 1000 : undefined;
+    const r = await epicRequestFlow({
+      store, cardumeDir, kind, by: editAuthor(store, a), waitMs,
+      ...(kind === "create"
+        ? { epic: { title: a.flags.title ?? pos.join(" "), description: a.flags.description, outcome: a.flags.outcome, doneWhen: a.multi["done-when"] }, taskRefs: tasksFlag }
+        : kind === "link" ? { epicRef: pos[0], taskRefs: [...pos.slice(1), ...tasksFlag] }
+        : { taskRefs: [...pos, ...tasksFlag] }),
+    });
+    printFlow(r, !!a.flags.json);
+  } finally {
+    store.close();
+  }
+}
+function cmdEpicStatus(a: Args) {
+  const cardumeDir = new Workspace(epicRepo(a)).dir;
+  const r = requestStatusText(cardumeDir, a._[2]);
+  if (a.flags.json) console.log(JSON.stringify({ ok: r.ok, requests: r.rows }));
+  else (r.ok ? console.log : console.error)(r.text);
+  if (!r.ok) process.exitCode = 1;
+}
+/** O app confirmou na nuvem → spec local (`--epic-id X [--epic-title …] [--patch '{"doneWhen":[…],"seq":N}']` ou `--clear`). */
+function cmdEpicApplyLink(a: Args) {
+  const repo = epicRepo(a);
+  const store = openStore(repo);
+  const json = !!a.flags.json;
+  try {
+    let dw: { doneWhen?: unknown; seq?: unknown } = {};
+    if (a.flags.patch !== undefined) { const p = parsePatch(a); if (!p.ok) return printEdit(p, json); dw = (p.v ?? {}) as typeof dw; }
+    // `--clear` é booleana, mas o parser dá a ela o próximo token (`--clear t1`): esse token é o id da tarefa
+    const clear = a.flags.clear !== undefined;
+    const taskId = a._[2] ?? (clear && a.flags.clear !== "true" ? a.flags.clear : "");
+    if (!clear && !a.flags["epic-id"]) return printEdit({ ok: false, message: "use --epic-id <id> ou --clear" }, json);
+    const r = applyLocalLink({
+      // o nome do épico vem DENTRO do --patch (um nome começando com "--" não vira flag)
+      store, cardumeDir: new Workspace(repo).dir, taskId, epicId: clear ? null : a.flags["epic-id"], epicTitle: typeof (dw as { epicTitle?: unknown }).epicTitle === "string" ? (dw as { epicTitle: string }).epicTitle : a.flags["epic-title"],
+      doneWhen: Array.isArray(dw.doneWhen) ? dw.doneWhen.map(String) : undefined, seq: Number(dw.seq) || 0, by: editAuthor(store, a),
+    });
+    printEdit(r, json);
+  } finally {
+    store.close();
+  }
+}
+
 /** O app manda a lista oficial do "pronto quando" (--patch '{"doneWhen":[...],"seq":N}') → cópias locais. */
 function cmdEpicSync(repo: string, id: string | undefined, a: Args) {
   const store = openStore(repo);
@@ -1098,10 +1160,19 @@ async function main() {
       else { console.error(c.red("✕ use: cardume task edit <id> [--objective …] [--note \"por quê\"]")); process.exitCode = 1; }
       break;
     case "epic":
-      if (a._[1] === "edit") cmdEpicEdit(repo, a._[2], a);
-      else if (a._[1] === "sync") cmdEpicSync(repo, a._[2], a);
-      else if (a._[1] === "tasks") await cmdEpicTasks(repo, a._[2], a);
-      else { console.error(c.red("✕ use: cardume epic edit <epicId> [--description …] [--note \"por quê\"]")); process.exitCode = 1; }
+      if (a._[1] === "edit") cmdEpicEdit(epicRepo(a), a._[2], a);
+      else if (a._[1] === "sync") cmdEpicSync(epicRepo(a), a._[2], a);
+      else if (a._[1] === "tasks") await cmdEpicTasks(epicRepo(a), a._[2], a);
+      else if (a._[1] === "new") await cmdEpicRequest("create", a);
+      else if (a._[1] === "link") await cmdEpicRequest("link", a);
+      else if (a._[1] === "unlink") await cmdEpicRequest("unlink", a);
+      else if (a._[1] === "status") cmdEpicStatus(a);
+      else if (a._[1] === "list") {
+        const dir = new Workspace(epicRepo(a)).dir;
+        console.log(a.flags.json ? JSON.stringify({ at: teamEpicsAt(dir), epics: teamEpicsList(dir) }) : epicsListText(dir));
+      }
+      else if (a._[1] === "apply-link") cmdEpicApplyLink(a);
+      else { console.error(c.red("✕ use: cardume epic new \"<título>\" | link <épico> <tarefa>… | unlink <tarefa>… | status [<pedido>] | list | edit <epicId> … | tasks [<epicId>]")); process.exitCode = 1; }
       break;
     default:
       console.log(`
@@ -1134,6 +1205,12 @@ ${c.dim("entregar & integrar")}
   ${c.green("cardume epic edit")} ${c.dim('<epicId> [--description …] [--outcome …] [--done-when-add …] [--done-when-remove D3] [--req-add …] --note "por quê"')}
       muda o épico (o app aplica no épico do time, com histórico)
   ${c.green("cardume epic tasks")} ${c.dim("[<epicId>] [--json]")}   irmãs do épico com ids, títulos, status e requisitos
+  ${c.green("cardume epic new")} ${c.dim('"<título>" [--description …] [--outcome …] [--done-when …]… [--tasks id1,id2] [--json]')}
+      cria um épico NO TIME (o app executa com a sessão dele; sem login/time ele recusa) e já vincula as tarefas;
+      espera o app até 20s (--wait <s> muda, --no-wait não espera) — sem resposta, o pedido fica PENDENTE
+  ${c.green("cardume epic link")} ${c.dim("<epicId|nome> <taskId|título>… [--json]")}   põe tarefas EXISTENTES no épico (não recria nem reinicia)
+  ${c.green("cardume epic unlink")} ${c.dim("<taskId|título>… [--json]")}   tira tarefas do épico (elas continuam como estão)
+  ${c.green("cardume epic status")} ${c.dim("[<pedido>]")} · ${c.green("cardume epic list")}   desfecho dos pedidos · épicos do time
   ${c.green("cardume export")} ${c.dim("<taskId> [--out <arquivo.md>]")}  relatório Markdown p/ descrição de PR
   ${c.green("cardume review-pr")} ${c.dim("--pr <url|nº>")}      revisa um PR do GitHub (sem branch/worktree)
   ${c.green("cardume merge")} ${c.dim("<taskId>")}               faz merge da branch na base e remove a worktree
