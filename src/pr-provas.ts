@@ -17,7 +17,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { ghBin, netEnv, netTimeoutMs, run } from "./util/run.ts";
 
 export const PROVAS_BRANCH = "starfork-provas";
@@ -129,7 +129,7 @@ export async function pushProofs(o: { dir: string; prefix: string; files: ProofF
       // nomes diferentes que dão o MESMO caminho ("a b.png" e "a-b.png"): sufixo -2, -3… (senão um sobrescreve o outro)
       let rel = proofRelPath(o.prefix, f.name);
       for (let k = 2; pick.some((q) => q.rel === rel); k++) rel = proofRelPath(o.prefix, f.name).replace(/(\.[^./]+)?$/, (ext) => `-${k}${ext}`);
-      pick.push({ name: f.name, path: s.path, rel, kind });
+      pick.push({ name: f.name, path: resolve(s.path), rel, kind }); // absoluto: o git roda com -C <repo>
     }
     if (!pick.length) return { links, skipped, pushed: false };
     const git = async (args: string[], extra: NodeJS.ProcessEnv = {}, net = false) =>
