@@ -292,3 +292,94 @@ fn shell_ia_real_e2e() {
     eprintln!("[ia-real] ok — tela final:\n{}", tail());
     m.kill(&task);
 }
+
+/// Grava cada lote do PTY com o instante (ms desde o início) — o retrato da abertura pro harness.
+struct RecSink { t0: Instant, chunks: Mutex<Vec<(u128, String)>> }
+impl PtySink for RecSink {
+    fn data(&self, _t: &str, c: &str) { self.chunks.lock().unwrap().push((self.t0.elapsed().as_millis(), c.to_string())); }
+    fn exit(&self, t: &str, _pid: u32, code: Option<u32>) { eprintln!("[e2e] {t} saiu: {code:?}"); }
+}
+
+/// ABRIR A TAREFA = TERMINAL VIVO (08/10) — e2e REAL com uma IA FALSA (nunca o `claude` de verdade): o MESMO caminho do
+/// term_open quieto — `cli term-prep --resume --quiet` → shell de login → `starfork ia claude --resume --quieto` → a IA
+/// falsa (`CARDUME_AI_BIN_claude`) que reimprime a conversa no `--resume` e espera. Confere: vivo em < 2 s (pronto pra
+/// digitar), sem kickoff no argv (não gasta), status intocado, retrato do attach sem o .log anterior, digitar chega na
+/// IA, pergunta de confiança da pasta (SF_E2E_TRUST=1) e o encerramento do terminal parado fora da tela.
+///
+///   SF_E2E_REPO=<repo> SF_E2E_TASK=<id> SF_E2E_CLI=<src/cli.ts> SF_E2E_FAKE=<ia falsa> [SF_E2E_TRUST=1] \
+///     cargo test --lib terminal_vivo_e2e -- --ignored --nocapture
+#[test]
+#[ignore]
+fn terminal_vivo_e2e() {
+    use crate::term::{reap_in_with, reap_pick};
+    let repo = PathBuf::from(std::env::var("SF_E2E_REPO").expect("SF_E2E_REPO"));
+    let task = std::env::var("SF_E2E_TASK").expect("SF_E2E_TASK");
+    let cli = std::env::var("SF_E2E_CLI").expect("SF_E2E_CLI");
+    let fake = std::env::var("SF_E2E_FAKE").expect("SF_E2E_FAKE");
+    let trust = std::env::var("SF_E2E_TRUST").is_ok();
+    let db = repo.join(".cardume").join("state.sqlite");
+    let status = || Connection::open(&db).unwrap().query_row("SELECT status FROM task WHERE id=?1", params![task], |r| r.get::<_, String>(0)).unwrap();
+    let st0 = status();
+    let log = repo.join(".cardume").join("term").join(format!("{task}.log"));
+    std::fs::create_dir_all(log.parent().unwrap()).unwrap();
+    std::fs::write(&log, "LOG-DA-SESSAO-ANTERIOR\r\n").unwrap();
+    let t0 = Instant::now();
+    let out = std::process::Command::new("node").args(["--disable-warning=ExperimentalWarning", &cli, "term-prep", &task, "--resume", "--quiet", "--repo"]).arg(&repo).current_dir(&repo).output().unwrap();
+    let so = String::from_utf8_lossy(&out.stdout);
+    let line = so.lines().rev().find(|l| l.starts_with('{')).unwrap_or_else(|| panic!("prep: {}", String::from_utf8_lossy(&out.stderr)));
+    let v: serde_json::Value = serde_json::from_str(line).unwrap();
+    assert!(v.get("error").is_none(), "{v}");
+    assert_eq!(v["busy"].as_bool(), Some(false), "quieto: nasce livre");
+    assert!(v["args"].as_array().unwrap().iter().any(|a| a.as_str().unwrap_or("").contains("--resume --quieto")), "o shell sobe a IA quieta: {}", v["args"]);
+    let list = |k: &str| v[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_else(Vec::new);
+    let mut env: Vec<(String, String)> = v["env"].as_object().unwrap().iter().map(|(k, x)| (k.clone(), x.as_str().unwrap_or("").to_string())).collect();
+    env.push(("CARDUME_AI_BIN_claude".into(), fake.clone()));
+    env.push(("CARDUME_NOTIFY".into(), "0".into()));
+    if trust { env.push(("FAKE_TRUST".into(), "1".into())); }
+    let rec = Arc::new(RecSink { t0, chunks: Mutex::new(vec![]) });
+    let m = Arc::new(PtyManager::new(rec.clone(), None));
+    let s = m.spawn(&task, SpawnSpec {
+        program: v["program"].as_str().unwrap().into(), args: list("args"), cwd: PathBuf::from(v["cwd"].as_str().unwrap()), env, env_remove: list("envRemove"),
+        cols: 120, rows: 34, log_path: Some(log.clone()), scroll_cap: SCROLL_CAP, engine: v["engine"].as_str().unwrap_or("").into(),
+    }).unwrap();
+    let snap = s.attach();
+    assert!(!snap.contains("LOG-DA-SESSAO-ANTERIOR"), "retrato só desta sessão (o --resume reimprime a conversa — sem duplicar)");
+    let screen = || strip_ansi(&s.snapshot());
+    let wait = |needle: &str, secs: u64| { let w = Instant::now(); while w.elapsed() < Duration::from_secs(secs) { if screen().contains(needle) { return true; } std::thread::sleep(Duration::from_millis(20)); } false };
+    let tail = || { let t = screen(); t.chars().rev().take(2500).collect::<Vec<_>>().into_iter().rev().collect::<String>() };
+    if trust {
+        assert!(wait("Do you trust the files in this folder?", 10), "a IA falsa perguntou da pasta:\n{}", tail());
+        std::thread::sleep(Duration::from_millis(400));
+        s.write_bytes(b"\r").unwrap(); // = botão "confiar e continuar" da barra do terminal
+    }
+    assert!(wait("FAKE-PROMPT>", 10), "a IA desenhou o prompt:\n{}", tail());
+    let ready = t0.elapsed();
+    eprintln!("[vivo] term-prep + shell + ia-prep + IA desenhada em {:.0} ms", ready.as_millis());
+    if !trust { assert!(ready < Duration::from_secs(2), "PTY vivo e pronto em < 2 s (foi {ready:?})"); }
+    assert!(screen().contains("FAKE-RESUME:"), "retomou a sessão gravada:\n{}", tail());
+    assert!(screen().contains("conversa de ontem (reimpressa pelo --resume)"), "o --resume reimprime o histórico");
+    assert!(screen().contains("FAKE-KICK:nao"), "nenhuma 1ª mensagem/kickoff no argv (não gasta):\n{}", tail());
+    assert_eq!(status(), st0, "abrir pra olhar não muda o status");
+    // a saída CRUA da abertura com o tempo de cada lote (o harness headless reproduz no xterm de verdade)
+    if let Ok(p) = std::env::var("SF_E2E_DUMP") { let c = rec.chunks.lock().unwrap(); std::fs::write(p, serde_json::to_string(&*c).unwrap()).unwrap(); }
+    s.write_bytes(b"oi do teclado\r").unwrap();
+    assert!(wait("FAKE-ECO:oi do teclado", 5), "digitar chega na IA:\n{}", tail());
+    // terminal parado fora da tela: a regra de verdade com os dados de verdade (prazo de 1 s no lugar de 15 min)
+    s.detach();
+    std::thread::sleep(Duration::from_millis(1300));
+    let r = reap_in_with(&s, Some(&db), true);
+    eprintln!("[vivo] retrato do encerramento: {r:?}");
+    assert!(r.watchers == 0 && !r.busy && r.fg_idle, "ninguém olhando, IA parada no prompt");
+    // a IA com hooks exige 1 min de silêncio no mínimo; aqui a janela inteira é encurtada: last_out recuado via prazo
+    let now = crate::pty::now_ms() + 61_000;
+    let pick = reap_pick(&[(task.clone(), r.clone())], now, 1_000, 8);
+    assert_eq!(pick, vec![task.clone()], "parado fora da tela além do prazo → encerra");
+    let mut vista = r.clone(); vista.watchers = 1;
+    assert!(reap_pick(&[(task.clone(), vista)], now, 1_000, 8).is_empty(), "olhando: fica");
+    let mut ocupada = r.clone(); ocupada.busy = true;
+    assert!(reap_pick(&[(task.clone(), ocupada)], now, 1_000, 8).is_empty(), "turno em curso: fica");
+    assert!(m.kill(&task), "encerrado (grupo inteiro)");
+    assert!(!s.alive());
+    assert!(std::fs::read_to_string(&log).unwrap().starts_with("LOG-DA-SESSAO-ANTERIOR"), "o .log continua acumulando");
+    eprintln!("[vivo] ok — tela final:\n{}", tail());
+}

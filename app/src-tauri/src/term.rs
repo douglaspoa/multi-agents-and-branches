@@ -557,12 +557,15 @@ pub fn reap_pick(list: &[(String, ReapIn)], now: i64, idle_ms: i64, cap: usize) 
     out
 }
 fn reap_in(s: &pty::PtySession) -> ReapIn {
-    let (unseen_since, last_out) = s.idle_marks();
     let db = dbs().lock().unwrap_or_else(|e| e.into_inner()).get(&s.task_id).cloned();
-    let (busy, cli) = db.as_ref().and_then(|d| open_rw(d).ok()).and_then(|c| {
+    reap_in_with(s, db.as_deref(), is_shell(&s.task_id))
+}
+/// O retrato do encerramento a partir da sessão, do banco dela e se o PTY é o shell (testável fora do app).
+pub fn reap_in_with(s: &pty::PtySession, db: Option<&Path>, shell: bool) -> ReapIn {
+    let (unseen_since, last_out) = s.idle_marks();
+    let (busy, cli) = db.and_then(|d| open_rw(d).ok()).and_then(|c| {
         c.query_row("SELECT busy, cli FROM term_session WHERE task_id=?1", params![s.task_id], |r| Ok((r.get::<_, i64>(0)? == 1, r.get::<_, Option<String>>(1)?.unwrap_or_default()))).ok()
     }).unwrap_or((false, String::new()));
-    let shell = is_shell(&s.task_id);
     // shell no prompt: só se TODO o 1º plano é shell; IA rodando no shell (ou o PTY = a IA): quem diz é o hook
     let fg_idle = if shell && cli.is_empty() { shell_at_prompt(foreground_comm(s.pid).as_deref()).is_ok() } else { true };
     let at_prompt = shell && cli.is_empty();
