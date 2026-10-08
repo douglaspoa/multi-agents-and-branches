@@ -1,7 +1,7 @@
 import { rm } from "node:fs/promises";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Orchestrator, branchName, defaultEngine } from "./orchestrator.ts";
+import { Orchestrator, branchName, defaultEngine, ghEnvFor, rewritePrReport } from "./orchestrator.ts";
 import { GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { detectScopeOverlap, type ScopeOverlap } from "./bus.ts";
@@ -1133,6 +1133,38 @@ async function main() {
         console.log(JSON.stringify({ text, worktree: orch.store.getTask(a._[1])?.worktree ?? "" }));
       } catch (e) {
         console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));
+        process.exitCode = 1;
+      } finally { orch.close(); }
+      break;
+    }
+    case "pr-provas": {
+      // provas no PR (app: pr_attach_proofs): sobe as imagens pro branch starfork-provas e devolve os links em JSON.
+      // --decide on|off grava a opção do projeto antes (resposta do "repositório público: publicar os prints?")
+      const orch = new Orchestrator(repo);
+      try {
+        const d = a.flags.decide;
+        if (d !== undefined && d !== "on" && d !== "off") throw new Error("--decide deve ser on ou off");
+        console.log(JSON.stringify(await orch.attachProofs(a._[1], undefined, { decide: d as "on" | "off" | undefined })));
+      } catch (e) {
+        console.log(JSON.stringify({ links: {}, note: "", error: (e as Error)?.message ?? String(e) }));
+        process.exitCode = 1;
+      } finally { orch.close(); }
+      break;
+    }
+    case "pr-relatorio": {
+      // reescreve a seção "## Relatório Starfork" do PR aberto da tarefa com o conteúdo de --file (relatório do app)
+      const orch = new Orchestrator(repo);
+      try {
+        const t = orch.store.getTask(a._[1]);
+        const url = t ? String((JSON.parse(t.spec_json) as TaskSpec).prUrl ?? "") : "";
+        if (!t || !url) throw new Error("a tarefa não tem PR aberto");
+        const rep = readFileSync(String(a.flags.file ?? ""), "utf8");
+        if (!rep.includes("## Relatório Starfork")) throw new Error("--file não tem um Relatório Starfork");
+        const r = await rewritePrReport(url, rep, t.worktree && existsSync(t.worktree) ? t.worktree : repo, ghEnvFor(repo));
+        console.log(JSON.stringify(r));
+        if (r.error) process.exitCode = 1;
+      } catch (e) {
+        console.log(JSON.stringify({ changed: false, error: (e as Error)?.message ?? String(e) }));
         process.exitCode = 1;
       } finally { orch.close(); }
       break;
