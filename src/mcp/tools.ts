@@ -5,6 +5,7 @@ import type { TaskSpec } from "../types.ts";
 import { Store } from "../store.ts";
 import { CoordinationBus } from "../bus.ts";
 import { notify } from "../util/notify.ts";
+import { askPending } from "../ask-style.ts";
 import type { Orchestrator } from "../orchestrator.ts";
 import { dirname } from "node:path";
 import { editEpic, editTask, type EditAuthor } from "../agent-edits.ts";
@@ -41,12 +42,14 @@ export const TOOLS = [
   {
     name: "ask_human",
     description:
-      "Pergunte ao humano quando houver ambiguidade sobre requisitos ou uma decisão que precise de aprovação. BLOQUEIA até o humano responder na UI do Starfork. Use apenas quando realmente necessário.",
+      "Pergunte ao humano quando houver ambiguidade sobre requisitos ou uma decisão que precise de aprovação. BLOQUEIA até o humano responder na UI do Starfork. Use apenas quando realmente necessário." +
+      " Formato (a folha do app é pequena): `question` = UMA frase curta terminando em '?'; o porquê vai em `context` (3–5 tópicos curtos); cada opção 'Rótulo curto — descrição de 1 linha'.",
     inputSchema: {
       type: "object",
       properties: {
-        question: { type: "string", description: "A pergunta, clara e específica." },
-        options: { type: "array", items: { type: "string" }, description: "Opções de resposta (opcional)." },
+        question: { type: "string", description: "A pergunta em UMA frase curta terminando em '?' (sem o contexto dentro)." },
+        context: { type: "string", description: "Opcional: o contexto em até 3–5 tópicos curtos, um '- item' por linha. Aparece recolhido abaixo da pergunta." },
+        options: { type: "array", items: { type: "string" }, description: "Opções de resposta (opcional), cada uma 'Rótulo curto — descrição de 1 linha'. A resposta volta com o texto da opção inteiro." },
       },
       required: ["question"],
     },
@@ -302,16 +305,17 @@ export async function callTool(ctx: ToolCtx, name: string, args: any): Promise<T
     const question = String(args?.question ?? "").trim();
     const options: string[] | undefined = Array.isArray(args?.options) ? args.options : undefined;
     if (!question) return { text: "pergunta vazia", isError: true };
+    const ask = askPending(question, args?.context); // pergunta + contexto (meta.question): a folha do app separa os dois
     // PILOTO AUTOMÁTICO: não há humano — responde NA HORA mandando a IA decidir e registrar a suposição
     // (src/autopilot.ts liga CARDUME_AUTOPILOT=1; nada de notificação nem espera)
     if (process.env.CARDUME_AUTOPILOT === "1") {
-      const id = store.addPending(TASK, AGENT, "question", question, options);
+      const id = store.addPending(TASK, AGENT, "question", ask.prompt, options, ask.meta);
       store.answerPending(id, AUTOPILOT_ANSWER);
       store.addEvent(TASK, AGENT, "note", `perguntou (piloto automático, sem humano): ${question}`, undefined);
       store.addEvent(TASK, "Piloto automático", "note", `resposta automática: decida e registre a suposição em .cardume/artifacts/ASSUMPTIONS.md`, true);
       return { text: AUTOPILOT_ANSWER };
     }
-    const id = store.addPending(TASK, AGENT, "question", question, options);
+    const id = store.addPending(TASK, AGENT, "question", ask.prompt, options, ask.meta);
     store.addEvent(TASK, AGENT, "note", `perguntou ao humano: ${question}`, undefined);
     notify("Starfork", question, `${AGENT} precisa de você`);
     // Bloqueia até a UI responder (poll no SQLite).
