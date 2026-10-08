@@ -15,8 +15,10 @@ const term = read('js/60-terminal.js'), tl = read('js/60-terminal-layout.js'), c
 
 test('abrir terminal que falha: o botão volta (não fica "abrindo…" desabilitado pra sempre)', () => {
   const fn = cut(term, 'async function termOpen(taskId){', '\n}\n');
-  assert.match(fn, /const bTx=b\?b\.textContent:''/);
-  assert.match(fn, /catch\(e\)\{[\s\S]*b\.disabled=false; b\.textContent=bTx;[\s\S]*st\.bar\.__html=''; termSetAlive\(taskId, false\)/);
+  assert.match(fn, /return termResume\(taskId, \{ quiet:!fresh, btn:b \}\)/);
+  const rs = cut(term, 'async function termResume(taskId, o){', '\n}\n');
+  assert.match(rs, /const bTx=b\?b\.textContent:''/);
+  assert.match(rs, /catch\(e\)\{[\s\S]*b\.disabled=false; b\.textContent=bTx;[\s\S]*st\.bar\.__html=''; termSetAlive\(taskId, false\)/);
 });
 
 test('xterm fora da tela é descartado: só os mais antigos, nunca a tarefa aberta nem quem está abrindo', () => {

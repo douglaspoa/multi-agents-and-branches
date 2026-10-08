@@ -711,3 +711,75 @@ test("hook Stop: fala com opções e sem suggest_replies → evento suggest; com
     assert.equal(sug().length, 2, "o agente já sugeriu: sem reserva");
   } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
 });
+
+test("retomada QUIETA (abrir a tarefa = terminal vivo): --quieto no shell, sem kickoff/1ª mensagem, status e feed intocados, nasce livre; mensagem desliga o quieto", { skip: process.platform === "win32" }, async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    const t = await orch.createTask(spec("q", { roles: [{ role: "builder", name: "Vega", engine: "claude", model: "sonnet" }] }));
+    orch.store.setStatus("q", "review");
+    const evs0 = orch.store.eventsForTask("q").length;
+    const L = withEnv({ HOME: f.home, SHELL: "/bin/bash", CARDUME_NOTIFY: "0" }, () => termPrep(orch, "q", { resume: true, quiet: true }));
+    assert.equal(L.args[3], `'${join(t.worktree, TERM_BIN_REL, "starfork")}' ia claude --modelo sonnet --resume --quieto; '/bin/bash' -l -i; :`);
+    assert.equal(L.busy, false, "quieto: nasce livre (nada foi pedido)");
+    assert.equal(orch.store.eventsForTask("q").length, evs0, "sem nota de 'abrindo o terminal' a cada visita");
+    assert.equal(orch.store.getTask("q")!.status, "review", "abrir pra olhar não muda o status");
+    // mensagem = pedido explícito: o quieto não vale (vai pelos portões de sempre)
+    const M = withEnv({ HOME: f.home, SHELL: "/bin/bash", CARDUME_NOTIFY: "0" }, () => termPrep(orch, "q", { resume: true, quiet: true, message: "faz X" }));
+    assert.ok(!M.args[3].includes("--quieto") && M.args[3].includes("--msg-file") && M.busy, M.args[3]);
+    // direto (Windows / motor antigo): a IA sem kickoff
+    const D = withEnv({ HOME: f.home, CARDUME_NOTIFY: "0", CARDUME_AI_BIN_claude: fakeBin(join(f.root, "bins"), "claude") }, () => termPrep(orch, "q", { resume: true, quiet: true, direct: true }));
+    assert.ok(!D.args.some((a) => /Comece: leia \.cardume\/TASK\.yaml/.test(a)), "direto: sem kickoff");
+    assert.equal(D.busy, false);
+    orch.store.setStatus("q", "review");
+    orch.close();
+    // ia-prep --quieto (o shim): sem kickoff, sem status, livre
+    const bins = join(f.root, "bins");
+    const env = { CARDUME_AI_BIN_claude: fakeBin(bins, "claude"), CARDUME_AI_BIN_codex: fakeBin(bins, "codex") };
+    const r = sf(f, "q", ["ia-prep", "claude", "--resume", "--quieto"], env);
+    assert.equal(r.code, 0, r.err);
+    assert.ok(!r.out.includes("Comece: leia .cardume/TASK.yaml"), "quieto: nada de kickoff (não gasta até a pessoa mandar)");
+    const c = sf(f, "q", ["ia-prep", "codex", "--resume", "--quieto"], env);
+    assert.equal(c.code, 0, c.err);
+    assert.ok(!/Neste terminal você TEM as ferramentas do Starfork/.test(c.out), "codex quieto: sem 1ª mensagem");
+    const s = new Store(f.db);
+    try {
+      assert.equal(s.getTask("q")!.status, "review", "status intocado");
+      assert.equal(s.termGet("q")!.busy, 0);
+      assert.ok(!s.eventsForTask("q").some((e) => /abrindo o terminal \((claude|codex)\)/.test(e.text)), "sem nota de abertura");
+    } finally { s.close(); }
+    // sem --quieto, o mesmo caminho continua com o kickoff (nada mudou pra quem pede)
+    const k = sf(f, "q", ["ia-prep", "claude"], env);
+    assert.ok(k.out.includes("Comece: leia .cardume/TASK.yaml"));
+  } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
+});
+
+test("term-prep --quiet pelo CLI (o caminho do term_open quieto): livre, --quieto no shell, status e feed intocados; aviso '▸ Starfork' do ia-prep (o front espera por ele); sessão perdida vai pras instruções", { skip: process.platform === "win32" }, async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    await orch.createTask(spec("cq"));
+    orch.store.setStatus("cq", "review");
+    orch.store.setSession("cq", "sessao-perdida-123"); // sem transcript: o claude abre sessão NOVA
+    const evs0 = orch.store.eventsForTask("cq").length;
+    orch.close();
+    const r = spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, "term-prep", "cq", "--resume", "--quiet", "--repo", f.repo], {
+      encoding: "utf8", env: { ...process.env, HOME: f.home, CLAUDE_CONFIG_DIR: f.cfg, SHELL: "/bin/bash", CARDUME_NOTIFY: "0" } });
+    const v = JSON.parse(r.stdout.trim().split("\n").filter((l) => l.startsWith("{")).pop() ?? "{}");
+    assert.equal(v.error, undefined, r.stdout + r.stderr);
+    assert.equal(v.busy, false);
+    assert.match(v.args[3], / ia claude --resume --quieto; /);
+    let s = new Store(f.db);
+    try { assert.equal(s.getTask("cq")!.status, "review"); assert.equal(s.eventsForTask("cq").length, evs0, "nada no feed"); } finally { s.close(); }
+    // o shim roda ia-prep --quieto: o aviso de stderr que o front usa como marca (TERM_MARK em 60-terminal.js)
+    const front = readFileSync(fileURLToPath(new URL("../app/src/js/60-terminal.js", import.meta.url)), "utf8");
+    const mark = /const TERM_MARK='([^']+)'/.exec(front)![1];
+    const env = { CARDUME_AI_BIN_claude: fakeBin(join(f.root, "bins"), "claude") };
+    const p = sf(f, "cq", ["ia-prep", "claude", "--resume", "--quieto"], env);
+    assert.equal(p.code, 0, p.err);
+    assert.ok(p.err.includes(mark + ": Claude Code"), `o front espera "${mark}" no stderr: ${p.err}`);
+    // sessão perdida + quieto: sem 1ª mensagem (não gasta), mas o aviso de continuar vai no system prompt
+    assert.ok(!/\n'A sessão anterior deste terminal se perdeu/.test(p.out), "não vira mensagem");
+    assert.match(p.out, /## Sessão nova\nA sessão anterior deste terminal se perdeu/, "vai nas instruções");
+  } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
+});

@@ -16,7 +16,7 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -61,10 +61,18 @@ pub struct Scrollback {
     buf: VecDeque<u8>,
     cap: usize,
     pub dirty: bool,
+    /// bytes já empurrados desde o início (posição ABSOLUTA do fim do buffer)
+    total: u64,
+    /// posição absoluta onde termina o que veio do .log da sessão ANTERIOR (pré-carregado no spawn)
+    pre: u64,
 }
 impl Scrollback {
-    pub fn new(cap: usize) -> Self { Scrollback { buf: VecDeque::new(), cap: cap.max(1024), dirty: false } }
+    pub fn new(cap: usize) -> Self { Scrollback { buf: VecDeque::new(), cap: cap.max(1024), dirty: false, total: 0, pre: 0 } }
+    /// Histórico da sessão ANTERIOR (o .log): fica no arquivo (persistência), mas o retrato do attach não o devolve —
+    /// a IA retomada (`claude --resume`) reimprime a conversa sozinha; devolver os dois duplicava e "pulava" a tela.
+    pub fn preload(&mut self, b: &[u8]) { self.push(b); self.pre = self.total; self.dirty = false; }
     pub fn push(&mut self, b: &[u8]) {
+        self.total += b.len() as u64;
         self.buf.extend(b.iter().copied());
         if self.buf.len() > self.cap {
             let mut cut = self.buf.len() - self.cap;
@@ -78,6 +86,12 @@ impl Scrollback {
     pub fn len(&self) -> usize { self.buf.len() }
     pub fn bytes(&self) -> Vec<u8> { self.buf.iter().copied().collect() }
     pub fn text(&self) -> String { String::from_utf8_lossy(&self.bytes()).into_owned() }
+    /// Só o que ESTA sessão produziu (sem o pré-carregado do .log anterior).
+    pub fn session_text(&self) -> String {
+        let start = self.total - self.buf.len() as u64;
+        let skip = self.pre.saturating_sub(start).min(self.buf.len() as u64) as usize;
+        String::from_utf8_lossy(&self.buf.iter().skip(skip).copied().collect::<Vec<u8>>()).into_owned()
+    }
 }
 
 /// Separa a parte UTF-8 COMPLETA de um lote; o resto (caractere partido no fim) fica pro próximo.
@@ -130,7 +144,23 @@ pub struct PtySession {
     /// mensagens esperando a sessão ficar livre (hook Stop)
     queue: Mutex<VecDeque<String>>,
     queue_worker: AtomicBool,
+    /// ms (epoch) da última saída do processo — sessão "falando" não é ociosa
+    last_out: Arc<AtomicI64>,
+    /// ms (epoch) desde quando NINGUÉM olha (0 = alguém olhando) — base do encerramento de terminal parado
+    unseen_since: AtomicI64,
 }
+
+pub const SETTLE_OPEN_MS: i64 = 1500;
+pub const SETTLE_QUIET_MS: i64 = 300;
+/// Depois disso a abertura já passou: saída contínua (spinner, barra de status, log) não segura a fila pra sempre.
+pub const SETTLE_MAX_MS: i64 = 10_000;
+/// PURA: dá pra colar? (a IA não está no meio de desenhar a abertura)
+pub fn settled_at(started_at: i64, last_out: i64, now: i64) -> bool {
+    let age = now - started_at;
+    age >= SETTLE_OPEN_MS && (age >= SETTLE_MAX_MS || now - last_out >= SETTLE_QUIET_MS)
+}
+fn pty_now() -> i64 { now_ms() }
+pub fn now_ms() -> i64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0) }
 
 impl PtySession {
     pub fn alive(&self) -> bool { self.alive.load(Ordering::SeqCst) }
@@ -153,14 +183,24 @@ impl PtySession {
     }
     /// Liga o envio de eventos e devolve o histórico ATÉ AQUI — sob o mesmo cadeado do despachante:
     /// nada se perde nem duplica entre o retrato e o 1º evento.
+    /// O retrato é só DESTA sessão (o .log da anterior fica de fora — ver Scrollback::preload).
     pub fn attach(&self) -> String {
         let sb = self.scroll.lock().unwrap_or_else(|e| e.into_inner());
         self.attached.fetch_add(1, Ordering::SeqCst);
-        sb.text()
+        self.unseen_since.store(0, Ordering::SeqCst);
+        sb.session_text()
     }
-    pub fn detach(&self) { let _ = self.attached.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)); }
-    #[cfg(test)]
+    pub fn detach(&self) {
+        if let Ok(1) = self.attached.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)) {
+            self.unseen_since.store(now_ms(), Ordering::SeqCst);
+        }
+    }
     pub fn watchers(&self) -> usize { self.attached.load(Ordering::SeqCst) }
+    /// (desde quando ninguém olha — 0 = alguém olhando, última saída) em ms epoch
+    pub fn idle_marks(&self) -> (i64, i64) { (self.unseen_since.load(Ordering::SeqCst), self.last_out.load(Ordering::SeqCst)) }
+    /// Pronto pra receber colagem: aberto há ≥ SETTLE_OPEN_MS e sem saída nos últimos SETTLE_QUIET_MS.
+    pub fn settled(&self, now: i64) -> bool { settled_at(self.started_at, self.last_out.load(Ordering::SeqCst), now) }
+    pub fn queue_len(&self) -> usize { self.queue.lock().unwrap_or_else(|e| e.into_inner()).len() }
     pub fn snapshot(&self) -> String { self.scroll.lock().unwrap_or_else(|e| e.into_inner()).text() }
     pub fn persist(&self) { persist_scroll(&self.scroll, self.log_path.as_deref()); }
     /// Mata o GRUPO (TERM → espera → KILL). Devolve se morreu.
@@ -298,7 +338,7 @@ impl PtyManager {
         let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
         // histórico anterior desta tarefa (sessão retomada): continua no mesmo arquivo
         let mut sb = Scrollback::new(spec.scroll_cap);
-        if let Some(p) = &spec.log_path { if let Ok(old) = std::fs::read(p) { sb.push(&old); sb.dirty = false; } }
+        if let Some(p) = &spec.log_path { if let Ok(old) = std::fs::read(p) { sb.preload(&old); } }
         let scroll = Arc::new(Mutex::new(sb));
         let sess = Arc::new(PtySession {
             task_id: task_id.to_string(),
@@ -315,6 +355,8 @@ impl PtyManager {
             size: Mutex::new((cols, rows)),
             queue: Mutex::new(VecDeque::new()),
             queue_worker: AtomicBool::new(false),
+            last_out: Arc::new(AtomicI64::new(now_ms())),
+            unseen_since: AtomicI64::new(now_ms()),
         });
         if let Some(r) = &self.registry { r.add(pid, task_id); }
         self.sessions.lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.to_string(), sess.clone());
@@ -334,7 +376,7 @@ impl PtyManager {
 
         // despachante: junta o que chegar em BATCH_MS e manda UM evento (só se alguém está olhando)
         let sink = self.sink.clone();
-        let (tid, sc, att, lp) = (task_id.to_string(), scroll.clone(), sess.attached.clone(), spec.log_path.clone());
+        let (tid, sc, att, lp, lo) = (task_id.to_string(), scroll.clone(), sess.attached.clone(), spec.log_path.clone(), sess.last_out.clone());
         let s2 = sess.clone();
         let reg = self.registry.clone();
         std::thread::Builder::new().name(format!("pty-batch-{task_id}")).spawn(move || {
@@ -343,6 +385,7 @@ impl PtyManager {
             let flush = |pending: &mut Vec<u8>| {
                 let text = split_utf8(pending);
                 if text.is_empty() { return; }
+                lo.store(now_ms(), Ordering::SeqCst);
                 let send = { let mut sb = sc.lock().unwrap_or_else(|e| e.into_inner()); sb.push(text.as_bytes()); att.load(Ordering::SeqCst) > 0 };
                 if send { sink.data(&tid, &text); }
             };
@@ -410,6 +453,8 @@ impl PtyManager {
             let poll = Duration::from_millis(400);
             loop {
                 if !s.alive() { break; }
+                // terminal acabou de abrir (a IA ainda desenhando — ex.: retomada ao abrir a tarefa): a colagem se perderia
+                if !s.settled(pty_now()) { std::thread::sleep(Duration::from_millis(100)); continue; }
                 if idle() != Some(false) {
                     let next = s.queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
                     let Some(msg) = next else { break };
@@ -478,6 +523,56 @@ mod tests {
     fn spec(dir: &Path, cap: usize) -> SpawnSpec {
         SpawnSpec { program: fake_cli(dir).display().to_string(), args: vec![], cwd: dir.to_path_buf(), env: vec![("STARFORK_T".into(), "1".into())], env_remove: vec![],
             cols: 100, rows: 30, log_path: Some(dir.join("term").join("t.log")), scroll_cap: cap, engine: "fake".into() }
+    }
+
+    #[test]
+    fn fila_so_cola_depois_que_a_abertura_assentou() {
+        assert!(!settled_at(1000, 1000, 1000 + SETTLE_OPEN_MS - 1), "acabou de abrir");
+        assert!(!settled_at(0, 5000, 5000 + SETTLE_QUIET_MS - 1), "ainda desenhando");
+        assert!(settled_at(0, 5000, 5000 + SETTLE_QUIET_MS));
+        assert!(settled_at(0, SETTLE_MAX_MS, SETTLE_MAX_MS), "passou da abertura: saída contínua não segura a fila pra sempre");
+    }
+
+    #[test]
+    fn scrollback_preload_fica_no_arquivo_mas_fora_do_retrato_da_sessao() {
+        let mut sb = Scrollback::new(1024);
+        sb.preload(b"VELHO-1\nVELHO-2\n");
+        assert!(!sb.dirty, "pré-carregado não precisa regravar");
+        assert_eq!(sb.session_text(), "", "nada desta sessão ainda");
+        sb.push(b"NOVO\n");
+        assert_eq!(sb.session_text(), "NOVO\n");
+        assert!(sb.text().starts_with("VELHO-1"), "o arquivo continua com tudo");
+        // estourou o teto: o começo (velho) sai; o retrato continua só com o novo, sem pedaço do velho
+        let mut sb = Scrollback::new(1024);
+        sb.preload(&vec![b'v'; 900]);
+        sb.push(&[b"\n".as_slice(), &vec![b'n'; 600]].concat());
+        assert!(sb.len() <= 1024 + 4096);
+        let st = sb.session_text();
+        assert!(!st.contains('v') && st.ends_with(&"n".repeat(600)), "{}", st.len());
+    }
+
+    #[test]
+    fn retrato_do_attach_nao_repete_o_log_anterior_e_marca_quem_nao_olha() {
+        let d = tmpdir("preload");
+        std::fs::create_dir_all(d.join("term")).unwrap();
+        std::fs::write(d.join("term").join("t.log"), "SESSAO-ANTIGA\r\n").unwrap();
+        let sink = Arc::new(TestSink::default());
+        let m = Arc::new(PtyManager::new(sink.clone(), None));
+        let s = m.spawn("t1", spec(&d, SCROLL_CAP)).unwrap();
+        let t0 = Instant::now();
+        while !s.snapshot().contains("FAKE-CLI pronto") && t0.elapsed() < Duration::from_secs(5) { std::thread::sleep(Duration::from_millis(20)); }
+        assert!(s.snapshot().starts_with("SESSAO-ANTIGA"), "o histórico em disco continua");
+        let (unseen0, out0) = s.idle_marks();
+        assert!(unseen0 > 0 && out0 > 0, "nasce sem ninguém olhando, com saída marcada");
+        let snap = s.attach();
+        assert!(snap.contains("FAKE-CLI pronto") && !snap.contains("SESSAO-ANTIGA"), "retrato só desta sessão: {snap:?}");
+        assert_eq!(s.idle_marks().0, 0, "olhando = não conta como parado");
+        s.attach(); s.detach();
+        assert_eq!(s.idle_marks().0, 0, "ainda há quem olhe");
+        s.detach();
+        assert!(s.idle_marks().0 > 0, "ninguém olhando: marca desde quando");
+        m.kill("t1");
+        assert!(std::fs::read_to_string(d.join("term").join("t.log")).unwrap().starts_with("SESSAO-ANTIGA"), "o .log segue acumulando");
     }
 
     #[test]
@@ -597,6 +692,54 @@ mod tests {
         let _ = ch.wait();
         assert!(!pid_alive(ch.id()));
         assert_eq!(std::fs::read_to_string(&reg.path).unwrap(), "[]");
+    }
+
+    #[test]
+    fn fila_segura_a_colagem_enquanto_a_abertura_desenha_e_entrega_depois() {
+        let d = tmpdir("assenta");
+        let sink = Arc::new(TestSink::default());
+        let m = Arc::new(PtyManager::new(sink.clone(), None));
+        let s = m.spawn("t9", spec(&d, SCROLL_CAP)).unwrap();
+        s.attach();
+        let idle: Arc<dyn Fn() -> Option<bool> + Send + Sync> = Arc::new(|| Some(true)); // livre desde o início
+        m.enqueue("t9", "cedo".into(), idle).unwrap();
+        std::thread::sleep(Duration::from_millis(900));
+        assert!(!sink.text("t9").contains("cedo"), "aberto há < {SETTLE_OPEN_MS} ms: segura (a IA ainda desenhando)");
+        assert!(sink.wait_for("t9", "cedo", 5000), "assentou: entrega: {:?}", sink.text("t9"));
+        m.kill("t9");
+    }
+
+    #[test]
+    fn retrato_do_encerramento_le_ocupado_ia_e_primeiro_plano_de_verdade() {
+        use crate::term::reap_in_with;
+        use rusqlite::{params, Connection};
+        let d = tmpdir("reapin");
+        let db = d.join("state.sqlite");
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch("CREATE TABLE term_session (task_id TEXT PRIMARY KEY, pid INTEGER, engine TEXT, busy INTEGER NOT NULL DEFAULT 0, session_id TEXT, started_at INTEGER, updated_at INTEGER, cli TEXT);").unwrap();
+        let sink = Arc::new(TestSink::default());
+        let m = Arc::new(PtyManager::new(sink.clone(), None));
+        let s = m.spawn("r1", spec(&d, SCROLL_CAP)).unwrap();
+        c.execute("INSERT INTO term_session (task_id, busy, cli) VALUES ('r1', 1, 'claude')", []).unwrap();
+        let r = reap_in_with(&s, Some(&db), true);
+        assert!(r.busy && r.fg_idle && !r.no_hooks && r.watchers == 0 && r.unseen_since > 0, "turno em curso: {r:?}");
+        c.execute("UPDATE term_session SET busy=0, cli='gemini' WHERE task_id='r1'", []).unwrap();
+        let r = reap_in_with(&s, Some(&db), true);
+        assert!(!r.busy && r.no_hooks, "IA sem hooks: {r:?}");
+        // shell no prompt (cli ''): quem diz é o 1º plano — aqui o fake (sh lendo) é shell → parado
+        c.execute("UPDATE term_session SET cli='' WHERE task_id='r1'", []).unwrap();
+        let r = reap_in_with(&s, Some(&db), true);
+        assert!(!r.no_hooks, "{r:?}");
+        s.write_bytes(b"spawn\r").unwrap(); // `sleep 300 &` — em 2º plano, o 1º plano segue o sh
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(reap_in_with(&s, Some(&db), true).fg_idle);
+        // sem banco / sem linha: não dá pra saber → ocupado (nunca encerra no escuro)
+        assert!(reap_in_with(&s, None, true).busy);
+        c.execute("DELETE FROM term_session", params![]).unwrap();
+        assert!(reap_in_with(&s, Some(&db), true).busy);
+        s.attach();
+        assert_eq!(reap_in_with(&s, Some(&db), true).watchers, 1);
+        m.kill("r1");
     }
 
     #[test]

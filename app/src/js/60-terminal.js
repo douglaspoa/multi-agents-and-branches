@@ -5,6 +5,12 @@
 //    Claude Code (term_history, lido no Rust fora da UI), senão o log do PTY, senão os eventos do state.sqlite —
 //    pintado na gramática do mock (● fala · ⎿ ferramenta · > você), sem PTY. Mandar algo pelo compositor RETOMA a
 //    sessão (`claude --resume <sessão>` no PTY, talk_task → term::route) e o xterm passa a ser o vivo;
+//  - ABRIR A TAREFA = TERMINAL VIVO (08/10): a aba ficou visível com a pasta da tarefa existindo → retoma SOZINHO no
+//    PTY em modo QUIETO (`claude --resume` sem prompt: não gasta nada, não muda status). O histórico fica na tela como
+//    placeholder; o que o PTY desenha vai pra uma fila e entra de UMA vez (RIS + retrato num único write — nunca
+//    reset() síncrono + write assíncrono, que pintava um quadro vazio: a "bugada") quando a IA terminou de desenhar.
+//    O foco vai pro xterm; o que se digitar no meio entra em ordem depois da troca. Terminal fora da tela e parado há
+//    termIdleMin (padrão 15 min) é encerrado no Rust (term.rs › reap_tick) — voltar à tarefa retoma de novo;
 //  - DeepSeek/gateway/Codex headless seguem com a Conversa.
 // Desempenho: um xterm por tarefa, criado na 1ª vez que aparece e REAPROVEITADO (o DOM é movido pro slot a cada
 // render); só recebe eventos enquanto está visível (term_attach/term_detach); o histórico só é relido quando o
@@ -161,6 +167,136 @@ function thRender(items, o){
 }
 // @term-hist-puro-fim
 
+// @term-vivo-puro-inicio (puro — testado em app/tests/terminal-vivo.test.mjs)
+const TERM_RIS='\x1bc'; // reset COMPLETO dentro do próprio fluxo do write: limpa e desenha no mesmo quadro
+const TERM_READY={ quietMs:350, settleMs:2500, maxMs:9000 };
+const TERM_MARK='▸ Starfork'; // o `starfork ia` avisa (stderr) logo antes de a IA subir no shell
+const termVis=(s)=>String(s==null?'':s).replace(/\x1b\[[0-9;?<>=]*[ -\/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Za-z0-9]|\x1b[=>78DEHMc]/g,'');
+/** Retomar SOZINHO ao abrir? Só a tarefa visível, com a pasta existindo, sessão a retomar, sem turno em segundo
+ *  plano, sem teto batido/pausa, uma vez por visita e nunca logo depois de o terminal fechar. */
+function termAutoOk(o){
+  o=o||{}; const h=o.hinfo;
+  if(!o.enabled || !o.on || o.hidden || o.mode!=='hist' || o.alive || o.opening || o.tried) return false;
+  if(!h || h.resumes!==true || !h.worktreeExists) return false; // integrada sem pasta (ou pasta sumida): só o histórico
+  if(o.headless || o.budget || o.paused) return false;
+  if(!h.sessionId && (!h.source || h.source==='none')) return false; // nada pra retomar (tarefa nova: botão "abrir terminal")
+  if(o.exitAt && (o.now||0)-o.exitAt<60000) return false; // acabou de fechar: não reabre em laço
+  return true;
+}
+/** A IA terminou de desenhar? (shell: depois do aviso do `starfork ia`; direto: qualquer coisa visível) + silêncio. */
+function termReadyNow(o){
+  const now=o.now, quiet=now-(o.last||o.t0);
+  if(now-o.t0>=TERM_READY.maxMs) return true;
+  const tx=String(o.text||'');
+  let drawn;
+  if(o.shell){ const i=tx.lastIndexOf(TERM_MARK); if(i<0) return quiet>=TERM_READY.settleMs && !!termVis(tx).trim(); const nl=tx.indexOf('\n', i); drawn=nl>=0 && !!termVis(tx.slice(nl+1)).trim(); }
+  else drawn=!!termVis(tx).trim();
+  return drawn ? quiet>=TERM_READY.quietMs : false;
+}
+/** O CLI está perguntando se confia na pasta? (Claude Code / Codex — só o fim da tela importa) */
+function termTrustAsk(tail){
+  return /Do you trust the files in this folder|Is this a project you (?:created or one you )?trust|trust the contents of this directory|Do you trust this (?:folder|directory)|Yes, I trust this folder/i.test(termVis(tail).slice(-3000));
+}
+/** O foco pode ir pro terminal? (não rouba de campo de texto nem de folha de pergunta) */
+function termFocusFree(ae, host){
+  if(!ae || ae.tagName==='BODY' || (host && host.contains && host.contains(ae))) return true;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName||'') || ae.isContentEditable) return false;
+  return !(ae.closest && ae.closest('.tlsheet,.tisheet,[role="dialog"],[role="menu"]'));
+}
+// @term-vivo-puro-fim
+// Ajustes › "Terminal ao abrir a tarefa" (termAutoResume; padrão ligado) — lido do settings, guardado por 30 s.
+// auto:null = ainda não lido: quem pergunta ESPERA a leitura (desligado nos Ajustes não pode retomar na 1ª tarefa)
+const TERM_CFG={ auto:null, at:0, p:null };
+function termAutoLoad(){
+  if(TERM_CFG.p) return TERM_CFG.p;
+  TERM_CFG.at=Date.now();
+  let p; try{ p=Promise.resolve(invokeQuiet('read_settings')); }catch(e){ p=Promise.reject(e); }
+  TERM_CFG.p=p.then(s=>{ let o={}; try{ o=JSON.parse(s||'{}')||{}; }catch(_){ } TERM_CFG.auto=!(o.termAutoResume===false||o.termAutoResume==='0'||o.termAutoResume==='false'); })
+    .catch(()=>{ if(TERM_CFG.auto==null) TERM_CFG.auto=true; }).finally(()=>{ TERM_CFG.p=null; });
+  return TERM_CFG.p;
+}
+/** true/false; null = ainda lendo (termAutoMaybe tenta de novo quando a leitura volta). */
+function termAutoEnabled(){
+  if(TERM_CFG.auto==null || Date.now()-TERM_CFG.at>30000) termAutoLoad();
+  return TERM_CFG.auto;
+}
+let TERM_WANT_FOCUS=null; // a tarefa que acabou de ABRIR: o teclado vai pro xterm assim que ele aparecer
+function termWantFocus(taskId){ TERM_WANT_FOCUS=taskId||null; }
+function termTakeFocus(taskId){
+  const st=TERM[taskId]; if(!st || !st.term || TERM_WANT_FOCUS!==taskId) return;
+  if(!termFocusFree(document.activeElement, st.host)){ TERM_WANT_FOCUS=null; return; }
+  TERM_WANT_FOCUS=null; try{ st.term.focus(); }catch(_){ }
+}
+/** Abriu a tarefa (ou ela voltou pra tela): retoma sozinha se der (termAutoOk). */
+function termAutoMaybe(taskId){
+  const st=TERM[taskId]; if(!st || !st.term) return;
+  if(termAutoEnabled()==null){ termAutoLoad().then(()=>termAutoMaybe(taskId)); return; }
+  const t=(state.tasks||[]).find(x=>x.id===taskId);
+  const on=!!(st.host.isConnected && st.box.clientWidth>0 && st.box.clientHeight>0);
+  const ok=termAutoOk({ enabled:termAutoEnabled(), on, hidden:typeof document!=='undefined' && document.hidden, mode:st.mode, alive:st.alive, opening:st.opening||st.holding,
+    tried:st.autoTried, hinfo:st.hinfo, headless:termHeadless(t), budget:typeof tiBudgetOpen==='function' && tiBudgetOpen(t), paused:!!(t && (t.status==='paused' || (t.spec&&t.spec.budgetHit))),
+    exitAt:st.exitAt, now:Date.now() });
+  if(!ok) return;
+  st.autoTried=true;
+  if(typeof tiGoLive==='function') tiGoLive(taskId, { auto:true }); else termResume(taskId, { quiet:true, auto:true });
+}
+/** Troca histórico → vivo SEM PULO: o retrato inteiro do PTY entra num único write precedido de RIS. */
+function termSwap(taskId, data){
+  const st=TERM[taskId]; if(!st || !st.term) return;
+  st.holding=false; st.pend=null; st.mode='live'; st.hlast=null; st.ttail='';
+  const d=String(data||'');
+  st.term.write(TERM_RIS+d, ()=>{ try{ st.term.scrollToBottom(); }catch(_){ } });
+  termSetAlive(taskId, true);
+  termTrustSeen(taskId, d);
+  if(st.term.cols) invokeQuiet('term_resize',{ taskId, cols:st.term.cols, rows:st.term.rows }).catch(()=>{});
+}
+/** Pergunta de confiança da pasta: vira aviso na barra do terminal (confiar e continuar / sair), nada trava. */
+function termTrustSeen(taskId, chunk){
+  const st=TERM[taskId]; if(!st || st.mode!=='live') return;
+  st.ttail=((st.ttail||'')+String(chunk||'')).slice(-6000);
+  const ask=termTrustAsk(st.ttail);
+  if(ask!==!!st.trust){ st.trust=ask; termSetAlive(taskId, true); }
+}
+/**
+ * Retoma a sessão no PTY mantendo o histórico na tela até a IA desenhar (sem flash). o: { quiet, auto, btn }.
+ * quiet = abrir pra olhar (sem kickoff, não gasta); botão "abrir terminal" de tarefa nova vai com quiet:false.
+ */
+async function termResume(taskId, o){
+  o=o||{};
+  const st=termEnsure(taskId); if(!st.term) return false;
+  if(st.alive && st.mode==='live') return true;
+  if(st.openP) return st.openP;
+  st.opening=true;
+  const b=o.btn||null; const bTx=b?b.textContent:''; if(b){ b.disabled=true; b.textContent='abrindo…'; }
+  const p=(async()=>{
+    try{
+      const cols=(st.term&&st.term.cols)||120, rows=(st.term&&st.term.rows)||34;
+      // o histórico FICA na tela; o que o PTY desenhar vai pra fila (st.pend) e entra de uma vez na troca
+      st.attached=true; st.pend=[]; st.pendAt=0; st.holding=true;
+      const info=await invoke('term_open',{ taskId, cols, rows, resume:true, quiet:!!o.quiet });
+      // saiu da tela / descartado / o terminal fechou enquanto abria: solta o attach que o term_open fez
+      const drop=()=>{ invokeQuiet('term_detach',{ taskId }).catch(()=>{}); return false; };
+      if(TERM[taskId]!==st || !st.holding) return drop();
+      if(!info || !info.alive) throw new Error('o terminal fechou logo ao abrir');
+      const head=String(info.data||''); const t0=Date.now();
+      while(st.holding && !termReadyNow({ t0, now:Date.now(), last:st.pendAt||t0, text:head+(st.pend||[]).join(''), shell:!!info.shell })) await new Promise(r=>setTimeout(r, 50));
+      if(!st.holding || TERM[taskId]!==st) return drop();
+      termSwap(taskId, head+(st.pend||[]).join(''));
+      termTakeFocus(taskId);
+      if(!o.auto){ try{ st.term.focus(); }catch(_){ } }
+      lastSig=''; refresh().catch(()=>{});
+      return true;
+    }catch(e){
+      st.holding=false; st.pend=null;
+      if(b && b.isConnected){ b.disabled=false; b.textContent=bTx; }
+      st.bar.__html=''; termSetAlive(taskId, false);
+      if(!o.auto) showErr(e, 'Não consegui abrir o terminal');
+      termSayLine(taskId, 'não consegui abrir o terminal: '+(typeof errShort==='function'?errShort(e):String(e&&e.message||e)), '31'); // a barra mantém "abrir tarefa de ajuste"
+      return false;
+    }finally{ st.opening=false; st.openP=null; }
+  })();
+  st.openP=p; return p;
+}
 function termEnsure(taskId){
   let st=TERM[taskId]; if(st) return st;
   const Term=termCtor(), Fit=termFitCtor();
@@ -177,6 +313,8 @@ function termEnsure(taskId){
   // quando o Claude Code abrir) — antes o xterm parado engolia tudo calado
   // (abertura em voo: TUDO vai pra fila do 64 — mesmo com o PTY já vivo — e sai num único write, em ordem)
   term.onData(d=>{ if(typeof tiTakeKey==='function' && tiTakeKey(taskId, d)) return; if(st.alive){ invokeQuiet('term_write',{ taskId, data:d }).catch(()=>{}); return; } if(typeof tiHistKey==='function') tiHistKey(taskId, d); });
+  // respondeu a pergunta de confiança pelo teclado: a barra velha some (o "sair" dela mandaria Esc no meio de um turno)
+  term.onData(()=>{ if(st.trust && st.alive){ st.trust=false; st.ttail=''; termSetAlive(taskId, true); } });
   st.term=term; st.fit=fit;
   if(typeof tiHostWire==='function') tiHostWire(taskId, st); // clique retoma · colar/arrastar arquivo = anexo @arquivo
   // redimensiona o PTY só quando o tamanho REAL muda; tamanho zero = escondido → para os eventos
@@ -201,20 +339,19 @@ function termHistRepaint(taskId){
   st.hcols=st.term.cols;
   const out=thRender(st.hlast.items, { ...st.hlast.o, cols:st.term.cols });
   const b=st.term.buffer&&st.term.buffer.active; const atEnd=!b||b.viewportY>=b.baseY-1;
-  st.term.reset(); st.term.write(out, ()=>{ try{ if(atEnd) st.term.scrollToBottom(); st.term.refresh(0, st.term.rows-1); }catch(_){ } });
+  st.term.write(TERM_RIS+out, ()=>{ try{ if(atEnd) st.term.scrollToBottom(); st.term.refresh(0, st.term.rows-1); }catch(_){ } });
 }
 async function termAttach(taskId){
-  const st=TERM[taskId]; if(!st||!st.term||st.attached) return;
+  const st=TERM[taskId]; if(!st||!st.term||st.attached||st.holding) return;
   st.attached=true; st.pend=[]; // o que chegar ENQUANTO o retrato vem fica guardado e é escrito depois dele
   try{
     const info=await invokeQuiet('term_attach',{ taskId });
     // descartado enquanto o retrato vinha (termDispose): solta o PTY de novo — senão o contador de quem assiste fica >0
     if(TERM[taskId]!==st){ if(info && info.alive) invokeQuiet('term_detach',{ taskId }).catch(()=>{}); return; }
     if(info && info.alive){
-      st.mode='live'; st.term.reset(); if(info.data) st.term.write(info.data);
-      const pend=st.pend; st.pend=null; for(const d of pend||[]) st.term.write(d);
-      termSetAlive(taskId, true);
-      if(st.term.cols) invokeQuiet('term_resize',{ taskId, cols:st.term.cols, rows:st.term.rows }).catch(()=>{});
+      // retrato + o que chegou no meio, num único write com RIS (sem quadro vazio entre limpar e desenhar)
+      termSwap(taskId, String(info.data||'')+(st.pend||[]).join(''));
+      termTakeFocus(taskId);
       return;
     }
     st.pend=null;
@@ -224,16 +361,21 @@ async function termAttach(taskId){
   }catch(e){ st.attached=false; st.pend=null; console.error('term_attach', e); }
 }
 function termDetach(taskId){
-  const st=TERM[taskId]; if(!st||!st.attached) return;
+  const st=TERM[taskId]; if(!st) return;
+  st.autoTried=false; // saiu da tela: voltar a ela pode retomar de novo
+  if(!st.attached) return;
+  // abrindo em segundo plano (histórico na tela): a troca não acontece — o termResume solta o attach do term_open
+  if(st.holding){ st.holding=false; st.pend=null; }
   st.attached=false; if(st.mode==='live') invokeQuiet('term_detach',{ taskId }).catch(()=>{});
 }
 function termEvents(taskId){ return (typeof fwTask!=='undefined' && fwTask===taskId && typeof fwEvents!=='undefined' && fwEvents.length) ? fwEvents : (typeof eventsOf==='function'?eventsOf(taskId):[]); }
 /** Histórico da sessão (tarefa sem terminal vivo). force: repinta mesmo sem mudança (voltou do vivo, abriu agora). */
 async function termHistLoad(taskId, force){
-  const st=TERM[taskId]; if(!st||!st.term||st.mode!=='hist') return;
+  const st=TERM[taskId]; if(!st||!st.term||st.mode!=='hist'||st.holding) return;
   if(st.hloading){ st.hagain=st.hagain||(force?2:1); return; }
   st.hloading=true; st.hat=Date.now();
   let next=null; // continuação DEPOIS de soltar a trava (nunca uma chamada aninhada com a trava aberta)
+  let auto=false; // histórico pintado: dá pra retomar sozinho (termAutoMaybe) depois de soltar a trava
   try{
     // sem o conteúdo guardado (1ª vez, ou voltou do vivo) não vale pedir "só se mudou"
     const have=st.hitems!==undefined || st.hraw!==undefined;
@@ -243,7 +385,7 @@ async function termHistLoad(taskId, force){
     const evs=termEvents(taskId);
     const sysSig=evs.length+':'+(evs.length?evs[evs.length-1].id:0);
     st.hinfo=h;
-    if(!force && h.unchanged && sysSig===st.hsys){ termSetAlive(taskId, false); return; }
+    if(!force && h.unchanged && sysSig===st.hsys){ termSetAlive(taskId, false); auto=true; return; }
     st.hsys=sysSig;
     if(!h.unchanged){ st.hstamp=h.stamp||''; st.hitems=h.source==='transcript'?h.items:null; st.hraw=h.source==='log'?String(h.raw||''):undefined; }
     const t=(state.tasks||[]).find(x=>x.id===taskId);
@@ -258,18 +400,21 @@ async function termHistLoad(taskId, force){
     st.hcols=st.term.cols;
     // quem rolou pra cima continua onde estava (poll da tarefa rodando em segundo plano)
     const b=st.term.buffer&&st.term.buffer.active; const atEnd=!b || force || b.viewportY>=b.baseY-1; const y=b?b.viewportY:0;
-    st.term.reset(); st.term.write(out, ()=>{ try{ if(atEnd) st.term.scrollToBottom(); else st.term.scrollToLine(y); st.term.refresh(0, st.term.rows-1); }catch(_){ } });
+    st.term.write(TERM_RIS+out, ()=>{ try{ if(atEnd) st.term.scrollToBottom(); else st.term.scrollToLine(y); st.term.refresh(0, st.term.rows-1); }catch(_){ } });
     termSetAlive(taskId, false);
+    termTakeFocus(taskId); // abriu a tarefa: o teclado já fica no terminal (tecla no histórico também retoma)
+    auto=true;
   }catch(e){ console.error('term_history', e); try{ st.term.write('\r\n'+thC('31','não consegui ler o histórico desta sessão: '+thClean(typeof errShort==='function'?errShort(e):String(e)))+'\r\n'); }catch(_){ } }
   finally{
     st.hloading=false;
     if(next) next();
     else if(st.hagain){ const f=st.hagain===2; st.hagain=0; termHistLoad(taskId, f); }
+    else if(auto) termAutoMaybe(taskId);
   }
 }
 /** Poll do workspace (fwLiveUpdate): no histórico de uma tarefa rodando em segundo plano, relê quando o arquivo muda. */
 function termHistTick(t){
-  const st=t&&TERM[t.id]; if(!st||st.mode!=='hist'||!st.attached||st.hloading) return;
+  const st=t&&TERM[t.id]; if(!st||st.mode!=='hist'||!st.attached||st.hloading||st.holding) return;
   const evs=termEvents(t.id); const sysSig=evs.length+':'+(evs.length?evs[evs.length-1].id:0);
   const due=termHeadless(t) ? Date.now()-(st.hat||0)>2500 : sysSig!==st.hsys;
   if(due) termHistLoad(t.id, false);
@@ -287,7 +432,11 @@ async function termGoLive(taskId){
 }
 function termSetAlive(taskId, alive){
   const st=TERM[taskId]; if(!st) return; st.alive=alive;
-  if(alive){ st.mode='live'; st.bar.style.display='none'; st.bar.innerHTML=''; st.bar.__html=''; return; }
+  if(alive){
+    st.mode='live';
+    const th=st.trust ? `<span>${esc('a IA pergunta se você confia nesta pasta — é a pasta da tarefa, criada pelo Starfork a partir do seu repositório')}</span><span class="cc-sp"></span><button class="btn sm primary" data-termtrust="yes" data-task="${escA(taskId)}">confiar e continuar</button><button class="btn sm" data-termtrust="no" data-task="${escA(taskId)}" title="fecha a IA (Esc); o terminal volta pro shell">sair</button>` : '';
+    st.bar.style.display=th?'flex':'none'; if(st.bar.__html!==th){ st.bar.__html=th; st.bar.innerHTML=th; } return;
+  }
   const t=(state.tasks||[]).find(x=>x.id===taskId); const h=st.hinfo||{};
   const fresh=t && (t.status==='draft' || t.status==='queued') && (!h.source || h.source==='none');
   let html;
@@ -302,21 +451,14 @@ function termSetAlive(taskId, alive){
   if(st.bar.__html!==html){ st.bar.__html=html; st.bar.innerHTML=html; }
 }
 async function termOpen(taskId){
-  const st=termEnsure(taskId); if(st.opening) return; st.opening=true;
+  const st=termEnsure(taskId); if(st.opening) return;
   // o botão pode estar na barra do xterm ou no "retomar sessão" da barra de status (tlBarHtml, redesenho F1)
   const sel='[data-termopen="'+String(taskId).replace(/["\\]/g,'')+'"]';
   const b=st.bar.querySelector(sel)||st.bar.querySelector('[data-termopen]')||(typeof document!=='undefined' && document.querySelector ? document.querySelector(sel) : null);
-  const bTx=b?b.textContent:''; if(b){ b.disabled=true; b.textContent='abrindo…'; }
-  try{
-    const cols=(st.term&&st.term.cols)||120, rows=(st.term&&st.term.rows)||34;
-    const info=await invoke('term_open',{ taskId, cols, rows, resume:true });
-    st.attached=true; st.pend=null; st.mode='live'; st.term.reset(); if(info && info.data) st.term.write(info.data);
-    termSetAlive(taskId, !!(info && info.alive)); st.term.focus();
-    lastSig=''; refresh().catch(()=>{});
-  }catch(e){ showErr(e, 'Não consegui abrir o terminal');
-    // a barra só repinta quando o HTML muda: o botão que ficou "abrindo…" volta sozinho (antes ficava preso, sem tentar de novo)
-    if(b && b.isConnected){ b.disabled=false; b.textContent=bTx; } st.bar.__html=''; termSetAlive(taskId, false); termSayLine(taskId, 'não consegui abrir o terminal: '+(typeof errShort==='function'?errShort(e):String(e&&e.message||e)), '31'); } // a barra mantém "abrir tarefa de ajuste"
-  finally{ st.opening=false; }
+  // clique explícito: tarefa nova começa a trabalhar (kickoff); as outras só retomam — a troca é a mesma, sem flash
+  const t=(state.tasks||[]).find(x=>x.id===taskId); const fresh=!!(t && (t.status==='draft'||t.status==='queued'));
+  // (se falhar, termResume devolve o botão — não fica "abrindo…" desabilitado pra sempre)
+  return termResume(taskId, { quiet:!fresh, btn:b });
 }
 /** Chamado pelo render da tarefa: põe o terminal (já existente) no slot e solta os que saíram da tela. */
 function termMount(t){
@@ -355,15 +497,17 @@ function termDispose(taskId){
 }
 
 try{
-  window.__TAURI__.event.listen('term-data', ev=>{ const p=ev&&ev.payload; const st=p&&TERM[p.taskId]; if(!st||!st.attached||!st.term) return; if(st.pend){ st.pend.push(p.data); return; } if(st.mode==='hist') return; st.term.write(p.data); }); // retrato em voo (inclusive hist→vivo): guarda
+  window.__TAURI__.event.listen('term-data', ev=>{ const p=ev&&ev.payload; const st=p&&TERM[p.taskId]; if(!st||!st.attached||!st.term) return; if(st.pend){ st.pend.push(p.data); st.pendAt=Date.now(); return; } if(st.mode==='hist') return; st.term.write(p.data); termTrustSeen(p.taskId, p.data); }); // retrato em voo (inclusive hist→vivo): guarda
   // terminal fechou: o xterm vira o histórico da sessão (o transcript já tem o último turno)
   window.__TAURI__.event.listen('term-exit', ev=>{ const p=ev&&ev.payload; if(!p) return; const st=TERM[p.taskId];
-    if(st){ st.alive=false; st.mode='hist'; st.hstamp=''; st.hitems=undefined; st.hraw=undefined; termSetAlive(p.taskId, false); if(st.attached) termHistLoad(p.taskId, true); }
+    if(st){ st.exitAt=p.reaped?0:Date.now(); /* encerrado por ficar parado: voltar retoma na hora */ st.trust=false; if(st.holding){ st.holding=false; st.pend=null; } st.alive=false; st.mode='hist'; st.hstamp=''; st.hitems=undefined; st.hraw=undefined; termSetAlive(p.taskId, false); if(st.attached) termHistLoad(p.taskId, true); }
     lastSig=''; refresh().catch(()=>{}); });
 }catch(_){ }
 document.addEventListener('visibilitychange', ()=>{ for(const id in TERM){ if(document.hidden) termDetach(id); else if(TERM[id].host.isConnected) termFit(id); } });
 document.addEventListener('click', (e)=>{
-  const b=e.target.closest&&e.target.closest('[data-termopen],[data-termfix]'); if(!b) return; e.stopPropagation();
+  const b=e.target.closest&&e.target.closest('[data-termopen],[data-termfix],[data-termtrust]'); if(!b) return; e.stopPropagation();
   if(b.dataset.termopen){ termOpen(b.dataset.termopen); return; }
+  if(b.dataset.termtrust){ const id=b.dataset.task, st=TERM[id]; if(!st) return; // Enter = a 1ª opção (sim); Esc = sair
+    invokeQuiet('term_write',{ taskId:id, data:b.dataset.termtrust==='yes'?'\r':'\x1b' }).catch(()=>{}); st.trust=false; st.ttail=''; termSetAlive(id, true); try{ st.term.focus(); }catch(_){ } return; }
   const t=(state.tasks||[]).find(x=>x.id===b.dataset.termfix); if(t && typeof openLinkedFix==='function') openLinkedFix(t);
 });

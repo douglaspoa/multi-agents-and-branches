@@ -305,26 +305,17 @@ function tiTakeKey(taskId, d){
   if(tiKeyRoute(!!TI.going[taskId], !!st.alive)!=='buf') return false;
   TI.buf[taskId]=tiBufPush(TI.buf[taskId], d, TI_MAX_BUF); return true;
 }
-/** Abre (retoma) a sessão no PTY e escreve o que estava guardado depois que o CLI desenhar. */
-async function tiGoLive(taskId){
+/** Abre (retoma) a sessão no PTY e escreve o que estava guardado depois que o CLI desenhar. o: { auto } (abriu a tarefa).
+ *  QUIETO: a IA só abre e espera (sem kickoff, não gasta) — o que a pessoa digitou é o 1º pedido. O histórico fica na
+ *  tela até a IA desenhar e a troca é um write só (termResume, 60-terminal) — nada de "abrindo a sessão…" por cima. */
+async function tiGoLive(taskId, o){
   const st=TERM[taskId]; if(!st) return false;
-  if(st.alive){ tiFlush(taskId); return true; }
+  if(st.alive && st.mode==='live'){ tiFlush(taskId); return true; }
   if(TI.going[taskId]) return false;
-  TI.going[taskId]=1;
+  TI.going[taskId]=1; TI.lastData[taskId]=0;
   try{
-    termSayLine(taskId, 'abrindo a sessão… o que você digitar entra assim que o terminal estiver pronto', '2');
-    TI.lastData[taskId]=0;
-    await termOpen(taskId);
-    if(!st.alive){ delete TI.buf[taskId]; return false; } // termOpen já mostrou o erro
-    // o PTY é um SHELL que roda `starfork ia …` antes de a IA desenhar: espera o term_status dizer que a IA subiu
-    // (cli) e ~0,7s de silêncio depois disso (máx. ~12s) — antes disso a tecla iria pro shell ou se perderia
-    const t0=Date.now(), wait=(ms)=>new Promise(r=>setTimeout(r, ms)); let up=0;
-    while(Date.now()-t0<12000){
-      if(!up){ try{ const s=await invokeQuiet('term_status', { taskId }); if(s){ TI.stat[taskId]=s; if(s.cli) up=Date.now(); } }catch(_){ } }
-      if(up){ const ld=Math.max(TI.lastData[taskId]||0, up); if(Date.now()-ld>700) break; }
-      await wait(250);
-    }
-    if(!up && TI.buf[taskId]) termSayLine(taskId, 'a IA não subiu a tempo — o que você digitou foi pro shell do terminal', '33');
+    const ok=await termResume(taskId, { quiet:true, auto:!!(o&&o.auto) });
+    if(!ok || !st.alive){ delete TI.buf[taskId]; return false; } // termResume já mostrou o erro
     tiFlush(taskId); // UM term_write com tudo, em ordem; só depois disso as teclas voltam a ir direto pro PTY
     return true;
   }finally{ delete TI.going[taskId]; }

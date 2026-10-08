@@ -610,7 +610,10 @@ export interface AiLaunch { ai: TermAi; program: string; args: string[]; env: Re
  *    / `opencode --continue`); sem sessão → nova.
  *  - message: 1ª mensagem (ex.: follow-up mandado com a IA fechada).   - model: vazio = termModelOf.
  */
-export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: { resume?: boolean; message?: string; model?: string } = {}): AiLaunch {
+export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: { resume?: boolean; message?: string; model?: string; quiet?: boolean } = {}): AiLaunch {
+  // QUIETO (o app retoma sozinho ao abrir a tarefa — 08/10): a IA só ABRE e espera; nada de 1ª mensagem/kickoff
+  // (não gasta nada até a pessoa mandar), status/etapa intocados e sem notas de "abrindo" no feed
+  const quiet = !!opts.quiet;
   const { task, spec, role, ctx } = orch.terminalContext(taskId);
   const model = String(opts.model ?? termModelOf(spec, role, ai)).trim();
   // DeepSeek: a chave é conferida ANTES de mexer em qualquer coisa (erro claro em vez de um `claude` sem login)
@@ -650,7 +653,10 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     STARFORK_TERMINAL: "1",
   };
   const CONTINUE = "A sessão anterior deste terminal se perdeu. O trabalho já feito está NESTA worktree: confira git status, git diff e .cardume/artifacts, releia .cardume/TASK.yaml e continue de onde parou.";
-  const first = [lostSession ? CONTINUE : "", (opts.message ?? "").trim()].filter(Boolean).join("\n\n");
+  const first = quiet ? "" : [lostSession ? CONTINUE : "", (opts.message ?? "").trim()].filter(Boolean).join("\n\n");
+  // quieto com a sessão perdida: o aviso vai nas INSTRUÇÕES (system prompt / developer) — a IA sabe de onde continuar
+  // quando a pessoa mandar algo, sem gastar nada agora
+  const quietNote = quiet && lostSession ? `\n\n## Sessão nova\n${CONTINUE}` : "";
   let args: string[] = [];
   let envRemove = envToRemove();
   // integrada: modo conversa (nada de kickoff "execute a tarefa", nada de status mudando)
@@ -662,7 +668,7 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   const ownRules = join(termDir(task.worktree), "AGENTS.starfork.md");
   try { mkdirSync(dirname(ownRules), { recursive: true }); writeFileSync(ownRules, rules, "utf8"); } catch { /* segue com a 1ª mensagem */ }
   let kicked = false;
-  const genericKick = () => merged ? "" : codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
+  const genericKick = () => merged || quiet ? "" : codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
   if (ai === "claude" || ai === "deepseek") {
     // a pasta foi criada pelo Starfork a partir do repo da pessoa: sem o "Is this a project you trust?" (padrão = sair)
     trustClaudeProject(task.worktree, repo);
@@ -672,11 +678,11 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     if (sid) args.push("--resume", sid);
     // as regras do Starfork vão no SYSTEM PROMPT (reenviado a cada abertura, inclusive no --resume): a conversa
     // no terminal começa limpa, com um pedido curto — e não com 10 KB de regra na 1ª mensagem
-    args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}\n\n${INTEGRADO_RULE}${INTEGRADO_CLAUDE_CMDS}${INTEGRADO_SHELL}${mergedNote ? `\n${mergedNote}` : ""}`);
+    args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}\n\n${INTEGRADO_RULE}${INTEGRADO_CLAUDE_CMDS}${INTEGRADO_SHELL}${mergedNote ? `\n${mergedNote}` : ""}${quietNote}`);
     args.push("--mcp-config", mcpConfigPath, ...protectArgs(protectOn), "--permission-mode", "bypassPermissions");
     // DeepSeek: o modelo vai no env (ANTHROPIC_MODEL) — `--model deepseek-…` seria validado como id do Claude
     if (model && !dsEnv) args.push("--model", model);
-    const kick = first || (sid || merged ? "" : KICKOFF);
+    const kick = first || (sid || merged || quiet ? "" : KICKOFF);
     if (kick) args.push(kick);
     kicked = !!kick;
     const ce = claudeEnv();
@@ -698,7 +704,7 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     // tabela inteira sim; ela só vale pra esta sessão, que roda nesta pasta
     args.push("-c", codexTrustArg(task.worktree, repo));
     // instruções do terminal como mensagem de "developer" (config do Codex) — valem também no `codex resume`
-    args.push("-c", `developer_instructions=${toml(rules)}`);
+    args.push("-c", `developer_instructions=${toml(rules + quietNote)}`);
     // comandos IGUAIS em toda tarefa (tarefa/banco vêm do env CARDUME_TASK/CARDUME_DB): o Codex pede pra pessoa
     // revisar/confiar em hook NOVO ou ALTERADO — com o id da tarefa no comando seria um "Hooks need review" por
     // tarefa; assim é UMA vez (por instalação do motor)
@@ -729,7 +735,7 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     if (model) args.push("--model", model);
     if (canResume) args.push("--resume", "latest");
     // GEMINI.md da pessoa (rastreado) intocado → as regras vão na 1ª mensagem
-    const kick = [canResume ? "" : genericKick(), inFile || canResume ? "" : rules, first].filter(Boolean).join("\n\n");
+    const kick = quiet ? "" : [canResume ? "" : genericKick(), inFile || canResume ? "" : rules, first].filter(Boolean).join("\n\n");
     if (kick && help.includes("--prompt-interactive")) args.push("--prompt-interactive", kick);
     else if (kick) orch.store.addEvent(taskId, "Sistema", "note", `Gemini CLI antigo (sem --prompt-interactive): abri sem a 1ª mensagem do Starfork — atualize com ${AI_INSTALL.gemini}`, false);
   } else {
@@ -745,8 +751,8 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     env.PATH = toolPath(bin, process.env.PATH);
   }
   // integrada NUNCA sai de integrada (abrir o terminal pra perguntar não é voltar a construir)
-  if (!merged && !["done", "aborted"].includes(task.status)) { orch.store.setStage(taskId, role.role); orch.store.setStatus(taskId, "running"); }
-  orch.store.addEvent(taskId, "Sistema", "status", `${sid || resumeLast ? `abrindo o terminal (${ai}) e retomando a sessão` : `abrindo o terminal (${ai})`}${merged ? " — tarefa integrada: só conversa" : ""}`, true);
+  if (!quiet && !merged && !["done", "aborted"].includes(task.status)) { orch.store.setStage(taskId, role.role); orch.store.setStatus(taskId, "running"); }
+  if (!quiet) orch.store.addEvent(taskId, "Sistema", "status", `${sid || resumeLast ? `abrindo o terminal (${ai}) e retomando a sessão` : `abrindo o terminal (${ai})`}${merged ? " — tarefa integrada: só conversa" : ""}`, true);
   const busy = aiHasHooks(ai) && kicked;
   return { ai, program: bin, args, env, envRemove, resumed: !!(sid || resumeLast), sessionId: sid || null, cwd: task.worktree, busy };
 }
@@ -880,8 +886,8 @@ export function userShell(env: NodeJS.ProcessEnv = process.env): string {
  * (o caminho do shim) — é por ela que a varredura do boot (pty.rs › looks_like_agent) reconhece um terminal órfão;
  * `exit` no shell de dentro fecha os dois.
  */
-export function shellLine(shim: string, shell: string, o: { ai: TermAi; model?: string; resume?: boolean; msgFile?: string }): string {
-  return `${shqp(shim)} ia ${o.ai}${o.model ? ` --modelo ${shArg(o.model)}` : ""}${o.resume ? " --resume" : ""}${o.msgFile ? ` --msg-file ${shqp(o.msgFile)}` : ""}; ${shqp(shell)} -l -i; :`;
+export function shellLine(shim: string, shell: string, o: { ai: TermAi; model?: string; resume?: boolean; quiet?: boolean; msgFile?: string }): string {
+  return `${shqp(shim)} ia ${o.ai}${o.model ? ` --modelo ${shArg(o.model)}` : ""}${o.resume ? " --resume" : ""}${o.quiet ? " --quieto" : ""}${o.msgFile ? ` --msg-file ${shqp(o.msgFile)}` : ""}; ${shqp(shell)} -l -i; :`;
 }
 
 /**
@@ -890,7 +896,9 @@ export function shellLine(shim: string, shell: string, o: { ai: TermAi; model?: 
  *  - resume: retoma a sessão gravada; message: 1ª mensagem (vai por arquivo — nada de texto do humano no argv do shell);
  *  - ai/model: troca de IA pelo app (term_switch_ai) — senão termAiOf/termModelOf.
  */
-export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: boolean; message?: string; ai?: string; model?: string; direct?: boolean } = {}): LaunchSpec {
+export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: boolean; quiet?: boolean; message?: string; ai?: string; model?: string; direct?: boolean } = {}): LaunchSpec {
+  // quieto + mensagem não combinam: a mensagem é um pedido explícito (vai e gasta, pelos portões de sempre)
+  const quiet = !!opts.quiet && !(opts.message ?? "").trim();
   const task = orch.store.getTask(taskId);
   if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
   const spec = JSON.parse(task.spec_json) as TaskSpec;
@@ -899,7 +907,7 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
   const model = String(opts.model ?? termModelOf(spec, role, ai)).trim();
   const recommended = recommendedLaunch(spec, role);
   if (opts.direct || process.platform === "win32") {
-    const L = aiLaunch(orch, taskId, ai, { resume: opts.resume, message: opts.message, model });
+    const L = aiLaunch(orch, taskId, ai, { resume: opts.resume, message: opts.message, model, quiet });
     return { program: L.program, args: L.args, cwd: L.cwd, env: L.env, envRemove: L.envRemove, engine: ai, resumed: L.resumed, sessionId: L.sessionId, model, shell: false, busy: L.busy, recommended };
   }
   // DeepSeek sem chave: erro claro ANTES de abrir o PTY (a matriz da spec)
@@ -926,10 +934,10 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
     BASH_SILENCE_DEPRECATION_WARNING: "1",
     PATH: [binDir, ...(claudeEnv().PATH ?? process.env.PATH ?? "").split(":").filter((d) => d && d !== binDir)].join(":"),
   };
-  orch.store.addEvent(taskId, "Sistema", "status", `abrindo o terminal (shell ${shell.split("/").pop()} → ${AI_LABEL[ai]}${model ? ` · ${model}` : ""})`, true);
+  if (!quiet) orch.store.addEvent(taskId, "Sistema", "status", `abrindo o terminal (shell ${shell.split("/").pop()} → ${AI_LABEL[ai]}${model ? ` · ${model}` : ""})`, true);
   return {
     program: shell,
-    args: ["-l", "-i", "-c", shellLine(join(binDir, "starfork"), shell, { ai, model, resume: opts.resume, msgFile: msg ? NEXT_MSG_REL : undefined })],
+    args: ["-l", "-i", "-c", shellLine(join(binDir, "starfork"), shell, { ai, model, resume: opts.resume, quiet, msgFile: msg ? NEXT_MSG_REL : undefined })],
     cwd: task.worktree,
     env,
     envRemove: envToRemove(),
@@ -938,7 +946,7 @@ export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: bo
     sessionId: sid || null,
     model,
     shell: true,
-    busy: aiHasHooks(ai) && !!(msg || (!sid && task.status !== "merged")),
+    busy: aiHasHooks(ai) && !!(msg || (!quiet && !sid && task.status !== "merged")),
     recommended,
   };
 }
@@ -959,7 +967,7 @@ export function launchScript(L: AiLaunch, base: string[]): string {
 }
 
 /** `starfork ia-prep <ia>` (dentro do shell): prepara a IA, grava que ela está rodando e imprime o script. */
-export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resume?: boolean; msgFile?: string; model?: string }): { script: string; launch: AiLaunch } {
+export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resume?: boolean; quiet?: boolean; msgFile?: string; model?: string }): { script: string; launch: AiLaunch } {
   let message = "";
   let msgPath = "";
   try {
@@ -974,7 +982,7 @@ export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resu
     const st0 = readTermState(task.worktree);
     snapshotSession(st0, orch.store.termGet(taskId)?.session_id);
     writeTermState(task.worktree, st0);
-    const launch = aiLaunch(orch, taskId, ai, { resume: o.resume, message, model: o.model });
+    const launch = aiLaunch(orch, taskId, ai, { resume: o.resume, message, model: o.model, quiet: !!o.quiet && !message.trim() });
     // relê: o aiLaunch grava a barra de status da pessoa (prevStatusLine) no mesmo arquivo
     const st = readTermState(task.worktree);
     st.lastAi = ai;

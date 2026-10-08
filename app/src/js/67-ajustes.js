@@ -445,6 +445,9 @@ function ajRenderCusto(host){
   const step=d=>{ const i=$id('cfgSlots'); i.value=String(Math.max(1, Math.min(12, (parseInt(i.value,10)||1)+d))); save('cfgSlots'); };
   bindClick('cfgSlotsM', ()=>step(-1)); bindClick('cfgSlotsP', ()=>step(1));
 }
+// encerrar terminal parado (term.rs › idle_ms_of: minutos, 0 = nunca; padrão 15)
+const AJ_TERM_IDLE=[['5','depois de 5 min'],['15','depois de 15 min (padrão)'],['30','depois de 30 min'],['60','depois de 1 hora'],['0','nunca']];
+function ajTermIdleOf(v){ const s=String(v==null?'':v).replace(/"/g,'').trim(); return AJ_TERM_IDLE.some(x=>x[0]===s)?s:'15'; }
 function ajRenderModo(host){
   host.innerHTML=ajSecHead('modo', 'Vale para as tarefas novas. As que já estão rodando continuam do jeito que começaram.')
     +`<div class="ajrc" role="radiogroup" aria-label="como as tarefas novas rodam" id="ajModeRc">
@@ -454,18 +457,24 @@ function ajRenderModo(host){
     <div class="ajrows">`
     +ajRow('Navegador dos agentes', 'Quando o agente abre um site pra testar ou tirar print. Por padrão roda em segundo plano, sem janela; ligue pra acompanhar ou fazer login.', ajSw('cfgBrowserVisible', false, 'mostrar a janela'))
     +ajRow('Previsão de tempo e custo antes de rodar', 'Custa uma chamada curta de IA por demanda (aparece em Uso › Previsão). Desligado: nenhuma chamada extra.', ajSw('cfgEstimate', true, 'prever'))
+    +ajRow('Terminal vivo ao abrir a tarefa', 'Abrir uma tarefa parada retoma a sessão no terminal, pronta pra digitar. Não gasta nada até você mandar algo.', ajSw('cfgTermAuto', true, 'retomar sozinho'))
+    +ajRow('Encerrar terminal parado', 'Terminal de tarefa que você não está vendo, sem nada rodando, fecha depois desse tempo — volta sozinho quando você abrir a tarefa.', `<select class="in" id="cfgTermIdle" aria-label="encerrar terminal parado depois de">${AJ_TERM_IDLE.map(([v,l])=>'<option value="'+v+'">'+l+'</option>').join('')}</select>`)
     +`</div>`;
   let loaded, stored;
   const paint=v=>host.querySelectorAll('[data-ajmode]').forEach(b=>{ const on=b.dataset.ajmode===v; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
   ajSettingsRead().then(o=>{ loaded=cfgTaskModeOf(o); stored=o.taskMode||''; paint(loaded); host.querySelectorAll('[data-ajmode]').forEach(b=>{ b.disabled=false; }); // só depois de ler (antes gravaria uma escolha que ninguém fez)
     const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true');
-    const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false'); });
+    const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false');
+    const ta=$id('cfgTermAuto'); if(ta) ta.checked=!(o.termAutoResume===false||o.termAutoResume==='0'||o.termAutoResume==='false');
+    const ti=$id('cfgTermIdle'); if(ti) ti.value=ajTermIdleOf(o.termIdleMin); });
   host.querySelectorAll('[data-ajmode]').forEach(b=>b.onclick=async()=>{
     const v=b.dataset.ajmode; paint(v);
     if(!cfgTaskModeShouldSave(v, loaded, stored)) return;
     try{ await ajSetting('taskMode', v==='auto'?'auto':'terminal'); await ajSetting('taskModeSet','2'); loaded=v; stored=v; ajSaved(); }catch(e){ showErr(e,'Não salvou o modo das tarefas'); paint(loaded); }
   });
   { const bv=$id('cfgBrowserVisible'); if(bv) bv.onchange=async()=>{ try{ await ajSetting('browserVisible', bv.checked?'1':'0'); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
+  { const ta=$id('cfgTermAuto'); if(ta) ta.onchange=async()=>{ try{ await ajSetting('termAutoResume', ta.checked?'1':'0'); if(typeof TERM_CFG!=='undefined'){ TERM_CFG.auto=ta.checked; TERM_CFG.at=Date.now(); } ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
+  { const ti=$id('cfgTermIdle'); if(ti) ti.onchange=async()=>{ try{ await ajSetting('termIdleMin', ti.value); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
   { const es=$id('cfgEstimate'); if(es) es.onchange=async()=>{ try{ await ajSetting('estimateEnabled', es.checked?'1':'0'); if(typeof estSetEnabled==='function') estSetEnabled(es.checked); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
 }
 function ajRenderAparencia(host){
