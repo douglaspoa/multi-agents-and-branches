@@ -1,6 +1,6 @@
 // `starfork …` — o comando do SHELL do terminal integrado (o sh em <worktree>/.cardume/term/bin/starfork chama o
 // motor com `starfork <sub> …`). Serve QUALQUER IA (até a que não fala MCP) e a pessoa que digita no shell:
-//   ia-prep <ia> [--modelo m] [--resume] [--msg-file p]  — lançamento da IA como script de sh (o shim roda; ver terminal.ts)
+//   ia-prep <ia> [--modelo m] [--resume] [--quieto] [--msg-file p]  — lançamento da IA como script de sh (o shim roda; ver terminal.ts)
 //   _ia-exit <ia> [--falha]                                — a IA saiu: term_session.cli = '' (--falha: nem subiu)
 //   status · sugerir · etapa · skills · skill · tarefa · epico (novo|vincular|desvincular|status|lista) · epicos · pr ·
 //   requisito · entregavel · perguntar · mapa · ajuda
@@ -16,7 +16,7 @@ export interface Io { out: (s: string) => void; err: (s: string) => void }
 const stdio: Io = { out: (s) => process.stdout.write(s.endsWith("\n") ? s : s + "\n"), err: (s) => process.stderr.write(s.endsWith("\n") ? s : s + "\n") };
 
 /** Flags sem valor. As outras levam o próximo argumento (ou `--x=valor`); repetir acumula (--requisito a --requisito b). */
-const BOOL = new Set(["resume", "rascunho", "fora-do-epico", "falha", "help"]);
+const BOOL = new Set(["resume", "quieto", "rascunho", "fora-do-epico", "falha", "help"]);
 export interface SfArgs { pos: string[]; flags: Record<string, string[]> }
 export function parseSf(argv: string[]): SfArgs {
   const a: SfArgs = { pos: [], flags: {} };
@@ -81,7 +81,7 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
       const { Orchestrator } = await import("./orchestrator.ts");
       const orch = new Orchestrator(dirname(dirname(db)));
       try {
-        const { script, launch } = iaPrep(orch, task, ai, { resume: has(a, "resume"), msgFile: one(a, "msg-file"), model: one(a, "modelo", "model") });
+        const { script, launch } = iaPrep(orch, task, ai, { resume: has(a, "resume"), quiet: has(a, "quieto"), msgFile: one(a, "msg-file"), model: one(a, "modelo", "model") });
         const model = launch.ai === "deepseek" ? launch.env.ANTHROPIC_MODEL?.replace(/\[1m\]$/, "") : one(a, "modelo", "model") ?? "";
         io.err(`\x1b[2m▸ Starfork: ${AI_LABEL[ai]}${model ? ` · ${model}` : ""}${launch.resumed ? " (retomando)" : ""} — ao sair, o shell volta (starfork ajuda)\x1b[0m`);
         io.out(script);
