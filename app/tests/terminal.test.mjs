@@ -66,7 +66,8 @@ test('montar: liga eventos, pinta o histórico e escreve o que chegou DURANTE o 
   listeners['term-data']({ payload: { taskId: 't1', data: 'DEPOIS' } }); // chegou antes da resposta do attach
   release({ alive: true, data: 'HISTORICO' });
   await tick(); await tick();
-  assert.deepEqual(st.term.out, ['<reset>', 'HISTORICO', 'DEPOIS']);
+  // um write só: RIS + retrato + o que chegou no meio (reset() + write assíncrono pintava um quadro vazio)
+  assert.deepEqual(st.term.out, ['\x1bcHISTORICODEPOIS']);
   listeners['term-data']({ payload: { taskId: 't1', data: 'ao vivo' } });
   assert.equal(st.term.out.at(-1), 'ao vivo');
   assert.ok(calls.some(([c, a]) => c === 'term_resize' && a.cols === 100 && a.rows === 30), 'PTY no tamanho do xterm');
@@ -143,7 +144,8 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   ctx.__answers.term_attach = { alive: true, data: 'VIVO' };
   ctx.termGoLive('t1'); await tick(); await tick();
   assert.equal(st.mode, 'live');
-  assert.deepEqual(st.term.out, ['<reset>', 'VIVO']);
+  assert.equal(st.term.out.at(-1), '\x1bcVIVO', 'troca num write só, sem reset() antes');
+  assert.ok(!st.term.out.includes('<reset>'));
   // o terminal fechou: volta pro histórico (rascunho sem nada gravado → "abrir terminal")
   ctx.state.tasks[0].status = 'draft';
   ctx.__answers.term_history = { source: 'none', items: [], stamp: '' };

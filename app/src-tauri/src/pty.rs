@@ -150,6 +150,11 @@ pub struct PtySession {
     unseen_since: AtomicI64,
 }
 
+pub const SETTLE_OPEN_MS: i64 = 1500;
+pub const SETTLE_QUIET_MS: i64 = 300;
+/// PURA: dá pra colar? (a IA não está no meio de desenhar a abertura)
+pub fn settled_at(started_at: i64, last_out: i64, now: i64) -> bool { now - started_at >= SETTLE_OPEN_MS && now - last_out >= SETTLE_QUIET_MS }
+fn pty_now() -> i64 { now_ms() }
 pub fn now_ms() -> i64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0) }
 
 impl PtySession {
@@ -188,6 +193,8 @@ impl PtySession {
     pub fn watchers(&self) -> usize { self.attached.load(Ordering::SeqCst) }
     /// (desde quando ninguém olha — 0 = alguém olhando, última saída) em ms epoch
     pub fn idle_marks(&self) -> (i64, i64) { (self.unseen_since.load(Ordering::SeqCst), self.last_out.load(Ordering::SeqCst)) }
+    /// Pronto pra receber colagem: aberto há ≥ SETTLE_OPEN_MS e sem saída nos últimos SETTLE_QUIET_MS.
+    pub fn settled(&self, now: i64) -> bool { settled_at(self.started_at, self.last_out.load(Ordering::SeqCst), now) }
     pub fn queue_len(&self) -> usize { self.queue.lock().unwrap_or_else(|e| e.into_inner()).len() }
     pub fn snapshot(&self) -> String { self.scroll.lock().unwrap_or_else(|e| e.into_inner()).text() }
     pub fn persist(&self) { persist_scroll(&self.scroll, self.log_path.as_deref()); }
@@ -441,6 +448,8 @@ impl PtyManager {
             let poll = Duration::from_millis(400);
             loop {
                 if !s.alive() { break; }
+                // terminal acabou de abrir (a IA ainda desenhando — ex.: retomada ao abrir a tarefa): a colagem se perderia
+                if !s.settled(pty_now()) { std::thread::sleep(Duration::from_millis(100)); continue; }
                 if idle() != Some(false) {
                     let next = s.queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
                     let Some(msg) = next else { break };
@@ -509,6 +518,13 @@ mod tests {
     fn spec(dir: &Path, cap: usize) -> SpawnSpec {
         SpawnSpec { program: fake_cli(dir).display().to_string(), args: vec![], cwd: dir.to_path_buf(), env: vec![("STARFORK_T".into(), "1".into())], env_remove: vec![],
             cols: 100, rows: 30, log_path: Some(dir.join("term").join("t.log")), scroll_cap: cap, engine: "fake".into() }
+    }
+
+    #[test]
+    fn fila_so_cola_depois_que_a_abertura_assentou() {
+        assert!(!settled_at(1000, 1000, 1000 + SETTLE_OPEN_MS - 1), "acabou de abrir");
+        assert!(!settled_at(0, 5000, 5000 + SETTLE_QUIET_MS - 1), "ainda desenhando");
+        assert!(settled_at(0, 5000, 5000 + SETTLE_QUIET_MS));
     }
 
     #[test]

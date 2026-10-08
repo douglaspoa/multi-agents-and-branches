@@ -246,6 +246,8 @@ function openWorkspace(taskId, path){
 async function fwOpenInner(taskId, path){
   // voltando pra MESMA tarefa com o editor aberto: não joga fora o que está sendo editado
   if(fwTask===taskId && fwEditing && (path||null)===(fwPath||null) && $id('fwText')){ $id('fwOverlay').style.display='flex'; renderWorkspace(); return; }
+  // abriu a tarefa: o teclado vai pro terminal assim que ele aparecer (e a sessão parada já volta viva — 60-terminal)
+  if(!path && typeof termWantFocus==='function') termWantFocus(taskId);
   fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false; fwReadErr='';
   fwFiles=[]; fwEvents=[]; fwEvLast=0; fwLiveSig=''; fwAgentSel=null; fwFilesSig=''; fwFilesAt=0;
   fwFileLoading = path ? taskId+'|'+path : '';
