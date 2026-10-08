@@ -99,7 +99,13 @@ function ctRowHtml(r, op){
     `<td class="ct-pr">${r.pr?`<button type="button" class="ctlink" data-lk="${escA(r.prUrl)}" title="abrir o PR no GitHub">#${esc(r.pr)}</button>`:'<span class="ctdim">—</span>'}</td>`+
     `<td class="ct-situacao"><span class="ctst" style="--stc:${escA(r.stColor||'var(--muted)')}"><i aria-hidden="true"></i>${esc(r.stLabel||'')}</span></td>`+
     `<td class="ct-upd">${esc(r.ago||'')}</td>`+
-    `<td class="ct-act">${ctActBtn(r, a)}</td></tr>`;
+    `<td class="ct-act"><span class="ctacts">${ctActBtn(r, a)}${ctMoreBtn(r)}</span></td></tr>`;
+}
+// ⋯ da linha: abre o MESMO menu dos cartões (22: openTaskMenu — concluir, marcar pronta, integrada, bloquear…).
+// O ícone vem de IC (10-core); fora do app (teste) cai no texto.
+function ctMoreBtn(r){
+  const ic=(typeof IC!=='undefined'&&IC.more)||'⋯';
+  return `<button type="button" class="btn sm ghost ctmore" data-tmenu="${escA(r.id)}" aria-haspopup="menu" aria-label="mais ações" title="mais ações — concluir, mudar status">${ic}</button>`;
 }
 function ctExpHtml(r){
   const acts=[`<button type="button" class="btn sm primary" data-dcopen="${escA(r.id)}">Abrir tarefa <span class="kbd" aria-hidden="true">↵</span></button>`];
@@ -189,11 +195,12 @@ function ctWire(el, src){
     const s=e.target.closest('[data-ctsort]'); if(s){ e.stopPropagation(); sortBy(s.dataset.ctsort); return; }
     const c=e.target.closest('[data-cttog]'); if(c){ e.stopPropagation(); toggle(c.dataset.cttog); return; }
     // botões das linhas recém-inseridas (sem o onclick que a Central ligou no render): mesma ação
-    const b=e.target.closest('[data-dcopen],[data-rowproof],[data-rowplay],[data-lk]');
+    const b=e.target.closest('[data-dcopen],[data-rowproof],[data-rowplay],[data-lk],[data-tmenu]');
     if(b){ e.stopPropagation();
       if(b.dataset.dcopen) open(b.dataset.dcopen);
       else if(b.dataset.rowplay){ const id=b.dataset.rowplay; crossRun(id, ()=>startTask(id)); } // L13 (mesa-bugs-2): "Iniciar" de outro projeto troca pro dono antes (antes agia no projeto ativo)
       else if(b.dataset.lk) openExternal(b.dataset.lk);
+      else if(b.dataset.tmenu) openTaskMenu(b.dataset.tmenu, b); // ⋯ da linha: o menu único dos cartões (nunca abre a linha)
       else if(b.dataset.rowproof){ const id=b.dataset.rowproof; crossRun(id, ()=>proofAsk(taskOf(id), b)); }
       return; }
     const tr=e.target.closest('tr[data-ctrow]'); if(!tr || e.target.closest('button,a,input,select')) return;

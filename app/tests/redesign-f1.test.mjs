@@ -210,7 +210,7 @@ test('Central: UMA ação clara por linha, o percurso de etapas e a frase do por
   assert.ok(!/Header <b>/.test(h), 'título escapado');
   assert.match(h, /<tr class="ctexp" data-ctexp="t1"><td colspan="9">/);
   assert.match(h, /data-dcopen="t1">Abrir tarefa/); assert.match(h, /data-lk="https:\/\/x\/pull\/253">Revisar PR #253/); assert.match(h, /data-rowproof="t1">Pedir a prova que falta/);
-  assert.match(h, /<td class="ct-act"><button type="button" class="btn sm primary" data-dcopen="t1">Revisar<\/button>/, 'ação da linha reaproveita os data-* da Central');
+  assert.match(h, /<td class="ct-act"><span class="ctacts"><button type="button" class="btn sm primary" data-dcopen="t1">Revisar<\/button><button type="button" class="btn sm ghost ctmore" data-tmenu="t1" aria-haspopup="menu" aria-label="mais ações"/, 'ação da linha reaproveita os data-* da Central; o ⋯ vem logo ao lado');
   assert.ok(!/class="ctrow[^"]*needs/.test(h), '"Revisar" não ganha a barra de precisa de você');
   assert.match(CT.ctTableHtml([R({ id: 'q', needsYou: true })], {}), /class="ctrow needs"/);
   assert.match(h, /\+1 adiado/);
