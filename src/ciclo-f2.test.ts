@@ -189,8 +189,8 @@ test("e2e mock: plano (Cadeado 1) → construir → revisar muda → construir �
     const rep = await orch.reportFor("t-e2e");
     assert.match(rep, /\| mostra o total da lista \| provado — `evidence-t-e2e\.md` \|/);
     assert.match(rep, /\*\*Revisão:\*\* rodada 1 \(Nyx\) — muda \(2\) · rodada 2 \(Nyx\) — aprova/);
-    assert.match(rep, /\*\*Custo:\*\* US\$ 0,50 de US\$ 1,00 de teto — plano \(Vega\) US\$ 0,10 · construção \(Íris\) US\$ 0,20 · revisão \(Nyx\) US\$ 0,20/);
-    assert.match(rep, /\+US\$ 0,50 \(teto US\$ 0,50 → US\$ 1,00\): falta a segunda revisão do Nyx/);
+    // custo e liberações de teto não vão pro PR (pedido do dono, 08/10) — ficam só no app
+    assert.doesNotMatch(rep, /Custo|teto|US\$/);
     assert.match(rep, /\*\*Versões:\*\* plano `vega@v1 · mock` · construção `iris@v1 · mock` · revisão `nyx@v1 · mock`$/m);
   } finally {
     orch.close();
