@@ -7446,6 +7446,70 @@ fn pr_compare_url(state: State<AppState>, task_id: String, base: String) -> Resu
     let b = if base.trim().is_empty() { "main" } else { base.trim() };
     Ok(format!("https://github.com/{path}/compare/{b}...{branch}?expand=1"))
 }
+/// JSON da última linha do stdout do motor (o CLI imprime 1 objeto); sem JSON → erro com o stderr.
+fn cli_json_line(stdout: &str, stderr: &str) -> Result<serde_json::Value, String> {
+    stdout.lines().rev().map(str::trim).find(|l| l.starts_with('{'))
+        .and_then(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .ok_or_else(|| { let e = stderr.trim(); if e.is_empty() { "o motor não respondeu".to_string() } else { e.chars().take(300).collect() } })
+}
+
+/// PROVAS NO PR (src/pr-provas.ts): sobe as imagens/vídeos de prova da tarefa pro branch órfão `starfork-provas`
+/// do repositório e devolve `{ links, note, needConfirm?, visibility?, setting? }`. `decide` (on|off) grava a opção do
+/// projeto antes — a resposta do "repositório público: publicar os prints?". Pesado (rede): async, com teto de tempo.
+#[tauri::command(async)]
+fn pr_attach_proofs(state: State<AppState>, task_id: String, decide: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = active_repo(&state)?;
+    let mut args = vec!["--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "pr-provas".into(), task_id, "--repo".into(), repo.display().to_string()];
+    if let Some(d) = decide.filter(|d| d == "on" || d == "off") { args.push("--decide".into()); args.push(d); }
+    let mut c = node_cmd();
+    c.args(&args).current_dir(&repo).env_remove("CARDUME_ROLE");
+    let out = output_timeout(c, 300)?;
+    cli_json_line(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
+}
+
+/// Reescreve a seção "## Relatório Starfork" do corpo do PR aberto da tarefa (provas novas depois da abertura).
+#[tauri::command(async)]
+fn pr_update_report(state: State<AppState>, task_id: String, report: String) -> Result<serde_json::Value, String> {
+    let repo = active_repo(&state)?;
+    if !report.contains("## Relatório Starfork") { return Err("relatório vazio".into()); }
+    let f = std::env::temp_dir().join(format!("starfork-relatorio-{}-{}.md", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
+    std::fs::write(&f, report.as_bytes()).map_err(|e| e.to_string())?;
+    let mut c = node_cmd();
+    c.args(["--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "pr-relatorio".into(), task_id, "--file".into(), f.display().to_string(), "--repo".into(), repo.display().to_string()])
+        .current_dir(&repo).env_remove("CARDUME_ROLE");
+    let out = output_timeout(c, 120);
+    let _ = std::fs::remove_file(&f);
+    let out = out?;
+    let v = cli_json_line(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))?;
+    match v.get("error").and_then(|e| e.as_str()) { Some(e) if !e.is_empty() => Err(e.to_string()), _ => Ok(v) }
+}
+
+/// Opção do projeto "Mostrar as provas no PR" (`starfork.provasNoPr` no .git/config): `value` on|off grava; devolve a
+/// atual ("" = padrão: liga em repositório privado, pergunta uma vez em público).
+#[tauri::command(async)]
+fn provas_setting(state: State<AppState>, value: Option<String>) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    if let Some(v) = value.filter(|v| !v.is_empty()) {
+        if v != "on" && v != "off" { return Err("valor inválido (on|off)".into()); }
+        let o = Command::new("git").arg("-C").arg(&repo).args(["config", "starfork.provasNoPr", &v]).output().map_err(|e| e.to_string())?;
+        if !o.status.success() { return Err(String::from_utf8_lossy(&o.stderr).trim().to_string()); }
+    }
+    let o = Command::new("git").arg("-C").arg(&repo).args(["config", "--get", "starfork.provasNoPr"]).output().map_err(|e| e.to_string())?;
+    let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    Ok(if v == "on" || v == "off" { v } else { String::new() })
+}
+
+#[cfg(test)]
+mod provas_pr_tests {
+    use super::cli_json_line;
+    #[test]
+    fn json_da_ultima_linha_ou_erro_com_stderr() {
+        assert_eq!(cli_json_line("log\n{\"links\":{},\"note\":\"x\"}\n", "").unwrap()["note"], "x");
+        assert_eq!(cli_json_line("", "  boom \n").unwrap_err(), "boom");
+        assert_eq!(cli_json_line("nada", "").unwrap_err(), "o motor não respondeu");
+    }
+}
+
 /// Abre um PR: faz push da branch da tarefa e cria o PR (base escolhida).
 #[tauri::command(async)]
 fn open_pr(state: State<AppState>, task_id: String, base: String, title: String, body: String) -> Result<String, String> {
@@ -10448,6 +10512,9 @@ pub fn run() {
             read_ref,
             list_branches,
             open_pr,
+            pr_attach_proofs,
+            pr_update_report,
+            provas_setting,
             pr_compare_url,
             pr_status,
             pr_resolve_thread,

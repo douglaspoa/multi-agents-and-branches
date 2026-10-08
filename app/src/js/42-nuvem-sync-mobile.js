@@ -318,6 +318,7 @@ async function cloudIntentTick(){
         const bad=checks.filter(c=>!c.ok);
         if(bad.length) return finish(false,'checagem falhou: '+bad.map(c=>c.name).join(', ')+' — abra pelo Mac pra ver o detalhe');
         try{ await invoke('push_task',{taskId:lid}); }catch(e){ return fail(e,'Não consegui enviar o código (push)'); }
+        try{ if(typeof provasAttach==='function') await provasAttach(t); }catch(_){ } // provas no PR (sem pergunta: público sem decisão fica pro Mac)
         let body; try{ body=await invoke('pr_body_ai',{taskId:lid}); }catch(_){ body=prBodyOf(t); }
         // mesma seção "## Provas"/"## Verificação" do PR aberto pelo Mac (override do celular incluso)
         try{ if(typeof chkPrBodyExtra==='function') body=String(body||'')+chkPrBodyExtra(t); }catch(_){ }

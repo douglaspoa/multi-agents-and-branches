@@ -452,6 +452,8 @@ async function prPrepFinish(t, base){
   prepMark(2,'run','commitando e enviando a branch…');
   try{ const msg=await invoke('push_task',{ taskId:t.id }); prepMark(2,'ok', esc(msg)); }
   catch(e){ prFail(2, e, ()=>prPrepFinish(t, base)); return; }
+  // provas (prints/vídeos) → branch starfork-provas; repositório público pergunta uma vez (70-provas-pr). Nunca bloqueia.
+  if(typeof provasAttach==='function'){ prepMark(3,'run','anexando as provas (prints) ao PR…'); await provasAttach(t, { ask:true }); }
   prepMark(3,'run','escrevendo a descrição do PR (o quê · o que foi feito · como testar)…');
   let prBody;
   try{ prBody=await invoke('pr_body_ai',{ taskId:t.id }); }
@@ -461,6 +463,8 @@ async function prPrepFinish(t, base){
   prepMark(3,'run','criando o PR no GitHub…');
   try{
     const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBody });
+    // PR que já existia (o gh devolve o dele e ignora o corpo novo): o relatório com as provas entra por cima
+    if(typeof provasPushReport==='function'){ const pv=provasOf(t.id); if(pv&&(Object.keys(pv.links||{}).length||pv.note)) provasPushReport(t); }
     prepMark(3,'ok', url?`<button class="btn sm" onclick="openExternal('${escA(url)}')" style="margin-top:4px">${esc(url.replace('https://',''))} ↗</button>`:'PR aberto');
     prHideRetry();
     prCache[t.id]=undefined; await loadPr(t.id,true); lastSig='';

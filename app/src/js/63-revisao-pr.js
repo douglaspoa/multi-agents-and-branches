@@ -449,6 +449,7 @@ function prvRender(t, main, info){
   const rlist=m.rows.length?`<ul class="prvreqs">${m.rows.map(r=>{ const proven=r.st==='ok'&&r.evidence.length; return `<li><span class="prvrq ${proven?'ok':'no'}${r.acc==='acc'?' acc':''}" aria-hidden="true">${r.acc==='acc'?IC.check:''}</span><span>R${r.i+1} ${esc(r.text)}</span><em>${proven?esc(String(r.evidence[0])):'sem prova'}</em></li>`; }).join('')}</ul>`:'';
   const kept=m.map.out.filter(x=>(m.st.out||{})[x.key]==='keep').length;
   const outLine=m.map.out.length?`<p class="prvout">${nPl(m.map.out.length,'trecho')} fora dos requisitos${kept?` · ${kept} mantido${kept>1?'s':''} por você`:' · você ainda não decidiu'} <button type="button" class="lnk" data-prvx="fora">ver</button></p>`:'';
+  if(open && typeof provasSyncOpenPr==='function') provasSyncOpenPr(t).then(did=>{ if(did) lastSig=''; }).catch(()=>{}); // provas novas → PR (só quando mudam)
   const rep=(typeof cicloReportFor==='function')?cicloReportFor(t).trim():'';
   const tl=prvTimeline(t, info);
   const html=`<div class="prv" data-tk="${escA(t.id)}">
