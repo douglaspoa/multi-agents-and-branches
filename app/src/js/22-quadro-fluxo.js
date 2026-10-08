@@ -740,8 +740,8 @@ function flowEpicGroupsHtml(src, epHtml){
   }
   if(q) [...by.keys()].forEach(eid=>{ if(!(nameOf(eid).toLowerCase().includes(q) || by.get(eid).some(t=>(t.title||'').toLowerCase().includes(q)))) by.delete(eid); });
   if(!by.size) return epHtml;
-  const groups=[...by.keys()].map(eid=>`<div class="epqep" style="--epc:${epColor(eid)}"><div class="epqh" style="cursor:default" title="todas as tarefas deste épico já começaram — cada ponto abre uma">`+
-    `<span class="secchev">${IC.epic}</span><span class="tsepc epqname">${esc(nameOf(eid))}</span><span class="epqsum">${epqSummaryHtml(eid, 0)}</span><span style="flex:1"></span>`+
+  const groups=[...by.keys()].map(eid=>`<div class="epqep" style="--epc:${epColor(eid)}"><div class="epqh" style="cursor:default" title="tarefas deste épico nesta máquina — cada ponto abre uma">`+
+    `<span class="secchev">${IC.epic}</span><span class="tsepc epqname">${esc(nameOf(eid))}</span><span class="epqsum">${epqSummaryHtml(eid, 0)}</span><span style="flex:1"></span>${typeof epStartBtnHtml==='function'?epStartBtnHtml(eid, { primary:true }):''}`+
     `<button class="btn sm ghost" data-epqopen="${escA(eid)}" title="abrir a página do épico (checklist, requisitos e todas as tarefas)">abrir</button></div></div>`).join('');
   if(epHtml){
     if(/class="secgrp epqgrp collapsed"/.test(epHtml)) return epHtml; // seção recolhida: nada de corpo

@@ -131,7 +131,8 @@ function ctTableHtml(rows, o){
 const CT={ open:new Set(), rows:new Map(), last:null, clickT:0, sort:(()=>{ try{ const v=JSON.parse(lsGet('ctSort')||'null'); if(v && CT_SORTABLE.has(v.key)) return v; }catch(_){ } return { key:'upd', dir:'desc' }; })() };
 const CT_NEEDS_ST=new Set(typeof AGUARDA_ST!=='undefined'?AGUARDA_ST:['plan-review','needs-you','error','conflict','aborted']); // a MESMA lista do "aguardando você" (00-util) — antes faltava 'aborted'
 function ctRow(t){
-  const st=taskSt(t), b=flowBucket(t);
+  // rascunho armado pelo "Iniciar épico" (46: epAutoLocalHas) = na espera — começa sozinho; "Iniciar" continua pra começar já
+  const st=(t.status==='draft' && typeof epAutoLocalHas==='function' && epAutoLocalHas(t.id))?'waiting':taskSt(t), b=flowBucket(t);
   let stages=[], sum=null;
   if((t.roles||[]).length && typeof taskStages==='function' && typeof cicloStripX==='function'){ try{ const x=cicloStripX(t); stages=taskStages(t, x); sum=stagesSummary(stages, x); }catch(_){ stages=[]; } }
   const cross=!!t._cross; // tarefa de OUTRO projeto (agregada): as provas moram lá — estado final, nunca "carregando"

@@ -127,7 +127,11 @@ function epicPageRender(){
   const conv=Array.isArray(sp.conversation)?sp.conversation:[];
   const tasks0=c.tasks||[], sv=epStatusView(ep, tasks0, c.loaded, typeof epEntregue==='function'?epEntregue:null); // A11: mesma regra do Time e da Linha
   const okN=dw.filter(d=>d&&d.checkedBy).length;
-  const tasks=c.tasks||[];
+  // tarefas LOCAIS do épico que não têm cartão na nuvem (rascunho criado pelo terminal): entram na lista também —
+  // senão a página dizia "nenhuma tarefa" enquanto o "Iniciar épico" contava 3. _local = id da tarefa local.
+  const locOnly=epStartItems(ep.id).filter(x=>x.kind==='local' && !(c.tasks||[]).some(ct=>ct.local_id===x.id || ((typeof tmap==='function')&&tmap()[x.id]===ct.id)))
+    .map(x=>({ ...x.t, _local:x.id, spec:{ wave:x.wave, verify:(x.t.epic||{}).verify, covers:(x.t.epic||{}).covers } }));
+  const tasks=(c.tasks||[]).concat(locOnly);
   const isDone=epDelivered, isRev=epInReview; // R5-2: mesma regra de "entregue" do Time e da fila
   const doneN=tasks.filter(isDone).length, revN=tasks.filter(isRev).length; // R3-C2: "entregues" = mergeadas/concluídas (mesma conta do cabeçalho do épico na Central)
   const can=epCanCheck(ep);
@@ -142,8 +146,11 @@ function epicPageRender(){
   // R3-C2: UMA ação primária na lista inteira = a próxima recomendada (revisar libera a onda seguinte; depois a
   // 1ª tarefa pronta pra começar; depois olhar o problema). O resto é secundário, e "iniciar mesmo assim" é ghost.
   const ordered=waves.flatMap(w=>byWave[w]);
-  const nextT=ordered.find(isRev) || ordered.find(t=>t.status==='backlog'&&!depsOpen(t).length) || ordered.find(t=>stIsBad(epEffSt(t)));
-  const pri=t=>(nextT&&t.id===nextT.id)?' primary':'';
+  const nextT=ordered.find(isRev) || ordered.find(t=>(t.status==='backlog'||(t._local&&t.status==='draft'))&&!depsOpen(t).length) || ordered.find(t=>stIsBad(epEffSt(t)));
+  // "Iniciar épico": a ação PRINCIPAL enquanto nada do épico começou (aí nenhuma linha leva o primário)
+  const sp0=epStartPlanOf(ep.id), startPri=sp0.mode==='start' && !sp0.begun;
+  const startBtn=epStartBtnHtml(ep.id, { primary:true });
+  const pri=t=>(!startPri && nextT&&t.id===nextT.id)?' primary':'';
   // "prova" genérica ("prova definida no épico") e o "prova:" repetido não dizem nada — some
   const verifyTx=v=>{ const x=String(v||'').trim().replace(/^prova\s*:?\s*/i,''); return /^(definida|a definir|ver) no épico\.?$/i.test(x)?'':x; };
   const CODE_TIP='R = requisito do épico · D = critério de "pronto quando"';
@@ -151,11 +158,16 @@ function epicPageRender(){
   const taskRow=t=>{ const s=t.spec||{}; const est=epEffSt(t); const dn=isDone(t), rv=isRev(t), bad=stIsBad(est);
     const left=t.status==='backlog'?depsOpen(t):[];
     // A4: "na espera de X" = esperando OUTRA tarefa (nunca "aguardando", que é reservado pra quando depende de você)
+    const wl=(!left.length && t.status==='backlog' && ctArmed(t) && !(s.after||[]).length) || (t._local && t.status==='draft' && epAutoLocalHas(t._local)) ? epWaveLeft(ep.id, Math.max(1, parseInt(s.wave,10)||1)) : 0;
+    const armedNow=(t._local && t.status==='draft' && epAutoLocalHas(t._local)) || (t.status==='backlog' && ctArmed(t));
     const stTx = est==='closed' ? stLabel('closed')
+      : wl ? 'na espera da etapa anterior · começa sozinha'
+      : (armedNow && !left.length) ? 'na espera de vaga · começa sozinha'
       : left.length ? 'na espera de '+left.map(a=>'<b>'+esc(String(sib[a].title||'tarefa').slice(0,40))+'</b>').join(', ')+(ctWaiting(t)?' · começa sozinha':'')
       : esc(stLabel(est));
     // M8: a próxima ação de cada linha, direto aqui
-    const act = t.status==='backlog'
+    const act = (t._local && t.status==='draft') ? `<button class="btn sm${pri(t)}" data-eplocgo="${escA(t._local)}" title="iniciar agora nesta máquina">${IC.play} iniciar</button>`
+      : t.status==='backlog'
         ? (left.length ? `<button class="btn sm ghost" data-epgo="${escA(t.id)}" title="ainda depende de ${left.length} tarefa(s) — assumir e iniciar agora mesmo assim">iniciar mesmo assim</button>`
                        : `<button class="btn sm${pri(t)}" data-epgo="${escA(t.id)}" title="assumir e iniciar agora nesta máquina">▶ iniciar</button>`)
       : rv ? (est==='pr-open' ? `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="PR aberto — abrir a entrega e o PR">ver o PR</button>`
@@ -205,22 +217,27 @@ function epicPageRender(){
         ${reqs.length?`<div class="seclbl2" style="margin-top:14px">Requisitos <span class="dim">· R1, R2… = requisitos (as tarefas dizem quais cobrem)</span></div>${reqs.map(r=>`<div class="en-del"><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(r.id||'')}</span> ${esc(r.text||'')}</div>`).join('')}`:''}
         ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${esc(b)}</div>`).join('')}`:''}
         ${typeof aeEpicHistHtml==='function'?aeEpicHistHtml(sp, can, tasks, ep.id):''}
-        ${can&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">${IC.clock} próximas etapas começam sozinhas</button></div>`:''}
+        ${can&&sp0.mode!=='start'&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">${IC.clock} próximas etapas começam sozinhas</button></div>`:''}
         ${!dw.length&&!sv.entregue&&can?`<div class="row1" style="margin-top:14px;gap:8px;display:flex;flex-wrap:wrap"><button class="btn sm primary" id="epDwSet">definir pronto quando</button><button class="btn sm" id="epLegacyDone">✓ marcar épico como concluído</button></div>`:''}
       </section>
-      <section class="en-sec"><div class="seclbl2">Tarefas <span class="dim" title="${escA(EP_WAVE_TIP)}">· por etapa (a próxima começa quando esta termina); clique pra abrir</span></div>${tasksHtml}</section>
+      <section class="en-sec"><div class="seclbl2 ep-taskshead"><span>Tarefas <span class="dim" title="${escA(EP_WAVE_TIP)}">· por etapa (a próxima começa quando esta termina); clique pra abrir</span></span>${startBtn?`<span class="ep-start">${startBtn}</span>`:''}</div>${tasksHtml}</section>
     </div>
     ${conv.length?`<details class="en-sec ep-conv"><summary class="seclbl2">Conversa que originou o épico <span class="dim">· ${conv.length} mensage${conv.length===1?'m':'ns'} do "montar conversando"</span></summary>
       ${conv.map(m=>`<div class="plmsg ${m.who==='you'?'you':'bot'}">${m.who==='bot'?'<span class="plav">'+IC.starfork+'</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(String(m.text||'')):esc(m.text||'')}</div></div>`).join('')}</details>`:''}
   </div>`;
   main.querySelectorAll('[data-epdw]').forEach(cb=>cb.onchange=()=>epicToggleDone(ep, +cb.dataset.epdw, cb.checked));
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
-  main.querySelectorAll('[data-ept]').forEach(r=>{ r.onclick=(e)=>{ if(e.target.closest('[data-epgo],[data-eprev]')) return; const t=(c.tasks||[]).find(x=>x.id===r.dataset.ept); if(t&&window.openCloudTaskPage) openCloudTaskPage(t); };
+  main.querySelectorAll('[data-ept]').forEach(r=>{ r.onclick=(e)=>{ if(e.target.closest('[data-epgo],[data-eprev],[data-eplocgo]')) return;
+      const lt=locOnly.find(x=>x.id===r.dataset.ept); if(lt){ const t=(state.tasks||[]).find(x=>x.id===lt._local); if(t){ selected=t.id; openOrEdit(t); } return; }
+      const t=(c.tasks||[]).find(x=>x.id===r.dataset.ept); if(t&&window.openCloudTaskPage) openCloudTaskPage(t); };
     r.onkeydown=(e)=>{ if((e.key==='Enter'||e.key===' ')&&e.target===r){ e.preventDefault(); r.onclick(e); } }; });
   if(c.err && !tasks.length) ldWireErr(main, c.err, 'Não consegui carregar as tarefas do épico', ()=>{ c.err=null; c.loaded=false; epicPageRender(); epicPageLoad(ep.id).then(()=>{ if(epTab&&epTab.id===ep.id) epicPageRender(); }); });
   main.querySelectorAll('[data-eprev]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const t=(c.tasks||[]).find(x=>x.id===b.dataset.eprev); if(t&&window.openCloudTaskPage) openCloudTaskPage(t); });
   main.querySelectorAll('[data-epgo]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); const t=(c.tasks||[]).find(x=>x.id===b.dataset.epgo); if(!t) return;
     await epCardStart(t, b); await epicPageLoad(ep.id); if(epTab&&epTab.id===ep.id) epicPageRender(); });
+  main.querySelectorAll('[data-eplocgo]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); await startTask(b.dataset.eplocgo); if(epTab&&epTab.id===ep.id) epicPageRender(); });
+  main.querySelectorAll('[data-epstart]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); epicStart(b.dataset.epstart, b); });
+  main.querySelectorAll('[data-eppause]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); epicPause(b.dataset.eppause, b); });
   main.querySelectorAll('[data-epundo]').forEach(b=>b.onclick=()=>{ if(window.aeEpicUndo) aeEpicUndo(ep, b.dataset.epundo); });
   bindClick('epLegacyDone', ()=>epicSetStatus(ep,'done'));
   bindClick('epDwSet', async ev=>{ const dw2=await epDoneWhenAsk(ev&&ev.currentTarget); if(!dw2 || !dw2.length) return; // A12: definir depois de criado
@@ -382,6 +399,7 @@ let epQueue={ rows:[], stOf:{}, flagOf:{}, titleOf:{}, epicOf:{}, projOf:{}, pro
 function epDepDone(a){ const q=epQueue; return EP_AUTO_READY.has(q.stOf[a]) || q.flagOf[a]==='closed'; }
 function epDepsLeft(ct){ const q=epQueue; return ((ct.spec||{}).after||[]).filter(a=>(a in q.stOf) && !epDepDone(a)); }
 async function epicAutoStartTick(){
+  epAutoLocalTick(); // rascunhos locais armados pelo "Iniciar épico" (não dependem da nuvem)
   if(epAutoBusy || !SB.sess() || !cloudTeamId() || !cloudScopeOk()) return;
   epAutoBusy=true;
   try{
@@ -418,7 +436,8 @@ async function epicAutoStartTick(){
     // pré-requisito apagado do backlog não trava a fila; cancelado/abortado trava (alguém decide)
     // só o que é MEU (atribuído a mim; sem responsável = quem criou) — cartão de outra pessoa nunca começa sozinho aqui
     const me=cloudUserId();
-    const ready=rows.filter(t=>ctWaiting(t) && ctMineFor(t, me) && !epDepsLeft(t).length);
+    // armado SEM `after` ("Iniciar épico"): espera a onda anterior inteira; com `after`, vale só o after (regra de sempre)
+    const ready=rows.filter(t=>ctArmed(t) && ctMineFor(t, me) && !epDepsLeft(t).length && (((t.spec||{}).after||[]).length || !epWaveLeft(t.epic_id, epqWave(t))));
     for(const ct of ready){
       const pj=epQueue.projOf[ct.project_id]||{};
       if(pj.repo_remote && !remoteSame(pj.repo_remote, hereIds)){ // teamClaimStart roda no projeto ABERTO: outro repo espera (e avisa uma vez)
@@ -429,7 +448,7 @@ async function epicAutoStartTick(){
       if(live>=slotMax) break; // respeita o limite de execuções; tenta de novo no próximo tick
       try{
         await teamClaimStart(ct, null, { silent:true, auto:true });
-        pushNotif('▶ Começou sozinha', ct.title+' — os pré-requisitos foram concluídos', null);
+        pushNotif('▶ Começou sozinha', ct.title+(((ct.spec||{}).after||[]).length?' — os pré-requisitos foram concluídos':epqWave(ct)>1?' — a onda anterior do épico foi entregue':' — abriu vaga pra mais um agente'), null);
       }catch(e){ console.error('início automático do épico:', e); }
     }
   }catch(e){ tickErr('epicAutoStart', e); }
@@ -476,13 +495,15 @@ function epQueueCount(){ return epQueueList(true).length; } // contador do chip 
 // e "iniciar mesmo assim" (pré-requisito pendente) é ghost — antes vários botões verdes disputavam a atenção.
 function epqRowHtml(ct, showProj, me, isAdmin, primary){
   const q=epQueue, left=epDepsLeft(ct), auto=ctWaiting(ct), pj=q.projOf[ct.project_id]||{};
+  const wl=(!left.length && ctArmed(ct) && !((ct.spec||{}).after||[]).length)?epWaveLeft(ct.epic_id, epqWave(ct)):0; // armado pelo "Iniciar épico": espera a onda anterior
   // A4: esperando OUTRA tarefa = "na espera de" (o "Aguardando você" da Central é só pro que depende de você)
   const st=left.length
     ? `na espera de ${left.map(a=>`<b>${esc(String(q.titleOf[a]||'tarefa').slice(0,40))}</b> (${esc(stLabel((q.effOf||{})[a]||q.stOf[a]))})`).join(', ')}${auto?' · começa sozinha quando elas forem concluídas':''}`
-    : (auto?'pré-requisitos prontos — começando…':'pronta pra começar');
-  const stk=left.length?'waiting':'backlog';
-  const go=left.length
-    ? `<button class="btn sm ghost" data-epqgo="${escA(ct.id)}" title="ainda depende de ${left.length} tarefa(s) — assumir e iniciar agora mesmo assim">iniciar mesmo assim</button>`
+    : wl ? `na espera da onda ${epqWave(ct)-1} · começa sozinha quando ela for entregue`
+    : (ctArmed(ct)?'pronta — começando assim que houver vaga…':'pronta pra começar');
+  const stk=(left.length||wl)?'waiting':'backlog';
+  const go=(left.length||wl)
+    ? `<button class="btn sm ghost" data-epqgo="${escA(ct.id)}" title="${left.length?'ainda depende de '+left.length+' tarefa(s)':'a onda anterior ainda não foi entregue'} — assumir e iniciar agora mesmo assim">iniciar mesmo assim</button>`
     : `<button class="btn sm${primary?' primary':''}" data-epqgo="${escA(ct.id)}" title="assumir e iniciar agora nesta máquina${primary?' — próxima recomendada deste épico':''}">${IC.play} iniciar</button>`;
   // M4: remover (DELETE na nuvem) só pra quem criou ou admin, e fora do caminho do ▶ — no menu ⋯
   const who=ctWhoLabel(ct, me, tmName); // veio de outra pessoa (ex.: atribuída a mim) → "criada por Fulano"
@@ -556,7 +577,7 @@ function epBoardHtml(scope, opts){
     return `<div class="epqep${col?' collapsed':''}" style="--epc:${epColor(eid)}">`+
       `<div class="epqh" data-epqtog="${escA(eid)}" role="button" tabindex="0" aria-expanded="${col?'false':'true'}" title="clique pra ${col?'expandir':'recolher'} as tarefas deste épico que estão na fila">`+
         `<span class="secchev">${col?IC.chevR:IC.chevD}</span><span class="tsepc epqname">${IC.epic} ${esc(name)}</span>`+
-        `<span class="epqsum">${epqSummaryHtml(eid, items.length)}</span><span style="flex:1"></span>`+
+        `<span class="epqsum">${epqSummaryHtml(eid, items.length)}</span><span style="flex:1"></span>${epStartBtnHtml(eid, { primary:true })}`+
         `<button class="btn sm ghost" data-epqopen="${escA(eid)}" title="abrir a página do épico (checklist, requisitos e todas as tarefas)">abrir</button></div>`+
       (col?'':items.map(ct=>epqRowHtml(ct, showProj, me, isAdmin, ct===firstReady)).join(''))+`</div>`;
   }).join('');
@@ -584,9 +605,11 @@ function epWireBoard(root){
   R.querySelectorAll('[data-epqgo]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const ct=epQueue.rows.find(x=>x.id===b.dataset.epqgo); if(ct) epCardStart(ct, b); });
   R.querySelectorAll('[data-epqmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const ct=epQueue.rows.find(x=>x.id===b.dataset.epqmenu); if(ct) epqMenu(ct, b); });
   R.querySelectorAll('[data-epqopen]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); epOpenById(b.dataset.epqopen); });
+  R.querySelectorAll('[data-epstart]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); epicStart(b.dataset.epstart, b); });
+  R.querySelectorAll('[data-eppause]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); epicPause(b.dataset.eppause, b); });
   R.querySelectorAll('[data-epqt]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const [eid,i]=b.dataset.epqt.split('|'); epqOpenTask(eid, +i); }; b.onkeydown=(e)=>e.stopPropagation(); });
   R.querySelectorAll('[data-epqtog]').forEach(h=>{
-    h.onclick=(e)=>{ if(e.target.closest('[data-epqopen],[data-epqt]')) return; e.stopPropagation(); const id=h.dataset.epqtog; lsSet('epq:col:'+id, h.getAttribute('aria-expanded')==='false'?'0':'1'); lastSig=''; if(typeof renderFlow==='function') renderFlow(); };
+    h.onclick=(e)=>{ if(e.target.closest('[data-epqopen],[data-epqt],[data-epstart],[data-eppause]')) return; e.stopPropagation(); const id=h.dataset.epqtog; lsSet('epq:col:'+id, h.getAttribute('aria-expanded')==='false'?'0':'1'); lastSig=''; if(typeof renderFlow==='function') renderFlow(); };
     h.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); h.onclick(e); } };
   });
   // selo "◆ épico · onda N" nas tarefas já iniciadas: abre a página do épico (sem abrir a tarefa)
@@ -635,4 +658,179 @@ async function epicAutoOn(ep){
     for(const t of list){ await sbFetch('/rest/v1/tasks?id=eq.'+t.id, { method:'PATCH', body: JSON.stringify({ spec:{ ...(t.spec||{}), autoStart:true } }) }); t.spec={ ...(t.spec||{}), autoStart:true }; }
     epicPageRender(); epicAutoStartTick();
   }catch(e){ showErr(e, 'Falhou'); }
+}
+
+// ---- INICIAR O ÉPICO INTEIRO (um botão: Central + página do épico) ----
+// Antes só dava pra iniciar tarefa por tarefa. "Iniciar épico" começa AGORA as tarefas da onda atual que ainda
+// não começaram (rascunho local ou cartão na fila da nuvem — o mesmo caminho do "Iniciar" de cada uma: startTask /
+// teamClaimStart, com o limite de agentes, o teto e a política que eles já respeitam) e ARMA as ondas seguintes:
+// começam sozinhas, nesta máquina, quando a onda anterior for entregue. Cartão da nuvem armado = spec.autoStart
+// (o mesmo campo do planner); rascunho local armado = lista desta máquina (epAutoLocal*), porque não tem cartão.
+// Com algo armado o botão vira "pausar épico" (desarma; as que estão rodando continuam).
+// @ep-iniciar-puro-inicio (puro: testado em app/tests/epico-iniciar.test.mjs)
+// item: { id, wave, b (epqBucket: ok|off|run|…|queue), startable (ainda não começou), mine, armed }
+function epStartPlan(items){
+  const w=x=>Math.max(1, parseInt(x&&x.wave,10)||1);
+  const L=(items||[]).filter(x=>x && x.b!=='off'); // cancelada/interrompida não segura onda nenhuma
+  const open=L.filter(x=>x.b!=='ok');
+  const wave=open.length?Math.min(...open.map(w)):0; // onda atual = a 1ª que ainda tem algo não entregue
+  const cand=L.filter(x=>x.startable), mine=cand.filter(x=>x.mine);
+  const now=mine.filter(x=>w(x)===wave), wait=mine.filter(x=>w(x)>wave), armed=mine.filter(x=>x.armed);
+  const waves=[...new Set(wait.map(w))].sort((a,b)=>a-b);
+  const mode=armed.length?'pause':(now.length||wait.length)?'start':'';
+  return { wave, now, wait, armed, waves, others:cand.length-mine.length, begun:L.some(x=>!x.startable), mode };
+}
+// a pergunta antes de iniciar: quantas começam agora, quantas esperam vaga, quantas ficam na espera da onda, custo
+// o: { free (vagas de agente agora), slotMax, cost:{ txt, n, of } | null }
+function epStartAskText(name, p, o){
+  o=o||{}; const free=o.free==null?p.now.length:Math.max(0, +o.free||0);
+  const go=Math.min(p.now.length, free), queued=p.now.length-go, pl=(n,a,b)=>n===1?a:b;
+  const L=[];
+  L.push(go?`${go} ${pl(go,'tarefa começa','tarefas começam')} agora (onda ${p.wave}).`:'Nenhuma tarefa começa agora.');
+  if(queued) L.push(`${queued} ${pl(queued,'espera','esperam')} vaga: o limite é de ${o.slotMax} agentes ao mesmo tempo. ${pl(queued,'Começa sozinha','Começam sozinhas')} quando abrir.`);
+  if(p.wait.length) L.push(`${p.wait.length} ${pl(p.wait.length,'fica','ficam')} na espera e ${pl(p.wait.length,'começa sozinha','começam sozinhas')}, nesta máquina, quando a onda anterior for entregue (${pl(p.waves.length,'onda','ondas')} ${p.waves.join(', ')}).`);
+  if(p.others) L.push(`${p.others} ${pl(p.others,'é de outra pessoa e fica','são de outras pessoas e ficam')} de fora.`);
+  const c=o.cost; if(c && c.n) L.push(`Custo estimado: ~${c.txt}${c.n<c.of?` (previsão de ${c.n} de ${c.of} tarefas)`:''}.`);
+  return { title:'Iniciar o épico “'+String(name||'épico').slice(0,60)+'”?', text:L.join('\n'), go, queued };
+}
+// o toast do fim. r: { started, armed, failed, elsewhere }
+function epStartDoneText(r){
+  const pl=(n,a,b)=>n===1?a:b, parts=[];
+  if(r.started) parts.push(`${r.started} ${pl(r.started,'tarefa começou','tarefas começaram')} agora`);
+  if(r.armed) parts.push(`${r.armed} na espera (${pl(r.armed,'começa sozinha','começam sozinhas')})`);
+  if(r.elsewhere) parts.push(`${r.elsewhere} de outro projeto: ${pl(r.elsewhere,'começa','começam')} quando você abrir o projeto`);
+  if(r.failed) parts.push(`${r.failed} não ${pl(r.failed,'começou','começaram')} (veja o aviso)`);
+  const head=r.started?'Épico iniciado':r.armed?'Épico armado':'O épico não começou';
+  return { text:head+(parts.length?': '+parts.join(' · ')+'.':'.'), kind:r.failed?'warn':(r.started||r.armed)?'ok':'warn' };
+}
+// @ep-iniciar-puro-fim
+// rascunhos locais armados (nesta máquina, por conta): { [taskId]: { repo, epic } }
+const epAutoLocalKey=()=>userKey('ep:autoLocal', (typeof cloudUserId==='function'&&cloudUserId())||'');
+function epAutoLocalGet(){ try{ const v=JSON.parse(lsGet(epAutoLocalKey())||'{}'); return (v&&typeof v==='object'&&!Array.isArray(v))?v:{}; }catch(_){ return {}; } }
+function epAutoLocalPut(m){ lsSet(epAutoLocalKey(), JSON.stringify(m||{})); }
+function epAutoLocalHas(id){ return !!epAutoLocalGet()[id]; }
+window.epAutoLocalHas=epAutoLocalHas;
+// todas as tarefas do épico (cartões da nuvem + rascunhos/tarefas locais), cada uma uma vez — mesma junção do epqEpicTasks
+function epStartItems(eid){
+  const me=cloudUserId(), m=(typeof tmap==='function')?tmap():{}, c2l={}; Object.keys(m).forEach(k=>{ c2l[m[k]]=k; });
+  const locals=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>t.epic&&t.epic.epicId===eid);
+  const byLocal={}; locals.forEach(t=>{ byLocal[t.id]=t; });
+  const pc=epCache[eid]; const cloud=(pc&&pc.loaded&&(pc.tasks||[]).length)?pc.tasks:(((epQueue.sibsOf||{})[eid])||[]);
+  const armedLoc=epAutoLocalGet(), out=[], seen=new Set();
+  const fromLocal=(t, ct)=>{ seen.add(t.id); const st=taskSt(t);
+    return { id:t.id, kind:'local', title:t.title||'tarefa', wave:Math.max(1, parseInt((t.epic||{}).wave,10)||(ct?epqWave(ct):1)), b:epqBucket(st, t.flag, !!(t.prUrl&&t.status!=='merged')),
+      startable:t.status==='draft' && !(typeof taskStarted==='function'&&taskStarted(t)), mine:true, armed:!!armedLoc[t.id], t }; };
+  cloud.forEach(ct=>{
+    const lid=(ct.local_id&&byLocal[ct.local_id])?ct.local_id:c2l[ct.id], lt=lid&&byLocal[lid];
+    if(lt){ if(!seen.has(lt.id)) out.push(fromLocal(lt, ct)); return; }
+    out.push({ id:ct.id, kind:'cloud', title:ct.title||'tarefa', wave:epqWave(ct), b:epqBucket(ct.status, ct.flag, !!(ct.pr_url&&!['merged','done','closed'].includes(ct.status))),
+      startable:ct.status==='backlog', mine:ctMineFor(ct, me), armed:!!((ct.spec||{}).autoStart), ct });
+  });
+  locals.forEach(t=>{ if(!seen.has(t.id)) out.push(fromLocal(t)); });
+  return out;
+}
+function epStartPlanOf(eid){ return epStartPlan(epStartItems(eid)); }
+// o botão (Central: cabeçalho do épico; página: acima das tarefas). o.primary: ação principal enquanto nada começou
+function epStartBtnHtml(eid, o){
+  o=o||{}; if(!eid) return '';
+  const p=epStartPlanOf(eid);
+  if(p.mode==='start'){ const tip=[p.now.length?p.now.length+' começa'+(p.now.length===1?'':'m')+' agora (onda '+p.wave+')':'', p.wait.length?p.wait.length+' na espera das próximas ondas':''].filter(Boolean).join(' · ');
+    return `<button type="button" class="btn sm${o.primary&&!p.begun?' primary':''} epstart" data-epstart="${escA(eid)}" title="${escA('iniciar o épico inteiro — '+tip)}">${IC.play} Iniciar épico</button>`; }
+  if(p.mode==='pause') return `<button type="button" class="btn sm ghost epstart" data-eppause="${escA(eid)}" title="${escA(p.armed.length+' na espera não começam mais sozinhas; as que estão rodando continuam')}">${IC.pause||''} Pausar épico</button>`;
+  return '';
+}
+// projeto do cartão (pra não iniciar no projeto errado — teamClaimStart roda no projeto ABERTO)
+async function epProjOf(ct){
+  if(!ct||!ct.project_id) return null;
+  const pj=(typeof teamProj!=='undefined'&&teamProj&&teamProj[ct.project_id])||(epQueue.projOf||{})[ct.project_id];
+  if(pj) return pj;
+  try{ return (await sbGet('projects?select=name,repo_remote&id=eq.'+ct.project_id))[0]||null; }catch(_){ return null; }
+}
+// arma/desarma (on=false) a espera: rascunho local na lista desta máquina; cartão da nuvem em spec.autoStart
+async function epArm(list, on, eid){
+  let n=0; const loc=epAutoLocalGet(); let locCh=false;
+  for(const x of list||[]){
+    if(x.kind==='local'){ if(on) loc[x.id]={ repo:(x.t&&x.t.repo)||state.repo||'', epic:eid||'' }; else delete loc[x.id]; locCh=true; n++; continue; }
+    const spec={ ...((x.ct&&x.ct.spec)||{}) }; if(on) spec.autoStart=true; else delete spec.autoStart;
+    await sbFetch('/rest/v1/tasks?id=eq.'+x.id, { method:'PATCH', body: JSON.stringify({ spec }) });
+    if(x.ct) x.ct.spec=spec; (epQueue.rows||[]).forEach(r=>{ if(r.id===x.id) r.spec=spec; }); n++;
+  }
+  if(locCh) epAutoLocalPut(loc);
+  return n;
+}
+// previsão de custo (só tarefa local tem previsão salva — 33-previsao): soma o que existir
+async function epStartCost(list){
+  const loc=(list||[]).filter(x=>x.kind==='local'); if(!loc.length) return null;
+  const vals=await Promise.all(loc.map(x=>(estSavedCache[x.id]!==undefined?Promise.resolve(estSavedCache[x.id]):invoke('get_estimate',{ taskId:x.id }).then(s=>{ let v=null; try{ v=s?JSON.parse(s):null; }catch(_){ } estSavedCache[x.id]=v; return v; })).catch(()=>null)));
+  const got=vals.filter(v=>v&&v.total&&+v.total.usd>0); if(!got.length) return null;
+  return { txt:estMoney(got.reduce((s,v)=>s+(+v.total.usd||0),0)), n:got.length, of:list.length };
+}
+const epStartBusy=new Set();
+function epLiveCount(){ return ((typeof state!=='undefined'&&state.tasks)||[]).filter(x=>ACTIVE_ST.has(x.status)||x.status==='paused').length; } // a MESMA conta do startTask
+async function epicStart(eid, btn){
+  if(!eid || epStartBusy.has(eid)) return;
+  const p=epStartPlanOf(eid);
+  if(p.mode!=='start'){ toast(p.mode==='pause'?'Este épico já começou — as próximas ondas estão na espera.':'Nada pra iniciar: as tarefas deste épico já começaram ou foram entregues.','info'); return; }
+  epStartBusy.add(eid);
+  const res={ started:0, armed:0, failed:0, elsewhere:0 };
+  try{
+    const cost=await epStartCost(p.now.concat(p.wait)).catch(()=>null);
+    const q=epStartAskText(epNameOf(eid)||'épico', p, { free:slotMax-epLiveCount(), slotMax, cost });
+    if(!await askYes(q.text, q.title)) return;
+    if(btn){ btn.disabled=true; btn.setAttribute('aria-busy','true'); }
+    // a espera é gravada ANTES: se um início falhar no meio, as próximas ondas já estão armadas
+    res.armed+=await epArm(p.now.slice(q.go).concat(p.wait), true, eid);
+    let here=null;
+    for(const x of p.now.slice(0, q.go)){
+      try{
+        if(x.kind==='local'){ await startTask(x.id); const t=(state.tasks||[]).find(y=>y.id===x.id); if(t && t.status!=='draft') res.started++; else res.failed++; continue; } // startTask já avisa o erro
+        const pj=await epProjOf(x.ct); here=here||await repoRemoteIds();
+        if(pj && pj.repo_remote && here.remote && !remoteSame(pj.repo_remote, here)){ await epArm([x], true, eid); res.elsewhere++; continue; }
+        await teamClaimStart(x.ct, null, { silent:true }); res.started++;
+      }catch(e){ res.failed++; showErr(e, 'Não deu pra iniciar “'+String(x.title).slice(0,50)+'”'); }
+    }
+    if(res.started && cloudEpicId(eid) && window.epicMarkInProgress) await epicMarkInProgress(eid); // épico → em andamento
+    const d=epStartDoneText(res); toast(d.text, d.kind);
+  }catch(e){ showErr(e, 'Não deu pra iniciar o épico'); }
+  finally{
+    epStartBusy.delete(eid); if(btn&&btn.isConnected){ btn.disabled=false; btn.removeAttribute('aria-busy'); }
+    if(res.started||res.armed||res.elsewhere){ lastSig=''; epQueue.sig=''; refresh().catch(()=>{}); if(epTab&&epTab.id===eid){ epicPageLoad(eid).then(()=>{ if(epTab&&epTab.id===eid) epicPageRender(); }); epicPageRender(); } epicAutoStartTick(); }
+  }
+}
+async function epicPause(eid, btn){
+  if(!eid || epStartBusy.has(eid)) return;
+  const p=epStartPlanOf(eid); if(!p.armed.length){ toast('Nada na espera neste épico.','info'); return; }
+  epStartBusy.add(eid); if(btn){ btn.disabled=true; btn.setAttribute('aria-busy','true'); }
+  try{
+    const n=await epArm(p.armed, false, eid);
+    toast(`Épico pausado: ${n} ${n===1?'tarefa na espera não começa':'tarefas na espera não começam'} mais sozinha${n===1?'':'s'}. As que estão rodando continuam.`,'ok');
+  }catch(e){ showErr(e, 'Não deu pra pausar o épico'); }
+  finally{ epStartBusy.delete(eid); if(btn&&btn.isConnected){ btn.disabled=false; btn.removeAttribute('aria-busy'); }
+    lastSig=''; epQueue.sig=''; if(typeof renderFlow==='function') renderFlow(); if(epTab&&epTab.id===eid) epicPageRender(); }
+}
+window.epicStart=epicStart; window.epicPause=epicPause; window.epStartBtnHtml=epStartBtnHtml;
+// onda anterior ainda aberta? (cartão armado SEM `after` espera a onda inteira; com `after`, vale só o after — regra antiga)
+function epWaveLeft(eid, wave){ return eid?epqEpicTasks(eid).filter(x=>x.wave<wave && x.b!=='ok').length:0; }
+// rascunho local armado começa sozinho quando a onda anterior é entregue e há vaga de agente (só no projeto aberto)
+let epAutoLocalBusy=false;
+async function epAutoLocalTick(){
+  if(epAutoLocalBusy) return;
+  const m=epAutoLocalGet(); const ids=Object.keys(m); if(!ids.length) return;
+  epAutoLocalBusy=true;
+  try{
+    let ch=false;
+    for(const id of ids){
+      const e=m[id]||{}; if(e.repo && e.repo!==state.repo) continue; // de outro projeto: espera ele abrir
+      const t=(state.tasks||[]).find(x=>x.id===id); if(!t) continue;
+      if(t.status!=='draft'){ delete m[id]; ch=true; continue; } // já começou (na mão) ou mudou: sai da espera
+      const w=Math.max(1, parseInt((t.epic||{}).wave,10)||1);
+      if(epWaveLeft(t.epic&&t.epic.epicId, w)) continue;
+      if(epLiveCount()>=slotMax) break; // sem vaga: tenta no próximo tick
+      delete m[id]; epAutoLocalPut(m); // sai da lista ANTES de iniciar: nunca dois inícios
+      await startTask(id);
+      pushNotif('▶ Começou sozinha', (t.title||'tarefa')+(w>1?' — a onda anterior do épico foi entregue':' — abriu vaga pra mais um agente'), id);
+    }
+    if(ch) epAutoLocalPut(m);
+  }catch(e){ tickErr('epAutoLocal', e); }
+  finally{ epAutoLocalBusy=false; }
 }

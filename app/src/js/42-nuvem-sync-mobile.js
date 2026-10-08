@@ -60,7 +60,10 @@ function agoTx(iso){ const s=(Date.now()-new Date(iso).getTime())/1000; if(!(s>=
 const CT_ST_PT=Object.fromEntries(Object.keys(STATUS_META).map(k=>[k, stLabel(k)]));
 // backlog + autoStart + pré-requisitos = NA ESPERA (começa sozinha — 46-epico-time: epicAutoStartTick).
 // "Aguardando você" é reservado pro que depende do HUMANO; tarefa esperando outra tarefa é "na espera".
-function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return !!(ct && ct.status==='backlog' && s.autoStart && Array.isArray(s.after) && s.after.length); }
+// "Iniciar épico" (46) arma também cartão SEM pré-requisito: o da onda 2+ espera a onda anterior inteira (na espera);
+// o da onda atual só esperava vaga de agente (armado, mas não "na espera da onda anterior").
+function ctArmed(ct){ return !!(ct && ct.status==='backlog' && ((ct.spec||{}).autoStart)); }
+function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return ctArmed(ct) && ((Array.isArray(s.after) && s.after.length>0) || (parseInt(s.wave,10)||1)>1); }
 // @exec-inicio — de QUEM é um cartão da nuvem (regra única da Execução × Time; testado em exec-minhas.test.mjs)
 // meu = atribuído a mim; sem responsável, é de quem criou. Cartão de outra pessoa (ou atribuído a outra) é do TIME:
 // mora na aba Time até eu assumir (claim_task grava assignee = eu → vira meu).
