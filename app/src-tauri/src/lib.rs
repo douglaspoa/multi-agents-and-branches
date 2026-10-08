@@ -7448,8 +7448,8 @@ fn pr_compare_url(state: State<AppState>, task_id: String, base: String) -> Resu
 }
 /// JSON da última linha do stdout do motor (o CLI imprime 1 objeto); sem JSON → erro com o stderr.
 fn cli_json_line(stdout: &str, stderr: &str) -> Result<serde_json::Value, String> {
-    stdout.lines().rev().map(str::trim).find(|l| l.starts_with('{'))
-        .and_then(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+    stdout.lines().rev().map(str::trim).filter(|l| l.starts_with('{'))
+        .find_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
         .ok_or_else(|| { let e = stderr.trim(); if e.is_empty() { "o motor não respondeu".to_string() } else { e.chars().take(300).collect() } })
 }
 
@@ -7464,44 +7464,63 @@ fn pr_attach_proofs(state: State<AppState>, task_id: String, decide: Option<Stri
     let mut c = node_cmd();
     c.args(&args).current_dir(&repo).env_remove("CARDUME_ROLE");
     let out = output_timeout(c, 300)?;
-    cli_json_line(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
+    cli_ok(cli_json_line(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))?)
 }
+/// `{ error }` do motor vira Err (a tela mostra "não consegui anexar as provas (motivo)" e tenta de novo depois).
+fn cli_ok(v: serde_json::Value) -> Result<serde_json::Value, String> {
+    match v.get("error").and_then(|e| e.as_str()) { Some(e) if !e.is_empty() => Err(e.to_string()), _ => Ok(v) }
+}
+/// Chave do .git/config com a opção do projeto — a MESMA do motor (src/pr-provas.ts PROVAS_SETTING_KEY).
+const PROVAS_SETTING_KEY: &str = "starfork.provasNoPr";
 
 /// Reescreve a seção "## Relatório Starfork" do corpo do PR aberto da tarefa (provas novas depois da abertura).
 #[tauri::command(async)]
-fn pr_update_report(state: State<AppState>, task_id: String, report: String) -> Result<serde_json::Value, String> {
+fn pr_update_report(state: State<AppState>, task_id: String, report: String, url: Option<String>) -> Result<serde_json::Value, String> {
     let repo = active_repo(&state)?;
     if !report.contains("## Relatório Starfork") { return Err("relatório vazio".into()); }
     let f = std::env::temp_dir().join(format!("starfork-relatorio-{}-{}.md", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
     std::fs::write(&f, report.as_bytes()).map_err(|e| e.to_string())?;
     let mut c = node_cmd();
-    c.args(["--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "pr-relatorio".into(), task_id, "--file".into(), f.display().to_string(), "--repo".into(), repo.display().to_string()])
-        .current_dir(&repo).env_remove("CARDUME_ROLE");
+    let mut args = vec!["--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "pr-relatorio".into(), task_id, "--file".into(), f.display().to_string(), "--repo".into(), repo.display().to_string()];
+    if let Some(u) = url.filter(|u| u.starts_with("https://github.com/")) { args.push("--url".into()); args.push(u); }
+    c.args(&args).current_dir(&repo).env_remove("CARDUME_ROLE");
     let out = output_timeout(c, 120);
     let _ = std::fs::remove_file(&f);
     let out = out?;
-    let v = cli_json_line(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))?;
-    match v.get("error").and_then(|e| e.as_str()) { Some(e) if !e.is_empty() => Err(e.to_string()), _ => Ok(v) }
+    cli_ok(cli_json_line(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))?)
 }
 
-/// Opção do projeto "Mostrar as provas no PR" (`starfork.provasNoPr` no .git/config): `value` on|off grava; devolve a
-/// atual ("" = padrão: liga em repositório privado, pergunta uma vez em público).
+/// Opção do projeto "Mostrar as provas no PR" (`starfork.provasNoPr` no .git/config): `value` on|off grava, "ask" volta
+/// ao padrão (apaga a chave); devolve a atual ("" = padrão: liga em repositório privado, pergunta uma vez em público).
 #[tauri::command(async)]
 fn provas_setting(state: State<AppState>, value: Option<String>) -> Result<String, String> {
     let repo = active_repo(&state)?;
     if let Some(v) = value.filter(|v| !v.is_empty()) {
-        if v != "on" && v != "off" { return Err("valor inválido (on|off)".into()); }
-        let o = Command::new("git").arg("-C").arg(&repo).args(["config", "starfork.provasNoPr", &v]).output().map_err(|e| e.to_string())?;
-        if !o.status.success() { return Err(String::from_utf8_lossy(&o.stderr).trim().to_string()); }
+        let args: Vec<&str> = match v.as_str() {
+            "on" | "off" => vec!["config", PROVAS_SETTING_KEY, &v],
+            "ask" => vec!["config", "--unset-all", PROVAS_SETTING_KEY],
+            _ => return Err("valor inválido (on|off|ask)".into()),
+        };
+        let o = Command::new("git").arg("-C").arg(&repo).args(&args).output().map_err(|e| e.to_string())?;
+        // --unset de chave que não existe sai 5: já está no padrão
+        if !o.status.success() && !(v == "ask" && o.status.code() == Some(5)) { return Err(String::from_utf8_lossy(&o.stderr).trim().to_string()); }
     }
-    let o = Command::new("git").arg("-C").arg(&repo).args(["config", "--get", "starfork.provasNoPr"]).output().map_err(|e| e.to_string())?;
+    let o = Command::new("git").arg("-C").arg(&repo).args(["config", "--get", PROVAS_SETTING_KEY]).output().map_err(|e| e.to_string())?;
     let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
     Ok(if v == "on" || v == "off" { v } else { String::new() })
 }
 
 #[cfg(test)]
 mod provas_pr_tests {
-    use super::cli_json_line;
+    use super::{cli_json_line, cli_ok, PROVAS_SETTING_KEY};
+    #[test]
+    fn chave_igual_a_do_motor_e_erro_do_motor_vira_err() {
+        // src/pr-provas.ts: PROVAS_SETTING_KEY = "starfork.provasNoPr" (app/tests/provas-pr.test.mjs confere os dois lados)
+        assert_eq!(PROVAS_SETTING_KEY, "starfork.provasNoPr");
+        assert_eq!(cli_ok(serde_json::json!({ "links": {}, "note": "", "error": "boom" })).unwrap_err(), "boom");
+        assert!(cli_ok(serde_json::json!({ "links": {}, "note": "" })).is_ok());
+        assert_eq!(cli_json_line("{\"a\":1}\n{quebrado\n", "").unwrap()["a"], 1, "linha quebrada não esconde o JSON bom");
+    }
     #[test]
     fn json_da_ultima_linha_ou_erro_com_stderr() {
         assert_eq!(cli_json_line("log\n{\"links\":{},\"note\":\"x\"}\n", "").unwrap()["note"], "x");

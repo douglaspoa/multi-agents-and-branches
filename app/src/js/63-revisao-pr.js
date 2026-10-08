@@ -460,6 +460,7 @@ function prvRender(t, main, info){
     </div>
     <div class="prvcols">
       <div><h5 class="rvh">O que entra</h5>${facts}${rlist}${outLine}
+        ${open&&typeof provasConfirmHtml==='function'?provasConfirmHtml(t):''}
         ${rep?`<h5 class="rvh">Relatório Starfork <span class="dim">(vai no corpo do PR)</span></h5><div class="prvrep">${mdToHtml(rep.replace(/^## Relatório Starfork\s*/,''))}</div>`:''}
         ${info.body?`<details class="prvbody"${prvBodyOpen[t.id]?' open':''}><summary>descrição do PR no GitHub</summary><div class="prbody">${chatMd(info.body)}</div></details>`:''}
       </div>

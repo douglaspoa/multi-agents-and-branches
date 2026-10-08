@@ -225,10 +225,24 @@ test("openPr (motor) com gh falso: provas no branch órfão, miniaturas no corpo
       assert.equal(bad.status, 1);
       const rf = join(f.root, "rel.md");
       writeFileSync(rf, "## Relatório Starfork\n\n**Aprovado sem prova** por Ana: x\n\n**Custo:** US$ 0,00\n");
-      const w = JSON.parse(execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, "pr-relatorio", "provas-t", "--file", rf, "--repo", f.repo], { encoding: "utf8", env }));
+      const badUrl = spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, "pr-relatorio", "provas-t", "--file", rf, "--url", "https://evil.example/x", "--repo", f.repo], { encoding: "utf8", env });
+      assert.match(badUrl.stdout, /--url não é um PR do GitHub/);
+      const w = JSON.parse(execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, "pr-relatorio", "provas-t", "--file", rf, "--url", "https://github.com/o/r/pull/77", "--repo", f.repo], { encoding: "utf8", env }));
       assert.deepEqual(w, { changed: true });
       assert.match(readFileSync(join(dir, "body.md"), "utf8"), /\*\*Aprovado sem prova\*\* por Ana: x/);
       assert.ok(existsSync(join(dir, "argv.log")));
     });
   } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
+});
+
+test("nomes diferentes que dão o mesmo caminho no branch não se sobrescrevem (sufixo -2)", POSIX, async () => {
+  const f = fixture();
+  try {
+    writeFileSync(join(f.root, "1.png"), "UM");
+    writeFileSync(join(f.root, "2.png"), "DOIS");
+    const r = await pushProofs({ dir: f.repo, prefix: "t", files: [{ name: "a b.png", path: join(f.root, "1.png") }, { name: "a-b.png", path: join(f.root, "2.png") }], slug: "o/r" });
+    assert.equal(git(f.origin, "ls-tree", "-r", "--name-only", PROVAS_BRANCH), "t/a-b-2.png\nt/a-b.png");
+    assert.equal(git(f.origin, "show", `${PROVAS_BRANCH}:t/a-b-2.png`), "DOIS");
+    assert.notEqual(r.links["a b.png"].url, r.links["a-b.png"].url);
+  } finally { f.done(); }
 });

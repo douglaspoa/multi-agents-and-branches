@@ -11,7 +11,9 @@
 // volta pra lista de nomes e diz "não consegui anexar as provas (motivo)".
 //
 // Limpeza: o branch NÃO é apagado ao integrar/fechar a tarefa — o PR mergeado continua apontando pras imagens.
-// Pra limpar de vez: `git push origin --delete starfork-provas` (as miniaturas dos PRs antigos quebram).
+// Pra limpar de vez: `git push origin --delete starfork-provas` (as miniaturas dos PRs antigos quebram); pra tirar
+// só uma tarefa, um commit no branch removendo a pasta dela. O branch cresce com o histórico de prints de todas as
+// tarefas (o fetch traz só o que falta); por isso o limite de 8 MB por arquivo e 40 MB por tarefa.
 import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -124,7 +126,10 @@ export async function pushProofs(o: { dir: string; prefix: string; files: ProofF
       if (s.size > PROVA_MAX_BYTES) { skipped.push({ name: f.name, why: `grande demais (${mb(s.size)}; limite ${mb(PROVA_MAX_BYTES)})` }); continue; }
       if (total + s.size > PROVAS_MAX_TOTAL) { skipped.push({ name: f.name, why: `passou do total de ${mb(PROVAS_MAX_TOTAL)} por tarefa` }); continue; }
       total += s.size;
-      pick.push({ name: f.name, path: s.path, rel: proofRelPath(o.prefix, f.name), kind });
+      // nomes diferentes que dão o MESMO caminho ("a b.png" e "a-b.png"): sufixo -2, -3… (senão um sobrescreve o outro)
+      let rel = proofRelPath(o.prefix, f.name);
+      for (let k = 2; pick.some((q) => q.rel === rel); k++) rel = proofRelPath(o.prefix, f.name).replace(/(\.[^./]+)?$/, (ext) => `-${k}${ext}`);
+      pick.push({ name: f.name, path: s.path, rel, kind });
     }
     if (!pick.length) return { links, skipped, pushed: false };
     const git = async (args: string[], extra: NodeJS.ProcessEnv = {}, net = false) =>
@@ -154,7 +159,8 @@ export async function pushProofs(o: { dir: string; prefix: string; files: ProofF
         pushed = true;
         break;
       } catch (e) {
-        if (attempt < 2 && /non-fast-forward|fetch first|rejected|stale info/i.test(short(e))) continue;
+        // só a corrida com outra tarefa (ponta andou) vale refazer; recusa de política/hook não muda tentando de novo
+        if (attempt < 2 && /non-fast-forward|fetch first/i.test(short(e))) continue;
         throw e;
       }
     }

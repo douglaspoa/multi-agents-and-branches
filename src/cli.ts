@@ -1156,7 +1156,10 @@ async function main() {
       const orch = new Orchestrator(repo);
       try {
         const t = orch.store.getTask(a._[1]);
-        const url = t ? String((JSON.parse(t.spec_json) as TaskSpec).prUrl ?? "") : "";
+        // --url: o PR que o app acabou de abrir (o open_pr do app grava o prUrl no spec só no próximo pr_status)
+        const given = String(a.flags.url ?? "").trim();
+        if (given && !/^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+$/.test(given)) throw new Error("--url não é um PR do GitHub");
+        const url = given || (t ? String((JSON.parse(t.spec_json) as TaskSpec).prUrl ?? "") : "");
         if (!t || !url) throw new Error("a tarefa não tem PR aberto");
         const rep = readFileSync(String(a.flags.file ?? ""), "utf8");
         if (!rep.includes("## Relatório Starfork")) throw new Error("--file não tem um Relatório Starfork");
