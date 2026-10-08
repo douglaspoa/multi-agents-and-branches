@@ -291,7 +291,7 @@
         },
         "proofNote": "fora do PR: grande.png — grande demais"
       },
-      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| tela \\| lista | provado<br>![R1](https://github.com/o/r/blob/starfork-provas/t/mobile-ios-1.png?raw=true)<br>`mobile-ios-1.png`<br>`tests.md` |\n| vídeo | provado<br>[▶ fluxo.mp4](https://github.com/o/r/blob/starfork-provas/t/fluxo.mp4) |\n| csv | sem prova |\n| nome | provado — `a.png` |\n\n_Provas no branch `starfork-provas` deste repositório (fora do código do PR) — clique na miniatura pra ver no tamanho real._\n\n_fora do PR: grande.png — grande demais_\n\n**Custo:** US$ 0,50 de US$ 2,00 de teto\n"
+      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| tela \\| lista | provado<br>![R1](https://github.com/o/r/blob/starfork-provas/t/mobile-ios-1.png?raw=true)<br>`mobile-ios-1.png`<br>`tests.md` |\n| vídeo | provado<br>[▶ fluxo.mp4](https://github.com/o/r/blob/starfork-provas/t/fluxo.mp4) |\n| csv | sem prova |\n| nome | provado — `a.png` |\n\n*Provas no branch `starfork-provas` deste repositório (fora do código do PR) — clique na miniatura pra ver no tamanho real.*\n\n*fora do PR: grande.png — grande demais*\n\n**Custo:** US$ 0,50 de US$ 2,00 de teto\n"
     },
     {
       "input": {
@@ -312,7 +312,7 @@
         ],
         "proofNote": "não consegui anexar as provas (sem rede | offline)"
       },
-      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| tela | provado — `a.png` |\n\n_não consegui anexar as provas (sem rede \\| offline)_\n\n**Custo:** US$ 0,50 de US$ 2,00 de teto\n"
+      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| tela | provado — `a.png` |\n\n*não consegui anexar as provas (sem rede \\| offline)*\n\n**Custo:** US$ 0,50 de US$ 2,00 de teto\n"
     }
   ]
 }

@@ -97,7 +97,7 @@ test("relatório: miniatura clicável + legenda por requisito; sem prova continu
   // falha: lista de nomes de sempre + o motivo
   const f = starforkReport({ ...d, proofs: undefined, proofNote: "não consegui anexar as provas (sem rede)" });
   assert.match(f, /\| lista \| provado — `mobile-ios-1\.png`, `tests\.md` \|/);
-  assert.match(f, /^_não consegui anexar as provas \(sem rede\)_$/m);
+  assert.match(f, /^\*não consegui anexar as provas \(sem rede\)\*$/m);
   assert.doesNotMatch(f, /!\[/);
 });
 
