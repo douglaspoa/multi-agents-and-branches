@@ -23,7 +23,7 @@ function makeCtx() {
   const writes = [];
   class FakeTerm {
     constructor(o) { this.opts = o; this.cols = 100; this.rows = 30; this.out = []; writes.push(this.out); }
-    loadAddon(a) { this.addon = a; } open(el) { this.el = el; } onData(fn) { this.onDataFn = fn; }
+    loadAddon(a) { this.addon = a; } open(el) { this.el = el; } onData(fn) { const p = this.onDataFn; this.onDataFn = p ? (d) => { p(d); fn(d); } : fn; }
     write(d) { this.out.push(d); } reset() { this.out.length = 0; this.out.push('<reset>'); } focus() {}
   }
   class FakeFit { fit() {} }

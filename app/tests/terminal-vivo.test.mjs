@@ -74,7 +74,7 @@ test('fiação: sem reset() + write (quadro vazio), histórico como placeholder,
   assert.match(cut(term, 'async function termAttach(taskId){', '\n}\n'), /st\.holding\) return;[\s\S]*termSwap\(taskId, String\(info\.data\|\|''\)/);
   assert.match(cut(term, 'function termDetach(taskId){', '\n}\n'), /st\.autoTried=false/, 'saiu da tela: a próxima visita retoma de novo');
   assert.match(term, /listen\('term-data'[^\n]*st\.pend\.push\(p\.data\); st\.pendAt=Date\.now\(\)/);
-  assert.match(term, /listen\('term-exit'[^\n]*\n?[^\n]*st\.exitAt=Date\.now\(\)/);
+  assert.match(term, /listen\('term-exit'[^\n]*\n?[^\n]*st\.exitAt=p\.reaped\?0:Date\.now\(\)/);
   // clique/tecla no histórico: a mesma troca (quieta, sem a linha "abrindo a sessão…" por cima)
   const go = cut(ti, 'async function tiGoLive(taskId, o){', '\n}\n');
   assert.match(go, /termResume\(taskId, \{ quiet:true, auto:!!\(o&&o\.auto\) \}\)/);
@@ -98,8 +98,8 @@ test('Ajustes: retomar sozinho (padrão ligado) e encerrar terminal parado (padr
 
 // ---- comportamento de verdade (60-terminal.js num vm com xterm/Tauri falsos) ----
 import vm from 'node:vm';
-function makeCtx() {
-  const calls = []; const listeners = {};
+function makeCtx(o = {}) {
+  const calls = []; const hs = {}; const listeners = new Proxy({}, { get: (_, n) => (ev) => (hs[n] || []).forEach((f) => f(ev)) });
   class El {
     constructor(tag) { this.tag = tag; this.children = []; this.dataset = {}; this.style = {}; this.className = ''; this._html = ''; this.parentNode = null; this.connected = false; this.clientWidth = 800; this.clientHeight = 400; }
     appendChild(c) { c.parentNode = this; this.children.push(c); return c; }
@@ -107,11 +107,12 @@ function makeCtx() {
     get innerHTML() { return this._html; }
     querySelector() { return null; }
     contains(x) { return x === this; }
+    addEventListener() {}
     get isConnected() { let n = this; while (n) { if (n.connected) return true; n = n.parentNode; } return false; }
   }
   class FakeTerm {
     constructor() { this.cols = 100; this.rows = 30; this.out = []; this.focused = 0; }
-    loadAddon() {} open() {} onData(fn) { this.onDataFn = fn; }
+    loadAddon() {} open() {} onData(fn) { const p = this.onDataFn; this.onDataFn = p ? (d) => { p(d); fn(d); } : fn; }
     write(d, cb) { this.out.push(d); if (cb) cb(); } reset() { this.out.push('<reset>'); } focus() { this.focused++; } scrollToBottom() {} refresh() {}
   }
   const ctx = {
@@ -119,7 +120,8 @@ function makeCtx() {
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     ResizeObserver: class { observe() {} },
     document: { documentElement: {}, hidden: false, activeElement: null, createElement: (t) => new El(t), querySelector: () => ctx.__slot, addEventListener: () => {} },
-    window: { Terminal: { Terminal: FakeTerm }, FitAddon: { FitAddon: class { fit() {} } }, __TAURI__: { event: { listen: (n, f) => { listeners[n] = f; } } } },
+    window: { Terminal: { Terminal: FakeTerm }, FitAddon: { FitAddon: class { fit() {} } }, __TAURI__: { event: { listen: (n, f) => { (hs[n] ||= []).push(f); } } } },
+    $id: () => null, lsGet: () => null, pendingOf: () => [],
     state: { tasks: [{ id: 't1', status: 'review', engine: 'claude', spec: { termMode: 'terminal' } }] },
     ACTIVE_ST: new Set(['running', 'queued']), aiEngineOf: () => 'claude',
     escA: (s) => String(s), esc: (s) => String(s), eventsOf: () => [], lastSig: '', refresh: () => Promise.resolve(), showErr: () => { ctx.__err = (ctx.__err || 0) + 1; },
@@ -128,7 +130,7 @@ function makeCtx() {
     __answers: { read_settings: '{}' }, __slot: null,
   };
   vm.createContext(ctx);
-  vm.runInContext(src60 + '\nthis.TERM=TERM; this.termMount=termMount; this.termWantFocus=termWantFocus; this.termSweep=termSweep;', ctx);
+  vm.runInContext(src60 + (o.ti ? '\n' + read('js/64-terminal-integrado.js') : '') + '\nthis.TERM=TERM; this.termMount=termMount; this.termWantFocus=termWantFocus; this.termSweep=termSweep; this.termOpen=termOpen;', ctx);
   return { ctx, calls, listeners, El };
 }
 const src60 = read('js/60-terminal.js');
@@ -183,7 +185,7 @@ test('integrada sem pasta não retoma; Ajustes desligado não retoma; saiu da te
     ctx.__answers.read_settings = '{"termAutoResume":"0"}';
     ctx.__answers.term_attach = { alive: false, data: '' }; ctx.__answers.term_history = HIST;
     const slot = new El('div'); slot.connected = true; ctx.__slot = slot;
-    vm.runInContext('termAutoEnabled();', ctx); await wait(5); // lê o settings (guardado por 30 s)
+    // sem pré-leitura: a 1ª tarefa aberta ESPERA o settings (antes retomava com o padrão ligado)
     ctx.termMount({ id: 't1' }); await wait(30);
     assert.ok(!calls.some(([c]) => c === 'term_open'), 'Ajustes › retomar sozinho desligado'); }
   { const { ctx, calls, El, listeners } = makeCtx();
@@ -212,4 +214,65 @@ test('confiança da pasta no meio da retomada: aviso na barra, Enter confia', as
   assert.match(st.bar.innerHTML, /confia nesta pasta[\s\S]*data-termtrust="yes"/);
   assert.equal(st.bar.style.display, 'flex');
   assert.ok(!calls.some(([c]) => c === 'term_write'), 'nada respondido sem a pessoa');
+});
+
+
+test('teclas digitadas ENQUANTO a sessão abre (60 + 64 de verdade): entram em ordem num write só, depois da troca', async () => {
+  const { ctx, calls, listeners, El } = makeCtx({ ti: true });
+  ctx.__answers.term_attach = { alive: false, data: '' }; ctx.__answers.term_history = HIST;
+  ctx.__answers.term_open = () => Promise.resolve({ alive: true, shell: false, data: '' });
+  const slot = new El('div'); slot.connected = true; ctx.__slot = slot;
+  ctx.termMount({ id: 't1' }); await wait(20);
+  const st = ctx.TERM.t1;
+  st.term.onDataFn('o'); st.term.onDataFn('i');
+  assert.ok(!calls.some(([c]) => c === 'term_write'), 'nada vai pro PTY antes da IA desenhar');
+  listeners['term-data']({ payload: { taskId: 't1', data: '● oi\r\nFAKE-PROMPT> ' } });
+  for (let i = 0; i < 40 && !calls.some(([c]) => c === 'term_write'); i++) await wait(50);
+  assert.equal(st.mode, 'live');
+  assert.deepEqual(calls.filter(([c]) => c === 'term_write').map(([, a]) => a.data), ['oi'], 'um write, em ordem');
+  st.term.onDataFn('!');
+  assert.equal(calls.filter(([c]) => c === 'term_write').at(-1)[1].data, '!', 'depois: direto');
+});
+
+test('botão "abrir terminal": tarefa nova abre com kickoff (quiet:false); parada só retoma (quiet:true)', async () => {
+  for (const [status, quiet] of [['draft', false], ['queued', false], ['review', true]]) {
+    const { ctx, El } = makeCtx();
+    ctx.state.tasks[0].status = status;
+    let args; ctx.__answers.term_open = (a) => { args = a; return Promise.resolve({ alive: true, shell: false, data: 'x' }); };
+    const slot = new El('div'); slot.connected = true; ctx.__slot = slot;
+    ctx.__answers.term_attach = { alive: false, data: '' }; ctx.__answers.term_history = { ...HIST, sessionId: null, source: 'none' };
+    ctx.termMount({ id: 't1' }); await wait(10);
+    ctx.termOpen('t1'); await wait(10);
+    assert.equal(args.quiet, quiet, status);
+  }
+});
+
+test('encerrado por ficar parado: voltar à tarefa retoma na hora; fechou de verdade: não reabre em laço', async () => {
+  const { ctx, listeners, El } = makeCtx();
+  ctx.__answers.term_attach = { alive: false, data: '' }; ctx.__answers.term_history = HIST;
+  ctx.__answers.term_open = () => Promise.resolve({ alive: true, shell: false, data: '● oi' });
+  const slot = new El('div'); slot.connected = true; ctx.__slot = slot;
+  ctx.termMount({ id: 't1' });
+  const st = () => ctx.TERM.t1;
+  for (let i = 0; i < 40 && st().mode !== 'live'; i++) await wait(50);
+  listeners['term-exit']({ payload: { taskId: 't1', code: null, reaped: true } });
+  assert.equal(st().exitAt, 0);
+  listeners['term-exit']({ payload: { taskId: 't1', code: 0 } });
+  assert.ok(st().exitAt > 0);
+});
+
+test('confiança respondida pelo teclado (Enter no xterm): a barra some na hora', async () => {
+  const { ctx, listeners, El } = makeCtx();
+  ctx.__answers.term_attach = { alive: false, data: '' }; ctx.__answers.term_history = HIST;
+  ctx.__answers.term_open = () => Promise.resolve({ alive: true, shell: false, data: '' });
+  const slot = new El('div'); slot.connected = true; ctx.__slot = slot;
+  ctx.termMount({ id: 't1' }); await wait(20);
+  listeners['term-data']({ payload: { taskId: 't1', data: 'Do you trust the files in this folder?\r\n❯ 1. Yes, proceed' } });
+  const st = ctx.TERM.t1;
+  for (let i = 0; i < 40 && st.mode !== 'live'; i++) await wait(50);
+  assert.equal(st.bar.style.display, 'flex');
+  st.term.onDataFn('\r');
+  assert.equal(st.bar.style.display, 'none', 'sem barra velha (o "sair" mandaria Esc no meio de um turno)');
+  listeners['term-data']({ payload: { taskId: 't1', data: '● seguindo' } });
+  assert.equal(st.bar.style.display, 'none');
 });

@@ -31,12 +31,14 @@ impl PtySink for TauriSink {
         // troca de IA (term_switch_ai) já reabriu o terminal: o fim do processo VELHO não mexe no estado do novo —
         // em memória (sessão nova registrada com outro pid) e no banco (UPDATE … WHERE pid = o que saiu, atômico)
         let replaced = mgr().and_then(|m| m.get(task_id)).map(|s| s.pid != pid).unwrap_or(false);
+        // encerrado por ficar parado? (sai do conjunto SEMPRE — senão o próximo fim normal levaria a nota errada)
+        let reaped = reaped().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
         if replaced { return; }
         shells().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
         let db = dbs().lock().unwrap_or_else(|e| e.into_inner()).get(task_id).cloned();
-        let reaped = reaped().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
         if let Some(c) = db.and_then(|d| open_rw(&d).ok()) { record_exit_with(&c, task_id, pid, if reaped { REAPED_NOTE } else { exit_note(code) }); }
-        let _ = self.app.emit("term-exit", serde_json::json!({ "taskId": task_id, "code": code }));
+        // reaped: o front não trata como "acabou de fechar" — voltar à tarefa retoma na hora
+        let _ = self.app.emit("term-exit", serde_json::json!({ "taskId": task_id, "code": code, "reaped": reaped }));
     }
 }
 
@@ -548,7 +550,8 @@ pub fn reap_ok(r: &ReapIn, now: i64, min_unseen: i64) -> bool {
 pub fn reap_pick(list: &[(String, ReapIn)], now: i64, idle_ms: i64, cap: usize) -> Vec<String> {
     if idle_ms <= 0 { return vec![]; }
     let mut out: Vec<String> = list.iter().filter(|(_, r)| reap_ok(r, now, idle_ms)).map(|(id, _)| id.clone()).collect();
-    let left = list.len() - out.len();
+    // o teto é dos que estão FORA da tela: os vistos não contam
+    let left = list.iter().filter(|(id, r)| r.watchers == 0 && !out.contains(id)).count();
     if left > cap {
         let mut extra: Vec<&(String, ReapIn)> = list.iter().filter(|(id, r)| !out.contains(id) && reap_ok(r, now, 60_000.min(idle_ms))).collect();
         extra.sort_by_key(|(_, r)| r.unseen_since);
@@ -565,7 +568,7 @@ pub fn reap_in_with(s: &pty::PtySession, db: Option<&Path>, shell: bool) -> Reap
     let (unseen_since, last_out) = s.idle_marks();
     let (busy, cli) = db.and_then(|d| open_rw(d).ok()).and_then(|c| {
         c.query_row("SELECT busy, cli FROM term_session WHERE task_id=?1", params![s.task_id], |r| Ok((r.get::<_, i64>(0)? == 1, r.get::<_, Option<String>>(1)?.unwrap_or_default()))).ok()
-    }).unwrap_or((false, String::new()));
+    }).unwrap_or((true, String::new())); // sem banco/linha: não dá pra saber se está num turno → trata como ocupado
     // shell no prompt: só se TODO o 1º plano é shell; IA rodando no shell (ou o PTY = a IA): quem diz é o hook
     let fg_idle = if shell && cli.is_empty() { shell_at_prompt(foreground_comm(s.pid).as_deref()).is_ok() } else { true };
     let at_prompt = shell && cli.is_empty();
@@ -928,6 +931,30 @@ mod terminal_parado_tests {
     }
 
     #[test]
+    fn fim_por_ficar_parado_grava_a_nota_propria() {
+        use super::{record_exit_with, REAPED_NOTE};
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE task (id TEXT, status TEXT, busy_pid INTEGER); CREATE TABLE event (task_id TEXT, agent TEXT, ts INTEGER, type TEXT, text TEXT, ok INTEGER); \
+            CREATE TABLE term_session (task_id TEXT PRIMARY KEY, pid INTEGER, engine TEXT, busy INTEGER NOT NULL DEFAULT 0, session_id TEXT, started_at INTEGER, updated_at INTEGER, cli TEXT); \
+            INSERT INTO task VALUES ('t','review',NULL); INSERT INTO term_session (task_id, pid, busy, cli) VALUES ('t', 42, 0, 'claude');").unwrap();
+        assert!(record_exit_with(&c, "t", 42, REAPED_NOTE));
+        let (txt, st): (String, String) = c.query_row("SELECT e.text, t.status FROM event e, task t", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(txt, REAPED_NOTE);
+        assert_eq!(st, "review", "status intocado");
+        assert!(REAPED_NOTE.contains("reabre sozinho"));
+    }
+
+    #[test]
+    fn teto_conta_so_os_fora_da_tela() {
+        let now = 100 * MIN;
+        let l = |v: Vec<(&str, ReapIn)>| v.into_iter().map(|(a, b)| (a.to_string(), b)).collect::<Vec<_>>();
+        // 3 na tela (split) + 2 fora parados há 5 min, teto 2: os vistos não empurram os de fora pra fora
+        let list = l(vec![("v1", ReapIn { watchers: 1, ..parado(0) }), ("v2", ReapIn { watchers: 1, ..parado(0) }), ("v3", ReapIn { watchers: 1, ..parado(0) }),
+            ("f1", parado(now - 5 * MIN)), ("f2", parado(now - 4 * MIN))]);
+        assert!(reap_pick(&list, now, 15 * MIN, 2).is_empty());
+    }
+
+    #[test]
     fn so_encerra_o_que_ninguem_olha_parado_livre_sem_fila_e_sem_programa_em_primeiro_plano() {
         let now = 100 * MIN;
         assert!(reap_ok(&parado(now - 16 * MIN), now, 15 * MIN), "fora da tela há 16 min, parado");
@@ -949,9 +976,9 @@ mod terminal_parado_tests {
         let list = l(vec![("velha", parado(now - 20 * MIN)), ("nova", parado(now - 2 * MIN)), ("vista", ReapIn { watchers: 1, ..parado(0) })]);
         assert_eq!(reap_pick(&list, now, 15 * MIN, 8), vec!["velha"]);
         assert!(reap_pick(&list, now, 0, 8).is_empty(), "desligado");
-        // 4 vivos com teto 2: a vencida sai, e ainda sobram 3 → sai a parada mais antiga (≥ 1 min); a vista nunca
+        // 3 fora da tela com teto 1: a vencida sai, e ainda sobram 2 → sai a parada mais antiga (≥ 1 min); a vista nunca
         let list = l(vec![("a", parado(now - 20 * MIN)), ("b", parado(now - 5 * MIN)), ("c", parado(now - 3 * MIN)), ("vista", ReapIn { watchers: 1, ..parado(0) })]);
-        assert_eq!(reap_pick(&list, now, 15 * MIN, 2), vec!["a", "b"]);
+        assert_eq!(reap_pick(&list, now, 15 * MIN, 1), vec!["a", "b"]);
         let list = l(vec![("x", parado(now - 30_000)), ("y", parado(now - 20_000)), ("z", parado(now - 10_000))]);
         assert!(reap_pick(&list, now, 15 * MIN, 1).is_empty(), "acima do teto mas ninguém parado há 1 min: fica");
     }

@@ -152,8 +152,13 @@ pub struct PtySession {
 
 pub const SETTLE_OPEN_MS: i64 = 1500;
 pub const SETTLE_QUIET_MS: i64 = 300;
+/// Depois disso a abertura já passou: saída contínua (spinner, barra de status, log) não segura a fila pra sempre.
+pub const SETTLE_MAX_MS: i64 = 10_000;
 /// PURA: dá pra colar? (a IA não está no meio de desenhar a abertura)
-pub fn settled_at(started_at: i64, last_out: i64, now: i64) -> bool { now - started_at >= SETTLE_OPEN_MS && now - last_out >= SETTLE_QUIET_MS }
+pub fn settled_at(started_at: i64, last_out: i64, now: i64) -> bool {
+    let age = now - started_at;
+    age >= SETTLE_OPEN_MS && (age >= SETTLE_MAX_MS || now - last_out >= SETTLE_QUIET_MS)
+}
 fn pty_now() -> i64 { now_ms() }
 pub fn now_ms() -> i64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0) }
 
@@ -525,6 +530,7 @@ mod tests {
         assert!(!settled_at(1000, 1000, 1000 + SETTLE_OPEN_MS - 1), "acabou de abrir");
         assert!(!settled_at(0, 5000, 5000 + SETTLE_QUIET_MS - 1), "ainda desenhando");
         assert!(settled_at(0, 5000, 5000 + SETTLE_QUIET_MS));
+        assert!(settled_at(0, SETTLE_MAX_MS, SETTLE_MAX_MS), "passou da abertura: saída contínua não segura a fila pra sempre");
     }
 
     #[test]
@@ -686,6 +692,54 @@ mod tests {
         let _ = ch.wait();
         assert!(!pid_alive(ch.id()));
         assert_eq!(std::fs::read_to_string(&reg.path).unwrap(), "[]");
+    }
+
+    #[test]
+    fn fila_segura_a_colagem_enquanto_a_abertura_desenha_e_entrega_depois() {
+        let d = tmpdir("assenta");
+        let sink = Arc::new(TestSink::default());
+        let m = Arc::new(PtyManager::new(sink.clone(), None));
+        let s = m.spawn("t9", spec(&d, SCROLL_CAP)).unwrap();
+        s.attach();
+        let idle: Arc<dyn Fn() -> Option<bool> + Send + Sync> = Arc::new(|| Some(true)); // livre desde o início
+        m.enqueue("t9", "cedo".into(), idle).unwrap();
+        std::thread::sleep(Duration::from_millis(900));
+        assert!(!sink.text("t9").contains("cedo"), "aberto há < {SETTLE_OPEN_MS} ms: segura (a IA ainda desenhando)");
+        assert!(sink.wait_for("t9", "cedo", 5000), "assentou: entrega: {:?}", sink.text("t9"));
+        m.kill("t9");
+    }
+
+    #[test]
+    fn retrato_do_encerramento_le_ocupado_ia_e_primeiro_plano_de_verdade() {
+        use crate::term::reap_in_with;
+        use rusqlite::{params, Connection};
+        let d = tmpdir("reapin");
+        let db = d.join("state.sqlite");
+        let c = Connection::open(&db).unwrap();
+        c.execute_batch("CREATE TABLE term_session (task_id TEXT PRIMARY KEY, pid INTEGER, engine TEXT, busy INTEGER NOT NULL DEFAULT 0, session_id TEXT, started_at INTEGER, updated_at INTEGER, cli TEXT);").unwrap();
+        let sink = Arc::new(TestSink::default());
+        let m = Arc::new(PtyManager::new(sink.clone(), None));
+        let s = m.spawn("r1", spec(&d, SCROLL_CAP)).unwrap();
+        c.execute("INSERT INTO term_session (task_id, busy, cli) VALUES ('r1', 1, 'claude')", []).unwrap();
+        let r = reap_in_with(&s, Some(&db), true);
+        assert!(r.busy && r.fg_idle && !r.no_hooks && r.watchers == 0 && r.unseen_since > 0, "turno em curso: {r:?}");
+        c.execute("UPDATE term_session SET busy=0, cli='gemini' WHERE task_id='r1'", []).unwrap();
+        let r = reap_in_with(&s, Some(&db), true);
+        assert!(!r.busy && r.no_hooks, "IA sem hooks: {r:?}");
+        // shell no prompt (cli ''): quem diz é o 1º plano — aqui o fake (sh lendo) é shell → parado
+        c.execute("UPDATE term_session SET cli='' WHERE task_id='r1'", []).unwrap();
+        let r = reap_in_with(&s, Some(&db), true);
+        assert!(!r.no_hooks, "{r:?}");
+        s.write_bytes(b"spawn\r").unwrap(); // `sleep 300 &` — em 2º plano, o 1º plano segue o sh
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(reap_in_with(&s, Some(&db), true).fg_idle);
+        // sem banco / sem linha: não dá pra saber → ocupado (nunca encerra no escuro)
+        assert!(reap_in_with(&s, None, true).busy);
+        c.execute("DELETE FROM term_session", params![]).unwrap();
+        assert!(reap_in_with(&s, Some(&db), true).busy);
+        s.attach();
+        assert_eq!(reap_in_with(&s, Some(&db), true).watchers, 1);
+        m.kill("r1");
     }
 
     #[test]

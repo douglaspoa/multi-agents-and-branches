@@ -654,6 +654,9 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   };
   const CONTINUE = "A sessão anterior deste terminal se perdeu. O trabalho já feito está NESTA worktree: confira git status, git diff e .cardume/artifacts, releia .cardume/TASK.yaml e continue de onde parou.";
   const first = quiet ? "" : [lostSession ? CONTINUE : "", (opts.message ?? "").trim()].filter(Boolean).join("\n\n");
+  // quieto com a sessão perdida: o aviso vai nas INSTRUÇÕES (system prompt / developer) — a IA sabe de onde continuar
+  // quando a pessoa mandar algo, sem gastar nada agora
+  const quietNote = quiet && lostSession ? `\n\n## Sessão nova\n${CONTINUE}` : "";
   let args: string[] = [];
   let envRemove = envToRemove();
   // integrada: modo conversa (nada de kickoff "execute a tarefa", nada de status mudando)
@@ -675,7 +678,7 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     if (sid) args.push("--resume", sid);
     // as regras do Starfork vão no SYSTEM PROMPT (reenviado a cada abertura, inclusive no --resume): a conversa
     // no terminal começa limpa, com um pedido curto — e não com 10 KB de regra na 1ª mensagem
-    args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}\n\n${INTEGRADO_RULE}${INTEGRADO_CLAUDE_CMDS}${INTEGRADO_SHELL}${mergedNote ? `\n${mergedNote}` : ""}`);
+    args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}\n\n${INTEGRADO_RULE}${INTEGRADO_CLAUDE_CMDS}${INTEGRADO_SHELL}${mergedNote ? `\n${mergedNote}` : ""}${quietNote}`);
     args.push("--mcp-config", mcpConfigPath, ...protectArgs(protectOn), "--permission-mode", "bypassPermissions");
     // DeepSeek: o modelo vai no env (ANTHROPIC_MODEL) — `--model deepseek-…` seria validado como id do Claude
     if (model && !dsEnv) args.push("--model", model);
@@ -701,7 +704,7 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     // tabela inteira sim; ela só vale pra esta sessão, que roda nesta pasta
     args.push("-c", codexTrustArg(task.worktree, repo));
     // instruções do terminal como mensagem de "developer" (config do Codex) — valem também no `codex resume`
-    args.push("-c", `developer_instructions=${toml(rules)}`);
+    args.push("-c", `developer_instructions=${toml(rules + quietNote)}`);
     // comandos IGUAIS em toda tarefa (tarefa/banco vêm do env CARDUME_TASK/CARDUME_DB): o Codex pede pra pessoa
     // revisar/confiar em hook NOVO ou ALTERADO — com o id da tarefa no comando seria um "Hooks need review" por
     // tarefa; assim é UMA vez (por instalação do motor)

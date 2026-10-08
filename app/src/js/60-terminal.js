@@ -204,10 +204,20 @@ function termFocusFree(ae, host){
   return !(ae.closest && ae.closest('.tlsheet,.tisheet,[role="dialog"],[role="menu"]'));
 }
 // @term-vivo-puro-fim
-// Ajustes › "Terminal ao abrir a tarefa" (termAutoResume; padrão ligado) — lido do settings, guardado por 30 s
-const TERM_CFG={ auto:true, at:0 };
+// Ajustes › "Terminal ao abrir a tarefa" (termAutoResume; padrão ligado) — lido do settings, guardado por 30 s.
+// auto:null = ainda não lido: quem pergunta ESPERA a leitura (desligado nos Ajustes não pode retomar na 1ª tarefa)
+const TERM_CFG={ auto:null, at:0, p:null };
+function termAutoLoad(){
+  if(TERM_CFG.p) return TERM_CFG.p;
+  TERM_CFG.at=Date.now();
+  let p; try{ p=Promise.resolve(invokeQuiet('read_settings')); }catch(e){ p=Promise.reject(e); }
+  TERM_CFG.p=p.then(s=>{ let o={}; try{ o=JSON.parse(s||'{}')||{}; }catch(_){ } TERM_CFG.auto=!(o.termAutoResume===false||o.termAutoResume==='0'||o.termAutoResume==='false'); })
+    .catch(()=>{ if(TERM_CFG.auto==null) TERM_CFG.auto=true; }).finally(()=>{ TERM_CFG.p=null; });
+  return TERM_CFG.p;
+}
+/** true/false; null = ainda lendo (termAutoMaybe tenta de novo quando a leitura volta). */
 function termAutoEnabled(){
-  if(Date.now()-TERM_CFG.at>30000){ TERM_CFG.at=Date.now(); try{ invokeQuiet('read_settings').then(s=>{ let o={}; try{ o=JSON.parse(s||'{}')||{}; }catch(_){ } TERM_CFG.auto=!(o.termAutoResume===false||o.termAutoResume==='0'||o.termAutoResume==='false'); }).catch(()=>{}); }catch(_){ } }
+  if(TERM_CFG.auto==null || Date.now()-TERM_CFG.at>30000) termAutoLoad();
   return TERM_CFG.auto;
 }
 let TERM_WANT_FOCUS=null; // a tarefa que acabou de ABRIR: o teclado vai pro xterm assim que ele aparecer
@@ -220,6 +230,7 @@ function termTakeFocus(taskId){
 /** Abriu a tarefa (ou ela voltou pra tela): retoma sozinha se der (termAutoOk). */
 function termAutoMaybe(taskId){
   const st=TERM[taskId]; if(!st || !st.term) return;
+  if(termAutoEnabled()==null){ termAutoLoad().then(()=>termAutoMaybe(taskId)); return; }
   const t=(state.tasks||[]).find(x=>x.id===taskId);
   const on=!!(st.host.isConnected && st.box.clientWidth>0 && st.box.clientHeight>0);
   const ok=termAutoOk({ enabled:termAutoEnabled(), on, hidden:typeof document!=='undefined' && document.hidden, mode:st.mode, alive:st.alive, opening:st.opening||st.holding,
@@ -302,6 +313,8 @@ function termEnsure(taskId){
   // quando o Claude Code abrir) — antes o xterm parado engolia tudo calado
   // (abertura em voo: TUDO vai pra fila do 64 — mesmo com o PTY já vivo — e sai num único write, em ordem)
   term.onData(d=>{ if(typeof tiTakeKey==='function' && tiTakeKey(taskId, d)) return; if(st.alive){ invokeQuiet('term_write',{ taskId, data:d }).catch(()=>{}); return; } if(typeof tiHistKey==='function') tiHistKey(taskId, d); });
+  // respondeu a pergunta de confiança pelo teclado: a barra velha some (o "sair" dela mandaria Esc no meio de um turno)
+  term.onData(()=>{ if(st.trust && st.alive){ st.trust=false; st.ttail=''; termSetAlive(taskId, true); } });
   st.term=term; st.fit=fit;
   if(typeof tiHostWire==='function') tiHostWire(taskId, st); // clique retoma · colar/arrastar arquivo = anexo @arquivo
   // redimensiona o PTY só quando o tamanho REAL muda; tamanho zero = escondido → para os eventos
@@ -487,7 +500,7 @@ try{
   window.__TAURI__.event.listen('term-data', ev=>{ const p=ev&&ev.payload; const st=p&&TERM[p.taskId]; if(!st||!st.attached||!st.term) return; if(st.pend){ st.pend.push(p.data); st.pendAt=Date.now(); return; } if(st.mode==='hist') return; st.term.write(p.data); termTrustSeen(p.taskId, p.data); }); // retrato em voo (inclusive hist→vivo): guarda
   // terminal fechou: o xterm vira o histórico da sessão (o transcript já tem o último turno)
   window.__TAURI__.event.listen('term-exit', ev=>{ const p=ev&&ev.payload; if(!p) return; const st=TERM[p.taskId];
-    if(st){ st.exitAt=Date.now(); st.trust=false; if(st.holding){ st.holding=false; st.pend=null; } st.alive=false; st.mode='hist'; st.hstamp=''; st.hitems=undefined; st.hraw=undefined; termSetAlive(p.taskId, false); if(st.attached) termHistLoad(p.taskId, true); }
+    if(st){ st.exitAt=p.reaped?0:Date.now(); /* encerrado por ficar parado: voltar retoma na hora */ st.trust=false; if(st.holding){ st.holding=false; st.pend=null; } st.alive=false; st.mode='hist'; st.hstamp=''; st.hitems=undefined; st.hraw=undefined; termSetAlive(p.taskId, false); if(st.attached) termHistLoad(p.taskId, true); }
     lastSig=''; refresh().catch(()=>{}); });
 }catch(_){ }
 document.addEventListener('visibilitychange', ()=>{ for(const id in TERM){ if(document.hidden) termDetach(id); else if(TERM[id].host.isConnected) termFit(id); } });

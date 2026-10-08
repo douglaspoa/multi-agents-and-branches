@@ -753,3 +753,33 @@ test("retomada QUIETA (abrir a tarefa = terminal vivo): --quieto no shell, sem k
     assert.ok(k.out.includes("Comece: leia .cardume/TASK.yaml"));
   } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
 });
+
+test("term-prep --quiet pelo CLI (o caminho do term_open quieto): livre, --quieto no shell, status e feed intocados; aviso '▸ Starfork' do ia-prep (o front espera por ele); sessão perdida vai pras instruções", { skip: process.platform === "win32" }, async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    await orch.createTask(spec("cq"));
+    orch.store.setStatus("cq", "review");
+    orch.store.setSession("cq", "sessao-perdida-123"); // sem transcript: o claude abre sessão NOVA
+    const evs0 = orch.store.eventsForTask("cq").length;
+    orch.close();
+    const r = spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, "term-prep", "cq", "--resume", "--quiet", "--repo", f.repo], {
+      encoding: "utf8", env: { ...process.env, HOME: f.home, CLAUDE_CONFIG_DIR: f.cfg, SHELL: "/bin/bash", CARDUME_NOTIFY: "0" } });
+    const v = JSON.parse(r.stdout.trim().split("\n").filter((l) => l.startsWith("{")).pop() ?? "{}");
+    assert.equal(v.error, undefined, r.stdout + r.stderr);
+    assert.equal(v.busy, false);
+    assert.match(v.args[3], / ia claude --resume --quieto; /);
+    let s = new Store(f.db);
+    try { assert.equal(s.getTask("cq")!.status, "review"); assert.equal(s.eventsForTask("cq").length, evs0, "nada no feed"); } finally { s.close(); }
+    // o shim roda ia-prep --quieto: o aviso de stderr que o front usa como marca (TERM_MARK em 60-terminal.js)
+    const front = readFileSync(fileURLToPath(new URL("../app/src/js/60-terminal.js", import.meta.url)), "utf8");
+    const mark = /const TERM_MARK='([^']+)'/.exec(front)![1];
+    const env = { CARDUME_AI_BIN_claude: fakeBin(join(f.root, "bins"), "claude") };
+    const p = sf(f, "cq", ["ia-prep", "claude", "--resume", "--quieto"], env);
+    assert.equal(p.code, 0, p.err);
+    assert.ok(p.err.includes(mark + ": Claude Code"), `o front espera "${mark}" no stderr: ${p.err}`);
+    // sessão perdida + quieto: sem 1ª mensagem (não gasta), mas o aviso de continuar vai no system prompt
+    assert.ok(!/\n'A sessão anterior deste terminal se perdeu/.test(p.out), "não vira mensagem");
+    assert.match(p.out, /## Sessão nova\nA sessão anterior deste terminal se perdeu/, "vai nas instruções");
+  } finally { try { orch.close(); } catch { /* já fechado */ } f.done(); }
+});
