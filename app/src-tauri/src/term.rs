@@ -34,14 +34,16 @@ impl PtySink for TauriSink {
         if replaced { return; }
         shells().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
         let db = dbs().lock().unwrap_or_else(|e| e.into_inner()).get(task_id).cloned();
-        if let Some(c) = db.and_then(|d| open_rw(&d).ok()) { record_exit(&c, task_id, pid, code); }
+        let reaped = reaped().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
+        if let Some(c) = db.and_then(|d| open_rw(&d).ok()) { record_exit_with(&c, task_id, pid, if reaped { REAPED_NOTE } else { exit_note(code) }); }
         let _ = self.app.emit("term-exit", serde_json::json!({ "taskId": task_id, "code": code }));
     }
 }
 
 /// Fim do processo `pid` no banco: livre, sem pid/IA, "rodando" → revisão, nota no feed. SÓ se a sessão gravada
 /// ainda é a desse pid (outra já aberta no lugar = nada muda). Devolve se gravou.
-pub fn record_exit(c: &Connection, task_id: &str, pid: u32, code: Option<u32>) -> bool {
+pub fn record_exit(c: &Connection, task_id: &str, pid: u32, code: Option<u32>) -> bool { record_exit_with(c, task_id, pid, exit_note(code)) }
+pub fn record_exit_with(c: &Connection, task_id: &str, pid: u32, note: &str) -> bool {
     ensure_cli_col(c);
     let n = c.execute("UPDATE term_session SET busy=0, pid=NULL, cli='', updated_at=?3 WHERE task_id=?1 AND pid=?2", params![task_id, pid as i64, now_ms()]).unwrap_or(0);
     if n == 0 { return false; }
@@ -50,7 +52,7 @@ pub fn record_exit(c: &Connection, task_id: &str, pid: u32, code: Option<u32>) -
     let _ = c.execute("UPDATE task SET status='review' WHERE id=?1 AND status IN ('running','thinking')", params![task_id]);
     let _ = c.execute(
         "INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'status', ?3, 1)",
-        params![task_id, now_ms(), exit_note(code)],
+        params![task_id, now_ms(), note],
     );
     true
 }
@@ -74,6 +76,8 @@ fn registry() -> Option<PidRegistry> {
 pub fn init(app: tauri::AppHandle) {
     let m = Arc::new(PtyManager::new(Arc::new(TauriSink { app }), registry()));
     let _ = PTY.set(m.clone());
+    // terminal parado fora da tela é encerrado (Ajustes › termIdleMin); reabrir a tarefa retoma sozinho
+    std::thread::Builder::new().name("term-reaper".into()).spawn(|| loop { std::thread::sleep(REAP_EVERY); reap_tick(); }).ok();
     std::thread::spawn(move || {
         if let Some(r) = &m.registry {
             let n = r.sweep(pty::looks_like_agent);
@@ -204,10 +208,16 @@ fn engine_json(repo: &Path, args: &[String]) -> Result<serde_json::Value, String
 
 /// Abre (ou devolve) o terminal da tarefa. Pode demorar (o motor monta o contexto) — chame fora da UI.
 pub fn open_task(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, resume: bool, message: Option<&str>) -> Result<Arc<pty::PtySession>, String> {
+    open_task_q(repo, db, task_id, cols, rows, resume, message, false)
+}
+/// `quiet`: o app retomando SOZINHO ao abrir a tarefa — a IA só abre e espera (sem kickoff, sem mudar status, sem
+/// gastar); o 1º envio da pessoa passa pelos portões de sempre. Com mensagem, o quieto não vale.
+pub fn open_task_q(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, resume: bool, message: Option<&str>, quiet: bool) -> Result<Arc<pty::PtySession>, String> {
     let m = mgr().ok_or("terminal indisponível")?;
     if let Some(s) = m.live(task_id) { let _ = s.resize(cols, rows); return Ok(s); }
     let mut a = vec!["term-prep".to_string(), task_id.to_string()];
     if resume { a.push("--resume".into()); }
+    if quiet && message.map(|m| m.trim().is_empty()).unwrap_or(true) { a.push("--quiet".into()); }
     if let Some(msg) = message.filter(|m| !m.trim().is_empty()) { a.push("--msg".into()); a.push(msg.to_string()); }
     let v = engine_json(repo, &a)?;
     let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -498,6 +508,81 @@ pub fn term_history(state: State<AppState>, task_id: String, since: Option<Strin
     history_for(&db, &repo, cfg.as_deref(), &task_id, since.as_deref(), live, default_mode())
 }
 
+// ============================ terminal parado: encerrar o que ninguém olha ============================
+/// Nota no feed quando o app encerra um terminal parado.
+pub const REAPED_NOTE: &str = "terminal parado encerrado (ninguém olhava) — reabre sozinho quando você voltar à tarefa";
+const REAP_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+/// Padrão de Ajustes › termIdleMin (minutos; 0 = nunca encerra).
+pub const IDLE_MIN_DEFAULT: f64 = 15.0;
+/// Teto de terminais vivos FORA DA TELA: passou, os parados mais antigos (≥ 1 min sem ninguém olhar) saem antes do prazo.
+pub const LIVE_CAP: usize = 8;
+static REAPED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+fn reaped() -> &'static Mutex<std::collections::HashSet<String>> { REAPED.get_or_init(|| Mutex::new(Default::default())) }
+/// Minutos de Ajustes → ms (lixo = padrão; ≤ 0 = desligado → 0).
+pub fn idle_ms_of(setting: Option<&str>) -> i64 {
+    let m = setting.and_then(|v| v.trim().trim_matches('"').parse::<f64>().ok()).filter(|v| v.is_finite()).unwrap_or(IDLE_MIN_DEFAULT);
+    if m <= 0.0 { 0 } else { (m * 60_000.0) as i64 }
+}
+/// Retrato de um terminal pro encerramento (tudo que a regra pura precisa).
+#[derive(Clone, Debug, Default)]
+pub struct ReapIn {
+    pub watchers: usize,
+    /// ms epoch desde quando ninguém olha (0 = alguém olhando)
+    pub unseen_since: i64,
+    pub last_out: i64,
+    /// a IA está num turno (hook) — nunca encerra
+    pub busy: bool,
+    pub queued: usize,
+    /// nada além do shell/da IA parada em 1º plano (um `npm run dev`, um vim… = não está parado)
+    pub fg_idle: bool,
+    /// IA sem hooks de ocupado (gemini/opencode): só a saída diz se trabalha — exige silêncio do prazo inteiro
+    pub no_hooks: bool,
+}
+/// PURA: este terminal pode ser encerrado agora? `min_unseen` = há quanto tempo (ms) ninguém olha, no mínimo.
+pub fn reap_ok(r: &ReapIn, now: i64, min_unseen: i64) -> bool {
+    if r.watchers > 0 || r.unseen_since <= 0 || r.busy || r.queued > 0 || !r.fg_idle { return false; }
+    let quiet_ms = if r.no_hooks { min_unseen } else { min_unseen.min(60_000) };
+    now - r.unseen_since >= min_unseen && now - r.last_out >= quiet_ms
+}
+/// PURA: quem encerrar. Parado há `idle_ms` sai; e, se ainda sobrarem mais de `cap` vivos, os parados mais antigos (≥ 1 min).
+pub fn reap_pick(list: &[(String, ReapIn)], now: i64, idle_ms: i64, cap: usize) -> Vec<String> {
+    if idle_ms <= 0 { return vec![]; }
+    let mut out: Vec<String> = list.iter().filter(|(_, r)| reap_ok(r, now, idle_ms)).map(|(id, _)| id.clone()).collect();
+    let left = list.len() - out.len();
+    if left > cap {
+        let mut extra: Vec<&(String, ReapIn)> = list.iter().filter(|(id, r)| !out.contains(id) && reap_ok(r, now, 60_000.min(idle_ms))).collect();
+        extra.sort_by_key(|(_, r)| r.unseen_since);
+        out.extend(extra.into_iter().take(left - cap).map(|(id, _)| id.clone()));
+    }
+    out
+}
+fn reap_in(s: &pty::PtySession) -> ReapIn {
+    let (unseen_since, last_out) = s.idle_marks();
+    let db = dbs().lock().unwrap_or_else(|e| e.into_inner()).get(&s.task_id).cloned();
+    let (busy, cli) = db.as_ref().and_then(|d| open_rw(d).ok()).and_then(|c| {
+        c.query_row("SELECT busy, cli FROM term_session WHERE task_id=?1", params![s.task_id], |r| Ok((r.get::<_, i64>(0)? == 1, r.get::<_, Option<String>>(1)?.unwrap_or_default()))).ok()
+    }).unwrap_or((false, String::new()));
+    let shell = is_shell(&s.task_id);
+    // shell no prompt: só se TODO o 1º plano é shell; IA rodando no shell (ou o PTY = a IA): quem diz é o hook
+    let fg_idle = if shell && cli.is_empty() { shell_at_prompt(foreground_comm(s.pid).as_deref()).is_ok() } else { true };
+    let at_prompt = shell && cli.is_empty();
+    let ai = if cli.is_empty() { s.engine.clone() } else { cli };
+    ReapIn { watchers: s.watchers(), unseen_since, last_out, busy, queued: s.queue_len(), fg_idle, no_hooks: !at_prompt && !ai_has_hooks(&ai) }
+}
+fn reap_tick() {
+    let Some(m) = mgr() else { return };
+    let idle_ms = idle_ms_of(setting_get("termIdleMin").as_deref());
+    if idle_ms <= 0 { return; }
+    let list: Vec<(String, ReapIn)> = m.list().into_iter().filter(|s| s.alive()).map(|s| (s.task_id.clone(), reap_in(&s))).collect();
+    for id in reap_pick(&list, pty::now_ms(), idle_ms, LIVE_CAP) {
+        // a pessoa abriu a tarefa entre o retrato e agora: fica
+        if m.get(&id).map(|s| s.watchers() > 0).unwrap_or(true) { continue; }
+        reaped().lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone());
+        web_log(format!("[term] {id}: terminal parado fora da tela — encerrado (termIdleMin)"));
+        if !m.kill(&id) { reaped().lock().unwrap_or_else(|e| e.into_inner()).remove(&id); }
+    }
+}
+
 // ============================ comandos Tauri ============================
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -528,11 +613,11 @@ fn info(state: &State<AppState>, task_id: &str, data: String) -> TermInfo {
 
 /// Abre o terminal (novo ou retomando a sessão gravada) e já devolve o histórico pra pintar.
 #[tauri::command(async)]
-pub fn term_open(state: State<AppState>, task_id: String, cols: u16, rows: u16, resume: Option<bool>) -> Result<TermInfo, String> {
+pub fn term_open(state: State<AppState>, task_id: String, cols: u16, rows: u16, resume: Option<bool>, quiet: Option<bool>) -> Result<TermInfo, String> {
     let repo = repo_of(&state)?;
     let db = db_of(&state)?;
     remember_size(&task_id, cols, rows);
-    let s = open_task(&repo, &db, &task_id, cols, rows, resume.unwrap_or(true), None)?;
+    let s = open_task_q(&repo, &db, &task_id, cols, rows, resume.unwrap_or(true), None, quiet.unwrap_or(false))?;
     let data = s.attach();
     Ok(info(&state, &task_id, data))
 }
@@ -820,5 +905,51 @@ mod modo_padrao_tests {
         assert_eq!(row(&c), (Some(200), 1, "gemini".into(), "running".into(), Some(200), 0));
         assert!(record_exit(&c, "t", 200, Some(0)), "a sessão atual saiu: grava");
         assert_eq!(row(&c), (None, 0, "".into(), "review".into(), None, 1));
+    }
+}
+
+#[cfg(test)]
+mod terminal_parado_tests {
+    use super::{idle_ms_of, reap_ok, reap_pick, ReapIn, IDLE_MIN_DEFAULT};
+    const MIN: i64 = 60_000;
+    fn parado(desde: i64) -> ReapIn { ReapIn { unseen_since: desde, last_out: desde, fg_idle: true, ..Default::default() } }
+
+    #[test]
+    fn prazo_de_ajustes_em_minutos_padrao_15_zero_desliga() {
+        assert_eq!(idle_ms_of(None), (IDLE_MIN_DEFAULT * 60_000.0) as i64);
+        assert_eq!(idle_ms_of(Some("15")), 15 * MIN);
+        assert_eq!(idle_ms_of(Some("\"5\"")), 5 * MIN, "valor gravado como texto JSON");
+        assert_eq!(idle_ms_of(Some("0")), 0, "0 = nunca encerra");
+        assert_eq!(idle_ms_of(Some("-3")), 0);
+        assert_eq!(idle_ms_of(Some("lixo")), 15 * MIN, "lixo = padrão");
+    }
+
+    #[test]
+    fn so_encerra_o_que_ninguem_olha_parado_livre_sem_fila_e_sem_programa_em_primeiro_plano() {
+        let now = 100 * MIN;
+        assert!(reap_ok(&parado(now - 16 * MIN), now, 15 * MIN), "fora da tela há 16 min, parado");
+        assert!(!reap_ok(&parado(now - 14 * MIN), now, 15 * MIN), "ainda dentro do prazo");
+        assert!(!reap_ok(&ReapIn { watchers: 1, ..parado(now - 30 * MIN) }, now, 15 * MIN), "alguém olhando");
+        assert!(!reap_ok(&ReapIn { unseen_since: 0, ..parado(now - 30 * MIN) }, now, 15 * MIN), "0 = olhando");
+        assert!(!reap_ok(&ReapIn { busy: true, ..parado(now - 30 * MIN) }, now, 15 * MIN), "turno em curso nunca");
+        assert!(!reap_ok(&ReapIn { queued: 1, ..parado(now - 30 * MIN) }, now, 15 * MIN), "mensagem na fila");
+        assert!(!reap_ok(&ReapIn { fg_idle: false, ..parado(now - 30 * MIN) }, now, 15 * MIN), "npm run dev/vim no shell");
+        assert!(!reap_ok(&ReapIn { last_out: now - 10_000, ..parado(now - 30 * MIN) }, now, 15 * MIN), "falou há 10 s");
+        assert!(reap_ok(&ReapIn { last_out: now - 2 * MIN, ..parado(now - 30 * MIN) }, now, 15 * MIN), "IA com hooks: 1 min de silêncio basta");
+        assert!(!reap_ok(&ReapIn { no_hooks: true, last_out: now - 2 * MIN, ..parado(now - 30 * MIN) }, now, 15 * MIN), "sem hooks: silêncio do prazo inteiro");
+    }
+
+    #[test]
+    fn escolhe_os_vencidos_e_acima_do_teto_os_parados_mais_antigos() {
+        let now = 100 * MIN;
+        let l = |v: Vec<(&str, ReapIn)>| v.into_iter().map(|(a, b)| (a.to_string(), b)).collect::<Vec<_>>();
+        let list = l(vec![("velha", parado(now - 20 * MIN)), ("nova", parado(now - 2 * MIN)), ("vista", ReapIn { watchers: 1, ..parado(0) })]);
+        assert_eq!(reap_pick(&list, now, 15 * MIN, 8), vec!["velha"]);
+        assert!(reap_pick(&list, now, 0, 8).is_empty(), "desligado");
+        // 4 vivos com teto 2: a vencida sai, e ainda sobram 3 → sai a parada mais antiga (≥ 1 min); a vista nunca
+        let list = l(vec![("a", parado(now - 20 * MIN)), ("b", parado(now - 5 * MIN)), ("c", parado(now - 3 * MIN)), ("vista", ReapIn { watchers: 1, ..parado(0) })]);
+        assert_eq!(reap_pick(&list, now, 15 * MIN, 2), vec!["a", "b"]);
+        let list = l(vec![("x", parado(now - 30_000)), ("y", parado(now - 20_000)), ("z", parado(now - 10_000))]);
+        assert!(reap_pick(&list, now, 15 * MIN, 1).is_empty(), "acima do teto mas ninguém parado há 1 min: fica");
     }
 }
