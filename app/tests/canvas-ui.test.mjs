@@ -265,7 +265,7 @@ test('o menu dos modos: botão com o modo ATUAL, lista com TODOS (o ativo marcad
   assert.match(css, /\.fwhead \.fwtname\{min-width:48px;flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap\}/);
   assert.match(css, /\.fwhead\.narrow #fwPhases,\.fwhead\.narrow #fwTaskBranch,\.fwhead\.narrow #fwOrqChips/);
   assert.match(css, /\.fwhead\.narrow \.protbadge \.pbt\{display:none\}/);
-  assert.match(ws, /tn\.textContent=t\.title; tn\.title=t\.title;/, 'título inteiro no tooltip');
+  assert.match(ws, /tt=mdTitle\(t\.title\|\|''\); tn\.textContent=tt; tn\.title=tt;/, 'título inteiro no tooltip (o mesmo texto, sem ** cru)');
 });
 
 // ---------------- Navegador de verdade (decisão do dono): site externo num WKWebView FILHO ----------------

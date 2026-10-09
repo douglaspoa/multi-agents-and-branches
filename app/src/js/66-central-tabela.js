@@ -149,7 +149,8 @@ function ctRow(t){
   const ts=ev?+new Date(ev.ts):taskTs(t);
   const ia=(typeof aiRunLabel==='function')?String(aiRunLabel(t.engine, '')).replace(/ · padrão da assinatura$/,''):(t.engine||'');
   const asking=pendingOf(t.id).length>0;
-  return { id:t.id, title:t.title||'', code:(typeof issueCodeOf==='function'&&issueCodeOf(t))||'', proj, badge:(typeof railBadgeHtml==='function')?railBadgeHtml(proj, (typeof projColor==='function')?projColor(path):''):'',
+  return { id:t.id, title:(typeof mdTitle==='function'?mdTitle(t.title||''):(t.title||'')), // só exibição
+    code:(typeof issueCodeOf==='function'&&issueCodeOf(t))||'', proj, badge:(typeof railBadgeHtml==='function')?railBadgeHtml(proj, (typeof projColor==='function')?projColor(path):''):'',
     ia:t.orchestration?'Orquestrador':ia, stages:stages.map(s=>({ label:s.label, state:s.state, word:s.word })), pos:sum?sum.pos:0, n:stages.length, label:sum?sum.label:'', now:sum?sum.now:'',
     nreq, ok, ad, loaded, cross, gateSt:g.st, canAskProof:!cross && ['review','delivered'].includes(t.status) && g.st==='unproven' && !t.prUrl,
     pr:(typeof prNumOf==='function')?prNumOf(t):'', prUrl:t.prUrl||'', status:t.status, blocked:t.flag==='blocked', asking,

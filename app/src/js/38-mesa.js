@@ -816,10 +816,10 @@ function mesaPersonaCard(m, r, p){
   else {
     st=`<em class="ok">respondeu</em>`;
     body=(x.aviso?`<div class="g2help">${mesaEsc(x.aviso)}</div>`:'')+`<div class="mdview mesamd">${mdToHtml(x.texto||'*(sem texto)*')}</div>`;
-    if(r.tipo==='posicao' && (x.propostas||[]).length) body+=`<div class="mesaprops">${x.propostas.map(q=>`<div><b>Propõe:</b> ${mesaEsc(q.titulo)}${q.descricao?' — '+mesaEsc(q.descricao):''}${q.porque?`<span class="dim"> · porquê: ${mesaEsc(q.porque)}</span>`:''}</div>`).join('')}</div>`;
+    if(r.tipo==='posicao' && (x.propostas||[]).length) body+=`<div class="mesaprops">${x.propostas.map(q=>`<div><b>Propõe:</b> ${mesaEsc(q.titulo)}${q.descricao?' — '+mdInline(q.descricao):''}${q.porque?`<span class="dim"> · porquê: ${mdInline(q.porque)}</span>`:''}</div>`).join('')}</div>`;
     if(r.tipo==='voto' && x.voto){
       const t=id=>((m.cands||[]).find(c=>c.id===id)||{}).titulo||id;
-      if(x.voto.obs) body+=`<div class="mesaobs"><span class="dim">Observação:</span> ${mesaEsc(x.voto.obs)}</div>`;
+      if(x.voto.obs) body+=`<div class="mesaobs"><span class="dim">Observação:</span> ${mdInline(x.voto.obs)}</div>`;
       body+=`<div class="mesavotes">${x.voto.top.map(v=>`<span class="mesav" title="${mesaEsc(v.porque||'')}"><i>${v.peso}</i>${mesaEsc(t(v.id))}</span>`).join('')}${(x.voto.vetos||[]).map(v=>`<span class="mesav veto" title="${mesaEsc(v.motivo||'')}"><i>veto</i>${mesaEsc(v.id?t(v.id):v.texto)}</span>`).join('')}</div>`;
     }
   }
