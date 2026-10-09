@@ -127,10 +127,21 @@ async function issueConfigPull(){
   }catch(_){ }
 }
 // compartilhar com o time: vira cartão no backlog — NÃO roda nesta máquina
+// A ISSUE nasce junto (painel de Issues ligado pro projeto): o código vai no spec e no issue_url — quem assumir depois
+// não cria outra. Falha do painel avisa com o motivo e NÃO impede o cartão (mesa 09/10, T6).
 async function cloudShareTask(payload){
   if(!SB.sess()) throw new Error('entre na sua conta (botão Conta, no rodapé da barra lateral)');
   const proj=await cloudEnsureProject();
-  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:payload });
+  let spec=payload, iss=null; const epicId=(typeof ntEpicVal==='function'?ntEpicVal():null);
+  if(typeof trkIssueForCard==='function' && !payload.issue && !payload.issueUrl){
+    const ep=epicId&&(teamEpics||[]).find(e=>e.id===epicId);
+    // painel lento/caído não segura o cartão: 12 s e segue sem a issue (com o aviso)
+    iss=await Promise.race([ trkIssueForCard(payload, { remote:proj.repo_remote, epicLine:ep?'Épico: '+((ep.spec&&ep.spec.issue&&ep.spec.issue.code)||ep.name):'' }),
+      new Promise(r=>setTimeout(()=>r({ err:'o painel não respondeu em 12 s' }), 12000)) ]);
+    if(iss&&iss.code) spec=trkSpecWithIssue(payload, iss);
+  } else if(payload.issue) spec={ ...payload, issueCode:payload.issue };
+  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:epicId, spec, issue_url:(iss&&iss.url)||payload.issueUrl||null });
+  if(iss&&iss.err) trkCardFailToast(payload.title, iss.err);
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:payload.title }).catch(()=>{});
   teamTasks=null;
   return rows[0];
@@ -162,7 +173,7 @@ async function cloudBackfill(btn){
       if(btn) btn.textContent=`publicando ${++n}/${list.length}…`;
       try{
         const cost=taskCost(t.id);
-        await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build', ...epicPubFields(t.epic) }, epic_id:cloudEpicId(t.epic&&t.epic.epicId) }) });
+        await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build', ...(t.issueCode?{ issueCode:t.issueCode }:{}), ...epicPubFields(t.epic) }, epic_id:cloudEpicId(t.epic&&t.epic.epicId) }) });
         const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
         if(rows[0]) tmapSet(t.id, rows[0].id);
       }catch(e){ console.error('backfill', t.id, e.message); }
@@ -191,7 +202,7 @@ async function cloudAutoPublish(){
   try{
     const proj=await cloudEnsureProject();
     const cost=taskCost(t.id);
-    await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build', ...epicPubFields(t.epic) }, epic_id:cloudEpicId(t.epic&&t.epic.epicId) }) });
+    await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body: JSON.stringify({ local_id:t.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:t.title, status:t.status, flag:t.flag||null, branch:t.branch||null, pr_url:t.prUrl||null, issue_url:t.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0, created_at:new Date(t.createdAt||t.created_at).toISOString(), spec:{ title:t.title, objective:t.objective||'', requirements:Array.isArray(t.requirements)?t.requirements:[], deliverables:Array.isArray(t.deliverables)?t.deliverables:[], kind:t.kind||'build', ...(t.issueCode?{ issueCode:t.issueCode }:{}), ...epicPubFields(t.epic) }, epic_id:cloudEpicId(t.epic&&t.epic.epicId) }) });
     const rows=await sbGet('tasks?select=id&project_id=eq.'+proj.id+'&local_id=eq.'+encodeURIComponent(t.id));
     if(rows[0]){
       tmapSet(t.id, rows[0].id); teamTasks=null;

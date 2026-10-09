@@ -135,7 +135,7 @@ async function erCloudOne(t, ep, proj){
     local_id:lt.id, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:lt.title, status:lt.status,
     flag:lt.flag||null, branch:lt.branch||null, pr_url:lt.prUrl||null, issue_url:lt.issueUrl||null, cost_usd:+(cost.usd||0).toFixed(4), cost_tokens:cost.tok||0,
     created_at:new Date(lt.createdAt||lt.created_at||Date.now()).toISOString(),
-    spec:{ title:lt.title, objective:lt.objective||'', requirements:Array.isArray(lt.requirements)?lt.requirements:[], deliverables:Array.isArray(lt.deliverables)?lt.deliverables:[], kind:lt.kind||'build' },
+    spec:{ title:lt.title, objective:lt.objective||'', requirements:Array.isArray(lt.requirements)?lt.requirements:[], deliverables:Array.isArray(lt.deliverables)?lt.deliverables:[], kind:lt.kind||'build', ...(lt.issueCode?{ issueCode:lt.issueCode }:{}) },
     epic_id:want }) });
   const row=((await sbGet('tasks?select=id,epic_id&project_id=eq.'+erEnc(proj.id)+'&local_id=eq.'+erEnc(lt.id)))||[])[0];
   if(!row) throw new Error('não consegui publicar o cartão da tarefa no time');
@@ -168,7 +168,9 @@ async function erApplyOne(r){
   if(!cloudTeamId()) return erRefused(r, ER_NO_TEAM);
   let ep=null;
   try{
-    if(r.kind==='create') ep=await erCreateEpic(r);
+    if(r.kind==='create'){ ep=await erCreateEpic(r);
+      // épico do terminal também vai pro painel de Issues (antes só o do app — e só com conector que tem "pai")
+      if(window.trkPublishEpic) await window.trkPublishEpic(ep, []); } // falha vira aviso lá dentro; nunca derruba o pedido
     else if(r.kind==='link'){ const x=await erFindEpic(r); if(x.err) return erRefused(r, x.err); ep=x.ep; }
   }catch(e){
     if(typeof aeIsPermanent==='function' && !aeIsPermanent(e)) throw e; // rede/conflito: o pedido fica na fila (criar é idempotente)
