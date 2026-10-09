@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/js/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const G = new Function(cut(read('72-gestao-time.js'), '// @gestao-puro-inicio', '// @gestao-puro-fim')
-  + '\nreturn { gtMineSnap, gtLostCards, gtLostAct, gtLostNotif };')();
+  + '\nreturn { gtMineSnap, gtLostCards, gtLostAct, gtLostNotif, gtLostAcaba };')();
 const E = new Function(cut(read('70-time-entregas.js'), '// @puro-entregas-inicio', '// @puro-entregas-fim')
   + '\nreturn { entTravada, entPronta, entMotivo, entPrTrava, entNums };')();
 const P = new Function(cut(read('08-periodo.js'), '// @puro-periodo-inicio', '// @puro-periodo-fim') + '\nreturn { sortRows, modTs, modAgoTx };')();
@@ -45,7 +45,16 @@ test('a troca que tirou o cartão de mim: 1ª mudança de dono por OUTRA pessoa 
   assert.equal(G.gtLostAct([{ id: 9, task_id: 'k', user_id: ME, kind: 'assigned', body: C, at: at(3) }], 'k', ME, since), null, 'eu mesmo passei: sem aviso');
   assert.equal(G.gtLostAct([{ id: 9, task_id: 'k', user_id: ME, kind: 'released', body: '', at: at(3) }], 'k', ME, since), null, 'eu mesmo devolvi: sem aviso');
   assert.equal(G.gtLostAct(acts, 'nada', ME, since), null);
-  // relógio: 2 min de folga (a nuvem carimba um pouco antes da minha última busca)
+  assert.equal(G.gtLostAct([{ id: 5, task_id: 'k', user_id: null, kind: 'released', at: at(3) }], 'k', ME, since), null, 'sem autor: pula');
+  // Carla devolveu, EU assumi, o líder passou pro Diego → avisa a passagem pro Diego (não a devolução da Carla)
+  const seq = [{ id: 1, task_id: 'k', user_id: C, kind: 'released', at: at(12) }, { id: 2, task_id: 'k', user_id: ME, kind: 'claimed', at: at(11) }, { id: 3, task_id: 'k', user_id: LEAD, kind: 'assigned', body: 'u-d', at: at(2) }];
+  assert.equal(G.gtLostAct(seq, 'k', ME, NOW - 11 * 60000).id, 3);
+  assert.equal(G.gtLostAct([{ id: 4, task_id: 'k', user_id: C, kind: 'claimed', at: at(2) }], 'k', ME, since).id, 4, 'nuvem sem a 0032: colega assumiu o meu');
+  // sem a troca achada: segura na foto (a atividade pode chegar depois) — desiste se EU mexi depois ou passou 1 dia
+  assert.equal(G.gtLostAcaba([], 'k', ME, since, NOW), false);
+  assert.equal(G.gtLostAcaba([], 'k', ME, NOW - 2 * 86400000, NOW), true);
+  assert.equal(G.gtLostAcaba([{ task_id: 'k', user_id: ME, kind: 'released', at: at(3) }], 'k', ME, since, NOW), true);
+  // relógio: 10 min de folga (a nuvem carimba um pouco antes da minha última busca)
   assert.equal(G.gtLostAct([{ id: 7, task_id: 'k', user_id: LEAD, kind: 'released', body: '', at: new Date(since - 60000).toISOString() }], 'k', ME, since).id, 7);
 });
 
@@ -55,7 +64,9 @@ test('texto do aviso: "Fulano passou ‘X’ pra Beltrano" / "Fulano tirou ‘X�
   assert.deepEqual(G.gtLostNotif({ user_id: LEAD, kind: 'released', body: '' }, t, ME, nm), { title: 'Tarefa tirada de você', body: 'Ana tirou ‘Botão remarcar em cada aula’ de você — ficou livre' });
   assert.equal(G.gtLostNotif({ user_id: ME, kind: 'released' }, t, ME, nm), null);
   assert.equal(G.gtLostNotif({ user_id: LEAD, kind: 'assigned', body: ME }, t, ME, nm), null, 'veio pra mim não é perda');
-  assert.equal(G.gtLostNotif({ user_id: LEAD, kind: 'claimed' }, t, ME, nm), null);
+  assert.equal(G.gtLostNotif({ user_id: LEAD, kind: 'assigned', body: LEAD }, t, ME, nm).body, 'Ana ficou com ‘Botão remarcar em cada aula’ (era sua)', 'líder pegou pra si');
+  assert.equal(G.gtLostNotif({ user_id: null, kind: 'released' }, t, ME, nm), null, 'sem autor não inventa nome');
+  assert.equal(G.gtLostNotif({ user_id: C, kind: 'claimed' }, t, ME, nm).body, 'Carla assumiu ‘Botão remarcar em cada aula’ (era sua)');
   assert.ok(!/[0-9a-f]{8}-[0-9a-f]{4}/.test(G.gtLostNotif({ user_id: LEAD, kind: 'assigned', body: C }, { title: 'x'.repeat(200) }, ME, nm).body), 'nunca uuid');
 });
 
@@ -94,6 +105,8 @@ test('motivo: pergunta, plano, loop, decisão do ciclo, conflito, checagem do PR
   assert.equal(E.entPrTrava({ state: 'MERGED', checksFail: 3 }), null, 'PR integrado não trava');
   assert.equal(E.entPrTrava({ checksFail: 0, mergeable: 'MERGEABLE' }), null);
   assert.equal(E.entPrTrava(null), null);
+  assert.equal(E.entPrTrava({ checksFail: 1, at: new Date(Date.now() - 2 * 86400000).toISOString() }), null, 'retrato velho (quem fez offline) não afirma trava');
+  assert.equal(E.entMotivo({ last_note: 'Esperando o jurídico.' }, '', { st: 'pr-open', flag: 'blocked', pr: E.entPrTrava({ checksFail: 1 }) }), 'bloqueada: Esperando o jurídico.', 'bloqueio manual vence');
 });
 
 test('travada inclui PR que não anda (com fn.prTrava) e deixa de ser "pronta pra revisar"; entregue nunca trava', () => {
@@ -104,6 +117,7 @@ test('travada inclui PR que não anda (com fn.prTrava) e deixa de ser "pronta pr
   assert.equal(E.entTravada(pr, f2), true, 'checagem falhou = travada (com PR)');
   assert.equal(E.entPronta(pr, f2), false);
   assert.equal(E.entTravada({ id: 'm', status: 'merged', pr_url: 'x' }, f2), false, 'integrada não trava');
+  assert.equal(E.entTravada({ id: 'p', status: 'cancelled', pr_url: 'x' }, f2), false, 'cancelada não trava');
   assert.equal(E.entNums([pr], f2).travadas, 1);
 });
 
@@ -122,7 +136,7 @@ test('Central: padrão = modificação mais recente; coluna clicada só com a te
   assert.deepEqual(P.sortRows(rows, (r) => r.m, { col: 'dem', dir: 'asc' }, (r) => r.title).map((r) => r.id), ['velha', 'meio', 'nova']);
   const ca = read('71-central-alcance.js'), ct = read('66-central-tabela.js'), g = read('72-gestao-time.js'), tabs = read('15-config-abas-onboarding.js');
   assert.ok(/sortRows\(list, caModOf, sortGet\(SC\), caSortVal\)/.test(ca), 'tarefas (todos os alcances)');
-  assert.ok(/sortRows\(base, r=>r\.md, sortGet\(SC\), val\)/.test(ca), 'épicos');
+  assert.ok(/sortRows\(base, r=>r\.md, so, val\)/.test(ca), 'épicos');
   assert.ok(/modAgoTx\(md\)/.test(ca) && !/agoTx\(t\.updated_at\)/.test(ca), '"atualizado há X" com a MESMA data');
   assert.ok(!/lsSet\('ctSort'/.test(ct) && !/lsGet\('ctSort'/.test(ct), 'a tabela local não grava a coluna clicada');
   assert.ok(/sortOnScreenOpen\(tabById\(id\)\)/.test(tabs) && /sortReset/.test(g), 'voltar pra Central zera a coluna clicada');

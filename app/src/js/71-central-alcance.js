@@ -247,7 +247,7 @@ function caTarefasHtml(scope){
   const cost=entPodeVerCusto(), org=scope==='org';
   // grupos também pela modificação: o épico com a tarefa mexida por último sobe (ativos antes dos concluídos)
   const gs=entAgrupa(all, vis, caEpics(scope), CA_FN).map(g=>({ g, md:modTs(g.itens.map(caModOf)) }))
-    .sort((a,b)=>(b.g.ativo-a.g.ativo) || (b.md-a.md)).map(x=>x.g);
+    .sort((a,b)=>((a.g.id==='-')-(b.g.id==='-')) || (b.g.ativo-a.g.ativo) || (b.md-a.md)).map(x=>x.g); // "Sem épico" sempre no fim (entAgrupa)
   return gs.map(g=>{
     const k=g.id, open=CA.open[k]!=null?CA.open[k]:(lsGet(userKey('ca:ep:'+k, caMe()))!=null?lsGet(userKey('ca:ep:'+k, caMe()))==='1':g.ativo);
     const projs=[...new Set(g.tasks.concat(g.itens).map(t=>t.project_id).filter(Boolean))];
@@ -267,7 +267,8 @@ function caEpicosHtml(scope){
   const base=eps.map(e=>({ e, ts:all.filter(t=>t.epic_id===e.id) })).map(x=>({ ...x, n:caEpicoLinha(x.e, x.ts, fn), ativo:fn.ativo(x.e, x.ts), md:caEpModOf(x.e, x.ts) }));
   // ordem: modificação mais recente (o épico ou a tarefa dele mexida por último); coluna clicada vale com a tela aberta
   const val=(r, c)=>c==='dem'?String(r.e.name||'').toLowerCase():c==='and'?(r.n.tot?r.n.ent/r.n.tot:-1):c==='rev'?r.n.prontas:c==='trv'?r.n.travadas:c==='liv'?r.n.livres:r.md;
-  const rows=sortRows(base, r=>r.md, sortGet(SC), val);
+  const so=sortGet(SC), rows=sortRows(base, r=>r.md, so, val);
+  if(so.col==='mod') rows.sort((a,b)=>b.ativo-a.ativo); // padrão: ativos antes dos concluídos (como os grupos de Tarefas), cada parte por modificação (sort estável)
   // a 1ª travada do épico com o motivo (fonte única 70) — o gestor vê O QUE trava sem abrir
   const trv=ts=>{ const t=sortRows(ts.filter(x=>entTravada(x, fn)), caModOf)[0]; if(!t) return ''; const m=entTravaTx(t);
     return `<span class="ca-why" title="${escA('“'+(t.title||'')+'” — '+m)}">${(typeof IC!=='undefined'&&IC.warn)||''}<span>${esc(mdTitle(t.title||'tarefa'))}: ${esc(m)}</span></span>`; };
