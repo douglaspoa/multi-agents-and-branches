@@ -244,7 +244,7 @@ function renderTeamBoard(){
   const prs=all.filter(t=>t.pr_url && t.status!=='merged' && (t.spec||{}).kind!=='review');
   const fgn=tmapForeign(); const unsynced=(state.tasks||[]).filter(t=>!tmap()[t.id] && !fgn.has(t.id) && t.status!=='draft').length; // cartão de outra conta não conta
   // ---------- sidebar ----------
-  const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['prs','PRs pra revisar',prs.length?String(prs.length):''],['linha','Linha',''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
+  const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['entregas','Entregas',typeof entAbertas==='function'?String(entAbertas(all)||''):''],['prs','PRs pra revisar',prs.length?String(prs.length):''],['linha','Linha',''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
   const subTabs=`<div class="ftabs" style="margin-bottom:16px">`+
     NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:var(--fs-xs);opacity:.8">${n}</span>`:''}</button>`).join('')+
@@ -269,6 +269,8 @@ function renderTeamBoard(){
   if(typeof timeHeadPaint==='function') safe(timeHeadPaint);
   // ---------- main por vista ----------
   let main='';
+  // T8: custo POR PESSOA só pra líder do time ou owner/admin da org; cada um sempre vê o próprio
+  const veCustoDe=uid=>uid===me || (typeof entPodeVerCusto==='function'?entPodeVerCusto():isAdmin);
   const perNow=lsGet('tmPeriod')||'all';
   const perSel=`<select class="sel" id="tbPeriod" aria-label="período" style="width:120px">${[['7','últimos 7 dias'],['30','30 dias'],['90','trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select>`;
   const devOpts=`<select class="sel" id="tbDev" aria-label="filtrar por dev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(tmName(u))}</option>`).join('')}</select>`;
@@ -311,7 +313,7 @@ function renderTeamBoard(){
           // em andamento = o MESMO tsRunningOf do KPI e de Pessoas (agora, não "no período"); quem só tem trabalho rodando também aparece
           members.forEach(u=>{ const r=tsRunningOf(u).length; if(r) (per[u]||(per[u]={d:0,r:0,u:0})).r=r; });
           const rows=Object.entries(per).sort((a,b)=>b[1].d-a[1].d);
-          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entregue','entregues')} · ${v.r} em andamento</span><span class="dim tscost" style="font-size:var(--fs-xs)">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">sem atividade no período</div>'; })()}
+          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entregue','entregues')} · ${v.r} em andamento</span>${veCustoDe(u)?`<span class="dim tscost" style="font-size:var(--fs-xs)">${fmtUsd(v.u)}</span>`:''}</div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">sem atividade no período</div>'; })()}
       </div>
     </div></div>`;
   } else if(tmView==='board'){
@@ -323,6 +325,9 @@ function renderTeamBoard(){
     const cols=[['Na fila',stColor('backlog'),vis.filter(inB('fila','rascunho')),0],['Aguardando alguém',stColor('asking'),vis.filter(inB('aguardando')),0],['Em andamento',stColor('running'),vis.filter(inB('andamento')),0],['Prontas / PR aberto',stColor('review'),vis.filter(inB('prontas','praberto')),0],['Concluídas',stColor('done'),vis.filter(inB('hoje','anteriores')),8]];
     main=`<h1>Quadro do time</h1><div class="tssub">${devOpts}${epicChips}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>
     <div class="tsboard ts5" style="grid-template-columns:${cols.map(c=>c[2].length?'minmax(176px,1fr)':'minmax(130px,.5fr)').join(' ')}">${cols.map(([l,c,ts,cap])=>{ const shown=cap?ts.slice(0,cap):ts; return `<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${shown.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:var(--fs-xs);padding:6px">vazio</div>'}${ts.length>shown.length?`<div class="dim tsmore" style="font-size:var(--fs-xs);padding:6px" title="mostrando as ${shown.length} mais recentes">+${ts.length-shown.length} concluídas</div>`:''}</div>`; }).join('')}</div>`;
+  } else if(tmView==='entregas'){
+    // Entregas (70-time-entregas): a visão do gestor — uma lista por épico
+    main=typeof entregasHtml==='function'?entregasHtml({ all, members }):'';
   } else if(tmView==='prs'){
     main=`<h1>PRs pra revisar</h1><div class="tssub">todo cartão do time com PR aberto</div>`+
       (prs.length?prs.map(t=>{ const n=(t.pr_url.match(/\/pull\/(\d+)/)||[])[1];
@@ -340,7 +345,7 @@ function renderTeamBoard(){
         const lastAct=(teamActivity||[]).find(a=>a.user_id===uid);
         const teamTags=orgScope?teamsOf(uid).map(tid=>`<span class="tsteamtag">${esc(tsTeamName(tid))}</span>`).join(''):'';
         return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:var(--fs-base)">${esc(tmName(uid))}</b><div class="dim" style="font-size:var(--fs-xs)">${roleOf(uid)} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}${teamTags?' · '+teamTags:''}</div></div></div>
-          <div class="nums"><div><b>${d}</b><span>entregues</span></div><div><b>${run.length}</b><span>em andamento</span></div><div><b>${fmtCost(u,{usdOnly:true})}</b><span>custo · ≈ R$ ${fmtNumBR(u*usdBrlRate(),true)}</span></div></div>
+          <div class="nums"><div><b>${d}</b><span>entregues</span></div><div><b>${run.length}</b><span>em andamento</span></div>${veCustoDe(uid)?`<div><b>${fmtCost(u,{usdOnly:true})}</b><span>custo · ≈ R$ ${fmtNumBR(u*usdBrlRate(),true)}</span></div>`:''}</div>
           <div class="now">${run.length?`agora: <b>${esc(run[0].stage||'agente')}</b> em “${esc(run[0].title.slice(0,42))}”`:(lastAct?`último: ${tsK(lastAct.kind)} ${esc(((all.find(t=>t.id===lastAct.task_id)||{}).title||'').slice(0,40))} · ${agoTx(lastAct.at)}`:'sem atividade recente')}</div>
           ${(()=>{ // tarefas da pessoa com badge de TIPO + progresso (redesign p7)
             const act=mine.filter(t=>!['merged','done'].includes(t.status)&&t.flag!=='closed').slice(0,3);
@@ -365,6 +370,7 @@ function renderTeamBoard(){
   teamPaintSig=html; el.innerHTML=html;
   // ---------- wiring ----------
   if(tmView==='linha' && typeof linhaWire==='function') linhaWire(el);
+  if(tmView==='entregas' && typeof entregasWire==='function') entregasWire(el);
   el.querySelectorAll('[data-tsv]').forEach(b=>{ b.onclick=()=>{ tmView=b.dataset.tsv; lsSet('tmView',tmView); teamPaintSig=''; renderTeamBoard(); }; });
   el.querySelectorAll('[data-tscope]').forEach(b=>{ b.onclick=()=>tsSetScope(b.dataset.tscope); });
   el.querySelectorAll('[data-epopen]').forEach(b=>{ b.onclick=()=>{ const e=teamEpics.find(x=>x.id===b.dataset.epopen); if(e&&window.openEpicPage) openEpicPage(e); }; });
