@@ -126,3 +126,46 @@ test('cartão mandado pro time nasce com a issue no spec; falha do painel avisa 
   await E.api.cloudShareTask({ title: 'Da issue', issue: 'FND-7' });
   assert.equal(E.made.length, 0); assert.equal(E.posts[0][1].spec.issueCode, 'FND-7');
 });
+
+// ---- PR2: mandar pro time, responsável, início automático só com dono ----
+const RESP = new Function(cut(S42, '// @time-resp-inicio', '// @time-resp-fim') + cut(S42, '// @exec-inicio', '// @exec-fim')
+  + '\nreturn { tmCanAssign, tmAssignOpts, tmDestDefault, ctMineFor, ctAutoMine };')();
+const MEM = [{ user_id: 'ana', role: 'lead' }, { user_id: 'bruno', role: 'member' }, { user_id: 'caio', role: 'member' }];
+const PROF = { ana: { name: 'Ana Souza' }, bruno: { name: 'Bruno Lima' }, caio: { email: 'caio@exemplo.dev' } };
+
+test('quem pode pôr OUTRA pessoa: líder do time ou owner/admin da org (membro não)', () => {
+  assert.equal(RESP.tmCanAssign('member', MEM, 'ana'), true);   // líder
+  assert.equal(RESP.tmCanAssign('member', MEM, 'bruno'), false);
+  assert.equal(RESP.tmCanAssign('admin', MEM, 'bruno'), true);
+  assert.equal(RESP.tmCanAssign('owner', [], 'x'), true);
+});
+
+test('seletor de responsável: Livre + eu (+ o time, só pra quem pode), nome do perfil ou do e-mail', () => {
+  assert.deepEqual(RESP.tmAssignOpts(MEM, PROF, 'bruno', false).map((o) => [o.id, o.label]), [['', 'Livre'], ['bruno', 'Bruno Lima']]);
+  assert.deepEqual(RESP.tmAssignOpts(MEM, PROF, 'ana', true).map((o) => [o.id, o.label]), [['', 'Livre'], ['ana', 'Ana Souza'], ['bruno', 'Bruno Lima'], ['caio', 'caio']]);
+});
+
+test('"Mandar pro time" é o padrão com time; a última escolha vale; sem time só roda', () => {
+  assert.equal(RESP.tmDestDefault(true, null), 'team');
+  assert.equal(RESP.tmDestDefault(true, 'run'), 'run');
+  assert.equal(RESP.tmDestDefault(false, 'team'), 'run');
+});
+
+test('cartão mandado pro time sem dono não é de quem criou; só cartão no MEU nome começa sozinho', () => {
+  const sent = { created_by: 'ana', assignee: null, spec: { dispatch: 'team' } };
+  assert.equal(RESP.ctMineFor(sent, 'ana'), false);
+  assert.equal(RESP.ctMineFor({ created_by: 'ana', assignee: null, spec: {} }, 'ana'), true); // cartão antigo segue como era na Execução
+  assert.equal(RESP.ctAutoMine({ created_by: 'ana', assignee: null, spec: { autoStart: true } }, 'ana'), false); // a armadilha do líder
+  assert.equal(RESP.ctAutoMine({ created_by: 'ana', assignee: 'bruno' }, 'ana'), false);
+  assert.equal(RESP.ctAutoMine({ created_by: 'ana', assignee: 'bruno' }, 'bruno'), true);
+});
+
+test('"--para" do terminal acha a pessoa do time por e-mail ou nome; desconhecido/ambíguo recusa', () => {
+  const S49 = read('49-epico-pedidos.js');
+  const P = new Function("const erFold=s=>String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\\s+/g,' ').trim().toLowerCase();\n" + fn(S49, 'erPickMember') + '\nreturn erPickMember;')();
+  const prof = { ana: { name: 'Ana Souza', email: 'ana@exemplo.dev' }, bruno: { name: 'Bruno Lima', email: 'bruno@exemplo.dev' } };
+  assert.deepEqual(P(MEM, prof, 'bruno@exemplo.dev'), { uid: 'bruno' });
+  assert.deepEqual(P(MEM, prof, 'ana souza'), { uid: 'ana' });
+  assert.match(P(MEM, prof, 'zeca').err, /não é do time/);
+  assert.deepEqual(P(MEM, prof, ''), { uid: null });
+});

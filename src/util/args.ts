@@ -20,7 +20,7 @@ export const TEXT_FLAGS = new Set([
   "req-add", "req-remove", "deliv-add", "note", "by-agent", "by-task", "description", "outcome", "done-when-add", "done-when-remove",
   "patch", "undo", "edit-id", "reject", "by-role",
   // epic new / link / apply-link (src/epic-requests.ts)
-  "tasks", "epic-title", "wait",
+  "tasks", "epic-title", "wait", "card", "para",
   // claude-statusline install (src/claude-statusline.ts)
   "node",
   // piloto automático (src/autopilot.ts)

@@ -130,7 +130,7 @@ function wizRender(){
   foot.innerHTML=
     `<span class="dim" id="wizMiss" style="font-size:var(--fs-xs);color:var(--warn)"></span>`+
     (st.opt?`<button class="btn nf-ghost" id="wizSkip">pular</button>`:'')+
-    `<button class="btn primary" id="wizNext">${last?'Iniciar execução':'próximo →'}</button>`;
+    `<button class="btn primary" id="wizNext">${last?((typeof ntShareIsTeam==='function'&&ntShareIsTeam())?'Mandar pro time':'Iniciar execução'):'próximo →'}</button>`;
   bindClick('wizBack', ()=>{ wizN=steps[Math.max(0,steps.findIndex(s=>s.n===wizN)-1)].n; wizRender(); });
   bindClick('wizSkip', ()=>{ wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender(); });
   { const b=$id('wizNext'); if(b) b.onclick=()=>{

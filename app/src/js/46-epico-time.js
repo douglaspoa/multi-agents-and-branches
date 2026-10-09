@@ -392,7 +392,7 @@ window.epicMirrorChecks=epicMirrorChecks;
 // Cartão de épico no backlog do time é só NUVEM (não está no state.sqlite) — sem isto ele só aparecia
 // na aba Time/épico. A cada 20s: busca o backlog dos épicos do time, pinta a seção "Na fila dos épicos"
 // no quadro (epBoardHtml) e inicia sozinha a tarefa com spec.autoStart cujos pré-requisitos (spec.after)
-// estão TODOS mergeados — só em cartão MEU (ctMineFor: atribuído a mim, ou sem responsável e criado por mim) e do
+// estão TODOS mergeados — só em cartão no MEU NOME (ctAutoMine: assignee = eu; sem responsável nunca, mesa 09/10 T5) e do
 // projeto aberto (claim_task ainda protege de corrida). A fila da Central mostra só o que é meu e de projeto que
 // existe nesta máquina (ctExecOk); o resto do backlog do time mora na aba Time.
 const EP_AUTO_READY=new Set(['merged','done']);
@@ -442,7 +442,14 @@ async function epicAutoStartTick(){
     // só o que é MEU (atribuído a mim; sem responsável = quem criou) — cartão de outra pessoa nunca começa sozinho aqui
     const me=cloudUserId();
     // armado SEM `after` ("Iniciar épico"): espera a onda anterior inteira; com `after`, vale só o after (regra de sempre)
-    const ready=rows.filter(t=>ctArmed(t) && ctMineFor(t, me) && !epStartBusy.has(t.epic_id) && !epDepsLeft(t).length && (((t.spec||{}).after||[]).length || !epWaveLeft(t.epic_id, epqWave(t))));
+    // T5 (mesa 09/10): só cartão no MEU nome começa sozinho. Armado sem responsável (épico antigo) não roda: avisa uma vez.
+    const due=t=>ctArmed(t) && !epStartBusy.has(t.epic_id) && !epDepsLeft(t).length && (((t.spec||{}).after||[]).length || !epWaveLeft(t.epic_id, epqWave(t)));
+    rows.filter(t=>due(t) && !t.assignee && t.created_by===me && !epAutoWarned.has('own:'+t.id)).forEach(t=>{ epAutoWarned.add('own:'+t.id);
+      pushNotif('Pronta pra começar — sem responsável', t.title+' — assuma o cartão (no Time ou no épico) pra ela rodar; sem dono ela não começa sozinha', null); });
+    const ready=rows.filter(t=>due(t) && ctAutoMine(t, me));
+    // no meu nome, NÃO armado, e a vez dele chegou (pré-requisitos/onda anterior entregues): avisa uma vez — quem inicia sou eu
+    rows.filter(t=>t.status==='backlog' && !ctArmed(t) && ctAutoMine(t, me) && ((((t.spec||{}).after||[]).length) || epqWave(t)>1) && !epDepsLeft(t).length && !epWaveLeft(t.epic_id, epqWave(t)) && !epAutoWarned.has('vez:'+t.id))
+      .forEach(t=>{ epAutoWarned.add('vez:'+t.id); pushNotif('Sua vez no épico', t.title+' — a etapa anterior foi entregue; pode iniciar', null); });
     for(const ct of ready){
       const pj=epQueue.projOf[ct.project_id]||{};
       if(pj.repo_remote && !remoteSame(pj.repo_remote, hereIds)){ // teamClaimStart roda no projeto ABERTO: outro repo espera (e avisa uma vez)
@@ -742,7 +749,8 @@ function epStartItems(eid){
   const m=(typeof tmap==='function')?tmap():{}, c2l={}; Object.keys(m).forEach(k=>{ c2l[m[k]]=k; });
   const locals=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>t.epic&&t.epic.epicId===eid);
   const pc=epCache[eid]; const cloud=(pc&&pc.loaded&&(pc.tasks||[]).length)?pc.tasks:(((epQueue.sibsOf||{})[eid])||[]);
-  return epJoinItems(cloud, locals, { c2l, armedLoc:epAutoLocalGet(), me:cloudUserId(), mine:ctMineFor, bucket:epqBucket, st:taskSt,
+  // "Iniciar épico" pega as minhas e as SEM DONO (que passam pro meu nome ao iniciar/armar); as de outra pessoa ficam de fora
+  return epJoinItems(cloud, locals, { c2l, armedLoc:epAutoLocalGet(), me:cloudUserId(), mine:(ct,me)=>!!me && (!ct.assignee || ct.assignee===me), bucket:epqBucket, st:taskSt,
     started:t=>typeof taskStarted==='function'&&taskStarted(t), cardWave:epqWave });
 }
 function epStartPlanOf(eid){ return epStartPlan(epStartItems(eid)); }
@@ -768,6 +776,8 @@ async function epArm(list, on, eid){
   for(const x of list||[]){
     if(x.kind==='local'){ locIds.push(x); n++; continue; }
     try{
+      // armar = vai rodar na MINHA máquina: cartão sem dono passa pro meu nome antes (T5 — nunca auto-início sem dono)
+      if(on && x.ct && !x.ct.assignee){ const j=await sbRpc('claim_task',{ p_task:x.id }); if(!j||!j.ok) throw new Error((j&&j.error)||'não deu pra assumir'); x.ct.assignee=cloudUserId(); }
       // spec FRESCO: outra pessoa (ou o planner) pode ter mexido no cartão desde que a tela carregou
       let cur=(x.ct&&x.ct.spec)||{}; try{ const f=(await sbGet('tasks?select=spec&id=eq.'+x.id))[0]; if(f&&f.spec) cur=f.spec; }catch(_){ }
       const spec={ ...cur }; if(on) spec.autoStart=true; else delete spec.autoStart;
@@ -797,7 +807,8 @@ async function epicStart(eid, btn){
   try{
     const cost=await epStartCost(p.now.concat(p.wait)).catch(()=>null);
     const q=epStartAskText(epNameOf(eid)||'épico', p, { free:slotMax-epLiveCount(), slotMax, cost });
-    if(!await askYes(q.text, q.title)) return;
+    const nFree=p.now.concat(p.wait).filter(x=>x.kind==='cloud' && x.ct && !x.ct.assignee).length; // sem dono: passam pro meu nome (o time vê)
+    if(!await askYes(q.text+(nFree?`\n${nFree} ${nFree===1?'estava sem responsável e fica':'estavam sem responsável e ficam'} no seu nome — o time vê que é você.`:''), q.title)) return;
     if(btn){ btn.disabled=true; btn.setAttribute('aria-busy','true'); }
     // a espera é gravada ANTES: se um início falhar no meio, as próximas ondas já estão armadas
     res.armed+=await epArm(p.now.slice(q.go).concat(p.wait).filter(x=>!x.armed), true, eid);

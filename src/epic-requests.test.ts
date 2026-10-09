@@ -300,3 +300,10 @@ test("título com vírgula chega inteiro; `apply-link --clear t1`; `epic tasks`/
     assert.deepEqual(ls.epics, [{ id: EPIC, name: "Arq", status: "open", tasks: 2 }]);
   } finally { e.done(); }
 });
+
+test("épico novo com cartões novos (mandar pro time) e responsável: valida e leva no pedido", () => {
+  assert.equal(validateNewEpic({ title: "Busca", cards: ["Índice", "Tela"], assignee: "bruno@exemplo.dev" }), null);
+  assert.match(validateNewEpic({ title: "Busca", assignee: "bruno" }) ?? "", /--card/);
+  assert.match(validateNewEpic({ title: "Busca", cards: ["x".repeat(141)] }) ?? "", /longo demais/);
+  assert.match(validateNewEpic({ title: "Busca", cards: Array.from({ length: 31 }, (_, i) => "c" + i) }) ?? "", /no máximo/);
+});

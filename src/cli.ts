@@ -886,7 +886,7 @@ async function cmdEpicRequest(kind: EpicReqKind, a: Args) {
     const r = await epicRequestFlow({
       store, cardumeDir, kind, by: editAuthor(store, a), waitMs,
       ...(kind === "create"
-        ? { epic: { title: a.flags.title ?? pos.join(" "), description: a.flags.description, outcome: a.flags.outcome, doneWhen: a.multi["done-when"] }, taskRefs: tasksFlag }
+        ? { epic: { title: a.flags.title ?? pos.join(" "), description: a.flags.description, outcome: a.flags.outcome, doneWhen: a.multi["done-when"], cards: a.multi.card, assignee: a.flags.para }, taskRefs: tasksFlag }
         : kind === "link" ? { epicRef: pos[0], taskRefs: [...pos.slice(1), ...tasksFlag] }
         : { taskRefs: [...pos, ...tasksFlag] }),
     });
@@ -1240,7 +1240,7 @@ ${c.dim("entregar & integrar")}
   ${c.green("cardume epic edit")} ${c.dim('<epicId> [--description …] [--outcome …] [--done-when-add …] [--done-when-remove D3] [--req-add …] --note "por quê"')}
       muda o épico (o app aplica no épico do time, com histórico)
   ${c.green("cardume epic tasks")} ${c.dim("[<epicId>] [--json]")}   irmãs do épico com ids, títulos, status e requisitos
-  ${c.green("cardume epic new")} ${c.dim('"<título>" [--description …] [--outcome …] [--done-when …]… [--tasks id1,id2] [--json]')}
+  ${c.green("cardume epic new")} ${c.dim('"<título>" [--description …] [--outcome …] [--done-when …]… [--tasks id1,id2] [--card "título"]… [--para <e-mail|nome>] [--json]')}
       cria um épico NO TIME (o app executa com a sessão dele; sem login/time ele recusa) e já vincula as tarefas;
       espera o app até 20s (--wait <s> muda, --no-wait não espera) — sem resposta, o pedido fica PENDENTE
   ${c.green("cardume epic link")} ${c.dim("<epicId|nome> <taskId|título>… [--json]")}   põe tarefas EXISTENTES no épico (não recria nem reinicia)

@@ -43,3 +43,20 @@
 .btn.sm.lkchip{font-size:var(--fs-xs)}
 /* fila dos épicos: nome do projeto é texto de gente */
 .epq-proj{font:500 var(--fs-xs) var(--ui);color:var(--text-2)}
+/* responsável do cartão (mesa 09/10): botão avatar + nome que abre a lista real do time (tmWhoPick) */
+.tmwho{display:inline-flex;align-items:center;gap:6px;max-width:220px;min-height:28px;padding:2px 8px 2px 3px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font:500 var(--fs-xs) var(--ui);cursor:pointer;vertical-align:middle}
+.tmwho:hover{border-color:var(--border-strong)}
+.tmwho:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.tmwho:disabled{opacity:.6;cursor:default}
+.tmwho .tsav{width:20px;height:20px}
+.tmwho-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsav.tmfree{background:transparent;border:1px dashed var(--border-strong);color:var(--text-3)}
+.tmwho-row{display:flex;align-items:center;gap:8px;min-width:0}
+.tmwho-row b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tmwho-row .dim{font-size:var(--fs-xs)}
+.tmwho-opt.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.pptitle .tmwho{margin-left:auto}
+.pldest{gap:10px;flex-wrap:wrap;margin:8px 0 2px}
+/* "Ao aprovar" do épico com 3 caminhos (mandar pro time · rodar agora · só neste computador): rótulo em cima, opções que quebram */
+.g2where.g2where3{grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr))}
+.g2where.g2where3 .g2k{grid-column:1/-1}

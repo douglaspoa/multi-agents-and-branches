@@ -24,7 +24,9 @@ export const EPIC_REQ_LIMITS = { title: 140, text: 2000, item: 300, items: 30, t
 export const EPIC_REQ_WAIT_MS = 20_000;
 
 export type EpicReqKind = "create" | "link" | "unlink";
-export interface NewEpicInput { title: string; description?: string; outcome?: string; doneWhen?: string[] }
+/** cards: cartões NOVOS que já nascem no épico, na fila do time e sem rodar ("mandar pro time", mesa 09/10);
+ *  assignee: e-mail ou nome de quem fica com eles (o app confere o time e o papel — só líder/admin põe outra pessoa). */
+export interface NewEpicInput { title: string; description?: string; outcome?: string; doneWhen?: string[]; cards?: string[]; assignee?: string }
 /** Tarefa alvo, já resolvida no motor: id local e/ou id do cartão da nuvem. */
 export interface EpicReqTask { ref: string; localId?: string; cloudId?: string; title: string }
 export interface EpicRequest {
@@ -86,7 +88,13 @@ export function validateNewEpic(i: NewEpicInput): string | null {
   if (!Array.isArray(dw) || dw.some((x) => typeof x !== "string")) return "\"pronto quando\" precisa ser uma lista de textos";
   if (dw.length > EPIC_REQ_LIMITS.items) return `"pronto quando": no máximo ${EPIC_REQ_LIMITS.items} itens`;
   if (dw.some((x) => clean(x).length > EPIC_REQ_LIMITS.item)) return `item do "pronto quando" longo demais (máx. ${EPIC_REQ_LIMITS.item} caracteres)`;
-  if ([title, i.description, i.outcome, ...dw].some((x) => x && looksSecret(String(x)))) return "o texto parece conter um segredo — não gravo isso no épico";
+  const cards = i.cards ?? [];
+  if (!Array.isArray(cards) || cards.some((x) => typeof x !== "string")) return "--card precisa ser o título de um cartão";
+  if (cards.length > EPIC_REQ_LIMITS.tasks) return `no máximo ${EPIC_REQ_LIMITS.tasks} cartões por épico`;
+  if (cards.some((x) => clean(x).length > EPIC_REQ_LIMITS.title)) return `título de cartão longo demais (máx. ${EPIC_REQ_LIMITS.title} caracteres)`;
+  if (i.assignee !== undefined && (typeof i.assignee !== "string" || clean(i.assignee).length > 200)) return "--para precisa ser o e-mail ou o nome de alguém do time";
+  if (clean(i.assignee) && !cards.map(clean).filter(Boolean).length) return "--para vale pros cartões novos: passe pelo menos um --card \"título\"";
+  if ([title, i.description, i.outcome, ...dw, ...cards].some((x) => x && looksSecret(String(x)))) return "o texto parece conter um segredo — não gravo isso no épico";
   return null;
 }
 
@@ -272,7 +280,8 @@ export async function epicRequestFlow(opts: {
     const v = validateNewEpic(e);
     if (v) return bad(v);
     epic = { title: clean(e.title), ...(clean(e.description) ? { description: clean(e.description) } : {}), ...(clean(e.outcome) ? { outcome: clean(e.outcome) } : {}),
-      ...(e.doneWhen?.map(clean).filter(Boolean).length ? { doneWhen: e.doneWhen.map(clean).filter(Boolean) } : {}) };
+      ...(e.doneWhen?.map(clean).filter(Boolean).length ? { doneWhen: e.doneWhen.map(clean).filter(Boolean) } : {}),
+      ...(e.cards?.map(clean).filter(Boolean).length ? { cards: e.cards.map(clean).filter(Boolean) } : {}), ...(clean(e.assignee) ? { assignee: clean(e.assignee) } : {}) };
   } else if (kind === "link") {
     const me = by.taskId ? store.getTask(by.taskId) : undefined;
     const known = [

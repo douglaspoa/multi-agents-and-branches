@@ -67,7 +67,11 @@ function ctWaiting(ct){ const s=(ct&&ct.spec)||{}; return ctArmed(ct) && ((Array
 // @exec-inicio — de QUEM é um cartão da nuvem (regra única da Execução × Time; testado em exec-minhas.test.mjs)
 // meu = atribuído a mim; sem responsável, é de quem criou. Cartão de outra pessoa (ou atribuído a outra) é do TIME:
 // mora na aba Time até eu assumir (claim_task grava assignee = eu → vira meu).
-function ctMineFor(ct, me){ if(!ct || !me) return false; return ct.assignee ? ct.assignee===me : ct.created_by===me; }
+// cartão MANDADO PRO TIME (spec.dispatch='team') sem responsável é do time inteiro — não cai na Execução de quem criou (T5)
+function ctMineFor(ct, me){ if(!ct || !me) return false; return ct.assignee ? ct.assignee===me : (ct.created_by===me && ((ct.spec||{}).dispatch!=='team')); }
+// INÍCIO AUTOMÁTICO só com dono explícito (T5): o cartão está no MEU nome. Sem responsável nunca começa sozinho
+// (era a armadilha: onda de épico "criado por mim sem responsável" rodando na máquina do líder)
+function ctAutoMine(ct, me){ return !!(ct && me && ct.assignee===me); }
 // o projeto do cartão existe nesta máquina? (sem projeto/sem remote = não dá pra saber → não esconde)
 function ctProjLocal(pj, localList){ return !pj || !pj.repo_remote || remoteLocal(pj.repo_remote, localList); }
 // entra na MINHA Execução (fila dos épicos, contagens, início automático): meu E de um projeto que tenho aqui
@@ -101,6 +105,55 @@ function ctNotifKind(t, me, all){
   return null;
 }
 // @exec-fim
+// ---- RESPONSÁVEL do cartão (mesa 09/10, T2): pôr OUTRA pessoa = líder do time ou owner/admin da org; membro: livre ou ele mesmo.
+// A regra vale no banco (0032: gatilho + assign_task); aqui só não se oferece o que o banco recusaria.
+// @time-resp-inicio (testado em app/tests/time-integrado.test.mjs)
+// pode atribuir a outra pessoa? (papel na org + papel no time atual)
+function tmCanAssign(meRole, members, me){ return meRole==='owner' || meRole==='admin' || (members||[]).some(m=>m && m.user_id===me && m.role==='lead'); }
+// opções do seletor: Livre · Eu · (os outros do time, só pra quem pode) — nome do perfil, senão a parte do e-mail
+function tmAssignOpts(members, profiles, me, canOthers){
+  const nm=u=>{ const p=(profiles||{})[u]||{}; return String(p.name||String(p.email||'').split('@')[0]||'alguém do time'); };
+  const out=[{ id:'', label:'Livre', hint:'quem pegar primeiro' }];
+  if((members||[]).some(m=>m&&m.user_id===me)) out.push({ id:me, label:nm(me), hint:'eu' });
+  if(canOthers) (members||[]).filter(m=>m&&m.user_id&&m.user_id!==me).map(m=>({ id:m.user_id, label:nm(m.user_id), hint:m.role==='lead'?'líder':'' })).sort((a,b)=>a.label.localeCompare(b.label,'pt-BR')).forEach(o=>out.push(o));
+  return out;
+}
+// "Rodar agora" × "Mandar pro time": com time escolhido o padrão é mandar (T1); a última escolha vale
+function tmDestDefault(hasTeam, saved){ if(!hasTeam) return 'run'; return saved==='run'||saved==='team'?saved:'team'; }
+// @time-resp-fim
+function tmTeamMembers(){ return (((typeof cloudData!=='undefined'&&cloudData&&cloudData.teamMembers)||{})[cloudTeamId()]||[]); }
+function tmProfiles(){ const o={}; const a=(typeof cloudData!=='undefined'&&cloudData&&cloudData.profileByUser)||{}; Object.keys(a).forEach(k=>{ o[k]=a[k]; }); Object.keys(teamProfiles||{}).forEach(k=>{ o[k]=Object.assign({}, o[k]||{}, teamProfiles[k]); }); return o; }
+function tmCanAssignNow(){ return tmCanAssign(cloudData&&cloudData.meRole, tmTeamMembers(), cloudUserId()); }
+function tmAssignOptsNow(){ return tmAssignOpts(tmTeamMembers(), tmProfiles(), cloudUserId(), tmCanAssignNow()); }
+function tmDest(){ return tmDestDefault(!!(SB.sess()&&cloudTeamId()), lsGet('nd:dest')); }
+function tmDestSet(v){ lsSet('nd:dest', v==='run'?'run':'team'); }
+// botão do responsável (avatar + nome) — abre a lista real do time num popover
+function tmWhoBtnHtml(uid, attrs){
+  const o=tmAssignOptsNow().find(x=>x.id===(uid||''))||{ id:'', label:'Livre' };
+  const av=o.id?tsAv(o.id, tsOnline(o.id)):`<span class="tsav tmfree" aria-hidden="true">${IC.users||'·'}</span>`;
+  return `<button type="button" class="tmwho" ${attrs||''} aria-haspopup="listbox" title="${escA(o.id?'responsável: '+o.label:'sem responsável — quem pegar primeiro')}">${av}<span class="tmwho-n">${esc(o.id?o.label:'Livre')}</span><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 6.5l3.5 3.5 3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+}
+function tmWhoPick(anchor, cur, onPick){
+  const opts=tmAssignOptsNow(), can=tmCanAssignNow();
+  const html=`<div class="ndpop-h">Responsável</div>`+(can?'':`<p class="ndpop-p">Só o líder do time ou um admin põe outra pessoa. Você pode deixar livre ou ficar com ela.</p>`)+
+    `<div role="listbox" aria-label="responsável">`+opts.map(o=>`<button type="button" role="option" class="ndpop-opt tmwho-opt${o.id===(cur||'')?' on':''}" aria-selected="${o.id===(cur||'')}" data-tmwho="${escA(o.id)}"><span class="tmwho-row">${o.id?tsAv(o.id, tsOnline(o.id)):`<span class="tsav tmfree" aria-hidden="true">·</span>`}<b>${esc(o.label)}</b>${o.hint?`<span class="dim">${esc(o.hint)}</span>`:''}</span></button>`).join('')+`</div>`;
+  if(typeof ndPopover!=='function') return;
+  ndPopover(anchor, html, p=>p.querySelectorAll('[data-tmwho]').forEach(b=>b.onclick=()=>{ ndPopClose(); onPick(b.dataset.tmwho||null); }));
+}
+// atribui (ou solta, uid=null) pela RPC da 0032; nuvem sem a 0032 ainda → PATCH direto (conferido)
+async function cloudAssign(taskId, uid){
+  try{
+    const j=await sbRpc('assign_task',{ p_task:taskId, p_user:uid||null });
+    if(j && j.ok===false) throw Object.assign(new Error(j.error||'não deu pra atribuir'), { rpc:true });
+    return true;
+  }catch(e){
+    if(e.rpc || !/could not find the function|function .* does not exist|PGRST202|não encontrado/i.test(String(e&&e.message||e))) throw e;
+    const res=await sbFetch('/rest/v1/tasks?id=eq.'+taskId, { method:'PATCH', headers:{ 'Prefer':'return=representation' }, body: JSON.stringify({ assignee:uid||null }) });
+    if(!Array.isArray(res)||!res.length) throw new Error('sem permissão pra mudar o responsável deste cartão');
+    sbPost('task_activity',{ task_id:taskId, user_id:cloudUserId(), kind:uid?'claimed':'released', body:'' }).catch(()=>{});
+    return true;
+  }
+}
 function ctStLabel(ct){ return ctWaiting(ct)?'na espera da onda anterior':stLabel(typeof tsSt==='function'?tsSt(ct):ct.status); } // R5-1: status efetivo (PR aberto/pergunta)
 
 async function cloudEnsureProject(){
@@ -129,7 +182,8 @@ async function issueConfigPull(){
 // compartilhar com o time: vira cartão no backlog — NÃO roda nesta máquina
 // A ISSUE nasce junto (painel de Issues ligado pro projeto): o código vai no spec e no issue_url — quem assumir depois
 // não cria outra. Falha do painel avisa com o motivo e NÃO impede o cartão (mesa 09/10, T6).
-async function cloudShareTask(payload){
+async function cloudShareTask(payload, opts){
+  opts=opts||{};
   if(!SB.sess()) throw new Error('entre na sua conta (botão Conta, no rodapé da barra lateral)');
   const proj=await cloudEnsureProject();
   let spec=payload, iss=null; const epicId=(typeof ntEpicVal==='function'?ntEpicVal():null);
@@ -140,7 +194,7 @@ async function cloudShareTask(payload){
       new Promise(r=>setTimeout(()=>r({ err:'o painel não respondeu em 12 s' }), 12000)) ]);
     if(iss&&iss.code) spec=trkSpecWithIssue(payload, iss);
   } else if(payload.issue) spec={ ...payload, issueCode:payload.issue };
-  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:epicId, spec, issue_url:(iss&&iss.url)||payload.issueUrl||null });
+  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:epicId, spec:{ ...spec, dispatch:'team' }, issue_url:(iss&&iss.url)||payload.issueUrl||null, ...(opts.assignee?{ assignee:opts.assignee }:{}) });
   if(iss&&iss.err) trkCardFailToast(payload.title, iss.err);
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:payload.title }).catch(()=>{});
   teamTasks=null;

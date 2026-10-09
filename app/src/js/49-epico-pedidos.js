@@ -38,7 +38,9 @@ function erValidate(r){
     if(title.length>140) return 'título do épico longo demais (máx. 140)';
     for(const k of ['description','outcome']) if(e[k]!==undefined&&(typeof e[k]!=='string'||e[k].length>2000)) return k+' inválido(a) ou longo(a) demais';
     if(e.doneWhen!==undefined&&(!erStrs(e.doneWhen)||e.doneWhen.length>30||e.doneWhen.some(x=>x.length>300))) return '"pronto quando" inválido';
-    if([title,e.description,e.outcome,...(e.doneWhen||[])].some(erSecret)) return 'o texto parece conter um segredo — não gravo isso no épico';
+    if(e.cards!==undefined&&(!erStrs(e.cards)||e.cards.length>30||e.cards.some(x=>!erTx(x)||x.length>140))) return 'cartões novos inválidos (até 30, título de até 140 caracteres)';
+    if(e.assignee!==undefined&&(typeof e.assignee!=='string'||e.assignee.length>200)) return 'responsável inválido';
+    if([title,e.description,e.outcome,...(e.doneWhen||[]),...(e.cards||[])].some(erSecret)) return 'o texto parece conter um segredo — não gravo isso no épico';
   }
   if(r.kind==='link'){
     if(r.epicTitle!==undefined&&typeof r.epicTitle!=='string') return 'nome de épico inválido';
@@ -107,6 +109,38 @@ async function erFindEpic(r){
   const list=(await sbGet('epics?select=id,name,spec,status&team_id=eq.'+erEnc(team)+'&order=created_at.desc&limit=200'))||[];
   return erPickEpic(list, r.epicTitle);
 }
+// PURA: quem do time é o "--para" (e-mail exato ou nome, sem caixa/acento) → { uid } | { err }
+function erPickMember(members, profiles, q){
+  const f=erFold(q); if(!f) return { uid:null };
+  const all=(members||[]).map(m=>({ uid:m.user_id, p:(profiles||{})[m.user_id]||{} }));
+  const hit=all.filter(x=>erFold(x.p.email)===f || erFold(x.p.name)===f || erFold(String(x.p.email||'').split('@')[0])===f);
+  if(hit.length===1) return { uid:hit[0].uid };
+  if(hit.length>1) return { err:'mais de uma pessoa do time bate com "'+q+'" — use o e-mail' };
+  return { err:'"'+q+'" não é do time. Pessoas do time: '+(all.map(x=>x.p.name||x.p.email||'?').join(', ')||'(nenhuma)') };
+}
+// cartões novos do épico (idempotente pelo id do pedido: local_id card-<pedido>-<n>), na fila do time, SEM rodar e sem início automático
+async function erCreateCards(r, ep){
+  const titles=((r.epic||{}).cards||[]).map(erTx).filter(Boolean), out={ created:[], fails:[], who:null };
+  if(!titles.length) return out;
+  const q=erTx((r.epic||{}).assignee);
+  if(q){ const m=erPickMember(typeof tmTeamMembers==='function'?tmTeamMembers():[], typeof tmProfiles==='function'?tmProfiles():{}, q);
+    if(m.err) out.fails.push({ ref:'--para', title:q, why:m.err+' — os cartões ficaram livres' });
+    else if(m.uid && m.uid!==cloudUserId() && !(typeof tmCanAssignNow==='function'&&tmCanAssignNow())) out.fails.push({ ref:'--para', title:q, why:'só o líder do time ou um admin põe outra pessoa — os cartões ficaram livres' });
+    else out.who=m.uid; }
+  const proj=await cloudEnsureProject();
+  for(let i=0;i<titles.length;i++){
+    const lid='card-'+String(r.id).slice(0,8)+'-'+(i+1);
+    await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body:JSON.stringify({
+      local_id:lid, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:titles[i], status:'backlog', epic_id:ep.id,
+      spec:{ title:titles[i], objective:titles[i], requirements:[], dispatch:'team', origin:{ via:'terminal', agent:erTx((r.by||{}).agent).slice(0,60) } } }) });
+    const row=((await sbGet('tasks?select=*&project_id=eq.'+erEnc(proj.id)+'&local_id=eq.'+erEnc(lid)))||[])[0];
+    if(!row){ out.fails.push({ ref:titles[i], title:titles[i], why:'não consegui criar o cartão no time' }); continue; }
+    out.created.push({ row, wave:1 });
+    sbPost('task_activity',{ task_id:row.id, user_id:cloudUserId(), kind:'created', body:titles[i] }).catch(()=>{});
+  }
+  if(typeof teamTasks!=='undefined') teamTasks=null;
+  return out;
+}
 // fase 1 (nuvem) de UMA tarefa: cartão no épico (ou fora dele). → { lid, cardId, title, mode }
 async function erCloudOne(t, ep, proj){
   const lt=t.localId?(state.tasks||[]).find(x=>x.id===t.localId):null;
@@ -169,8 +203,12 @@ async function erApplyOne(r){
   let ep=null;
   try{
     if(r.kind==='create'){ ep=await erCreateEpic(r);
-      // épico do terminal também vai pro painel de Issues (antes só o do app — e só com conector que tem "pai")
-      if(window.trkPublishEpic) await window.trkPublishEpic(ep, []); } // falha vira aviso lá dentro; nunca derruba o pedido
+      // cartões NOVOS do épico ("mandar pro time": fila do time, sem rodar) + épico e cartões no painel de Issues
+      const made=await erCreateCards(r, ep);
+      if(window.trkPublishEpic) await window.trkPublishEpic(ep, made.created); // falha vira aviso lá dentro; nunca derruba o pedido
+      if(made.who) for(const c of made.created){ if(c.row.assignee===made.who) continue;
+        try{ await cloudAssign(c.row.id, made.who); c.row.assignee=made.who; }catch(e){ made.fails.push({ ref:c.row.title, title:c.row.title, why:'ficou livre: '+(typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e)) }); } }
+      r._cards=made; }
     else if(r.kind==='link'){ const x=await erFindEpic(r); if(x.err) return erRefused(r, x.err); ep=x.ep; }
   }catch(e){
     if(typeof aeIsPermanent==='function' && !aeIsPermanent(e)) throw e; // rede/conflito: o pedido fica na fila (criar é idempotente)
@@ -202,7 +240,11 @@ async function erApplyOne(r){
     }
     linked.push({ ref:t.ref||x.lid||x.cardId, title:x.title||t.title||'', ...(x.lid?{ localId:x.lid }:{}), ...(x.cardId?{ cloudId:x.cardId }:{}), mode });
   }
-  return erResult(r, ep, linked, failed);
+  if(r._cards){ (r._cards.fails||[]).forEach(f=>failed.push(f)); }
+  const res=erResult(r, ep, linked, failed);
+  if(r._cards && r._cards.created.length){ const n=r._cards.created.length, w=r._cards.who;
+    res.message=res.message.replace(/\.$/,'')+' · '+n+(n===1?' cartão novo':' cartões novos')+' na fila do time'+(w?' com '+(typeof tmName==='function'?tmName(w):'a pessoa'):', livres')+' — ninguém começou a rodar.'; }
+  return res;
 }
 
 // ---- tick: atende os pedidos do projeto aberto ----

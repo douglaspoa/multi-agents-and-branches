@@ -145,6 +145,7 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
       if (op === "novo" || op === "new") return tool(io, "create_epic", {
         title: pos.join(" "), description: one(a, "descricao", "descrição", "description"), outcome: one(a, "outcome", "resultado"),
         done_when: many(a, "pronto", "done-when"), task_ids: tarefas,
+        cards: many(a, "cartao", "cartão", "card"), assignee: one(a, "para", "responsavel", "responsável"),
       });
       if (op === "vincular" || op === "link") return tool(io, "link_tasks_to_epic", { epic: pos[0] ?? "", task_ids: [...pos.slice(1), ...tarefas] });
       if (op === "desvincular" || op === "unlink") return tool(io, "unlink_tasks_from_epic", { task_ids: [...pos, ...tarefas] });

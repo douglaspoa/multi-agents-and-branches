@@ -448,6 +448,7 @@ async function ntShareSync(){
   if(typeof wizShareApply==='function') wizShareApply(null); else r.style.display=on?'block':'none';
   if(!on) return;
   try{ if(!teamEpics.length) teamEpics=await sbGet('epics?select=id,name,status,spec,created_by,created_at,updated_at&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at').catch(()=>sbGet('epics?select=id,name,status&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at')); }catch(_){ }
+  ntShareDefault(); ntWhoPaint();
   const sel=$id('ntEpic'); if(!sel) return;
   const cur=sel.value;
   sel.innerHTML='<option value="">— sem épico —</option>'
@@ -463,6 +464,16 @@ async function ntShareSync(){
     catch(e){ showErr(e, 'Falhou'); }
   };
 }
+// "Ao criar" (mesa 09/10, T1): o padrão segue a última escolha (tmDest) — mandar pro time quando há time
+let ntWho='', ntShareTouched=false;
+function ntShareIsTeam(){ const r=$id('ntShareRow'), s=$id('ntShare'); return !!(r && r.dataset.cloud==='1' && s && s.value==='team'); }
+function ntShareDefault(){ const s=$id('ntShare'); if(!s || ntShareTouched) return; s.value=tmDest()==='run'?'self':'team';
+  if(!s.__wired){ s.__wired=1; s.addEventListener('change',()=>{ ntShareTouched=true; tmDestSet(s.value==='team'?'team':'run'); ntWhoPaint(); ntCreateLabel(); }); } ntCreateLabel(); }
+function ntWhoPaint(){ const row=$id('ntWhoRow'), slot=$id('ntWhoSlot'); if(!row||!slot) return; const on=ntShareIsTeam(); row.style.display=on?'flex':'none'; if(!on) return;
+  slot.innerHTML=tmWhoBtnHtml(ntWho,'id="ntWhoBtn"'); const b=$id('ntWhoBtn'); if(b) b.onclick=()=>tmWhoPick(b, ntWho, uid=>{ ntWho=uid||''; ntWhoPaint(); }); }
+// o botão de criar diz o que vai acontecer (fora do wizard: #ntCreate; no wizard, a última etapa relê ao pintar)
+function ntCreateLabel(){ const c=$id('ntCreate'); if(c && !c.disabled){ const svg=c.querySelector('svg'); c.textContent=ntShareIsTeam()?'Mandar pro time':'Iniciar execução'; if(svg) c.prepend(svg); }
+  const w=$id('wizNext'); if(w && /Iniciar execução|Mandar pro time/.test(w.textContent)) w.textContent=ntShareIsTeam()?'Mandar pro time':'Iniciar execução'; }
 function ntEpicVal(){ const s=$id('ntEpic'); const v=s?s.value:''; return (v&&v!=='__new__')?v:null; }
 $id('newTaskBtn').addEventListener('click', ()=>{ ntShareSync(); });
 
