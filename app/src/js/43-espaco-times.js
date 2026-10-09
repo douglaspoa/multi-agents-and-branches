@@ -139,7 +139,7 @@ function tsIssueChip(t, proj){
 // Assumir = só o MEU nome no cartão (o time inteiro vê); Iniciar = roda nesta máquina; "assumir e iniciar" é o atalho.
 // Cartão de colega não se toma (0032); líder/admin trocam o responsável. Devolver = volta pra livre (nunca rodando).
 // custo do cartão: só pra quem atribui (líder/owner/admin) ou pro dono dele (T8 — custo por pessoa não vira ranking)
-function tsCostOk(t, me){ return tmCanAssignNow() || tsWho(t)===me; }
+function tsCostOk(t, me){ return (typeof entPodeVerCusto==='function'?entPodeVerCusto():tmCanAssignNow()) || tsWho(t)===me; } // a MESMA regra da aba Entregas (70)
 const TS_LIVE=new Set(['running','thinking','plan-review','queued']);
 function tsActsHtml(t, me, canClaim, sameRepo, isLocal, proj){
   const B=(act, label, title, cls)=>`<button class="btn sm${cls?' '+cls:''}" data-act="${act}" title="${escA(title)}" style="padding:3px 9px;font-size:var(--fs-xs)">${label}</button>`;
