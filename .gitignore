@@ -11,3 +11,4 @@ app/src-tauri/resources/
 mobile/ios/build*/
 mobile/ios/**/xcuserdata/
 .claude/worktrees/
+**/target-e2e/

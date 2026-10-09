@@ -301,7 +301,7 @@ function tlBarHtml(t){
   const ts=TERM[t.id]; const live=!!(ts && ts.mode==='live' && ts.alive);
   const gone=!live && typeof termWtGone==='function' && termWtGone(t.id);
   const comp=typeof tiCompOn!=='function' || tiCompOn(t); // compositor escondido (terminal integrado): digita-se no próprio terminal
-  const hint=!comp ? (live ? 'digite direto no terminal' : gone ? 'digite pra perguntar sobre o que foi feito' : (typeof termHeadless==='function' && termHeadless(t)) ? 'digite no terminal pra entrar na conversa' : 'digite no terminal pra retomar a sessão')
+  const hint=!comp ? (live ? 'digite direto no terminal' : gone ? 'digite pra perguntar sobre o que foi feito' : (ts && ts.taking) ? 'trazendo a IA pro terminal…' : (typeof termHeadless==='function' && termHeadless(t)) ? 'digite no terminal pra entrar na conversa' : 'digite no terminal pra retomar a sessão')
     : live ? 'Enter no compositor entra na fila · ⌘Enter interrompe'
     : gone ? 'Enter no compositor retoma a conversa da tarefa integrada' : (typeof termHeadless==='function' && termHeadless(t)) ? 'Enter traz a IA pro terminal com a mensagem'
     : (ts && ts.hinfo && ts.hinfo.resumes===false) ? 'Enter manda no modo automático' : 'Enter no compositor retoma a sessão no terminal';
@@ -309,7 +309,7 @@ function tlBarHtml(t){
   // redesenho F1: a barra "histórico · digite pra continuar" saiu de cima do terminal — o "retomar sessão" mora aqui
   // rascunho/fila sem sessão gravada: não há o que retomar (a barra do terminal oferece "abrir terminal")
   const noSess=['draft','queued'].includes(t.status) && !(ts && ts.hinfo && ts.hinfo.source && ts.hinfo.source!=='none');
-  const resume=!live && !gone && !noSess && ts && ts.mode==='hist' && !(typeof termHeadless==='function' && termHeadless(t)) && !(ts.hinfo && ts.hinfo.resumes===false)
+  const resume=!live && !gone && !noSess && ts && ts.mode==='hist' && !ts.taking && !(typeof termHeadless==='function' && termHeadless(t)) && !(ts.hinfo && ts.hinfo.resumes===false)
     ? `<button type="button" class="lnk tlresume" data-termopen="${escA(t.id)}" title="abre o terminal retomando a sessão, sem mandar nada">retomar sessão</button>` : '';
   return `<span class="tldot" style="--c:${m.c}" aria-hidden="true"></span><span class="tlai">${esc(ai)}</span><span class="tlst" style="color:${m.c}">${esc(m.pt)}</span>`+
     (t.branch?`<span class="tlbr mono" title="${escA('branch: '+t.branch)}">${esc(t.branch)}</span>`:'')+
