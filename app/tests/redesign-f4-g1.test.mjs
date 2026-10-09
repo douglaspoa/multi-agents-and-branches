@@ -205,7 +205,7 @@ test('Issues: abas Quadro · Nova issue · Conexão; endereço base das issues n
   assert.match(i, /tabs:pageTabs\('trk', \[\['board','Quadro',ready\?trkIssues\.length:null\],\['nova','Nova issue'\],\['conn','Conexão'\]\], trkView\)/);
   assert.match(i, /function trkNIOpen\(\)\{ trkView='nova'; trkSel=null; if\(window\.openTab\) window\.openTab\('issues',\{ sub:'nova' \}\); \}/);
   assert.match(i, /id="trkIssueBase" value="\$\{escA\(lsGet\('issueBase'\)\|\|''\)\}"/);
-  assert.match(i, /function trkListHtml\(items\)\{/);
+  assert.match(i, /function trkListHtml\(rows\)\{/);
   assert.match(i, /let trkLayout=lsGet\('trkLayout'\)==='colunas'\?'colunas':'lista';/);
 });
 test('Memória é a dona única de aprendizados, curador e "o que cada agente lembra" (D16); ficha = Histórico · Desempenho · Editar', () => {
