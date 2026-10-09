@@ -491,6 +491,8 @@
       <button class="btn sm fwmore" id="fwMore" aria-label="Mais ações" title="mais ações: progresso, commit &amp; push, custo, preview no celular…"></button>
       <button class="btn sm fwclosebtn" id="fwClose" aria-label="Fechar a aba" title="fechar a aba (esc)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" stroke-linecap="round"/></svg></button>
     </div>
+    <!-- a corrente da tarefa (72-corrente-tarefa.js): veio de issue/épico · com quem · vai pra PR · requisitos · no painel -->
+    <div class="tchain-host" id="fwChain" hidden></div>
     <!-- o ciclo da tarefa (60-ciclo.js): faixa de etapas + a decisão "precisa de você" — fora do re-render do chat -->
     <div class="fwciclo" id="fwCiclo" hidden></div>
     <!-- "Pedir alteração" / "Chamar outro agente…" (71-revisao-alteracao.js): painel no topo da tarefa, nunca modal -->
@@ -768,6 +770,7 @@
 <script src="js/70-time-entregas.js"></script>
 <script src="js/71-central-alcance.js"></script>
 <script src="js/71-revisao-alteracao.js"></script>
+<script src="js/72-corrente-tarefa.js"></script>
 <script src="js/99-e2e.js"></script>
 </body>
 </html>

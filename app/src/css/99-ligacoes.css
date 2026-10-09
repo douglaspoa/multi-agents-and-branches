@@ -48,3 +48,20 @@
 .trk-boardwrap:has(.trk-detail) .trk-lig .c-epic,.trk-boardwrap:has(.trk-detail) .trk-lig .c-mod,.trk-boardwrap:has(.trk-detail) .trk-lig .c-act{display:none}
 .trk-lig .chn{max-width:200px}
 .trk-tblwrap{overflow-x:auto}
+/* corrente no cabeçalho da tarefa (72) */
+.tchain-host{padding:8px 16px 10px;border-bottom:1px solid var(--border)}
+.tchain{display:flex;flex-direction:column;gap:6px;min-width:0}
+.enpage .tchain{margin:0 0 14px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface)}
+.tc-l{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.tc-s{font-size:var(--fs-xs);color:var(--text-2)}
+.tc-lbl{font-size:var(--fs-xs);color:var(--muted);margin-left:4px}
+.tc-l .tc-lbl:first-child{margin-left:0}
+.tc-v.ok{color:var(--good)}
+.tc-pn{color:var(--text-2)} .tc-pn.warn{color:var(--warn)}
+/* linha do tempo unificada */
+.tc-tl{list-style:none;margin:0 0 8px;padding:0;display:flex;flex-direction:column}
+.tc-tl li{display:grid;grid-template-columns:104px 10px 1fr auto;align-items:baseline;gap:8px;padding:6px 0;border-bottom:1px dashed var(--border);font-size:var(--fs-sm)}
+.tc-tl time{color:var(--muted);font-size:var(--fs-xs);font-variant-numeric:tabular-nums}
+.tc-tl i{width:8px;height:8px;border-radius:var(--r-pill);background:var(--accent);align-self:center}
+.tc-tl .src-painel i{background:var(--info)} .tc-tl .src-starfork i{background:var(--good)}
+.tc-tl small{color:var(--muted);font-size:var(--fs-xs)}
