@@ -167,3 +167,24 @@
 /* faixas recolhidas que agora recebem markdown em bloco: o line-clamp do WebKit não corta blocos aninhados — teto de altura junto */
 .fwwhy:not(.open) .fwwhyt{max-height:4.7em}
 html.sfpane .en-obj.mdlite{max-height:3.2em;overflow:hidden}
+
+/* ---- Resumo da demanda: um só sistema de espaçamento (09/10) ----
+   --plp é o respiro lateral do painel inteiro: cartões, escolhas e a barra de ação começam e terminam na mesma linha.
+   As escolhas (Resultado · Previsão · o que a IA escolheu · destino) correm logo depois do resumo, sem vão;
+   só a ação final gruda embaixo, de ponta a ponta do painel e com padding próprio. */
+#plMesh{--plp:14px;padding:var(--plp) var(--plp) 0;gap:10px}
+#plMesh .plmeshopts{display:grid;gap:12px;margin-top:4px;padding:14px 0 16px;border-top:1px solid var(--border)}
+#plMesh .g2resline{gap:6px 10px}
+#plMesh .g2prev{line-height:1.5}
+#plMesh .plmeshopts .ndprev{padding:0;margin:0;border:0;border-radius:0;background:none;gap:6px}
+#plMesh .plmeshopts .g2pchip{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;max-width:100%}
+#plMesh .plmeshopts .g2pchip b{overflow:hidden;text-overflow:ellipsis}
+#plMesh .pldest{margin:0;gap:8px 12px}
+#plMesh .pldest-who{display:inline-flex;align-items:center;gap:8px;min-width:0}
+#plMesh .plmeshfoot{position:sticky;bottom:0;z-index:1;margin:auto calc(-1 * var(--plp)) 0;padding:12px var(--plp) 14px;display:grid;gap:8px;background:var(--surface);border-top:1px solid var(--border)}
+#plMesh .plcreaterow{display:grid;grid-template-columns:minmax(0,1fr);justify-content:normal;gap:8px}
+#plMesh .plmeshfoot .plcreatehint{margin:0;font:400 var(--fs-xs)/1.45 var(--display);color:var(--text-2)}
+#plMesh #plCreate{display:inline-flex;align-items:center;width:100%;height:36px;padding:0 14px;justify-content:center;gap:6px}
+/* desabilitado ainda parece botão (não campo apagado): contorno tracejado e texto legível; o porquê está na linha de cima */
+#plMesh #plCreate:disabled{opacity:1;background:var(--surface-2);color:var(--text-3);border:1px dashed var(--border-strong);box-shadow:none}
+@media (max-height:700px){ #plMesh .plmeshfoot{position:static;margin-top:0} }
