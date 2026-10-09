@@ -154,6 +154,8 @@ window.TAB_STATE_planner={
 function plApplyPatch(patch){
   if(!patch||typeof patch!=='object') return;
   for(const k of ['title','objective','autonomy','engine']) if(typeof patch[k]==='string'&&patch[k].trim()) plFields[k]=patch[k].trim();
+  // título que a IA mandou vira nome de branch/aba/cartão: sem **/crase/# (o que você digita não é tocado; o objetivo segue markdown)
+  if(typeof patch.title==='string' && patch.title.trim() && typeof mdTitle==='function') plFields.title=mdTitle(plFields.title);
   for(const k of ['deliverables','requirements','owns','off']) if(Array.isArray(patch[k])) plFields[k]=patch[k].map(x=>String(x).trim()).filter(Boolean);
   if(Array.isArray(patch.artifacts)) plFields.artifacts={doc:patch.artifacts.includes('doc'),proof:patch.artifacts.includes('proof'),tests:patch.artifacts.includes('tests')};
 }
@@ -189,7 +191,7 @@ function plEmptyHtml(){
 }
 // cabeçalho no padrão de página: título = título da demanda; "em <projeto> ▾" (a demanda cai onde você escolher); modos
 function plHeadPaint(){
-  const t=$id('plTitle'); if(t) t.textContent=(plFields&&plFields.title)||'Nova demanda';
+  const t=$id('plTitle'); if(t){ const tt=(plFields&&plFields.title)||''; t.textContent=(tt&&typeof mdTitle==='function'?mdTitle(tt):tt)||'Nova demanda'; }
   const sc=$id('plScope'); if(sc){ const projs=((window.projectsList&&window.projectsList())||(typeof projList==='function'?projList().map(([path,name])=>({path,name})):[])).filter(p=>p&&p.path);
     const cur=projs.find(p=>p.path===state.repo), name=(cur&&cur.name)||projShort(state.repo||'')||'—';
     const html=projs.length>1?`em <select class="nd-projsel" id="plProj" aria-label="projeto onde a demanda vai abrir">${projs.map(p=>`<option value="${escA(p.path)}"${p.path===state.repo?' selected':''}>${esc(p.name||projShort(p.path))}</option>`).join('')}</select>`:`em <b>${esc(name)}</b>`;
@@ -252,7 +254,7 @@ function renderPlanner(){
   stick(th); if(empty) th.scrollTop=0; // estado vazio começa do topo (o título não some)
   // chips
   const chipsEl=$id('plChips');
-  chipsEl.innerHTML=(plChips||[]).map((c,i)=>`<button class="plchip" data-chip="${i}">${esc(c)}</button>`).join('');
+  chipsEl.innerHTML=(plChips||[]).map((c,i)=>`<button class="plchip" data-chip="${i}">${esc(typeof mdPlain==='function'?mdPlain(c):c)}</button>`).join(''); // chip é texto: sem ** nem crase crus
   chipsEl.querySelectorAll('[data-chip]').forEach(b=>b.onclick=()=>plSend(plChips[+b.dataset.chip]));
   // Resumo progressivo: o que a pessoa lê em cima; identificador, pastas, arquivos proibidos e o TASK.yaml em "Detalhes técnicos"
   const mesh=$id('plMesh');
@@ -262,8 +264,8 @@ function renderPlanner(){
             const tt=String(plFields.title||''), full=tt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
             const cut=!!(disp && full.length>String(disp).length && full.startsWith(String(disp).replace(/-$/,'')));
             return `<div class="plfv mono auto" title="${escA('identificador técnico (nome da branch e da pasta'+(cut?', encurtado':'')+')'+(tt?' — da tarefa “'+tt+'”':''))}">${esc(disp)||'—'}${cut?'…':''}</div>`; })()
-        : f.list ? `<textarea class="plfv in${PL_TECH.has(f.k)?' mono':''}" data-fk="${f.k}" rows="2" placeholder="um por linha…">${esc(Array.isArray(v)?v.join('\n'):'')}</textarea>`
-        : f.area ? `<textarea class="plfv in" data-fk="${f.k}" rows="2" placeholder="…">${esc(disp)}</textarea>`
+        : f.list ? `<textarea class="plfv in${PL_TECH.has(f.k)?' mono':''}" data-fk="${f.k}"${PL_TECH.has(f.k)?'':' data-mdprev="list"'} rows="2" placeholder="um por linha…">${esc(Array.isArray(v)?v.join('\n'):'')}</textarea>`
+        : f.area ? `<textarea class="plfv in" data-fk="${f.k}" data-mdprev rows="2" placeholder="…">${esc(disp)}</textarea>`
         : `<input class="plfv in ${f.k==='id'?'mono':''}" data-fk="${f.k}" value="${escA(disp)}" placeholder="…">`;
       return `<div class="plfield ${st}" data-k="${f.k}"${f.tip?` title="${escA(f.tip)}"`:''}><div class="plfhead"><span class="pldot"></span><span class="plfk">${esc(f.label)}</span><span class="plfsrc">${st==='ask'?'perguntando':(st==='ok'?f.src:'falta')}</span></div>${ctl}</div>`; };
   const human=PL_MESH.filter(f=>!PL_TECH.has(f.k) && (f.req || plState(f.k)!=='wait'));
@@ -278,6 +280,7 @@ function renderPlanner(){
   // R8: listas do resumo crescem com o conteúdo (antes o 3º requisito ficava cortado numa caixa de 2 linhas)
   mesh.querySelectorAll('textarea.plfv').forEach(t=>{ chatGrow(t); t.addEventListener('input',()=>chatGrow(t)); });
   mesh.querySelectorAll('[data-fk]').forEach(inp=>inp.addEventListener('input',()=>{ const k=inp.dataset.fk; if(PL_MESH.find(f=>f.k===k).list) plFields[k]=inp.value.split('\n').map(s=>s.trim()).filter(Boolean); else plFields[k]=inp.value; renderPlannerMeterOnly(); plAutoSave(); if(typeof estSchedule==='function') estSchedule(); }));
+  if(typeof mdPrevSync==='function') mdPrevSync(mesh); // objetivo/listas: prévia formatada + "editar" (o campo guarda o markdown)
   bindClick('plCreate', plCreate);
   plDestWire(mesh);
   if(plCreating){ const c=$id('plCreate'); if(c){ c.disabled=true; c.textContent='criando…'; } }
@@ -442,7 +445,8 @@ function plPlanFrom(p){
   // idx = posição ORIGINAL em p.tasks (é a referência que `after` usa); tarefa sem título cai fora, mas os índices das outras não deslocam
   // A3 (mesa-bugs-2): antes cortava em 8 em silêncio (etapas 9+ e as dependências sumiam). Acima do teto, o card avisa (cut)
   const src=Array.isArray(p.tasks)?p.tasks:[], all=src.slice(0,PL_PLAN_MAX);
-  const tasks=all.map((x,i)=>(x&&x.title)?{ idx:i, title:String(x.title).slice(0,90), objective:String(x.objective||''),
+  const plain=v=>typeof mdTitle==='function'?mdTitle(v):String(v); // título de etapa/épico vira cartão/branch: sem ** crus
+  const tasks=all.map((x,i)=>(x&&x.title)?{ idx:i, title:plain(x.title).slice(0,90), objective:String(x.objective||''),
     requirements:plStrs(x.requirements,6), owns:String(x.owns||'').trim(),
     verify:String(x.verify||'').trim().slice(0,240), covers:plStrs(x.covers,8),
     after:(Array.isArray(x.after)?x.after:[]).map(n=>parseInt(n,10)).filter(n=>Number.isInteger(n)&&n>=0&&n<all.length&&n!==i),
@@ -458,7 +462,7 @@ function plPlanFrom(p){
   // requisitos do épico: id do modelo quando veio; senão R1..Rn numerado DEPOIS de filtrar (covers cita esses ids)
   const reqs=(Array.isArray(p.requirements)?p.requirements:[]).map(r=>(r&&typeof r==='object')?{ id:String(r.id||'').trim(), text:String(r.text||'').trim() }:{ id:'', text:String(r).trim() }).filter(r=>r.text).slice(0,12);
   reqs.forEach((r,i)=>{ if(!r.id || reqs.some((o,j)=>j<i&&o.id===r.id)) r.id='R'+(i+1); });
-  return { epic:String(p.epic||plFields.title||'Épico').slice(0,80), outcome:String(p.outcome||'').trim().slice(0,300),
+  return { epic:plain(p.epic||plFields.title||'Épico').slice(0,80), outcome:String(p.outcome||'').trim().slice(0,300),
     requirements:reqs, doneWhen:plStrs(p.doneWhen,6), boundaries:plStrs(p.boundaries,6), tasks:plSortWaves(tasks), cut:Math.max(0, src.length-all.length) };
 }
 const PL_PLAN_MAX=20;
@@ -509,11 +513,11 @@ function plPlanCardHtml(bare){
     // tudo editável antes de aprovar: prova (verify), pré-requisitos (chips das irmãs) e risco; a onda recalcula na hora
     // div, não label: só o checkbox e o título (des)marcam a tarefa; clique entre os controles não faz nada
     rows+=`<div class="pptask"><input type="checkbox" id="pptask-${i}" data-pptask="${i}" ${x.on?'checked':''}${dis}><span style="flex:1;min-width:0">
-      <span class="pptitle"><label for="pptask-${i}">${esc(x.title)}</label>${(!plPlanCtx.origin && !noTeam && plWhere(noTeam)==='mandar' && x.on)?tmWhoBtnHtml(x.assignee||'', `data-ppwho="${i}"${dis}`):''}<select class="ppsel pprisk ${x.risk||''}" data-pprisk="${i}" title="risco"${dis}>${['','low','medium','high'].map(r=>`<option value="${r}"${(x.risk||'')===r?' selected':''}>${r?plRiskLabel[r]:'risco ?'}</option>`).join('')}</select></span>${x.objective?`<span class="ppobj">${esc(x.objective)}</span>`:''}
-      <span class="ppverify">✓ prova: <input class="ppedit" data-ppverify="${i}" maxlength="240" value="${escA(x.verify||'')}" placeholder="como alguém checa que esta tarefa entregou (1 linha)"${dis}>${(x.covers&&x.covers.length)?` <span class="mono ppcov">${esc(x.covers.join(' '))}</span>`:''}</span>
+      <span class="pptitle"><label for="pptask-${i}">${esc(x.title)}</label>${(!plPlanCtx.origin && !noTeam && plWhere(noTeam)==='mandar' && x.on)?tmWhoBtnHtml(x.assignee||'', `data-ppwho="${i}"${dis}`):''}<select class="ppsel pprisk ${x.risk||''}" data-pprisk="${i}" title="risco"${dis}>${['','low','medium','high'].map(r=>`<option value="${r}"${(x.risk||'')===r?' selected':''}>${r?plRiskLabel[r]:'risco ?'}</option>`).join('')}</select></span>${x.objective?`<div class="ppobj mdlite">${mdToHtml(x.objective)}</div>`:''}
+      <span class="ppverify">✓ prova: <input class="ppedit" data-ppverify="${i}" data-mdprev="inline" maxlength="240" value="${escA(x.verify||'')}" placeholder="como alguém checa que esta tarefa entregou (1 linha)"${dis}>${(x.covers&&x.covers.length)?` <span class="mono ppcov">${esc(x.covers.join(' '))}</span>`:''}</span>
       ${others.length?plAfterRowHtml(x, i, after, others, dis):''}
-      ${(x.boundaries&&x.boundaries.length)?`<span class="ppafter">⊘ não muda: ${esc(x.boundaries.join(' · '))}</span>`:''}${x.hitl?`<span class="ppafter">parte precisa de uma pessoa</span>`:''}
-      ${(x.requirements&&x.requirements.length)?`<span class="ppreq">${x.requirements.map(r=>'☐ '+esc(r)).join('<br>')}</span>`:''}
+      ${(x.boundaries&&x.boundaries.length)?`<span class="ppafter">⊘ não muda: ${x.boundaries.map(b=>mdInline(b)).join(' · ')}</span>`:''}${x.hitl?`<span class="ppafter">parte precisa de uma pessoa</span>`:''}
+      ${(x.requirements&&x.requirements.length)?`<span class="ppreq">${x.requirements.map(r=>'☐ '+mdInline(r)).join('<br>')}</span>`:''}
       ${x.owns?`<span class="ppowns mono">⛶ ${esc(x.owns)}</span>`:''}</span></div>`;
   });
   const n=PLP().tasks.filter(x=>x.on).length;
@@ -521,10 +525,10 @@ function plPlanCardHtml(bare){
   const inner=`<div class="plplan" id="plPlanCard">
     <div class="pphead">${IC.starforkEm} Épico proposto — revise e aprove</div>
     <input class="ppname" id="ppName" value="${escA(PLP().epic)}" placeholder="nome do épico"${dis}>
-    <textarea class="ppedit ppout" id="ppOutcome" rows="2" placeholder="resultado: pra quem, o que muda e qual sinal mostra que funcionou"${dis}>${esc(PLP().outcome||'')}</textarea>
-    ${rq.length?`<div class="ppdone ppreqs"><div class="ppdh">Requisitos <span>· o que as tarefas cobrem</span></div>${rq.map(r=>`<div><span class="mono">${esc(r.id)}</span> ${esc(r.text)}</div>`).join('')}</div>`:''}
+    <textarea class="ppedit ppout" id="ppOutcome" data-mdprev rows="2" placeholder="resultado: pra quem, o que muda e qual sinal mostra que funcionou"${dis}>${esc(PLP().outcome||'')}</textarea>
+    ${rq.length?`<div class="ppdone ppreqs"><div class="ppdh">Requisitos <span>· o que as tarefas cobrem</span></div>${rq.map(r=>`<div><span class="mono">${esc(r.id)}</span> ${mdInline(r.text)}</div>`).join('')}</div>`:''}
     <div class="ppdone"><div class="ppdh">Pronto quando <span>· o épico só fecha com tudo marcado</span></div>
-      ${dw.map((d,i)=>`<div class="ppdwrow"><span class="mono">D${i+1}</span><input class="ppedit" data-ppdw="${i}" value="${escA(d)}" placeholder="checagem que uma pessoa roda sem abrir tarefa"${dis}><button type="button" class="ppx" data-ppdwx="${i}" title="remover"${dis}>${IC.x}</button></div>`).join('')}
+      ${dw.map((d,i)=>`<div class="ppdwrow"><span class="mono">D${i+1}</span><input class="ppedit" data-ppdw="${i}" data-mdprev="inline" value="${escA(d)}" placeholder="checagem que uma pessoa roda sem abrir tarefa"${dis}><button type="button" class="ppx" data-ppdwx="${i}" title="remover"${dis}>${IC.x}</button></div>`).join('')}
       <button type="button" class="ppadd" id="ppDwAdd"${dis}>+ checagem</button></div>
     <div class="pplist">${rows}</div>
     ${PLP().cut?`<div class="ppwarn">A IA propôs ${PLP().tasks.length+PLP().cut} etapas — aqui cabem as ${PL_PLAN_MAX} primeiras. Peça na conversa pra juntar etapas, ou crie as outras depois.</div>`:''}
@@ -543,7 +547,8 @@ function plAfterRowHtml(x, i, after, others, dis){
   return `<span class="ppafter">${on.length?'↳ depois de: '+on.map(o=>`<span class="ppchip on static" title="${escA(o.title)}">${short(o.title)}</span>`).join(''):'↳ começa já'}${dis?'':`<button type="button" class="ppmini" data-ppaftere="${x.idx}" title="escolher de quais tarefas esta depende">mudar</button>`}</span>`;
 }
 function plWirePlanCard(){
-  const card=$id('plPlanCard'); if(!card || PLP().locked) return; // enquanto grava na nuvem, nada muda
+  const card=$id('plPlanCard'); if(card && typeof mdPrevSync==='function') mdPrevSync(card); // resultado/critérios/prova: prévia formatada + "editar"
+  if(!card || PLP().locked) return; // enquanto grava na nuvem, nada muda
   // (des)marcar recalcula as ondas: quem dependia de uma tarefa desmarcada sobe de onda
   const rewave=()=>{ plWaves(PLP().tasks); plSortWaves(PLP().tasks); plPlanRerender(); plPlanSave(); };
   card.querySelectorAll('[data-pptask]').forEach(c=>c.onchange=()=>{ PLP().tasks[+c.dataset.pptask].on=c.checked; rewave(); });
@@ -743,6 +748,25 @@ function plTakeBack(text, atts){
   else if(i){ i.value=text+'\n\n'+i.value; i.dispatchEvent(new Event('input')); } // re-cresce a caixa
   return true;
 }
+// @pl-reply-inicio
+// resposta do planner → objeto. A IA manda ```json {…}``` e o JSON pode ter ``` DENTRO (código no objetivo): o
+// casamento não-guloso cortava ali, o parse falhava e a resposta inteira aparecia CRUA no chat ({"say":"…\n…"}).
+// Tenta a cerca até a ÚLTIMA ```, depois do 1º { ao último }. Sem JSON válido: só a FALA (o "say" do JSON
+// quebrado, ou o texto sem a cerca) — nunca o JSON cru.
+function plParseReply(text){
+  const t=String(text||''), cands=[];
+  const i=t.search(/```json/i);
+  if(i>=0){ const body=t.slice(i).replace(/^```json\s*/i,''), j=body.lastIndexOf('```'), k=body.indexOf('```');
+    if(k>=0) cands.push(body.slice(0,k)); // 1ª cerca fecha o JSON (exemplo de código DEPOIS do JSON)
+    cands.push(j>=0?body.slice(0,j):body); } // última cerca: o JSON tem ``` dentro
+  const a=t.indexOf('{'), b=t.lastIndexOf('}'); if(a>=0 && b>a) cands.push(t.slice(a,b+1));
+  for(const c of cands){ try{ const o=JSON.parse(c.trim()); if(o && typeof o==='object' && !Array.isArray(o)) return { obj:o, say:'' }; }catch(_){ } }
+  const m=t.match(/"say"\s*:\s*("(?:[^"\\]|\\.)*")/); if(m){ try{ return { obj:null, say:JSON.parse(m[1]) }; }catch(_){ } }
+  // sem JSON legível: só o texto ANTES do JSON (cercado ou solto) — nunca o JSON cru
+  const rest=(i>=0 ? t.slice(0,i) : (a>=0 && b>a) ? t.slice(0,a)+' '+t.slice(b+1) : t).trim();
+  return { obj:null, say:rest || '(a IA respondeu num formato que não deu pra ler — peça de novo)' };
+}
+// @pl-reply-fim
 // @pl-draft-inicio
 // RASCUNHO atual (campos que a IA já fechou via `patch` + épico proposto): vai junto quando a rodada leva o histórico
 // (gateway sem sessão, sessão perdida/de outra IA) — as falas truncadas não carregam o que já ficou decidido.
@@ -800,7 +824,7 @@ async function plSend(text){
     if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     plFields.kindSent=kindNext;
     aiKeepSid(r, s=>{ plSid=s; });
-    let obj=null; try{ const m=(r.text||'').match(/```json\s*([\s\S]*?)```/i)||(r.text||'').match(/(\{[\s\S]*\})/); if(m) obj=JSON.parse(m[1]); }catch(_){}
+    const rep=plParseReply(r.text||''), obj=rep.obj;
     plBusy=false;
     if(obj){
       plApplyPatch(obj.patch);
@@ -817,7 +841,7 @@ async function plSend(text){
         plMsgs.push({who:'sys', text:'Confirmado — volte nesta aba e toque em "criar e rodar".'});
       }
     } else {
-      plMsgs.push({who:'bot', text:r.text||'(sem resposta)'});
+      plMsgs.push({who:'bot', text:rep.say||'(sem resposta)'}); // nunca o JSON cru no chat
     }
     renderPlanner(); plAutoSave();
   }).catch(e=>{ console.error('planner: aplicar resposta', e); plBusy=false; plMsgs.push({who:'sys', text:'Algo falhou ao mostrar a resposta — envie de novo.'}); renderPlanner(); });
