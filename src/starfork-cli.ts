@@ -69,6 +69,12 @@ async function tool(io: Io, name: string, args: Record<string, unknown>): Promis
   } finally { ctx.close(); }
 }
 
+/** O catálogo do projeto (Meu time) a partir do banco do terminal — pra `starfork etapa <agente do time>`. */
+async function projectCatalog(): Promise<{ id: string; name: string; role: string }[]> {
+  const db = process.env.CARDUME_DB ?? "";
+  if (!db) return [];
+  try { const { loadConfig } = await import("./config.ts"); return loadConfig(dirname(dirname(db))).agents; } catch { return []; }
+}
 /** Mensagem pro agente desta tarefa: IA aberta no terminal → imprime (ela lê); shell no prompt → grava em
  * .cardume/term/next-msg.txt e mostra a linha que abre a IA com ela (o mesmo caminho do app). */
 async function toTermAi(io: Io, text: string, ctx: ReturnType<typeof ctxFromEnv>, task: string): Promise<number> {
@@ -157,7 +163,7 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
       const q = String(a.pos[0] ?? "");
       // palavra de status (review/revisar/construir/esperando…) continua sendo status; agente/papel (design, qa, aria…) vira etapa extra
       // palavra que não é status → agente (o do catálogo do projeto também: a tool resolve e, se não achar, lista os que existem)
-      if (/^\+/.test(q) || (q && !["review", "needs-you", "running"].includes(etapaStatus(q)))) return extraStageCli(io, q.replace(/^\+/, ""), one(a, "nota", "note") ?? a.pos.slice(1).join(" "));
+      if (/^\+/.test(q) || (!["review", "needs-you", "running"].includes(etapaStatus(q)) && resolveExtraAgent(await projectCatalog(), q))) return extraStageCli(io, q.replace(/^\+/, ""), one(a, "nota", "note") ?? a.pos.slice(1).join(" "));
       return tool(io, "set_status", { status: etapaStatus(q), note: one(a, "nota", "note") ?? a.pos.slice(1).join(" ") });
     }
     case "alteracao":
