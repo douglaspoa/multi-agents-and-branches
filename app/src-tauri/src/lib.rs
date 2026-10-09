@@ -53,6 +53,10 @@ mod procsig {
     pub const CONT: i32 = libc::SIGCONT;
     #[cfg(unix)]
     pub const STOP: i32 = libc::SIGSTOP;
+    #[cfg(unix)]
+    pub const INT: i32 = libc::SIGINT;
+    #[cfg(windows)]
+    pub const INT: i32 = 2;
     #[cfg(windows)]
     pub const KILL: i32 = 9;
     #[cfg(windows)]
@@ -1135,6 +1139,120 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
     Ok(())
 }
 
+// ============================ e2e do APP (só na build de teste: `--features e2e`) ============================
+/// Roteiro de teste (STARFORK_E2E_SCRIPT) que o front roda ao subir — só existe na build de teste isolada (identificador e
+/// HOME próprios). No app de verdade recusa sempre: nada de código vindo de fora.
+#[tauri::command(async)]
+fn e2e_script() -> Result<String, String> {
+    if !cfg!(feature = "e2e") { return Err("indisponível".into()); }
+    let p = std::env::var("STARFORK_E2E_SCRIPT").map_err(|_| "sem roteiro".to_string())?;
+    std::fs::read_to_string(p).map_err(|e| e.to_string())
+}
+/// Uma linha do relatório do roteiro de teste (STARFORK_E2E_REPORT).
+#[tauri::command(async)]
+fn e2e_report(line: String) -> Result<(), String> {
+    if !cfg!(feature = "e2e") { return Err("indisponível".into()); }
+    use std::io::Write;
+    let p = std::env::var("STARFORK_E2E_REPORT").map_err(|_| "sem relatório".to_string())?;
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(p).map_err(|e| e.to_string())?;
+    writeln!(f, "{}", line.replace('\n', " ")).map_err(|e| e.to_string())
+}
+
+// ============================ ASSUMIR no terminal (turno de fundo → PTY) ============================
+/// Processo de FUNDO (headless `cardume start/talk/rework…`) desta tarefa, vivo agora — o PID do PTY não conta (o hook
+/// grava o pid do terminal no mesmo `busy_pid` quando a sessão do terminal está ocupada).
+pub(crate) fn headless_busy_pid(state: &State<AppState>, task_id: &str) -> Option<i32> { headless_pid(state, task_id) }
+fn headless_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
+    let live_pty = term::mgr().and_then(|m| m.live(task_id)).map(|s| s.pid as i32);
+    live_task_pid(state, task_id).filter(|p| Some(*p) != live_pty)
+}
+/// Escada de sinais no GRUPO do turno de fundo (o node do motor é líder — setsid): SIGINT (o `claude -p` e o node saem
+/// limpos, sem retry nem "erro"), 3 s → SIGTERM, 8 s → SIGKILL (Téo na mesa). Devolve se morreu.
+fn stop_ladder(p: i32) -> bool {
+    // líder de grupo (o app sobe o motor com setsid) → o grupo inteiro; senão (motor que alguém subiu num terminal) → a
+    // subárvore do processo, filhos primeiro — kill(-pid) num não-líder não faz nada (Edge Case Hunter)
+    #[cfg(unix)]
+    let leader = unsafe { libc::getpgid(p) } == p;
+    #[cfg(not(unix))]
+    let leader = true;
+    let sig = |s: i32| {
+        if leader { signal_group(p, s); return; }
+        #[cfg(unix)]
+        for x in term::subtree(&term::ps_table(), p as i64) { unsafe { libc::kill(x as i32, s); } }
+    };
+    sig(procsig::CONT); // pausado (teto) também precisa poder sair
+    let wait = |ms: u64| { let t0 = std::time::Instant::now(); while t0.elapsed() < std::time::Duration::from_millis(ms) { if !pid_alive(p) { return true; } std::thread::sleep(std::time::Duration::from_millis(50)); } !pid_alive(p) };
+    sig(procsig::INT);
+    if wait(3000) { return true; }
+    sig(procsig::TERM);
+    if wait(5000) { return true; }
+    sig(procsig::KILL);
+    wait(1500)
+}
+/// Espera o transcript da sessão PARAR de crescer (~500 ms sem mudar, no máx. 3 s): o `--resume` só depois que o
+/// último escritor soltou — dois escritores bifurcam a sessão.
+fn transcript_settle(worktree: &str, sid: Option<&str>) {
+    let (Some(cfg), Some(sid)) = (term_hist::claude_config_dir(), sid.filter(|s| !s.is_empty())) else { return };
+    let Some(p) = term_hist::find_transcript(&cfg, worktree, sid) else { return };
+    let stamp = || std::fs::metadata(&p).ok().map(|m| (m.len(), m.modified().ok()));
+    let t0 = std::time::Instant::now();
+    let mut last = stamp();
+    let mut same_since = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_secs(3) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let now = stamp();
+        if now != last { last = now; same_since = std::time::Instant::now(); } else if same_since.elapsed() >= std::time::Duration::from_millis(500) { return; }
+    }
+}
+/// Antes de qualquer coisa ir pro terminal: se um turno de FUNDO está vivo, ASSUME — para num ponto seguro e devolve se a
+/// sessão do terminal deve ser NOVA (o turno era de planner/revisor). Sem turno de fundo → Ok(None). Piloto automático
+/// → erro explicado (ele é dono do processo).
+fn takeover_headless(state: &State<AppState>, task_id: &str) -> Result<Option<bool>, String> {
+    let Some(p) = headless_pid(state, task_id) else { return Ok(None) };
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let (spec_json, stage, wt, sid): (String, Option<String>, Option<String>, Option<String>) = conn
+        .query_row("SELECT spec_json, stage, worktree, session_id FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(|e| e.to_string())?;
+    let spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or_default();
+    if term::is_autopilot(&spec) { return Err(term::AUTOPILOT_OWNS.to_string()); }
+    term::taking_set(task_id, true);
+    let dead = stop_ladder(p);
+    if let Ok(mut m) = state.procs.lock() { if m.get(task_id) == Some(&p) { m.remove(task_id); } }
+    if !dead { term::taking_set(task_id, false); return Err("não consegui parar o turno de fundo desta tarefa — tente de novo em alguns segundos".into()); }
+    let _ = conn.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 1)", params![task_id, now_ms(), "trazendo a IA pro terminal — o turno de fundo parou num ponto seguro e a conversa continua aqui"]);
+    let _ = conn.execute("UPDATE task SET busy_pid=NULL WHERE id=?1 AND busy_pid=?2", params![task_id, p as i64]);
+    let _ = stop_set_review(&conn, task_id);
+    transcript_settle(wt.as_deref().unwrap_or(""), sid.as_deref());
+    Ok(Some(!term::takeover_resumes(stage.as_deref().unwrap_or(""), &spec)))
+}
+/// "Assumir no terminal" (a 1ª tecla no terminal de uma tarefa de fundo): para o turno de fundo e abre o PTY retomando a
+/// MESMA sessão (ou nova, se o turno era de planner/revisor), quieto — as teclas guardadas no front entram depois.
+#[tauri::command(async)]
+fn term_takeover(state: State<AppState>, task_id: String, cols: u16, rows: u16) -> Result<(), String> {
+    let r = (|| {
+        let fresh = takeover_headless(&state, &task_id)?.unwrap_or(false);
+        let repo = repo_of(&state)?;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        term::open_task_x(&repo, &db, &task_id, cols, rows, true, None, true, fresh).map(|_| ())
+    })();
+    term::taking_set(&task_id, false);
+    r
+}
+/// Mensagem pro terminal de uma tarefa que roda no terminal: turno de fundo vivo → assume antes (abre com o texto como 1ª
+/// mensagem, na sessão certa); senão o roteamento de sempre (fila/abre).
+pub(crate) fn term_route_after_takeover(state: &State<AppState>, task_id: &str, kind: &str, msg: &str, as_req: bool, deliver: Option<&str>) -> Result<(), String> {
+    let r = (|| {
+        if let Some(fresh) = takeover_headless(state, task_id)? {
+            if fresh { term::set_fresh_next(task_id); }
+        }
+        term::route(state, task_id, kind, msg, as_req, deliver)
+    })();
+    term::taking_set(task_id, false);
+    let _ = term::take_fresh_next(task_id); // não vaza pra uma abertura futura (só vale pra ESTA mensagem)
+    r
+}
+
 /// Grava o status de uma tarefa direto no DB (usado por pausar/abortar, já que o
 /// orquestrador está congelado/morto e não vai gravar sozinho).
 fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Result<(), String> {
@@ -1153,7 +1271,7 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
     // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal)
-    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns"] {
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "termRole"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     // Cadeado 1 na faixa: a tarefa pausa pra aprovar o plano?
@@ -1209,6 +1327,12 @@ struct Task {
     /// Pedidos (mensagens, entregáveis, rework) esperando na FILA do motor (work_queue 'queued').
     /// Com `busy` false e isto > 0 = fila parada: o front avisa em vez de a mensagem "sumir".
     queued: i64,
+    /// A tarefa roda no TERMINAL (regra única term::starts_in_terminal, já resolvida — o front não relê spec.termMode):
+    /// tarefa do CLI sem `termMode` aparece como terminal antes de o PTY abrir.
+    term_run: bool,
+    /// Um turno de FUNDO (headless) é dono da tarefa agora: lock vivo que NÃO é o PTY dela — o terminal mostra "a IA está
+    /// trabalhando sozinha · digite aqui para entrar na conversa" e a 1ª tecla assume (term_takeover)
+    bg: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -2853,6 +2977,8 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
             }
         }
     };
+    // o modo padrão é lido UMA vez por retrato (setting_get abre o arquivo de Ajustes)
+    let (term_default, term_chosen) = (term::default_mode(), setting_get("taskMode").as_deref() == Some("terminal"));
     let tasks = conn
         .prepare(&format!(
             "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{}, \
@@ -2866,6 +2992,9 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
             let roles_json: String = r.get(6)?;
             let spec_json: String = r.get(13)?;
             let spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or_default();
+            let tid: String = r.get(0)?;
+            let bpid: Option<i64> = r.get::<_, Option<i64>>(16).unwrap_or(None).filter(|pid| pid_alive(*pid as i32));
+            let pty_pid = term::mgr().and_then(|m| m.live(&tid)).map(|s| s.pid as i64);
             Ok(Task {
                 id: r.get(0)?,
                 title: r.get(1)?,
@@ -2901,12 +3030,10 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                 },
                 depends_on: spec.get("dependsOn").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
                 spec: task_front_spec(&spec),
-                busy: r
-                    .get::<_, Option<i64>>(16)
-                    .unwrap_or(None)
-                    .map(|pid| pid_alive(pid as i32))
-                    .unwrap_or(false),
+                term_run: term::starts_in_terminal(&spec, term_default, term_chosen),
+                busy: bpid.is_some(),
                 queued: 0,
+                bg: bpid.is_some() && bpid != pty_pid,
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -3078,7 +3205,7 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
     // enfileira o feedback como instrução (reutiliza o mesmo mecanismo)
     add_instruction(state.clone(), task_id.clone(), text.clone())?;
     if term::is_terminal(&state, &task_id) {
-        return term::route(&state, &task_id, "rework", "", false, None); // "pedir ajuste" na mesma sessão
+        return term_route_after_takeover(&state, &task_id, "rework", "", false, None); // "pedir ajuste" na mesma sessão
     }
     let repo = repo_of(&state)?;
     let mut cmd = node_cmd();
@@ -3154,7 +3281,7 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
     let repo = repo_of(&state)?;
     let k = if kind == "tests" || kind == "proof" || kind == "all" { kind } else { "doc".to_string() };
     if term::is_terminal(&state, &task_id) {
-        return term::route(&state, &task_id, "deliver", "", false, Some(&k)); // "pedir prova/doc/testes"
+        return term_route_after_takeover(&state, &task_id, "deliver", "", false, Some(&k)); // "pedir prova/doc/testes"
     }
     let mut cmd = node_cmd();
     cmd.args([
@@ -3207,7 +3334,8 @@ fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: O
     // AUTOMÁTICO→TERMINAL: tarefa Claude parada (inclusive as antigas, headless) retoma a sessão no PTY
     // (`claude --resume <sessão>`) — a aba Terminal substituiu a Conversa
     if term::should_talk_in_terminal(&state, &task_id)? {
-        return term::route(&state, &task_id, "talk", &m, as_req.unwrap_or(false), None);
+        // tarefa de terminal com turno de FUNDO vivo (legado, ou a que estava rodando no deploy): assume e manda
+        return term_route_after_takeover(&state, &task_id, "talk", &m, as_req.unwrap_or(false), None);
     }
     let mut cmd = node_cmd();
     cmd.args([
@@ -3462,6 +3590,21 @@ mod agent_version_cfg_tests {
 
 /// Cria e dispara uma tarefa (detached) — roda o núcleo em background; o SQLite
 /// é atualizado ao vivo. Tarefas paralelas se coordenam pelo mesmo state.sqlite.
+/// PURA: o `--term-mode` que a criação grava. terminal → "terminal"; automático só quando foi ESCOLHA (pedido "auto"
+/// ou o padrão "auto" de Ajustes); senão nada (ausente = decide no início, pelo padrão).
+fn term_mode_arg(terminal: bool, explicit: Option<&str>, default: &str) -> Option<&'static str> {
+    if terminal { Some("terminal") } else if explicit == Some("auto") || default == "auto" { Some("auto") } else { None }
+}
+#[cfg(test)]
+mod term_mode_arg_tests {
+    #[test]
+    fn auto_so_gravado_quando_escolhido() {
+        assert_eq!(super::term_mode_arg(true, None, "terminal"), Some("terminal"));
+        assert_eq!(super::term_mode_arg(false, Some("auto"), "terminal"), Some("auto"), "pedido explícito");
+        assert_eq!(super::term_mode_arg(false, None, "auto"), Some("auto"), "Ajustes › Automático");
+        assert_eq!(super::term_mode_arg(false, None, "terminal"), None, "codex sem escolher: ausente, decide no início");
+    }
+}
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 fn new_task(
@@ -3658,9 +3801,17 @@ fn new_task(
     let ek = args.iter().position(|a| a == "--engine").and_then(|i| args.get(i + 1)).map(|e| e.to_lowercase()).unwrap_or_default();
     // Codex no terminal = a pessoa ESCOLHEU terminal (beta antiga ou a tela nova) — o padrão novo é só do Claude
     let chosen = setting_get("taskMode").as_deref() == Some("terminal");
-    let terminal = term::wants_terminal(term_mode.as_deref(), term::default_mode(), chosen, &ek);
-    args.push("--term-mode".to_string());
-    args.push(if terminal { "terminal" } else { "auto" }.to_string());
+    // sem pedido explícito: a MESMA regra do início (term::starts_in_terminal) — rótulo só com o modelo ("opus") é Claude
+    let terminal = match term_mode.as_deref() {
+        Some("terminal") | Some("auto") => term::wants_terminal(term_mode.as_deref(), term::default_mode(), chosen, &ek),
+        _ => term::starts_in_terminal(&serde_json::json!({ "engine": ek }), term::default_mode(), chosen),
+    };
+    // "auto" só fica GRAVADO quando é escolha (pedido explícito ou Ajustes › Automático) — gravado é respeitado em
+    // todo início (term::starts_in_terminal); sem escolha fica AUSENTE e cada início decide pelo padrão daquele momento
+    if let Some(m) = term_mode_arg(terminal, term_mode.as_deref(), term::default_mode()) {
+        args.push("--term-mode".to_string());
+        args.push(m.to_string());
+    }
     // terminal: o CLI só CRIA (worktree, TASK.yaml); quem abre o terminal é o app, quando a criação termina
     let open_terminal = terminal && start != Some(false);
     if open_terminal { args.push("--no-start".to_string()); }
@@ -3999,11 +4150,10 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
         return Err("essa tarefa já está rodando".into());
     }
     let repo = repo_of(&state)?;
-    // MODO TERMINAL: ▶ abre o CLI oficial num terminal (a tela da tarefa se conecta a ele)
+    // MODO TERMINAL (a regra única — tarefa do CLI sem termMode inclusive): ▶ abre o CLI oficial num terminal
     if term::is_terminal(&state, &task_id) {
         let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
-        term::open_task(&repo, &db, &task_id, 120, 34, true, None)?;
-        return Ok(());
+        return term::start_in_terminal(&state, &repo, &db, &task_id);
     }
     let mut cmd = node_cmd();
     cmd.args([
@@ -4046,8 +4196,22 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
         repo.display().to_string(),
     ];
     push_opt(&mut args, "--agents", &agents);
+    // terminal sempre vivo: o motor só PREPARA (pasta, diff, tarefa); o revisor abre no TERMINAL — ou, no modo
+    // automático (motor sem terminal / Ajustes › Automático), roda de fundo como antes
+    args.push("--no-start".to_string());
     let mut cmd = node_cmd();
-    cmd.args(&args).current_dir(&repo);
+    cmd.args(&args).current_dir(&repo).stdin(Stdio::null()).env("CARDUME_NOTIFY", "0");
+    let out = output_timeout(cmd, 120).map_err(|e| format!("não consegui preparar a revisão do PR: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("não consegui preparar a revisão do PR: {}", err.lines().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" ").trim()));
+    }
+    if term::is_terminal(&state, &id) {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        return term::start_in_terminal(&state, &repo, &db, &id);
+    }
+    let mut cmd = node_cmd();
+    cmd.args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "review-pr", "--run", &id, "--repo", &repo.display().to_string()]).current_dir(&repo);
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &id, cmd)?;
     Ok(())
@@ -10342,6 +10506,9 @@ pub fn run() {
             epic_sync_cli,
             task_agent_edit,
             resolve_conflict,
+            term_takeover,
+            e2e_script,
+            e2e_report,
             list_projects,
             set_projects_user,
             projects_scope,

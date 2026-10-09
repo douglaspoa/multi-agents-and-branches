@@ -26,7 +26,7 @@ export const TEXT_FLAGS = new Set([
   // piloto automático (src/autopilot.ts)
   "idea", "dir", "name", "platform", "parallel", "attempts", "budget-usd", "plan",
   // modo terminal (src/terminal.ts)
-  "starfork-task", "term-mode", "deliver", "ai",
+  "starfork-task", "term-mode", "deliver", "ai", "run",
   // F5: política da organização (P14) e teto da amostra (P15)
   "org-policy", "cap",
   // revisão: pedir alteração / etapa extra (src/revisao-alteracao.ts)
@@ -35,7 +35,7 @@ export const TEXT_FLAGS = new Set([
 
 /** Flags SEM valor (booleanas). */
 export const BOOL_FLAGS = new Set([
-  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design", "resume", "quiet", "clear",
+  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design", "resume", "quiet", "clear", "nova-sessao", "so-pr",
 ]);
 
 const isKnownFlag = (tok: string) => tok.startsWith("--") && (TEXT_FLAGS.has(tok.slice(2)) || BOOL_FLAGS.has(tok.slice(2)) || tok === "--artifact-doc");

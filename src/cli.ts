@@ -18,7 +18,7 @@ import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
 import { install as slInstall, uninstall as slUninstall, status as slStatus } from "./claude-statusline.ts";
 import { mobileCli } from "./mobile.ts";
-import { askHookCli, AUQ_TOOL, hookCli, HOOK_MARK, setTermAi, statuslineCli, termMessage, termPrep, turnEndCli } from "./terminal.ts";
+import { askHookCli, AUQ_TOOL, hookCli, HOOK_MARK, setTermAi, statuslineCli, takeInlineTurnEnd, termMessage, termPrep, turnEndCli } from "./terminal.ts";
 import { starforkCli } from "./starfork-cli.ts";
 import { browserProxyCli } from "./browser-proxy.ts";
 import { envCli } from "./env-up.ts";
@@ -507,6 +507,8 @@ async function cmdRm(repo: string, taskId: string) {
 }
 
 async function cmdReviewPr(repo: string, a: Args) {
+  // revisão já preparada (--no-start) indo pro modo automático: só roda o revisor
+  if (a.flags.run) { const orch = new Orchestrator(repo); try { await orch.runReviewPrTask(a.flags.run); } finally { orch.close(); } return; }
   const pr = a.flags.pr;
   if (!pr) {
     console.error(c.red("✕ use --pr <url|número>"));
@@ -536,8 +538,8 @@ async function cmdReviewPr(repo: string, a: Args) {
   };
   const orch = new Orchestrator(repo);
   console.log(c.dim(`→ revisando ${pr} · revisor: ${roles.map((r) => r.name).join(", ")}`));
-  await orch.reviewPr(spec, pr);
-  console.log(c.green("✓") + " review do PR pronto");
+  await orch.reviewPr(spec, pr, { noStart: !!a.flags["no-start"] });
+  console.log(c.green("✓") + (a.flags["no-start"] ? ` revisão ${spec.id} preparada — o revisor abre no terminal` : " review do PR pronto"));
   orch.close();
 }
 
@@ -1127,12 +1129,15 @@ async function main() {
       // pergunta do agente (AskUserQuestion): espera a resposta da folha do app e devolve allow + answers
       if (a._[1] === AUQ_TOOL) { process.exitCode = await askHookCli(a.flags[HOOK_MARK.slice(2)] ?? "", repo); break; }
       // codex-notify: o Codex passa o JSON como ÚLTIMO argumento
-      process.exitCode = hookCli(a._[1], a.flags[HOOK_MARK.slice(2)] ?? "", repo, a._[1] === "codex-notify" ? argv[argv.length - 1] : undefined);
+      process.exitCode = hookCli(a._[1], a.flags[HOOK_MARK.slice(2)] ?? "", repo, a._[1] === "codex-notify" ? argv[argv.length - 1] : undefined, { inline: true });
+      // Stop: o fim de turno roda AQUI, antes de devolver ao Claude Code (o próximo pedido da fila dele espera)
+      { const te = takeInlineTurnEnd(); if (te) { try { await turnEndCli(te.repo, te.taskId, { inline: true }); } catch (e) { process.stderr.write(`starfork turn-end: ${(e as Error)?.message ?? e}\n`); } } }
       break;
     case "statusline":
       process.exitCode = statuslineCli(a.flags[HOOK_MARK.slice(2)] ?? "", repo);
       break;
     case "turn-end":
+      if (a.flags["so-pr"]) { const orch = new Orchestrator(repo); try { await orch.terminalOpenPr(a._[1]); } finally { orch.close(); } break; }
       await turnEndCli(repo, a._[1]);
       break;
     case "term-prep": {
@@ -1146,7 +1151,7 @@ async function main() {
         if (t0 && t0.status !== "merged" && t0.worktree && !existsSync(t0.worktree)) await orch.ensureTaskWorktree(a._[1]);
         // INTEGRADA sem pasta: reabre pra CONVERSAR (mesmo caminho = o --resume acha a sessão); a tarefa segue integrada
         if (t0 && t0.status === "merged" && t0.worktree && !existsSync(t0.worktree)) await orch.ensureTaskWorktree(a._[1], { conversation: true });
-        console.log(JSON.stringify(termPrep(orch, a._[1], { resume: !!a.flags.resume, quiet: !!a.flags.quiet, message: a.flags.msg, ai: a.flags.ai || undefined, model: a.flags.ai ? a.flags.model : undefined })));
+        console.log(JSON.stringify(termPrep(orch, a._[1], { resume: !!a.flags.resume, quiet: !!a.flags.quiet, message: a.flags.msg, ai: a.flags.ai || undefined, model: a.flags.ai ? a.flags.model : undefined, newSession: !!a.flags["nova-sessao"] })));
       } catch (e) {
         console.log(JSON.stringify({ error: (e as Error)?.message ?? String(e) }));
         process.exitCode = 1;

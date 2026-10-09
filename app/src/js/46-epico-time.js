@@ -629,7 +629,9 @@ function ctSentHtml(scope){
   if(scope==='done' || !ctSent.rows.length) return '';
   const col=(typeof flowSecCollapsed==='function')?flowSecCollapsed('comtime', false):false;
   const q=String((typeof flowQuery!=='undefined'&&flowQuery)||'').trim().toLowerCase(), fe=(typeof flowEpic!=='undefined')?flowEpic:'all';
-  const rows=ctSent.rows.filter(t=>(!q||String(t.title||'').toLowerCase().includes(q)) && (fe==='all'||t.epic_id===fe)); // a busca e o épico da Central valem aqui também
+  // com a Central de alcance (71), as LIVRES moram em "Livres no seu time" (com Assumir) — aqui fica o que está com alguém
+  const caLiv=typeof caFreeShown==='function';
+  const rows=ctSent.rows.filter(t=>(!q||String(t.title||'').toLowerCase().includes(q)) && (fe==='all'||t.epic_id===fe) && !(caLiv && !t.assignee && caFreeShown(t))); // a busca e o épico da Central valem aqui também
   if(!rows.length) return '';
   const head=(typeof flowSecHead==='function')?flowSecHead('comtime','Com o time', rows.length, '', col, IC.push||''):`<div class="sech">Com o time <span class="n">${rows.length}</span></div>`;
   const me=cloudUserId();

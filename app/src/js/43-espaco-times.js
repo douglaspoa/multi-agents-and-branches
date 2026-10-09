@@ -132,7 +132,7 @@ function tsIssueChip(t, proj){
   const c=(l&&l.code)||(((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/)||[])[1]||'';
   const b=(lsGet('issueBase')||'').trim(), url=(l&&l.url)||(c&&b?b.replace(/\/+$/,'')+'/'+c:'');
   if(c||url) return url?`<button class="tslk" data-lk="${escA(url)}" title="abrir a issue no painel">${c?`<span class="mono">${esc(c)}</span>`:'issue'} ${icEm(IC.extlink)}</button>`:`<span class="mono" title="issue no painel">${esc(c)}</span>`;
-  if(typeof trkCardMissing==='function' && trkCardMissing(t, proj)) return `<button class="tslk tsnoiss" data-act="issue" title="o painel de Issues cobre este projeto, mas este cartão ficou sem issue — clique pra criar agora">sem issue · criar</button>`;
+  if(typeof trkCardMissing==='function' && trkCardMissing(t, proj)) return `<button class="tslk tsnoiss" data-act="issue" title="o painel de Issues cobre este projeto, mas este cartão ficou sem issue — clique pra criar agora">sem issue · tentar de novo</button>`;
   return '';
 }
 // ---- ASSUMIR / INICIAR / DEVOLVER (mesa 09/10, T3–T4) ----
@@ -143,7 +143,7 @@ function tsCostOk(t, me){ return (typeof entPodeVerCusto==='function'?entPodeVer
 const TS_LIVE=new Set(['running','thinking','plan-review','queued']);
 function tsActsHtml(t, me, canClaim, sameRepo, isLocal, proj){
   const B=(act, label, title, cls)=>`<button class="btn sm${cls?' '+cls:''}" data-act="${act}" title="${escA(title)}" style="padding:3px 9px;font-size:var(--fs-xs)">${label}</button>`;
-  const can=tmCanAssignNow(), out=[];
+  const can=tmCanAssignNow(t.team_id), out=[]; // o time DO CARTÃO (na visão da org, cartão de outro time)
   const openProj=!sameRepo&&isLocal?B('openproj','abrir '+esc(proj.name||'o projeto'),'a tarefa é do projeto '+(proj.name||proj.repo_remote||'')+' — abrir ele aqui pra iniciar',''):'';
   if(t.status==='backlog'){
     if(!t.assignee && canClaim){
@@ -169,26 +169,26 @@ async function tsClaimOnly(ct, btn){
     if(!j||!j.ok) throw new Error((j&&j.error)||'não deu pra assumir');
     ct.assignee=cloudUserId(); if(typeof trkCardAssign==='function') trkCardAssign(ct, ct.assignee);
     teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{});
-    toast('Você assumiu “'+String(ct.title||'').slice(0,60)+'” — o time vê seu nome. Inicie quando quiser.','ok');
+    toast('Você assumiu “'+String(ct.title||'').slice(0,60)+'”. Seu nome aparece no cartão pra todo o time; quem criou foi avisado. Nada roda até você iniciar.','ok');
   }catch(e){ showErr(e, 'Não deu pra assumir'); if(btn){ btn.disabled=false; btn.textContent='assumir'; } }
 }
 async function tsRelease(ct, btn){
   if(!await askYes('O cartão volta pra fila do time, livre, e quem criou é avisado.', 'Devolver “'+String(ct.title||'').slice(0,60)+'”?')) return;
   if(btn){ btn.disabled=true; btn.textContent='devolvendo…'; }
-  try{ await cloudAssign(ct.id, null); ct.assignee=null; teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{}); toast('Devolvido — “'+String(ct.title||'').slice(0,60)+'” está livre pro time.','ok'); }
+  try{ await cloudAssign(ct.id, null); ct.assignee=null; teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{}); toast('Devolvida pro time como livre — “'+String(ct.title||'').slice(0,60)+'”. Quem criou foi avisado.','ok'); }
   catch(e){ showErr(e, 'Não deu pra devolver'); if(btn){ btn.disabled=false; btn.textContent='devolver'; } }
 }
 // promessa resolve quando a troca termina (a página do cartão redesenha DEPOIS); tirar de um colega pede confirmação
 function tsReassign(ct, btn){
-  return new Promise(done=>{ tmWhoPick(btn, ct.assignee||'', async uid=>{
+  return new Promise(done=>{ tmWhoPick(btn, ct.assignee||'', async uid=>{ // a lista é do time DO CARTÃO (ct.team_id)
     try{
       if((uid||null)===(ct.assignee||null)) return;
       if(ct.assignee && ct.assignee!==cloudUserId() && !await askYes(tmName(ct.assignee)+' é avisado'+(uid?' e o cartão passa pra '+tmName(uid):' e o cartão fica livre')+'. Se ele já começou nesta máquina dele, combine antes.', 'Tirar “'+String(ct.title||'').slice(0,50)+'” de '+tmName(ct.assignee)+'?')) return;
       await cloudAssign(ct.id, uid); ct.assignee=uid||null; if(uid && typeof trkCardAssign==='function') trkCardAssign(ct, uid);
       teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{});
-      toast(uid?'“'+String(ct.title||'').slice(0,50)+'” agora está com '+tmName(uid)+'.':'“'+String(ct.title||'').slice(0,50)+'” ficou livre.','ok');
+      toast(uid?'Atribuída a '+tmName(uid)+' — “'+String(ct.title||'').slice(0,50)+'”. '+(uid===cloudUserId()?'Nada roda até você iniciar.':'A pessoa recebe o aviso; nada roda até ela iniciar.'):'“'+String(ct.title||'').slice(0,50)+'” ficou livre.','ok');
     }catch(e){ showErr(e, 'Não deu pra trocar o responsável'); }
-    finally{ done(); } }); });
+    finally{ done(); } }, ct.team_id); });
 }
 window.tsClaimOnly=tsClaimOnly; window.tsRelease=tsRelease; window.tsReassign=tsReassign; window.tsActsHtml=tsActsHtml;
 function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',released:'devolveu',assigned:'atribuiu',started:'iniciou',delivered:'publicou provas em',comment:'comentou em',status:'mudou o status de'}[kind]||kind; }
@@ -410,8 +410,7 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     // defaults por baixo: cartão criado "enxuto" (ex.: derivado de épico) roda igual
     // ...(ct.spec) traz verify/covers/after/wave/risk/hitl quando o cartão veio de um épico; epic_id é coluna, não spec
     const payload={ workflow:null, agents:null, engine:defaultAiEngine(), approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), issue:(ct.spec&&ct.spec.issueCode)||null, issueUrl:(ct.spec&&ct.spec.issueUrl)||ct.issue_url||null, epicId: ct.epic_id||null, epicDoneWhen: epicDoneWhenOf(ct.epic_id)||(ct.spec&&ct.spec.epicDoneWhen)||null, title: ct.spec?.title||ct.title, start:true };
-    // épico iniciando SOZINHO (onda 1 ao aprovar, ondas seguintes): ninguém olhando → modo automático (sem terminal)
-    if(opts.auto) payload.termMode='auto';
+    // épico iniciando SOZINHO também roda no TERMINAL (terminal sempre vivo, 09/10): a pessoa abre e digita quando quiser
     if(ct.epic_id && window.epicAttachRef) await epicAttachRef(payload, ct.epic_id, ct); // EPIC.md compilado vai como referência
     const localId=await invoke('new_task', await trkBeforeNewTask(payload));
     tmapSet(localId, ct.id);

@@ -121,10 +121,11 @@ function tmAssignOpts(members, profiles, me, canOthers){
 // "Rodar agora" × "Mandar pro time": com time escolhido o padrão é mandar (T1); a última escolha vale
 function tmDestDefault(hasTeam, saved){ if(!hasTeam) return 'run'; return saved==='run'||saved==='team'?saved:'team'; }
 // @time-resp-fim
-function tmTeamMembers(){ return (((typeof cloudData!=='undefined'&&cloudData&&cloudData.teamMembers)||{})[cloudTeamId()]||[]); }
+// tid: o time do CARTÃO (Org toda na Central/Time mostra cartões de outros times); sem tid = o time escolhido
+function tmTeamMembers(tid){ return (((typeof cloudData!=='undefined'&&cloudData&&cloudData.teamMembers)||{})[tid||cloudTeamId()]||[]); }
 function tmProfiles(){ const o={}; const a=(typeof cloudData!=='undefined'&&cloudData&&cloudData.profileByUser)||{}; Object.keys(a).forEach(k=>{ o[k]=a[k]; }); Object.keys(teamProfiles||{}).forEach(k=>{ o[k]=Object.assign({}, o[k]||{}, teamProfiles[k]); }); return o; }
-function tmCanAssignNow(){ return tmCanAssign(cloudData&&cloudData.meRole, tmTeamMembers(), cloudUserId()); }
-function tmAssignOptsNow(){ return tmAssignOpts(tmTeamMembers(), tmProfiles(), cloudUserId(), tmCanAssignNow()); }
+function tmCanAssignNow(tid){ return tmCanAssign(cloudData&&cloudData.meRole, tmTeamMembers(tid), cloudUserId()); }
+function tmAssignOptsNow(tid){ return tmAssignOpts(tmTeamMembers(tid), tmProfiles(), cloudUserId(), tmCanAssignNow(tid)); }
 function tmDest(){ return tmDestDefault(!!(SB.sess()&&cloudTeamId()), lsGet('nd:dest')); }
 function tmDestSet(v){ lsSet('nd:dest', v==='run'?'run':'team'); }
 // botão do responsável (avatar + nome) — abre a lista real do time num popover
@@ -133,8 +134,8 @@ function tmWhoBtnHtml(uid, attrs){
   const av=o.id?tsAv(o.id, tsOnline(o.id)):`<span class="tsav tmfree" aria-hidden="true">${IC.users||'·'}</span>`;
   return `<button type="button" class="tmwho" ${attrs||''} aria-haspopup="listbox" title="${escA(o.id?'responsável: '+o.label:'sem responsável — quem pegar primeiro')}">${av}<span class="tmwho-n">${esc(o.id?o.label:'Livre')}</span><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 6.5l3.5 3.5 3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
 }
-function tmWhoPick(anchor, cur, onPick){
-  const opts=tmAssignOptsNow(), can=tmCanAssignNow();
+function tmWhoPick(anchor, cur, onPick, tid){
+  const opts=tmAssignOptsNow(tid), can=tmCanAssignNow(tid);
   const html=`<div class="ndpop-h">Responsável</div>`+(can?'':`<p class="ndpop-p">Só o líder do time ou um admin põe outra pessoa. Você pode deixar livre ou ficar com ela.</p>`)+
     `<div role="listbox" aria-label="responsável">`+opts.map(o=>`<button type="button" role="option" class="ndpop-opt tmwho-opt${o.id===(cur||'')?' on':''}" aria-selected="${o.id===(cur||'')}" data-tmwho="${escA(o.id)}"><span class="tmwho-row">${o.id?tsAv(o.id, tsOnline(o.id)):`<span class="tsav tmfree" aria-hidden="true">·</span>`}<b>${esc(o.label)}</b>${o.hint?`<span class="dim">${esc(o.hint)}</span>`:''}</span></button>`).join('')+`</div>`;
   if(typeof ndPopover!=='function') return;
@@ -762,7 +763,8 @@ function tsIsOrgAdmin(){ return !!(cloudData && (cloudData.meRole==='owner'||clo
 function tsOrgScope(){ return tmScope==='org' && tsIsOrgAdmin() && !!(cloudData&&cloudData.teams&&cloudData.teams.length); }
 function tsScopeTeamIds(){ return tsOrgScope() ? cloudData.teams.map(t=>t.id) : (cloudTeamId()?[cloudTeamId()]:[]); }
 function tsTeamName(id){ return ((((cloudData&&cloudData.teams)||[]).find(x=>x.id===id))||{}).name||''; }
-function tsSetScope(s){ tmScope=s==='org'?'org':'team'; lsSet('tmScope',tmScope); teamTasks=null; teamPaintSig=''; if(typeof renderTeamBoard==='function') renderTeamBoard(); }
+// o MESMO alcance da Central (71: "Do time"/"Org toda") — trocar aqui troca lá (a Central em "Minhas" fica como está)
+function tsSetScope(s){ tmScope=s==='org'?'org':'team'; lsSet('tmScope',tmScope); teamTasks=null; teamPaintSig=''; if(typeof caFromTeamScope==='function') caFromTeamScope(tmScope); if(typeof renderTeamBoard==='function') renderTeamBoard(); }
 // presença: marca "estou online" a cada 60s (profiles.last_seen_at)
 setInterval(()=>{ if(SB.sess()) sbFetch('/rest/v1/profiles?user_id=eq.'+cloudUserId(), { method:'PATCH', body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(()=>{}); }, 60000);
 // versão: o build deste app (mtime do executável = buildMs do release) + sistema, pra /admin ver quem está

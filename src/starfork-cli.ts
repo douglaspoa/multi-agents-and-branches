@@ -130,7 +130,7 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
       const { Orchestrator } = await import("./orchestrator.ts");
       const orch = new Orchestrator(dirname(dirname(db)));
       try {
-        const { script, launch } = iaPrep(orch, task, ai, { resume: has(a, "resume"), quiet: has(a, "quieto"), msgFile: one(a, "msg-file"), model: one(a, "modelo", "model") });
+        const { script, launch } = iaPrep(orch, task, ai, { resume: has(a, "resume"), quiet: has(a, "quieto"), msgFile: one(a, "msg-file"), model: one(a, "modelo", "model"), papel: one(a, "papel"), round: Number(one(a, "rodada")) || undefined });
         const model = launch.ai === "deepseek" ? launch.env.ANTHROPIC_MODEL?.replace(/\[1m\]$/, "") : one(a, "modelo", "model") ?? "";
         io.err(`\x1b[2m▸ Starfork: ${AI_LABEL[ai]}${model ? ` · ${model}` : ""}${launch.resumed ? " (retomando)" : ""} — ao sair, o shell volta (starfork ajuda)\x1b[0m`);
         io.out(script);

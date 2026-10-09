@@ -144,6 +144,9 @@ pub struct PtySession {
     /// mensagens esperando a sessão ficar livre (hook Stop)
     queue: Mutex<VecDeque<String>>,
     queue_worker: AtomicBool,
+    /// fila "esperando o turno" (a do app: entrega com a IA LIVRE e espera o turno começar) × "nativa" (Claude Code: a
+    /// própria IA enfileira o que chega no meio do turno — o app só espera ela poder receber, ex.: nada de menu aberto)
+    queue_turn: AtomicBool,
     /// ms (epoch) da última saída do processo — sessão "falando" não é ociosa
     last_out: Arc<AtomicI64>,
     /// ms (epoch) desde quando NINGUÉM olha (0 = alguém olhando) — base do encerramento de terminal parado
@@ -355,6 +358,7 @@ impl PtyManager {
             size: Mutex::new((cols, rows)),
             queue: Mutex::new(VecDeque::new()),
             queue_worker: AtomicBool::new(false),
+            queue_turn: AtomicBool::new(true),
             last_out: Arc::new(AtomicI64::new(now_ms())),
             unseen_since: AtomicI64::new(now_ms()),
         });
@@ -444,7 +448,13 @@ impl PtyManager {
     /// UserPromptSubmit gravado no banco): Some(true) livre, Some(false) ocupada, None = não sei.
     /// Uma mensagem por vez: depois de entregar, espera a sessão ficar ocupada (ou 8 s) e livre de novo.
     pub fn enqueue(self: &Arc<Self>, task_id: &str, text: String, idle: Arc<dyn Fn() -> Option<bool> + Send + Sync>) -> Result<usize, String> {
+        self.enqueue_mode(task_id, text, idle, true)
+    }
+    /// `wait_turn` false = fila NATIVA (Claude Code): `idle()` aqui quer dizer "pode receber agora" (nenhum menu/permissão
+    /// aberto) — entrega mesmo com a IA trabalhando, uma mensagem por vez, sem esperar o turno começar.
+    pub fn enqueue_mode(self: &Arc<Self>, task_id: &str, text: String, idle: Arc<dyn Fn() -> Option<bool> + Send + Sync>, wait_turn: bool) -> Result<usize, String> {
         let s = self.live(task_id).ok_or("o terminal desta tarefa não está aberto")?;
+        s.queue_turn.store(wait_turn, Ordering::SeqCst);
         let n = { let mut q = s.queue.lock().unwrap_or_else(|e| e.into_inner()); q.push_back(text); q.len() };
         if s.queue_worker.swap(true, Ordering::SeqCst) { return Ok(n); }
         let me = self.clone();
@@ -459,6 +469,7 @@ impl PtyManager {
                     let next = s.queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
                     let Some(msg) = next else { break };
                     if me.send_text(&tid, &msg).is_err() { break; }
+                    if !s.queue_turn.load(Ordering::SeqCst) { std::thread::sleep(Duration::from_millis(400)); continue; }
                     // espera o turno COMEÇAR (o hook UserPromptSubmit marca ocupado) antes da próxima
                     let t0 = Instant::now();
                     while t0.elapsed() < Duration::from_secs(8) && idle() != Some(false) && s.alive() { std::thread::sleep(Duration::from_millis(100)); }
@@ -469,7 +480,7 @@ impl PtyManager {
             s.queue_worker.store(false, Ordering::SeqCst);
             // corrida: alguém enfileirou enquanto o worker saía
             if s.alive() && !s.queue.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
-                if let Some(m) = s.queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front() { let _ = me.enqueue(&tid, m, idle); }
+                if let Some(m) = s.queue.lock().unwrap_or_else(|e| e.into_inner()).pop_front() { let turn = s.queue_turn.load(Ordering::SeqCst); let _ = me.enqueue_mode(&tid, m, idle, turn); }
             }
         });
         Ok(n)
@@ -740,6 +751,27 @@ mod tests {
         s.attach();
         assert_eq!(reap_in_with(&s, Some(&db), true).watchers, 1);
         m.kill("r1");
+    }
+
+    #[test]
+    fn fila_nativa_entrega_com_a_ia_ocupada_mas_nunca_num_menu() {
+        let d = tmpdir("fila-nativa");
+        let sink = Arc::new(TestSink::default());
+        let m = Arc::new(PtyManager::new(sink.clone(), None));
+        let s = m.spawn("t6", spec(&d, SCROLL_CAP)).unwrap();
+        s.attach();
+        let menu = Arc::new(AtomicBool::new(true));
+        let m2 = menu.clone();
+        // "pode receber agora?" = nenhum menu aberto (a IA pode estar no meio do turno: o Claude Code enfileira)
+        let ready: Arc<dyn Fn() -> Option<bool> + Send + Sync> = Arc::new(move || Some(!m2.load(Ordering::SeqCst)));
+        m.enqueue_mode("t6", "um".into(), ready.clone(), false).unwrap();
+        m.enqueue_mode("t6", "dois".into(), ready.clone(), false).unwrap();
+        std::thread::sleep(Duration::from_millis(900));
+        assert!(!sink.text("t6").contains("um"), "menu aberto: segura (colar ali escolheria uma opção)");
+        menu.store(false, Ordering::SeqCst);
+        assert!(sink.wait_for("t6", "um", 5000));
+        assert!(sink.wait_for("t6", "dois", 3000), "a 2ª vai em seguida, sem esperar o turno começar");
+        m.kill("t6");
     }
 
     #[test]
