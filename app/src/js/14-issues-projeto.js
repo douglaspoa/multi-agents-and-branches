@@ -855,17 +855,10 @@ function trkWhoIsHtml(pid){
 }
 function trkAgo(iso){ const t=Date.parse(iso); if(!t) return ''; const m=Math.round((Date.now()-t)/60000); return m<1?'agora':m<60?m+'min':m<1440?Math.round(m/60)+'h':Math.round(m/1440)+'d'; }
 const trkEpColor=code=>(typeof epColor==='function')?epColor('trk:'+code):'var(--accent)'; // cor estável por épico (46)
-function trkCardHtml(i, inGroup){
-  const p=trkPerson(i.assignee, i.assigneeEmail), un=trkUnseen()[i.code];
-  const r=trkRowOf(i, trkEntriesFor(i.code), { me:(typeof cloudUserId==='function'&&cloudUserId())||'' }), stk=r.linked?trkRowSt(r):'';
-  const tasks=r.linked?[1]:[], tst=r.linked?stLabel(stk):''; // a tarefa ligada (sua ou de alguém do time) — situação do STATUS_META
-  const ep=i.epicCode?` style="--epc:${trkEpColor(i.epicCode)}"`:'';
-  return `<div class="trk-issue${un?' unseen':''}${trkSel===i.code?' sel':''}${ep?' has-ep':''}" draggable="true" data-trkcode="${escA(i.code)}" role="button" tabindex="0" aria-label="${escA(i.code+' — '+i.title)}"${ep}>
-    <div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span>${i.epicCode&&!inGroup?`<span class="trk-epb" title="filha do épico ${escA(i.epicCode)}">◆ ${esc(i.epicCode)}</span>`:''}${i.priority!=null&&i.priority!==''?`<span class="trk-pri">${esc(String(i.priority))}</span>`:''}<span style="flex:1"></span>${un?`<span class="trk-new">${esc(un)}</span>`:''}</div>
-    <div class="trk-it">${esc(i.title)}</div>
-    ${tasks.length?`<div class="trk-tl"><span class="trk-task" style="--stc:${stColor(stk)}" title="${escA('tarefa ligada: '+tst)}">⎇ tarefa ${esc(tst)}</span>${r.who?' '+personChip(r.who,{ short:true }):''}</div>`:''}
-    <div class="trk-if">${p?`<span class="trk-av" role="img" aria-label="${escA(p.label)}" title="${escA(p.tip)}">${esc(p.ini)}</span><span class="trk-who" title="${escA(p.tip)}">${esc(p.label)}</span>`:'<span class="dim trk-who">sem responsável</span>'}<span class="trk-sp"></span>${i.commentCount?`<span class="trk-cc" title="${escA(i.commentCount+' comentário(s)')}">${IC.chat} ${esc(String(i.commentCount))}</span>`:''}<span class="dim trk-ago">${trkAgo(i.updatedAt)}</span></div>
-  </div>`;
+let trkBoardRows=null; // linhas do quadro em Colunas (trkBoardHtml monta; o cartão lê)
+function trkCardHtml(i, inGroup){ // o cartão é o do quadro único (72-kanban): mesma cara da Central e do Time
+  const c=trk.connector||{};
+  return kbIssueCard(i, { inGroup, row:trkBoardRows&&trkBoardRows.get(i.code), drops:kbIssueDrops(i, (c.statuses||[]).map(s=>s.id), !!(c.ops&&c.ops.updateStatus)) });
 }
 // F5: numa coluna, as filhas de um mesmo épico ficam juntas sob um cabeçalho "◆ CÓDIGO · título do pai · n"
 // (clicar no cabeçalho abre o pai); o resto segue como cartão solto
@@ -873,7 +866,7 @@ function trkColCards(items, byCode){
   const groups=new Map(), loose=[];
   items.forEach(i=>{ if(i.epicCode){ if(!groups.has(i.epicCode)) groups.set(i.epicCode,[]); groups.get(i.epicCode).push(i); } else loose.push(i); });
   const gh=[...groups.entries()].map(([code,kids])=>{ const par=byCode[code];
-    return `<div class="trk-epg" style="--epc:${trkEpColor(code)}"><div class="trk-epgh"${par?` data-trkcode="${escA(code)}" role="button" tabindex="0" title="abrir a issue-mãe (épico)"`:''}>◆ <span class="mono">${esc(code)}</span>${par?`<span class="trk-ept"> · ${esc(String(par.title).slice(0,48))}</span>`:''}<em>${kids.length}</em></div>${kids.map(i=>trkCardHtml(i, true)).join('')}</div>`; }).join('');
+    return `<div class="kb-grp" style="--epc:${trkEpColor(code)}"><div class="kb-grph"${par?` data-trkcode="${escA(code)}" role="button" tabindex="0" title="abrir a issue-mãe (épico)"`:''}><span class="kb-grpic" aria-hidden="true">${IC.epic}</span><span class="mono">${esc(code)}</span>${par?`<span class="kb-grpt">${esc(String(par.title).slice(0,48))}</span>`:''}<em>${kids.length}</em></div>${kids.map(i=>trkCardHtml(i, true)).join('')}</div>`; }).join('');
   return gh+loose.map(i=>trkCardHtml(i, false)).join('');
 }
 function trkBoardHtml(){
@@ -901,11 +894,13 @@ function trkBoardHtml(){
   const chip=(k,l,n,tip)=>`<button class="trk-chip${trkFilter===k?' on':''}" data-trkfilter="${escA(k)}"${tip?` title="${escA(tip)}"`:''}>${l}${n!=null?` <em>${n}</em>`:''}</button>`;
   const epChips=parents.slice(0,8).map(code=>{ const p=byCode[code], k=kidsOf[code];
     return chip('ep:'+code, `<span class="trk-epd" style="background:${trkEpColor(code)}"></span>${esc(code)}${p?' · '+esc(String(p.title).slice(0,24)):''}`, k.length, 'só este épico e as '+k.length+' issues filhas'); }).join('');
-  const colsHtml=cols.map(s=>{
-    const items=list.filter(i=>s.id==='__other'?!known.has(i.status):i.status===s.id);
-    const cap=(s.kind==='done'&&!trkMoreDone)?25:400, shown=items.slice(0,cap);
-    return `<div class="trk-col" data-trkcol="${escA(s.id)}"><div class="trk-colh"><i style="background:${TRK_KINDS[s.kind]||'var(--muted)'}"></i>${esc(s.label||s.id)}<em>${items.length}</em></div>
-      <div class="trk-colb">${trkColCards(shown, byCode)||'<div class="trk-empty">—</div>'}${items.length>shown.length?`<button class="trk-more" id="trkMoreDone">mostrar mais ${items.length-shown.length}</button>`:''}</div></div>`; }).join('');
+  // colunas = os status do conector, no quadro único (72-kanban); dentro da coluna, a modificação mais recente primeiro
+  const rowBy=new Map(trkRowsNow().map(r=>[r.i.code, r])); trkBoardRows=rowBy; // a LINHA (issue + tarefa ligada, modificação) — a mesma da lista; o pai do grupo também
+  const vms=list.map(i=>({ col:i.status, ts:(rowBy.get(i.code)||{}).mod||modTs(i.updatedAt, i.createdAt), title:i.title, ref:i }));
+  const kcols=kbGroup(vms, cols.map(s=>({ key:s.id, label:s.label||s.id, color:TRK_KINDS[s.kind]||'var(--muted)', cap:(s.kind==='done'&&!trkMoreDone)?25:400, attrs:` data-trkcol="${escA(s.id)}"` })), cols.some(s=>s.id==='__other')?'__other':null);
+  const colsHtml=kbBoardHtml({ id:'issues', label:'issues por status', cols:kcols, body:(c, shown)=>trkColCards(shown.map(v=>v.ref), byCode),
+    empty:c=>`<div class="kb-empty">${emptyHtml({ icon:'kanban', title:'Nenhuma issue '+String(c.label||'').toLowerCase() })}</div>`,
+    more:(c, shown)=>`<button class="trk-more" id="trkMoreDone">mostrar mais ${c.n-shown.length}</button>` });
   // 1ª carga: kanban-esqueleto (nunca colunas vazias com "—"); falhou sem nada na tela: erro com "tentar de novo";
   // o painel respondeu vazio: vazio padrão com UMA ação
   const first=!trkIssuesAt;
@@ -915,7 +910,7 @@ function trkBoardHtml(){
     // o detalhe aberto (e o comentário sendo digitado) continua ao lado do vazio; emptyHtml escapa título e ajuda
     : filteredOut ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${(!q&&trkFilter==='all')?emptyHtml({ icon:'search', title:'Nenhuma issue mudou — '+periodLabel(per).toLowerCase(), help:'O painel tem '+trkIssues.length+' issues, mas nenhuma (nem a tarefa ligada a ela) mudou neste período.', action:per.key==='30d'||per.key==='custom'?null:{ id:'trkPer30', label:'ver últimos 30 dias', primary:false } }):emptyHtml(Object.assign({ icon:'search', action:{ id:'trkClearFilter', label:'mostrar todas', primary:false } }, trkEmptyFilterText(trkQ, trkFilter)))}</div>${trkSel?trkDetailHtml():''}</div>`
     : trkLayout==='lista' ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${trkListHtml(rows)}</div>${trkSel?trkDetailHtml():''}</div>`
-    : `<div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(170px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
+    : `<div class="trk-boardwrap"><div class="kb-host">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
   return `${trkSecretsHint()}<div class="trk-tools">
       <div class="sk-search"><span class="sk-sd"></span><input id="trkQ" value="${escA(trkQ)}" placeholder="buscar código, título ou pessoa"></div>
       ${chip('all','Todas',inPer.length)}${chip('linked','Com tarefa',linkedN,'issues com uma tarefa do Starfork ligada (sua ou de alguém do time)')}${chip('unlinked','Sem tarefa',inPer.length-linkedN,'issues que ninguém pegou — dá pra criar a tarefa ou mandar pro time direto daqui')}${chip('mine','Comigo',mineN,'atribuídas a você no painel ou com tarefa com você')}${(unN||trkFilter==='unseen')?chip('unseen','mudaram',unN,'mudaram desde a última vez que você olhou'):''}${epChips}

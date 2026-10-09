@@ -31,6 +31,9 @@ function kCard(t){
 }
 let kDragId=null;
 function renderKanban(){
+  // 72-kanban: o Kanban é o QUADRO dentro da Central (mesmo alcance, chips e filtros) — quem abre esta vista antiga
+  // (mainView salvo, atalho) cai lá. O desenho de baixo fica só como reserva sem o 72.
+  if(typeof kbCentralSet==='function'){ lsSet(kbCentralKey(),'1'); setTimeout(()=>{ try{ setView('flow'); }catch(e){ console.warn('kanban → central', e); } }, 0); return; }
   const el=$id('kanban');
   const byCol={}; KCOLS.forEach(([k])=>byCol[k]=[]);
   // mesma fonte da Central (boardSource: projeto filtrado ou todos) e mesma regra de bloqueadas
