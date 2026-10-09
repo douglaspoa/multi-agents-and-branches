@@ -154,3 +154,8 @@ html:not(.sfpane) .fwciclo .cicst-now,html:not(.sfpane) .fwciclo .cicst-next{pos
 }
 @container ciclo (max-width:620px){ .fwciclo .cicst-posl{display:inline} .fwciclo .cicgate-tx,.fwciclo .cicgate-ad{display:none} }
 .fwciclo .cicst-pos+.cicst-posl{margin-left:-10px}
+/* detector de loop (70-loop): mesmo cartão "precisa de você" (.cicdec), com a frase da falha e o comando em código */
+.loopdec .loopx{margin-left:auto;padding:3px 5px}
+.loopdec .loopx svg{width:13px;height:13px}
+.loopdec .cicdec-t{overflow-wrap:anywhere}
+.loopdec .cicdec-t code{font-family:var(--mono);font-size:.92em;padding:1px 4px;border-radius:4px;background:color-mix(in srgb,var(--text) 7%,transparent);color:var(--text)}

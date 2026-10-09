@@ -213,6 +213,8 @@ export interface TaskSpec {
   autonomy: TaskAutonomy;
   engine: string; // motor padrão (fallback)
   model?: string;
+  /** CONSELHEIRO (advisor do Claude Code, src/advisor.ts): modelo consultado em momentos-chave. Ausente = desligado. */
+  advisor?: "opus" | "fable" | null;
   agent: string; // agente-líder (exibição / retrocompat)
   /** Equipe da tarefa. Se vazio, sintetiza [{role:"builder", name:agent}]. */
   roles: AgentRole[];

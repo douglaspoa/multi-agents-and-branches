@@ -25,6 +25,7 @@ import { envCli } from "./env-up.ts";
 import { AP_MAX_ATTEMPTS, AP_MAX_PARALLEL, AP_PLATFORMS, PHASE_PT, readState, requestStop, runAutopilot, type ApPlatform } from "./autopilot.ts";
 import { applyLocalLink, epicRequestFlow, epicsListText, flowText, requestStatusText, teamEpicsAt, teamEpicsList, type EpicFlowResult, type EpicReqKind } from "./epic-requests.ts";
 import { checkEpicShape, checkTaskShape, decideProposal, editEpic, editTask, syncEpicDoneWhen, undoTaskEdit, type EditAuthor, type EditResult, type EpicEditInput, type TaskEditInput } from "./agent-edits.ts";
+import { advisorNorm } from "./advisor.ts";
 
 // ---------- parse de flags simples (src/util/args.ts) ----------
 const list = (s?: string) => (s ? s.split(",").map((x) => x.trim()).filter(Boolean) : []);
@@ -216,6 +217,8 @@ async function cmdNew(repo: string, a: Args) {
     },
     engine: a.flags.engine ?? "mock",
     model: a.flags.model,
+    // conselheiro (advisor do Claude Code): só opus|fable; o motor confere par/versão a cada abertura (src/advisor.ts)
+    advisor: advisorNorm(a.flags.advisor) ?? undefined,
     roles,
     taskKind,
     // teto da tarefa (P6) já na criação — o app também grava depois (patch_task_spec)

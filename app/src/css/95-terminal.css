@@ -21,6 +21,7 @@
 .tltermbar .sp{flex:1}
 .tldot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--c,var(--accent))}
 .tlai{flex:0 1 auto;font-family:var(--mono);color:var(--text-2);overflow:hidden;text-overflow:ellipsis;min-width:9ch}
+.tladv{flex:none;font-size:var(--fs-xs);font-weight:600;color:var(--accent);padding:1px 7px;border-radius:var(--r-pill);background:var(--accent-soft);white-space:nowrap}
 .tlst{font-weight:600}
 .tlq1{color:var(--text-2);font-variant-numeric:tabular-nums}
 .tlhint{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--text-3)}

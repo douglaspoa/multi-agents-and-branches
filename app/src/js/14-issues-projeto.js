@@ -274,6 +274,8 @@ async function trkBeforeNewTask(payload){
   // F5 · P14: política da organização (Empresa) entra no payload — e o que o motor não cumpriria é recusado aqui,
   // em palavra (o erro sobe pra quem chamou o new_task). Sem login/Grátis: não toca na rede, payload intacto.
   if(typeof window.orgPolBeforeNewTask==='function') payload=await window.orgPolBeforeNewTask(payload);
+  // conselheiro (advisor do Claude Code): escolha da tela ou o padrão do usuário; par recusado/motor não-Claude = 'off'
+  if(typeof aiAdvisorFill==='function') payload=aiAdvisorFill(payload);
   try{
     if(!payload||payload.issue||payload.issueUrl||payload.branchType==='integration') return payload;
     await trkLoad(); if(!trkReady()||!trk.rules.createOnTask||!trk.connector.ops.create||!(await trkProjectOn())) return payload;

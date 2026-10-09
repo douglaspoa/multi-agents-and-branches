@@ -11,7 +11,7 @@ const AJ_GROUPS=[['ia','IA e modelos'],['pc','Este computador'],['conta','Conta 
 const AJ_SECTIONS=[
   { id:'motores', grp:'ia', label:'Motores e chaves', scope:'computador', kw:'ia claude code codex deepseek gemini opencode gateway ia da sua empresa chave api openai lgcx outras chaves modelo padrão testar privacidade medidor porcentagem plano seletor' },
   { id:'custo', grp:'pc', label:'Custo e limites', scope:'computador', kw:'teto tarefa aviso custo cotação dólar real tarefas ao mesmo tempo paralelo fila retomar limite' },
-  { id:'modo', grp:'pc', label:'Como as tarefas rodam', scope:'computador', kw:'modo terminal automático aprovação navegador dos agentes janela previsão tempo custo antes de rodar' },
+  { id:'modo', grp:'pc', label:'Como as tarefas rodam', scope:'computador', kw:'modo terminal automático aprovação navegador dos agentes janela previsão tempo custo antes de rodar loop repetindo mesmo erro pausar' },
   { id:'aparencia', grp:'pc', label:'Aparência', scope:'computador', kw:'tema claro escuro sistema cor' },
   { id:'aprendizado', grp:'pc', label:'Aprendizado', scope:'computador', kw:'aprendizado contínuo retro revisão memória sugerir automático desligado' },
   { id:'github', grp:'pc', label:'GitHub', scope:'computador', kw:'github conta gh pr push envio sso trocar entrar' },
@@ -394,8 +394,8 @@ function ajPickWire(host, isDefault){
   if(!host) return;
   if(typeof iaPick==='function'){ try{ host.innerHTML='';
       const d=aiDefaults();
-      iaPick(host, { value:{ engine:d.eng, model:d.model }, scope:isDefault?'padrao':'demanda', title:isDefault?'IA padrão das demandas novas':'exemplo do seletor único',
-        onChange:(v, o)=>{ if(!isDefault || !v || !v.engine) return; if(!(o&&o.asDefault)) aiSaveDefaults(v.engine, v.model||''); if(typeof aiApplyDefaults==='function') aiApplyDefaults(); if(typeof suaIaRefresh==='function') suaIaRefresh(); ajSaved(); } });
+      iaPick(host, { value:{ engine:d.eng, model:d.model, advisor:d.advisor }, scope:isDefault?'padrao':'demanda', advisor:isDefault, title:isDefault?'IA padrão das demandas novas (e o conselheiro, no Claude)':'exemplo do seletor único',
+        onChange:(v, o)=>{ if(!isDefault || !v || !v.engine) return; if(!(o&&o.asDefault)) aiSaveDefaults(v.engine, v.model||'', v.advisor); if(typeof aiApplyDefaults==='function') aiApplyDefaults(); if(typeof suaIaRefresh==='function') suaIaRefresh(); ajSaved(); } });
       return; }catch(e){ console.warn('iaPick', e); } }
   const b=host.querySelector('.ajpill'); if(!b) return;
   b.onclick=async()=>{
@@ -457,6 +457,7 @@ function ajRenderModo(host){
     <div class="ajrows">`
     +ajRow('Navegador dos agentes', 'Quando o agente abre um site pra testar ou tirar print. Por padrão roda em segundo plano, sem janela; ligue pra acompanhar ou fazer login.', ajSw('cfgBrowserVisible', false, 'mostrar a janela'))
     +ajRow('Previsão de tempo e custo antes de rodar', 'Custa uma chamada curta de IA por demanda (aparece em Uso › Previsão). Desligado: nenhuma chamada extra.', ajSw('cfgEstimate', true, 'prever'))
+    +ajRow('Pausar a tarefa quando a IA repetir o mesmo erro', 'Desligado: a tarefa só avisa e segue. Ligado: a tarefa para logo depois do aviso, com o trabalho como está — você decide o próximo passo.', ajSw('cfgLoopPause', typeof loopPauseOn==='function' && loopPauseOn(), 'pausar'))
     +ajRow('Terminal vivo ao abrir a tarefa', 'Abrir uma tarefa parada retoma a sessão no terminal, pronta pra digitar. Não gasta nada até você mandar algo.', ajSw('cfgTermAuto', true, 'retomar sozinho'))
     +ajRow('Revisor automático no terminal', 'Quando a equipe tem revisor, ele entra no MESMO terminal depois da construção (você vê e pode comentar) e devolve as mudanças pra quem constrói — até 2 rodadas, dentro do teto. Experimental: desligado, peça em Revisão / PR.', ajSw('cfgTermRev', false, 'revisor entra sozinho'))
     +ajRow('Encerrar terminal parado', 'Terminal de tarefa que você não está vendo, sem nada rodando, fecha depois desse tempo — volta sozinho quando você abrir a tarefa.', `<select class="in" id="cfgTermIdle" aria-label="encerrar terminal parado depois de">${AJ_TERM_IDLE.map(([v,l])=>'<option value="'+v+'">'+l+'</option>').join('')}</select>`)
@@ -475,6 +476,7 @@ function ajRenderModo(host){
     try{ await ajSetting('taskMode', v==='auto'?'auto':'terminal'); await ajSetting('taskModeSet','2'); loaded=v; stored=v; ajSaved(); }catch(e){ showErr(e,'Não salvou o modo das tarefas'); paint(loaded); }
   });
   { const bv=$id('cfgBrowserVisible'); if(bv) bv.onchange=async()=>{ try{ await ajSetting('browserVisible', bv.checked?'1':'0'); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
+  { const lp=$id('cfgLoopPause'); if(lp) lp.onchange=()=>{ lsSet('loopPause', lp.checked?'1':'0'); ajSaved(); }; }
   { const ta=$id('cfgTermAuto'); if(ta) ta.onchange=async()=>{ try{ await ajSetting('termAutoResume', ta.checked?'1':'0'); if(typeof TERM_CFG!=='undefined'){ TERM_CFG.auto=ta.checked; TERM_CFG.at=Date.now(); } ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
   { const tr=$id('cfgTermRev'); if(tr) tr.onchange=async()=>{ try{ await ajSetting('termRevisorAuto', tr.checked?'1':'0'); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
   { const ti=$id('cfgTermIdle'); if(ti) ti.onchange=async()=>{ try{ await ajSetting('termIdleMin', ti.value); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }

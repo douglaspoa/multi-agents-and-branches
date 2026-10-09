@@ -29,6 +29,8 @@ export const TEXT_FLAGS = new Set([
   "starfork-task", "term-mode", "deliver", "ai", "run",
   // F5: política da organização (P14) e teto da amostra (P15)
   "org-policy", "cap",
+  // conselheiro (advisor do Claude Code, src/advisor.ts)
+  "advisor",
   // revisão: pedir alteração / etapa extra (src/revisao-alteracao.ts)
   "req",
 ]);

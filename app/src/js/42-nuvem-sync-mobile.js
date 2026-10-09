@@ -183,6 +183,8 @@ async function issueConfigPull(){
   }catch(_){ }
 }
 // compartilhar com o time: vira cartão no backlog — NÃO roda nesta máquina
+// o cartão compartilhado NÃO leva o conselheiro de quem criou (cobraria no plano de quem assume)
+function cloudSpecOf(payload){ const s=Object.assign({}, payload||{}); delete s.advisor; return s; }
 // A ISSUE nasce junto (painel de Issues ligado pro projeto): o código vai no spec e no issue_url — quem assumir depois
 // não cria outra. Falha do painel avisa com o motivo e NÃO impede o cartão (mesa 09/10, T6).
 async function cloudShareTask(payload, opts){
@@ -198,7 +200,7 @@ async function cloudShareTask(payload, opts){
       new Promise(r=>setTimeout(()=>r({ err:'o painel não respondeu em 12 s' }), 12000)) ]);
     if(iss&&iss.code) spec=trkSpecWithIssue(payload, iss);
   } else if(payload.issue) spec={ ...payload, issueCode:payload.issue };
-  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:epicId, spec:{ ...spec, dispatch:'team' }, issue_url:(iss&&iss.url)||payload.issueUrl||null });
+  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:epicId, spec:{ ...cloudSpecOf(spec), dispatch:'team' }, issue_url:(iss&&iss.url)||payload.issueUrl||null });
   if(iss&&iss.err) trkCardFailToast(payload.title, iss.err);
   // responsável DEPOIS do cartão existir (recusa do banco não derruba o cartão nem deixa issue órfã): fica livre e avisa
   const who=opts.assignee||null;
@@ -214,7 +216,7 @@ async function cloudShareTask(payload, opts){
 async function cloudPublishSelf(localId, payload){
   if(!SB.sess() || !cloudTeamId()) return;
   const proj=await cloudEnsureProject();
-  const rows=await sbPost('tasks',{ local_id:localId, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:payload.title, status:'running', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:payload });
+  const rows=await sbPost('tasks',{ local_id:localId, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:payload.title, status:'running', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:cloudSpecOf(payload) });
   tmapSet(localId, rows[0].id);
   if(rows[0].epic_id && window.epicMarkInProgress) epicMarkInProgress(rows[0].epic_id); // 1ª tarefa rodando → épico em andamento
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});

@@ -989,7 +989,7 @@ pub fn term_send(state: State<AppState>, task_id: String, text: String, mode: Op
     crate::term_route_after_takeover(&state, &task_id, "talk", &text, as_req.unwrap_or(false), None)
 }
 #[tauri::command(async)]
-pub fn term_interrupt(state: State<AppState>, task_id: String) -> Result<(), String> { interrupt(&state, &task_id) }
+pub fn term_interrupt(state: State<AppState>, task_id: String) -> Result<(), String> { crate::loop_clear_db(&state, &task_id); interrupt(&state, &task_id) } // Esc da pessoa = intervenção: o detector de loop zera
 #[tauri::command(async)]
 pub fn term_kill(task_id: String) -> Result<(), String> { kill_task(&task_id); Ok(()) }
 #[tauri::command(async)]

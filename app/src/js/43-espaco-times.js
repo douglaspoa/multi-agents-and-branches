@@ -411,6 +411,8 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     // ...(ct.spec) traz verify/covers/after/wave/risk/hitl quando o cartão veio de um épico; epic_id é coluna, não spec
     const payload={ workflow:null, agents:null, engine:defaultAiEngine(), approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), issue:(ct.spec&&ct.spec.issueCode)||null, issueUrl:(ct.spec&&ct.spec.issueUrl)||ct.issue_url||null, epicId: ct.epic_id||null, epicDoneWhen: epicDoneWhenOf(ct.epic_id)||(ct.spec&&ct.spec.epicDoneWhen)||null, title: ct.spec?.title||ct.title, start:true };
     // épico iniciando SOZINHO também roda no TERMINAL (terminal sempre vivo, 09/10): a pessoa abre e digita quando quiser
+    // conselheiro: vale o padrão de QUEM RODA (nunca o do autor do cartão); épico iniciando sozinho nasce sem
+    payload.advisor=opts.auto?'off':aiDefaults().advisor;
     if(ct.epic_id && window.epicAttachRef) await epicAttachRef(payload, ct.epic_id, ct); // EPIC.md compilado vai como referência
     const localId=await invoke('new_task', await trkBeforeNewTask(payload));
     tmapSet(localId, ct.id);

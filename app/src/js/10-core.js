@@ -307,7 +307,7 @@ function gitRailTag(){
 function curView(){ return (((document.querySelector('#viewSeg button.on')||{}).dataset)||{}).v || "flow"; }
 // Assinatura barata do estado: se nada mudou, pulamos o render inteiro.
 function snapSig(){
-  const t=(state.tasks||[]).map(x=>x.id+":"+x.status+":"+x.stage+":"+(x.sortOrder??"")).join(",");
+  const t=(state.tasks||[]).map(x=>x.id+":"+x.status+":"+x.stage+":"+(x.sortOrder??"")+":"+((x.loop&&x.loop.at)||"")).join(","); // loop: o aviso pode sumir sem evento novo
   const d=(state.diffs||[]).map(x=>x.taskId+":"+x.additions+":"+x.deletions).join(",");
   const lastEv = (state.events&&state.events.length) ? state.events[state.events.length-1].id : 0;
   const cost = (state.costs||[]).length+":"+(state.costs||[]).reduce((s,c)=>s+(c.usd||0),0).toFixed(4);
@@ -421,6 +421,7 @@ function detectNotifs(snap){
   }
   prevStatus={}; tasks.forEach(t=>{ prevStatus[t.id]=t.status; prevPr[t.id]=t.prUrl||null; });
   prevPending=new Set(pend.map(p=>p.id));
+  if(typeof loopWatch==='function') loopWatch(tasks); // detector de loop: notifica (e pausa, se ligado) o episódio NOVO
   notifReady=true;
   // guarda-custos: AVISO (só notifica) UMA vez quando a tarefa cruza o limite (padrão $25).
   // O TETO que pausa e pergunta é outro mecanismo (budgetWatch, 53-teto-protecao) — o antigo

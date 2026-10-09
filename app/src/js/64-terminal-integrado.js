@@ -197,7 +197,7 @@ function tiAiRowHtml(o){
   if(o.shell) return `<div class="tiairow shell" role="status"><span class="tishell">a IA parou</span><button type="button" class="btn sm primary" data-ti="rec" title="${escA('roda no terminal: '+o.rec.command)}">Continuar com ${esc(rl)}</button>${cmd}<span class="sp"></span>${tiAiSelHtml('', o.rec)}</div>`;
   const exp=TI_AIS.some(x=>x.id===cli && x.exp) ? `<span class="tiaiexp">sem chips automáticos nem custo — a IA usa os comandos starfork</span>` : '';
   const recBtn=(cli===o.rec.ai) ? '' : `<span class="tireck">recomendado:</span><button type="button" class="btn sm" data-ti="rec" title="${escA('roda no terminal: '+o.rec.command)}">${esc(rl)}</button>`;
-  return `<div class="tiairow">${tiAiSelHtml(cli, o.rec)}${recBtn}${exp}<span class="sp"></span><span class="tiaihint">ou digite <code>starfork ia &lt;nome&gt;</code> no terminal</span></div>`;
+  return `<div class="tiairow">${tiAiSelHtml(cli, o.rec)}${o.adv||''}${recBtn}${exp}<span class="sp"></span><span class="tiaihint">ou digite <code>starfork ia &lt;nome&gt;</code> no terminal</span></div>`;
 }
 /** Chips da vez pra mostrar: some com a IA no meio de um turno (busy) e depois do clique (usedId). */
 function tiChipsFor(evs, usedId, busy){ if(busy) return null; const s=tiSuggest(evs); return (!s || s.id===usedId) ? null : s; }
@@ -229,8 +229,14 @@ function tiRec(t){ const s=TI.stat[t.id]; return tiRecommended(s&&s.recommended,
 function tiAiRow(t){ const s=TI.stat[t.id]; const st=TERM[t.id]; const live=!!(st && st.alive);
   // "shell (sem IA)" só com o PTY VIVO e nada rodando nele; sem terminal vivo o seletor mostra a IA da tarefa
   // shell: o "Continuar com…" mora na faixa Responder (tiReplyHtml) — aqui fica só o seletor, sem repetir o botão
-  if(live && s && s.alive && s.cli==='') return `<div class="tiairow">${tiAiSelHtml('', tiRec(t))}</div>`;
-  return tiAiRowHtml({ cli:(live && s && s.alive && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:false }); }
+  if(live && s && s.alive && s.cli==='') return `<div class="tiairow">${tiAiSelHtml('', tiRec(t))}${tiAdvChip(t)}</div>`;
+  return tiAiRowHtml({ cli:(live && s && s.alive && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:false, adv:tiAdvChip(t) }); }
+// CONSELHEIRO da tarefa (advisor do Claude Code): troca aqui e vale na próxima abertura da IA (retomar/turno novo)
+function tiAdvChip(t){ if(!t || tiTaskAi(t)!=='claude' || typeof advNorm!=='function') return ''; const a=advNorm(t.spec&&t.spec.advisor), n=(ADV_OPTS.find(x=>x.id===a)||ADV_OPTS[0]).name;
+  return `<button type="button" class="tiadv${a?' on':''}" data-ti="adv" aria-haspopup="menu" title="${escA(ADV_WHY)}">Conselheiro: <b>${esc(a?n:'desligado')}</b></button>`; }
+function tiAdvMenu(taskId, b){ const t=tiTask(taskId); if(!t || typeof g2SheetMenu!=='function') return; const cur=advNorm(t.spec&&t.spec.advisor), model=tiTaskModel(t);
+  g2SheetMenu(b, ADV_OPTS.map(o=>{ const p=advPair('claude', model, o.id); return { label:(o.id===cur?'✓ ':'')+o.name, hint:!p.ok?p.why:o.id==='fable'?ADV_FABLE_NOTE:o.id?'consultado em momentos-chave · custa por consulta':'sem consultas extras', disabled:!p.ok,
+    fn:async()=>{ if(o.id===cur) return; try{ await invoke('patch_task_spec',{ taskId, patch:{ advisor:o.id||null } }); if(typeof lastSig!=='undefined') lastSig=''; await refresh(); tiAiRowReset(tiTask(taskId)); toast('Conselheiro '+(o.id?o.name:'desligado')+' — vale na próxima vez que a IA abrir (retomar sessão ou turno novo)','info'); }catch(e){ showErr(e,'Não consegui trocar o conselheiro'); } } }; })); }
 // "shell sem IA" só com o retrato do status TAMBÉM vivo — o retrato lido antes do PTY nascer vinha com cli '' e a doca
 // dizia "a IA parou" com a IA trabalhando (visto no e2e do app, 09/10)
 function tiShellNow(t){ const s=TI.stat[t.id], st=TERM[t.id]; return !!(st && st.alive && s && s.alive && s.cli===''); }
@@ -411,6 +417,7 @@ function tiDockClick(taskId, e){
   const s=e.target.closest('[data-tisheet]'); if(s){ tiSheetOpen(taskId, s.dataset.tisheet, s); return; }
   const b=e.target.closest('[data-ti]'); if(!b) return;
   if(b.dataset.ti==='att'){ tiAttachPick(taskId); return; }
+  if(b.dataset.ti==='adv'){ tiAdvMenu(taskId, b); return; }
   if(b.dataset.ti==='rec'){ tiRunRec(taskId); return; }
   if(b.dataset.ti==='esc'){ tiInterrupt(taskId); return; }
   if(b.dataset.ti==='comp'){ const t=tiTask(taskId); const on=!tiCompOn(t); lsSet('tiComp', on?'1':'0'); if(!on) delete TI.compTmp[taskId];
@@ -443,7 +450,7 @@ function tiChipsPaint(t){ const box=$id('tiChips'), dock=$id('tiDock'); if(!t ||
  * Manda um texto pro terminal (chip, comando de botão). Vivo/retomável: term_send (entra na fila se ele estiver no meio
  * de um turno; sem PTY, abre a sessão já com o texto). Rodando em segundo plano: o mesmo caminho do compositor (talk_task).
  */
-async function tiSend(taskId, text){
+async function tiSend(taskId, text, o){
   const t=tiTask(taskId); if(!t || !String(text||'').trim()) return false;
   const st=TERM[taskId];
   if(tiBudgetOpen(t)){ toast('a tarefa está pausada no teto de custo — decida no cartão do teto primeiro', 'warn'); return false; }
@@ -451,9 +458,14 @@ async function tiSend(taskId, text){
   if(termHeadless(t)){ const ok=(typeof fwSendText==='function') ? await fwSendText(taskId, text) : false; if(ok && typeof termGoLive==='function') termGoLive(taskId); return ok; }
   if(st && !st.alive && st.hinfo && st.hinfo.resumes===false) return (typeof fwSendText==='function') ? fwSendText(taskId, text) : false;
   const live=!!(st && st.alive), busy=!!(t.busy || ACTIVE_ST.has(t.status) || t.status==='thinking' || pendingOf(taskId).length);
-  try{ await invoke('term_send', { taskId, text, mode:'queue' }); }
+  // o.interrupt (Pedir revisão do detector de loop): Esc SÓ com a IA ocupada no turno (estado fresco do terminal) —
+  // parada, o Esc apagaria o rascunho, recusaria um menu de permissão ou viraria meta no shell: aí só manda a mensagem
+  let now=false;
+  if(o && o.interrupt && live){ try{ const s=await invokeQuiet('term_status', { taskId }); if(s){ TI.stat[taskId]=s; now=!!s.busy; } }catch(_){ } }
+  try{ await invoke('term_send', { taskId, text, mode:now?'interrupt':'queue' }); }
   catch(e){ showErr(e, 'Não consegui mandar pro terminal'); return false; }
-  if(live && busy) toast('anotado — entra quando a IA terminar o que está fazendo', 'info');
+  if(now) toast('interrompi o turno e mandei o pedido', 'info');
+  else if(live && busy) toast('anotado — entra quando a IA terminar o que está fazendo', 'info');
   else if(!live){ toast('retomando a sessão no terminal com o pedido…', 'info'); if(typeof termGoLive==='function') termGoLive(taskId); }
   lastSig=''; refresh().catch(()=>{});
   tlFocusTerm(taskId);

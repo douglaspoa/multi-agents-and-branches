@@ -220,8 +220,8 @@ test('99-paginas.css: só tokens do tema (nenhuma cor literal), registrado depoi
   const css = read('css/99-paginas.css');
   assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/.test(css), 'sem cor literal');
   assert.match(html, /<link rel="stylesheet" href="css\/98-fabrica\.css">\n<link rel="stylesheet" href="css\/99-paginas\.css">/);
-  { const at = (f) => html.indexOf('<script src="js/' + f + '"></script>'); const [c, l, e, z] = ['68-casca-g1.js', '69-linha.js', '70-time-entregas.js', '99-e2e.js'].map(at);
-    assert.ok(c > 0 && c < l && l < e && e < z, 'ordem 68 < 69 < 70 < 99: depois da casca só a Linha, as Entregas e o carregador do e2e (inerte fora da build de teste), que não reescrevem nada da casca'); }
+  { const at = (f) => html.indexOf('<script src="js/' + f + '"></script>'); const [c, l, e, z, lp] = ['68-casca-g1.js', '69-linha.js', '70-time-entregas.js', '99-e2e.js', '70-loop.js'].map(at);
+    assert.ok(c > 0 && c < l && l < e && e < z && l < lp && lp < z, 'ordem 68 < 69 < 70 < 99: depois da casca só a Linha, o detector de loop, as Entregas e o carregador do e2e (inerte fora da build de teste), que não reescrevem nada da casca'); }
   assert.ok(!/#[0-9a-fA-F]{6}\b/.test(casca), 'sem cor fixa no JS da casca');
 });
 

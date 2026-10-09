@@ -26,6 +26,7 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, rea
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { ClaudeEngine, claudeEnv, mapTool, resolveClaude, adjustRuleOf } from "./engine/claude.ts";
+import { ADVISOR_OFF_ENV, advisorArgs, advisorEnvBlocker, advisorEnvNote, advisorForRun, claudeCliVersion, taskHasEvent } from "./advisor.ts";
 import { buildPrompt as codexPrompt, loadLlmEnv } from "./engine/codex.ts";
 import { DSH_FAST_MODEL, DSH_KEY_MSG, dshKey, dshModelFor, isDshLabel } from "./engine/dsh.ts";
 import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
@@ -34,6 +35,7 @@ import { protectArgs, protectEnabled } from "./engine/protect.ts";
 import { engineKind, Orchestrator, deliverPrompt, readCostCapSetting } from "./orchestrator.ts";
 import { capCheck, capPauseText, effectiveCap, MAX_REVIEW_ROUNDS } from "./lifecycle.ts";
 import { Store } from "./store.ts";
+import { attemptFromHook, loopReset, loopTrack, loopTurnEnd, quietTool, stripAnsi } from "./loop-detect.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import type { AgentStatus, TaskSpec } from "./types.ts";
 
@@ -85,12 +87,14 @@ export const CODEX_LIMITS = [
 
 /** Marca dos comandos do Starfork nos hooks/statusLine — a fusão troca só os nossos e preserva o resto. */
 export const HOOK_MARK = "--starfork-task";
-export const CLAUDE_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "Notification", "SessionEnd"] as const;
+// PostToolUseFailure: o Claude Code manda a falha de ferramenta (comando com saída ≠ 0, edição que não aplicou) por
+// este evento, não pelo PostToolUse — é a fonte do detector de loop (src/loop-detect.ts)
+export const CLAUDE_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "Notification", "SessionEnd"] as const;
 export const CODEX_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"] as const;
 /** Prazo do hook Stop (o fim de turno roda dentro dele — commit, diff, provas, gate). O PR sai depois, destacado. */
 export const STOP_HOOK_TIMEOUT_S = 240;
 /** Hooks que só alimentam o feed rodam em segundo plano (não seguram a ferramenta); os que mudam estado são síncronos. */
-const ASYNC_HOOKS = new Set(["PreToolUse", "PostToolUse", "Notification"]);
+const ASYNC_HOOKS = new Set(["PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification"]);
 /** Pergunta nativa do Claude Code (várias perguntas, opções com descrição, multiSelect, "outra resposta"). */
 export const AUQ_TOOL = "AskUserQuestion";
 /** O hook espera a pessoa (como o ask_human). Passou disso, o Claude Code cai no picker dele no próprio terminal. */
@@ -143,7 +147,7 @@ export function mergeClaudeSettings(existing: Settings | null | undefined, base:
     // depois (veto do Rafa na mesa: commit/gate nunca no meio do turno seguinte)
     const h: { type: string; command: string; timeout: number; async?: boolean } = { type: "command", command: shellCmd(hookArgv(base, ev, taskId, repo)), timeout: ev === "Stop" ? STOP_HOOK_TIMEOUT_S : 30 };
     if (ASYNC_HOOKS.has(ev)) h.async = true;
-    (hooks[ev] = hooks[ev] ?? []).push(ev === "PreToolUse" || ev === "PostToolUse" ? { matcher: "*", hooks: [h] } : { hooks: [h] });
+    (hooks[ev] = hooks[ev] ?? []).push(ev === "PreToolUse" || ev === "PostToolUse" || ev === "PostToolUseFailure" ? { matcher: "*", hooks: [h] } : { hooks: [h] });
   }
   // pergunta do agente (AskUserQuestion): hook SÍNCRONO que segura a ferramenta até a pessoa responder na folha do
   // app e devolve allow + updatedInput.answers (o Claude Code aceita como resposta do usuário — sem tecla no PTY)
@@ -271,9 +275,12 @@ export function mapHook(event: string, p: Record<string, any>): HookEffect {
     }
     case "PostToolUse": {
       const r = p.tool_response;
-      const failed = r && typeof r === "object" && (r.is_error === true || r.success === false || (typeof r.error === "string" && r.error));
+      const failed = r && typeof r === "object" && (r.is_error === true || r.success === false || (typeof r.error === "string" && r.error))
+        && !quietTool(String(p.tool_name ?? ""), p.tool_input ?? {}, typeof r.error === "string" ? r.error : String(r.stderr ?? "")); // grep sem resultado, espera, navegador: não é falha
       return { events: failed ? [{ type: "note", text: `${p.tool_name ?? "ferramenta"} falhou: ${clip(typeof r.error === "string" ? r.error : r.stderr ?? "", 200)}`, ok: false }] : [] };
     }
+    case "PostToolUseFailure":
+      return { events: p.is_interrupt === true || quietTool(String(p.tool_name ?? ""), p.tool_input ?? {}, String(p.error ?? "")) ? [] : [{ type: "note", text: `${p.tool_name ?? "ferramenta"} falhou: ${clip(stripAnsi(String(p.error ?? "")), 200)}`, ok: false }] };
     case "Notification": {
       const msg = clip(p.message ?? "", 300);
       if (!msg) return { events: [] };
@@ -731,6 +738,8 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   let kicked = false;
   const genericKick = () => merged || quiet ? "" : codexPrompt(input) + (planApprovalOn(spec) ? `\n\n${PLAN_FIRST_RULE}` : "") + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
   if (ai === "claude" || ai === "deepseek") {
+    let advOn = false;
+    const advNotes: string[] = [];
     // a pasta foi criada pelo Starfork a partir do repo da pessoa: sem o "Is this a project you trust?" (padrão = sair)
     trustClaudeProject(task.worktree, repo);
     writeClaudeSettings(task.worktree, base, taskId, repo);
@@ -752,6 +761,13 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     if (planGate && cliHelp(bin, process.env.PATH).includes("--allow-dangerously-skip-permissions")) args.push("--allow-dangerously-skip-permissions");
     // DeepSeek: o modelo vai no env (ANTHROPIC_MODEL) — `--model deepseek-…` seria validado como id do Claude
     if (model && !dsEnv) args.push("--model", model);
+    // CONSELHEIRO (src/advisor.ts): só o `claude` falando com a Anthropic (o terminal é a sessão principal; no papel de revisor, sem conselheiro — igual ao headless); DeepSeek
+    // (outro endereço) desliga e explica — as notas saem UMA vez por tarefa
+    const wantAdv = advisorForRun(spec, role.role);
+    const adv = advisorArgs({ engine: dsEnv ? "deepseek" : "claude", model, advisor: wantAdv, cliVersion: wantAdv && !dsEnv ? claudeCliVersion(bin) : null });
+    args.push(...adv.args);
+    advOn = !!adv.on;
+    if (adv.note) advNotes.push(adv.note);
     if (kick) args.push(kick);
     kicked = !!kick;
     const ce = claudeEnv();
@@ -762,6 +778,16 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
       envRemove = envRemove.filter((k) => !(k in dsEnv));
       orch.store.addEvent(taskId, "Sistema", "note", `terminal DeepSeek (${dsEnv.ANTHROPIC_MODEL.replace(/\[1m\]$/, "")}) dentro do Claude Code — o custo em US$ da barra não é gravado (seria preço de Claude)`, true);
     }
+    // sem conselheiro: desliga até o `/advisor` global da pessoa; com ele, o que no ambiente o impediria (o que sobra
+    // depois do envRemove + o nosso env)
+    if (!advOn) Object.assign(env, ADVISOR_OFF_ENV);
+    else {
+      const eff: Record<string, string | undefined> = { ...process.env };
+      for (const k of envRemove) delete eff[k];
+      const why = advisorEnvBlocker({ ...eff, ...env });
+      if (why) advNotes.push(advisorEnvNote(why));
+    }
+    for (const n of advNotes) if (!taskHasEvent(orch.ws.dbFile, taskId, n)) orch.store.addEvent(taskId, "Sistema", "note", n, true);
   } else if (ai === "codex") {
     args = sid ? ["resume", sid] : [];
     args.push("-c", 'sandbox_mode="danger-full-access"', "-c", 'approval_policy="never"');
@@ -1221,6 +1247,11 @@ export function hookCli(event: string, taskArg: string, repoArg: string, argvPay
       }
       const wasBusy = (store.termGet(taskId)?.busy ?? 0) === 1;
       applyHook(store, taskId, eff);
+      // detector de loop (caminho do hook = rápido: uma tentativa ≤150 ms, desiste em silêncio — o do Codex é síncrono):
+      // mensagem da pessoa zera; resultado de ferramenta entra na janela; fim de turno tira aviso que não está mais valendo
+      if (event === "UserPromptSubmit") loopReset(store, taskId, { quick: true });
+      else if (eff.turnEnd) loopTurnEnd(store, taskId, { quick: true });
+      else loopTrack(store, taskId, attemptFromHook(event, p), { quick: true });
       // chips de reserva: o agente não chamou suggest_replies, mas a fala termina com opções claras
       if (eff.turnEnd && full) {
         try {

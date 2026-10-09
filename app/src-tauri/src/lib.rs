@@ -576,6 +576,39 @@ fn pending_visible(kind: &str, has_busy: bool, task_busy: Option<bool>) -> bool 
 }
 
 #[cfg(test)]
+mod advisor_front_tests {
+    use super::*;
+    #[test]
+    fn front_recebe_o_conselheiro_e_as_consultas() {
+        let b = task_front_spec(&serde_json::json!({"advisor":"opus","objective":"x"})).expect("tem conselheiro");
+        assert_eq!(b["advisor"], "opus");
+        assert!(task_front_spec(&serde_json::json!({"advisor":null})).is_none(), "desligado não vai");
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE event (id INTEGER PRIMARY KEY, task_id TEXT, text TEXT); INSERT INTO event (task_id,text) VALUES ('t1','Conselheiro consultado'),('t1','Conselheiro consultado'),('t1','outra coisa'),('t2','Conselheiro indisponível');").unwrap();
+        let c = advisor_calls_by_task(&conn).unwrap();
+        assert_eq!(c.get("t1"), Some(&2));
+        assert_eq!(c.get("t2"), None);
+        let s = with_advisor_calls(task_front_spec(&serde_json::json!({"advisor":"opus"})), c.get("t1").copied()).unwrap();
+        assert_eq!(s["advisor"], "opus"); assert_eq!(s["advisorCalls"], 2);
+        assert_eq!(with_advisor_calls(None, Some(3)).unwrap()["advisorCalls"], 3);
+        assert!(with_advisor_calls(None, None).is_none());
+    }
+}
+
+#[cfg(test)]
+mod advisor_flag_tests {
+    use super::advisor_flag;
+    #[test]
+    fn so_opus_ou_fable_viram_flag() {
+        assert_eq!(advisor_flag(Some("opus")), Some("opus"));
+        assert_eq!(advisor_flag(Some(" Fable ")), Some("fable"));
+        assert_eq!(advisor_flag(Some("off")), None);
+        assert_eq!(advisor_flag(Some("sonnet")), None, "o app só oferece Opus e Fable");
+        assert_eq!(advisor_flag(None), None);
+    }
+}
+
+#[cfg(test)]
 mod pending_visible_tests {
     use super::pending_visible;
     #[test]
@@ -718,6 +751,7 @@ mod budget_spec_tests {
         assert_eq!(b["taskKind"], "codigo");
         assert_eq!(b["planApproval"], "review");
         assert!(b.get("objective").is_none());
+        assert!(task_front_spec(&serde_json::json!({"loop":{"n":3}})).is_none(), "o aviso de loop NÃO mora no spec (tabela loop_state)");
     }
 }
 
@@ -1271,7 +1305,8 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
     // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal)
-    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "termRole"] {
+    // advisor: o conselheiro PEDIDO na tarefa (faixa, Entrega e doca do terminal — src/advisor.ts)
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "termRole", "advisor"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     // Cadeado 1 na faixa: a tarefa pausa pra aprovar o plano?
@@ -1282,6 +1317,28 @@ fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
         m.insert("agentProposals".into(), serde_json::Value::Array(tail));
     }
     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
+}
+
+/// Texto EXATO do evento que o motor grava quando o Claude Code consulta o conselheiro (src/advisor.ts advisorEventOf).
+const ADVISOR_CONSULTED: &str = "Conselheiro consultado";
+/// Banco travado/ocupado SOBE o erro (o snapshot cai no último estado bom em vez de esperar duas vezes o busy_timeout).
+fn advisor_calls_by_task(conn: &Connection) -> Result<HashMap<String, i64>, String> {
+    let mut out = HashMap::new();
+    let mut st = match conn.prepare("SELECT task_id, COUNT(*) FROM event WHERE text = ?1 GROUP BY task_id") {
+        Ok(st) => st,
+        Err(e) if e.to_string().contains("no such table") => return Ok(out),
+        Err(e) => return Err(e.to_string()),
+    };
+    let rows = st.query_map(params![ADVISOR_CONSULTED], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))).map_err(|e| e.to_string())?;
+    for row in rows { let (k, n) = row.map_err(|e| e.to_string())?; out.insert(k, n); }
+    Ok(out)
+}
+/// Junta a contagem de consultas ao spec do front (t.spec.advisorCalls) — só quando houve alguma.
+fn with_advisor_calls(spec: Option<serde_json::Value>, calls: Option<i64>) -> Option<serde_json::Value> {
+    match calls.filter(|n| *n > 0) {
+        None => spec,
+        Some(n) => { let mut o = spec.and_then(|v| v.as_object().cloned()).unwrap_or_default(); o.insert("advisorCalls".into(), serde_json::json!(n)); Some(serde_json::Value::Object(o)) }
+    }
 }
 
 #[derive(Serialize, Clone)]
@@ -1327,6 +1384,10 @@ struct Task {
     /// Pedidos (mensagens, entregáveis, rework) esperando na FILA do motor (work_queue 'queued').
     /// Com `busy` false e isto > 0 = fila parada: o front avisa em vez de a mensagem "sumir".
     queued: i64,
+    /// Aviso do DETECTOR DE LOOP (src/loop-detect.ts): a IA repetindo o mesmo erro. Vem da tabela loop_state (fora do
+    /// spec — nada de corrida com patch_task_spec); o front lê `t.loop`.
+    #[serde(rename = "loop", skip_serializing_if = "Option::is_none")]
+    loop_warn: Option<serde_json::Value>,
     /// A tarefa roda no TERMINAL (regra única term::starts_in_terminal, já resolvida — o front não relê spec.termMode):
     /// tarefa do CLI sem `termMode` aparece como terminal antes de o PTY abrir.
     term_run: bool,
@@ -2977,6 +3038,8 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
             }
         }
     };
+    // quantas vezes o conselheiro foi consultado (evento do motor headless "Conselheiro consultado") — por tarefa
+    let advisor_calls = advisor_calls_by_task(&conn)?;
     // o modo padrão é lido UMA vez por retrato (setting_get abre o arquivo de Ajustes)
     let (term_default, term_chosen) = (term::default_mode(), setting_get("taskMode").as_deref() == Some("terminal"));
     let tasks = conn
@@ -3029,11 +3092,12 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
                 },
                 depends_on: spec.get("dependsOn").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
-                spec: task_front_spec(&spec),
+                spec: with_advisor_calls(task_front_spec(&spec), advisor_calls.get(&tid).copied()),
                 term_run: term::starts_in_terminal(&spec, term_default, term_chosen),
                 busy: bpid.is_some(),
                 queued: 0,
                 bg: bpid.is_some() && bpid != pty_pid,
+                loop_warn: None,
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -3047,6 +3111,12 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                 if let Some(n) = q.get(&t.id) { t.queued = *n; }
             }
         }
+    }
+
+    // aviso do detector de loop (tabela loop_state; banco antigo sem a tabela: nada)
+    {
+        let w = loop_warns(&conn);
+        if !w.is_empty() { for t in tasks.iter_mut() { if let Some(v) = w.get(&t.id) { t.loop_warn = Some(v.clone()); } } }
     }
 
     // Limita o payload: só os eventos mais recentes (evita serializar todo o
@@ -3590,6 +3660,11 @@ mod agent_version_cfg_tests {
 
 /// Cria e dispara uma tarefa (detached) — roda o núcleo em background; o SQLite
 /// é atualizado ao vivo. Tarefas paralelas se coordenam pelo mesmo state.sqlite.
+/// Conselheiro aceito no new_task: só os dois que o app oferece (o motor confere par/versão a cada abertura).
+fn advisor_flag(v: Option<&str>) -> Option<&'static str> {
+    match v.map(|s| s.trim().to_ascii_lowercase()).as_deref() { Some("opus") => Some("opus"), Some("fable") => Some("fable"), _ => None }
+}
+
 /// PURA: o `--term-mode` que a criação grava. terminal → "terminal"; automático só quando foi ESCOLHA (pedido "auto"
 /// ou o padrão "auto" de Ajustes); senão nada (ausente = decide no início, pelo padrão).
 fn term_mode_arg(terminal: bool, explicit: Option<&str>, default: &str) -> Option<&'static str> {
@@ -3652,6 +3727,8 @@ fn new_task(
     budget_usd: Option<f64>,
     // "terminal" | "auto" — ausente = o padrão de Configurações ("modo das tarefas"); piloto/ondas/épico mandam "auto"
     term_mode: Option<String>,
+    // CONSELHEIRO (advisor do Claude Code): "opus" | "fable"; o resto (null, "off") = desligado — src/advisor.ts
+    advisor: Option<String>,
     // F5 · P14: a política da organização (Empresa) lida da nuvem pelo app — o motor aplica (revisor, teto máximo, portão)
     org_policy: Option<serde_json::Value>,
 ) -> Result<String, String> {
@@ -3793,6 +3870,7 @@ fn new_task(
     if wave > 0 { args.push("--wave".to_string()); args.push(wave.to_string()); }
     push_opt(&mut args, "--risk", &risk);
     if hitl { args.push("--hitl".to_string()); }
+    if let Some(a) = advisor_flag(advisor.as_deref()) { args.push("--advisor".to_string()); args.push(a.to_string()); }
     if let Some(p) = org_policy.as_ref().filter(|p| p.is_object()) {
         args.push("--org-policy".to_string());
         args.push(p.to_string());
@@ -4456,7 +4534,10 @@ fn resume_task(state: State<AppState>, task_id: String) -> Result<(), String> {
 /// tarefa: mata o processo em execução e volta o status pra 'review', deixando a
 /// worktree e os registros como estão — aí o humano manda uma nova mensagem.
 #[tauri::command(async)]
-fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+fn stop_task(state: State<AppState>, task_id: String, keep_loop: Option<bool>) -> Result<(), String> {
+    // parar = a pessoa interveio: o detector de loop zera — salvo a PAUSA AUTOMÁTICA do próprio detector (keep_loop),
+    // que precisa deixar o aviso na tarefa pra pessoa saber por que parou
+    if keep_loop != Some(true) { loop_clear_db(&state, &task_id); }
     // MODO TERMINAL: "■ parar" = Esc no CLI (interrompe o turno; a sessão segue aberta pra próxima mensagem)
     if term::is_terminal(&state, &task_id) && term::mgr().and_then(|m| m.live(&task_id)).is_some() {
         term::interrupt(&state, &task_id)?;
@@ -4479,6 +4560,51 @@ fn stop_task(state: State<AppState>, task_id: String) -> Result<(), String> {
     }
     // volta pra review (não 'aborted') pra poder continuar conversando — salvo tarefa já integrada/concluída
     stop_task_status(&state, &task_id)
+}
+
+/// DETECTOR DE LOOP (src/loop-detect.ts): o aviso ativo de cada tarefa ($.warn da linha em loop_state).
+fn loop_warns(conn: &Connection) -> HashMap<String, serde_json::Value> {
+    let mut out = HashMap::new();
+    if let Ok(mut st) = conn.prepare("SELECT task_id, json_extract(json,'$.warn') FROM loop_state WHERE json_valid(json) AND json_type(json,'$.warn')='object'") {
+        if let Ok(rows) = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))) {
+            for (id, w) in rows.flatten() { if let Ok(v) = serde_json::from_str::<serde_json::Value>(&w) { out.insert(id, v); } }
+        }
+    }
+    out
+}
+/// Apaga a janela e o aviso da tarefa (dispensar, parar, interromper). Banco antigo sem a tabela: nada a fazer.
+fn loop_clear_row(conn: &Connection, task_id: &str) {
+    let _ = conn.execute("DELETE FROM loop_state WHERE task_id=?1", params![task_id]);
+}
+fn loop_clear_db(state: &State<AppState>, task_id: &str) {
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    if let Some(p) = path {
+        if let Ok(conn) = Connection::open_with_flags(&p, OpenFlags::SQLITE_OPEN_READ_WRITE) {
+            let _ = conn.busy_timeout(std::time::Duration::from_millis(3000));
+            loop_clear_row(&conn, task_id);
+        }
+    }
+}
+/// "Dispensar" o aviso de loop (70-loop.js) — a tabela é do motor; o spec nem é tocado.
+#[tauri::command(async)]
+fn loop_clear(state: State<AppState>, task_id: String) -> Result<(), String> { loop_clear_db(&state, &task_id); Ok(()) }
+#[cfg(test)]
+mod loop_warn_tests {
+    use super::*;
+    #[test]
+    fn aviso_de_loop_vem_da_tabela_e_some_ao_limpar() {
+        let c = Connection::open_in_memory().unwrap();
+        assert!(loop_warns(&c).is_empty(), "banco antigo sem a tabela: nada (sem erro)");
+        loop_clear_row(&c, "t1");
+        c.execute_batch(r#"CREATE TABLE loop_state (task_id TEXT PRIMARY KEY, json TEXT NOT NULL, updated_at INTEGER NOT NULL);
+          INSERT INTO loop_state VALUES ('t1','{"w":{},"warn":{"kind":"erro","n":3,"what":"`npm test` falhou 3×","at":5}}',1),
+            ('t2','{"w":{},"warn":null}',1),('t3','não é json',1);"#).unwrap();
+        let w = loop_warns(&c);
+        assert_eq!(w.len(), 1, "só quem tem aviso ativo");
+        assert_eq!(w["t1"]["n"], 3);
+        loop_clear_row(&c, "t1");
+        assert!(loop_warns(&c).is_empty());
+    }
 }
 
 /// "■ parar" só INTERROMPE a IA: tarefa já integrada/concluída (merged/done/cancelled/aborted, ou encerrada à mão com
@@ -4543,6 +4669,7 @@ fn stop_and_wait(p: i32, grace_ms: u64) -> bool {
 /// pra não travar outros agentes. A worktree é preservada pra inspeção.
 #[tauri::command(async)]
 fn abort_task(state: State<AppState>, task_id: String) -> Result<(), String> {
+    loop_clear_db(&state, &task_id);
     term::kill_task(&task_id); // terminal da tarefa (grupo inteiro)
     let pid = live_task_pid(&state, &task_id);
     if let Some(p) = pid {
@@ -10621,6 +10748,7 @@ pub fn run() {
             resume_task,
             abort_task,
             stop_task,
+            loop_clear,
             reorder_tasks,
             repo_remote,
             ai_chat,

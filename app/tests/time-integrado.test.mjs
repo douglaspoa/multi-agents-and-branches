@@ -73,7 +73,7 @@ function world(over = {}) {
     ntEpicVal: () => null, teamEpics: [], teamTasks: [], window: {},
     toast: (m, k) => W.toasts.push([k, m]),
   };
-  const code = PURO + ['trkCardFailToast', 'trkIssueForCard', 'trkCardIds', 'trkSpecWithIssue', 'trkPublishEpic', 'cloudShareTask'].map((n) => fn(n === 'cloudShareTask' ? S42 : S14, n)).join('\n')
+  const code = PURO + ['trkCardFailToast', 'trkIssueForCard', 'trkCardIds', 'trkSpecWithIssue', 'trkPublishEpic', 'cloudSpecOf', 'cloudShareTask'].map((n) => fn(n === 'cloudShareTask' || n === 'cloudSpecOf' ? S42 : S14, n)).join('\n')
     + '\nreturn { trkPublishEpic, trkIssueForCard, cloudShareTask };';
   const names = Object.keys(g);
   W.api = new Function('W', ...names, 'let trk=W.trk; ' + code)(W, ...names.map((k) => g[k]));
@@ -190,7 +190,7 @@ test('cartão mandado pro time: dispatch=team, responsável DEPOIS do cartão (r
   const assigned = [];
   const S = world();
   // cloudAssign / tmAssignOptsNow falsos no mundo: refaz com eles
-  const code = PURO + ['trkCardFailToast', 'trkIssueForCard', 'trkCardIds', 'trkSpecWithIssue', 'cloudShareTask'].map((n) => fn(n === 'cloudShareTask' ? S42 : S14, n)).join('\n') + '\nreturn cloudShareTask;';
+  const code = PURO + ['trkCardFailToast', 'trkIssueForCard', 'trkCardIds', 'trkSpecWithIssue', 'cloudSpecOf', 'cloudShareTask'].map((n) => fn(n === 'cloudShareTask' || n === 'cloudSpecOf' ? S42 : S14, n)).join('\n') + '\nreturn cloudShareTask;';
   const mk = (failAssign) => { const posts = [], toasts = [];
     const share = new Function('trk', 'trkLoad', 'trkRepoRemote', 'trkRemote', 'trkRemoteIds', 'repoRemoteIds', 'trkErrText', 'trkCreateIssue', 'sbPost', 'cloudEnsureProject', 'SB', 'cloudTeamId', 'cloudUserId', 'ntEpicVal', 'teamEpics', 'teamTasks', 'window', 'toast', 'cloudAssign', 'tmAssignOptsNow', 'cloudErrMsg', code)(
       { ...S.trk, rules: { createOnTask: false } }, async () => S.trk, async () => '', '', LOJA, async () => LOJA, (e) => String(e.message || e), async () => ({}),
