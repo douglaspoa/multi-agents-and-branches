@@ -381,6 +381,18 @@ async function trkCardRetry(ct, proj, btn){
     return r;
   }catch(e){ showErr(e, 'Não criei a issue no painel'); if(btn){ btn.disabled=false; btn.textContent='sem issue · criar'; } return null; }
 }
+// o responsável do cartão vai pra issue (melhor esforço, mesa 09/10 T6): conector que sabe atribuir (op assign, ou
+// inferida do updateStatus + campo de e-mail) recebe o e-mail de quem assumiu. Falha não desfaz nada — só avisa no console.
+async function trkCardAssign(ct, uid){
+  try{
+    const l=trkCardLink(ct); if(!l||!l.code||!uid) return false;
+    await trkLoad(); if(!trkReady()||!trkOp('assign')) return false;
+    const p=(typeof tmProfiles==='function'?tmProfiles():{})[uid]||{}, who=String(p.email||'').trim(); if(!who) return false;
+    await trkCall('assign',{ code:l.code, id:l.code, assignee:who });
+    return true;
+  }catch(e){ console.warn('responsável na issue', e&&e.message||e); return false; }
+}
+window.trkCardAssign=trkCardAssign;
 window.trkIssueForCard=trkIssueForCard; window.trkCardMissing=trkCardMissing; window.trkCardRetry=trkCardRetry; window.trkCardLink=trkCardLink;
 // @puro-trkmade-inicio — issue criada por pedido de tarefa (mesmo título+objetivo+requisitos), lembrada por 30 min
 const TRK_MADE_MS=30*60*1000, trkMade=new Map();

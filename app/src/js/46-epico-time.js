@@ -548,7 +548,7 @@ function epqEpicTasks(eid){
     if(lt) seen.add(lt.id);
     const st=lt?taskSt(lt):ct.status, flag=lt?lt.flag:ct.flag; // R5-1: status efetivo (pergunta aberta = aguardando você)
     const pr=lt?!!(lt.prUrl&&lt.status!=='merged'):!!(ct.pr_url&&!['merged','done','closed'].includes(ct.status));
-    out.push({ title:ct.title||(lt&&lt.title)||'tarefa', st, flag, b:epqBucket(st, flag, pr), wave:epqWave(ct), local:lt?lt.id:null, cloud:ct.id });
+    out.push({ title:ct.title||(lt&&lt.title)||'tarefa', st, flag, b:epqBucket(st, flag, pr), wave:epqWave(ct), local:lt?lt.id:null, cloud:ct.id, who:ct.assignee||null });
   });
   locals.forEach(t=>{ if(seen.has(t.id)) return; // tarefa local ainda não espelhada na nuvem
     const pr=!!(t.prUrl&&t.status!=='merged');
@@ -565,8 +565,12 @@ function epqSummaryHtml(eid, qn){
   EPQ_BUCKETS.forEach(([k,l])=>{ if(cnt[k]) parts.push(`<span class="epqk epqk-${k}">${k==='rev'?nPl(cnt[k],'pronta','prontas')+' pra revisar':cnt[k]+' '+l}</span>`); });
   const dots=all.map((x,i)=>{ const pr=x.b==='pr', sk=pr?'pr-open':(x.flag==='closed'?'closed':x.st);
     const c=stColor(sk), lab=stLabel(sk);
-    return `<button class="epqdot" style="--stc:${c}" data-epqt="${escA(eid)}|${i}" title="${escA(x.title+' — '+lab+' · onda '+x.wave+' · clique pra abrir')}" aria-label="${escA(x.title+' — '+lab)}"></button>`; }).join('');
-  return parts.join('<span class="epqsep">·</span>')+`<span class="epqdots" role="group" aria-label="tarefas do épico, na ordem das ondas">${dots}</span>`;
+    const whoTx=x.who?(x.who===cloudUserId()?'com você':'com '+tmName(x.who)):(x.local?'':'sem dono'); // quem assumiu, pra todo o time ver
+    return `<button class="epqdot" style="--stc:${c}" data-epqt="${escA(eid)}|${i}" title="${escA(x.title+' — '+lab+(whoTx?' · '+whoTx:'')+' · onda '+x.wave+' · clique pra abrir')}" aria-label="${escA(x.title+' — '+lab+(whoTx?' · '+whoTx:''))}"></button>`; }).join('');
+  // quem está no épico agora (avatares): o nome aparece pra todos assim que alguém assume
+  const ppl=[...new Set(all.map(x=>x.who).filter(Boolean))].slice(0,5);
+  const pplHtml=ppl.length?`<span class="epqppl" title="${escA('no épico: '+ppl.map(u=>tmName(u)).join(', '))}">${ppl.map(u=>tsAv(u, tsOnline(u))).join('')}</span>`:'';
+  return parts.join('<span class="epqsep">·</span>')+`<span class="epqdots" role="group" aria-label="tarefas do épico, na ordem das ondas">${dots}</span>`+pplHtml;
 }
 function epqOpenTask(eid, i){
   const x=epqEpicTasks(eid)[i]; if(!x) return;
@@ -598,6 +602,40 @@ function epBoardHtml(scope, opts){
   const head=(typeof flowSecHead==='function')?flowSecHead('epicos','Na fila dos épicos', list.length, '', colAll, IC.epic):`<div class="sech">${IC.epic} Na fila dos épicos <span class="n">${list.length}</span></div>`;
   return `<div class="secgrp epqgrp${colAll?' collapsed':''}" data-sec="epicos">${head}${colAll?'':body}</div>`;
 }
+// ---- "COM O TIME" na Central (mesa 09/10, T3): o que EU criei e está com OUTRA pessoa (ou livre, mandado pro time) —
+// quem assumiu aparece com nome e avatar e o status de agora ("com Bruno · rodando"). Antes, mandou pro time e sumiu
+// da sua Central; só dava pra saber abrindo a aba Time. Uma consulta leve a cada 20 s (sem laço de tela novo).
+// @ct-sent-inicio (testado em app/tests/time-integrado.test.mjs)
+function ctSentShow(t, me){
+  if(!t || !me || t.created_by!==me) return false;
+  if(t.flag==='closed' || ['merged','done','cancelled','aborted'].includes(t.status)) return false;
+  return t.assignee ? t.assignee!==me : ((t.spec||{}).dispatch==='team');
+}
+// @ct-sent-fim
+let ctSent={ rows:[], sig:'' };
+async function ctSentTick(){
+  if(!SB.sess() || !cloudTeamId() || (typeof cloudScopeOk==='function'&&!cloudScopeOk())) return;
+  const me=cloudUserId();
+  const rows=(await sbGet('tasks?select=id,title,status,flag,assignee,created_by,pr_url,issue_url,epic_id,project_id,local_id,updated_at,spec,requirements_proof&team_id=eq.'+cloudTeamId()+'&created_by=eq.'+me+'&order=updated_at.desc&limit=60'))||[];
+  const keep=rows.filter(t=>ctSentShow(t, me)).slice(0,12);
+  const sig=JSON.stringify(keep.map(t=>[t.id,t.status,t.flag,t.assignee,t.pr_url]));
+  if(sig!==ctSent.sig){ ctSent={ rows:keep, sig }; lastSig=''; }
+  if(keep.some(t=>t.assignee)) keep.forEach(t=>{ if(t.assignee) tmName(t.assignee); }); // nomes chegam em lote (tmFetchMissing)
+}
+tickLoop('ctSent', ()=>ctSentTick().catch(e=>tickErr('ctSent', e)), 20000, 4000);
+function ctSentHtml(scope){
+  if(scope==='done' || !ctSent.rows.length) return '';
+  const col=(typeof flowSecCollapsed==='function')?flowSecCollapsed('comtime', false):false;
+  const head=(typeof flowSecHead==='function')?flowSecHead('comtime','Com o time', ctSent.rows.length, '', col, IC.push||''):`<div class="sech">Com o time <span class="n">${ctSent.rows.length}</span></div>`;
+  const row=t=>{ const st=ctStLabel(t), sk=t.pr_url?'pr-open':(typeof tsSt==='function'?tsSt(t):t.status);
+    const l=(typeof trkCardLink==='function'&&trkCardLink(t))||null, ep=t.epic_id?epNameOf(t.epic_id):'';
+    const who=t.assignee?`${tsAv(t.assignee, tsOnline(t.assignee))}<span class="epq-who">com <b>${esc(tmName(t.assignee))}</b></span>`:`<span class="tsav tmfree" aria-hidden="true">·</span><span class="epq-who">sem dono</span>`;
+    return `<div class="epq ctsent" data-ctsent="${escA(t.id)}" role="button" tabindex="0" title="${escA('abrir “'+t.title+'” — '+st)}"><span class="epq-dot" style="--stc:${stColor(sk)}"></span><div class="epq-body"><div class="epq-t">${esc(t.title)}</div><div class="epq-m">${who}<span class="epq-st">${esc(st)}</span>${ep?`<span class="tsepc">${IC.epic} ${esc(ep)}</span>`:''}${l&&l.code?`<span class="mono">${esc(l.code)}</span>`:''}<span>${esc(agoTx(t.updated_at))}</span></div></div></div>`; };
+  return `<div class="secgrp ctsentgrp${col?' collapsed':''}" data-sec="comtime">${head}${col?'':`<div class="ctsent-help">o que você criou e está com outra pessoa do time (ou livre) — o nome aparece aqui quando alguém assume</div>`+ctSent.rows.map(row).join('')}</div>`;
+}
+window.ctSentHtml=ctSentHtml;
+document.addEventListener('click', e=>{ const r=e.target.closest&&e.target.closest('[data-ctsent]'); if(!r) return; const ct=ctSent.rows.find(x=>x.id===r.dataset.ctsent); if(ct&&window.openCloudTaskPage) openCloudTaskPage(ct); });
+document.addEventListener('keydown', e=>{ if(e.key!=='Enter'&&e.key!==' ') return; const r=e.target.closest&&e.target.closest('[data-ctsent]'); if(!r) return; e.preventDefault(); r.click(); });
 // menu ⋯ do cartão da fila: abrir · remover (com confirmação)
 function epqMenu(ct, anchor){
   $id('epqMenuPop')?.remove();
