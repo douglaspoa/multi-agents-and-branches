@@ -229,9 +229,11 @@ function tiRec(t){ const s=TI.stat[t.id]; return tiRecommended(s&&s.recommended,
 function tiAiRow(t){ const s=TI.stat[t.id]; const st=TERM[t.id]; const live=!!(st && st.alive);
   // "shell (sem IA)" só com o PTY VIVO e nada rodando nele; sem terminal vivo o seletor mostra a IA da tarefa
   // shell: o "Continuar com…" mora na faixa Responder (tiReplyHtml) — aqui fica só o seletor, sem repetir o botão
-  if(live && s && s.cli==='') return `<div class="tiairow">${tiAiSelHtml('', tiRec(t))}</div>`;
-  return tiAiRowHtml({ cli:(live && s && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:false }); }
-function tiShellNow(t){ const s=TI.stat[t.id], st=TERM[t.id]; return !!(st && st.alive && s && s.cli===''); }
+  if(live && s && s.alive && s.cli==='') return `<div class="tiairow">${tiAiSelHtml('', tiRec(t))}</div>`;
+  return tiAiRowHtml({ cli:(live && s && s.alive && typeof s.cli==='string')?s.cli:null, taskAi:tiTaskAi(t), rec:tiRec(t), shell:false }); }
+// "shell sem IA" só com o retrato do status TAMBÉM vivo — o retrato lido antes do PTY nascer vinha com cli '' e a doca
+// dizia "a IA parou" com a IA trabalhando (visto no e2e do app, 09/10)
+function tiShellNow(t){ const s=TI.stat[t.id], st=TERM[t.id]; return !!(st && st.alive && s && s.alive && s.cli===''); }
 function tiAiRowReset(t){ const box=$id('tiAiRow'); if(box) box.__html=''; tiAiRowPaint(t); } // o <select> ficou na opção escolhida: volta pro real
 // trocar/rodar com a IA no meio de um turno interrompe o trabalho: pergunta antes
 async function tiBusyOk(taskId){

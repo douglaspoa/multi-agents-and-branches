@@ -652,7 +652,8 @@ pub fn role_launch_line(shim: &Path, ai: &str, model: &str, h: &Handoff, with_ms
     let sh = shim.display().to_string();
     let m = if model.is_empty() { String::new() } else { format!(" --modelo {}", sh_arg(model)) };
     let tail = if h.to == "reviewer" { format!(" --papel revisor --rodada {}", h.round.max(1)) }
-        else { format!(" --resume --papel construtor{}", if with_msg { format!(" --msg-file {NEXT_MSG_REL}") } else { String::new() }) };
+        // volta SEM pedido (aprovado / você decide) = quieta: a IA só abre e espera (não muda o status, não gasta)
+        else { format!(" --resume --papel construtor{}", if with_msg { format!(" --msg-file {NEXT_MSG_REL}") } else { " --quieto".to_string() }) };
     format!("\x05\x15'{}' ia {ai}{m}{tail}\r", sh.replace('\'', "'\\''"))
 }
 /// IA + modelo de quem entra: revisor = o motor/modelo do papel revisor; construtor = o recomendado da tarefa.
@@ -1261,6 +1262,8 @@ mod troca_de_papel_tests {
         assert_eq!(role_launch_line(Path::new("/w/s"), "claude", "opus", &rv, false), "\x05\x15'/w/s' ia claude --modelo opus --papel revisor --rodada 1\r");
         let bd = Handoff { to: "builder".into(), round: 1, msg: "corrija".into(), at: 0 };
         assert_eq!(role_launch_line(Path::new("/w/s"), "claude", "", &bd, true), "\x05\x15'/w/s' ia claude --resume --papel construtor --msg-file .cardume/term/next-msg.txt\r");
+        let q = Handoff { to: "builder".into(), round: 1, msg: "".into(), at: 0 };
+        assert_eq!(role_launch_line(Path::new("/w/s"), "claude", "", &q, false), "\x05\x15'/w/s' ia claude --resume --papel construtor --quieto\r", "aprovado: volta quieta (não rebaixa o review)");
         let spec = j(r#"{"engine":"claude","roles":[{"role":"builder","engine":"claude","model":"sonnet"},{"role":"reviewer","engine":"codex","model":"o4"}]}"#);
         assert_eq!(role_ai(&spec, "reviewer"), ("codex".to_string(), "o4".to_string()));
         assert_eq!(role_ai(&spec, "builder"), ("claude".to_string(), "sonnet".to_string()));

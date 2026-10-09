@@ -1139,6 +1139,25 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
     Ok(())
 }
 
+// ============================ e2e do APP (só na build de teste: `--features e2e`) ============================
+/// Roteiro de teste (STARFORK_E2E_SCRIPT) que o front roda ao subir — só existe na build de teste isolada (identificador e
+/// HOME próprios). No app de verdade recusa sempre: nada de código vindo de fora.
+#[tauri::command(async)]
+fn e2e_script() -> Result<String, String> {
+    if !cfg!(feature = "e2e") { return Err("indisponível".into()); }
+    let p = std::env::var("STARFORK_E2E_SCRIPT").map_err(|_| "sem roteiro".to_string())?;
+    std::fs::read_to_string(p).map_err(|e| e.to_string())
+}
+/// Uma linha do relatório do roteiro de teste (STARFORK_E2E_REPORT).
+#[tauri::command(async)]
+fn e2e_report(line: String) -> Result<(), String> {
+    if !cfg!(feature = "e2e") { return Err("indisponível".into()); }
+    use std::io::Write;
+    let p = std::env::var("STARFORK_E2E_REPORT").map_err(|_| "sem relatório".to_string())?;
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(p).map_err(|e| e.to_string())?;
+    writeln!(f, "{}", line.replace('\n', " ")).map_err(|e| e.to_string())
+}
+
 // ============================ ASSUMIR no terminal (turno de fundo → PTY) ============================
 /// Processo de FUNDO (headless `cardume start/talk/rework…`) desta tarefa, vivo agora — o PID do PTY não conta (o hook
 /// grava o pid do terminal no mesmo `busy_pid` quando a sessão do terminal está ocupada).
@@ -10451,6 +10470,8 @@ pub fn run() {
             task_agent_edit,
             resolve_conflict,
             term_takeover,
+            e2e_script,
+            e2e_report,
             list_projects,
             set_projects_user,
             projects_scope,

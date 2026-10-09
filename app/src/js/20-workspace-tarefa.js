@@ -377,6 +377,8 @@ async function fwLiveUpdate(){
   // Prévia: requisitos por cima do app ("requisito 3 ✓ com print" — 58-canvas; guarda própria)
   if(fwMode==='previa' && typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(t.id);
   if(typeof termHistTick==='function') termHistTick(t); // aba Terminal sem PTY: o histórico acompanha a sessão em segundo plano
+  // faixa do terminal VIVO (teto pausou, plano pronto, revisor entrou/saiu) muda sem mexer na assinatura — repinta só se mudou
+  { const ts=typeof TERM!=='undefined'&&TERM[t.id]; if(ts && ts.alive && ts.mode==='live' && typeof termSetAlive==='function') termSetAlive(t.id, true); }
   if(sig===fwLiveSig) return; // nada mudou → não mexe no DOM (digitação fica leve)
   fwLiveSig=sig;
   // o agente anunciou/trocou o preview DEPOIS de a aba abrir: o cabeçalho (fwReviewBar) só era montado
