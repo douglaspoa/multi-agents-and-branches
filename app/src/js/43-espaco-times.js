@@ -98,7 +98,8 @@ function tsCardHtml(t, me, isAdmin){
   // projeto que não existe nesta máquina (nenhum projeto local com esse remote): aparece no Time, marcado, sem ▶
   const here=((typeof localRemoteList!=='undefined'&&localRemoteList)||[]).concat(teamRepoIds?[teamRepoIds]:[]);
   const isLocal=sameRepo||ctProjLocal(proj, here);
-  const canClaim=t.status==='backlog' && (t.claim_mode==='open'||t.created_by===me);
+  // cartão de colega não se toma (0032): assumir só livre ou já meu
+  const canClaim=t.status==='backlog' && (t.claim_mode==='open'||t.created_by===me) && (!t.assignee||t.assignee===me);
   const whoTx=ctWhoLabel(t, me, tmName); // "criada por Fulano" — o que é todo meu não ganha nada
   const ep=t.epic_id?(teamEpics.find(e=>e.id===t.epic_id)||{}).name:'';
   const rp=t.requirements_proof; const list=rp&&(Array.isArray(rp.list)?rp.list:(Array.isArray(rp)?rp:null));
@@ -107,24 +108,90 @@ function tsCardHtml(t, me, isAdmin){
   const bk=tsBucket(t), st=tsSt(t);
   const running=bk==='andamento' && t.status!=='backlog';
   const isErr=bk==='aguardando';
-  const obj=((t.spec||{}).objective||'').replace(/\s+/g,' ').slice(0,160);
+  const obj=mdPlain(String((t.spec||{}).objective||'').slice(0,1200)).slice(0,160); // resumo de 1 linha: sem ** / # / crases crus
   const reqs=((t.spec||{}).requirements||[]).filter(Boolean);
   const teamTag=(typeof tsOrgScope==='function'&&tsOrgScope())?`<span class="tsteamtag" title="time">${esc(tsTeamName(t.team_id)||'?')}</span>`:'';
   const epSt=(t.epic_id&&typeof epColor==='function')?` style="--epc:${epColor(t.epic_id)}"`:''; // F2: cor estável do épico
   return `<div class="tscard dcard-like${epSt?' has-ep':''}" data-ct="${escA(t.id)}"${epSt}>
-    <div class="tt">${esc(t.title)}${teamTag}</div>
+    <div class="tt">${esc(mdTitle(t.title||''))}${teamTag}</div>
     ${obj?`<div class="dc-obj">${esc(obj)}</div>`:''}
-    ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?IC.ok:st==='blk'?IC.stErr:''}</i><span class="dc-rt" title="${escA(r)}">${esc(r)}</span></span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
+    ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?IC.ok:st==='blk'?IC.stErr:''}</i><span class="dc-rt" title="${escA(mdPlain(r))}">${esc(mdPlain(r))}</span></span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
     ${ctPhaseBar(t)}
-    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="tslk" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" title="abrir a issue"><span class="mono">${esc(c[1])}</span> ${icEm(IC.extlink)}</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono tsbr" title="${escA(t.branch)}">${esc(t.branch.split('/').pop())}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:var(--fs-xs)">pra si</span>':''}${isLocal?'':`<span class="tsnolocal" title="${escA('nenhum projeto aberto nesta máquina tem o repositório '+(proj.repo_remote||'')+' — clone a pasta e adicione em Projetos pra poder assumir')}">projeto que você não tem neste computador</span>`}</div>
+    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${tsIssueChip(t, proj)}${t.branch?`<span class="mono tsbr" title="${escA(t.branch)}">${esc(t.branch.split('/').pop())}</span>`:''}${(t.cost_usd>0&&tsCostOk(t, me))?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:var(--fs-xs)">pra si</span>':''}${isLocal?'':`<span class="tsnolocal" title="${escA('nenhum projeto aberto nesta máquina tem o repositório '+(proj.repo_remote||'')+' — clone a pasta e adicione em Projetos pra poder assumir')}">projeto que você não tem neste computador</span>`}</div>
     ${whoTx?`<div class="tswho" title="${escA(whoTx)}">${esc(whoTx)}</div>`:''}
-    <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
+    <div class="foot">${t.assignee?tsAv(t.assignee, tsOnline(t.assignee)):`<span class="tsav tmfree" title="sem responsável — quem assumir aparece aqui" aria-label="sem responsável">·</span>`}${!t.assignee?'<span class="tsowner dim">sem dono</span>':t.assignee===me?'<span class="tsowner">com você</span>':(t.assignee===t.created_by?`<span class="tsowner" title="${escA('com '+tmName(t.assignee))}">${esc(tmName(t.assignee).split(/\s+/)[0])}</span>`:'')}${prov}<span style="flex:1"></span>
       ${isErr?`<span class="tstag" style="color:${stColor(st)};border:1px solid currentColor">${esc(stLabel(st))}</span>`:running?`<span class="tstag run">${esc(stLabel(st))}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando as tarefas da onda anterior forem concluídas ou mergeadas (onda = grupo de tarefas que rodam juntas)">na espera da onda anterior</span>`:''}
-      ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" title="assumir e iniciar nesta máquina — a tarefa passa pra sua Execução" style="padding:3px 9px;font-size:var(--fs-xs)">${IC.play} assumir</button>`:isLocal?`<button class="btn sm" data-act="openproj" title="${escA('a tarefa é do projeto '+(proj.name||proj.repo_remote||'')+' — abrir ele aqui pra assumir')}" style="padding:3px 9px;font-size:var(--fs-xs)">abrir ${esc(proj.name||'o projeto')}</button>`:''):''}
+      ${tsActsHtml(t, me, canClaim, sameRepo, isLocal, proj)}
       ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:var(--fs-xs)">${IC.x}</button>`:''}
     </div></div>`;
 }
-function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'publicou provas em',comment:'comentou em',status:'mudou o status de'}[kind]||kind; }
+// issue do cartão: o vínculo gravado (spec.issueCode/issue_url — o painel cria quando o cartão nasce) ou o código na
+// branch/título; painel ligado pro projeto e cartão sem issue → selo "sem issue · criar" (tenta de novo, com o motivo)
+function tsIssueChip(t, proj){
+  const l=(typeof trkCardLink==='function'&&trkCardLink(t))||null;
+  const c=(l&&l.code)||(((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/)||[])[1]||'';
+  const b=(lsGet('issueBase')||'').trim(), url=(l&&l.url)||(c&&b?b.replace(/\/+$/,'')+'/'+c:'');
+  if(c||url) return url?`<button class="tslk" data-lk="${escA(url)}" title="abrir a issue no painel">${c?`<span class="mono">${esc(c)}</span>`:'issue'} ${icEm(IC.extlink)}</button>`:`<span class="mono" title="issue no painel">${esc(c)}</span>`;
+  if(typeof trkCardMissing==='function' && trkCardMissing(t, proj)) return `<button class="tslk tsnoiss" data-act="issue" title="o painel de Issues cobre este projeto, mas este cartão ficou sem issue — clique pra criar agora">sem issue · criar</button>`;
+  return '';
+}
+// ---- ASSUMIR / INICIAR / DEVOLVER (mesa 09/10, T3–T4) ----
+// Assumir = só o MEU nome no cartão (o time inteiro vê); Iniciar = roda nesta máquina; "assumir e iniciar" é o atalho.
+// Cartão de colega não se toma (0032); líder/admin trocam o responsável. Devolver = volta pra livre (nunca rodando).
+// custo do cartão: só pra quem atribui (líder/owner/admin) ou pro dono dele (T8 — custo por pessoa não vira ranking)
+function tsCostOk(t, me){ return (typeof entPodeVerCusto==='function'?entPodeVerCusto():tmCanAssignNow()) || tsWho(t)===me; } // a MESMA regra da aba Entregas (70)
+const TS_LIVE=new Set(['running','thinking','plan-review','queued']);
+function tsActsHtml(t, me, canClaim, sameRepo, isLocal, proj){
+  const B=(act, label, title, cls)=>`<button class="btn sm${cls?' '+cls:''}" data-act="${act}" title="${escA(title)}" style="padding:3px 9px;font-size:var(--fs-xs)">${label}</button>`;
+  const can=tmCanAssignNow(), out=[];
+  const openProj=!sameRepo&&isLocal?B('openproj','abrir '+esc(proj.name||'o projeto'),'a tarefa é do projeto '+(proj.name||proj.repo_remote||'')+' — abrir ele aqui pra iniciar',''):'';
+  if(t.status==='backlog'){
+    if(!t.assignee && canClaim){
+      out.push(B('claimonly','assumir','pôr o seu nome no cartão — o time vê que é você; nada roda ainda','primary'));
+      if(sameRepo) out.push(B('claim',`${IC.play}<span class="sr-only">assumir e iniciar</span>`,'assumir e iniciar agora nesta máquina','ghost'));
+      else if(openProj) out.push(openProj);
+    } else if(t.assignee===me){
+      out.push(sameRepo?B('claim',`${IC.play} iniciar`,'iniciar nesta máquina — a tarefa vai pra sua Execução','primary'):openProj);
+      out.push(B('release','devolver','tirar o seu nome — o cartão volta a ficar livre pro time','ghost'));
+    } else if(t.assignee && can) out.push(B('release','devolver','tirar o responsável — o cartão volta a ficar livre','ghost'));
+    if(can) out.push(B('reassign',t.assignee?'trocar':'atribuir','escolher quem do time fica com o cartão','ghost'));
+  } else if(!TS_LIVE.has(t.status) && !t.pr_url && !['review','delivered','merged','done'].includes(t.status) && t.flag!=='closed' && (t.assignee===me || (t.assignee && can))){
+    out.push(B('release','devolver','o agente não está rodando — devolver o cartão pro time (volta pra fila, livre)','ghost'));
+  }
+  return out.join('');
+}
+// só o meu nome (sem rodar)
+async function tsClaimOnly(ct, btn){
+  if(btn){ btn.disabled=true; btn.textContent='assumindo…'; }
+  try{
+    if(ct.assignee && ct.assignee!==cloudUserId()) throw new Error('já está com '+tmName(ct.assignee)+' — peça pra devolver, ou ao líder do time pra trocar'); // vale mesmo com a nuvem sem a 0032
+    const j=await sbRpc('claim_task',{ p_task:ct.id });
+    if(!j||!j.ok) throw new Error((j&&j.error)||'não deu pra assumir');
+    ct.assignee=cloudUserId(); if(typeof trkCardAssign==='function') trkCardAssign(ct, ct.assignee);
+    teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{});
+    toast('Você assumiu “'+String(ct.title||'').slice(0,60)+'” — o time vê seu nome. Inicie quando quiser.','ok');
+  }catch(e){ showErr(e, 'Não deu pra assumir'); if(btn){ btn.disabled=false; btn.textContent='assumir'; } }
+}
+async function tsRelease(ct, btn){
+  if(!await askYes('O cartão volta pra fila do time, livre, e quem criou é avisado.', 'Devolver “'+String(ct.title||'').slice(0,60)+'”?')) return;
+  if(btn){ btn.disabled=true; btn.textContent='devolvendo…'; }
+  try{ await cloudAssign(ct.id, null); ct.assignee=null; teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{}); toast('Devolvido — “'+String(ct.title||'').slice(0,60)+'” está livre pro time.','ok'); }
+  catch(e){ showErr(e, 'Não deu pra devolver'); if(btn){ btn.disabled=false; btn.textContent='devolver'; } }
+}
+// promessa resolve quando a troca termina (a página do cartão redesenha DEPOIS); tirar de um colega pede confirmação
+function tsReassign(ct, btn){
+  return new Promise(done=>{ tmWhoPick(btn, ct.assignee||'', async uid=>{
+    try{
+      if((uid||null)===(ct.assignee||null)) return;
+      if(ct.assignee && ct.assignee!==cloudUserId() && !await askYes(tmName(ct.assignee)+' é avisado'+(uid?' e o cartão passa pra '+tmName(uid):' e o cartão fica livre')+'. Se ele já começou nesta máquina dele, combine antes.', 'Tirar “'+String(ct.title||'').slice(0,50)+'” de '+tmName(ct.assignee)+'?')) return;
+      await cloudAssign(ct.id, uid); ct.assignee=uid||null; if(uid && typeof trkCardAssign==='function') trkCardAssign(ct, uid);
+      teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{});
+      toast(uid?'“'+String(ct.title||'').slice(0,50)+'” agora está com '+tmName(uid)+'.':'“'+String(ct.title||'').slice(0,50)+'” ficou livre.','ok');
+    }catch(e){ showErr(e, 'Não deu pra trocar o responsável'); }
+    finally{ done(); } }); });
+}
+window.tsClaimOnly=tsClaimOnly; window.tsRelease=tsRelease; window.tsReassign=tsReassign; window.tsActsHtml=tsActsHtml;
+function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',released:'devolveu',assigned:'atribuiu',started:'iniciou',delivered:'publicou provas em',comment:'comentou em',status:'mudou o status de'}[kind]||kind; }
 function renderTeamBoard(){
   const el=$id('teamBoard'); if(!el) return;
   if(!SB.sess() || !cloudTeamId()){
@@ -151,6 +218,9 @@ function renderTeamBoard(){
     return;
   }
   if(Date.now()-teamFetchedAt>10000){ teamFetch().then(()=>renderTeamBoard()).catch(()=>{}); }
+  // config do painel de Issues do time ATUAL (o selo "sem issue" depende dela): carrega uma vez por time; falhou, tenta de novo em 60 s
+  if(typeof trkLoad==='function' && typeof trkLoadedFor!=='undefined' && trkLoadedFor!==cloudTeamId() && Date.now()-(renderTeamBoard.__trkAt||0)>60000){ renderTeamBoard.__trkAt=Date.now();
+    trkLoad().then(()=>trkRepoRemote()).then(()=>{ teamPaintSig=''; renderTeamBoard(); }).catch(()=>{}); }
   const me=cloudUserId();
   const isAdmin=cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin');
   const B=tsBuckets();
@@ -174,7 +244,7 @@ function renderTeamBoard(){
   const prs=all.filter(t=>t.pr_url && t.status!=='merged' && (t.spec||{}).kind!=='review');
   const fgn=tmapForeign(); const unsynced=(state.tasks||[]).filter(t=>!tmap()[t.id] && !fgn.has(t.id) && t.status!=='draft').length; // cartão de outra conta não conta
   // ---------- sidebar ----------
-  const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['prs','PRs pra revisar',prs.length?String(prs.length):''],['linha','Linha',''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
+  const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['entregas','Entregas',typeof entAbertas==='function'?String(entAbertas(all)||''):''],['prs','PRs pra revisar',prs.length?String(prs.length):''],['linha','Linha',''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
   const subTabs=`<div class="ftabs" style="margin-bottom:16px">`+
     NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:var(--fs-xs);opacity:.8">${n}</span>`:''}</button>`).join('')+
@@ -199,6 +269,8 @@ function renderTeamBoard(){
   if(typeof timeHeadPaint==='function') safe(timeHeadPaint);
   // ---------- main por vista ----------
   let main='';
+  // T8: custo POR PESSOA só pra líder do time ou owner/admin da org; cada um sempre vê o próprio
+  const veCustoDe=uid=>uid===me || (typeof entPodeVerCusto==='function'?entPodeVerCusto():isAdmin);
   const perNow=lsGet('tmPeriod')||'all';
   const perSel=`<select class="sel" id="tbPeriod" aria-label="período" style="width:120px">${[['7','últimos 7 dias'],['30','30 dias'],['90','trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select>`;
   const devOpts=`<select class="sel" id="tbDev" aria-label="filtrar por dev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(tmName(u))}</option>`).join('')}</select>`;
@@ -241,7 +313,7 @@ function renderTeamBoard(){
           // em andamento = o MESMO tsRunningOf do KPI e de Pessoas (agora, não "no período"); quem só tem trabalho rodando também aparece
           members.forEach(u=>{ const r=tsRunningOf(u).length; if(r) (per[u]||(per[u]={d:0,r:0,u:0})).r=r; });
           const rows=Object.entries(per).sort((a,b)=>b[1].d-a[1].d);
-          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entregue','entregues')} · ${v.r} em andamento</span><span class="dim tscost" style="font-size:var(--fs-xs)">${fmtUsd(v.u)}</span></div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">sem atividade no período</div>'; })()}
+          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entregue','entregues')} · ${v.r} em andamento</span>${veCustoDe(u)?`<span class="dim tscost" style="font-size:var(--fs-xs)">${fmtUsd(v.u)}</span>`:''}</div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">sem atividade no período</div>'; })()}
       </div>
     </div></div>`;
   } else if(tmView==='board'){
@@ -253,6 +325,9 @@ function renderTeamBoard(){
     const cols=[['Na fila',stColor('backlog'),vis.filter(inB('fila','rascunho')),0],['Aguardando alguém',stColor('asking'),vis.filter(inB('aguardando')),0],['Em andamento',stColor('running'),vis.filter(inB('andamento')),0],['Prontas / PR aberto',stColor('review'),vis.filter(inB('prontas','praberto')),0],['Concluídas',stColor('done'),vis.filter(inB('hoje','anteriores')),8]];
     main=`<h1>Quadro do time</h1><div class="tssub">${devOpts}${epicChips}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>
     <div class="tsboard ts5" style="grid-template-columns:${cols.map(c=>c[2].length?'minmax(176px,1fr)':'minmax(130px,.5fr)').join(' ')}">${cols.map(([l,c,ts,cap])=>{ const shown=cap?ts.slice(0,cap):ts; return `<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${shown.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:var(--fs-xs);padding:6px">vazio</div>'}${ts.length>shown.length?`<div class="dim tsmore" style="font-size:var(--fs-xs);padding:6px" title="mostrando as ${shown.length} mais recentes">+${ts.length-shown.length} concluídas</div>`:''}</div>`; }).join('')}</div>`;
+  } else if(tmView==='entregas'){
+    // Entregas (70-time-entregas): a visão do gestor — uma lista por épico
+    main=typeof entregasHtml==='function'?entregasHtml({ all, members }):'';
   } else if(tmView==='prs'){
     main=`<h1>PRs pra revisar</h1><div class="tssub">todo cartão do time com PR aberto</div>`+
       (prs.length?prs.map(t=>{ const n=(t.pr_url.match(/\/pull\/(\d+)/)||[])[1];
@@ -270,7 +345,7 @@ function renderTeamBoard(){
         const lastAct=(teamActivity||[]).find(a=>a.user_id===uid);
         const teamTags=orgScope?teamsOf(uid).map(tid=>`<span class="tsteamtag">${esc(tsTeamName(tid))}</span>`).join(''):'';
         return `<div class="tspc"><div class="hh">${tsAv(uid,on)}<div><b style="font-size:var(--fs-base)">${esc(tmName(uid))}</b><div class="dim" style="font-size:var(--fs-xs)">${roleOf(uid)} · ${on?'<span style=color:var(--accent)>online</span>':(p.last_seen_at?agoTx(p.last_seen_at):'—')}${teamTags?' · '+teamTags:''}</div></div></div>
-          <div class="nums"><div><b>${d}</b><span>entregues</span></div><div><b>${run.length}</b><span>em andamento</span></div><div><b>${fmtCost(u,{usdOnly:true})}</b><span>custo · ≈ R$ ${fmtNumBR(u*usdBrlRate(),true)}</span></div></div>
+          <div class="nums"><div><b>${d}</b><span>entregues</span></div><div><b>${run.length}</b><span>em andamento</span></div>${veCustoDe(uid)?`<div><b>${fmtCost(u,{usdOnly:true})}</b><span>custo · ≈ R$ ${fmtNumBR(u*usdBrlRate(),true)}</span></div>`:''}</div>
           <div class="now">${run.length?`agora: <b>${esc(run[0].stage||'agente')}</b> em “${esc(run[0].title.slice(0,42))}”`:(lastAct?`último: ${tsK(lastAct.kind)} ${esc(((all.find(t=>t.id===lastAct.task_id)||{}).title||'').slice(0,40))} · ${agoTx(lastAct.at)}`:'sem atividade recente')}</div>
           ${(()=>{ // tarefas da pessoa com badge de TIPO + progresso (redesign p7)
             const act=mine.filter(t=>!['merged','done'].includes(t.status)&&t.flag!=='closed').slice(0,3);
@@ -295,6 +370,7 @@ function renderTeamBoard(){
   teamPaintSig=html; el.innerHTML=html;
   // ---------- wiring ----------
   if(tmView==='linha' && typeof linhaWire==='function') linhaWire(el);
+  if(tmView==='entregas' && typeof entregasWire==='function') entregasWire(el);
   el.querySelectorAll('[data-tsv]').forEach(b=>{ b.onclick=()=>{ tmView=b.dataset.tsv; lsSet('tmView',tmView); teamPaintSig=''; renderTeamBoard(); }; });
   el.querySelectorAll('[data-tscope]').forEach(b=>{ b.onclick=()=>tsSetScope(b.dataset.tscope); });
   el.querySelectorAll('[data-epopen]').forEach(b=>{ b.onclick=()=>{ const e=teamEpics.find(x=>x.id===b.dataset.epopen); if(e&&window.openEpicPage) openEpicPage(e); }; });
@@ -315,7 +391,7 @@ function renderTeamBoard(){
     invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(err=>{ showErr(err, 'Falha'); b.disabled=false; b.textContent='revisar com agente'; }); }; });
   el.querySelectorAll('[data-ct]').forEach(c=>{ c.onclick=(e)=>{ if(e.target.closest('[data-act],[data-pr],[data-rev]')) return; const ct=all.find(x=>x.id===c.dataset.ct); if(ct) openCloudTaskPage(ct); }; });
   el.querySelectorAll('.tscard [data-act]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.tscard').dataset.ct; const ct=all.find(x=>x.id===id); if(!ct) return;
-    if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='openproj'){ if(typeof epOpenProjectOf==='function') epOpenProjectOf(teamProj[ct.project_id]||{}); } else if(b.dataset.act==='del') teamDeleteCard(ct); }; });
+    if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='claimonly') tsClaimOnly(ct, b); else if(b.dataset.act==='release') tsRelease(ct, b); else if(b.dataset.act==='reassign') tsReassign(ct, b); else if(b.dataset.act==='openproj'){ if(typeof epOpenProjectOf==='function') epOpenProjectOf(teamProj[ct.project_id]||{}); } else if(b.dataset.act==='del') teamDeleteCard(ct); else if(b.dataset.act==='issue' && typeof trkCardRetry==='function') trkCardRetry(ct, teamProj[ct.project_id]||{}, b); }; });
 }
 
 // itens do "pronto quando" do épico ("D1: texto") — vão no TASK.yaml pra o revisor saber o que julgar
@@ -330,6 +406,7 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
   try{
     const j=await sbRpc('claim_task',{ p_task: ct.id });
     if(!j.ok) throw new Error(j.error||'não deu pra assumir');
+    if(!ct.assignee && typeof trkCardAssign==='function') trkCardAssign(ct, cloudUserId()); // "assumir e iniciar": o nome vai pra issue também
     // defaults por baixo: cartão criado "enxuto" (ex.: derivado de épico) roda igual
     // ...(ct.spec) traz verify/covers/after/wave/risk/hitl quando o cartão veio de um épico; epic_id é coluna, não spec
     const payload={ workflow:null, agents:null, engine:defaultAiEngine(), approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), issue:(ct.spec&&ct.spec.issueCode)||null, issueUrl:(ct.spec&&ct.spec.issueUrl)||ct.issue_url||null, epicId: ct.epic_id||null, epicDoneWhen: epicDoneWhenOf(ct.epic_id)||(ct.spec&&ct.spec.epicDoneWhen)||null, title: ct.spec?.title||ct.title, start:true };
@@ -337,6 +414,7 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     if(ct.epic_id && window.epicAttachRef) await epicAttachRef(payload, ct.epic_id, ct); // EPIC.md compilado vai como referência
     const localId=await invoke('new_task', await trkBeforeNewTask(payload));
     tmapSet(localId, ct.id);
+    if(+((ct.spec||{}).budgetUsd)>0) invoke('patch_task_spec',{ taskId:String(localId), patch:{ budgetUsd:+ct.spec.budgetUsd } }).catch(e=>console.error('teto do cartão', e)); // teto escolhido por quem mandou pro time
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
     if(ct.epic_id && window.epicMarkInProgress) epicMarkInProgress(ct.epic_id); // 1ª tarefa rodando → épico em andamento
     sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
@@ -369,16 +447,17 @@ function openCloudTask(ct){
     ${(ct.pr_url||ct.issue_url||((ct.branch||'').match(/\b[A-Z]{2,10}-\d+\b/)))?`<div style="display:flex;gap:8px;margin-bottom:10px">${linkChips({prUrl:ct.pr_url, issueUrl:ct.issue_url, branch:ct.branch, title:ct.title})}</div>`:''}
     <div class="imhint">criada por <b>${esc(tmName(ct.created_by))}</b> · ${esc(ctStLabel(ct))}${ct.assignee?' · com <b>'+esc(tmName(ct.assignee))+'</b>':''}${ct.claim_mode==='reserved'?' · <b>reservada pra si</b>':''}</div>
     <label style="margin-top:10px">Título</label><input class="in" id="ctTitle" value="${escA(ct.title)}" ${canEdit?'':'disabled'}>
-    <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
+    <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" data-mdprev rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
     <label style="margin-top:12px">Requisitos <span class="dim" style="text-transform:none;letter-spacing:0">(um por linha — o agente é cobrado por cada um)</span></label>
-    <textarea class="in ta" id="ctReqs" rows="${Math.max(3,reqs.length+1)}" ${canEdit?'':'disabled'}>${esc(reqs.join('\n'))}</textarea>
-    ${(sp.deliverables||[]).length?`<label style="margin-top:12px">Entregáveis</label><div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px">${(sp.deliverables||[]).map(d=>`<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:3px 0"><span style="color:var(--accent)">◆</span><span>${esc(d)}</span></div>`).join('')}</div>`:''}
+    <textarea class="in ta" id="ctReqs" data-mdprev="list" rows="${Math.max(3,reqs.length+1)}" ${canEdit?'':'disabled'}>${esc(reqs.join('\n'))}</textarea>
+    ${(sp.deliverables||[]).length?`<label style="margin-top:12px">Entregáveis</label><div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px">${(sp.deliverables||[]).map(d=>`<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:3px 0"><span style="color:var(--accent)">◆</span><span>${mdInline(d)}</span></div>`).join('')}</div>`:''}
     <label style="margin-top:12px">Épico</label>
     <select class="sel" id="ctEpic" style="width:100%"><option value="">— sem épico —</option>${teamEpics.map(e=>`<option value="${escA(e.id)}"${ct.epic_id===e.id?' selected':''}>${esc(e.name)}</option>`).join('')}</select>
     <div id="ctReqProof"></div>
     <div id="ctProofs"></div>
     <div id="ctAct" class="dim" style="font-size:var(--fs-xs);margin-top:12px">${skeletonHtml('lista',{ n:3, compact:true, inline:true, label:'carregando a atividade' })}</div>
     <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${canEdit?'<button class="btn primary" id="ctSave">salvar alterações</button>':''}</div>`;
+  if(typeof mdPrevSync==='function') mdPrevSync(body); // objetivo/requisitos formatados; "editar" volta pro campo (o markdown salvo não muda)
   // requisitos com prova (sincronizados do requirements.json do dev)
   { const rp=ct.requirements_proof; const el=$id('ctReqProof');
     if(el && rp && Array.isArray(rp.list||rp) ){
@@ -402,7 +481,7 @@ function openCloudTask(ct){
     el.querySelectorAll('[data-proof]').forEach(b=>{ b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.proof)); }catch(e){ showErr(e, 'Falha ao abrir'); } }; });
   }).catch(()=>{});
   sbGet('task_activity?select=user_id,kind,body,at&task_id=eq.'+ct.id+'&order=id.desc&limit=8').then(rows=>{
-    const K={created:'criou',edited:'editou',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'entregou',comment:'comentou',status:'status'};
+    const K={created:'criou',edited:'editou',claimed:'assumiu',released:'devolveu',assigned:'atribuiu',started:'iniciou',delivered:'entregou',comment:'comentou',status:'status'};
     const d=$id('ctAct'); if(d) d.innerHTML = rows.length? rows.map(a=>`${esc(tmName(a.user_id))} <b>${K[a.kind]||a.kind}</b> · ${agoTx(a.at)}`).join('<br>') : 'sem atividade ainda';
   }).catch(()=>{});
   { const b=$id('ctSave'); if(b) b.onclick=async()=>{
@@ -434,6 +513,7 @@ async function ntShareSync(){
   if(typeof wizShareApply==='function') wizShareApply(null); else r.style.display=on?'block':'none';
   if(!on) return;
   try{ if(!teamEpics.length) teamEpics=await sbGet('epics?select=id,name,status,spec,created_by,created_at,updated_at&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at').catch(()=>sbGet('epics?select=id,name,status&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at')); }catch(_){ }
+  ntShareDefault(); ntWhoPaint();
   const sel=$id('ntEpic'); if(!sel) return;
   const cur=sel.value;
   sel.innerHTML='<option value="">— sem épico —</option>'
@@ -449,6 +529,16 @@ async function ntShareSync(){
     catch(e){ showErr(e, 'Falhou'); }
   };
 }
+// "Ao criar" (mesa 09/10, T1): o padrão segue a última escolha (tmDest) — mandar pro time quando há time
+let ntWho='', ntShareTouched=false;
+function ntShareIsTeam(){ const r=$id('ntShareRow'), s=$id('ntShare'); return !!(r && r.dataset.cloud==='1' && s && s.value==='team'); }
+function ntShareDefault(){ const s=$id('ntShare'); if(!s || ntShareTouched) return; const sv=lsGet('nd:share'); s.value=tmDest()==='run'?(sv==='local'?'local':'self'):'team';
+  if(!s.__wired){ s.__wired=1; s.addEventListener('change',()=>{ ntShareTouched=true; tmDestSet(s.value==='team'?'team':'run'); lsSet('nd:share', s.value); ntWhoPaint(); ntCreateLabel(); }); } ntCreateLabel(); }
+function ntWhoPaint(){ const row=$id('ntWhoRow'), slot=$id('ntWhoSlot'); if(!row||!slot) return; const on=ntShareIsTeam(); row.style.display=on?'flex':'none'; if(!on) return;
+  slot.innerHTML=tmWhoBtnHtml(ntWho,'id="ntWhoBtn"'); const b=$id('ntWhoBtn'); if(b) b.onclick=()=>tmWhoPick(b, ntWho, uid=>{ ntWho=uid||''; ntWhoPaint(); }); }
+// o botão de criar diz o que vai acontecer (fora do wizard: #ntCreate; no wizard, a última etapa relê ao pintar)
+function ntCreateLabel(){ const c=$id('ntCreate'); if(c && !c.disabled){ const svg=c.querySelector('svg'); c.textContent=ntShareIsTeam()?'Mandar pro time':'Iniciar execução'; if(svg) c.prepend(svg); }
+  const w=$id('wizNext'); if(w && /Iniciar execução|Mandar pro time/.test(w.textContent)) w.textContent=ntShareIsTeam()?'Mandar pro time':'Iniciar execução'; }
 function ntEpicVal(){ const s=$id('ntEpic'); const v=s?s.value:''; return (v&&v!=='__new__')?v:null; }
 $id('newTaskBtn').addEventListener('click', ()=>{ ntShareSync(); });
 
@@ -459,6 +549,20 @@ $id('newTaskBtn').addEventListener('click', ()=>{ ntShareSync(); });
 function seenSet(k){ try{ return new Set(JSON.parse(lsGet(userKey(k, cloudUserId()))||'[]')); }catch(_){ return new Set(); } }
 function seenAdd(k,id){ const s=seenSet(k); s.add(id); lsSet(userKey(k, cloudUserId()), JSON.stringify([...s].slice(-500))); }
 let teamNotifReady=false;
+// @time-notif-inicio (testado em app/tests/time-integrado.test.mjs)
+// atividade → aviso pra MIM (ou null): alguém assumiu/devolveu/passou a demanda que eu criei; alguém me atribuiu um cartão
+function ctOwnerNotif(a, t, me, nameOf){
+  nameOf=nameOf||(typeof tmName==='function'?tmName:(u=>u));
+  if(!a || !me || a.user_id===me) return null; // o que EU fiz não me avisa
+  const title=t&&t.title?'“'+String(t.title).slice(0,70)+'”':'um cartão do time', who=nameOf(a.user_id);
+  if(a.kind==='assigned' && a.body===me) return { title:'Nova tarefa pra você', body:who+' passou '+title+' pra você' };
+  if(!t || t.created_by!==me) return null;
+  if(a.kind==='claimed') return { title:who+' assumiu a sua demanda', body:title+' — o time vê o nome dele no cartão' };
+  if(a.kind==='released') return { title:who+' devolveu a sua demanda', body:title+' está livre na fila do time'+(a.body?' — '+String(a.body).slice(0,120):'') };
+  if(a.kind==='assigned' && a.body) return { title:'Sua demanda mudou de mãos', body:who+' passou '+title+' pra '+nameOf(a.body) };
+  return null; // status (começou/rodando) não avisa: aparece na Central e no Time (mesa 09/10, veto da Júlia)
+}
+// @time-notif-fim
 async function teamNotifTick(){
   if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return;
   await teamFetch(); if(!teamTasks) return;
@@ -472,7 +576,17 @@ async function teamNotifTick(){
       continue; // cartão de review não é "PR aberto" nem "tarefa nova"
     }
     if(t.pr_url && !prs.has(t.id)){ seenAdd('sb:seenpr', t.id); if(kind==='pr') pushNotif('PR aberto na demanda que você criou ↗', who+': '+t.title, 'view:team'); }
-    if(t.status==='backlog' && !cards.has(t.id)){ seenAdd('sb:seencard', t.id); if(kind==='assigned') pushNotif('Nova tarefa pra você', tmName(t.created_by)+' atribuiu: '+t.title, 'view:team'); }
+    if(t.status==='backlog' && !cards.has(t.id)){ seenAdd('sb:seencard', t.id); if(kind==='assigned') told.add(t.id); if(kind==='assigned') pushNotif('Nova tarefa pra você', tmName(t.created_by)+' atribuiu: '+t.title, 'view:team'); }
+  }
+  // MUDOU DE DONO (mesa 09/10, T3/T4 · aviso só quando muda de dono): pela atividade do cartão — quem assumiu/devolveu
+  // a demanda que EU criei, e quem atribuiu um cartão a MIM. A 1ª carga só semeia o "visto".
+  const acts=seenSet('sb:seenact'), told=new Set(); // cartão que já avisei NESTA volta (o "Nova tarefa pra você" do cartão) não avisa de novo pela atividade
+  for(const a of (teamActivity||[]).slice().reverse()){
+    const key=String(a.id||(a.task_id+':'+a.at)); if(acts.has(key)) continue; seenAdd('sb:seenact', key);
+    if(!teamNotifReady) continue;
+    if(a.kind==='assigned' && told.has(a.task_id)) continue;
+    const t=teamTasks.find(x=>x.id===a.task_id); const k=ctOwnerNotif(a, t, me);
+    if(k) pushNotif(k.title, k.body, 'view:team');
   }
   teamNotifReady=true;
   if(activeIs('team')) renderTeamBoard();

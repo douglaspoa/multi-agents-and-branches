@@ -288,6 +288,115 @@ async function trkBeforeNewTask(payload){
   }catch(e){ trkToast('Não criei a issue no painel: '+trkErrText(e)); }
   return payload;
 }
+// ---------- issue de CARTÃO DO TIME (mesa 09/10, T6) ----------
+// Antes: cartão mandado pro time só ganhava issue quando alguém ASSUMIA (o trkBeforeNewTask roda no new_task), e o
+// épico só publicava com conector que tem "pai" — no conector sem pai (API própria) NADA era criado e nada avisava.
+// Agora o cartão nasce com a issue (uma vez só: o código fica em spec.issueCode + issue_url) e a falha vira aviso com o
+// motivo + selo "sem issue" no cartão. Nunca impede o cartão de nascer.
+// @puro-trkcard-inicio (testado em app/tests/time-integrado.test.mjs)
+// o painel cobre o projeto do cartão? (remote do cartão; vazio = projeto aberto, quem decide é trkProjectOn)
+function trkCoversRemote(cfg, remote, idsList){
+  if(!cfg || !cfg.connector || !cfg.connector.baseUrl || !(cfg.connector.ops||{}).list) return false;
+  if(cfg.allProjects) return true;
+  const ps=cfg.projects||[]; if(!remote) return false;
+  return ps.some(x=>x===remote || (idsList||[]).some(ids=>ids&&(ids.remote===remote||ids.legacy===remote)&&(x===ids.remote||x===ids.legacy)));
+}
+// por que o cartão NÃO ganha issue (null = ganha). Só "regra desligada"/"sem create"/"projeto fora" são escolhas — o resto é falha.
+// 'notReady' = conector salvo pela metade (sem URL base ou sem "listar"): é FALHA, avisa (antes: pulava calado)
+function trkCardIssueWhy(cfg, remote, idsList){
+  if(!cfg || !cfg.connector) return 'off';
+  if(!(cfg.rules||{}).createOnTask) return 'off';
+  if(!(cfg.connector.ops||{}).create) return 'off';
+  if(!cfg.connector.baseUrl || !(cfg.connector.ops||{}).list) return 'notReady';
+  if(!trkCoversRemote(cfg, remote, idsList)) return 'off';
+  return null;
+}
+// o código/URL da issue de um cartão (spec da nuvem OU coluna issue_url OU código na branch/título)
+function trkCardLink(ct){
+  const s=(ct&&ct.spec)||{};
+  const code=String(s.issueCode||s.issue||'').trim(), url=String(s.issueUrl||(ct&&ct.issue_url)||'').trim();
+  return (code||url)?{ code, url:/^https?:\/\//i.test(url)?url:'' }:null;
+}
+// corpo da issue a partir do spec do cartão (mesma forma do trkBeforeNewTask) + o épico, se houver
+function trkCardBody(spec, epicLine){
+  const s=spec||{}, reqs=(s.requirements||[]).map(x=>String(x).trim()).filter(Boolean);
+  return [String(s.objective||'').trim(), reqs.length?'Requisitos:\n'+reqs.map(r=>'- '+r).join('\n'):'', epicLine||''].filter(Boolean).join('\n\n');
+}
+// @puro-trkcard-fim
+// projeto do cartão na forma que o trkCoversRemote entende (o aberto entra com a forma antiga também)
+async function trkCardIds(remote){ const here=trkRemoteIds||await repoRemoteIds().catch(()=>null); return [here].filter(Boolean).concat(remote?[{ remote }]:[]); }
+// cria a issue de um cartão que ainda vai nascer (payload = spec). → { code, url } | { skip } | { err }
+async function trkIssueForCard(spec, opts){
+  opts=opts||{};
+  try{
+    await trkLoad(); await trkRepoRemote().catch(()=>{});
+    const remote=opts.remote||'';
+    const why=trkCardIssueWhy(trk, remote||trkRemote, await trkCardIds(remote||trkRemote));
+    if(why==='notReady') return { err:'o conector do painel está incompleto (falta a URL base ou a operação de listar) — refaça em Issues › Conexão' };
+    if(why) return { skip:why };
+    if(trkCardLink({ spec })) return trkCardLink({ spec });
+    // mesma issue só pra um RETRY do mesmo cartão: código já ligado a outro cartão do time não é reaproveitado
+    const key=trkMadeKey(spec, remote||trkRemote), prev=trkMadeGet(key, 0, code=>((typeof teamTasks!=='undefined'&&teamTasks)||[]).some(t=>((trkCardLink(t)||{}).code)===code));
+    if(prev) return { code:prev.code, url:prev.url||'' };
+    const i=await trkCreateIssue(spec.title, trkCardBody(spec, opts.epicLine), (spec.deliverables||[]).join('; '), opts.assignee?{ assignee:opts.assignee }:undefined);
+    if(!i||!i.code) return { err:'o painel não devolveu o código da issue criada' };
+    trkMadeSet(key, i);
+    return { code:i.code, url:i.url||'' };
+  }catch(e){ return { err:trkErrText(e) }; }
+}
+// grava o vínculo num spec (o que o teamClaimStart lê depois: spec.issueCode/issueUrl e a coluna issue_url)
+function trkSpecWithIssue(spec, r){ if(!r||!r.code) return spec; return { ...spec, issueCode:r.code, issueUrl:r.url||undefined }; }
+// aviso único (com o motivo) quando o cartão nasceu sem a issue
+// epic=true: quem ficou sem issue foi o ÉPICO (não tem selo — o aviso diz o que fazer)
+function trkCardFailToast(title, err, n, epic){
+  const who=epic?'O épico “'+String(title||'').slice(0,50)+'” ficou':(n>1?n+' cartões ficaram':'O cartão'+(title?' “'+String(title).slice(0,50)+'”':'')+' ficou');
+  toast(who+' sem issue no painel: '+String(err||'falha desconhecida').replace(/[.\s]+$/,'')+(epic?'. Confira o painel em Issues e crie a issue do épico por lá.':'. Use “sem issue · criar” no cartão pra tentar de novo.'), 'warn',
+    { label:'abrir Issues', fn:()=>{ if(window.openTab) window.openTab('issues'); } });
+}
+// selo "sem issue" no cartão do time: o painel cobre o projeto, a regra está ligada e o cartão não tem issue (síncrono: usa o que já carregou)
+// só pro DONO do cartão (assignee, senão quem criou): é quem pode gravar o vínculo no spec (0014) — pros outros, o selo
+// criaria uma issue que não teria onde ficar
+function trkCardMissing(ct, proj){
+  if(!trk || !ct || trkCardLink(ct) || (typeof issueCodeOf==='function'&&issueCodeOf(ct))) return false;
+  if((ct.assignee||ct.created_by)!==cloudUserId()) return false;
+  if(ct.flag==='closed' || ['merged','done','cancelled','aborted'].includes(ct.status)) return false;
+  const remote=(proj&&proj.repo_remote)||'';
+  return !trkCardIssueWhy(trk, remote, [trkRemoteIds, remote?{ remote }:null].filter(Boolean));
+}
+// "tentar de novo" do selo: cria e grava no cartão (spec só pela mão do dono — 0014; quem não é dono grava só o issue_url)
+async function trkCardRetry(ct, proj, btn){
+  if(btn){ btn.disabled=true; btn.textContent='criando issue…'; }
+  try{
+    const ep=ct.epic_id&&typeof teamEpics!=='undefined'&&teamEpics?(teamEpics.find(e=>e.id===ct.epic_id)||{}):{};
+    const r=await trkIssueForCard({ ...(ct.spec||{}), title:(ct.spec&&ct.spec.title)||ct.title }, { remote:(proj&&proj.repo_remote)||'', epicLine:ep.name?'Épico: '+((ep.spec&&ep.spec.issue&&ep.spec.issue.code)||ep.name):'' });
+    if(r.err) throw new Error(r.err);
+    if(r.skip) throw new Error('o painel de Issues não cobre o projeto deste cartão (veja Issues › Conexão)');
+    const body={ spec:trkSpecWithIssue(ct.spec||{}, r), issue_url:r.url||null };
+    // sob RLS, PATCH sem permissão volta 200 com zero linhas — confere (senão "ligada" seria mentira e o retry duplicaria)
+    const res=await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', headers:{ 'Prefer':'return=representation' }, body: JSON.stringify(body) });
+    if(!Array.isArray(res)||!res.length) throw new Error('a issue '+r.code+' nasceu no painel, mas não consegui ligar ao cartão (sem permissão) — ligue à mão: '+r.code);
+    Object.assign(ct, body);
+    toast('Issue '+r.code+' criada e ligada ao cartão.','ok');
+    if(typeof teamTasks!=='undefined') teamTasks=null; if(typeof teamPaintSig!=='undefined') teamPaintSig=''; if(typeof renderTeamBoard==='function') renderTeamBoard();
+    return r;
+  }catch(e){ showErr(e, 'Não criei a issue no painel'); if(btn){ btn.disabled=false; btn.textContent='sem issue · criar'; } return null; }
+}
+// o responsável do cartão vai pra issue (melhor esforço, mesa 09/10 T6): conector que sabe atribuir (trkOp('assign') — a op
+// do conector ou a inferida pelo trkOp) recebe o e-mail de quem assumiu. Falha não desfaz nada — só avisa no console.
+async function trkCardAssign(ct, uid){
+  try{
+    const l=trkCardLink(ct); if(!l||!l.code||!uid) return false;
+    await trkLoad(); if(!trkReady()||!trkOp('assign')) return false;
+    const remote=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).repo_remote||'';
+    if(remote && !trkCoversRemote(trk, remote, await trkCardIds(remote))) return false; // painel de outro projeto: não mexe em issue alheia
+    const p=(typeof tmProfiles==='function'?tmProfiles():{})[uid]||{}, who=String(p.email||'').trim(); if(!who) return false;
+    const known=(trkIssues||[]).find(i=>i.code===l.code); // o id real da API, quando o quadro de Issues já leu (senão o código)
+    await trkCall('assign',{ code:l.code, id:(known&&known.id)||l.code, assignee:who });
+    return true;
+  }catch(e){ console.warn('responsável na issue', e&&e.message||e); return false; }
+}
+window.trkCardAssign=trkCardAssign;
+window.trkIssueForCard=trkIssueForCard; window.trkCardMissing=trkCardMissing; window.trkCardRetry=trkCardRetry; window.trkCardLink=trkCardLink;
 // @puro-trkmade-inicio — issue criada por pedido de tarefa (mesmo título+objetivo+requisitos), lembrada por 30 min
 const TRK_MADE_MS=30*60*1000, trkMade=new Map();
 function trkMadeKey(p, repo){ return JSON.stringify([String(repo||''), String(p&&p.title||'').trim(), String(p&&p.objective||'').trim(), ((p&&p.requirements)||[]).map(x=>String(x).trim()).filter(Boolean)]); }
@@ -302,53 +411,71 @@ async function trkCreateIssue(title, description, goal, extra){
   return i;
 }
 // ---------- ÉPICO no tracker (CAP-8): pai + filhas com bloqueio, genérico pro conector cadastrado ----------
-// Suporte a pai = {{parent}} no body do create OU op addChild. Sem isso o aprovar não publica (as tarefas
-// seguem ganhando issue ao serem assumidas, como sempre).
+// Suporte a pai = {{parent}} no body do create OU op addChild. Sem isso o épico publica do mesmo jeito: issues
+// soltas com "Épico: CODE" no corpo (o quadro de Issues agrupa por essa linha).
 function trkCreateBodyHas(ph){ const op=trkOp('create')||{}; return JSON.stringify({ p:op.path||'', q:op.query||{}, b:op.body||{}, h:op.headers||{} }).includes('{{'+ph+'}}'); } // placeholder vale em path/query/body
 function trkParentSupport(){ return trkReady() && !!trk.connector.ops.create && (trkCreateBodyHas('parent') || !!trk.connector.ops.addChild); }
 function trkTypePick(re){ return ((trk.connector||{}).types||[]).find(t=>re.test(String(t)))||''; }
 function trkEpicType(){ return trkTypePick(/epic|épico|initiative|iniciativa/i); } // reconhece pelo NOME do tipo; sem match, vai sem tipo
 function trkStoryType(){ const t=trkTypePick(/^(story|task|tarefa|issue|história|historia)$/i)||trkTypePick(/story|task|tarefa/i); return t&&t!==trkEpicType()?t:''; }
-// Publica o épico aprovado no card: 1 pai + N filhas em ordem de onda, com pai e bloqueio (ou "Bloqueada por" no corpo).
+// Publica o épico no painel: 1 pai + N filhas em ordem de onda, com pai e bloqueio quando o conector sabe (senão
+// "Épico: CODE" e "Bloqueada por" no corpo — conector sem pai também publica: antes ele saía calado, sem nada criado).
 // `created`: [{ row (linha de tasks na nuvem, com spec.after em ids da nuvem), wave }]. Grava os links na nuvem.
+// Idempotente: épico/cartão que já tem issue não ganha outra (o "aprovar de novo" depois de uma queda retoma).
+// Falha de uma filha não para as outras: no fim UM aviso com quantas ficaram sem issue e o motivo.
 async function trkPublishEpic(ep, created){
   try{
     await trkLoad();
-    if(!trkReady()||!trk.rules.createOnTask||!(await trkProjectOn())||!trkParentSupport()) return null;
+    if(!trkReady()||!trk.rules.createOnTask||!trk.connector.ops.create||!(await trkProjectOn())) return null;
+    created=created||[];
     const sp=(ep&&ep.spec)||{};
     const li=(arr,f)=>(Array.isArray(arr)&&arr.length)?arr.map(f).join('\n'):'';
     const desc=[ sp.outcome||'', li(sp.requirements,r=>'- '+(r.id||'R?')+': '+(r.text||''))&&('Requisitos:\n'+li(sp.requirements,r=>'- '+(r.id||'R?')+': '+(r.text||''))),
       li(sp.doneWhen,d=>'- [ ] '+(d.id||'D?')+': '+(d.text||''))&&('Pronto quando:\n'+li(sp.doneWhen,d=>'- [ ] '+(d.id||'D?')+': '+(d.text||''))),
       li(sp.boundaries,b=>'- '+b)&&('Não muda:\n'+li(sp.boundaries,b=>'- '+b)) ].filter(Boolean).join('\n\n');
-    const parent=await trkCreateIssue(ep.name, desc, sp.outcome||'', { type:trkEpicType() });
-    if(!parent||!parent.code){ trkToast('O painel não devolveu o código da issue-mãe — as filhas não foram publicadas'); return null; }
-    const inCreateParent=trkCreateBodyHas('parent'), inCreateBlock=trkCreateBodyHas('blockedBy'), opBlock=!!trk.connector.ops.addBlockedBy, opChild=!!trk.connector.ops.addChild;
-    const codeOf={}, idOf={}, out=[];
+    const hasParent=trkParentSupport();
+    let epFail='';
+    let parent=sp.issue&&sp.issue.code?{ code:sp.issue.code, url:sp.issue.url||'', id:sp.issue.id||'' }:null;
+    if(!parent){
+      parent=await trkCreateIssue(ep.name, desc, sp.outcome||'', { type:trkEpicType() });
+      if(!parent||!parent.code){ trkCardFailToast(ep.name, 'o painel não devolveu o código da issue do épico', 1, true); return null; }
+      // link do épico na nuvem ANTES das filhas (publicar de novo reaproveita o pai)
+      const link={ code:parent.code, url:parent.url||'', id:parent.id||'' };
+      try{ await sbFetch('/rest/v1/epics?id=eq.'+ep.id,{ method:'PATCH', body: JSON.stringify({ spec:{ ...sp, issue:link }, updated_at:new Date().toISOString() }) }); ep.spec={ ...sp, issue:link }; }
+      catch(e){ epFail='a issue do épico ('+parent.code+') nasceu, mas não consegui ligar ao épico: '+trkErrText(e); }
+    }
+    const inCreateParent=hasParent&&trkCreateBodyHas('parent'), inCreateBlock=trkCreateBodyHas('blockedBy'), opBlock=!!trk.connector.ops.addBlockedBy, opChild=hasParent&&!!trk.connector.ops.addChild;
+    const codeOf={}, idOf={}, out=[], fails=[], failT=[];
+    created.forEach(c=>{ const l=c.row&&trkCardLink(c.row); if(l&&(l.code||l.url)) codeOf[c.row.id]=l.code||l.url; }); // já publicadas (retry)
     for(const c of created){
       const row=c.row||{}, s=row.spec||{};
+      if(codeOf[row.id]) continue;
       const blockers=(Array.isArray(s.after)?s.after:[]).map(a=>codeOf[a]).filter(Boolean);
       const body=[ s.objective||'', s.verify?'Prova: '+s.verify:'', (Array.isArray(s.covers)&&s.covers.length)?'Cobre: '+s.covers.join(', '):'',
         (Array.isArray(s.requirements)&&s.requirements.length)?'Requisitos:\n'+s.requirements.map(r=>'- '+r).join('\n'):'',
         (!inCreateBlock&&!opBlock&&blockers.length)?'Bloqueada por: '+blockers.join(', '):'', 'Épico: '+parent.code ].filter(Boolean).join('\n\n');
       let i=null;
-      try{ i=await trkCreateIssue(row.title, body, s.verify||'', { type:trkStoryType(), parent:parent.code, parentId:parent.id||'', blockedBy:inCreateBlock?blockers.join(','):'' }); }
-      catch(e){ console.warn('filha não criada', row.title, e); continue; }
-      if(!i||!i.code) continue;
+      try{ i=await trkCreateIssue(row.title, body, s.verify||'', { type:trkStoryType(), parent:inCreateParent?parent.code:'', parentId:inCreateParent?(parent.id||''):'', blockedBy:inCreateBlock?blockers.join(','):'' }); }
+      catch(e){ fails.push(trkErrText(e)); failT.push(row.title); continue; }
+      if(!i||!i.code){ fails.push('o painel não devolveu o código da issue'); failT.push(row.title); continue; }
       codeOf[row.id]=i.code; idOf[row.id]=i.id||'';
       if(!inCreateParent && opChild){ try{ await trkCall('addChild',{ parent:parent.code, parentId:parent.id||'', child:i.code, childId:i.id||'' }); }catch(e){ console.warn('addChild', e); } }
       if(opBlock && !inCreateBlock){ for(const a of (Array.isArray(s.after)?s.after:[])){ if(!codeOf[a]) continue; try{ await trkCall('addBlockedBy',{ code:i.code, id:i.id||'', blocker:codeOf[a], blockerId:idOf[a]||'' }); }catch(e){ console.warn('addBlockedBy', e); } } }
       out.push({ rowId:row.id, spec:s, code:i.code, url:i.url||'' });
     }
-    // links na nuvem (sem clique): épico e tarefas — assumir a tarefa depois NÃO cria outra issue
-    try{ await sbFetch('/rest/v1/epics?id=eq.'+ep.id,{ method:'PATCH', body: JSON.stringify({ spec:{ ...sp, issue:{ code:parent.code, url:parent.url||'' } }, updated_at:new Date().toISOString() }) }); }catch(e){ console.warn('link do épico', e); }
+    // links na nuvem (sem clique): assumir a tarefa depois NÃO cria outra issue
+    const linkFails=[];
     for(const o of out){
       const spec={ ...o.spec, issueCode:o.code, issueUrl:o.url||undefined };
       const c=created.find(x=>x.row&&x.row.id===o.rowId); if(c){ c.row.issue_url=o.url||null; c.row.spec=spec; } // a onda 1 pode ser assumida logo em seguida: a linha em memória já leva o link (senão nasceria uma 2ª issue)
-      try{ await sbFetch('/rest/v1/tasks?id=eq.'+o.rowId,{ method:'PATCH', body: JSON.stringify({ issue_url:o.url||null, spec }) }); }catch(e){ console.warn('link da tarefa', e); }
+      try{ await sbFetch('/rest/v1/tasks?id=eq.'+o.rowId,{ method:'PATCH', body: JSON.stringify({ issue_url:o.url||null, spec }) }); }catch(e){ linkFails.push(o.code); }
     }
-    toast('Épico publicado no painel: '+parent.code+' + '+out.length+' filha'+(out.length===1?'':'s'), 'ok'); // sucesso: verde (o trkToast é o de aviso)
+    if(epFail) toast(epFail+'. Publicar de novo criaria outra — ligue à mão ou apague a duplicada no painel.', 'warn');
+    if(linkFails.length) toast('As issues '+linkFails.join(', ')+' nasceram no painel, mas não consegui ligar aos cartões. Não use “criar” de novo nelas — o painel já tem.', 'warn');
+    if(fails.length) trkCardFailToast(fails.length===1?failT[0]:'', fails[0], fails.length);
+    else if(!epFail&&!linkFails.length) toast('Épico no painel de Issues: '+parent.code+(out.length?' + '+out.length+' issue'+(out.length===1?'':'s')+(hasParent?' filha'+(out.length===1?'':'s'):' ligada'+(out.length===1?'':'s')+' pelo “Épico: '+parent.code+'”'):''), 'ok');
     return parent;
-  }catch(e){ trkToast('Não publiquei o épico no painel: '+trkErrText(e)); return null; }
+  }catch(e){ trkCardFailToast(ep&&ep.name, trkErrText(e), 1, true); return null; }
 }
 window.trkPublishEpic=trkPublishEpic;
 function trkToast(msg){ return toast(msg,"warn"); } // usa o toast global (00-util)
@@ -981,14 +1108,14 @@ function trkDetailHtml(){
   const comm=!c.ops.comments?`<p class="trk-rs">Este painel não expõe comentários pela API — observo status e atualizações.</p>`
     :trkComments===null?skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando comentários' })
     :trkCmErr?errorHtml('Não consegui ler os comentários: '+trkCmErr, 'trkCmRetry', null, { human:true })
-    :(trkComments.map(m=>`<div class="trk-cm"><b>${esc(m.author||'—')}</b> <span class="dim">${trkAgo(m.createdAt)}</span><div>${esc(m.text||'')}</div></div>`).join('')||'<p class="trk-rs">nenhum comentário</p>')
+    :(trkComments.map(m=>`<div class="trk-cm"><b>${esc(m.author||'—')}</b> <span class="dim">${trkAgo(m.createdAt)}</span><div class="mdlite">${mdToHtml(m.text||'')}</div></div>`).join('')||'<p class="trk-rs">nenhum comentário</p>')
      +(c.ops.addComment?`<div class="trk-bar" style="margin-top:8px"><input class="in" id="trkCmIn" value="${escA(trkCm.drafts[i.code]||'')}" placeholder="comentar… (Enter envia)"${trkCm.sending[i.code]?' disabled':''}><button class="btn" id="trkCmSend"${trkCm.sending[i.code]?' disabled':''}>${trkCm.sending[i.code]?'enviando…':'enviar'}</button></div>${trkCm.errs[i.code]?`<div class="trk-rs" role="alert" style="color:var(--warn);margin-top:6px">Não enviei o comentário: ${esc(trkErrText(trkCm.errs[i.code]))} — o texto ficou na caixa, é só enviar de novo.</div>`:''}`:'');
   return `<aside class="trk-detail"><div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span><span style="flex:1"></span>${i.url?`<button class="btn sm" data-lk="${escA(i.url)}">abrir ↗</button>`:''}<button class="x" id="trkDClose">${IC.x}</button></div>
     <h2 class="trk-dt">${esc(i.title)}</h2>
     <div class="trk-grid2" style="gap:10px"><label class="trk-f">Status<select class="in" id="trkDStatus"${c.ops.updateStatus?'':' disabled'}>${(c.statuses||[]).map(s=>`<option value="${escA(s.id)}"${s.id===i.status?' selected':''}>${esc(s.label||s.id)}</option>`).join('')}</select></label>
       <div class="trk-f">Com quem está${trkOp('assign')?`<div class="trk-bar" style="margin-top:6px"><input class="in" id="trkDWho" list="trkDPeople" value="${escA(i.assigneeEmail||(p&&!p.unnamed?p.full:''))}" placeholder="${c.assigneeFormat==='email'?'e-mail do responsável':'responsável'}"><button class="btn sm" id="trkDWhoSave">ok</button>${trkMe()&&i.assigneeEmail!==trkMe()?'<button class="btn sm primary" id="trkDMine" title="me colocar como responsável">ficar comigo</button>':''}<datalist id="trkDPeople">${trkPeopleList().map(x=>`<option value="${escA(x.id)}">${esc(x.name)}</option>`).join('')}</datalist></div>`:''}<div class="trk-if" style="margin-top:9px">${p?`<span class="trk-av" aria-hidden="true">${esc(p.ini)}</span><span title="${escA(p.full)}">${esc(p.label)}</span>${p.unnamed?`<button class="btn sm" id="trkNamePerson" data-pid="${escA(p.full)}" style="padding:2px 7px;font-size:var(--fs-xs)">dar nome</button>`:''}`:'<span class="dim">sem responsável</span>'}</div></div></div>
     ${i.tags.length?`<div class="trk-ops">${i.tags.map(t=>`<span class="trk-op">${esc(String(t))}</span>`).join('')}</div>`:''}
-    ${i.description?`<div class="trk-desc">${esc(i.description)}</div>`:''}
+    ${i.description?`<div class="trk-desc mdlite">${mdToHtml(i.description)}</div>`:''}
     <div class="trk-ct" style="margin-top:16px">Tarefa no Starfork</div>
     ${tasks.map(t=>`<div class="trk-key"><span class="trk-task">⎇ ${esc(t.status?stLabel(taskSt(t)):'tarefa')}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title||t.id)}</span>${trkLinks()[t.id]===i.code?`<button class="btn sm ghost" data-trkunlink="${escA(t.id)}" title="desfaz o vínculo que você fez à mão (a tarefa e a issue continuam existindo)">desvincular</button>`:''}<button class="btn sm" data-trkopen="${escA(t.id)}">abrir</button></div>`).join('')}
     <div class="trk-bar" style="margin-top:8px"><button class="btn primary" id="trkMkTask">criar tarefa desta issue</button>${free.length?`<select class="in" id="trkLinkSel" style="flex:1"><option value="">vincular a uma tarefa existente…</option>${free.map(t=>`<option value="${escA(t.id)}">${esc((t.title||t.id).slice(0,60))}</option>`).join('')}</select>`:''}</div>

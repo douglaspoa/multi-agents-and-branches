@@ -379,7 +379,7 @@ export const SHELL_COMMANDS: { cmd: string; tool: string; desc: string }[] = [
   { cmd: "starfork skills", tool: "list_skills", desc: "skills do projeto e pessoais" },
   { cmd: "starfork skill <nome>", tool: "use_skill", desc: "imprime as instruções da skill pra você seguir" },
   { cmd: "starfork tarefa \"<título>\" [--objetivo …] [--requisito …]… [--fora-do-epico]", tool: "create_task", desc: "tarefa NOVA no projeto (rascunho — o humano inicia pelo quadro)" },
-  { cmd: "starfork epico novo \"<título>\" [--descricao …] [--outcome …] [--pronto …]… [--tarefas id1,id2]", tool: "create_epic", desc: "cria um ÉPICO no time (o app executa) e já vincula tarefas existentes" },
+  { cmd: "starfork epico novo \"<título>\" [--descricao …] [--outcome …] [--pronto …]… [--tarefas id1,id2] [--cartao \"título\"]… [--para <e-mail|nome>]", tool: "create_epic", desc: "cria um ÉPICO no time (o app executa), vincula tarefas existentes e/ou manda cartões NOVOS pro time sem rodar" },
   { cmd: "starfork epico vincular <épico> <tarefa>…", tool: "link_tasks_to_epic", desc: "põe tarefas EXISTENTES num épico (id ou nome) — sem recriar nem reiniciar" },
   { cmd: "starfork epico desvincular <tarefa>…", tool: "unlink_tasks_from_epic", desc: "tira tarefas do épico (elas continuam como estão)" },
   { cmd: "starfork epico status [<pedido>] · starfork epicos", tool: "epic_request_status", desc: "desfecho dos pedidos de épico · épicos do time" },

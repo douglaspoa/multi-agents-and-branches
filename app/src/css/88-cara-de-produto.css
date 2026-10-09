@@ -37,7 +37,40 @@
 /* card do Time (tsCardHtml): mesmos chips de link do card da Central */
 .tslk{display:inline-flex;align-items:center;gap:3px;background:none;border:0;padding:0;cursor:pointer;color:var(--text-2);font:500 var(--fs-xs) var(--ui)}
 .tslk .mono{font-family:var(--code)}
+.tslk.tsnoiss{color:var(--warn);text-decoration:underline dotted;text-underline-offset:2px}
+.tslk.tsnoiss:disabled{opacity:.6;cursor:progress}
 .dc-req.blk i{border-color:transparent}.dc-req.blk i svg{width:14px;height:14px}
 .btn.sm.lkchip{font-size:var(--fs-xs)}
 /* fila dos épicos: nome do projeto é texto de gente */
 .epq-proj{font:500 var(--fs-xs) var(--ui);color:var(--text-2)}
+/* responsável do cartão (mesa 09/10): botão avatar + nome que abre a lista real do time (tmWhoPick) */
+.tmwho{display:inline-flex;align-items:center;gap:6px;max-width:220px;min-height:28px;padding:2px 8px 2px 3px;border:1px solid var(--border);border-radius:999px;background:var(--surface);color:var(--text);font:500 var(--fs-xs) var(--ui);cursor:pointer;vertical-align:middle}
+.tmwho:hover{border-color:var(--border-strong)}
+.tmwho:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.tmwho:disabled{opacity:.6;cursor:default}
+.tmwho .tsav{width:20px;height:20px}
+.tmwho-n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsav.tmfree{background:transparent;border:1px dashed var(--border-strong);color:var(--text-3)}
+.tmwho-row{display:flex;align-items:center;gap:8px;min-width:0}
+.tmwho-row b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tmwho-row .dim{font-size:var(--fs-xs)}
+.tmwho-opt.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.pptitle .tmwho{margin-left:auto}
+.pldest{gap:10px;flex-wrap:wrap;margin:8px 0 2px}
+/* "Ao aprovar" do épico com 3 caminhos (mandar pro time · rodar agora · só neste computador): rótulo em cima, opções que quebram */
+.g2where.g2where3{grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr))}
+.g2where.g2where3 .g2k{grid-column:1/-1}
+/* dono do cartão no quadro do Time e "Com o time" na Central (mesa 09/10, T3) */
+.tsowner{font:500 var(--fs-xs) var(--ui);color:var(--text-2);margin-left:6px;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tscard .foot [data-act].btn.ghost{background:transparent}
+.ctsent-help{font:400 var(--fs-xs) var(--ui);color:var(--text-3);margin:2px 2px 8px}
+.ctsent .epq-m .tsav{width:18px;height:18px}
+.ctsent .epq-who b{font-weight:600;color:var(--text)}
+.ctp-acts{display:inline-flex;gap:6px;flex-wrap:wrap}
+.epqppl{display:inline-flex;margin-left:8px}
+.epqppl .tsav{width:20px;height:20px;margin-left:-5px;border:2px solid var(--surface)}
+.epqppl .tsav:first-child{margin-left:0}
+.ctsent{border-style:solid;border-color:var(--border)}
+.tscard .foot{flex-wrap:wrap;row-gap:6px}
+.epqppl-n{font:600 var(--fs-xs) var(--ui);color:var(--text-3);margin-left:4px;align-self:center}
+.ctsent .epq-acts{align-self:center}
