@@ -779,6 +779,7 @@ function renderWorkspace(){
   // modo que o TIPO esconde (ex.: Código numa investigação, guardado na aba) cai na Entrega
   if(typeof fwModesList==='function' && !fwModesList(t).some(([k])=>k===fwMode)){ fwMode='entrega'; fwRememberTab(); }
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
+  if(typeof tcPaint==='function') tcPaint(t); // a corrente (72): veio de · com · vai pra · requisitos · no painel
   if(typeof rqPaint==='function') rqPaint(t); // 71: painel "Pedir alteração" / "Chamar outro agente…" (assinatura própria)
   if(typeof cicloPaint==='function') cicloPaint(t); // faixa de etapas + "precisa de você" (60-ciclo), com assinatura própria
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos

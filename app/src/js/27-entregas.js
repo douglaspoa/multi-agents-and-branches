@@ -524,7 +524,8 @@ function fwRenderEntrega(t, main){
         <div id="enGenOut"></div>${docsHtml}</section>
     </div>
     ${nonCode?'':pvSec}
-    <section class="en-sec" style="margin-top:6px"><div class="seclbl2">Linha do tempo</div><div class="en-tl">${timeline}</div>${!nonCode&&c.length?`<div class="en-commits">${c.slice(0,8).map(x=>`<button class="fcommit" data-hash="${escA(x.hash||'')}"><span class="mono">${esc(String(x.hash||'').slice(0,7))}</span> ${esc(x.subject||'')}</button>`).join('')}</div>`:''}</section>
+    ${typeof tcLocalTimelineSec==='function'?tcLocalTimelineSec(t):''}
+    <section class="en-sec" style="margin-top:6px"><div class="seclbl2">Etapas</div><div class="en-tl">${timeline}</div>${!nonCode&&c.length?`<div class="en-commits">${c.slice(0,8).map(x=>`<button class="fcommit" data-hash="${escA(x.hash||'')}"><span class="mono">${esc(String(x.hash||'').slice(0,7))}</span> ${esc(x.subject||'')}</button>`).join('')}</div>`:''}</section>
   </div>`;
   // guarda: só troca o DOM quando o conteúdo mudou (o PDF da prévia não recarrega a cada tick; log aberto fica aberto)
   const cur=main.firstElementChild;
