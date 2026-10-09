@@ -259,6 +259,17 @@ function caTarefasHtml(scope){
     return `<section class="ca-grp" aria-label="${escA(g.nome)}">${head}${open?caTableHtml(g.itens, { cost, team:org }):''}</section>`;
   }).join('');
 }
+// Do time / Org toda › Tarefas em QUADRO (72-kanban): o mesmo alcance e os mesmos chips/projeto/pessoa da lista
+function caQuadroHtml(scope, got){
+  const all=caTasks(scope), me=caMe();
+  const f=caFiltrosValidos(caFiltros(), all.map(t=>t.project_id), caMembers(scope));
+  const vis=caFiltra(all, f, me, CA_FN);
+  if(!all.length) return emptyHtml({ icon:'kanban', title:'O time ainda não tem tarefas', help:'Quando alguém mandar uma demanda pro time, ela aparece aqui com quem está com ela.', action:{ id:'caNova', label:'Nova demanda' } });
+  if(!vis.length) return emptyHtml({ icon:'search', title:'Nada aqui com esse filtro', help:'Nenhuma tarefa do alcance bate com o filtro, o projeto ou a pessoa escolhida.', action:{ id:'caClear', label:'limpar filtros', primary:false } });
+  if(typeof entProvasLoad==='function') entProvasLoad(((typeof teamTasks!=='undefined'&&teamTasks)||all).map(t=>t.id)); // provas: um lote pelo conjunto (o mesmo da aba Entregas)
+  const kb=kbCentralTeamHtml(vis, scope); got(kb.vms);
+  return kb.html;
+}
 function caEpicosHtml(scope){
   if(scope==='minhas') scope='time'; // os épicos são do time (Minhas não tem épico "meu")
   const eps=caEpics(scope), all=caTasks(scope), org=scope==='org';
@@ -360,7 +371,7 @@ function caFiltersOwn(el){
     h=`<div class="ca-filters"><div class="ffchips" role="group" aria-label="mostrar">${CA_CHIPS.map(([k,l])=>`<button type="button" class="fchip${f.chip===k?' on':''}" aria-pressed="${f.chip===k}" data-cachip="${k}">${l}<span class="n">${n(k)}</span></button>`).join('')}</div><span class="grow"></span>`+
       `<select class="sel ffsel" id="caProj" aria-label="filtrar por projeto">${opt('','Todos os projetos',!f.proj)}${projs.map(p=>opt(p.id, p.name, f.proj===p.id)).join('')}</select>`+
       `<select class="sel ffsel" id="caWhoSel" aria-label="filtrar por pessoa">${opt('','Todas as pessoas',!f.who)}${ppl.map(u=>opt(u, personName(u,{ you:'suffix' }), f.who===u)).join('')}${opt('-','Sem dono',f.who==='-')}</select>`+
-      `<button type="button" class="btn sm ghost ca-refresh" id="caRefresh" title="buscar de novo na nuvem" aria-label="atualizar">${(typeof IC!=='undefined'&&(IC.refresh||IC.retry))||'atualizar'}</button></div>`;
+      `<button type="button" class="btn sm ghost ca-refresh" id="caRefresh" title="buscar de novo na nuvem" aria-label="atualizar">${(typeof IC!=='undefined'&&(IC.refresh||IC.retry))||'atualizar'}</button>${typeof kbToggleHtml==='function'?kbToggleHtml(true):''}</div>`;
   }
   if(el.__html===h && (el.firstChild || !h)) return true;
   el.__html=h; el.innerHTML=h;
@@ -368,6 +379,7 @@ function caFiltersOwn(el){
   { const s=el.querySelector('#caProj'); if(s) s.onchange=()=>caSetF({ proj:s.value }); }
   { const s=el.querySelector('#caWhoSel'); if(s) s.onchange=()=>caSetF({ who:s.value }); }
   { const b=el.querySelector('#caRefresh'); if(b) b.onclick=()=>{ teamTasks=null; teamFetchedAt=0; caRerender(); }; }
+  if(typeof kbToggleWire==='function') kbToggleWire(el);
   return true;
 }
 window.caFiltersOwn=caFiltersOwn;
@@ -375,19 +387,22 @@ window.caFiltersOwn=caFiltersOwn;
 // ---- corpo (22: renderFlow chama; true = a lista é nossa) ----
 function caBodyOwn(el){
   if(!caOwns()) return false;
+  if(typeof kbDragId!=='undefined' && kbDragId) return true; // arrastando um cartão do quadro: não reconstrói
   { const rs=$id('flowResumo'); if(rs) rs.hidden=true; el.hidden=false; el.classList.remove('gridview'); }
   caEnsure();
   const scope=caScope(), tab=caTab();
-  let html;
+  let html, kbVms=null;
   const have=caSrc();
   if(!have && CA.err) html=(typeof errorHtml==='function')?errorHtml(CA.err, 'caRetry', 'Não consegui carregar as tarefas do time'):emptyHtml({ icon:'warn', title:'Não consegui carregar as tarefas do time', action:{ id:'caRetry', label:'tentar de novo' } });
   else if(!have) html=skeletonHtml('tabela', { cols:6, n:6, label:'buscando as tarefas do time' });
   else if(tab==='epicos') html=caEpicosHtml(scope);
   else if(tab==='entregas') html=`<div class="ca-ent">${entregasHtml({ all:scope==='minhas'?caTasks('minhas'):caTasks(scope), members:caMembers(scope), noTitle:true })}</div>`;
+  else if(typeof kbCentralNow==='function' && kbCentralNow(true)) html=caQuadroHtml(scope, kb=>{ kbVms=kb; });
   else html=caTarefasHtml(scope);
   html=`<div class="ca-wrap" data-scope="${scope}">${html}</div>`;
-  if(html===flowLastHtml && el.firstChild) return true;
+  if(html===flowLastHtml && el.firstChild){ if(kbVms) kbWireCentral(el, kbVms); return true; }
   el.innerHTML=html; flowLastHtml=html; if(typeof CT!=='undefined') CT.last=null;
+  if(kbVms) kbWireCentral(el, kbVms);
   if(tab==='entregas' && typeof entregasWire==='function') entregasWire(el, caRerender);
   bindClick('caClear', ()=>caSetF({ chip:'todas', proj:'', who:'' }));
   bindClick('caNova', ()=>{ if(window.openTab) window.openTab('nova'); });

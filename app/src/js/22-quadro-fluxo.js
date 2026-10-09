@@ -234,8 +234,9 @@ function renderFlowFilters(){
     `<span class="grow"></span>`+resetBtn+
     `<button class="fvic${ffAdvOpen?' on':''}" id="ffMore" title="filtros avançados" aria-label="filtros avançados" aria-expanded="${ffAdvOpen?'true':'false'}"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M2.5 4.5h11M4.5 8h7M6.8 11.5h2.4" stroke-linecap="round"/></svg></button>`+
     `<span class="fvsep"></span>`+
-    (flowScope==='done'?'':`<button class="fvic${flowViewEff()==='table'?' on':''}" data-fv="table" title="${flowTableOk()?'Lista — ordenável, uma ação por linha':'Lista só sem agrupar por dia — aqui aparecem os cartões'}" aria-label="ver em lista" aria-pressed="${flowViewEff()==='table'}"${flowTableOk()?'':' disabled'}><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
-    `<button class="fvic" data-view="kanban" title="Kanban" aria-label="ver no Kanban"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`)+
+    // Lista | Quadro (72-kanban: o quadro único, lembrado por pessoa; o mesmo par na barra do alcance do 71)
+    (flowScope==='done'?'':`<button class="fvic${flowViewEff()==='table'&&!kbCentralNow()?' on':''}" data-fv="table" title="${flowTableOk()?'Lista — ordenável, uma ação por linha':'Lista só sem agrupar por dia — aqui aparecem os cartões'}" aria-label="ver em lista" aria-pressed="${flowViewEff()==='table'&&!kbCentralNow()}"${flowTableOk()?'':' disabled'}><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4h10M3 8h10M3 12h10" stroke-linecap="round"/></svg></button>`+
+    `<button class="fvic${kbCentralNow()?' on':''}" data-kbview="board" title="${flowTableOk()?'Quadro — colunas por situação':'Quadro só sem agrupar por dia'}" aria-label="ver em quadro" aria-pressed="${kbCentralNow()}"${flowTableOk()?'':' disabled'}><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="2.5" y="3" width="3.4" height="10" rx="1"/><rect x="6.9" y="3" width="3.4" height="6.5" rx="1"/><rect x="11.3" y="3" width="3.4" height="8.4" rx="1"/></svg></button>`)+
     `</div>`;
   // PROJETO e ÉPICO viram dois selects compactos (antes eram 2 linhas de chips acima dos chips de status).
   // Mesmas chaves persistidas (projFilter / flowEpic).
@@ -296,7 +297,8 @@ function renderFlowFilters(){
     flowScope=k; lsSet('flowScope',k); lastSig=''; renderFlow();
   });
   el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
-  el.querySelectorAll('[data-fv]').forEach(b=>b.onclick=()=>{ flowView=b.dataset.fv; lsSet('flowView',flowView); if(curView()!=='flow') setView('flow'); lastSig=''; renderFlow(); });
+  if(typeof kbToggleWire==='function') kbToggleWire(el);
+  el.querySelectorAll('[data-fv]').forEach(b=>b.onclick=()=>{ flowView=b.dataset.fv; lsSet('flowView',flowView); if(typeof kbCentralOn==='function' && kbCentralOn()) lsSet(kbCentralKey(),'0'); if(curView()!=='flow') setView('flow'); lastSig=''; renderFlow(); });
   { const b=el.querySelector('#ffMore'); if(b) b.onclick=()=>{ ffAdvOpen=!ffAdvOpen; lastSig=''; renderFlow(); }; }
   el.querySelectorAll('[data-st]').forEach(b=>b.onclick=()=>{ flowStatus=b.dataset.st; flowSetF('flowStatus',flowStatus); lastSig=''; renderFlow(); });
   el.querySelectorAll('[data-flag]').forEach(b=>b.onclick=()=>{ if(b.dataset.flag==='blocked') flowShowBlocked=!flowShowBlocked; else flowShowClosed=!flowShowClosed; lastSig=''; renderFlow(); });
@@ -763,7 +765,7 @@ function flowEpicGroupsHtml(src, epHtml){
 function taskStarted(t){ return !!(t && (t.prUrl || (commitsCache[t.id] && commitsCache[t.id].length))); }
 function openOrEdit(t){ if(t.status==='draft' && !taskStarted(t)) editDraft(t); else openWorkspace(t.id); }
 function renderFlow(){
-  if(flowDragId) return;   // não re-renderiza no meio de um arrasto
+  if(flowDragId || (typeof kbDragId!=='undefined' && kbDragId)) return;   // não re-renderiza no meio de um arrasto (lista ou quadro)
   renderFlowHead();
   renderFlowFilters();
   const el=$id("flow");
@@ -782,7 +784,13 @@ function renderFlow(){
   // "Aguardando você" e "Em andamento" (recolhida por padrão se há algo esperando você)
   const nWaitYou=flowScope==='done'?0:src.filter(t=>flowScopeOk(t)&&flowBucket(t)==='aguardando').length;
   const epHtml=flowEpicGroupsHtml(src, window.epBoardHtml?window.epBoardHtml(flowScope, { waitingYou:nWaitYou }):'')+(window.ctSentHtml?window.ctSentHtml(flowScope):''); // + "Com o time" (46)
-  if(!src.length){ html=epHtml+ghost; }
+  let kbVms=null; // quadro (72-kanban): colunas por situação no lugar da tabela/cartões
+  if(typeof kbCentralNow==='function' && kbCentralNow()){
+    tasks=flowVisible(src); tasks.forEach(t=>rendered.push(t));
+    const kb=kbCentralMinhasHtml(tasks); kbVms=kb.vms;
+    html=(!kb.n && src.length && tasks.length===0 && (flowQuery.trim()||flowStatus!=='all'||flowType!=='all'||flowPeriod!=='all'||flowAgent!=='all'||flowEpic!=='all'||projFilter!=='all'))?flowEmptyHtml()+epHtml:kb.html+epHtml;
+  }
+  else if(!src.length){ html=epHtml+ghost; }
   else {
     const vis=flowVisible(src).slice();
     // ordem manual (arrastar) vale DENTRO de cada seção — antes um único arrasto virava a Central numa lista
@@ -838,10 +846,11 @@ function renderFlow(){
   if(window.orqBoardHtml && !flowQuery.trim()) html=window.orqBoardHtml(flowScope)+html;
   if(typeof CT!=='undefined') CT.last=ctTbl!=null?{ pre:html.slice(0, html.length-ctTbl.length) }:null;
   // Minhas (71): "Com você no time" e "Livres no seu time" no FIM da Central (depois da tabela/cartões)
-  { const tail=(typeof caMinhasHtml==='function')?caMinhasHtml(flowScope):''; if(tail){ html+=tail; if(typeof CT!=='undefined' && CT.last) CT.last.post=tail; } }
+  { const tail=(!kbVms && typeof caMinhasHtml==='function')?caMinhasHtml(flowScope):''; if(tail){ html+=tail; if(typeof CT!=='undefined' && CT.last) CT.last.post=tail; } }
   // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
-  if(html===flowLastHtml && el.firstChild) return;
+  if(html===flowLastHtml && el.firstChild){ if(kbVms && typeof kbWireCentral==='function') kbWireCentral(el, kbVms); return; } // mesmo HTML: só renova os dados do quadro
   el.innerHTML=html; flowLastHtml=html;
+  if(kbVms && typeof kbWireCentral==='function') kbWireCentral(el, kbVms);
   if(window.orqWireOpeners) window.orqWireOpeners(el);
   if(window.epWireBoard) window.epWireBoard(el);
   // B4: cabeçalho de seção recolhe/expande (estado salvo por seção; vale pra fila dos épicos também)

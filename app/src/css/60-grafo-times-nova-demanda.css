@@ -81,7 +81,6 @@
 .tscard .meta{display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);color:var(--muted);flex-wrap:wrap}
 .tscard .foot{display:flex;align-items:center;gap:6px;margin-top:8px}
 .tsepc{color:var(--epc,var(--purple));font-weight:600}
-.tscard.has-ep{border-left:3px solid var(--epc)}
 .tspv{display:flex;align-items:center;gap:3px;font-size:var(--fs-xs);color:var(--text-2)}
 .tspv b{color:var(--good)}
 .tsfeed .fi{display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--border);font-size:var(--fs-sm);align-items:flex-start}

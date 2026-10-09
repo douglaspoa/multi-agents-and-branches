@@ -48,7 +48,6 @@
 .trk-issue{border:1px solid color-mix(in srgb,var(--text) 8%,transparent);border-radius:10px;background:var(--surface);padding:10px 11px;margin-bottom:7px;cursor:grab;transition:border-color .12s}
 .trk-issue:hover,.trk-issue.sel{border-color:color-mix(in srgb,var(--text) 22%,transparent)}
 .trk-issue.sel{box-shadow:var(--ring)}
-.trk-issue.unseen{border-left:2px solid var(--warn)}
 .trk-ih{display:flex;align-items:center;gap:7px}
 .trk-code{font-size:var(--fs-xs);color:var(--accent)}
 .trk-pri{font:500 var(--fs-xs) var(--code);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);border:1px solid color-mix(in srgb,var(--text) 12%,transparent);border-radius:4px;padding:1px 5px}
@@ -95,13 +94,10 @@
 .trk-niepic{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:var(--fs-sm);padding:7px 10px;margin:6px 0 8px;border:1px solid color-mix(in srgb,var(--accent) 40%,var(--border));border-radius:8px;background:var(--surface-2)}
 .trk-niepic .dim{font-size:var(--fs-xs)}
 /* F5: filhas de um épico agrupadas na coluna, sob o cabeçalho do pai (cor estável por épico) */
-.trk-epg{border-left:3px solid var(--epc,var(--accent));padding-left:7px;margin:2px 0 10px}
 .trk-epgh{display:flex;align-items:center;gap:5px;font:600 var(--fs-xs) var(--display);color:var(--epc,var(--accent));padding:2px 2px 7px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .trk-epgh[data-trkcode]{cursor:pointer}
 .trk-epgh[data-trkcode]:hover{text-decoration:underline}
 .trk-epgh em{font-style:normal;font-family:var(--code);font-size:var(--fs-xs);opacity:.7;margin-left:auto;padding-left:6px}
-.trk-issue.has-ep{border-left:2px solid var(--epc,var(--accent))}
-.trk-issue.has-ep.unseen{border-left-color:var(--warn)}
 .trk-epb{font:600 var(--fs-xs) var(--code);color:var(--epc,var(--accent));border:1px solid color-mix(in srgb,var(--epc,var(--accent)) 40%,transparent);border-radius:var(--r-pill);padding:0 6px}
 .trk-epd{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:middle}
 /* R3-C3: o quadro cabe — colunas de 200px no mínimo (o resto rola DENTRO do quadro), cartão sem quebra feia:

@@ -179,8 +179,11 @@ function entProvasLoad(ids){
   if(entProvas.key===key && (entProvas.m || entProvas.busy || (entProvas.err && Date.now()-entProvas.errAt<30000))) return;
   entProvas={ key, m:null, busy:true };
   const chunks=[]; for(let i=0;i<ids.length;i+=80) chunks.push(ids.slice(i, i+80));
-  Promise.all(chunks.map(c=>sbGet('artifacts_meta?select=task_id&task_id=in.('+c.map(i=>'"'+i+'"').join(',')+')')))
-    .then(rs=>{ if(entProvas.key!==key) return; entProvas={ key, m:entProvasPorTarefa([].concat(...rs)), busy:false }; if(entOnChange || tmView==='entregas') entRepaint(); })
+  Promise.all(chunks.map(c=>sbGet('artifacts_meta?select=task_id,name,kind&task_id=in.('+c.map(i=>'"'+i+'"').join(',')+')')))
+    .then(rs=>{ if(entProvas.key!==key) return; const rows=[].concat(...rs);
+      // img: a 1ª imagem de cada tarefa (o quadro do 72 mostra a miniatura quando a página do cartão já assinou a URL)
+      const img={}; rows.forEach(r=>{ if(r && r.task_id && !img[r.task_id] && (r.kind==='image' || /\.(png|jpe?g|gif|webp)$/i.test(r.name||''))) img[r.task_id]=r.name; });
+      entProvas={ key, m:entProvasPorTarefa(rows), img, busy:false }; if(entOnChange || tmView==='entregas') entRepaint(); if(typeof kbProvasDone==='function') kbProvasDone(); })
     .catch(e=>{ if(entProvas.key!==key) return; entProvas={ key, m:entProvas.m, busy:false, err:true, errAt:Date.now() }; console.warn('provas do time', e&&e.message||e);
       if(entOnChange || tmView==='entregas') entRepaint(); });
 }

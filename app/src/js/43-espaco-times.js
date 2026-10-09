@@ -270,7 +270,7 @@ function renderTeamBoard(){
   window._timeSum={ n:members.length, eps:epA.length, prs:prs.length };
   if(typeof timeHeadPaint==='function') safe(timeHeadPaint);
   // ---------- main por vista ----------
-  let main='';
+  let main='', tbKbVms=null;
   // T8: custo POR PESSOA só pra líder do time ou owner/admin da org; cada um sempre vê o próprio
   const veCustoDe=uid=>uid===me || (typeof entPodeVerCusto==='function'?entPodeVerCusto():isAdmin);
   const perNow=lsGet('tmPeriod')||'all';
@@ -319,14 +319,10 @@ function renderTeamBoard(){
       </div>
     </div></div>`;
   } else if(tmView==='board'){
-    // M1: mesmos nomes da Central/Kanban (STATUS_META) · M7: conta TUDO e só depois corta a lista em 8 (+N)
-    // R3: colunas derivadas da MESMA etapa da Central (flowBucket) — erro/conflito/plano pra aprovar não se escondem
-    // mais em "Em andamento"; PR aberto fica junto de "prontas" (a aba PRs detalha)
-    const inB=(...ks)=>t=>ks.includes(tsBucket(t));
-    // A7: mínimos que cabem nas 5 colunas a partir de ~1200 px (220+150 somavam 1074 px em 962); menor que isso, o quadro rola (CSS)
-    const cols=[['Na fila',stColor('backlog'),vis.filter(inB('fila','rascunho')),0],['Aguardando alguém',stColor('asking'),vis.filter(inB('aguardando')),0],['Em andamento',stColor('running'),vis.filter(inB('andamento')),0],['Prontas / PR aberto',stColor('review'),vis.filter(inB('prontas','praberto')),0],['Concluídas',stColor('done'),vis.filter(inB('hoje','anteriores')),8]];
-    main=`<h1>Quadro do time</h1><div class="tssub">${devOpts}${epicChips}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>
-    <div class="tsboard ts5" style="grid-template-columns:${cols.map(c=>c[2].length?'minmax(176px,1fr)':'minmax(130px,.5fr)').join(' ')}">${cols.map(([l,c,ts,cap])=>{ const shown=cap?ts.slice(0,cap):ts; return `<div class="tscol"><div class="tskh"><span class="dot" style="background:${c}"></span>${l}<span class="n">${ts.length}</span></div>${shown.map(t=>tsCardHtml(t,me,isAdmin)).join('')||'<div class="dim" style="font-size:var(--fs-xs);padding:6px">vazio</div>'}${ts.length>shown.length?`<div class="dim tsmore" style="font-size:var(--fs-xs);padding:6px" title="mostrando as ${shown.length} mais recentes">+${ts.length-shown.length} concluídas</div>`:''}</div>`; }).join('')}</div>`;
+    // quadro único (72-kanban): as MESMAS colunas/cartões da Central (situação = flowBucket via tsBucket, STATUS_META),
+    // ordem por modificação dentro da coluna; arrastar só onde há ação (assumir e iniciar / devolver)
+    const kb=kbTeamBoardHtml(vis); tbKbVms=kb.vms;
+    main=`<h1>Quadro do time</h1><div class="tssub">${devOpts}${epicChips}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>${kb.html}`;
   } else if(tmView==='entregas'){
     // Entregas (70-time-entregas): a visão do gestor — uma lista por épico
     main=typeof entregasHtml==='function'?entregasHtml({ all, members }):'';
@@ -368,8 +364,10 @@ function renderTeamBoard(){
   }
   void side;
   const html=`<div class="tspace"><div class="tmain">${subTabs}${main}</div></div>`;
-  if(teamPaintSig===html) return;
+  if(teamPaintSig===html){ if(tbKbVms) kbWireTeam(el, tbKbVms); return; }
+  if(typeof kbDragId!=='undefined' && kbDragId) return; // arrastando um cartão do quadro: não reconstrói
   teamPaintSig=html; el.innerHTML=html;
+  if(tbKbVms) kbWireTeam(el, tbKbVms);
   // ---------- wiring ----------
   if(tmView==='linha' && typeof linhaWire==='function') linhaWire(el);
   if(tmView==='entregas' && typeof entregasWire==='function') entregasWire(el);

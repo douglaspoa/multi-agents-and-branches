@@ -227,7 +227,7 @@ test('Central: tabela (lista) é a vista padrão; F4 (D22): a grade saiu e quem 
   const wire = cut(ct, 'function ctWire(el, src){', '\n}\n');
   assert.ok(!/renderFlow\(/.test(wire), 'nada de renderFlow no clique');
   assert.match(wire, /insertAdjacentHTML\('afterend', ctExpHtml\(r\)\)/); assert.match(wire, /ctSyncLast\(\)/); assert.match(wire, /clearTimeout\(CT\.clickT\)/);
-  assert.match(q, /data-fv="table"/); assert.ok(!/data-fv="grid"/.test(q), 'a grade saiu'); assert.match(q, /data-view="kanban"/);
+  assert.match(q, /data-fv="table"/); assert.ok(!/data-fv="grid"/.test(q), 'a grade saiu'); assert.match(q, /data-kbview="board"/, 'o Kanban virou o Quadro DENTRO da Central (72-kanban)');
   assert.match(q, /\} else if\(flowViewEff\(\)==='table' && typeof ctHtml==='function'\)\{/);
   assert.match(q, /ctWire\(el, src\)/);
   assert.match(html, /<script src="js\/64-terminal-integrado\.js"><\/script>\n(?:<script src="js\/65-fabrica\.js"><\/script>\n)?<script src="js\/66-central-tabela\.js"><\/script>/);
