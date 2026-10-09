@@ -62,7 +62,7 @@
 .g2where.g2where3 .g2k{grid-column:1/-1}
 /* dono do cartão no quadro do Time e "Com o time" na Central (mesa 09/10, T3) */
 .tsowner{font:500 var(--fs-xs) var(--ui);color:var(--text-2);margin-left:6px;max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tscard .foot .btn.ghost{background:transparent}
+.tscard .foot [data-act].btn.ghost{background:transparent}
 .ctsent-help{font:400 var(--fs-xs) var(--ui);color:var(--text-3);margin:2px 2px 8px}
 .ctsent .epq-m .tsav{width:18px;height:18px}
 .ctsent .epq-who b{font-weight:600;color:var(--text)}
@@ -72,3 +72,5 @@
 .epqppl .tsav:first-child{margin-left:0}
 .ctsent{border-style:solid;border-color:var(--border)}
 .tscard .foot{flex-wrap:wrap;row-gap:6px}
+.epqppl-n{font:600 var(--fs-xs) var(--ui);color:var(--text-3);margin-left:4px;align-self:center}
+.ctsent .epq-acts{align-self:center}

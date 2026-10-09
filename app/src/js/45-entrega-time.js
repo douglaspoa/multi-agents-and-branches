@@ -121,7 +121,7 @@ function ctPageRender(){
   // assumir / iniciar / devolver / trocar — as MESMAS regras e ações do cartão no quadro do Time (43: tsActsHtml)
   main.querySelectorAll('.ctp-acts [data-act]').forEach(b=>b.onclick=async()=>{ const a=b.dataset.act;
     if(a==='claim'){ if(window.epCardStart) await epCardStart(ct, b); else await teamClaimStart(ct, b); }
-    else if(a==='claimonly') await tsClaimOnly(ct, b); else if(a==='release') await tsRelease(ct, b); else if(a==='reassign') tsReassign(ct, b);
+    else if(a==='claimonly') await tsClaimOnly(ct, b); else if(a==='release') await tsRelease(ct, b); else if(a==='reassign') await tsReassign(ct, b);
     else if(a==='openproj' && typeof epOpenProjectOf==='function') epOpenProjectOf((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{});
     ctPageLoad(ct.id, true).then(()=>{ if(ctpTask&&ctpTask.id===ct.id) ctPageRender(); }); });
   bindClick('ctpCancel', ()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); });
@@ -129,7 +129,8 @@ function ctPageRender(){
 }
 function ctpActsHtml(ct, me){
   if(typeof tsActsHtml!=='function') return '';
-  const proj=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{});
+  const proj=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||null);
+  if(ct.project_id && !proj) return tsActsHtml(ct, me, ct.status==='backlog' && (ct.claim_mode==='open'||ct.created_by===me), false, false, {}); // projeto ainda não carregado: só assumir/devolver (nunca iniciar no repo errado)
   const sameRepo=!proj.repo_remote||remoteSame(proj.repo_remote, (typeof teamRepoIds!=='undefined'&&teamRepoIds)||{ remote:(typeof teamRepoRemote!=='undefined'?teamRepoRemote:'') });
   const here=((typeof localRemoteList!=='undefined'&&localRemoteList)||[]);
   return tsActsHtml(ct, me, ct.status==='backlog' && (ct.claim_mode==='open'||ct.created_by===me), sameRepo, sameRepo||ctProjLocal(proj, here), proj);

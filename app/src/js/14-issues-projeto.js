@@ -381,14 +381,17 @@ async function trkCardRetry(ct, proj, btn){
     return r;
   }catch(e){ showErr(e, 'Não criei a issue no painel'); if(btn){ btn.disabled=false; btn.textContent='sem issue · criar'; } return null; }
 }
-// o responsável do cartão vai pra issue (melhor esforço, mesa 09/10 T6): conector que sabe atribuir (op assign, ou
-// inferida do updateStatus + campo de e-mail) recebe o e-mail de quem assumiu. Falha não desfaz nada — só avisa no console.
+// o responsável do cartão vai pra issue (melhor esforço, mesa 09/10 T6): conector que sabe atribuir (trkOp('assign') — a op
+// do conector ou a inferida pelo trkOp) recebe o e-mail de quem assumiu. Falha não desfaz nada — só avisa no console.
 async function trkCardAssign(ct, uid){
   try{
     const l=trkCardLink(ct); if(!l||!l.code||!uid) return false;
     await trkLoad(); if(!trkReady()||!trkOp('assign')) return false;
+    const remote=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).repo_remote||'';
+    if(remote && !trkCoversRemote(trk, remote, await trkCardIds(remote))) return false; // painel de outro projeto: não mexe em issue alheia
     const p=(typeof tmProfiles==='function'?tmProfiles():{})[uid]||{}, who=String(p.email||'').trim(); if(!who) return false;
-    await trkCall('assign',{ code:l.code, id:l.code, assignee:who });
+    const known=(trkIssues||[]).find(i=>i.code===l.code); // o id real da API, quando o quadro de Issues já leu (senão o código)
+    await trkCall('assign',{ code:l.code, id:(known&&known.id)||l.code, assignee:who });
     return true;
   }catch(e){ console.warn('responsável na issue', e&&e.message||e); return false; }
 }

@@ -224,7 +224,7 @@ test('aviso de mudança de dono: quem criou sabe quando assumem/devolvem/passam;
   assert.match(NOTIF({ user_id: 'caio', kind: 'assigned', body: 'bruno' }, t, 'ana', nm).body, /Caio passou “Índice de NCM” pra Bruno/);
   assert.equal(NOTIF({ user_id: 'ana', kind: 'claimed' }, t, 'ana', nm), null, 'eu mesma');
   assert.equal(NOTIF({ user_id: 'bruno', kind: 'claimed' }, { ...t, created_by: 'caio' }, 'ana', nm), null, 'demanda de outra pessoa');
-  assert.match(NOTIF({ user_id: 'bruno', kind: 'started' }, t, 'ana', nm).title, /começou a sua demanda/);
+  assert.equal(NOTIF({ user_id: 'bruno', kind: 'started' }, t, 'ana', nm), null, 'status não avisa (só mudança de dono)');
 });
 
 test('"Com o time" na Central: o que eu criei e está com outra pessoa, ou mandei pro time livre — nunca o meu nem o entregue', () => {
@@ -249,4 +249,22 @@ test('ações do cartão: livre → assumir (só o nome) + ▶; meu → iniciar 
   assert.deepEqual(acts(M({ status: 'running', assignee: 'me' }, 'me', false, true, true, {})), [], 'rodando: devolver não aparece');
   assert.deepEqual(acts(M({ status: 'error', assignee: 'me' }, 'me', false, true, true, {})), ['release']);
   assert.deepEqual(acts(M({ status: 'review', assignee: 'me', pr_url: 'x' }, 'me', false, true, true, {})), [], 'entregue não volta');
+});
+
+test('custo do cartão só pra quem atribui ou pro dono (T8); "Com o time" mostra quem está com ele, ou "sem dono" com assumir', () => {
+  const cost = (can) => new Function('tmCanAssignNow', 'tsWho', fn(S43, 'tsCostOk') + '\nreturn tsCostOk;')(() => can, (t) => t.assignee || t.created_by);
+  assert.equal(cost(false)({ assignee: 'bruno', created_by: 'ana' }, 'caio'), false, 'colega não vê o custo do outro');
+  assert.equal(cost(false)({ assignee: 'bruno' }, 'bruno'), true);
+  assert.equal(cost(true)({ assignee: 'bruno' }, 'ana'), true, 'líder vê');
+  const html = new Function('ctSent', 'flowSecCollapsed', 'flowSecHead', 'flowQuery', 'flowEpic', 'cloudUserId', 'ctStLabel', 'tsSt', 'stColor', 'trkCardLink', 'epNameOf', 'tsAv', 'tsOnline', 'tmName', 'esc', 'escA', 'agoTx', 'IC',
+    cut(S46, '// @ct-sent-inicio', '// @ct-sent-fim') + fn(S46, 'ctSentHtml') + '\nreturn ctSentHtml;');
+  const rows = [{ id: '1', title: 'Índice', created_by: 'ana', assignee: 'bruno', status: 'running', spec: {} }, { id: '2', title: 'Tela', created_by: 'caio', assignee: null, status: 'backlog', spec: { dispatch: 'team' } }];
+  const H = html({ rows }, () => false, (k, l, n) => `<h>${l} ${n}</h>`, '', 'all', () => 'ana', () => 'rodando', (t) => t.status, () => '#000', () => null, () => '', (u) => `[${u}]`, () => false, (u) => ({ bruno: 'Bruno', caio: 'Caio' }[u]), (s) => String(s), (s) => String(s), () => 'agora', { epic: '', push: '' });
+  const out = H('exec');
+  assert.match(out, /com <b>Bruno<\/b>/);
+  assert.match(out, /sem dono · de Caio/);
+  assert.match(out, /data-ctsentclaim="2"/, 'livre de outra pessoa: assumir dali');
+  assert.doesNotMatch(out, /data-ctsentclaim="1"/);
+  assert.equal(H('done'), '', 'Concluídas não mostra');
+  assert.equal(html({ rows }, () => false, () => '', 'zzz', 'all', () => 'ana', () => '', () => '', () => '', () => null, () => '', () => '', () => false, () => '', String, String, () => '', {})('exec'), '', 'a busca da Central vale');
 });

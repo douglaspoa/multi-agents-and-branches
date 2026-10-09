@@ -568,8 +568,8 @@ function epqSummaryHtml(eid, qn){
     const whoTx=x.who?(x.who===cloudUserId()?'com você':'com '+tmName(x.who)):(x.local?'':'sem dono'); // quem assumiu, pra todo o time ver
     return `<button class="epqdot" style="--stc:${c}" data-epqt="${escA(eid)}|${i}" title="${escA(x.title+' — '+lab+(whoTx?' · '+whoTx:'')+' · onda '+x.wave+' · clique pra abrir')}" aria-label="${escA(x.title+' — '+lab+(whoTx?' · '+whoTx:''))}"></button>`; }).join('');
   // quem está no épico agora (avatares): o nome aparece pra todos assim que alguém assume
-  const ppl=[...new Set(all.map(x=>x.who).filter(Boolean))].slice(0,5);
-  const pplHtml=ppl.length?`<span class="epqppl" title="${escA('no épico: '+ppl.map(u=>tmName(u)).join(', '))}">${ppl.map(u=>tsAv(u, tsOnline(u))).join('')}</span>`:'';
+  const pplAll=[...new Set(all.map(x=>x.who).filter(Boolean))], ppl=pplAll.slice(0,5);
+  const pplHtml=ppl.length?`<span class="epqppl" title="${escA('no épico: '+pplAll.map(u=>tmName(u)).join(', '))}">${ppl.map(u=>tsAv(u, tsOnline(u))).join('')}${pplAll.length>5?`<span class="epqppl-n">+${pplAll.length-5}</span>`:''}</span>`:'';
   return parts.join('<span class="epqsep">·</span>')+`<span class="epqdots" role="group" aria-label="tarefas do épico, na ordem das ondas">${dots}</span>`+pplHtml;
 }
 function epqOpenTask(eid, i){
@@ -611,29 +611,39 @@ function ctSentShow(t, me){
   if(t.flag==='closed' || ['merged','done','cancelled','aborted'].includes(t.status)) return false;
   return t.assignee ? t.assignee!==me : ((t.spec||{}).dispatch==='team');
 }
+// livre na fila do time, mandado por OUTRA pessoa: aparece na Central de todos pra alguém assumir dali mesmo
+function ctFreeShow(t, me){ return !!(t && me && t.created_by!==me && !t.assignee && t.status==='backlog' && t.flag!=='closed' && (t.spec||{}).dispatch==='team'); }
 // @ct-sent-fim
 let ctSent={ rows:[], sig:'' };
 async function ctSentTick(){
-  if(!SB.sess() || !cloudTeamId() || (typeof cloudScopeOk==='function'&&!cloudScopeOk())) return;
+  if(!SB.sess() || !cloudTeamId() || (typeof cloudScopeOk==='function'&&!cloudScopeOk())){ if(ctSent.rows.length){ ctSent={ rows:[], sig:'' }; lastSig=''; } return; } // saiu/trocou de conta: nada da outra fica na tela
   const me=cloudUserId();
-  const rows=(await sbGet('tasks?select=id,title,status,flag,assignee,created_by,pr_url,issue_url,epic_id,project_id,local_id,updated_at,spec,requirements_proof&team_id=eq.'+cloudTeamId()+'&created_by=eq.'+me+'&order=updated_at.desc&limit=60'))||[];
-  const keep=rows.filter(t=>ctSentShow(t, me)).slice(0,12);
+  const rows=(await sbGet('tasks?select=id,title,status,flag,assignee,created_by,claim_mode,pr_url,issue_url,epic_id,project_id,updated_at,spec&team_id=eq.'+cloudTeamId()+'&order=updated_at.desc&limit=120'))||[];
+  const keep=rows.filter(t=>ctSentShow(t, me)||ctFreeShow(t, me)).slice(0,16);
   const sig=JSON.stringify(keep.map(t=>[t.id,t.status,t.flag,t.assignee,t.pr_url]));
   if(sig!==ctSent.sig){ ctSent={ rows:keep, sig }; lastSig=''; }
-  if(keep.some(t=>t.assignee)) keep.forEach(t=>{ if(t.assignee) tmName(t.assignee); }); // nomes chegam em lote (tmFetchMissing)
+  keep.forEach(t=>{ tmName(t.assignee||t.created_by); }); // pede os nomes que faltam (chegam em lote — tmFetchMissing)
 }
 tickLoop('ctSent', ()=>ctSentTick().catch(e=>tickErr('ctSent', e)), 20000, 4000);
 function ctSentHtml(scope){
   if(scope==='done' || !ctSent.rows.length) return '';
   const col=(typeof flowSecCollapsed==='function')?flowSecCollapsed('comtime', false):false;
-  const head=(typeof flowSecHead==='function')?flowSecHead('comtime','Com o time', ctSent.rows.length, '', col, IC.push||''):`<div class="sech">Com o time <span class="n">${ctSent.rows.length}</span></div>`;
+  const q=String((typeof flowQuery!=='undefined'&&flowQuery)||'').trim().toLowerCase(), fe=(typeof flowEpic!=='undefined')?flowEpic:'all';
+  const rows=ctSent.rows.filter(t=>(!q||String(t.title||'').toLowerCase().includes(q)) && (fe==='all'||t.epic_id===fe)); // a busca e o épico da Central valem aqui também
+  if(!rows.length) return '';
+  const head=(typeof flowSecHead==='function')?flowSecHead('comtime','Com o time', rows.length, '', col, IC.push||''):`<div class="sech">Com o time <span class="n">${rows.length}</span></div>`;
+  const me=cloudUserId();
   const row=t=>{ const st=ctStLabel(t), sk=t.pr_url?'pr-open':(typeof tsSt==='function'?tsSt(t):t.status);
     const l=(typeof trkCardLink==='function'&&trkCardLink(t))||null, ep=t.epic_id?epNameOf(t.epic_id):'';
-    const who=t.assignee?`${tsAv(t.assignee, tsOnline(t.assignee))}<span class="epq-who">com <b>${esc(tmName(t.assignee))}</b></span>`:`<span class="tsav tmfree" aria-hidden="true">·</span><span class="epq-who">sem dono</span>`;
-    return `<div class="epq ctsent" data-ctsent="${escA(t.id)}" role="button" tabindex="0" title="${escA('abrir “'+t.title+'” — '+st)}"><span class="epq-dot" style="--stc:${stColor(sk)}"></span><div class="epq-body"><div class="epq-t">${esc(t.title)}</div><div class="epq-m">${who}<span class="epq-st">${esc(st)}</span>${ep?`<span class="tsepc">${IC.epic} ${esc(ep)}</span>`:''}${l&&l.code?`<span class="mono">${esc(l.code)}</span>`:''}<span>${esc(agoTx(t.updated_at))}</span></div></div></div>`; };
-  return `<div class="secgrp ctsentgrp${col?' collapsed':''}" data-sec="comtime">${head}${col?'':`<div class="ctsent-help">o que você criou e está com outra pessoa do time (ou livre) — o nome aparece aqui quando alguém assume</div>`+ctSent.rows.map(row).join('')}</div>`;
+    const free=ctFreeShow(t, me);
+    const who=t.assignee?`${tsAv(t.assignee, tsOnline(t.assignee))}<span class="epq-who">com <b>${esc(tmName(t.assignee))}</b></span>`:`<span class="tsav tmfree" aria-hidden="true">·</span><span class="epq-who">sem dono${free?' · de '+esc(tmName(t.created_by)):''}</span>`;
+    const act=free?`<div class="epq-acts"><button class="btn sm primary" data-ctsentclaim="${escA(t.id)}" title="pôr o seu nome no cartão — o time vê que é você; nada roda ainda">assumir</button></div>`:'';
+    return `<div class="epq ctsent" data-ctsent="${escA(t.id)}" role="button" tabindex="0" title="${escA('abrir “'+t.title+'” — '+st)}"><span class="epq-dot" style="--stc:${stColor(sk)}"></span><div class="epq-body"><div class="epq-t">${esc(t.title)}</div><div class="epq-m">${who}<span class="epq-st">${esc(st)}</span>${ep?`<span class="tsepc">${IC.epic} ${esc(ep)}</span>`:''}${l&&l.code?`<span class="mono">${esc(l.code)}</span>`:''}<span>${esc(agoTx(t.updated_at))}</span></div></div>${act}</div>`; };
+  return `<div class="secgrp ctsentgrp${col?' collapsed':''}" data-sec="comtime">${head}${col?'':`<div class="ctsent-help">o que você mandou pro time (e com quem está) e o que está livre pra alguém assumir — o nome aparece aqui quando alguém assume</div>`+rows.map(row).join('')}</div>`;
 }
 window.ctSentHtml=ctSentHtml;
+document.addEventListener('click', e=>{ const c=e.target.closest&&e.target.closest('[data-ctsentclaim]'); if(!c) return; e.stopPropagation();
+  const ct=ctSent.rows.find(x=>x.id===c.dataset.ctsentclaim); if(ct && typeof tsClaimOnly==='function') tsClaimOnly(ct, c).then(()=>{ ctSent.sig=''; ctSentTick().catch(()=>{}); }); }, true);
 document.addEventListener('click', e=>{ const r=e.target.closest&&e.target.closest('[data-ctsent]'); if(!r) return; const ct=ctSent.rows.find(x=>x.id===r.dataset.ctsent); if(ct&&window.openCloudTaskPage) openCloudTaskPage(ct); });
 document.addEventListener('keydown', e=>{ if(e.key!=='Enter'&&e.key!==' ') return; const r=e.target.closest&&e.target.closest('[data-ctsent]'); if(!r) return; e.preventDefault(); r.click(); });
 // menu ⋯ do cartão da fila: abrir · remover (com confirmação)

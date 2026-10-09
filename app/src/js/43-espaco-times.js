@@ -148,13 +148,13 @@ function tsActsHtml(t, me, canClaim, sameRepo, isLocal, proj){
   if(t.status==='backlog'){
     if(!t.assignee && canClaim){
       out.push(B('claimonly','assumir','pôr o seu nome no cartão — o time vê que é você; nada roda ainda','primary'));
-      if(sameRepo) out.push(B('claim',IC.play,'assumir e iniciar agora nesta máquina','ghost'));
+      if(sameRepo) out.push(B('claim',`${IC.play}<span class="sr-only">assumir e iniciar</span>`,'assumir e iniciar agora nesta máquina','ghost'));
       else if(openProj) out.push(openProj);
     } else if(t.assignee===me){
       out.push(sameRepo?B('claim',`${IC.play} iniciar`,'iniciar nesta máquina — a tarefa vai pra sua Execução','primary'):openProj);
       out.push(B('release','devolver','tirar o seu nome — o cartão volta a ficar livre pro time','ghost'));
     } else if(t.assignee && can) out.push(B('release','devolver','tirar o responsável — o cartão volta a ficar livre','ghost'));
-    if(can && t.assignee!==me) out.push(B('reassign',t.assignee?'trocar':'atribuir','escolher quem do time fica com o cartão','ghost'));
+    if(can) out.push(B('reassign',t.assignee?'trocar':'atribuir','escolher quem do time fica com o cartão','ghost'));
   } else if(!TS_LIVE.has(t.status) && !t.pr_url && !['review','delivered','merged','done'].includes(t.status) && t.flag!=='closed' && (t.assignee===me || (t.assignee && can))){
     out.push(B('release','devolver','o agente não está rodando — devolver o cartão pro time (volta pra fila, livre)','ghost'));
   }
@@ -164,6 +164,7 @@ function tsActsHtml(t, me, canClaim, sameRepo, isLocal, proj){
 async function tsClaimOnly(ct, btn){
   if(btn){ btn.disabled=true; btn.textContent='assumindo…'; }
   try{
+    if(ct.assignee && ct.assignee!==cloudUserId()) throw new Error('já está com '+tmName(ct.assignee)+' — peça pra devolver, ou ao líder do time pra trocar'); // vale mesmo com a nuvem sem a 0032
     const j=await sbRpc('claim_task',{ p_task:ct.id });
     if(!j||!j.ok) throw new Error((j&&j.error)||'não deu pra assumir');
     ct.assignee=cloudUserId(); if(typeof trkCardAssign==='function') trkCardAssign(ct, ct.assignee);
@@ -177,12 +178,17 @@ async function tsRelease(ct, btn){
   try{ await cloudAssign(ct.id, null); ct.assignee=null; teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{}); toast('Devolvido — “'+String(ct.title||'').slice(0,60)+'” está livre pro time.','ok'); }
   catch(e){ showErr(e, 'Não deu pra devolver'); if(btn){ btn.disabled=false; btn.textContent='devolver'; } }
 }
+// promessa resolve quando a troca termina (a página do cartão redesenha DEPOIS); tirar de um colega pede confirmação
 function tsReassign(ct, btn){
-  tmWhoPick(btn, ct.assignee||'', async uid=>{
-    if((uid||null)===(ct.assignee||null)) return;
-    try{ await cloudAssign(ct.id, uid); ct.assignee=uid||null; if(uid && typeof trkCardAssign==='function') trkCardAssign(ct, uid);
-      teamTasks=null; teamPaintSig=''; renderTeamBoard(); toast(uid?'“'+String(ct.title||'').slice(0,50)+'” agora está com '+tmName(uid)+'.':'“'+String(ct.title||'').slice(0,50)+'” ficou livre.','ok'); }
-    catch(e){ showErr(e, 'Não deu pra trocar o responsável'); } });
+  return new Promise(done=>{ tmWhoPick(btn, ct.assignee||'', async uid=>{
+    try{
+      if((uid||null)===(ct.assignee||null)) return;
+      if(ct.assignee && ct.assignee!==cloudUserId() && !await askYes(tmName(ct.assignee)+' é avisado'+(uid?' e o cartão passa pra '+tmName(uid):' e o cartão fica livre')+'. Se ele já começou nesta máquina dele, combine antes.', 'Tirar “'+String(ct.title||'').slice(0,50)+'” de '+tmName(ct.assignee)+'?')) return;
+      await cloudAssign(ct.id, uid); ct.assignee=uid||null; if(uid && typeof trkCardAssign==='function') trkCardAssign(ct, uid);
+      teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{});
+      toast(uid?'“'+String(ct.title||'').slice(0,50)+'” agora está com '+tmName(uid)+'.':'“'+String(ct.title||'').slice(0,50)+'” ficou livre.','ok');
+    }catch(e){ showErr(e, 'Não deu pra trocar o responsável'); }
+    finally{ done(); } }); });
 }
 window.tsClaimOnly=tsClaimOnly; window.tsRelease=tsRelease; window.tsReassign=tsReassign; window.tsActsHtml=tsActsHtml;
 function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',released:'devolveu',assigned:'atribuiu',started:'iniciou',delivered:'publicou provas em',comment:'comentou em',status:'mudou o status de'}[kind]||kind; }
@@ -394,6 +400,7 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
   try{
     const j=await sbRpc('claim_task',{ p_task: ct.id });
     if(!j.ok) throw new Error(j.error||'não deu pra assumir');
+    if(!ct.assignee && typeof trkCardAssign==='function') trkCardAssign(ct, cloudUserId()); // "assumir e iniciar": o nome vai pra issue também
     // defaults por baixo: cartão criado "enxuto" (ex.: derivado de épico) roda igual
     // ...(ct.spec) traz verify/covers/after/wave/risk/hitl quando o cartão veio de um épico; epic_id é coluna, não spec
     const payload={ workflow:null, agents:null, engine:defaultAiEngine(), approval:'auto', owns:null, off:null, objective:null, deliverables:[], requirements:[], doc:null, proof:false, tests:false, autoPr:'ask', prBase:null, planApproval:'auto', refs:[], branchType:'feat', issue:null, base:null, linkedTo:null, ...(ct.spec||{}), issue:(ct.spec&&ct.spec.issueCode)||null, issueUrl:(ct.spec&&ct.spec.issueUrl)||ct.issue_url||null, epicId: ct.epic_id||null, epicDoneWhen: epicDoneWhenOf(ct.epic_id)||(ct.spec&&ct.spec.epicDoneWhen)||null, title: ct.spec?.title||ct.title, start:true };
@@ -547,8 +554,7 @@ function ctOwnerNotif(a, t, me, nameOf){
   if(a.kind==='claimed') return { title:who+' assumiu a sua demanda', body:title+' — o time vê o nome dele no cartão' };
   if(a.kind==='released') return { title:who+' devolveu a sua demanda', body:title+' está livre na fila do time'+(a.body?' — '+String(a.body).slice(0,120):'') };
   if(a.kind==='assigned' && a.body) return { title:'Sua demanda mudou de mãos', body:who+' passou '+title+' pra '+nameOf(a.body) };
-  if(a.kind==='started' && t.assignee && t.assignee!==me) return { title:who+' começou a sua demanda', body:title+' está em andamento' };
-  return null;
+  return null; // status (começou/rodando) não avisa: aparece na Central e no Time (mesa 09/10, veto da Júlia)
 }
 // @time-notif-fim
 async function teamNotifTick(){
@@ -564,14 +570,15 @@ async function teamNotifTick(){
       continue; // cartão de review não é "PR aberto" nem "tarefa nova"
     }
     if(t.pr_url && !prs.has(t.id)){ seenAdd('sb:seenpr', t.id); if(kind==='pr') pushNotif('PR aberto na demanda que você criou ↗', who+': '+t.title, 'view:team'); }
-    if(t.status==='backlog' && !cards.has(t.id)){ seenAdd('sb:seencard', t.id); if(kind==='assigned') pushNotif('Nova tarefa pra você', tmName(t.created_by)+' atribuiu: '+t.title, 'view:team'); }
+    if(t.status==='backlog' && !cards.has(t.id)){ seenAdd('sb:seencard', t.id); if(kind==='assigned') told.add(t.id); if(kind==='assigned') pushNotif('Nova tarefa pra você', tmName(t.created_by)+' atribuiu: '+t.title, 'view:team'); }
   }
   // MUDOU DE DONO (mesa 09/10, T3/T4 · aviso só quando muda de dono): pela atividade do cartão — quem assumiu/devolveu
   // a demanda que EU criei, e quem atribuiu um cartão a MIM. A 1ª carga só semeia o "visto".
-  const acts=seenSet('sb:seenact');
+  const acts=seenSet('sb:seenact'), told=new Set(); // cartão que já avisei NESTA volta (o "Nova tarefa pra você" do cartão) não avisa de novo pela atividade
   for(const a of (teamActivity||[]).slice().reverse()){
     const key=String(a.id||(a.task_id+':'+a.at)); if(acts.has(key)) continue; seenAdd('sb:seenact', key);
     if(!teamNotifReady) continue;
+    if(a.kind==='assigned' && told.has(a.task_id)) continue;
     const t=teamTasks.find(x=>x.id===a.task_id); const k=ctOwnerNotif(a, t, me);
     if(k) pushNotif(k.title, k.body, 'view:team');
   }
