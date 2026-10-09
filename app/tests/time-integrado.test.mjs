@@ -169,3 +169,43 @@ test('"--para" do terminal acha a pessoa do time por e-mail ou nome; desconhecid
   assert.match(P(MEM, prof, 'zeca').err, /não é do time/);
   assert.deepEqual(P(MEM, prof, ''), { uid: null });
 });
+
+test('migration 0032: gatilho do responsável, claim que não toma de colega, devolver/atribuir em RPC, registrada na aba Banco', () => {
+  const root = (p) => new URL('../../' + p, import.meta.url);
+  const sql = readFileSync(root('supabase/migrations/0032_time_responsavel.sql'), 'utf8');
+  assert.match(sql, /before insert or update of assignee on tasks/);
+  assert.match(sql, /can_assign_others\(new\.team_id\)/);
+  assert.match(sql, /já está com outra pessoa/); // claim_task não toma cartão de colega
+  assert.match(sql, /a tarefa está rodando/);
+  for (const f of ['claim_task(uuid)', 'release_task(uuid, text)', 'assign_task(uuid, uuid)']) assert.ok(sql.includes('grant execute on function ' + f + ' to authenticated'), f);
+  assert.doesNotMatch(sql.split('\n').filter((l) => !/^\s*--/.test(l)).join('\n'), /join team_members/i, 'sem a armadilha das 0010/0022/0023');
+  assert.doesNotMatch(sql, /drop table|truncate|delete from/i);
+  const reg = readFileSync(root('supabase/functions/admin-api/migrations.ts'), 'utf8');
+  const m = reg.match(/\{ name: "0032_time_responsavel\.sql", sql: ("(?:[^"\\]|\\.)*") \}/);
+  assert.ok(m, 'registrada'); assert.equal(JSON.parse(m[1]), sql, 'mesmo conteúdo do arquivo');
+});
+
+test('cartão mandado pro time: dispatch=team, responsável DEPOIS do cartão (recusa deixa livre), épico do chamador', async () => {
+  const W = world();
+  const assigned = [];
+  const S = world();
+  // cloudAssign / tmAssignOptsNow falsos no mundo: refaz com eles
+  const code = PURO + ['trkCardFailToast', 'trkIssueForCard', 'trkCardIds', 'trkSpecWithIssue', 'cloudShareTask'].map((n) => fn(n === 'cloudShareTask' ? S42 : S14, n)).join('\n') + '\nreturn cloudShareTask;';
+  const mk = (failAssign) => { const posts = [], toasts = [];
+    const share = new Function('trk', 'trkLoad', 'trkRepoRemote', 'trkRemote', 'trkRemoteIds', 'repoRemoteIds', 'trkErrText', 'trkCreateIssue', 'sbPost', 'cloudEnsureProject', 'SB', 'cloudTeamId', 'cloudUserId', 'ntEpicVal', 'teamEpics', 'teamTasks', 'window', 'toast', 'cloudAssign', 'tmAssignOptsNow', 'cloudErrMsg', code)(
+      { ...S.trk, rules: { createOnTask: false } }, async () => S.trk, async () => '', '', LOJA, async () => LOJA, (e) => String(e.message || e), async () => ({}),
+      async (t, b) => { posts.push([t, b]); return [{ id: 'card-1', ...b }]; }, async () => ({ id: 'p1', repo_remote: 'github.com/org/loja' }), { sess: () => ({}) }, () => 't1', () => 'u1',
+      () => 'epico-do-formulario', [], [], {}, (m, k) => toasts.push([k, m]),
+      async (id, uid) => { if (failAssign) throw new Error('só o líder do time ou um admin atribui tarefa a outra pessoa'); assigned.push([id, uid]); }, () => [{ id: '' }, { id: 'u1' }, { id: 'u2' }], (e) => e.message);
+    return { share, posts, toasts }; };
+  const ok = mk(false);
+  await ok.share({ title: 'A' }, { assignee: 'u2', epicId: null });
+  const row = ok.posts.find((p) => p[0] === 'tasks')[1];
+  assert.equal(row.spec.dispatch, 'team'); assert.equal(row.assignee, undefined); assert.equal(row.epic_id, null, 'planner não herda o épico do Formulário');
+  assert.deepEqual(assigned, [['card-1', 'u2']]);
+  const no = mk(true);
+  await no.share({ title: 'B' }, { assignee: 'u2' });
+  assert.equal(no.posts.filter((p) => p[0] === 'tasks').length, 1, 'o cartão nasceu');
+  assert.equal(no.posts.find((p) => p[0] === 'tasks')[1].epic_id, 'epico-do-formulario', 'Formulário usa o seletor dele');
+  assert.match(no.toasts.at(-1)[1], /ficou livre: só o líder/);
+});

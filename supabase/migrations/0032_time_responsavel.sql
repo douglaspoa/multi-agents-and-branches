@@ -26,7 +26,9 @@ declare me uuid := auth.uid();
 begin
   if me is null then return new; end if;
   if tg_op = 'UPDATE' and new.assignee is not distinct from old.assignee then return new; end if;
-  if new.assignee is not null and not is_member_of_team(new.team_id, new.assignee) then
+  -- do time; ou eu mesmo sendo owner/admin da org (enxergo o time sem estar nele)
+  if new.assignee is not null and not is_member_of_team(new.team_id, new.assignee)
+     and not (new.assignee = me and is_org_admin(org_of_team(new.team_id))) then
     raise exception 'o responsável precisa ser do time';
   end if;
   if new.assignee is not null and new.assignee <> me and not can_assign_others(new.team_id) then
@@ -34,6 +36,10 @@ begin
   end if;
   if tg_op = 'UPDATE' and old.assignee is not null and old.assignee <> me and not can_assign_others(new.team_id) then
     raise exception 'a tarefa está com outra pessoa — peça pra ela devolver, ou ao líder do time pra reatribuir';
+  end if;
+  -- trocar/tirar o dono com o agente RODANDO deixaria um agente órfão na máquina de alguém (vale também pro PATCH direto)
+  if tg_op = 'UPDATE' and old.assignee is not null and old.status in ('running','thinking','plan-review','queued') then
+    raise exception 'a tarefa está rodando — quem está com ela precisa parar antes';
   end if;
   return new;
 end $$;
@@ -102,10 +108,18 @@ begin
   if p_user <> auth.uid() and not can_assign_others(t.team_id) then
     return json_build_object('ok', false, 'error', 'só o líder do time ou um admin atribui tarefa a outra pessoa');
   end if;
-  if not is_member_of_team(t.team_id, p_user) then return json_build_object('ok', false, 'error', 'o responsável precisa ser do time'); end if;
+  if t.assignee is not null and t.assignee <> auth.uid() and not can_assign_others(t.team_id) then
+    return json_build_object('ok', false, 'error', 'a tarefa está com outra pessoa — peça pra ela devolver, ou ao líder do time pra reatribuir');
+  end if;
+  if not is_member_of_team(t.team_id, p_user) and not (p_user = auth.uid() and is_org_admin(org_of_team(t.team_id))) then
+    return json_build_object('ok', false, 'error', 'o responsável precisa ser do time');
+  end if;
   if t.assignee is not distinct from p_user then return json_build_object('ok', true); end if;
   if t.status in ('running','thinking','plan-review','queued') then
-    return json_build_object('ok', false, 'error', 'a tarefa está rodando com outra pessoa — ela precisa parar antes');
+    return json_build_object('ok', false, 'error', 'a tarefa está rodando — quem está com ela precisa parar antes');
+  end if;
+  if t.status in ('review','delivered','merged','done') or t.pr_url is not null then
+    return json_build_object('ok', false, 'error', 'a tarefa já foi entregue — não muda mais de responsável');
   end if;
   update tasks set assignee = p_user where id = p_task;
   insert into task_activity (task_id, user_id, kind, body) values (p_task, auth.uid(), 'assigned', p_user::text);

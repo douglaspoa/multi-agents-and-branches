@@ -444,7 +444,8 @@ async function epicAutoStartTick(){
     // armado SEM `after` ("Iniciar épico"): espera a onda anterior inteira; com `after`, vale só o after (regra de sempre)
     // T5 (mesa 09/10): só cartão no MEU nome começa sozinho. Armado sem responsável (épico antigo) não roda: avisa uma vez.
     const due=t=>ctArmed(t) && !epStartBusy.has(t.epic_id) && !epDepsLeft(t).length && (((t.spec||{}).after||[]).length || !epWaveLeft(t.epic_id, epqWave(t)));
-    rows.filter(t=>due(t) && !t.assignee && t.created_by===me && !epAutoWarned.has('own:'+t.id)).forEach(t=>{ epAutoWarned.add('own:'+t.id);
+    const ownW=userKey('ep:ownWarn', me); let ownSeen=[]; try{ ownSeen=JSON.parse(lsGet(ownW)||'[]'); }catch(_){ } // avisado UMA vez (sobrevive a reabrir o app)
+    rows.filter(t=>due(t) && !t.assignee && t.created_by===me && !ownSeen.includes(t.id)).forEach(t=>{ ownSeen.push(t.id); lsSet(ownW, JSON.stringify(ownSeen.slice(-200)));
       pushNotif('Pronta pra começar — sem responsável', t.title+' — assuma o cartão (no Time ou no épico) pra ela rodar; sem dono ela não começa sozinha', null); });
     const ready=rows.filter(t=>due(t) && ctAutoMine(t, me));
     // no meu nome, NÃO armado, e a vez dele chegou (pré-requisitos/onda anterior entregues): avisa uma vez — quem inicia sou eu

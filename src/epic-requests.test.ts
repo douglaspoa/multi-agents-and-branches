@@ -307,3 +307,13 @@ test("épico novo com cartões novos (mandar pro time) e responsável: valida e 
   assert.match(validateNewEpic({ title: "Busca", cards: ["x".repeat(141)] }) ?? "", /longo demais/);
   assert.match(validateNewEpic({ title: "Busca", cards: Array.from({ length: 31 }, (_, i) => "c" + i) }) ?? "", /no máximo/);
 });
+
+test("épico com cartões NOVOS e --para: o pedido leva os cartões e o responsável pro app (que cria na fila, sem rodar)", async () => {
+  const e = setup();
+  try {
+    const r = await epicRequestFlow({ store: e.store, cardumeDir: e.dir, kind: "create", by: B, epic: { title: "Busca", cards: [" Índice ", "Tela", ""], assignee: " bruno@exemplo.dev " }, waitMs: 0 });
+    assert.equal(r.status, "pending");
+    const req = JSON.parse(readFileSync(join(requestsDir(e.dir), `${r.requestId}.json`), "utf8"));
+    assert.deepEqual(req.epic, { title: "Busca", cards: ["Índice", "Tela"], assignee: "bruno@exemplo.dev" });
+  } finally { e.done(); }
+});

@@ -636,7 +636,9 @@ async function plCreateEpic(){
     const cr=plPlanCtx.origin?null:ndKindCreate(plEffKind()), ai=plPlanCtx.origin?null:plModelNow();
     // T1/T5 (mesa 09/10): "mandar" = cartões na fila do time, sem início automático, cada um com o responsável escolhido;
     // "rodar agora" (e o desdobrar) = cartões no MEU nome — só assim as ondas seguintes começam sozinhas aqui
-    const mandar=!plPlanCtx.origin && plWhere(false)==='mandar', me=cloudUserId();
+    let mandar=!plPlanCtx.origin && plWhere(false)==='mandar'; const me=cloudUserId();
+    // retomada: o MESMO modo da 1ª tentativa (trocar "mandar"×"rodar" no meio misturaria cartões armados e livres)
+    if(made.mode) mandar=made.mode==='mandar'; else made.mode=mandar?'mandar':'time';
     const created=[], idOf={}; // idx no plano → id na nuvem: `after` das tarefas vira ids reais (picked está em ordem de onda, então o pré-requisito já existe)
     for(const x of picked){
       const key=x.idx!=null?'i'+x.idx:'t'+x.title;
@@ -824,7 +826,7 @@ async function plSend(text){
 let plWho=''; // responsável escolhido pra "mandar pro time" ('' = livre)
 function plDestIsTeam(){ return typeof SB!=='undefined' && !!(SB.sess()&&cloudTeamId()) && typeof tmDest==='function' && tmDest()==='team'; }
 function plDestHtml(){
-  if(!(SB.sess()&&cloudTeamId())) return '';
+  if(typeof SB==='undefined' || !(SB.sess()&&cloudTeamId())) return '';
   const t=plDestIsTeam();
   return `<div class="g2row pldest"><div class="g2seg" role="radiogroup" aria-label="o que fazer ao criar"><button type="button" role="radio" aria-checked="${t}" class="${t?'on':''}" data-pldest="team" title="vira cartão no quadro do time, na fila — ninguém roda agora">Mandar pro time</button><button type="button" role="radio" aria-checked="${!t}" class="${t?'':'on'}" data-pldest="run" title="cria e o agente começa nesta máquina">Rodar agora</button></div>`+
     (t?`<span class="g2help">responsável</span>${tmWhoBtnHtml(plWho,'id="plWho"')}`:'')+`</div>`;
@@ -870,7 +872,8 @@ async function plCreateInner(){
   try{ if(window.trfApply) await trfApply(payload, plMsgs.filter(m=>m.who==='you').map(m=>m.text).join('\n')); // C8: dentro do try — se lança, o botão volta
     if(plDestIsTeam()){ // T1: cartão na fila do time, sem rodar (a issue nasce junto — cloudShareTask)
       payload.start=false;
-      const who=plWho||null, row=await cloudShareTask(payload, { assignee:who });
+      if(typeof ntBudgetPending!=='undefined' && ntBudgetPending>0) payload.budgetUsd=ntBudgetPending; // o teto escolhido viaja no cartão (vale pra quem iniciar)
+      const who=plWho||null, row=await cloudShareTask(payload, { assignee:who, epicId:null });
       await plClearDraft(); closePlanner(); lastSig=''; plWho='';
       teamTasks=null; teamPaintSig=''; setView('team');
       toast('“'+String(payload.title||'').slice(0,60)+'” foi pro quadro do time'+(who?(who===cloudUserId()?', no seu nome':' com '+tmName(who)):', livre')+'. Ninguém começou a rodar.','ok');

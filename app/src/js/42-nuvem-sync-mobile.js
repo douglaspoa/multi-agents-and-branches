@@ -114,7 +114,7 @@ function tmCanAssign(meRole, members, me){ return meRole==='owner' || meRole==='
 function tmAssignOpts(members, profiles, me, canOthers){
   const nm=u=>{ const p=(profiles||{})[u]||{}; return String(p.name||String(p.email||'').split('@')[0]||'alguém do time'); };
   const out=[{ id:'', label:'Livre', hint:'quem pegar primeiro' }];
-  if((members||[]).some(m=>m&&m.user_id===me)) out.push({ id:me, label:nm(me), hint:'eu' });
+  if(canOthers || (members||[]).some(m=>m&&m.user_id===me)) out.push({ id:me, label:nm(me), hint:'eu' }); // admin da org fora do time também pode ficar com ela (0032)
   if(canOthers) (members||[]).filter(m=>m&&m.user_id&&m.user_id!==me).map(m=>({ id:m.user_id, label:nm(m.user_id), hint:m.role==='lead'?'líder':'' })).sort((a,b)=>a.label.localeCompare(b.label,'pt-BR')).forEach(o=>out.push(o));
   return out;
 }
@@ -144,10 +144,12 @@ function tmWhoPick(anchor, cur, onPick){
 async function cloudAssign(taskId, uid){
   try{
     const j=await sbRpc('assign_task',{ p_task:taskId, p_user:uid||null });
-    if(j && j.ok===false) throw Object.assign(new Error(j.error||'não deu pra atribuir'), { rpc:true });
+    if(!j || j.ok!==true) throw Object.assign(new Error((j&&j.error)||'não deu pra atribuir'), { rpc:true });
     return true;
   }catch(e){
-    if(e.rpc || !/could not find the function|function .* does not exist|PGRST202|não encontrado/i.test(String(e&&e.message||e))) throw e;
+    if(e.rpc || !/could not find the function|function .* does not exist|PGRST202/i.test(String(e&&e.message||e))) throw e;
+    // nuvem sem a 0032: só o que o banco antigo já deixava sem regra de papel — eu mesmo ou soltar o meu
+    if(uid && uid!==cloudUserId()) throw new Error('a nuvem do time ainda não tem a atualização 0032 — atribuir a outra pessoa fica disponível depois que o dono aplicar (Admin › Banco)');
     const res=await sbFetch('/rest/v1/tasks?id=eq.'+taskId, { method:'PATCH', headers:{ 'Prefer':'return=representation' }, body: JSON.stringify({ assignee:uid||null }) });
     if(!Array.isArray(res)||!res.length) throw new Error('sem permissão pra mudar o responsável deste cartão');
     sbPost('task_activity',{ task_id:taskId, user_id:cloudUserId(), kind:uid?'claimed':'released', body:'' }).catch(()=>{});
@@ -186,7 +188,8 @@ async function cloudShareTask(payload, opts){
   opts=opts||{};
   if(!SB.sess()) throw new Error('entre na sua conta (botão Conta, no rodapé da barra lateral)');
   const proj=await cloudEnsureProject();
-  let spec=payload, iss=null; const epicId=(typeof ntEpicVal==='function'?ntEpicVal():null);
+  // épico: o do chamador (planner passa o dele, ou null) — só o Formulário lê o seletor #ntEpic (BUG-8: nunca o campo de outra aba)
+  let spec=payload, iss=null; const epicId=opts.epicId!==undefined?opts.epicId:(typeof ntEpicVal==='function'?ntEpicVal():null);
   if(typeof trkIssueForCard==='function' && !payload.issue && !payload.issueUrl){
     const ep=epicId&&(teamEpics||[]).find(e=>e.id===epicId);
     // painel lento/caído não segura o cartão: 12 s e segue sem a issue (com o aviso)
@@ -194,8 +197,14 @@ async function cloudShareTask(payload, opts){
       new Promise(r=>setTimeout(()=>r({ err:'o painel não respondeu em 12 s' }), 12000)) ]);
     if(iss&&iss.code) spec=trkSpecWithIssue(payload, iss);
   } else if(payload.issue) spec={ ...payload, issueCode:payload.issue };
-  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:epicId, spec:{ ...spec, dispatch:'team' }, issue_url:(iss&&iss.url)||payload.issueUrl||null, ...(opts.assignee?{ assignee:opts.assignee }:{}) });
+  const rows=await sbPost('tasks',{ local_id:'card-'+Math.random().toString(36).slice(2,10), project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:payload.title, status:'backlog', epic_id:epicId, spec:{ ...spec, dispatch:'team' }, issue_url:(iss&&iss.url)||payload.issueUrl||null });
   if(iss&&iss.err) trkCardFailToast(payload.title, iss.err);
+  // responsável DEPOIS do cartão existir (recusa do banco não derruba o cartão nem deixa issue órfã): fica livre e avisa
+  const who=opts.assignee||null;
+  if(who && rows&&rows[0]){
+    if(typeof tmAssignOptsNow==='function' && !tmAssignOptsNow().some(o=>o.id===who)) toast('O responsável escolhido não está mais disponível no time — o cartão ficou livre.','warn');
+    else try{ await cloudAssign(rows[0].id, who); rows[0].assignee=who; }catch(e){ toast('O cartão foi pro time, mas ficou livre: '+(typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e)),'warn'); }
+  }
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:payload.title }).catch(()=>{});
   teamTasks=null;
   return rows[0];

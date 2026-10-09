@@ -123,18 +123,19 @@ async function erCreateCards(r, ep){
   const titles=((r.epic||{}).cards||[]).map(erTx).filter(Boolean), out={ created:[], fails:[], who:null };
   if(!titles.length) return out;
   const q=erTx((r.epic||{}).assignee);
+  if(q && typeof tmTeamMembers==='function' && !tmTeamMembers().length && typeof cloudLoad==='function'){ try{ await cloudLoad(); }catch(_){ } } // o tick pode rodar antes da conta carregar o time
   if(q){ const m=erPickMember(typeof tmTeamMembers==='function'?tmTeamMembers():[], typeof tmProfiles==='function'?tmProfiles():{}, q);
     if(m.err) out.fails.push({ ref:'--para', title:q, why:m.err+' — os cartões ficaram livres' });
     else if(m.uid && m.uid!==cloudUserId() && !(typeof tmCanAssignNow==='function'&&tmCanAssignNow())) out.fails.push({ ref:'--para', title:q, why:'só o líder do time ou um admin põe outra pessoa — os cartões ficaram livres' });
     else out.who=m.uid; }
   const proj=await cloudEnsureProject();
   for(let i=0;i<titles.length;i++){
-    const lid='card-'+String(r.id).slice(0,8)+'-'+(i+1);
+    const lid='card-'+String(r.id).replace(/[^A-Za-z0-9-]/g,'').slice(0,40)+'-'+(i+1); // id INTEIRO do pedido: retry não duplica e outro pedido não colide
     await sbFetch('/rest/v1/tasks?on_conflict=project_id,local_id',{ method:'POST', headers:{ 'Prefer':'resolution=ignore-duplicates' }, body:JSON.stringify({
       local_id:lid, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), claim_mode:'open', title:titles[i], status:'backlog', epic_id:ep.id,
       spec:{ title:titles[i], objective:titles[i], requirements:[], dispatch:'team', origin:{ via:'terminal', agent:erTx((r.by||{}).agent).slice(0,60) } } }) });
     const row=((await sbGet('tasks?select=*&project_id=eq.'+erEnc(proj.id)+'&local_id=eq.'+erEnc(lid)))||[])[0];
-    if(!row){ out.fails.push({ ref:titles[i], title:titles[i], why:'não consegui criar o cartão no time' }); continue; }
+    if(!row || row.epic_id!==ep.id){ out.fails.push({ ref:titles[i], title:titles[i], why:'não consegui criar o cartão no time' }); continue; }
     out.created.push({ row, wave:1 });
     sbPost('task_activity',{ task_id:row.id, user_id:cloudUserId(), kind:'created', body:titles[i] }).catch(()=>{});
   }
@@ -204,7 +205,9 @@ async function erApplyOne(r){
   try{
     if(r.kind==='create'){ ep=await erCreateEpic(r);
       // cartões NOVOS do épico ("mandar pro time": fila do time, sem rodar) + épico e cartões no painel de Issues
-      const made=await erCreateCards(r, ep);
+      let made={ created:[], fails:[], who:null };
+      try{ made=await erCreateCards(r, ep); }catch(e){ if(typeof aeIsPermanent==='function' && !aeIsPermanent(e)) throw e; // rede: o pedido volta pra fila (épico e cartões são idempotentes)
+        made.fails.push({ ref:'--card', title:'cartões novos', why:typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e) }); }
       if(window.trkPublishEpic) await window.trkPublishEpic(ep, made.created); // falha vira aviso lá dentro; nunca derruba o pedido
       if(made.who) for(const c of made.created){ if(c.row.assignee===made.who) continue;
         try{ await cloudAssign(c.row.id, made.who); c.row.assignee=made.who; }catch(e){ made.fails.push({ ref:c.row.title, title:c.row.title, why:'ficou livre: '+(typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e)) }); } }
