@@ -380,7 +380,7 @@ test("starfork ia-prep / _ia-exit: script de lançamento (env/unset/cd, chave fo
     const run = runOf(r.out);
     assert.ok(run.includes("'--model' 'haiku'") && run.includes("'--append-system-prompt'") && run.includes("'--mcp-config'"), run.slice(0, 200));
     assert.ok(run.endsWith("'mensagem do arquivo'"), "a mensagem vira o 1º pedido");
-    assert.match(r.out, /__sf_rc=\$\?\n.* starfork _ia-exit claude >\/dev\/null 2>&1\nexit \$__sf_rc\n$/);
+    assert.match(r.out, /__sf_rc=\$\?\nstty sane [^\n]*\n.* starfork _ia-exit claude >\/dev\/null 2>&1\nexit \$__sf_rc\n$/);
     assert.ok(!existsSync(join(t.worktree, NEXT_MSG_REL)), "arquivo da mensagem é de uso único");
     let s = new Store(f.db);
     try { assert.equal(s.termCli("ia"), "claude"); assert.equal(s.termGet("ia")!.busy, 1); } finally { s.close(); }
@@ -511,7 +511,7 @@ test("instruções em AGENTS.md/GEMINI.md: só arquivo novo ou só nosso; rastre
 
 test("script de lançamento: só nomes de env válidos, unset sem tirar o que exporta, IA com o TTY e _ia-exit no fim", () => {
   const L = { ai: "claude" as const, program: "/x/claude", args: ["--a", "it's"], env: { A: "1", "B-C": "x", ANTHROPIC_AUTH_TOKEN: "k" }, envRemove: ["CLAUDECODE", "ANTHROPIC_AUTH_TOKEN", "BAD NAME"], resumed: false, sessionId: null, cwd: "/w t", busy: true };
-  assert.equal(launchScript(L, ["/n", "/c.mjs"]), "cd '/w t' || exit 1\nunset CLAUDECODE\nexport A='1'\nexport ANTHROPIC_AUTH_TOKEN='k'\n'/x/claude' '--a' 'it'\\''s'\n__sf_rc=$?\n'/n' '/c.mjs' starfork _ia-exit claude >/dev/null 2>&1\nexit $__sf_rc\n");
+  assert.equal(launchScript(L, ["/n", "/c.mjs"]), "cd '/w t' || exit 1\nunset CLAUDECODE\nexport A='1'\nexport ANTHROPIC_AUTH_TOKEN='k'\n'/x/claude' '--a' 'it'\\''s'\n__sf_rc=$?\nstty sane 2>/dev/null; printf '\\033[?2004l\\033[?25h' 2>/dev/null\n'/n' '/c.mjs' starfork _ia-exit claude >/dev/null 2>&1\nexit $__sf_rc\n");
   assert.match(shimScript(["/n", "/c d.mjs"]), /'\/n' '\/c d\.mjs' starfork ia-prep "\$@"/);
 });
 

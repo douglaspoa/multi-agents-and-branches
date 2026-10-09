@@ -458,6 +458,7 @@ function ajRenderModo(host){
     +ajRow('Navegador dos agentes', 'Quando o agente abre um site pra testar ou tirar print. Por padrão roda em segundo plano, sem janela; ligue pra acompanhar ou fazer login.', ajSw('cfgBrowserVisible', false, 'mostrar a janela'))
     +ajRow('Previsão de tempo e custo antes de rodar', 'Custa uma chamada curta de IA por demanda (aparece em Uso › Previsão). Desligado: nenhuma chamada extra.', ajSw('cfgEstimate', true, 'prever'))
     +ajRow('Terminal vivo ao abrir a tarefa', 'Abrir uma tarefa parada retoma a sessão no terminal, pronta pra digitar. Não gasta nada até você mandar algo.', ajSw('cfgTermAuto', true, 'retomar sozinho'))
+    +ajRow('Revisor automático no terminal', 'Quando a equipe tem revisor, ele entra no MESMO terminal depois da construção (você vê e pode comentar) e devolve as mudanças pra quem constrói — até 2 rodadas, dentro do teto. Experimental: desligado, peça em Revisão / PR.', ajSw('cfgTermRev', false, 'revisor entra sozinho'))
     +ajRow('Encerrar terminal parado', 'Terminal de tarefa que você não está vendo, sem nada rodando, fecha depois desse tempo — volta sozinho quando você abrir a tarefa.', `<select class="in" id="cfgTermIdle" aria-label="encerrar terminal parado depois de">${AJ_TERM_IDLE.map(([v,l])=>'<option value="'+v+'">'+l+'</option>').join('')}</select>`)
     +`</div>`;
   let loaded, stored;
@@ -466,6 +467,7 @@ function ajRenderModo(host){
     const bv=$id('cfgBrowserVisible'); if(bv) bv.checked=(o.browserVisible===true||o.browserVisible==='1'||o.browserVisible==='true');
     const es=$id('cfgEstimate'); if(es) es.checked=!(o.estimateEnabled===false||o.estimateEnabled==='0'||o.estimateEnabled==='false');
     const ta=$id('cfgTermAuto'); if(ta) ta.checked=!(o.termAutoResume===false||o.termAutoResume==='0'||o.termAutoResume==='false');
+    const tr=$id('cfgTermRev'); if(tr) tr.checked=(o.termRevisorAuto===true||o.termRevisorAuto==='1'||o.termRevisorAuto==='true');
     const ti=$id('cfgTermIdle'); if(ti) ti.value=ajTermIdleOf(o.termIdleMin); });
   host.querySelectorAll('[data-ajmode]').forEach(b=>b.onclick=async()=>{
     const v=b.dataset.ajmode; paint(v);
@@ -474,6 +476,7 @@ function ajRenderModo(host){
   });
   { const bv=$id('cfgBrowserVisible'); if(bv) bv.onchange=async()=>{ try{ await ajSetting('browserVisible', bv.checked?'1':'0'); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
   { const ta=$id('cfgTermAuto'); if(ta) ta.onchange=async()=>{ try{ await ajSetting('termAutoResume', ta.checked?'1':'0'); if(typeof TERM_CFG!=='undefined'){ TERM_CFG.auto=ta.checked; TERM_CFG.at=Date.now(); } ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
+  { const tr=$id('cfgTermRev'); if(tr) tr.onchange=async()=>{ try{ await ajSetting('termRevisorAuto', tr.checked?'1':'0'); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
   { const ti=$id('cfgTermIdle'); if(ti) ti.onchange=async()=>{ try{ await ajSetting('termIdleMin', ti.value); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
   { const es=$id('cfgEstimate'); if(es) es.onchange=async()=>{ try{ await ajSetting('estimateEnabled', es.checked?'1':'0'); if(typeof estSetEnabled==='function') estSetEnabled(es.checked); ajSaved(); }catch(e){ showErr(e,'Não salvou'); } }; }
 }

@@ -617,7 +617,7 @@ async function ideiaCreate(m, mode, opts){
       // a tarefa nasce no projeto ABERTO: se a pessoa trocou de projeto no meio, para (sem criar no projeto errado)
       if(typeof state!=='undefined' && state && state.repo && state.repo!==path) throw new Error(`o projeto aberto mudou — abra "${slug}" e clique em "continuar a criação"`);
       payload.after=afterIdx.map(j=>made[j]).filter(Boolean);
-      payload.termMode='auto'; // o MVP da ideia é construído sozinho (ondas) — sem terminal
+      // o MVP da ideia roda no TERMINAL como toda tarefa (terminal sempre vivo, 09/10) — sem termMode: vale o padrão
       const id=await invoke('new_task', typeof trkBeforeNewTask==='function'?await trkBeforeNewTask(payload):payload);
       made.push(id); m.partial.tasks.push({ id, titulo:payload.title });
       await ideiaSave(m);

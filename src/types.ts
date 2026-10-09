@@ -166,6 +166,18 @@ export interface TaskSpec {
   termAi?: string;
   /** Modelo escolhido junto com a termAi (vazio = o padrão da IA). Só vale quando termAi está gravada. */
   termModel?: string;
+  /** Terminal sempre vivo (09/10) — quem fala no terminal agora (ausente = quem constrói). O app mostra
+   * "Iris está revisando o trabalho de Vega · rodada 1 de 2". */
+  termRole?: { role: "reviewer"; name: string; builder: string; round: number; max: number } | null;
+  /** A rodada de CONSTRUÇÃO em curso no terminal (kickoff, pedir ajuste, "muda" do revisor) — no fim dela, com revisor
+   * na equipe e o revisor automático ligado, o terminal troca pro revisor. Conversa comum não liga. */
+  termBuild?: boolean | null;
+  /** Troca de papel pedida pelo fim de turno (o app executa no PTY: fecha a IA e digita `starfork ia … --papel …`). */
+  termHandoff?: { to: "reviewer" | "builder"; round?: number; msg?: string; at: number } | null;
+  /** Sessão do CONSTRUTOR guardada enquanto o revisor fala (a volta retoma ela, nunca a do revisor). */
+  termBuilderSid?: string | null;
+  /** já avisou (uma vez) que o revisor automático está desligado */
+  termReviewHint?: boolean;
   /** Tarefa do PILOTO AUTOMÁTICO (src/autopilot.ts): ninguém responde — o app não pausa no teto (o piloto decide). */
   autopilot?: boolean;
   // ---- Tarefa SOB ÉPICO. Todos opcionais: tarefa criada fora do planner não tem nenhum. ----
