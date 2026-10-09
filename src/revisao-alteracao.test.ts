@@ -253,3 +253,37 @@ test("CLI: `cardume etapa` roda a etapa (motor da tarefa) e `cardume alteracao` 
   } finally { o2.close(); }
   assert.throws(() => execFileSync(process.execPath, ["--disable-warning=ExperimentalWarning", cli, "alteracao", "t-cli", "--msg", "x", "--repo", repo], { stdio: "pipe", env: process.env }), /trabalhando/);
 });
+
+test("etapa aberta pela tool MCP numa CONVERSA fecha no fim do turno; etapa velha de processo que caiu não trava; rascunho não ganha etapa", async () => {
+  const repo = gitRepo("extra-talk");
+  const orch = new Orchestrator(repo);
+  try {
+    await readyTask(orch, "t-tk");
+    await orch.beginExtraStage("t-tk", "design", { by: "mcp" });
+    await orch.talkToAgent("t-tk", "segue"); // IA de teste bloqueada (scripts/test-sem-ia-real.mjs): o turno falha, mas fecha a etapa
+    const st = specOf(orch, "t-tk").extraStages![0];
+    assert.notEqual(st.status, "rodando", "o fim do turno da conversa fechou a etapa");
+    assert.equal(R.runningExtra(specOf(orch, "t-tk").extraStages), null);
+    // etapa "rodando" de 1 h atrás, sem turno vivo → a próxima entra (a velha vira "não terminou")
+    orch.store.patchSpec("t-tk", { extraStages: [{ ...st, id: "extra-x-1", status: "rodando", at: Date.now() - 3600_000 }] });
+    await orch.beginExtraStage("t-tk", "qa", { by: "app" });
+    const all = specOf(orch, "t-tk").extraStages!;
+    assert.equal(all.find((s) => s.id === "extra-x-1")!.status, "falhou");
+    assert.equal(R.runningExtra(all)?.agentId, "cobalt");
+    // rascunho: a regra do app (changeGate) também vale no motor
+    await orch.createTask({ ...spec("t-draft"), id: "t-draft" });
+    orch.store.setStatus("t-draft", "draft");
+    await orch.runExtraStage("t-draft", "design", {});
+    assert.equal(specOf(orch, "t-draft").extraStages, undefined);
+    assert.equal(orch.store.getTask("t-draft")!.status, "draft");
+    assert.match(orch.store.eventsForTask("t-draft").map((e) => e.text).join("\n"), /não chamei o agente: a tarefa ainda não rodou/);
+  } finally { orch.close(); }
+});
+
+test("instrução da revisão usa a base da tarefa (nada de <base> literal) e a faixa rotula '+ Design'", () => {
+  const p = R.extraStagePrompt(R.resolveExtraAgent([], "revisor")!, { base: "develop" });
+  assert.match(p, /git diff develop\.\.\.HEAD/);
+  assert.doesNotMatch(p, /<base>/);
+  const ex = [{ id: "extra-aria-1", agentId: "aria", name: "Aria", kind: "design", role: "designer", status: "feito", by: "app", at: 1 }] as R.ExtraStage[];
+  assert.equal(R.flowWithExtras(FLOW_BY_KIND.codigo, ex).find((s) => s.id === "extra-aria-1")!.label, "+ Design");
+});

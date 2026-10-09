@@ -156,7 +156,8 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
       // `starfork etapa design` = chamar OUTRO agente (etapa extra da revisão); `starfork etapa review` = status (como sempre)
       const q = String(a.pos[0] ?? "");
       // palavra de status (review/revisar/construir/esperando…) continua sendo status; agente/papel (design, qa, aria…) vira etapa extra
-      if (/^\+/.test(q) || (!["review", "needs-you", "running"].includes(etapaStatus(q)) && resolveExtraAgent([], q))) return extraStageCli(io, q.replace(/^\+/, ""), one(a, "nota", "note") ?? a.pos.slice(1).join(" "));
+      // palavra que não é status → agente (o do catálogo do projeto também: a tool resolve e, se não achar, lista os que existem)
+      if (/^\+/.test(q) || (q && !["review", "needs-you", "running"].includes(etapaStatus(q)))) return extraStageCli(io, q.replace(/^\+/, ""), one(a, "nota", "note") ?? a.pos.slice(1).join(" "));
       return tool(io, "set_status", { status: etapaStatus(q), note: one(a, "nota", "note") ?? a.pos.slice(1).join(" ") });
     }
     case "alteracao":

@@ -20,7 +20,7 @@ const RQ_KINDS=[
   { kind:'docs', role:'docs', agentId:'lumen', name:'Lumen', label:'documentação', line:'atualiza a documentação e o README com o que a tarefa mudou',
     persona:'Você escreve documentação concisa com exemplos de uso.', aliases:['docs','doc','documentacao','documentação','readme'] },
 ];
-function rqFold(s){ return String(s==null?'':s).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''); }
+function rqFold(s){ return String(s==null?'':s).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
 function rqExtraAgents(catalog){
   const cat=Array.isArray(catalog)?catalog:[];
   return RQ_KINDS.map(k=>{
@@ -113,7 +113,7 @@ function rqPanelHtml(d){
 // ---------------------------------------------------------------- estado
 // RQ: taskId → estado do painel (open, mode, text, note, reqs, atts, team, agent, sending)
 const RQ={};
-let rqCatalog=null;
+let rqCatalog=null, rqCatalogBusy=false;
 function rqOf(id){
   if(!RQ[id]){ let draft=''; try{ draft=lsGet('rqDraft:'+id)||''; }catch(_){ }
     RQ[id]={ open:false, mode:'alt', text:draft, note:'', reqs:[], atts:[], team:false, agent:'', sending:false }; }
@@ -122,7 +122,8 @@ function rqOf(id){
 function rqSaveDraft(id){ try{ const u=RQ[id]; if(u&&u.text) lsSet('rqDraft:'+id, u.text); else localStorage.removeItem('rqDraft:'+id); }catch(_){ } }
 function rqAgents(){
   const cat=(rqCatalog||(state.config&&state.config.agents)||[]);
-  if(!rqCatalog && typeof invoke==='function') invoke('config').then(c=>{ rqCatalog=(c&&c.agents)||[]; const t=(typeof fwTaskObj==='function')&&fwTaskObj(); if(t) rqPaint(t, true); }).catch(()=>{ rqCatalog=[]; });
+  if(!rqCatalog && !rqCatalogBusy && typeof invoke==='function'){ rqCatalogBusy=true;
+    invoke('config').then(c=>{ rqCatalog=(c&&c.agents)||[]; const t=(typeof fwTaskObj==='function')&&fwTaskObj(); if(t) rqPaint(t, true); }).catch(()=>{ /* tenta de novo na próxima pintura */ }).finally(()=>{ rqCatalogBusy=false; }); }
   return rqExtraAgents(cat);
 }
 /** O cartão do Time (nuvem) → a tarefa LOCAL dele (se esta máquina tem). */
@@ -136,6 +137,7 @@ function rqOpen(taskId, o){
   o=o||{};
   const t=(state.tasks||[]).find(x=>x.id===taskId);
   if(!t){ if(typeof crossRun==='function') crossRun(taskId, ()=>rqOpen(taskId, o)); return; }
+  if(!rqCanAsk(t)){ toast('pedir alteração e chamar outro agente valem pra tarefa pronta pra revisar','warn'); return; }
   const u=rqOf(taskId); u.open=true; u.mode=o.mode==='agente'?'agente':'alt';
   if(Array.isArray(o.reqs)) u.reqs=[...new Set(o.reqs.concat(u.reqs))];
   if(o.agent) u.agent=o.agent;
@@ -147,7 +149,7 @@ function rqOpen(taskId, o){
   const tab=(typeof tabById==='function')?tabById('task:'+taskId):null; if(tab) tab.mode=mode;
   fwMode=mode; if(typeof fwRememberTab==='function') fwRememberTab();
   renderWorkspace();
-  setTimeout(()=>{ const h=$id('fwRq'); if(h){ h.__sig=''; rqPaint(t, true); h.scrollIntoView&&h.scrollIntoView({ block:'nearest' }); const el=$id(u.mode==='agente'?'rqNote':'rqTx'); if(el&&u.mode!=='agente') el.focus(); else { const b=h.querySelector('[data-rqag]'); if(b) b.focus(); } } }, 40);
+  setTimeout(()=>{ const h=$id('fwRq'); if(h){ h.__sig=''; rqPaint(t, true); h.scrollIntoView&&h.scrollIntoView({ block:'nearest' }); const el=$id(u.mode==='agente'?'rqNote':'rqTx'); if(el&&u.mode!=='agente') el.focus(); else { const b=h.querySelector('[data-rqag][aria-checked="true"]')||h.querySelector('[data-rqag]'); if(b) b.focus(); } } }, 40);
 }
 function rqClose(taskId){ const u=RQ[taskId]; if(u){ u.open=false; } const t=(state.tasks||[]).find(x=>x.id===taskId); if(t) rqPaint(t, true); }
 
@@ -190,14 +192,14 @@ function rqWire(host, t){
 
 // ---------------------------------------------------------------- ações
 async function rqSend(t){
-  const u=rqOf(t.id); const g=rqChangeGate(t); if(!g.ok){ toast(g.why,'warn'); return; }
+  const u=rqOf(t.id); if(u.sending) return; const g=rqChangeGate(t); if(!g.ok){ toast(g.why,'warn'); return; }
   const all=Array.isArray(t.requirements)?t.requirements:[];
   const text=rqChangeText({ text:u.text, reqs:u.reqs.filter(i=>i<all.length).map(i=>({ i, text:all[i] })), from:'app' });
   if(!text){ const el=$id('rqTx'); if(el) el.focus(); toast('escreva o que mudar','warn'); return; }
   const full=text+((typeof attPromptBlock==='function')?attPromptBlock(u.atts):'');
   if(u.team && !await askYes('O time inteiro roda de novo nesta branch (planeja, constrói e revisa) — custa mais que um ajuste.', 'Refazer com o time inteiro?')) return;
   u.sending=true; rqPaint(t, true);
-  let ok=false;
+  const sent=u.text; let ok=false;
   try{
     if(u.team){ await invoke('rework_task',{ taskId:t.id, text:full }); ok=true; lastSig=''; refresh().catch(()=>{}); }
     else ok=await fwSendText(t.id, full);
@@ -207,19 +209,20 @@ async function rqSend(t){
     // requisito marcado = o aceite dele não vale mais (o agente vai mexer nele)
     try{ const st=(typeof rvSt!=='undefined')?rvSt[t.id]:null;
       if(st&&st.acc){ let ch=false; for(const i of u.reqs){ const k=rvNorm(all[i]); if(st.acc[k]){ delete st.acc[k]; ch=true; } } if(ch) await rvStSave(t.id); } }catch(_){ }
-    RQ[t.id]={ ...rqOf(t.id), open:false, text:'', reqs:[], atts:[], team:false }; rqSaveDraft(t.id);
+    const cur=rqOf(t.id); RQ[t.id]={ ...cur, open:cur.text!==sent, text:cur.text===sent?'':cur.text, reqs:[], atts:[], team:false }; rqSaveDraft(t.id); // digitou durante o envio: fica
+    Object.assign(u, RQ[t.id]);
     toast(u.team?'o time inteiro voltou a trabalhar nesta branch':'pedido enviado — o agente volta a trabalhar nesta mesma branch','ok');
   }
   rqPaint(t, true);
 }
 async function rqRun(t){
-  const u=rqOf(t.id); const ag=rqAgents().find(a=>a.id===u.agent); if(!ag){ toast('escolha um agente','warn'); return; }
+  const u=rqOf(t.id); if(u.sending) return; const ag=rqAgents().find(a=>a.id===u.agent); if(!ag){ toast('escolha um agente','warn'); return; }
   const g=rqChangeGate(t); if(!g.ok){ toast(g.why,'warn'); return; }
   const cg=rqCapGate(taskCost(t.id).usd, budgetOf(t)); if(!cg.ok){ toast(cg.why,'warn'); return; }
   u.sending=true; rqPaint(t, true);
   try{ await invoke('extra_stage',{ taskId:t.id, agent:ag.id, note:String(u.note||'').trim()||null });
     u.open=false; u.note='';
-    toast(`${ag.name} (${rqExtraLabel(ag.kind)}) entrou na tarefa — volta pra revisão com o que mudou destacado`,'ok');
+    toast(`chamando ${ag.name} (${rqExtraLabel(ag.kind)}) — entra na faixa como etapa e volta pra revisão com o que mudou destacado; se algo impedir, o motivo aparece na conversa`,'ok');
     lastSig=''; refresh().catch(()=>{});
   }catch(e){ showErr(e, 'Não deu pra chamar o agente'); }
   u.sending=false; rqPaint(t, true);
@@ -231,6 +234,7 @@ const rqFilesOpen={}; // stageId → lista aberta
 function rqExtraBandHtml(t){
   const ex=(((t&&t.spec)||{}).extraStages)||[]; if(!ex.length) return '';
   const arts=(typeof entregaArts==='function')?entregaArts(t):[];
+  const more=ex.length>3?`<p class="rqx-more dim">+ ${nPl(ex.length-3,'etapa anterior','etapas anteriores')} — veja na faixa de etapas</p>`:'';
   return `<div class="rqx-list">${ex.slice(-3).reverse().map(s=>{
     const n=(s.files||[]).length, out=new Set(s.outsideUi||[]);
     const st=s.status==='rodando'?'<span class="rvtag info">trabalhando…</span>':s.status==='falhou'?'<span class="rvtag wn">não terminou</span>':`<span class="rvtag">${nPl(n,'arquivo')}</span>`;
@@ -239,7 +243,7 @@ function rqExtraBandHtml(t){
     const files=open&&n?`<ul class="rqx-files">${s.files.map(f=>`<li class="${out.has(f)?'out':''}"><button type="button" class="lnk mono" data-rqfile="${escA(f)}" data-rqtask="${escA(t.id)}">${esc(f)}</button>${out.has(f)?'<span class="rqx-outtag">fora de tela — confira se é lógica</span>':''}</li>`).join('')}</ul>`:'';
     const shots=s.kind==='design'?['antes','depois'].map(w=>{ const a=arts.find(x=>new RegExp('^design-'+w+'[-_.]','i').test(x.name)); if(!a) return ''; const th=(typeof artThumb==='function')?artThumb(t.id, a.name):null; return `<figure class="rqx-shot"><button type="button" class="rvshot" data-rqart="${escA(a.name)}" data-rqtask="${escA(t.id)}" aria-label="${escA('abrir o print '+w)}">${th?`<img src="${escA(th)}" alt="">`:`<span class="rvshot-ph">${IC.image}</span>`}</button><figcaption>${w}</figcaption></figure>`; }).join(''):'';
     return `<div class="rqx${s.status==='rodando'?' run':''}"><div class="rqx-row"><b>${s.status==='rodando'?`${esc(s.name)} (${esc(rqExtraLabel(s.kind))}) está passando pela tarefa`:`Passou por ${esc(s.name)} (${esc(rqExtraLabel(s.kind))})`}</b>${st}${warn}${s.summary?`<span class="rqx-sum">${esc(s.summary)}</span>`:''}<span class="rvsp"></span>${n?`<button type="button" class="btn sm" data-rqfiles="${escA(s.id)}" data-rqtask="${escA(t.id)}" aria-expanded="${open}">${open?'esconder':'ver o que mudou'}</button>`:''}</div>${shots?`<div class="rqx-shots">${shots}</div>`:''}${files}</div>`;
-  }).join('')}</div>`;
+  }).join('')}${more}</div>`;
 }
 
 // ---------------------------------------------------------------- um clique em qualquer lugar (Central, Time, PR, Revisão)

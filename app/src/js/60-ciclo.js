@@ -226,7 +226,7 @@ function taskStages(t, x){
   // etapas EXTRAS da revisão (≡ flowWithExtras do src/revisao-alteracao.ts): depois de Revisar, antes de Provar
   if(extras.length){
     let at=out.map(s=>s.role).lastIndexOf('reviewer'); if(at<0) at=out.length-1;
-    const LBL={ design:'Design', revisor:'Revisão', qa:'Testes', seguranca:'Segurança', performance:'Performance', docs:'Docs' };
+    const LBL={ design:'Design', revisor:'Revisão', qa:'Testes', seguranca:'Segurança', performance:'Performance', docs:'Docs' }; // ≡ STRIP_LABEL (src/revisao-alteracao.ts)
     const ex=extras.map(s=>{ const n=(s.files||[]).length;
       return { id:s.id, label:'+ '+(LBL[s.kind]||s.kind), role:s.role, who:s.name, extra:true, lock:0, usd:+s.usd||0,
         state:s.status==='rodando'?'agora':s.status==='falhou'?'precisa':'feito',

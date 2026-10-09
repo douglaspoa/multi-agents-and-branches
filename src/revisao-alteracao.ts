@@ -60,7 +60,7 @@ export const EXTRA_KINDS: { kind: ExtraKind; role: string; agentId: string; name
   { kind: "docs", role: "docs", agentId: "lumen", name: "Lumen", label: "documentação", line: "atualiza a documentação e o README com o que a tarefa mudou",
     persona: "Você escreve documentação concisa com exemplos de uso.", aliases: ["docs", "doc", "documentacao", "documentação", "readme"] },
 ];
-const fold = (s: unknown) => String(s ?? "").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+const fold = (s: unknown) => String(s ?? "").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 type CatAgent = { id: string; name: string; role: string; engine?: string; model?: string; persona?: string };
 /** A lista do "Chamar outro agente…": o agente do CATÁLOGO (Meu time) de cada papel — pelo id padrão, senão pelo papel — ou o padrão. */
 export function extraStageAgents(catalog: CatAgent[] | null | undefined): ExtraAgent[] {
@@ -81,6 +81,11 @@ export function resolveExtraAgent(catalog: CatAgent[] | null | undefined, query:
     ?? list.find((a) => EXTRA_KINDS.find((k) => k.kind === a.kind)!.aliases.some((x) => fold(x) === q))
     ?? null;
 }
+/** Rótulo da etapa extra na faixa ("+ Design") — ≡ o mapa do taskStages (app/src/js/60-ciclo.js). */
+export const STRIP_LABEL: Record<string, string> = { design: "Design", revisor: "Revisão", qa: "Testes", seguranca: "Segurança", performance: "Performance", docs: "Docs" };
+/** Etapa "rodando" há mais que isto, sem turno vivo, é dada como perdida (processo caiu) e não trava a próxima. */
+export const EXTRA_STALE_MS = 45 * 60_000;
+export function extraIsStale(s: Pick<ExtraStage, "status" | "at"> | null | undefined, now: number): boolean { return !!s && s.status === "rodando" && now - (Number(s.at) || 0) > EXTRA_STALE_MS; }
 /** Rótulo do papel em português ("design", "revisão"…). */
 export function extraLabel(kind: string): string { return EXTRA_KINDS.find((k) => k.kind === kind)?.label ?? kind; }
 
@@ -99,7 +104,8 @@ export function outsideUi(files: string[]): string[] { return (files ?? []).filt
  * O que o agente chamado recebe. Design: usa a skill Impeccable quando o projeto tem (`.claude/skills/impeccable`),
  * fica em UI/estilo/texto e entrega prints de ANTES e DEPOIS. Todos: mesma branch, sem recomeçar, commit no fim.
  */
-export function extraStagePrompt(a: Pick<ExtraAgent, "name" | "kind" | "persona">, o: { note?: string; impeccable?: boolean; reqs?: string[] } = {}): string {
+export function extraStagePrompt(a: Pick<ExtraAgent, "name" | "kind" | "persona">, o: { note?: string; impeccable?: boolean; reqs?: string[]; base?: string } = {}): string {
+  const base = String(o.base ?? "").trim() || "main";
   const L = [`ETAPA EXTRA DA REVISÃO — você é ${a.name} (${extraLabel(a.kind)}). Esta tarefa JÁ FOI implementada nesta worktree e está pronta pra revisar;`
     + " a pessoa pediu que você passe por ela antes de aprovar. Trabalhe NESTA MESMA branch, sem recomeçar e sem refazer o que já funciona."];
   if (a.persona) L.push(`## Seu perfil\n${a.persona}`);
@@ -112,11 +118,11 @@ export function extraStagePrompt(a: Pick<ExtraAgent, "name" | "kind" | "persona"
       + "- Mexa só em interface: markup, estilos, textos e componentes visuais. NÃO mude regra de negócio, dados nem API — se precisar, explique em vez de mudar.\n"
       + "- PROVA: tire prints da tela ANTES de mexer (`.cardume/artifacts/design-antes-1.png`, …) e DEPOIS (`.cardume/artifacts/design-depois-1.png`, …), na mesma tela e tamanho.");
   } else if (a.kind === "revisor") {
-    L.push("## Como trabalhar (revisão)\n- Leia o diff da tarefa (git diff <base>...HEAD), rode os testes e confira cada requisito. Corrija o que for claro; o que for decisão, liste no resumo.");
+    L.push(`## Como trabalhar (revisão)\n- Leia o diff da tarefa (git diff ${base}...HEAD), rode os testes e confira cada requisito. Corrija o que for claro; o que for decisão, liste no resumo.`);
   } else if (a.kind === "qa") {
     L.push("## Como trabalhar (testes)\n- Rode a suíte do projeto, escreva os testes que faltam para os requisitos desta tarefa e registre a saída real em `.cardume/artifacts/tests.md`.");
   } else if (a.kind === "seguranca") {
-    L.push("## Como trabalhar (segurança)\n- Revise o diff da tarefa procurando entrada sem validação, segredo no código, permissão frouxa e injeção. Corrija o que for seguro; registre o resto em `.cardume/artifacts/seguranca.md`.");
+    L.push(`## Como trabalhar (segurança)\n- Revise o diff da tarefa (git diff ${base}...HEAD) procurando entrada sem validação, segredo no código, permissão frouxa e injeção. Corrija o que for seguro; registre o resto em .cardume/artifacts/seguranca.md.`);
   } else if (a.kind === "performance") {
     L.push("## Como trabalhar (performance)\n- Meça antes (tempo/renders/consultas), otimize sem mudar o comportamento e registre antes × depois em `.cardume/artifacts/performance.md`.");
   } else if (a.kind === "docs") {
@@ -192,7 +198,7 @@ export function extraCapGate(spentUsd: number, capUsd: number): { ok: boolean; w
 
 /** A faixa com as etapas extras: entram DEPOIS de Revisar e antes de Provar (ou no fim, se o tipo não tem Revisar). */
 export function flowWithExtras(flow: StageDef[], extras: ExtraStage[] | undefined): StageDef[] {
-  const ex = (extras ?? []).map((s): StageDef => ({ id: s.id, label: `+ ${s.name}`, role: s.role, agentId: s.agentId }));
+  const ex = (extras ?? []).map((s): StageDef => ({ id: s.id, label: `+ ${STRIP_LABEL[s.kind] ?? s.kind}`, role: s.role, agentId: s.agentId }));
   if (!ex.length) return flow;
   let at = flow.findIndex((s) => s.id === "revisar");
   if (at < 0) at = flow.findIndex((s) => s.id === "provar") - 1;
