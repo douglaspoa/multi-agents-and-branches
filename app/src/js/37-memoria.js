@@ -289,7 +289,7 @@ function memSeen(){ try{ return JSON.parse(lsGet(memSeenKey())||'{}')||{}; }catc
 function memIsNew(n){ return n.origem==='agente' && (memSeen()[n.scope+':'+n.slug]||0) < n.mtimeMs; }
 function memMarkSeen(n){ if(!n) return; const s=memSeen(); s[n.scope+':'+n.slug]=n.mtimeMs; lsSet(memSeenKey(), JSON.stringify(s)); }
 function memWho(){
-  try{ const p=cloudData&&cloudData.profileByUser&&cloudData.profileByUser[cloudUserId()]; if(p&&(p.name||p.email)) return p.name||p.email; }catch(_){ }
+  try{ const p=cloudData&&cloudData.profileByUser&&cloudData.profileByUser[cloudUserId()]; if(p&&(p.name||p.email)) return personName(cloudUserId(),{ noYou:true, settled:true }); }catch(_){ } // nunca o e-mail cru
   return 'você (nesta máquina)';
 }
 function memSelNote(){ return MEM.sel ? MEM.notes.find(n=>n.scope===MEM.sel.scope && n.slug===MEM.sel.slug)||null : null; }

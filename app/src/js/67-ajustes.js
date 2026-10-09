@@ -597,8 +597,7 @@ async function ajCloudReady(host, id, lead){
 }
 function ajCloudMsg(){ if(typeof cloudMsg==='undefined'||!cloudMsg) return ''; const ok=cloudMsg.startsWith('✓'); const m=cloudMsg; cloudMsg=''; return `<div class="ajband ${ok?'ok':'err'}" role="${ok?'status':'alert'}">${esc(m)}</div>`; }
 function ajMe(){ return (typeof cloudUserId==='function')?cloudUserId():''; }
-function ajPName(d, uid){ const p=(d.profileByUser||{})[uid]||{}; return p.name||p.email||String(uid).slice(0,8); }
-function ajInitials(n){ return String(n||'?').split(/[\s@.]+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase()||'?'; }
+function ajPName(d, uid){ return personName(uid,{ noYou:true }); } // fonte única (08-pessoas): nome → parte do e-mail → "pessoa sem nome" (nunca o id)
 async function ajRenderPerfil(host){
   if(typeof SB!=='undefined' && !SB.configured()){ host.innerHTML=ajSecHead('perfil','')+ajStateHtml('semserv'); ajStateWire(); return; }
   if(typeof SB==='undefined' || !SB.sess()){ host.innerHTML=ajSecHead('perfil','')+ajStateHtml('semconta'); ajStateWire(); return; }
@@ -663,7 +662,7 @@ async function ajRenderTimes(host){
     return `<article class="ajtm"><header><div class="l"><b>${esc(t.name)}</b><small>${mems.length} ${mems.length===1?'pessoa':'pessoas'} · ${leads.length?'lead: '+esc(leads.join(', ')):'<span class="warn">sem lead</span>'}</small></div>
         ${t.id===teamId?'<span class="ajtag on">seu time atual</span>':`<button type="button" class="btn sm" data-ajt="use" data-team="${escA(t.id)}">usar este time</button>`}
         ${canManage(t)?`<button type="button" class="btn sm icon quiet" data-ajt="menu" data-team="${escA(t.id)}" aria-label="mais ações do time ${escA(t.name)}" title="mais ações">⋯</button>`:''}</header>
-      ${mems.map(m=>`<div class="ajmem"><span class="ajav">${esc(ajInitials(ajPName(d,m.user_id)))}</span><span>${esc(ajPName(d,m.user_id))}${m.user_id===me?' <small>· você</small>':''}</span><span class="dim">${m.role==='lead'?'lead':'membro'}</span>${canManage(t)?`<button type="button" class="btn sm icon quiet" data-ajt="mmenu" data-team="${escA(t.id)}" data-uid="${escA(m.user_id)}" aria-label="ações de ${escA(ajPName(d,m.user_id))}">⋯</button>`:'<span></span>'}</div>`).join('')||'<div class="ajmem empty dim">time vazio — adicione alguém abaixo</div>'}
+      ${mems.map(m=>`<div class="ajmem"><span class="ajav">${esc(personInitials(ajPName(d,m.user_id)))}</span><span>${esc(ajPName(d,m.user_id))}${m.user_id===me?' <small>· você</small>':''}</span><span class="dim">${m.role==='lead'?'lead':'membro'}</span>${canManage(t)?`<button type="button" class="btn sm icon quiet" data-ajt="mmenu" data-team="${escA(t.id)}" data-uid="${escA(m.user_id)}" aria-label="ações de ${escA(ajPName(d,m.user_id))}">⋯</button>`:'<span></span>'}</div>`).join('')||'<div class="ajmem empty dim">time vazio — adicione alguém abaixo</div>'}
       ${canManage(t)&&fora.length?`<div class="ajadd"><select class="in" id="ajAdd-${escA(t.id)}" aria-label="pessoa pra adicionar ao time ${escA(t.name)}">${fora.map(om=>`<option value="${escA(om.user_id)}">${esc(ajPName(d,om.user_id))}</option>`).join('')}</select><button type="button" class="btn sm" data-ajt="add" data-team="${escA(t.id)}">adicionar ao time</button></div>`:''}</article>`; }).join('');
   const q=ajNorm(AJ.memQ);
   const mems=(d.orgMembers||[]).filter(om=>!q || ajNorm(ajPName(d,om.user_id)).includes(q));

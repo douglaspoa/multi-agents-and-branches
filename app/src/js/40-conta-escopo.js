@@ -106,7 +106,7 @@ function acctResetCaches(){
   acctReset(()=>{ acctClear(epCache); epQueue={ rows:[], stOf:{}, flagOf:{}, titleOf:{}, epicOf:{}, projOf:{}, progOf:{}, sibsOf:{}, here:'', localIds:[], at:0 }; taskOriginIdx={ a:null, b:null, m:{} }; acctClear(epAutoWarned); });
   acctReset(()=>{ acctClear(cloudSyncSigs); acctClear(prProbed); acctClear(autoPubFails); acctClear(autoPubLast); feedRepaired=false; });
   acctReset(()=>{ acctClear(intentBusy); acctClear(prPubAt); acctClear(qPushed); acctClear(qNotified); acctClear(remoteStartFails); acctClear(msgDelivering); acctClear(pushedReady); });
-  acctReset(()=>{ apnsTokens=null; apnsTokensAt=0; appVerSent=''; acctClear(cloudPubCache); acctClear(tmPending); acctClear(tmTried); });
+  acctReset(()=>{ apnsTokens=null; apnsTokensAt=0; appVerSent=''; acctClear(cloudPubCache); personReset(); });
   acctReset(()=>{ allTasksCache=[]; allTasksSig=''; allTasksAt=0; allTasksOk=false; });
   acctReset(()=>{ projOv=null; projOvAt=0; });
   acctReset(()=>{ localRemoteAt=0; localRemoteList=[]; });

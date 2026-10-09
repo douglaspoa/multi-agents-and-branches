@@ -341,7 +341,7 @@ function aeRefreshTeam(epicId){
 }
 // cópias locais (TASK.yaml) do "pronto quando" seguem a lista oficial
 function aeSyncLocal(epicId, sp){ return invokeQuiet('epic_sync_cli',{ epicId, doneWhen:aeDoneWhenLines(sp), seq:+sp.doneWhenSeq||aeMaxD(sp.doneWhen) }).catch(e=>console.warn('sincronizar pronto quando local', e&&e.message||e)); }
-function aeMe(){ return (typeof tmName==='function'&&typeof cloudUserId==='function'&&cloudUserId())?tmName(cloudUserId()):'você'; }
+function aeMe(){ return (typeof personName==='function'&&typeof cloudUserId==='function'&&cloudUserId())?personName(cloudUserId(),{ noYou:true, settled:true }):'você'; } // vai gravado (quem decidiu): o nome de verdade
 
 // ---- aplicador da fila (.cardume/agent-edits) ----
 // desfecho: applied | proposed | cloud-only | unchanged | duplicate | refused | gone; { wait } = fica na fila (sem permissão)

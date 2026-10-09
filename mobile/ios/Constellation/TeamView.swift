@@ -162,7 +162,10 @@ struct TeamView: View {
     }
 
     private func name(_ uid: String) -> String {
-        profiles[uid]?.name ?? profiles[uid]?.email?.components(separatedBy: "@").first ?? String(uid.prefix(6))
+        // mesma regra do app (08-pessoas): nome → parte do e-mail → "pessoa sem nome" — nunca o id
+        if let n = profiles[uid]?.name?.trimmingCharacters(in: .whitespaces), !n.isEmpty { return n }
+        if let l = profiles[uid]?.email?.components(separatedBy: "@").first, !l.isEmpty { return l }
+        return "pessoa sem nome"
     }
     private func isOnline(_ uid: String) -> Bool {
         guard let seen = profiles[uid]?.lastSeenAt else { return false }

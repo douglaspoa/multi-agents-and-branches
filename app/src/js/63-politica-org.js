@@ -364,7 +364,7 @@ function orgTeamLearnHtml(a){
   if(ORGL.rows==null) return `<section class="agf-sec"><h3 class="agf-h3">Do time</h3><p class="dim">lendo o que o time compartilhou…</p></section>`;
   const p=ORGP.pol||orgAgentPolicy({}), me=orgMe(), role=(typeof cloudData!=='undefined'&&cloudData)?cloudData.meRole:'';
   const pend=ORGL.rows.filter(r=>r.status==='pendente'), ok=ORGL.rows.filter(r=>r.status==='aprovado'), no=ORGL.rows.filter(r=>r.status==='recusado');
-  const by=r=>r.shared_by===me?'você':(r.shared_by_name||'alguém do time');
+  const by=r=>personName(r.shared_by,{ hint:r.shared_by_name }); // fonte única (08): "você", nome, ou o nome gravado no compartilhamento
   const li=r=>{
     let acts='';
     if(r.status==='pendente'){

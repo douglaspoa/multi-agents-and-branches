@@ -112,7 +112,7 @@ function ctNotifKind(t, me, all){
 function tmCanAssign(meRole, members, me){ return meRole==='owner' || meRole==='admin' || (members||[]).some(m=>m && m.user_id===me && m.role==='lead'); }
 // opções do seletor: Livre · Eu · (os outros do time, só pra quem pode) — nome do perfil, senão a parte do e-mail
 function tmAssignOpts(members, profiles, me, canOthers){
-  const nm=u=>{ const p=(profiles||{})[u]||{}; return String(p.name||String(p.email||'').split('@')[0]||'alguém do time'); };
+  const nm=u=>personLabel((profiles||{})[u]||null, {}); // fonte única (08-pessoas): nome → parte do e-mail → "pessoa sem nome"
   const out=[{ id:'', label:'Livre', hint:'quem pegar primeiro' }];
   if(canOthers || (members||[]).some(m=>m&&m.user_id===me)) out.push({ id:me, label:nm(me), hint:'eu' }); // admin da org fora do time também pode ficar com ela (0032)
   if(canOthers) (members||[]).filter(m=>m&&m.user_id&&m.user_id!==me).map(m=>({ id:m.user_id, label:nm(m.user_id), hint:m.role==='lead'?'líder':'' })).sort((a,b)=>a.label.localeCompare(b.label,'pt-BR')).forEach(o=>out.push(o));
@@ -816,21 +816,6 @@ async function teamFetchRun(){
     teamTasks=tasks; teamFetchedAt=Date.now();
   } finally { teamFetching=false; }
 }
-// nome de quem criou/assumiu: os perfis só vinham no fetch da aba Time — a Central (fila dos épicos etc.)
-// mostrava o ID. Perfil que falta é buscado sob demanda, em lote, e a tela é redesenhada quando chega.
-const tmPending=new Set(), tmTried=new Set(); let tmTimer=null;
-function tmFetchMissing(){
-  tmTimer=null; const ids=[...tmPending].filter(u=>!teamProfiles[u]); tmPending.clear();
-  if(!ids.length || !(typeof SB!=='undefined' && SB.sess())) return;
-  ids.forEach(u=>tmTried.add(u));
-  sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+ids.map(u=>'"'+u+'"').join(',')+')').then(rows=>{
-    let got=0; (rows||[]).forEach(p=>{ teamProfiles[p.user_id]=p; got++; });
-    if(got){ try{ lastSig=''; if(typeof renderFlow==='function') renderFlow(); if(typeof render==='function') render(); }catch(_){ } }
-  }).catch(e=>tickErr('tmFetchMissing', e));
-}
-function tmName(uid){
-  const p=teamProfiles[uid]; if(p) return p.name||p.email;
-  if(!uid) return '—';
-  if(!tmTried.has(uid)){ tmPending.add(uid); if(!tmTimer) tmTimer=setTimeout(tmFetchMissing, 250); }
-  return 'alguém do time';
-}
+// nome de quem criou/assumiu: fonte única em 08-pessoas (personName) — "você", nome, parte do e-mail ou
+// "pessoa sem nome"; nunca o id nem "alguém do time". O perfil que falta vem em lote (personFetchMissing).
+function tmName(uid){ return personName(uid); }

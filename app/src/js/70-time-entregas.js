@@ -172,7 +172,7 @@ function entItemHtml(t){
   if(rq) ent.push(`<span class="en-chip en-rq${rq.ok===rq.tot?' ok':''}" title="requisitos provados">${icEm(IC.check)} ${rq.ok} de ${rq.tot} requisitos</span>`);
   const a=(teamActivity||[]).find(x=>x.task_id===t.id);
   // o verbo do feed sem o complemento ("mudou o status de" → "mudou o status"): a linha já é a tarefa
-  const atv=a?`<span class="en-agov">${esc(tmName(a.user_id).split(' ')[0])} ${esc(String(tsK(a.kind)).replace(/ (de|em)$/,''))}</span><span>${esc(agoTx(a.at))}</span>`:`<span>${esc(agoTx(t.updated_at))}</span>`;
+  const atv=a?`<span class="en-agov">${esc(personShort(a.user_id))} ${esc(String(tsK(a.kind)).replace(/ (de|em)$/,''))}</span><span>${esc(agoTx(a.at))}</span>`:`<span>${esc(agoTx(t.updated_at))}</span>`;
   return `<div class="en-item${trav?' trav':''}${done?' done':''}" role="listitem">
     <div class="en-main"><button type="button" class="en-title" data-entct="${escA(t.id)}" title="abrir a tarefa">${esc(t.title||'tarefa')}</button>
       ${trav?`<div class="en-why" style="color:${stColor(st)}" title="${escA(String(t.last_note||label))}">${icEm(IC.warn)} <span class="en-tx"><b>Travada:</b> ${esc(entMotivo(t, label))}</span></div>`:''}</div>
@@ -197,7 +197,7 @@ function entregasHtml(ctx){
   const epA=eps.filter(e=>ENT_FN.ativo(e, all.filter(t=>t.epic_id===e.id))), epD=eps.filter(e=>!epA.includes(e));
   const opt=(v,l,sel)=>`<option value="${escA(v)}"${sel?' selected':''}>${esc(l)}</option>`;
   const bar=`<div class="tssub en-bar">
-    <select class="sel" id="enWho" aria-label="filtrar por pessoa" style="width:150px">${opt('','todas as pessoas',!f.who)}${members.map(u=>opt(u, tmName(u), f.who===u)).join('')}${opt('-','sem dono',f.who==='-')}</select>
+    <select class="sel" id="enWho" aria-label="filtrar por pessoa" style="width:150px">${opt('','todas as pessoas',!f.who)}${members.map(u=>opt(u, personName(u,{ you:'suffix' }), f.who===u)).join('')}${opt('-','sem dono',f.who==='-')}</select>
     <select class="sel" id="enEpic" aria-label="filtrar por épico" style="width:190px">${opt('','todos os épicos',!f.epic)}${epA.length?`<optgroup label="ativos">${epA.map(e=>opt(e.id, e.name, f.epic===e.id)).join('')}</optgroup>`:''}${epD.length?`<optgroup label="concluídos">${epD.map(e=>opt(e.id, e.name, f.epic===e.id)).join('')}</optgroup>`:''}${opt('-','sem épico',f.epic==='-')}</select>
     <button type="button" class="fchip${f.trav?' on':''}" data-entf="trav" aria-pressed="${f.trav}">só travadas <span class="n">${nTrav}</span></button>
     <button type="button" class="fchip${f.pront?' on':''}" data-entf="pront" aria-pressed="${f.pront}">só prontas pra revisar <span class="n">${nPront}</span></button>
