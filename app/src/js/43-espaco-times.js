@@ -98,7 +98,8 @@ function tsCardHtml(t, me, isAdmin){
   // projeto que não existe nesta máquina (nenhum projeto local com esse remote): aparece no Time, marcado, sem ▶
   const here=((typeof localRemoteList!=='undefined'&&localRemoteList)||[]).concat(teamRepoIds?[teamRepoIds]:[]);
   const isLocal=sameRepo||ctProjLocal(proj, here);
-  const canClaim=t.status==='backlog' && (t.claim_mode==='open'||t.created_by===me);
+  // cartão de colega não se toma (0032): assumir só livre ou já meu
+  const canClaim=t.status==='backlog' && (t.claim_mode==='open'||t.created_by===me) && (!t.assignee||t.assignee===me);
   const whoTx=ctWhoLabel(t, me, tmName); // "criada por Fulano" — o que é todo meu não ganha nada
   const ep=t.epic_id?(teamEpics.find(e=>e.id===t.epic_id)||{}).name:'';
   const rp=t.requirements_proof; const list=rp&&(Array.isArray(rp.list)?rp.list:(Array.isArray(rp)?rp:null));
@@ -351,6 +352,7 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     if(ct.epic_id && window.epicAttachRef) await epicAttachRef(payload, ct.epic_id, ct); // EPIC.md compilado vai como referência
     const localId=await invoke('new_task', await trkBeforeNewTask(payload));
     tmapSet(localId, ct.id);
+    if(+((ct.spec||{}).budgetUsd)>0) invoke('patch_task_spec',{ taskId:String(localId), patch:{ budgetUsd:+ct.spec.budgetUsd } }).catch(e=>console.error('teto do cartão', e)); // teto escolhido por quem mandou pro time
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
     if(ct.epic_id && window.epicMarkInProgress) epicMarkInProgress(ct.epic_id); // 1ª tarefa rodando → épico em andamento
     sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
@@ -448,6 +450,7 @@ async function ntShareSync(){
   if(typeof wizShareApply==='function') wizShareApply(null); else r.style.display=on?'block':'none';
   if(!on) return;
   try{ if(!teamEpics.length) teamEpics=await sbGet('epics?select=id,name,status,spec,created_by,created_at,updated_at&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at').catch(()=>sbGet('epics?select=id,name,status&team_id=eq.'+cloudTeamId()+'&status=neq.archived&order=created_at')); }catch(_){ }
+  ntShareDefault(); ntWhoPaint();
   const sel=$id('ntEpic'); if(!sel) return;
   const cur=sel.value;
   sel.innerHTML='<option value="">— sem épico —</option>'
@@ -463,6 +466,16 @@ async function ntShareSync(){
     catch(e){ showErr(e, 'Falhou'); }
   };
 }
+// "Ao criar" (mesa 09/10, T1): o padrão segue a última escolha (tmDest) — mandar pro time quando há time
+let ntWho='', ntShareTouched=false;
+function ntShareIsTeam(){ const r=$id('ntShareRow'), s=$id('ntShare'); return !!(r && r.dataset.cloud==='1' && s && s.value==='team'); }
+function ntShareDefault(){ const s=$id('ntShare'); if(!s || ntShareTouched) return; const sv=lsGet('nd:share'); s.value=tmDest()==='run'?(sv==='local'?'local':'self'):'team';
+  if(!s.__wired){ s.__wired=1; s.addEventListener('change',()=>{ ntShareTouched=true; tmDestSet(s.value==='team'?'team':'run'); lsSet('nd:share', s.value); ntWhoPaint(); ntCreateLabel(); }); } ntCreateLabel(); }
+function ntWhoPaint(){ const row=$id('ntWhoRow'), slot=$id('ntWhoSlot'); if(!row||!slot) return; const on=ntShareIsTeam(); row.style.display=on?'flex':'none'; if(!on) return;
+  slot.innerHTML=tmWhoBtnHtml(ntWho,'id="ntWhoBtn"'); const b=$id('ntWhoBtn'); if(b) b.onclick=()=>tmWhoPick(b, ntWho, uid=>{ ntWho=uid||''; ntWhoPaint(); }); }
+// o botão de criar diz o que vai acontecer (fora do wizard: #ntCreate; no wizard, a última etapa relê ao pintar)
+function ntCreateLabel(){ const c=$id('ntCreate'); if(c && !c.disabled){ const svg=c.querySelector('svg'); c.textContent=ntShareIsTeam()?'Mandar pro time':'Iniciar execução'; if(svg) c.prepend(svg); }
+  const w=$id('wizNext'); if(w && /Iniciar execução|Mandar pro time/.test(w.textContent)) w.textContent=ntShareIsTeam()?'Mandar pro time':'Iniciar execução'; }
 function ntEpicVal(){ const s=$id('ntEpic'); const v=s?s.value:''; return (v&&v!=='__new__')?v:null; }
 $id('newTaskBtn').addEventListener('click', ()=>{ ntShareSync(); });
 

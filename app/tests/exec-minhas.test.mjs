@@ -107,10 +107,10 @@ test('lista de projetos locais ainda não chegou: o projeto aberto conta como lo
   assert.deepEqual(Q.epQueueMine().map((r) => r.id), ['a', 'b', 'e'], 'com o projeto api clonado aqui, a minha volta');
 });
 
-test('início automático do épico só pega cartão MEU', () => {
+test('início automático do épico só pega cartão no MEU nome (sem dono nunca — mesa 09/10, T5)', () => {
   const auto = /const ready=rows\.filter\(t=>([^;]+)\);/.exec(ep);
   assert.ok(auto, 'filtro do início automático não encontrado');
-  assert.match(auto[1], /ctMineFor\(t, me\)/);
+  assert.match(auto[1], /ctAutoMine\(t, me\)/);
   assert.doesNotMatch(auto[1], /created_by===/);
 });
 

@@ -86,7 +86,8 @@ test('cartão da nuvem: armado sem `after` também começa sozinho; "na espera d
   assert.equal(CW.ctArmed(c({ autoStart: true }, 'running')), false);
   assert.equal(CW.ctArmed(c({ wave: 2 })), false);
   // o tick: armado sem after espera a onda anterior inteira; com after vale só o after
-  assert.match(ep, /const ready=rows\.filter\(t=>ctArmed\(t\) && ctMineFor\(t, me\) && !epStartBusy\.has\(t\.epic_id\) && !epDepsLeft\(t\)\.length && \(\(\(t\.spec\|\|\{\}\)\.after\|\|\[\]\)\.length \|\| !epWaveLeft\(t\.epic_id, epqWave\(t\)\)\)\);/);
+  assert.match(ep, /const due=t=>ctArmed\(t\) && !epStartBusy\.has\(t\.epic_id\) && !epDepsLeft\(t\)\.length && \(\(\(t\.spec\|\|\{\}\)\.after\|\|\[\]\)\.length \|\| !epWaveLeft\(t\.epic_id, epqWave\(t\)\)\);/);
+  assert.match(ep, /const ready=rows\.filter\(t=>due\(t\) && ctAutoMine\(t, me\)\);/, 'só cartão no MEU nome (mesa 09/10, T5)');
   assert.match(ep, /if\(cloudEpicId\(eid\) && SB\.sess\(\) && !\(epQueue\.sibsOk&&epQueue\.sibsOk\.has\(eid\)\)\) return 1;/, 'irmãs da nuvem não lidas: espera, nunca começa antes');
   assert.match(ep, /async function epicAutoStartTick\(\)\{\n  epAutoLocalTick\(\);/, 'rascunho local armado roda mesmo sem nuvem');
 });
@@ -99,7 +100,7 @@ test('o botão aparece no cabeçalho do épico na Central (fila e "em andamento"
   assert.match(ep, /R\.querySelectorAll\('\[data-epstart\]'\)\.forEach\(b=>b\.onclick=\(e\)=>\{ e\.stopPropagation\(\); epicStart\(b\.dataset\.epstart, b\); \}\);/);
   assert.match(ep, /\[data-epqopen\],\[data-epqt\],\[data-epstart\],\[data-eppause\]/, 'clicar no botão não recolhe o épico');
   const run = cut(ep, 'async function epicStart(', '\nasync function epicPause(');
-  assert.match(run, /if\(!await askYes\(q\.text, q\.title\)\) return;/);
+  assert.match(run, /if\(!await askYes\(q\.text\+[^\n]*q\.title\)\) return;/);
   assert.ok(!/window\.confirm|[^.]confirm\(/.test(run), 'nunca window.confirm');
   assert.match(run, /await startTask\(x\.id\)/, 'rascunho local: o mesmo startTask do botão "Iniciar"');
   assert.match(run, /await teamClaimStart\(x\.ct, null, \{ silent:true \}\)/, 'cartão da nuvem: o mesmo teamClaimStart');

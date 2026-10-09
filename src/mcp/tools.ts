@@ -178,6 +178,8 @@ export const TOOLS = [
         outcome: { type: "string", description: "1 frase: pra quem, o que muda e o sinal de que funcionou (opcional)." },
         done_when: { type: "array", items: { type: "string" }, description: "'Pronto quando' — checagens que uma PESSOA roda (viram D1, D2…). Opcional." },
         task_ids: { type: "array", items: { type: "string" }, description: "Tarefas EXISTENTES a vincular (id local, id do cartão ou título). Opcional." },
+        cards: { type: "array", items: { type: "string" }, description: "Títulos de cartões NOVOS que já nascem no épico, na fila do time, SEM rodar (mandar pro time). Opcional." },
+        assignee: { type: "string", description: "E-mail ou nome de quem do time fica com os cartões novos (só líder/admin põe outra pessoa). Vazio = livres. Opcional." },
       },
       required: ["title"],
     },
@@ -534,7 +536,7 @@ export async function callTool(ctx: ToolCtx, name: string, args: any): Promise<T
       const r = await epicRequestFlow({
         store, cardumeDir: dirname(DB), by,
         kind: name === "create_epic" ? "create" : name === "link_tasks_to_epic" ? "link" : "unlink",
-        epic: name === "create_epic" ? { title: String(args?.title ?? ""), description: str(args?.description), outcome: str(args?.outcome), doneWhen: arr(args?.done_when) } : undefined,
+        epic: name === "create_epic" ? { title: String(args?.title ?? ""), description: str(args?.description), outcome: str(args?.outcome), doneWhen: arr(args?.done_when), cards: arr(args?.cards), assignee: str(args?.assignee) } : undefined,
         epicRef: str(args?.epic), taskRefs: arr(args?.task_ids),
         waitMs: process.env.CARDUME_EPIC_WAIT_MS !== undefined ? Number(process.env.CARDUME_EPIC_WAIT_MS) || 0 : undefined,
       });

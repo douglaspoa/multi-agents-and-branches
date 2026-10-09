@@ -318,12 +318,13 @@
       </div>
       </div>
       <div id="ntShareRow" style="display:none">
-        <div class="seclbl2" style="margin-top:15px">Time</div>
+        <div class="seclbl2" style="margin-top:15px">Ao criar</div>
         <select class="sel" id="ntShare" style="width:100%">
-          <option value="self" selected>Realizar eu mesmo — sincroniza o cartão no time (reservada pra você)</option>
-          <option value="team">Compartilhar tarefa com o time — vai pro backlog; qualquer membro assume &amp; inicia</option>
-          <option value="local">Não compartilhar — só nesta máquina</option>
+          <option value="team" selected>Mandar pro time — vai pra fila do quadro do time; ninguém roda agora</option>
+          <option value="self">Rodar agora — roda nesta máquina e o cartão sobe no seu nome</option>
+          <option value="local">Rodar agora, só nesta máquina — não aparece no time</option>
         </select>
+        <div id="ntWhoRow" class="g2row" style="margin-top:9px;display:none"><span class="g2help">responsável</span><span id="ntWhoSlot"></span></div>
         <label style="margin-top:12px">Épico <span class="dim" style="text-transform:none;letter-spacing:0">(agrupa a tarefa no time)</span></label>
         <select class="sel" id="ntEpic" style="width:100%"><option value="">— sem épico —</option></select>
         <div class="aihint dim" style="margin-top:7px">O time vê só o cartão (spec, status, custo, provas) — o stream do agente fica na sua máquina.</div>
