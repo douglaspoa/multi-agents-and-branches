@@ -196,21 +196,41 @@ function caIssue(t){
   if(!h) return '<span class="ca-dim">—</span>';
   return h.replace(/data-lk=/g,'data-calk=').replace(/data-act="issue"/g,`data-caact="issue" data-ct="${escA(t.id)}"`);
 }
+// cabeçalho ORDENÁVEL (08-periodo: sortGet/sortToggle — padrão = modificação mais recente; a coluna clicada vale só com
+// a Central aberta). screen = 'central:tarefas' | 'central:epicos'
+function caTh(screen, col, label, cls){
+  const s=sortGet(screen), on=s.col===col, ar=on?(s.dir==='asc'?'ascending':'descending'):'none';
+  return `<th scope="col" class="${cls}" aria-sort="${ar}"><button type="button" class="ca-sort${on?' on':''}${on&&s.dir==='asc'?' asc':''}" data-casort="${escA(screen+'|'+col)}" title="${escA(col==='mod'?'ordenar pela modificação mais recente':'ordenar por '+label.toLowerCase())}">${esc(label)}<span class="ca-sar" aria-hidden="true">${(typeof IC!=='undefined'&&IC.chevD)||''}</span></button></th>`;
+}
+// "atualizado há X" embaixo da situação/andamento: só aparece quando a coluna Atualizado some (tela estreita — CSS 99-gestao)
+function caModSub(md){ return md?`<span class="ca-mod">atualizado ${esc(modAgoTx(md))}</span>`:''; }
+// valor de cada coluna pra ordenar (texto em pt-BR, número quando é número)
+function caSortVal(t, col){
+  switch(col){
+    case 'dem': return String(t.title||'').toLowerCase();
+    case 'com': return t.assignee?personName(t.assignee,{ noYou:true }).toLowerCase():'\uffff'; // livre por último no A→Z
+    case 'st': return entFlag(t, CA_FN)==='blocked'?stLabel('blocked'):ctStLabel(t);
+    case 'req': { const r=entReqs(t); return r?r.ok/r.tot:-1; }
+    default: return caModOf(t);
+  }
+}
 // tabela de tarefas (um grupo). o = { cost, sub:'epic' (mostra o épico embaixo do título), team (mostra o time) }
 function caTableHtml(list, o){
   o=o||{};
   if(!list.length) return `<div class="ca-none">nada aqui com esse filtro</div>`;
+  const SC='central:tarefas';
+  list=sortRows(list, caModOf, sortGet(SC), caSortVal);
   const rq=t=>{ const r=entReqs(t); return r?`<span class="ca-num${r.ok===r.tot?' ok':''}">${r.ok}/${r.tot}</span>`:'<span class="ca-dim">—</span>'; };
   const sub=t=>{ const bits=[caProjBadge(t.project_id)];
     if(o.sub==='epic' && t.epic_id){ const e=((typeof teamEpics!=='undefined'&&teamEpics)||[]).find(x=>x.id===t.epic_id); if(e) bits.push(`<span class="ca-epn">${(typeof IC!=='undefined'&&IC.epic)||''}${esc(e.name)}</span>`); }
     if(o.team) bits.push(`<span class="ca-dim">${esc(tsTeamName(t.team_id))}</span>`);
-    if(entTravada(t, CA_FN)){ const m=entMotivo(t, ''); if(m) bits.push(`<span class="ca-why">${esc(m)}</span>`); }
+    { const m=entTravaTx(t); if(m) bits.push(`<span class="ca-why" title="${escA('travada: '+m)}">${(typeof IC!=='undefined'&&IC.warn)||''}<span>${esc(m)}</span></span>`); } // motivo da trava (70, fonte única)
     return bits.join('<span class="ca-sep" aria-hidden="true">·</span>'); };
-  return `<table class="ca-tbl"><thead><tr><th scope="col" class="c-dem">Demanda</th><th scope="col" class="c-com">Com</th><th scope="col" class="c-st">Situação</th><th scope="col" class="c-req">Requisitos</th><th scope="col" class="c-iss">Issue</th>${o.cost?'<th scope="col" class="c-cus">Custo</th>':''}<th scope="col" class="c-atv">Atividade</th><th scope="col" class="c-act"><span class="sr-only">ações</span></th></tr></thead><tbody>`+
+  return `<table class="ca-tbl"><thead><tr>${caTh(SC,'dem','Demanda','c-dem')}${caTh(SC,'com','Com','c-com')}${caTh(SC,'st','Situação','c-st')}${caTh(SC,'req','Requisitos','c-req')}<th scope="col" class="c-iss">Issue</th>${o.cost?'<th scope="col" class="c-cus">Custo</th>':''}${caTh(SC,'mod','Atualizado','c-atv')}<th scope="col" class="c-act"><span class="sr-only">ações</span></th></tr></thead><tbody>`+
     list.map(t=>`<tr data-carow="${escA(t.id)}"${entTravada(t, CA_FN)?' class="trav"':''}><td class="c-dem"><button type="button" class="ca-title" data-caopen="${escA(t.id)}" title="${escA('abrir “'+(t.title||'')+'”')}">${esc(t.title||'tarefa')}</button><div class="ca-sub">${sub(t)}</div></td>`+
-      `<td class="c-com">${caWho(t)}</td><td class="c-st">${caSt(t)}</td><td class="c-req">${rq(t)}</td><td class="c-iss">${caIssue(t)}</td>`+
+      `<td class="c-com">${caWho(t)}</td><td class="c-st">${caSt(t)}${caModSub(caModOf(t))}</td><td class="c-req">${rq(t)}</td><td class="c-iss">${caIssue(t)}</td>`+
       (o.cost?`<td class="c-cus">${+t.cost_usd>0?esc(fmtUsd(+t.cost_usd)):'<span class="ca-dim">—</span>'}</td>`:'')+
-      `<td class="c-atv">${esc(agoTx(t.updated_at))}</td><td class="c-act">${caBtns(t)}</td></tr>`).join('')+`</tbody></table>`;
+      `<td class="c-atv">${(()=>{ const md=caModOf(t); return md?`<time datetime="${escA(new Date(md).toISOString())}" title="${escA(new Date(md).toLocaleString('pt-BR'))}">${esc(modAgoTx(md))}</time>`:'<span class="ca-dim">—</span>'; })()}</td><td class="c-act">${caBtns(t)}</td></tr>`).join('')+`</tbody></table>`;
 }
 function caAvs(uids, livre){
   const v=uids.slice(0,5);
@@ -225,7 +245,10 @@ function caTarefasHtml(scope){
   if(!all.length) return emptyHtml({ icon:'kanban', title:'O time ainda não tem tarefas', help:'Quando alguém mandar uma demanda pro time, ela aparece aqui com quem está com ela.', action:{ id:'caNova', label:'Nova demanda' } });
   if(!vis.length) return emptyHtml({ icon:'search', title:'Nada aqui com esse filtro', help:'Nenhuma tarefa do alcance bate com o filtro, o projeto ou a pessoa escolhida.', action:{ id:'caClear', label:'limpar filtros', primary:false } });
   const cost=entPodeVerCusto(), org=scope==='org';
-  return entAgrupa(all, vis, caEpics(scope), CA_FN).map(g=>{
+  // grupos também pela modificação: o épico com a tarefa mexida por último sobe (ativos antes dos concluídos)
+  const gs=entAgrupa(all, vis, caEpics(scope), CA_FN).map(g=>({ g, md:modTs(g.itens.map(caModOf)) }))
+    .sort((a,b)=>(b.g.ativo-a.g.ativo) || (b.md-a.md)).map(x=>x.g);
+  return gs.map(g=>{
     const k=g.id, open=CA.open[k]!=null?CA.open[k]:(lsGet(userKey('ca:ep:'+k, caMe()))!=null?lsGet(userKey('ca:ep:'+k, caMe()))==='1':g.ativo);
     const projs=[...new Set(g.tasks.concat(g.itens).map(t=>t.project_id).filter(Boolean))];
     const head=g.ep
@@ -240,13 +263,20 @@ function caEpicosHtml(scope){
   if(scope==='minhas') scope='time'; // os épicos são do time (Minhas não tem épico "meu")
   const eps=caEpics(scope), all=caTasks(scope), org=scope==='org';
   if(!eps.length) return emptyHtml({ icon:'epic', title:'Nenhum épico ainda', help:'Um épico junta várias tarefas de uma entrega maior. Crie um pela Nova demanda ou pelo Time.' });
-  const fn=CA_FN, rows=eps.map(e=>({ e, ts:all.filter(t=>t.epic_id===e.id) })).map(x=>({ ...x, n:caEpicoLinha(x.e, x.ts, fn), ativo:fn.ativo(x.e, x.ts) }))
-    .sort((a,b)=>(b.ativo-a.ativo) || String(a.e.created_at||'').localeCompare(String(b.e.created_at||'')));
-  return `<table class="ca-tbl ca-eps"><thead><tr><th scope="col" class="c-dem">Épico</th><th scope="col" class="c-pj">Projeto · time</th><th scope="col" class="c-and">Andamento</th><th scope="col" class="c-ppl">Pessoas</th><th scope="col" class="c-n">Pra revisar</th><th scope="col" class="c-n">Travadas</th><th scope="col" class="c-n c-liv">Livres</th><th scope="col" class="c-act"><span class="sr-only">abrir</span></th></tr></thead><tbody>`+
-    rows.map(({ e, n, ativo })=>`<tr${ativo?'':' class="fechado"'}><td class="c-dem"><button type="button" class="ca-title" data-caep="${escA(e.id)}"><span class="ca-epic" style="color:${epColor(e.id)}">${IC.epic}</span>${esc(e.name||'Épico')}</button>${ativo?'':'<div class="ca-sub"><span class="ca-dim">concluído</span></div>'}</td>`+
+  const fn=CA_FN, SC='central:epicos';
+  const base=eps.map(e=>({ e, ts:all.filter(t=>t.epic_id===e.id) })).map(x=>({ ...x, n:caEpicoLinha(x.e, x.ts, fn), ativo:fn.ativo(x.e, x.ts), md:caEpModOf(x.e, x.ts) }));
+  // ordem: modificação mais recente (o épico ou a tarefa dele mexida por último); coluna clicada vale com a tela aberta
+  const val=(r, c)=>c==='dem'?String(r.e.name||'').toLowerCase():c==='and'?(r.n.tot?r.n.ent/r.n.tot:-1):c==='rev'?r.n.prontas:c==='trv'?r.n.travadas:c==='liv'?r.n.livres:r.md;
+  const rows=sortRows(base, r=>r.md, sortGet(SC), val);
+  // a 1ª travada do épico com o motivo (fonte única 70) — o gestor vê O QUE trava sem abrir
+  const trv=ts=>{ const t=sortRows(ts.filter(x=>entTravada(x, fn)), caModOf)[0]; if(!t) return ''; const m=entTravaTx(t);
+    return `<span class="ca-why" title="${escA('“'+(t.title||'')+'” — '+m)}">${(typeof IC!=='undefined'&&IC.warn)||''}<span>${esc(mdTitle(t.title||'tarefa'))}: ${esc(m)}</span></span>`; };
+  return `<table class="ca-tbl ca-eps"><thead><tr>${caTh(SC,'dem','Épico','c-dem')}<th scope="col" class="c-pj">Projeto · time</th>${caTh(SC,'and','Andamento','c-and')}<th scope="col" class="c-ppl">Pessoas</th>${caTh(SC,'rev','Pra revisar','c-n')}${caTh(SC,'trv','Travadas','c-n')}${caTh(SC,'liv','Livres','c-n c-liv')}${caTh(SC,'mod','Atualizado','c-atv')}<th scope="col" class="c-act"><span class="sr-only">abrir</span></th></tr></thead><tbody>`+
+    rows.map(({ e, n, ativo, ts, md })=>`<tr${ativo?'':' class="fechado"'}><td class="c-dem"><button type="button" class="ca-title" data-caep="${escA(e.id)}"><span class="ca-epic" style="color:${epColor(e.id)}">${IC.epic}</span>${esc(e.name||'Épico')}</button>${(()=>{ const b=[]; if(!ativo) b.push('<span class="ca-dim">concluído</span>'); const w=trv(ts); if(w) b.push(w); return b.length?`<div class="ca-sub">${b.join('<span class="ca-sep" aria-hidden="true">·</span>')}</div>`:''; })()}</td>`+
       `<td class="c-pj">${n.projetos.length?n.projetos.map(caProjBadge).join(''):'<span class="ca-dim">sem tarefa</span>'}<div class="ca-sub"><span class="ca-dim">time ${esc(tsTeamName(e.team_id)||'')}</span></div></td>`+
-      `<td class="c-and"><span class="ca-num"><b>${n.ent}</b>/${n.tot}</span>${caBar(n.ent, n.tot)}</td><td class="c-ppl">${caAvs(n.pessoas, false)}</td>`+
+      `<td class="c-and"><span class="ca-num"><b>${n.ent}</b>/${n.tot}</span>${caBar(n.ent, n.tot)}${caModSub(md)}</td><td class="c-ppl">${caAvs(n.pessoas, false)}</td>`+
       `<td class="c-n"><span class="ca-num"${n.prontas?` style="color:${stColor('review')}"`:''}>${n.prontas}</span></td><td class="c-n"><span class="ca-num${n.travadas?' crit':''}">${n.travadas}</span></td><td class="c-n c-liv"><span class="ca-num">${n.livres}</span></td>`+
+      `<td class="c-atv">${md?`<time datetime="${escA(new Date(md).toISOString())}" title="${escA(new Date(md).toLocaleString('pt-BR'))}">${esc(modAgoTx(md))}</time>`:'<span class="ca-dim">—</span>'}</td>`+
       `<td class="c-act"><button type="button" class="btn sm" data-caep="${escA(e.id)}">abrir</button></td></tr>`).join('')+
     `</tbody></table><p class="ca-foot">${org?'Épicos de todos os times da organização.':'Épicos do time '+esc(tsTeamName(cloudTeamId())||'')+'.'+(caIsAdmin(caRole())?' “Org toda” mostra os outros times.':'')}</p>`;
 }
@@ -384,6 +414,8 @@ async function caAct(act, ct, b){
 }
 document.addEventListener('click', e=>{
   const t=e.target; if(!t.closest || !t.closest('.ca-wrap,.ca-sec')) return;
+  const so=t.closest('[data-casort]'); if(so){ const k=String(so.dataset.casort), [sc, col]=k.split('|'), q=`[data-casort="${CSS.escape(k)}"]`, i=[...document.querySelectorAll(q)].indexOf(so);
+    sortToggle(sc, col); caRerender(); const b=document.querySelectorAll(q)[Math.max(0, i)]; if(b) b.focus(); return; } // o foco fica no MESMO cabeçalho (teclado)
   const a=t.closest('[data-caact]'); if(a){ if(a.disabled) return; if(a.dataset.caact==='retry'){ caAct('retry'); return; } const ct=caTaskById(a.dataset.ct); if(ct) caAct(a.dataset.caact, ct, a).catch(err=>showErr(err, 'Não deu')); return; }
   const m=t.closest('[data-camenu]'); if(m){ const ct=caTaskById(m.dataset.camenu); if(!ct) return; const l=caLocalOf(ct); if(l) openTaskMenu(l.id, m); else if(typeof epqMenu==='function') epqMenu(ct, m); return; }
   const o=t.closest('[data-caopen]'); if(o){ const ct=caTaskById(o.dataset.caopen); if(ct) caOpen(ct); return; }

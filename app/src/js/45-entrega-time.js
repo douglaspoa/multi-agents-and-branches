@@ -87,6 +87,7 @@ function ctPageRender(){
       <div class="en-ht">
         ${sp.objective?`<div class="en-obj mdlite">${mdToHtml(sp.objective)}</div>`:''}
         <div class="ctp-who">${ct.assignee?tsAv(ct.assignee, tsOnline(ct.assignee)):'<span class="tsav tmfree" aria-hidden="true">·</span>'}<span>${ct.assignee?'com <b>'+esc(ct.assignee===me?'você':tmName(ct.assignee))+'</b> · ':'<b>sem dono</b> · '}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span><span class="ctp-acts">${ctpActsHtml(ct, me)}</span>${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button><button class="btn sm ghost" id="ctpCancel" title="remover do backlog do time">✕ cancelar</button>`:''}</div>
+        ${(()=>{ const why=typeof entTravaTx==='function'?entTravaTx(ct):''; return why?`<div class="gt-why ctp-why" role="status">${icEm(IC.warn)}<span><b>Travada:</b> ${esc(why)}</span></div>`:''; })()}
       </div>
       <div class="en-kpis">
         ${prN?`<button class="en-kpi" data-lk="${escA(ct.pr_url)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}

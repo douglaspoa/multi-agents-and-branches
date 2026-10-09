@@ -129,7 +129,9 @@ function ctTableHtml(rows, o){
 // ---------------------------------------------------------------- estado + dados da linha
 // rows: id → dados da última pintura (abrir/ordenar mexem NO LUGAR, sem refazer a Central); last: o que a Central
 // pintou da última vez (pra devolver o HTML equivalente ao flowLastHtml e o próximo render não reconstruir à toa)
-const CT={ open:new Set(), rows:new Map(), last:null, clickT:0, sort:(()=>{ try{ const v=JSON.parse(lsGet('ctSort')||'null'); if(v && CT_SORTABLE.has(v.key)) return v; }catch(_){ } return { key:'upd', dir:'desc' }; })() };
+// ordem: SEMPRE pela modificação ao abrir (pedido do dono, 09/10); a coluna clicada vale só enquanto a Central está aberta
+// (não é gravada — 72: sortOnScreenOpen volta pra 'upd' quando a pessoa volta pra Central)
+const CT={ open:new Set(), rows:new Map(), last:null, clickT:0, sort:{ key:'upd', dir:'desc' } };
 const CT_NEEDS_ST=new Set(typeof AGUARDA_ST!=='undefined'?AGUARDA_ST:['plan-review','needs-you','error','conflict','aborted']); // a MESMA lista do "aguardando você" (00-util) — antes faltava 'aborted'
 function ctRow(t){
   // rascunho armado pelo "Iniciar épico" (46: epAutoLocalHas) = na espera — começa sozinho; "Iniciar" continua pra começar já
@@ -146,7 +148,8 @@ function ctRow(t){
   const ok=loaded?Math.max(0, nreq-(g.missing||[]).length):0;
   const path=t.repo||state.repo||''; const proj=t.proj||pathBase(path);
   const ev=(typeof lastEventOf==='function')?lastEventOf(t.id):null;
-  const ts=ev?+new Date(ev.ts):taskTs(t);
+  // modificação = o evento mais recente da tarefa (último evento, fim) — a mesma régua do "atualizado há X" (08-periodo)
+  const ts=(typeof modTs==='function')?(modTs(ev&&ev.ts, t.finishedAt, taskTs(t))||taskTs(t)):(ev?+new Date(ev.ts):taskTs(t));
   const ia=(typeof aiRunLabel==='function')?String(aiRunLabel(t.engine, '')).replace(/ · padrão da assinatura$/,''):(t.engine||'');
   const asking=pendingOf(t.id).length>0;
   return { id:t.id, title:(typeof mdTitle==='function'?mdTitle(t.title||''):(t.title||'')), // só exibição
@@ -184,7 +187,7 @@ function ctWire(el, src){
     ctSyncLast();
   };
   const sortBy=(k)=>{
-    CT.sort=ctNextSort(CT.sort, k); lsSet('ctSort', JSON.stringify(CT.sort));
+    CT.sort=ctNextSort(CT.sort, k);
     const tb=table.tBodies[0]; const groups=new Map();
     tb.querySelectorAll('tr[data-ctrow]').forEach(tr=>{ const g=[tr]; const nx=tr.nextElementSibling; if(nx && nx.classList.contains('ctexp')) g.push(nx); groups.set(tr.dataset.ctrow, g); });
     // F3: as linhas reordenam com FLIP (cada uma desliza do lugar velho pro novo; reduzir movimento = corte)

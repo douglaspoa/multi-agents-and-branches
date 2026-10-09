@@ -7,6 +7,7 @@
 .chn{display:inline-flex;align-items:center;gap:5px;min-width:0;max-width:240px;height:24px;padding:0 8px;border:1px solid var(--border);border-radius:var(--r-pill);background:var(--surface);color:var(--text);font:inherit;font-size:var(--fs-xs);line-height:1;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
 .chn:hover{border-color:var(--border-strong)}
 .chn:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
+.chn:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
 .chn i{flex:none;width:7px;height:7px;border-radius:var(--r-pill);background:var(--chc,var(--muted))}
 .chn b{font-family:var(--mono);font-weight:600}
 .chn .chn-ext{color:var(--muted)}

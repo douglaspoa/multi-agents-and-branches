@@ -469,6 +469,8 @@ async function cloudPrStatTick(){
       if(t.prUrl){
         try{ await loadPr(t.id); const i=prCache[t.id];
           if(i&&i.exists) prInfo={ number:i.number, state:i.state, decision:i.decision, body:(i.body||'').slice(0,3000),
+            // o que trava o PR (mesa 09/10, D6.2): o gestor vê "checagem do PR falhou: lint" / "conflito com a base" no cartão
+            checksFail:+i.checksFail||0, failing:(i.failingChecks||[]).slice(0,3).map(x=>String(x).slice(0,40)), mergeable:i.mergeable||null,
             comments:(i.comments||[]).filter(x=>!x.inReplyTo).slice(0,12).map(x=>({id:x.id,author:x.author,path:x.path,line:x.line,
               // o app do celular só lê "answered": manda o MESMO "resolvido" do desktop (respondido, resolvido no
               // GitHub, desatualizado ou ignorado aqui) — antes o celular mostrava em aberto o que o desktop já escondia
