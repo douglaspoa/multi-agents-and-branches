@@ -1,0 +1,48 @@
+/* "Pedir alteração" + "Chamar outro agente…" (71-revisao-alteracao.js) — painel no topo da tarefa, nunca modal */
+.fwrq{border-bottom:1px solid var(--border);background:var(--surface);max-height:min(60vh,520px);overflow:auto}
+.fwrq[hidden]{display:none}
+.rqp{max-width:880px;margin:0 auto;padding:12px 16px 14px}
+.rqp-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.rqp-sp{flex:1}
+.rqp-tabs{display:inline-flex;border:1px solid var(--border-strong);border-radius:var(--r-pill);padding:2px;gap:2px;background:var(--surface-2)}
+.rqp-tab{border:0;background:none;color:var(--muted);font:inherit;font-size:var(--fs-sm);font-weight:600;padding:5px 12px;border-radius:var(--r-pill);cursor:pointer}
+.rqp-tab.on{background:var(--surface);color:var(--text);box-shadow:0 0 0 1px var(--border-strong)}
+.rqp-tab:focus-visible,.rqp-ag:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.rqp-body{display:flex;flex-direction:column;gap:8px}
+.rqp-lead{margin:0;color:var(--muted);font-size:var(--fs-sm);line-height:1.45}
+.rqp-lbl{font-size:var(--fs-sm);font-weight:600;color:var(--text)}
+.rqp-lbl small,.rqp-reqs legend small,.rqp-team small{font-weight:400;color:var(--muted)}
+.rqp textarea{width:100%;resize:vertical;min-height:58px;font:inherit;font-size:var(--fs-base);line-height:1.45}
+.rqp-att{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rqp-hint{font-size:var(--fs-xs);color:var(--muted)}
+.rqp-att .attrow{flex-basis:100%}
+.rqp-att .attrow:empty{display:none}
+.rqp-reqs{border:1px solid var(--border);border-radius:8px;padding:6px 10px 8px;margin:0;display:flex;flex-direction:column;gap:4px;max-height:150px;overflow:auto}
+.rqp-reqs legend{font-size:var(--fs-sm);font-weight:600;padding:0 4px}
+.rqp-req,.rqp-team{display:flex;align-items:flex-start;gap:8px;font-size:var(--fs-sm);line-height:1.4;cursor:pointer}
+.rqp-req input,.rqp-team input{margin-top:2px;accent-color:var(--accent)}
+.rqp-foot{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px}
+.rqp-how{flex:1;min-width:200px;font-size:var(--fs-xs);color:var(--muted)}
+.rqp-warn{margin:0;padding:7px 10px;border-radius:8px;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--text);font-size:var(--fs-sm)}
+.rqp-ags{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px}
+.rqp-ag{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;border:1px solid var(--border);background:var(--surface-2);color:var(--text);font:inherit;padding:8px 10px;border-radius:9px;cursor:pointer}
+.rqp-ag:hover{border-color:var(--border-strong)}
+.rqp-ag.on{border-color:var(--accent-line);background:var(--accent-soft)}
+.rqp-agn{display:flex;align-items:baseline;gap:6px;font-size:var(--fs-sm)}
+.rqp-agk{font-size:var(--fs-xs);color:var(--muted)}
+.rqp-ag small{font-size:var(--fs-xs);color:var(--muted);line-height:1.35}
+/* cabeçalho: "Pedir alteração" ao lado do primário; "Chamar agente…" some no estreito (continua no ⋯) */
+.fwrqbtn{white-space:nowrap}
+@media (max-width:1100px){ .fwrqag{display:none} }
+/* Revisão: o que a etapa extra mudou */
+.rqx-list{display:flex;flex-direction:column;gap:6px;padding:8px 16px;border-bottom:1px solid var(--border);background:var(--surface)}
+.rqx{border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:8px;padding:7px 10px;background:var(--surface-2)}
+.rqx.run{border-left-color:var(--info)}
+.rqx-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:var(--fs-sm)}
+.rqx-sum{color:var(--muted);flex-basis:100%;order:9;line-height:1.4}
+.rqx-files{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:2px;font-size:var(--fs-xs)}
+.rqx-files li.out button{color:var(--crit)}
+.rqx-outtag{margin-left:6px;color:var(--crit)}
+.rqx-shots{display:flex;gap:10px;margin-top:6px}
+.rqx-shot{margin:0;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:var(--fs-xs);color:var(--muted)}
+.rqx-shot .rvshot{width:140px;height:88px}

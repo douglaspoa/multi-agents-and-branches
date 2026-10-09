@@ -376,6 +376,8 @@ export const SHELL_COMMANDS: { cmd: string; tool: string; desc: string }[] = [
   { cmd: "starfork status", tool: "task_status", desc: "requisitos × provas, entregáveis, PR e o que falta pra provado/entregue" },
   { cmd: "starfork sugerir \"<resposta 1>\" \"<resposta 2>\" […]", tool: "suggest_replies", desc: "2 a 4 respostas curtas que o humano provavelmente mandaria (viram botões no app)" },
   { cmd: "starfork etapa review|needs-you|running [--nota \"…\"]", tool: "set_status", desc: "pronta pra revisão · esperando o humano · construindo" },
+  { cmd: "starfork etapa <design|revisor|qa|seguranca|performance|docs> [\"o que olhar\"]", tool: "extra_stage", desc: "chama OUTRO agente do time como etapa extra da revisão (mesma branch); o app mostra o que ele mudou" },
+  { cmd: "starfork alteracao \"<o que mudar>\" [--req 1,3]", tool: "talk", desc: "pedido de alteração pro agente desta tarefa (mesma sessão) — o mesmo do botão \"Pedir alteração\"" },
   { cmd: "starfork skills", tool: "list_skills", desc: "skills do projeto e pessoais" },
   { cmd: "starfork skill <nome>", tool: "use_skill", desc: "imprime as instruções da skill pra você seguir" },
   { cmd: "starfork tarefa \"<título>\" [--objetivo …] [--requisito …]… [--fora-do-epico]", tool: "create_task", desc: "tarefa NOVA no projeto (rascunho — o humano inicia pelo quadro)" },

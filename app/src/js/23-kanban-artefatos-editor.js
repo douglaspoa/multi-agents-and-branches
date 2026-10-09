@@ -17,7 +17,7 @@ function kCard(t){
     : t.status==='plan-review'?'plano pronto · aprove pra continuar'
     : t.status==='conflict'?'conflito de merge — resolva'
     : (t.prUrl && t.status!=='merged' && t.flag!=='closed' && ['review','delivered','running','thinking','queued','paused'].includes(t.status))?'PR aberto · aguardando revisão/merge'
-    : ['review','delivered'].includes(t.status)?'pronta pra revisar · aprovar ou pedir ajuste'
+    : ['review','delivered'].includes(t.status)?'pronta pra revisar · aprovar ou pedir alteração'
     : t.status==='error'?'erro — veja o log'
     : t.status==='aborted'?'interrompida — descarte ou refaça'
     : t.status==='paused'?'pausada — retome quando quiser'
@@ -412,9 +412,12 @@ async function sendRework(taskId, inputEl, prefix){
   const v=(inputEl.value||'').trim(); if(!v) return;
   inputEl.disabled=true;
   try{
-    await invoke("rework_task",{ taskId, text:(prefix||'')+v });
+    // a MESMA mensagem do "Pedir alteração" (71: rqChangeText) e o MESMO caminho (1 turno na mesma sessão — antes
+    // o rework re-rodava o time inteiro por padrão; "refazer com o time" agora é opção explícita no painel)
+    const text=(typeof rqChangeText==='function')?rqChangeText({ text:(prefix||'')+v, from:'commit' }):(prefix||'')+v;
+    if(!await fwSendText(taskId, text)) return;
     inputEl.value=""; closeCommit(); lastSig=""; await refresh();
-  }catch(e){ showErr(e, 'Falha ao pedir ajuste'); }
+  }catch(e){ showErr(e, 'Falha ao pedir alteração'); }
   finally{ if(inputEl){ inputEl.disabled=false; } }
 }
 async function resolvePending(id, answer){

@@ -1,0 +1,484 @@
+{
+ "catalog": [
+  {
+   "id": "aria",
+   "name": "Aria",
+   "role": "designer",
+   "engine": "claude",
+   "persona": "Você cuida de UX/UI do catálogo."
+  },
+  {
+   "id": "nyx",
+   "name": "Nyx",
+   "role": "reviewer",
+   "engine": "codex",
+   "model": "gpt-5"
+  },
+  {
+   "id": "kai",
+   "name": "Kai",
+   "role": "security",
+   "engine": "claude",
+   "persona": "Segurança do time."
+  }
+ ],
+ "agents": [
+  [
+   [],
+   [
+    {
+     "id": "aria",
+     "name": "Aria",
+     "role": "designer",
+     "kind": "design",
+     "line": "melhora a UI/UX: hierarquia, espaçamento, estados, acessibilidade — com prints de antes e depois",
+     "persona": "Você cuida de UX/UI, hierarquia visual e acessibilidade."
+    },
+    {
+     "id": "nyx",
+     "name": "Nyx",
+     "role": "reviewer",
+     "kind": "revisor",
+     "line": "revisa de novo: correção, casos de borda e clareza — corrige o que achar",
+     "persona": "Você revisa correção, segurança, casos de borda e clareza. Aponta o que falta."
+    },
+    {
+     "id": "cobalt",
+     "name": "Cobalt",
+     "role": "tester",
+     "kind": "qa",
+     "line": "escreve e roda os testes que faltam: caminho principal e casos de borda",
+     "persona": "Você escreve e roda testes; cobre caminho principal e casos de borda."
+    },
+    {
+     "id": "sentinela",
+     "name": "Sentinela",
+     "role": "security",
+     "kind": "seguranca",
+     "line": "procura falhas de segurança (entrada, segredos, permissões) e corrige",
+     "persona": "Você revisa segurança: validação de entrada, segredos no código, permissões, injeção e dependências. Corrige o que for seguro corrigir e explica o resto."
+    },
+    {
+     "id": "pulso",
+     "name": "Pulso",
+     "role": "performance",
+     "kind": "performance",
+     "line": "acha o que deixa lento (renders, consultas, laços) e otimiza sem mudar o comportamento",
+     "persona": "Você otimiza desempenho sem mudar comportamento: mede antes, corta trabalho repetido, renders e consultas desnecessárias."
+    },
+    {
+     "id": "lumen",
+     "name": "Lumen",
+     "role": "docs",
+     "kind": "docs",
+     "line": "atualiza a documentação e o README com o que a tarefa mudou",
+     "persona": "Você escreve documentação concisa com exemplos de uso."
+    }
+   ]
+  ],
+  [
+   [
+    {
+     "id": "aria",
+     "name": "Aria",
+     "role": "designer",
+     "engine": "claude",
+     "persona": "Você cuida de UX/UI do catálogo."
+    },
+    {
+     "id": "nyx",
+     "name": "Nyx",
+     "role": "reviewer",
+     "engine": "codex",
+     "model": "gpt-5"
+    },
+    {
+     "id": "kai",
+     "name": "Kai",
+     "role": "security",
+     "engine": "claude",
+     "persona": "Segurança do time."
+    }
+   ],
+   [
+    {
+     "id": "aria",
+     "name": "Aria",
+     "role": "designer",
+     "kind": "design",
+     "line": "melhora a UI/UX: hierarquia, espaçamento, estados, acessibilidade — com prints de antes e depois",
+     "persona": "Você cuida de UX/UI do catálogo.",
+     "engine": "claude"
+    },
+    {
+     "id": "nyx",
+     "name": "Nyx",
+     "role": "reviewer",
+     "kind": "revisor",
+     "line": "revisa de novo: correção, casos de borda e clareza — corrige o que achar",
+     "persona": "Você revisa correção, segurança, casos de borda e clareza. Aponta o que falta.",
+     "engine": "codex",
+     "model": "gpt-5"
+    },
+    {
+     "id": "cobalt",
+     "name": "Cobalt",
+     "role": "tester",
+     "kind": "qa",
+     "line": "escreve e roda os testes que faltam: caminho principal e casos de borda",
+     "persona": "Você escreve e roda testes; cobre caminho principal e casos de borda."
+    },
+    {
+     "id": "kai",
+     "name": "Kai",
+     "role": "security",
+     "kind": "seguranca",
+     "line": "procura falhas de segurança (entrada, segredos, permissões) e corrige",
+     "persona": "Segurança do time.",
+     "engine": "claude"
+    },
+    {
+     "id": "pulso",
+     "name": "Pulso",
+     "role": "performance",
+     "kind": "performance",
+     "line": "acha o que deixa lento (renders, consultas, laços) e otimiza sem mudar o comportamento",
+     "persona": "Você otimiza desempenho sem mudar comportamento: mede antes, corta trabalho repetido, renders e consultas desnecessárias."
+    },
+    {
+     "id": "lumen",
+     "name": "Lumen",
+     "role": "docs",
+     "kind": "docs",
+     "line": "atualiza a documentação e o README com o que a tarefa mudou",
+     "persona": "Você escreve documentação concisa com exemplos de uso."
+    }
+   ]
+  ]
+ ],
+ "changeRequestText": [
+  [
+   {
+    "text": "o botão some no celular"
+   },
+   "PEDIDO DE ALTERAÇÃO (revisão humana): o botão some no celular\nContinue nesta mesma branch, sem recomeçar: faça só o que foi pedido e diga em uma linha o que mudou."
+  ],
+  [
+   {
+    "text": "  deixa o título menor ",
+    "reqs": [
+     {
+      "i": 0,
+      "text": "Listar horários"
+     },
+     {
+      "i": 2,
+      "text": "  Reservar | pagar  "
+     }
+    ],
+    "attachments": [
+     ".cardume/attachments/print.png",
+     " "
+    ]
+   },
+   "PEDIDO DE ALTERAÇÃO (revisão humana): deixa o título menor\nRequisitos afetados: R1 “Listar horários”; R3 “Reservar | pagar” — atualize a prova deles no requirements.json.\nAnexos (leia antes de mexer): .cardume/attachments/print.png\nContinue nesta mesma branch, sem recomeçar: faça só o que foi pedido e diga em uma linha o que mudou."
+  ],
+  [
+   {
+    "text": "   "
+   },
+   ""
+  ],
+  [
+   {
+    "text": "x",
+    "reqs": [
+     {
+      "i": 1,
+      "text": ""
+     }
+    ]
+   },
+   "PEDIDO DE ALTERAÇÃO (revisão humana): x\nContinue nesta mesma branch, sem recomeçar: faça só o que foi pedido e diga em uma linha o que mudou."
+  ]
+ ],
+ "changeGate": [
+  [
+   {
+    "status": "review"
+   },
+   {
+    "ok": true,
+    "why": ""
+   }
+  ],
+  [
+   {
+    "status": "running"
+   },
+   {
+    "ok": false,
+    "why": "o agente está trabalhando nesta tarefa — espere o turno acabar"
+   }
+  ],
+  [
+   {
+    "status": "review",
+    "busy": 1
+   },
+   {
+    "ok": false,
+    "why": "o agente está trabalhando nesta tarefa — espere o turno acabar"
+   }
+  ],
+  [
+   {
+    "status": "plan-review"
+   },
+   {
+    "ok": false,
+    "why": "o plano ainda espera a sua aprovação"
+   }
+  ],
+  [
+   {
+    "status": "draft"
+   },
+   {
+    "ok": false,
+    "why": "a tarefa ainda não rodou"
+   }
+  ],
+  [
+   {
+    "status": "delivered"
+   },
+   {
+    "ok": true,
+    "why": ""
+   }
+  ],
+  [
+   {
+    "status": "error"
+   },
+   {
+    "ok": true,
+    "why": ""
+   }
+  ]
+ ],
+ "extraCapGate": [
+  [
+   0,
+   5,
+   {
+    "ok": true,
+    "why": ""
+   }
+  ],
+  [
+   3.99,
+   5,
+   {
+    "ok": true,
+    "why": ""
+   }
+  ],
+  [
+   4,
+   5,
+   {
+    "ok": false,
+    "why": "a tarefa já usou US$ 4,00 de US$ 5,00 (80% do teto) — libere mais teto antes de chamar outro agente"
+   }
+  ],
+  [
+   1,
+   0,
+   {
+    "ok": true,
+    "why": ""
+   }
+  ],
+  [
+   0.16,
+   0.2,
+   {
+    "ok": false,
+    "why": "a tarefa já usou US$ 0,16 de US$ 0,20 (80% do teto) — libere mais teto antes de chamar outro agente"
+   }
+  ],
+  [
+   0.1,
+   0.2,
+   {
+    "ok": true,
+    "why": ""
+   }
+  ]
+ ],
+ "resolveExtraAgent": [
+  [
+   "design",
+   "aria"
+  ],
+  [
+   "Aria",
+   "aria"
+  ],
+  [
+   "ARIA",
+   "aria"
+  ],
+  [
+   "ux",
+   "aria"
+  ],
+  [
+   "revisor",
+   "nyx"
+  ],
+  [
+   "qa",
+   "cobalt"
+  ],
+  [
+   "Testes",
+   "cobalt"
+  ],
+  [
+   "seguranca",
+   "kai"
+  ],
+  [
+   "segurança",
+   "kai"
+  ],
+  [
+   "kai",
+   "kai"
+  ],
+  [
+   "perf",
+   "pulso"
+  ],
+  [
+   "docs",
+   "lumen"
+  ],
+  [
+   "lumen",
+   "lumen"
+  ],
+  [
+   "nada",
+   null
+  ],
+  [
+   "",
+   null
+  ]
+ ],
+ "isUiPath": [
+  [
+   "src/App.tsx",
+   true
+  ],
+  [
+   "app/src/css/99-x.css",
+   true
+  ],
+  [
+   "src/lib/horarios.ts",
+   false
+  ],
+  [
+   "app/src/js/20-workspace.js",
+   false
+  ],
+  [
+   "src/components/Button.ts",
+   true
+  ],
+  [
+   "README.md",
+   true
+  ],
+  [
+   "public/logo.svg",
+   true
+  ],
+  [
+   "api/server.py",
+   false
+  ],
+  [
+   ".cardume/artifacts/x.json",
+   true
+  ]
+ ],
+ "extraReportLines": [
+  [
+   [
+    {
+     "id": "extra-aria-1",
+     "agentId": "aria",
+     "name": "Aria",
+     "kind": "design",
+     "role": "designer",
+     "status": "feito",
+     "by": "app",
+     "at": 1,
+     "files": [
+      "src/App.css",
+      "src/lib/a.ts"
+     ],
+     "outsideUi": [
+      "src/lib/a.ts"
+     ],
+     "summary": "aumentei o contraste | e o espaçamento\n do formulário"
+    },
+    {
+     "id": "extra-nyx-1",
+     "agentId": "nyx",
+     "name": "Nyx",
+     "kind": "revisor",
+     "role": "reviewer",
+     "status": "falhou",
+     "by": "cli",
+     "at": 2,
+     "files": []
+    },
+    {
+     "id": "extra-cobalt-1",
+     "agentId": "cobalt",
+     "name": "Cobalt",
+     "kind": "qa",
+     "role": "tester",
+     "status": "rodando",
+     "by": "app",
+     "at": 3
+    },
+    {
+     "id": "extra-lumen-1",
+     "agentId": "lumen",
+     "name": "Lumen",
+     "kind": "docs",
+     "role": "docs",
+     "status": "feito",
+     "by": "mcp",
+     "at": 4,
+     "files": [
+      "README.md"
+     ]
+    }
+   ],
+   [
+    "**Passou pelo agente de design (Aria):** aumentei o contraste \\| e o espaçamento do formulário — 2 arquivos (1 fora de tela: `src/lib/a.ts`)",
+    "**Passou pelo agente de revisão (Nyx):** não terminou",
+    "**Passou pelo agente de documentação (Lumen):** 1 arquivo"
+   ]
+  ]
+ ]
+}

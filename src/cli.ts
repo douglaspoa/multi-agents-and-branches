@@ -1,3 +1,4 @@
+import { changeGate, changeRequestText } from "./revisao-alteracao.ts";
 import { rm } from "node:fs/promises";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -554,6 +555,36 @@ async function cmdDeliver(repo: string, taskId: string, kind?: string) {
   orch.close();
 }
 
+async function cmdEtapa(repo: string, taskId: string, agent?: string, msg?: string) {
+  const orch = new Orchestrator(repo);
+  try {
+    if (!taskId || !orch.store.getTask(taskId)) { console.error(c.red(`✕ tarefa ${taskId ?? ""} não encontrada`)); process.exitCode = 1; return; }
+    if (!agent) { console.error(c.red(`✕ diga o agente: ${orch.extraAgents().map((x) => x.kind).join(" | ")}`)); process.exitCode = 1; return; }
+    console.log(c.dim(`→ chamando ${agent} como etapa extra …`));
+    await orch.runExtraStage(taskId, agent, { note: msg?.trim() || undefined, by: "cli" });
+  } catch (e) {
+    try { orch.store.addEvent(taskId, "Sistema", "error", `etapa extra falhou: ${(e as Error).message}`, false); } catch { /* sem banco */ }
+    console.error(c.red(`✕ ${(e as Error).message}`)); process.exitCode = 1;
+  } finally { orch.close(); }
+}
+
+async function cmdAlteracao(repo: string, taskId: string, msg?: string, req?: string) {
+  const orch = new Orchestrator(repo);
+  try {
+    const t = taskId ? orch.store.getTask(taskId) : undefined;
+    if (!t) { console.error(c.red(`✕ tarefa ${taskId ?? ""} não encontrada`)); process.exitCode = 1; return; }
+    const spec = JSON.parse(t.spec_json) as { requirements?: string[] };
+    const idx = String(req ?? "").split(",").map((x) => parseInt(x, 10) - 1).filter((i) => i >= 0 && i < (spec.requirements?.length ?? 0));
+    const text = changeRequestText({ text: msg ?? "", reqs: idx.map((i) => ({ i, text: spec.requirements![i] })), from: "cli" });
+    if (!text) { console.error(c.red('✕ use --msg "o que mudar"')); process.exitCode = 1; return; }
+    const g = changeGate({ status: t.status });
+    if (!g.ok) { console.error(c.red(`✕ ${g.why}`)); process.exitCode = 1; return; }
+    await orch.talkToAgent(taskId, text, false);
+  } catch (e) {
+    console.error(c.red(`✕ ${(e as Error).message}`)); process.exitCode = 1;
+  } finally { orch.close(); }
+}
+
 async function cmdTalk(repo: string, taskId: string, msg?: string, asReq = false, agent?: string) {
   if (!msg || !msg.trim()) {
     console.error(c.red('✕ use --msg "sua mensagem"'));
@@ -1060,6 +1091,15 @@ async function main() {
       break;
     case "merge":
       await cmdMerge(repo, a._[1]);
+      break;
+    case "etapa":
+      // "Chamar outro agente…" (etapa extra na revisão): cardume etapa <tarefa> <agente> [--msg "o que olhar"]
+      await cmdEtapa(repo, a._[1], a._[2], a.flags.msg);
+      break;
+    case "alteracao":
+    case "alteração":
+      // "Pedir alteração": cardume alteracao <tarefa> --msg "o que mudar" [--req 1,3] — 1 turno na MESMA sessão
+      await cmdAlteracao(repo, a._[1], a.flags.msg, a.flags.req);
       break;
     case "rework":
       await cmdRework(repo, a._[1]);

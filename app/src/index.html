@@ -43,6 +43,7 @@
 <link rel="stylesheet" href="css/99-ajustes.css">
 <link rel="stylesheet" href="css/99-linha.css">
 <link rel="stylesheet" href="css/99-time-entregas.css">
+<link rel="stylesheet" href="css/99-revisao-alteracao.css">
 </head>
 <body>
 <div class="app">
@@ -490,6 +491,8 @@
     </div>
     <!-- o ciclo da tarefa (60-ciclo.js): faixa de etapas + a decisão "precisa de você" — fora do re-render do chat -->
     <div class="fwciclo" id="fwCiclo" hidden></div>
+    <!-- "Pedir alteração" / "Chamar outro agente…" (71-revisao-alteracao.js): painel no topo da tarefa, nunca modal -->
+    <section class="fwrq" id="fwRq" hidden></section>
     <!-- linha: as colunas do workspace + o painel Dispositivo DOCADO à direita (57-dispositivo.js) -->
     <div class="fwrow" id="fwRow">
       <div class="fwcols" id="fwCols">
@@ -757,5 +760,6 @@
 <script src="js/68-casca-g1.js"></script>
 <script src="js/69-linha.js"></script>
 <script src="js/70-time-entregas.js"></script>
+<script src="js/71-revisao-alteracao.js"></script>
 </body>
 </html>

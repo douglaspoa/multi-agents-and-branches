@@ -514,10 +514,14 @@ function fwActionHtml(t){
   const a=fwPrimaryAction(t);
   // sem prova: o "aprovar sem prova…" fica à vista ao lado (some no cabeçalho estreito — continua no ⋯)
   const sec=(a&&a.id==='fwAskProof')?`<button class="btn sm ghost fwnoproof" id="fwNoProof" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar sem prova…</button>`:'';
-  if(!a) return sec;
+  // pronta pra revisar: "Pedir alteração" SEMPRE à vista (mesa 09/10 — antes era só "pedir ajuste" escondido no ⋯) e
+  // "Chamar agente…" ao lado; os dois abrem o MESMO painel (71-revisao-alteracao)
+  const rq=(typeof rqCanAsk==='function' && rqCanAsk(t))
+    ? `<button class="btn sm fwrqbtn" id="fwChange" title="o agente desta tarefa continua na mesma branch — texto, prints e requisitos afetados">Pedir alteração</button><button class="btn sm ghost fwrqbtn fwrqag" id="fwCallAgent" title="chama outro agente do time (design, revisor, testes…) como etapa extra">Chamar agente…</button>` : '';
+  if(!a) return rq+sec;
   const lbl=String(a.html).replace(/<[^>]*>/g,'').trim();
   const html=String(a.html).replace(/([^>]*)$/, (m)=>m.trim()?`<span class="fwal">${m}</span>`:m);
-  return sec+`<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}" aria-label="${escA(lbl)}">${html}</button>`;
+  return rq+sec+`<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}" aria-label="${escA(lbl)}">${html}</button>`;
 }
 // itens do ⋯ (secundários) — só o que faz sentido na fase atual
 function fwMoreItems(t){
@@ -527,7 +531,7 @@ function fwMoreItems(t){
   it.push({ k:'sum', label:`resumo e progresso · ${taskPct(t)}%`, hint:'tudo que já foi feito + o que falta' });
   if(t.status==='draft' && typeof editDraft==='function') it.push({ k:'editdraft', label:'editar o rascunho', hint:'reabre a Nova demanda preenchida' });
   if(prim==='fwAskProof') it.push({ k:'noproof', label:'aprovar sem prova…', hint:'exige um motivo — vai no PR' });
-  if(['review','delivered'].includes(t.status) && !t.prUrl) it.push({ k:'askfix', label:'pedir ajuste', hint:'vira instrução direta pro agente' });
+  if(typeof rqCanAsk==='function' && rqCanAsk(t)){ it.push({ k:'askfix', label:'pedir alteração', hint:'o agente continua na mesma branch' }); it.push({ k:'callagent', label:'chamar outro agente…', hint:'design, revisor, testes… como etapa extra' }); }
   if(t.prUrl){ const n=fwPrNum(t);
     if(prim!=='fwPrGo' && fwMode!=='pr') it.push({ k:'prgo', label:`ver PR #${n} aqui` });
     if(prim!=='fwPrGh') it.push({ k:'prgh', label:`abrir PR #${n} no GitHub` });
@@ -587,7 +591,8 @@ function fwOpenMore(t, anchor){
 async function fwMoreDo(t, k, anchor){
   const pv=taskPreviewTarget(t);
   if(k==='sum') openTaskSummary(t.id);
-  else if(k==='askfix') fwAskFix();
+  else if(k==='askfix') rqOpen(t.id);
+  else if(k==='callagent') rqOpen(t.id, { mode:'agente' });
   else if(k==='noproof') await approveNoProof(t);
   else if(k==='editdraft') await editDraft(t);
   else if(k==='prgo'){ fwMode='pr'; fwRememberTab(); renderWorkspace(); }
@@ -771,6 +776,7 @@ function renderWorkspace(){
   // modo que o TIPO esconde (ex.: Código numa investigação, guardado na aba) cai na Entrega
   if(typeof fwModesList==='function' && !fwModesList(t).some(([k])=>k===fwMode)){ fwMode='entrega'; fwRememberTab(); }
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
+  if(typeof rqPaint==='function') rqPaint(t); // 71: painel "Pedir alteração" / "Chamar outro agente…" (assinatura própria)
   if(typeof cicloPaint==='function') cicloPaint(t); // faixa de etapas + "precisa de você" (60-ciclo), com assinatura própria
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); cols.classList.toggle('rv-req', fwMode==='revisao' && (typeof rvViewOf!=='function' || rvViewOf(t.id)!=='diff')); } }
@@ -793,6 +799,8 @@ function renderWorkspace(){
       rb.innerHTML=pvBtn+fwActionHtml(t);
       fwPrimShown=(fwPrimaryAction(t)||{}).id||'';
       bindClick('fwAnswer', ()=>fwAskFix());
+      bindClick('fwChange', ()=>rqOpen(t.id));
+      bindClick('fwCallAgent', ()=>rqOpen(t.id, { mode:'agente' }));
       bindClick('fwStopTop', ()=>stopTask(t.id));
       // FT-5: aprovar passa pelo gate de verificação (21: chkApproveClick/chkDecorateApprove)
       if(typeof chkDecorateApprove==='function') chkDecorateApprove($id('fwApprove'), t);

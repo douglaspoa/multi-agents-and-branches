@@ -9,6 +9,7 @@
 import { dirname } from "node:path";
 import { callTool, ctxFromEnv } from "./mcp/tools.ts";
 import { SHELL_COMMANDS } from "./terminal-integrado.ts";
+import { changeRequestText, resolveExtraAgent } from "./revisao-alteracao.ts";
 import { askContextText } from "./ask-style.ts";
 import { AI_LABEL, AiMissingError, iaExit, iaPrep, isTermAi, TERM_AIS } from "./terminal.ts";
 
@@ -68,6 +69,48 @@ async function tool(io: Io, name: string, args: Record<string, unknown>): Promis
   } finally { ctx.close(); }
 }
 
+/** Mensagem pro agente desta tarefa: IA aberta no terminal → imprime (ela lê); shell no prompt → grava em
+ * .cardume/term/next-msg.txt e mostra a linha que abre a IA com ela (o mesmo caminho do app). */
+async function toTermAi(io: Io, text: string, ctx: ReturnType<typeof ctxFromEnv>, task: string): Promise<number> {
+  let cli = "";
+  try { cli = String((ctx.store.db.prepare("SELECT cli FROM term_session WHERE task_id = ?").get(task) as { cli?: string } | undefined)?.cli ?? ""); } catch { /* sem terminal: shell */ }
+  if (cli) { io.out(text); return 0; }
+  const wt = ctx.store.getTask(task)?.worktree;
+  if (!wt) { io.err("starfork: worktree da tarefa não encontrada"); return 1; }
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  mkdirSync(join(wt, ".cardume", "term"), { recursive: true });
+  writeFileSync(join(wt, ".cardume", "term", "next-msg.txt"), text, "utf8");
+  io.out(`Pedido gravado em .cardume/term/next-msg.txt. Abra a IA com ele:\n  starfork ia claude --resume --msg-file .cardume/term/next-msg.txt`);
+  return 0;
+}
+/** `starfork etapa <agente> ["o que olhar"]` — a etapa extra começa (registro + SHA de antes) e a instrução vai pra IA. */
+async function extraStageCli(io: Io, agent: string, note: string): Promise<number> {
+  let ctx: ReturnType<typeof ctxFromEnv>;
+  try { ctx = ctxFromEnv(); } catch { io.err("starfork: fora do terminal de uma tarefa (falta CARDUME_DB/CARDUME_TASK)."); return 1; }
+  try {
+    if (!ctx.task) { io.err("starfork: fora do terminal de uma tarefa (falta CARDUME_TASK)."); return 1; }
+    const r = await callTool(ctx, "extra_stage", { agent, note });
+    if (r.isError) { io.err(r.text); return 1; }
+    return await toTermAi(io, r.text, ctx, ctx.task);
+  } catch (e) { io.err(`starfork etapa: ${(e as Error)?.message ?? e}`); return 1; } finally { ctx.close(); }
+}
+/** `starfork alteracao "o que mudar" [--req 1,3]` — o MESMO texto do botão "Pedir alteração" (changeRequestText). */
+async function changeCli(io: Io, text: string, req?: string): Promise<number> {
+  let ctx: ReturnType<typeof ctxFromEnv>;
+  try { ctx = ctxFromEnv(); } catch { io.err("starfork: fora do terminal de uma tarefa (falta CARDUME_DB/CARDUME_TASK)."); return 1; }
+  try {
+    const t = ctx.task ? ctx.store.getTask(ctx.task) : undefined;
+    if (!t) { io.err("starfork: fora do terminal de uma tarefa (falta CARDUME_TASK)."); return 1; }
+    const reqs: string[] = (() => { try { return JSON.parse(t.spec_json).requirements ?? []; } catch { return []; } })();
+    const idx = String(req ?? "").split(",").map((x) => parseInt(x, 10) - 1).filter((i) => i >= 0 && i < reqs.length);
+    const msg = changeRequestText({ text, reqs: idx.map((i) => ({ i, text: reqs[i] })), from: "terminal" });
+    if (!msg) { io.err('starfork alteracao: diga o que mudar — starfork alteracao "o botão some no celular"'); return 1; }
+    ctx.store.addEvent(ctx.task, "Você", "note", `pedido de alteração: ${text.slice(0, 160)}`, true);
+    return await toTermAi(io, msg, ctx, ctx.task);
+  } catch (e) { io.err(`starfork alteracao: ${(e as Error)?.message ?? e}`); return 1; } finally { ctx.close(); }
+}
+
 export async function starforkCli(argv: string[], io: Io = stdio): Promise<number> {
   const [sub = "ajuda", ...rest] = argv;
   const a = parseSf(rest);
@@ -109,8 +152,16 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
       return tool(io, "task_status", {});
     case "sugerir":
       return tool(io, "suggest_replies", { options: a.pos });
-    case "etapa":
-      return tool(io, "set_status", { status: etapaStatus(a.pos[0] ?? ""), note: one(a, "nota", "note") ?? a.pos.slice(1).join(" ") });
+    case "etapa": {
+      // `starfork etapa design` = chamar OUTRO agente (etapa extra da revisão); `starfork etapa review` = status (como sempre)
+      const q = String(a.pos[0] ?? "");
+      // palavra de status (review/revisar/construir/esperando…) continua sendo status; agente/papel (design, qa, aria…) vira etapa extra
+      if (/^\+/.test(q) || (!["review", "needs-you", "running"].includes(etapaStatus(q)) && resolveExtraAgent([], q))) return extraStageCli(io, q.replace(/^\+/, ""), one(a, "nota", "note") ?? a.pos.slice(1).join(" "));
+      return tool(io, "set_status", { status: etapaStatus(q), note: one(a, "nota", "note") ?? a.pos.slice(1).join(" ") });
+    }
+    case "alteracao":
+    case "alteração":
+      return changeCli(io, text, one(a, "req"));
     case "skills":
       return tool(io, "list_skills", {});
     case "skill":
