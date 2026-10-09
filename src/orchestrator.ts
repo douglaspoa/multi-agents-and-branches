@@ -2431,7 +2431,7 @@ export class Orchestrator {
    * coleta artefatos, roda o GATE (verifyProofs) e leva a tarefa pra "review". Se um turno novo começou
    * no meio (sessão ocupada de novo), não mexe no status. Devolve o resultado do gate.
    */
-  async terminalTurnEnd(taskId: string, isBusy: () => boolean = () => false): Promise<{ ok: boolean; reasons: string[] } | null> {
+  async terminalTurnEnd(taskId: string, isBusy: () => boolean = () => false, o: { deferPr?: boolean } = {}): Promise<{ ok: boolean; reasons: string[]; openPr?: boolean } | null> {
     const task = this.store.getTask(taskId);
     if (!task) return null;
     const spec = JSON.parse(task.spec_json) as TaskSpec;
@@ -2465,9 +2465,19 @@ export class Orchestrator {
       notify("Starfork", "Turno concluído no terminal — pronta pra revisar", task.title);
       this.appendHistory(taskId);
       this.harvestRunbook(task.worktree);
-      if (gate.ok) await this.maybeOpenPr(taskId, task, spec);
+      if (gate.ok) {
+        // em linha (hook Stop): o PR sai destacado depois (push + gh podem demorar) — quem chamou dispara
+        if (o.deferPr) return { ...gate, openPr: true };
+        await this.maybeOpenPr(taskId, task, spec);
+      }
     }
     return gate;
+  }
+  /** O PR do fim de turno do terminal, destacado do hook Stop (`turn-end <id> --so-pr`). */
+  async terminalOpenPr(taskId: string): Promise<void> {
+    const task = this.store.getTask(taskId);
+    if (!task || task.status === "merged") return;
+    await this.maybeOpenPr(taskId, task, JSON.parse(task.spec_json) as TaskSpec);
   }
 
   close(): void {

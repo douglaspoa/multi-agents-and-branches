@@ -101,10 +101,39 @@ fn spec_of(db: &Path, task_id: &str) -> Option<serde_json::Value> {
     let s: String = c.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get(0)).ok()?;
     serde_json::from_str(&s).ok()
 }
-/// A tarefa está em MODO TERMINAL? (fixo no spec; tarefa antiga = automático)
+/// A tarefa RODA NO TERMINAL (PTY)? A regra ÚNICA de todos os caminhos de início/conversa (mesa 09/10 — "terminal
+/// sempre vivo"): ▶ Iniciar, "Iniciar épico", onda/rascunho armado, re-rodar, pedir ajuste/prova, conversa, "corrigir
+/// com o agente". Tarefa criada pelo CLI/MCP (sem `termMode`) decide AQUI pelo padrão — antes caía no headless.
 pub fn is_terminal(state: &State<AppState>, task_id: &str) -> bool {
-    db_of(state).ok().and_then(|db| spec_of(&db, task_id)).map(|s| s.get("termMode").and_then(|v| v.as_str()) == Some("terminal")).unwrap_or(false)
+    let chosen = setting_get("taskMode").as_deref() == Some("terminal");
+    db_of(state).ok().and_then(|db| spec_of(&db, task_id)).map(|s| starts_in_terminal(&s, default_mode(), chosen)).unwrap_or(false)
 }
+/// Motor que decide o terminal: o do construtor (o papel que conversa no terminal), senão o da tarefa.
+pub fn spec_engine(spec: &serde_json::Value) -> String {
+    let st = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    let roles = spec.get("roles").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let role = roles.iter().find(|r| r.get("role").and_then(|x| x.as_str()) == Some("builder")).or(roles.first());
+    role.map(|r| st(r.get("engine"))).filter(|e| !e.is_empty()).unwrap_or_else(|| st(spec.get("engine")))
+}
+pub fn starts_in_terminal(spec: &serde_json::Value, default: &str, chosen: bool) -> bool { starts_in_terminal_on(spec, default, chosen, cfg!(windows)) }
+/// PURA: `termMode` "terminal" → sim; "auto" gravado → NÃO (escolha explícita: `--term-mode auto` no CLI ou o
+/// "Automático" de Ajustes na criação — veto da Júlia na mesa); AUSENTE (CLI/MCP, tarefa antiga) → o padrão de agora
+/// (`wants_terminal`: Claude Code = terminal; outros motores só se a pessoa escolheu terminal; gateway/mock = não).
+/// Piloto automático nunca: ele conduz a tarefa dentro do processo dele (gate, rodadas, merge).
+pub fn starts_in_terminal_on(spec: &serde_json::Value, default: &str, chosen: bool, windows: bool) -> bool {
+    if spec.get("autopilot").map(|v| v.as_bool().unwrap_or(!v.is_null())).unwrap_or(false) { return false; }
+    match spec.get("termMode").and_then(|v| v.as_str()) {
+        Some("terminal") => true,
+        Some("auto") => false,
+        _ => {
+            let e = spec_engine(spec);
+            // rótulo só com o modelo ("opus", "Claude · Sonnet") é Claude Code — a mesma régua do front (aiEngineOf)
+            wants_terminal_on(None, default, chosen, &e, windows) || (default == "terminal" && claude_engine(&e) && ai_of_engine(&e) == "claude")
+        }
+    }
+}
+/// Tarefa do piloto automático? (o piloto é dono do processo dela — não se assume no terminal)
+pub fn is_autopilot(spec: &serde_json::Value) -> bool { spec.get("autopilot").map(|v| v.as_bool().unwrap_or(!v.is_null())).unwrap_or(false) }
 /// Modo padrão das tarefas novas (Configurações → "modo das tarefas"). Layout A aprovado (03/10): o TERMINAL é o
 /// padrão pro Claude Code. `taskModeSet=2` = a pessoa escolheu na tela nova (vale o que ela escolheu); sem isso, um
 /// "auto" gravado é da tela antiga (onde "Automático" era só o padrão salvo junto) e não conta como escolha.
@@ -187,6 +216,7 @@ fn ensure_cli_col(c: &Connection) {
         "CREATE TABLE IF NOT EXISTS term_session (task_id TEXT PRIMARY KEY, pid INTEGER, engine TEXT, busy INTEGER NOT NULL DEFAULT 0, session_id TEXT, started_at INTEGER, updated_at INTEGER, cli TEXT)", [],
     );
     let _ = c.execute("ALTER TABLE term_session ADD COLUMN cli TEXT", []);
+    let _ = c.execute("ALTER TABLE term_session ADD COLUMN waiting INTEGER", []);
 }
 fn log_path(repo: &Path, task_id: &str) -> PathBuf { repo.join(".cardume").join("term").join(format!("{task_id}.log")) }
 
@@ -212,13 +242,68 @@ fn engine_json(repo: &Path, args: &[String]) -> Result<serde_json::Value, String
 pub fn open_task(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, resume: bool, message: Option<&str>) -> Result<Arc<pty::PtySession>, String> {
     open_task_q(repo, db, task_id, cols, rows, resume, message, false)
 }
+/// Trava POR TAREFA de toda a abertura (term-prep + spawn): auto-início × aba abrindo × clique duplo × ceifador — uma
+/// coisa por vez; quem chega depois recebe o PTY já vivo (mesa 09/10, Rafa).
+static OPEN_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+pub fn open_lock(task_id: &str) -> Arc<Mutex<()>> {
+    OPEN_LOCKS.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner()).entry(task_id.to_string()).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
+}
+/// A 1ª mensagem de uma tarefa nova (mesma do TS: KICKOFF em src/terminal.ts) — vai pro PTY já aberto quieto quando
+/// alguém aperta ▶ com o terminal aberto só pra olhar.
+pub const KICKOFF: &str = "Comece: leia .cardume/TASK.yaml e execute a tarefa seguindo as instruções do Starfork (no seu system prompt).";
+/// Tarefas sendo ASSUMIDAS agora (turno de fundo → PTY): taskId → início (ms). Expira sozinho (60 s) — app que cai no meio
+/// não deixa a tarefa no limbo (veto da Júlia).
+static TAKING: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+pub const TAKEOVER_TTL_MS: i64 = 60_000;
+pub fn taking_set(task_id: &str, on: bool) {
+    let mut m = TAKING.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner());
+    if on { m.insert(task_id.to_string(), now_ms()); } else { m.remove(task_id); }
+}
+pub fn taking(task_id: &str) -> bool {
+    TAKING.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner()).get(task_id).map(|t| now_ms() - t < TAKEOVER_TTL_MS).unwrap_or(false)
+}
+/// Tarefa do piloto automático com turno de fundo: não se assume (o piloto é dono do processo — gate, rodadas, merge).
+pub const AUTOPILOT_OWNS: &str = "o piloto automático conduz esta tarefa sozinho — pare o piloto (aba Piloto › parar) pra assumir no terminal";
+/// A próxima abertura deste terminal é em sessão NOVA (assumiu um turno de fundo de planner/revisor).
+static FRESH_NEXT: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+pub fn set_fresh_next(task_id: &str) { FRESH_NEXT.get_or_init(|| Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.to_string()); }
+fn take_fresh_next(task_id: &str) -> bool { FRESH_NEXT.get_or_init(|| Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()).remove(task_id) }
+/// ▶ Iniciar de uma tarefa de terminal: sem PTY → abre com o kickoff (o term-prep confere o teto); PTY já aberto QUIETO
+/// (a pessoa estava olhando) e a IA livre → o kickoff vai nele; IA ocupada → já está trabalhando, nada a fazer.
+pub fn start_in_terminal(state: &State<AppState>, repo: &Path, db: &Path, task_id: &str) -> Result<(), String> {
+    let m = mgr().ok_or("terminal indisponível")?;
+    if m.live(task_id).is_some() {
+        if idle_probe(db.to_path_buf(), task_id.to_string())() == Some(false) { return Ok(()); }
+        return route(state, task_id, "kickoff", "", false, None);
+    }
+    open_task(repo, db, task_id, 120, 34, true, None).map(|_| ())
+}
+/// PURA: assumir retoma a sessão gravada? Só se o turno de fundo era de QUEM CONVERSA no terminal (o construtor, ou o
+/// 1º papel numa equipe sem construtor). Planner/revisor → sessão NOVA que continua da worktree (nunca --resume da
+/// sessão do revisor — Rafa/Júlia na mesa).
+pub fn takeover_resumes(stage: &str, spec: &serde_json::Value) -> bool {
+    let st = stage.trim();
+    if st.is_empty() { return true; }
+    let roles = spec.get("roles").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let talk = roles.iter().find(|r| r.get("role").and_then(|x| x.as_str()) == Some("builder")).or(roles.first())
+        .and_then(|r| r.get("role").and_then(|x| x.as_str())).unwrap_or("builder").to_string();
+    st == talk || (st == "builder" && roles.is_empty())
+}
 /// `quiet`: o app retomando SOZINHO ao abrir a tarefa — a IA só abre e espera (sem kickoff, sem mudar status, sem
 /// gastar); o 1º envio da pessoa passa pelos portões de sempre. Com mensagem, o quieto não vale.
 pub fn open_task_q(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, resume: bool, message: Option<&str>, quiet: bool) -> Result<Arc<pty::PtySession>, String> {
+    open_task_x(repo, db, task_id, cols, rows, resume, message, quiet, false)
+}
+/// `fresh`: sessão NOVA mesmo havendo uma gravada (assumir um turno de fundo de planner/revisor).
+#[allow(clippy::too_many_arguments)]
+pub fn open_task_x(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, resume: bool, message: Option<&str>, quiet: bool, fresh: bool) -> Result<Arc<pty::PtySession>, String> {
     let m = mgr().ok_or("terminal indisponível")?;
+    let lock = open_lock(task_id);
+    let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = m.live(task_id) { let _ = s.resize(cols, rows); return Ok(s); }
     let mut a = vec!["term-prep".to_string(), task_id.to_string()];
-    if resume { a.push("--resume".into()); }
+    if resume && !fresh { a.push("--resume".into()); }
+    if fresh { a.push("--nova-sessao".into()); }
     if quiet && message.map(|m| m.trim().is_empty()).unwrap_or(true) { a.push("--quiet".into()); }
     if let Some(msg) = message.filter(|m| !m.trim().is_empty()) { a.push("--msg".into()); a.push(msg.to_string()); }
     let v = engine_json(repo, &a)?;
@@ -286,17 +371,41 @@ pub fn route(state: &State<AppState>, task_id: &str, kind: &str, msg: &str, as_r
         RouteAction::Queue => {}
     }
     if live {
-        let n = m.enqueue(task_id, text, idle_probe(db.clone(), task_id.to_string()))?;
-        if n > 1 || idle_probe(db.clone(), task_id.to_string())() == Some(false) {
+        // a IA que vai LER: a do shell (cli) ou o próprio PTY (Windows)
+        let ai = if cli.is_empty() { m.live(task_id).map(|s| s.engine.clone()).unwrap_or_default() } else { cli.clone() };
+        let busy = idle_probe(db.clone(), task_id.to_string())() == Some(false);
+        let native = native_queue(&ai);
+        // Claude Code: a fila é a DELE (o que chega no meio do turno ele guarda e mostra) — o app só segura enquanto há
+        // um menu/permissão aberto (colar ali escolheria uma opção). Codex: a fila do app (entrega com a IA livre).
+        let n = if native { m.enqueue_mode(task_id, text, ready_probe(db.clone(), task_id.to_string()), false)? }
+            else { m.enqueue(task_id, text, idle_probe(db.clone(), task_id.to_string()))? };
+        if busy || n > 1 {
             if let Ok(c) = open_rw(&db) {
                 let _ = c.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 1)",
-                    params![task_id, now_ms(), format!("Na fila ({n}º): o terminal está no meio de um turno — entrego assim que ele terminar.")]);
+                    params![task_id, now_ms(), queue_note(native, n)]);
             }
         }
         return Ok(());
     }
     let (cols, rows) = last_size(task_id);
-    open_task(&repo, &db, task_id, cols, rows, true, Some(&text)).map(|_| ())
+    let fresh = take_fresh_next(task_id);
+    open_task_x(&repo, &db, task_id, cols, rows, true, Some(&text), false, fresh).map(|_| ())
+}
+/// IA cuja fila é a dela mesma (Claude Code — e o DeepSeek, que roda dentro dele).
+pub fn native_queue(ai: &str) -> bool { matches!(ai, "claude" | "deepseek") }
+/// Aviso no feed quando o pedido não entra na hora (a Bia: "anotado" — nunca some calado).
+pub fn queue_note(native: bool, n: usize) -> String {
+    if native { "Anotado — entra quando a IA terminar o que está fazendo (a fila é a do próprio Claude Code, visível no terminal).".to_string() }
+    else { format!("Na fila ({n}º): o terminal está no meio de um turno — entrego assim que ele terminar.") }
+}
+/// Pode COLAR agora na IA de fila nativa? Não com um menu/permissão/pergunta aberta (term_session.waiting = 1, gravado
+/// pelo hook Notification permission_prompt/elicitation e pela pergunta nativa). Sem coluna/linha = pode.
+fn ready_probe(db: PathBuf, task_id: String) -> Arc<dyn Fn() -> Option<bool> + Send + Sync> {
+    Arc::new(move || {
+        let Ok(c) = open_rw(&db) else { return Some(true) };
+        let w = c.query_row("SELECT COALESCE(waiting,0) FROM term_session WHERE task_id=?1", params![task_id], |r| r.get::<_, i64>(0)).unwrap_or(0);
+        Some(w == 0)
+    })
 }
 /// O que fazer com um pedido do app pro terminal da tarefa.
 #[derive(Debug, PartialEq)]
@@ -583,6 +692,9 @@ fn reap_tick() {
     for id in reap_pick(&list, pty::now_ms(), idle_ms, LIVE_CAP) {
         // a pessoa abriu a tarefa entre o retrato e agora: fica
         if m.get(&id).map(|s| s.watchers() > 0).unwrap_or(true) { continue; }
+        // abertura/kickoff em voo nesta tarefa (mesma trava do open_task): fica — nunca mata o PTY que vai receber o ▶
+        let lk = open_lock(&id);
+        let Ok(_g) = lk.try_lock() else { continue };
         reaped().lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone());
         web_log(format!("[term] {id}: terminal parado fora da tela — encerrado (termIdleMin)"));
         if !m.kill(&id) { reaped().lock().unwrap_or_else(|e| e.into_inner()).remove(&id); }
@@ -600,6 +712,8 @@ pub struct TermInfo {
     shell: bool,
     /// lançamento recomendado da tarefa (IA + modelo da criação, ou o escolhido no app) + a linha exata do shell
     recommended: Recommended,
+    /// ASSUMINDO agora (turno de fundo parando pra virar terminal) — a barra explica em uma linha
+    taking: bool,
 }
 
 fn info(state: &State<AppState>, task_id: &str, data: String) -> TermInfo {
@@ -614,7 +728,7 @@ fn info(state: &State<AppState>, task_id: &str, data: String) -> TermInfo {
     let cli = if alive { db.as_ref().map(|d| cli_of(d, task_id)).unwrap_or_default() } else { String::new() };
     let recommended = db.as_ref().and_then(|d| spec_of(d, task_id)).map(|sp| recommended_of(&sp)).unwrap_or_default();
     TermInfo { alive, data, cols, rows, engine: s.map(|s| s.engine.clone()).unwrap_or_default(), busy, queued: m.map(|m| m.queued(task_id)).unwrap_or(0), session_id: sid,
-        cli, shell: alive && is_shell(task_id), recommended }
+        cli, shell: alive && is_shell(task_id), recommended, taking: taking(task_id) }
 }
 
 /// Abre o terminal (novo ou retomando a sessão gravada) e já devolve o histórico pra pintar.
@@ -911,6 +1025,48 @@ mod modo_padrao_tests {
         assert_eq!(row(&c), (Some(200), 1, "gemini".into(), "running".into(), Some(200), 0));
         assert!(record_exit(&c, "t", 200, Some(0)), "a sessão atual saiu: grava");
         assert_eq!(row(&c), (None, 0, "".into(), "review".into(), None, 1));
+    }
+}
+
+#[cfg(test)]
+mod sempre_vivo_tests {
+    use super::{native_queue, queue_note, starts_in_terminal_on, takeover_resumes};
+    fn j(v: &str) -> serde_json::Value { serde_json::from_str(v).unwrap() }
+    #[test]
+    fn regra_unica_do_inicio() {
+        // tarefa do CLI/MCP: sem termMode → decide pelo padrão (o bug do print: caía no headless)
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"claude"}"#), "terminal", false, false), "CLI sem termMode, Claude → PTY");
+        assert!(starts_in_terminal_on(&j(r#"{"roles":[{"role":"builder","engine":"claude"}]}"#), "terminal", false, false));
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"opus"}"#), "terminal", false, false), "rótulo só com o modelo = Claude");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"claude"}"#), "auto", false, false), "Ajustes › Automático escolhido");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"claude","termMode":"auto"}"#), "terminal", false, false), "auto GRAVADO = escolha (veto da Júlia)");
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"claude","termMode":"terminal"}"#), "auto", false, false), "terminal gravado vence");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"codex"}"#), "terminal", false, false), "codex: só se a pessoa escolheu terminal");
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"codex"}"#), "terminal", true, false));
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"gateway"}"#), "terminal", true, false), "gateway sem CLI");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":""}"#), "terminal", true, false), "mock");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"claude","termMode":"terminal","autopilot":true}"#), "terminal", true, false), "piloto automático nunca");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"claude","autopilot":{"run":"x"}}"#), "terminal", true, false));
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"claude","autopilot":false}"#), "terminal", false, false));
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"claude","autopilot":null}"#), "terminal", false, false));
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"gemini"}"#), "terminal", true, true), "Windows: gemini não");
+    }
+    #[test]
+    fn assumir_retoma_so_a_sessao_de_quem_conversa() {
+        let team = j(r#"{"roles":[{"role":"planner"},{"role":"builder"},{"role":"reviewer"}]}"#);
+        assert!(takeover_resumes("builder", &team));
+        assert!(takeover_resumes("", &team), "sem etapa gravada: a sessão da tarefa");
+        assert!(!takeover_resumes("reviewer", &team), "turno do revisor: sessão nova");
+        assert!(!takeover_resumes("planner", &team));
+        assert!(takeover_resumes("reviewer", &j(r#"{"roles":[{"role":"reviewer"}]}"#)), "revisão de PR: o revisor É quem conversa");
+        assert!(takeover_resumes("builder", &j(r#"{}"#)));
+    }
+    #[test]
+    fn fila_nativa_so_no_claude_e_sempre_avisa() {
+        assert!(native_queue("claude") && native_queue("deepseek"));
+        assert!(!native_queue("codex") && !native_queue("gemini") && !native_queue(""));
+        assert!(queue_note(true, 1).starts_with("Anotado"));
+        assert!(queue_note(false, 2).contains("2º"));
     }
 }
 

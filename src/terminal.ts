@@ -31,7 +31,8 @@ import { DSH_FAST_MODEL, DSH_KEY_MSG, dshKey, dshModelFor, isDshLabel } from "./
 import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
 import { resolveToolCached, toolPath } from "./engine/bin-resolve.ts";
 import { protectArgs, protectEnabled } from "./engine/protect.ts";
-import { engineKind, Orchestrator, deliverPrompt } from "./orchestrator.ts";
+import { engineKind, Orchestrator, deliverPrompt, readCostCapSetting } from "./orchestrator.ts";
+import { capCheck, capPauseText, effectiveCap } from "./lifecycle.ts";
 import { Store } from "./store.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import type { AgentStatus, TaskSpec } from "./types.ts";
@@ -86,6 +87,8 @@ export const CODEX_LIMITS = [
 export const HOOK_MARK = "--starfork-task";
 export const CLAUDE_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Stop", "Notification", "SessionEnd"] as const;
 export const CODEX_HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse"] as const;
+/** Prazo do hook Stop (o fim de turno roda dentro dele — commit, diff, provas, gate). O PR sai depois, destacado. */
+export const STOP_HOOK_TIMEOUT_S = 240;
 /** Hooks que só alimentam o feed rodam em segundo plano (não seguram a ferramenta); os que mudam estado são síncronos. */
 const ASYNC_HOOKS = new Set(["PreToolUse", "PostToolUse", "Notification"]);
 /** Pergunta nativa do Claude Code (várias perguntas, opções com descrição, multiSelect, "outra resposta"). */
@@ -136,7 +139,9 @@ export function mergeClaudeSettings(existing: Settings | null | undefined, base:
     if (groups.length) hooks[ev] = groups; else delete hooks[ev];
   }
   for (const ev of CLAUDE_HOOK_EVENTS) {
-    const h: { type: string; command: string; timeout: number; async?: boolean } = { type: "command", command: shellCmd(hookArgv(base, ev, taskId, repo)), timeout: 30 };
+    // Stop: o fim de turno (commit/diff/gate) roda DENTRO do hook — o Claude Code só puxa o próximo pedido da fila dele
+    // depois (veto do Rafa na mesa: commit/gate nunca no meio do turno seguinte)
+    const h: { type: string; command: string; timeout: number; async?: boolean } = { type: "command", command: shellCmd(hookArgv(base, ev, taskId, repo)), timeout: ev === "Stop" ? STOP_HOOK_TIMEOUT_S : 30 };
     if (ASYNC_HOOKS.has(ev)) h.async = true;
     (hooks[ev] = hooks[ev] ?? []).push(ev === "PreToolUse" || ev === "PostToolUse" ? { matcher: "*", hooks: [h] } : { hooks: [h] });
   }
@@ -213,6 +218,8 @@ interface TermState {
   lastAi?: TermAi;
   sessions?: Record<string, string>;
   started?: Record<string, number>;
+  /** a próxima `starfork ia` abre sessão NOVA continuando da worktree (assumiu um turno de fundo de planner/revisor) */
+  continueNext?: boolean;
 }
 function readTermState(worktree: string): TermState { try { return JSON.parse(readFileSync(join(termDir(worktree), "state.json"), "utf8")); } catch { return {}; } }
 function writeTermState(worktree: string, s: TermState): void { try { writeJsonAtomic(join(termDir(worktree), "state.json"), s); } catch { /* best-effort */ } }
@@ -222,6 +229,10 @@ export interface FeedEvent { agent?: "Você" | "Sistema"; type: string; text: st
 export interface HookEffect {
   events: FeedEvent[];
   busy?: boolean;
+  /** a IA está num menu/permissão/pergunta (true) ou saiu dele (false) — o app não cola pedido num menu */
+  waiting?: boolean;
+  /** ExitPlanMode: a IA terminou o PLANO e espera a aprovação no terminal (Cadeado 1) */
+  planReady?: boolean;
   sessionId?: string;
   status?: AgentStatus;
   turnEnd?: boolean;
@@ -245,9 +256,11 @@ export function mapHook(event: string, p: Record<string, any>): HookEffect {
       };
     case "UserPromptSubmit": {
       const prompt = String(p.prompt ?? "").trim();
-      return { events: prompt ? [{ agent: "Você", type: "note", text: `Você: ${clip(userText(prompt), 4000)}`, ok: true }] : [], busy: true, status: "running", sessionId: p.session_id || undefined };
+      return { events: prompt ? [{ agent: "Você", type: "note", text: `Você: ${clip(userText(prompt), 4000)}`, ok: true }] : [], busy: true, waiting: false, status: "running", sessionId: p.session_id || undefined };
     }
     case "PreToolUse": {
+      // Cadeado 1 no terminal: o plano ficou pronto — o menu nativo do Claude Code pede a aprovação ali mesmo
+      if (String(p.tool_name ?? "") === "ExitPlanMode") return { events: [{ agent: "Sistema", type: "note", text: PLAN_READY_NOTE, ok: false }], waiting: true, planReady: true };
       // ferramenta rodando = sessão OCUPADA (corrige um "livre" marcado por engano — ex.: Esc que só fechou um menu)
       const ev = mapTool(String(p.tool_name ?? ""), p.tool_input ?? {});
       if (ev.type === "claim" && ev.path) return { events: [], claim: { path: ev.path, mode: ev.mode ?? "write" }, busy: true };
@@ -264,12 +277,15 @@ export function mapHook(event: string, p: Record<string, any>): HookEffect {
       const msg = clip(p.message ?? "", 300);
       if (!msg) return { events: [] };
       const waiting = /permission|permiss|waiting for your input|aguardando/i.test(msg) || p.notification_type === "permission_prompt" || p.notification_type === "idle_prompt";
-      return { events: [{ agent: "Sistema", type: "note", text: waiting ? `⏸ esperando você no terminal: ${msg}` : `terminal: ${msg}`, ok: !waiting }] };
+      // menu ABERTO de verdade (colar ali escolheria uma opção): só permissão/elicitação — o idle_prompt (~60 s parado
+      // no prompt) não é menu, senão a fila do app nunca soltava (Téo na mesa)
+      const menu = waitingMenu(p.notification_type, msg);
+      return { events: [{ agent: "Sistema", type: "note", text: waiting ? `⏸ esperando você no terminal: ${msg}` : `terminal: ${msg}`, ok: !waiting }], ...(menu ? { waiting: true } : {}) };
     }
     case "Stop":
     case "codex-notify": {
       const last = clip(p.last_assistant_message ?? p["last-assistant-message"] ?? "", 2000);
-      return { events: [{ type: "done", text: last || "turno concluído", ok: true }], busy: false, turnEnd: true, sessionId: p.session_id || p["thread-id"] || undefined };
+      return { events: [{ type: "done", text: last || "turno concluído", ok: true }], busy: false, waiting: false, turnEnd: true, sessionId: p.session_id || p["thread-id"] || undefined };
     }
     case "SessionEnd":
       return { events: [{ agent: "Sistema", type: "status", text: `terminal: ${END_REASON_PT[String(p.reason ?? "")] ?? "a sessão terminou"}`, ok: true }], busy: false, ended: true };
@@ -307,6 +323,14 @@ export function lastAssistantText(transcriptPath: string | undefined): string {
   return "";
 }
 
+/** Nota do feed/barra quando o plano fica pronto no terminal (a Bia: o menu do Claude vem em inglês). */
+export const PLAN_READY_NOTE = "precisa de você · a IA fez um plano · aprove no terminal (Enter) ou peça mudança";
+/** PURA: a notificação é um MENU aberto (permissão/elicitação)? `idle_prompt` não é. */
+export function waitingMenu(type: unknown, msg: unknown): boolean {
+  const t = String(type ?? "");
+  if (t) return t === "permission_prompt" || t === "elicitation" || t === "elicitation_dialog";
+  return /needs your permission|permission to use|precisa da sua permissão/i.test(String(msg ?? ""));
+}
 /** Aplica o efeito no banco da tarefa. Devolve o efeito (o chamador dispara o fim de turno). */
 export function applyHook(store: Store, taskId: string, eff: HookEffect): void {
   const task = store.getTask(taskId);
@@ -319,6 +343,18 @@ export function applyHook(store: Store, taskId: string, eff: HookEffect): void {
   // turno novo, fim de turno ou sessão fechada: nenhum hook espera mais a pergunta (Esc no TTY mata o hook)
   if (eff.turnEnd || eff.ended || eff.status === "running") store.closeAuqQuestions(taskId);
   if (eff.busy !== undefined) store.termSetBusy(taskId, eff.busy);
+  if (eff.waiting !== undefined) store.termSetWaiting(taskId, eff.waiting);
+  // PreToolUse (qualquer ferramenta que não o plano) = a IA saiu do menu e voltou a trabalhar
+  else if (eff.busy === true) store.termSetWaiting(taskId, false);
+  // saiu do menu do plano (aprovou → ferramenta rodando; pediu mudança → turno novo): o "precisa de você" do plano cai
+  if (!eff.planReady && (eff.busy === true || eff.status === "running") && (spec as { needsYou?: { kind?: string } } | null)?.needsYou?.kind === "plano") {
+    store.patchSpec(taskId, { needsYou: null });
+    if (task.status === "needs-you") store.setStatus(taskId, "running");
+  }
+  if (eff.planReady && !["merged", "done", "aborted"].includes(task.status)) {
+    store.patchSpec(taskId, { needsYou: { kind: "plano", text: PLAN_READY_NOTE, at: Date.now() } });
+    store.setStatus(taskId, "needs-you");
+  }
   if (eff.status && !["merged", "done", "aborted"].includes(task.status)) store.setStatus(taskId, eff.status);
   if (eff.status === "running") store.setStage(taskId, role?.role ?? "builder");
   if (eff.claim) {
@@ -610,7 +646,7 @@ export interface AiLaunch { ai: TermAi; program: string; args: string[]; env: Re
  *    / `opencode --continue`); sem sessão → nova.
  *  - message: 1ª mensagem (ex.: follow-up mandado com a IA fechada).   - model: vazio = termModelOf.
  */
-export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: { resume?: boolean; message?: string; model?: string; quiet?: boolean } = {}): AiLaunch {
+export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: { resume?: boolean; message?: string; model?: string; quiet?: boolean; continueNote?: boolean } = {}): AiLaunch {
   // QUIETO (o app retoma sozinho ao abrir a tarefa — 08/10): a IA só ABRE e espera; nada de 1ª mensagem/kickoff
   // (não gasta nada até a pessoa mandar), status/etapa intocados e sem notas de "abrindo" no feed
   const quiet = !!opts.quiet;
@@ -621,7 +657,7 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   if (!existsSync(task.worktree)) throw new Error(task.status === "merged" ? "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste" : "a worktree desta tarefa não existe mais");
   const bin = resolveAiBin(ai);
   if (!bin) throw new AiMissingError(aiMissingMsg(ai));
-  if (spec.termMode !== "terminal") { spec.termMode = "terminal"; orch.store.updateSpec(taskId, JSON.stringify(spec)); }
+  if (spec.termMode !== "terminal") { spec.termMode = "terminal"; orch.store.patchSpec(taskId, { termMode: "terminal" }); }
   const repo = orch.ws.repo;
   const base = engineBase();
   const st = readTermState(task.worktree);
@@ -629,7 +665,9 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   let sid = opts.resume && aiHasHooks(ai) ? sessionFor(ai, st, cur, aiOfEngine(role.engine || spec.engine)) : "";
   // gemini/opencode não têm id de sessão pra nós: retomam "a última desta pasta" — só se já rodaram aqui
   const resumeLast = !!opts.resume && !aiHasHooks(ai) && !!st.started?.[ai];
-  let lostSession = false;
+  // assumiu um turno de fundo de planner/revisor: sessão NOVA que continua do que está na worktree
+  let lostSession = !!opts.continueNote;
+  if (lostSession) sid = "";
   // sessão sem transcript (apagado, outra máquina, gravação desligada): `claude --resume` sairia na hora com
   // "No conversation found" — abre sessão NOVA que continua da worktree
   if (sid && aiFamily(ai) === "claude" && !claudeTranscriptExists(sid)) {
@@ -668,7 +706,7 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   const ownRules = join(termDir(task.worktree), "AGENTS.starfork.md");
   try { mkdirSync(dirname(ownRules), { recursive: true }); writeFileSync(ownRules, rules, "utf8"); } catch { /* segue com a 1ª mensagem */ }
   let kicked = false;
-  const genericKick = () => merged || quiet ? "" : codexPrompt(input) + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
+  const genericKick = () => merged || quiet ? "" : codexPrompt(input) + (planApprovalOn(spec) ? `\n\n${PLAN_FIRST_RULE}` : "") + "\n\nNeste terminal você TEM as ferramentas do Starfork (mcp cardume) e os comandos `starfork …` no shell: use ask_human (ou `starfork perguntar`) para dúvidas e add_requirement (ou `starfork requisito`) para pedidos novos.\n\n" + INTEGRADO_RULE;
   if (ai === "claude" || ai === "deepseek") {
     // a pasta foi criada pelo Starfork a partir do repo da pessoa: sem o "Is this a project you trust?" (padrão = sair)
     trustClaudeProject(task.worktree, repo);
@@ -679,10 +717,13 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     // as regras do Starfork vão no SYSTEM PROMPT (reenviado a cada abertura, inclusive no --resume): a conversa
     // no terminal começa limpa, com um pedido curto — e não com 10 KB de regra na 1ª mensagem
     args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}\n\n${INTEGRADO_RULE}${INTEGRADO_CLAUDE_CMDS}${INTEGRADO_SHELL}${mergedNote ? `\n${mergedNote}` : ""}${quietNote}`);
-    args.push("--mcp-config", mcpConfigPath, ...protectArgs(protectOn), "--permission-mode", "bypassPermissions");
+    const kick = first || (sid || merged || quiet ? "" : KICKOFF);
+    // Cadeado 1 (aprovar o plano) no terminal: SÓ no kickoff de uma tarefa nova, em plan mode — o ExitPlanMode nativo é
+    // o cadeado (vira "precisa de você"); no --resume nunca (senão o cadeado reabriria a cada abertura)
+    const planGate = kick === KICKOFF && planApprovalOn(spec);
+    args.push("--mcp-config", mcpConfigPath, ...protectArgs(protectOn), "--permission-mode", planGate ? "plan" : "bypassPermissions");
     // DeepSeek: o modelo vai no env (ANTHROPIC_MODEL) — `--model deepseek-…` seria validado como id do Claude
     if (model && !dsEnv) args.push("--model", model);
-    const kick = first || (sid || merged || quiet ? "" : KICKOFF);
     if (kick) args.push(kick);
     kicked = !!kick;
     const ce = claudeEnv();
@@ -755,6 +796,32 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   if (!quiet) orch.store.addEvent(taskId, "Sistema", "status", `${sid || resumeLast ? `abrindo o terminal (${ai}) e retomando a sessão` : `abrindo o terminal (${ai})`}${merged ? " — tarefa integrada: só conversa" : ""}`, true);
   const busy = aiHasHooks(ai) && kicked;
   return { ai, program: bin, args, env, envRemove, resumed: !!(sid || resumeLast), sessionId: sid || null, cwd: task.worktree, busy };
+}
+
+/** A tarefa pede aprovação do plano antes de construir (Cadeado 1)? */
+export const planApprovalOn = (spec: TaskSpec) => spec?.autonomy?.planApproval === "review";
+/** Kickoff das IAs sem plan mode nativo quando a tarefa pede aprovação do plano. */
+export const PLAN_FIRST_RULE = "APROVAÇÃO DO PLANO: antes de mudar qualquer arquivo, apresente o PLANO (passos, arquivos, riscos) e PARE pedindo aprovação ao humano (suggest_replies com \"pode seguir\" / \"mudar o plano\"). Só construa depois do ok.";
+/**
+ * PORTÃO DO TETO no terminal (a mesma régua do pipeline — Orchestrator.capGate): gasto ≥ 80% do teto → a tarefa vai
+ * pra "precisa de você" com a pergunta do teto (budgetHit mode "etapa": liberar → ▶ abre o terminal de novo) e o
+ * pedido NÃO sobe. Piloto automático: quem decide é o piloto.
+ */
+export function termCapGate(orch: Orchestrator, taskId: string, next: string): void {
+  const t = orch.store.getTask(taskId);
+  if (!t) return;
+  let spec: TaskSpec;
+  try { spec = JSON.parse(t.spec_json) as TaskSpec; } catch { return; }
+  if (spec.autopilot) return;
+  const cap = effectiveCap(spec.budgetUsd, readCostCapSetting());
+  const spent = orch.store.taskSpend(taskId);
+  if (capCheck(spent, cap) === "ok") return;
+  const at = Date.now();
+  const text = capPauseText(spent, cap, next);
+  orch.store.patchSpec(taskId, { budgetUsd: cap, budgetHit: { usd: Math.round(spent * 10000) / 10000, cap, at, mode: "etapa" }, needsYou: { kind: "teto", text, at } });
+  if (!["merged", "done", "aborted"].includes(t.status)) orch.store.setStatus(taskId, "needs-you");
+  orch.store.addEvent(taskId, "Sistema", "note", text, false);
+  throw new Error(`teto de custo: ${text}`);
 }
 
 /** Caminho e o real (macOS: /tmp → /private/tmp) — a IA compara pelo real, a pessoa vê o outro. */
@@ -896,25 +963,30 @@ export function shellLine(shim: string, shell: string, o: { ai: TermAi; model?: 
  *  - resume: retoma a sessão gravada; message: 1ª mensagem (vai por arquivo — nada de texto do humano no argv do shell);
  *  - ai/model: troca de IA pelo app (term_switch_ai) — senão termAiOf/termModelOf.
  */
-export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: boolean; quiet?: boolean; message?: string; ai?: string; model?: string; direct?: boolean } = {}): LaunchSpec {
+export function termPrep(orch: Orchestrator, taskId: string, opts: { resume?: boolean; quiet?: boolean; message?: string; ai?: string; model?: string; direct?: boolean; newSession?: boolean } = {}): LaunchSpec {
   // quieto + mensagem não combinam: a mensagem é um pedido explícito (vai e gasta, pelos portões de sempre)
   const quiet = !!opts.quiet && !(opts.message ?? "").trim();
   const task = orch.store.getTask(taskId);
   if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
   const spec = JSON.parse(task.spec_json) as TaskSpec;
+  // portão do TETO: abrir pra TRABALHAR (kickoff ou mensagem) passa por ele; abrir quieto (só olhar) não gasta nada
+  if (!quiet) termCapGate(orch, taskId, "abrir o terminal");
+  // assumiu um turno de fundo de planner/revisor: a sessão gravada não é de quem conversa — sessão nova (veto Rafa/Júlia)
+  if (opts.newSession) opts = { ...opts, resume: false };
   const role = talkRole(spec);
   const ai = isTermAi(opts.ai) ? opts.ai : termAiOf(spec, role);
   const model = String(opts.model ?? termModelOf(spec, role, ai)).trim();
   const recommended = recommendedLaunch(spec, role);
   if (opts.direct || process.platform === "win32") {
-    const L = aiLaunch(orch, taskId, ai, { resume: opts.resume, message: opts.message, model, quiet });
+    const L = aiLaunch(orch, taskId, ai, { resume: opts.resume, message: opts.message, model, quiet, continueNote: !!opts.newSession });
     return { program: L.program, args: L.args, cwd: L.cwd, env: L.env, envRemove: L.envRemove, engine: ai, resumed: L.resumed, sessionId: L.sessionId, model, shell: false, busy: L.busy, recommended };
   }
   // DeepSeek sem chave: erro claro ANTES de abrir o PTY (a matriz da spec)
   if (ai === "deepseek") deepseekClaudeEnv(model || undefined, dshKey());
   if (!existsSync(task.worktree)) throw new Error(task.status === "merged" ? "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste" : "a worktree desta tarefa não existe mais");
-  if (spec.termMode !== "terminal") { spec.termMode = "terminal"; orch.store.updateSpec(taskId, JSON.stringify(spec)); }
+  if (spec.termMode !== "terminal") { spec.termMode = "terminal"; orch.store.patchSpec(taskId, { termMode: "terminal" }); }
   const binDir = writeShim(task.worktree, engineBase());
+  if (opts.newSession) { const st0 = readTermState(task.worktree); st0.continueNext = true; writeTermState(task.worktree, st0); }
   const msg = (opts.message ?? "").trim();
   if (msg) writeFileSync(join(task.worktree, NEXT_MSG_REL), msg, "utf8");
   const shell = userShell();
@@ -981,8 +1053,10 @@ export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resu
     }
     const st0 = readTermState(task.worktree);
     snapshotSession(st0, orch.store.termGet(taskId)?.session_id);
+    const continueNote = !!st0.continueNext;
+    delete st0.continueNext;
     writeTermState(task.worktree, st0);
-    const launch = aiLaunch(orch, taskId, ai, { resume: o.resume, message, model: o.model, quiet: !!o.quiet && !message.trim() });
+    const launch = aiLaunch(orch, taskId, ai, { resume: o.resume, message, model: o.model, quiet: !!o.quiet && !message.trim(), continueNote });
     // relê: o aiLaunch grava a barra de status da pessoa (prevStatusLine) no mesmo arquivo
     const st = readTermState(task.worktree);
     st.lastAi = ai;
@@ -1041,6 +1115,11 @@ export async function termMessage(orch: Orchestrator, taskId: string, kind: stri
     orch.store.updateSpec(taskId, JSON.stringify(spec));
     try { writeFileSync(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(spec), "utf8"); } catch { /* worktree some */ }
   };
+  if (kind === "kickoff") {
+    // ▶ com o terminal aberto só pra olhar: o kickoff vai nele — pelo portão do teto, como abrir pra trabalhar
+    termCapGate(orch, taskId, "começar a tarefa");
+    return KICKOFF;
+  }
   if (kind === "deliver") {
     const k = (["doc", "tests", "proof", "all"].includes(String(o.deliver)) ? o.deliver : "all") as "doc" | "tests" | "proof" | "all";
     return deliverPrompt(k);
@@ -1067,7 +1146,10 @@ const readStdin = (): string => { try { return readFileSync(0, "utf8"); } catch 
 const dbOf = (repo: string) => join(repo, ".cardume", "state.sqlite");
 
 /** `hook <Evento> --starfork-task <id> --repo <repo>` — nunca quebra o CLI: erro vai pro stderr, saída 0. */
-export function hookCli(event: string, taskArg: string, repoArg: string, argvPayload?: string): number {
+/** Fim de turno que o hook Stop pediu pra rodar EM LINHA (o `cli hook Stop` espera ele antes de devolver ao Claude Code). */
+let inlineTurnEnd: { taskId: string; repo: string } | null = null;
+export function takeInlineTurnEnd(): { taskId: string; repo: string } | null { const t = inlineTurnEnd; inlineTurnEnd = null; return t; }
+export function hookCli(event: string, taskArg: string, repoArg: string, argvPayload?: string, o: { inline?: boolean } = {}): number {
   try {
     const { taskId, repo, db } = hookTarget(taskArg, repoArg);
     if (!taskId || !db) return 0;
@@ -1101,7 +1183,10 @@ export function hookCli(event: string, taskArg: string, repoArg: string, argvPay
       }
       // fim de turno: no Stop/notify sempre; no SessionEnd só se a sessão caiu NO MEIO de um turno (senão o
       // fim de turno já rodou no Stop e o gate apareceria duas vezes)
-      if (eff.turnEnd || (eff.ended && wasBusy)) spawnTurnEnd(taskId, repo);
+      if (eff.turnEnd || (eff.ended && wasBusy)) {
+        if (o.inline && event === "Stop") inlineTurnEnd = { taskId, repo };
+        else spawnTurnEnd(taskId, repo);
+      }
     } finally { store.close(); }
   } catch (e) {
     process.stderr.write(`starfork hook ${event}: ${(e as Error)?.message ?? e}\n`);
@@ -1118,22 +1203,39 @@ function spawnTurnEnd(taskId: string, repo: string): void {
 }
 
 /** `turn-end <id>`: uma por vez por tarefa (trava em arquivo; trava velha de 10 min é descartada). */
-export async function turnEndCli(repo: string, taskId: string): Promise<void> {
+export async function turnEndCli(repo: string, taskId: string, o: { inline?: boolean } = {}): Promise<void> {
   const orch = new Orchestrator(repo);
   const task = orch.store.getTask(taskId);
   if (!task) { orch.close(); return; }
   const lock = join(termDir(task.worktree), "turn-end.lock");
+  let openPr = false;
   try {
     mkdirSync(dirname(lock), { recursive: true });
     try { if (Date.now() - statSync(lock).mtimeMs > 10 * 60_000) rmSync(lock, { force: true }); } catch { /* sem trava */ }
-    let fd: number;
-    try { fd = openSync(lock, "wx"); } catch { orch.close(); return; } // outro fim de turno em curso
+    let fd: number | null = null;
+    // em linha (hook Stop): ESPERA o outro fim de turno terminar (trava por tarefa) — o deste turno não pode se perder
+    const until = Date.now() + (o.inline ? (STOP_HOOK_TIMEOUT_S - 30) * 1000 : 0);
+    for (;;) {
+      try { fd = openSync(lock, "wx"); break; } catch { /* em curso */ }
+      if (Date.now() >= until) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    if (fd === null) { orch.close(); return; } // outro fim de turno em curso
     closeSync(fd);
     try {
-      await orch.terminalTurnEnd(taskId, () => (orch.store.termGet(taskId)?.busy ?? 0) === 1);
+      const r = await orch.terminalTurnEnd(taskId, () => (orch.store.termGet(taskId)?.busy ?? 0) === 1, { deferPr: !!o.inline });
+      openPr = !!r?.openPr;
       const st = readTermState(task.worktree); st.lastTurnEnd = Date.now(); writeTermState(task.worktree, st);
     } finally { rmSync(lock, { force: true }); }
   } finally { orch.close(); }
+  // o PR (push + gh) sai DESTACADO: o hook devolve o controle ao Claude Code com o estado já consistente
+  if (openPr) spawnDetached(["turn-end", taskId, "--so-pr", "--repo", repo], repo);
+}
+function spawnDetached(args: string[], cwd: string): void {
+  try {
+    const c = spawn(process.execPath, [...process.execArgv.filter((a) => a === "--experimental-sqlite"), "--disable-warning=ExperimentalWarning", process.argv[1], ...args], { cwd, detached: true, stdio: "ignore", env: process.env });
+    c.unref();
+  } catch { /* sem PR automático: o botão Abrir PR segue valendo */ }
 }
 
 /** `statusline --starfork-task <id>`: grava o custo e imprime a barra (a da pessoa, se houver, encadeada). */

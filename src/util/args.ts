@@ -33,7 +33,7 @@ export const TEXT_FLAGS = new Set([
 
 /** Flags SEM valor (booleanas). */
 export const BOOL_FLAGS = new Set([
-  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design", "resume", "quiet", "clear",
+  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design", "resume", "quiet", "clear", "nova-sessao", "so-pr",
 ]);
 
 const isKnownFlag = (tok: string) => tok.startsWith("--") && (TEXT_FLAGS.has(tok.slice(2)) || BOOL_FLAGS.has(tok.slice(2)) || tok === "--artifact-doc");
