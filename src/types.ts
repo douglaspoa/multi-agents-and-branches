@@ -176,6 +176,8 @@ export interface TaskSpec {
   termHandoff?: { to: "reviewer" | "builder"; round?: number; msg?: string; at: number } | null;
   /** Sessão do CONSTRUTOR guardada enquanto o revisor fala (a volta retoma ela, nunca a do revisor). */
   termBuilderSid?: string | null;
+  /** já avisou (uma vez) que o revisor automático está desligado */
+  termReviewHint?: boolean;
   /** Tarefa do PILOTO AUTOMÁTICO (src/autopilot.ts): ninguém responde — o app não pausa no teto (o piloto decide). */
   autopilot?: boolean;
   // ---- Tarefa SOB ÉPICO. Todos opcionais: tarefa criada fora do planner não tem nenhum. ----

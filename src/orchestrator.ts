@@ -113,6 +113,8 @@ export function reviewerBlockedWhy(engine: string, platform: string): string {
   if (platform === "win32") return "no Windows o terminal é a própria IA (sem troca de papel)";
   const e = String(engine ?? "").trim().toLowerCase();
   if (!e || e === "mock" || e.startsWith("gateway") || e.startsWith("logcomex")) return "o revisor desta equipe usa uma IA sem terminal";
+  // sem aviso de fim de turno (Gemini CLI, opencode): o veredito nunca seria lido e a tarefa ficaria "rodando"
+  if (e.startsWith("gemini") || e.startsWith("opencode")) return "o revisor desta equipe usa uma IA que não avisa quando termina";
   return "";
 }
 /** Teto padrão de Configurações (`costCap` em ~/.constellation/settings.json, espelhado pelo app). */
@@ -2533,7 +2535,14 @@ export class Orchestrator {
   private terminalHandoffToReviewer(taskId: string, spec: TaskSpec, builderName: string): boolean {
     const reviewer = spec.roles?.find((r) => r.role === "reviewer");
     if (!reviewer || spec.kind === "review") return false;
-    if (!revisorAutoOn()) return false; // desligado (padrão até o teste de fumaça): a pessoa pede pela doca (Revisão / PR)
+    if (!revisorAutoOn()) {
+      // desligado (padrão até o teste de fumaça): diz UMA vez por tarefa por que o revisor não entrou e como pedir
+      if (!spec.termReviewHint) {
+        this.store.patchSpec(taskId, { termReviewHint: true });
+        this.store.addEvent(taskId, "Sistema", "note", `${reviewer.name} (revisor) não entra sozinho no terminal — peça em Revisão / PR › Pedir revisão, ou ligue em Ajustes › Revisor automático no terminal`, true);
+      }
+      return false;
+    }
     const why = reviewerBlockedWhy(engineKind(reviewer.engine), process.platform);
     if (why) { this.store.addEvent(taskId, "Sistema", "note", `revisão automática não rodou: ${why} — peça em Revisão / PR › Pedir revisão`, false); return false; }
     const round = (spec.reviewRounds?.length ?? 0) + 1;
@@ -2553,6 +2562,11 @@ export class Orchestrator {
     let text = "";
     try { text = await readFile(join(task.worktree, ".cardume", "VEREDITO.md"), "utf8"); } catch { /* sem arquivo */ }
     if (!text.trim()) text = this.store.eventsForTask(taskId).filter((e) => e.agent === tr.name && (e.type === "done" || e.type === "note")).map((e) => e.text).slice(-3).join("\n");
+    // o revisor não devia mexer em código: se mexeu, fica registrado (commit próprio + nota) — nunca no nome de quem constrói
+    if (spec.kind !== "review") {
+      try { if (await this.git.commitAll(task.worktree, `starfork(terminal): mudanças do revisor ${tr.name}`)) this.store.addEvent(taskId, "Sistema", "note", `${tr.name} (revisor) alterou arquivos — ficaram num commit próprio na branch; confira na Revisão`, false); }
+      catch { /* sem commit: segue com o veredito */ }
+    }
     const verdict = parseVerdict(text);
     const rec: ReviewRound = { round, verdict: verdict.kind, items: verdict.items, at: Date.now(), reviewer: r.name, agentId: r.agentId, engine: engineKind(r.engine), model: r.model };
     const rounds = [...(spec.reviewRounds ?? []), rec];

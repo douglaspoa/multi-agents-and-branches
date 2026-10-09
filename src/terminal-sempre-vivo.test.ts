@@ -4,12 +4,14 @@
 // é um binário falso (nunca o `claude` de verdade) e a config do Claude Code vai pra uma pasta temporária.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Orchestrator, reviewerBlockedWhy } from "./orchestrator.ts";
-import { aiLaunch, applyHook, KICKOFF, mapHook, PLAN_READY_NOTE, reviewKick, termCapGate, termMessage, termPrep, waitingMenu } from "./terminal.ts";
+import { fileURLToPath } from "node:url";
+import { Orchestrator, reviewerBlockedWhy, revisorAutoOn, REVISOR_AUTO_DEFAULT } from "./orchestrator.ts";
+import { parseArgs } from "./util/args.ts";
+import { aiLaunch, applyHook, iaExit, KICKOFF, trustClaudeProject, mapHook, PLAN_READY_NOTE, reviewKick, termCapGate, termMessage, termPrep, waitingMenu } from "./terminal.ts";
 import type { TaskSpec } from "./types.ts";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -204,4 +206,123 @@ test("revisor bloqueado explica em português simples", () => {
   assert.equal(reviewerBlockedWhy("claude", "darwin"), "");
   assert.match(reviewerBlockedWhy("claude", "win32"), /Windows/);
   assert.match(reviewerBlockedWhy("gateway", "linux"), /IA sem terminal/);
+});
+
+test("revisor automático: Ajustes (termRevisorAuto) liga/desliga; padrão desligado até o teste de fumaça", () => {
+  const home = mkdtempSync(join(tmpdir(), "starfork-rev-"));
+  const keep = { home: process.env.HOME, rev: process.env.STARFORK_REVISOR_AUTO };
+  try {
+    delete process.env.STARFORK_REVISOR_AUTO; process.env.HOME = home;
+    assert.equal(revisorAutoOn(), REVISOR_AUTO_DEFAULT);
+    assert.equal(REVISOR_AUTO_DEFAULT, false, "veto do Rafa: desligado por padrão");
+    mkdirSync(join(home, ".constellation"));
+    writeFileSync(join(home, ".constellation", "settings.json"), JSON.stringify({ termRevisorAuto: "1" }));
+    assert.equal(revisorAutoOn(), true);
+    writeFileSync(join(home, ".constellation", "settings.json"), JSON.stringify({ termRevisorAuto: "0" }));
+    assert.equal(revisorAutoOn(), false);
+  } finally {
+    if (keep.home === undefined) delete process.env.HOME; else process.env.HOME = keep.home;
+    if (keep.rev === undefined) delete process.env.STARFORK_REVISOR_AUTO; else process.env.STARFORK_REVISOR_AUTO = keep.rev;
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("menu aberto não fica preso: a IA saindo solta a marca; teto aberto não é engolido pelo plano", async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    await orch.createTask(spec("wt", { termMode: "terminal" }));
+    applyHook(orch.store, "wt", mapHook("Notification", { notification_type: "permission_prompt", message: "Claude needs your permission to use Bash" }));
+    const w = () => (orch.store.db.prepare("SELECT waiting FROM term_session WHERE task_id='wt'").get() as { waiting: number }).waiting;
+    assert.equal(w(), 1);
+    iaExit(orch.store, "wt", "claude");
+    assert.equal(w(), 0, "a IA saiu: nenhum menu aberto");
+    orch.store.patchSpec("wt", { needsYou: { kind: "teto", text: "decida o teto", at: 1 } });
+    orch.store.setStatus("wt", "needs-you");
+    applyHook(orch.store, "wt", mapHook("PreToolUse", { tool_name: "ExitPlanMode" }));
+    assert.equal(specOf(orch, "wt").needsYou?.kind, "teto", "a pergunta do teto continua (o plano não a apaga)");
+  } finally { orch.close(); f.done(); }
+});
+
+test("pedir ajuste e pedir prova também passam pelo portão do teto", async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    await orch.createTask(spec("tg", { termMode: "terminal", budgetUsd: 1 }));
+    orch.store.addCost("tg", "Vega", "builder", 0.9, 1, 1, 0, "claude", undefined, 0);
+    await assert.rejects(termMessage(orch, "tg", "rework", { msg: "x" }), /teto de custo/);
+    await assert.rejects(termMessage(orch, "tg", "deliver", { deliver: "proof" }), /teto de custo/);
+  } finally { orch.close(); f.done(); }
+});
+
+const CLI = fileURLToPath(new URL("./cli.ts", import.meta.url));
+test("hook Stop roda o fim de turno EM LINHA (commit, gate, review) antes de devolver ao Claude Code", async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    const t = await orch.createTask(spec("hs", { termMode: "terminal" }));
+    orch.store.setStatus("hs", "running");
+    orch.close();
+    writeFileSync(join(t.worktree, "novo.txt"), "do turno\n");
+    const r = spawnSync(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, "hook", "Stop", "--starfork-task", "hs", "--repo", f.repo], { encoding: "utf8", input: JSON.stringify({ last_assistant_message: "pronto" }), env: { ...process.env, CARDUME_NOTIFY: "0" } });
+    assert.equal(r.status, 0, r.stderr);
+    const o2 = new Orchestrator(f.repo);
+    try {
+      assert.equal(o2.store.getTask("hs")!.status, "review", "quando o hook volta, o turno já foi pra revisão");
+      assert.match(git(t.worktree, "log", "-1", "--pretty=%s"), /starfork\(terminal\)/, "commitado dentro do hook");
+      assert.ok(o2.store.eventsForTask("hs").some((e) => /gate de verificação/.test(e.text)));
+    } finally { o2.close(); }
+  } finally { try { orch.close(); } catch { /* fechado */ } f.done(); }
+});
+
+test("fim de turno em linha com gate ok: o PR sai DESTACADO (openPr) — e --so-pr é flag sem valor", async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    const t = await orch.createTask(spec("pr", { termMode: "terminal", requirements: ["r1"] }));
+    mkdirSync(join(t.worktree, ".cardume", "artifacts"), { recursive: true });
+    writeFileSync(join(t.worktree, ".cardume", "artifacts", "proof.md"), "ok");
+    writeFileSync(join(t.worktree, ".cardume", "artifacts", "requirements.json"), JSON.stringify([{ req: "r1", status: "done", evidence: ["proof.md"] }]));
+    orch.store.setStatus("pr", "running");
+    const g = await orch.terminalTurnEnd("pr", () => false, { deferPr: true });
+    assert.equal(g!.ok, true, JSON.stringify(g));
+    assert.equal(g!.openPr, true, "o PR fica pro processo destacado");
+    const a = parseArgs(["turn-end", "pr", "--so-pr", "--repo", "/r"]);
+    assert.equal(a.flags["so-pr"], "true"); assert.equal(a.flags.repo, "/r");
+  } finally { orch.close(); f.done(); }
+});
+
+test("revisão de PR no terminal: o review fatual do diff entra UMA vez; a pasta de revisão é confiada", async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    const t = await orch.createTask(spec("rp", { termMode: "terminal", kind: "review", roles: [{ role: "reviewer", name: "Iris", engine: "claude" }] }));
+    writeFileSync(join(t.worktree, "DIFF.patch"), "diff --git a/x.ts b/x.ts\n--- a/x.ts\n+++ b/x.ts\n@@ -1 +1 @@\n-a\n+b\n");
+    orch.store.setStatus("rp", "running");
+    await orch.terminalTurnEnd("rp");
+    orch.store.setStatus("rp", "running");
+    await orch.terminalTurnEnd("rp");
+    assert.ok(orch.store.getReview("rp"), "review fatual gravado");
+    assert.equal(orch.store.eventsForTask("rp").filter((e) => /^review pronto/.test(e.text)).length, 1, "uma vez só");
+    const cfg = join(f.root, "trust"); mkdirSync(cfg);
+    writeFileSync(join(cfg, ".claude.json"), "{}");
+    assert.equal(trustClaudeProject(join(f.repo, ".cardume", "reviews", "pr-1"), f.repo, { CLAUDE_CONFIG_DIR: cfg }), true, "pasta de revisão de PR confiada");
+    assert.equal(trustClaudeProject(join(f.root, "fora"), f.repo, { CLAUDE_CONFIG_DIR: cfg }), false);
+  } finally { orch.close(); f.done(); }
+});
+
+test("waiting no banco: menu de permissão marca, ferramenta rodando e fim de turno soltam", async () => {
+  const f = fixture();
+  const orch = new Orchestrator(f.repo);
+  try {
+    await orch.createTask(spec("wq", { termMode: "terminal" }));
+    const w = () => (orch.store.db.prepare("SELECT waiting FROM term_session WHERE task_id='wq'").get() as { waiting: number }).waiting;
+    applyHook(orch.store, "wq", mapHook("Notification", { notification_type: "permission_prompt", message: "x" }));
+    assert.equal(w(), 1);
+    applyHook(orch.store, "wq", mapHook("PreToolUse", { tool_name: "Bash", tool_input: { command: "ls" } }));
+    assert.equal(w(), 0, "permitiu: a ferramenta rodou");
+    applyHook(orch.store, "wq", mapHook("Notification", { notification_type: "elicitation_dialog", message: "x" }));
+    applyHook(orch.store, "wq", mapHook("Stop", {}));
+    assert.equal(w(), 0);
+  } finally { orch.close(); f.done(); }
 });

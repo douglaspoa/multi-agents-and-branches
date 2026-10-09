@@ -754,6 +754,27 @@ mod tests {
     }
 
     #[test]
+    fn fila_nativa_entrega_com_a_ia_ocupada_mas_nunca_num_menu() {
+        let d = tmpdir("fila-nativa");
+        let sink = Arc::new(TestSink::default());
+        let m = Arc::new(PtyManager::new(sink.clone(), None));
+        let s = m.spawn("t6", spec(&d, SCROLL_CAP)).unwrap();
+        s.attach();
+        let menu = Arc::new(AtomicBool::new(true));
+        let m2 = menu.clone();
+        // "pode receber agora?" = nenhum menu aberto (a IA pode estar no meio do turno: o Claude Code enfileira)
+        let ready: Arc<dyn Fn() -> Option<bool> + Send + Sync> = Arc::new(move || Some(!m2.load(Ordering::SeqCst)));
+        m.enqueue_mode("t6", "um".into(), ready.clone(), false).unwrap();
+        m.enqueue_mode("t6", "dois".into(), ready.clone(), false).unwrap();
+        std::thread::sleep(Duration::from_millis(900));
+        assert!(!sink.text("t6").contains("um"), "menu aberto: segura (colar ali escolheria uma opção)");
+        menu.store(false, Ordering::SeqCst);
+        assert!(sink.wait_for("t6", "um", 5000));
+        assert!(sink.wait_for("t6", "dois", 3000), "a 2ª vai em seguida, sem esperar o turno começar");
+        m.kill("t6");
+    }
+
+    #[test]
     fn fila_entrega_so_quando_livre_e_uma_por_vez() {
         let d = tmpdir("fila");
         let sink = Arc::new(TestSink::default());

@@ -152,3 +152,30 @@ fn snapshot_banco_real() {
         std::fs::write(out, serde_json::to_string(&snapshot_at(Some(db)).unwrap()).unwrap()).unwrap();
     }
 }
+
+/// ASSUMIR no terminal: a escada de sinais para o turno de FUNDO — o que sai no SIGINT volta rápido; o que ignora
+/// SIGINT e SIGTERM ainda morre no SIGKILL (grupo inteiro: o filho que o motor subiu vai junto).
+#[cfg(unix)]
+#[test]
+fn assumir_para_o_turno_de_fundo_em_escada() {
+    fn spawn(script: &str) -> i32 {
+        let mut c = Command::new("sh");
+        c.args(["-c", script]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+        detach_new_group(&mut c);
+        let mut child = c.spawn().unwrap();
+        let pid = child.id() as i32;
+        std::thread::spawn(move || { let _ = child.wait(); });
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        pid
+    }
+    let p = spawn("sleep 30");
+    let t0 = std::time::Instant::now();
+    assert!(stop_ladder(p), "sai no SIGINT");
+    assert!(t0.elapsed().as_millis() < 2500, "SIGINT basta: {}ms", t0.elapsed().as_millis());
+    let p = spawn("trap '' INT TERM; sleep 60 & wait");
+    let t0 = std::time::Instant::now();
+    assert!(stop_ladder(p), "ignora INT e TERM: ainda assim morre (KILL no grupo)");
+    let ms = t0.elapsed().as_millis();
+    assert!((7500..11000).contains(&ms), "esperou INT 3 s + TERM 5 s antes do KILL: {ms}ms");
+    assert!(!pid_alive(p));
+}

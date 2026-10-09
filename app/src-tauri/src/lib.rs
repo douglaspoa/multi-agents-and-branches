@@ -1169,13 +1169,24 @@ fn headless_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
 /// Escada de sinais no GRUPO do turno de fundo (o node do motor é líder — setsid): SIGINT (o `claude -p` e o node saem
 /// limpos, sem retry nem "erro"), 3 s → SIGTERM, 8 s → SIGKILL (Téo na mesa). Devolve se morreu.
 fn stop_ladder(p: i32) -> bool {
-    signal_group(p, procsig::CONT); // pausado (teto) também precisa poder sair
+    // líder de grupo (o app sobe o motor com setsid) → o grupo inteiro; senão (motor que alguém subiu num terminal) → a
+    // subárvore do processo, filhos primeiro — kill(-pid) num não-líder não faz nada (Edge Case Hunter)
+    #[cfg(unix)]
+    let leader = unsafe { libc::getpgid(p) } == p;
+    #[cfg(not(unix))]
+    let leader = true;
+    let sig = |s: i32| {
+        if leader { signal_group(p, s); return; }
+        #[cfg(unix)]
+        for x in term::subtree(&term::ps_table(), p as i64) { unsafe { libc::kill(x as i32, s); } }
+    };
+    sig(procsig::CONT); // pausado (teto) também precisa poder sair
     let wait = |ms: u64| { let t0 = std::time::Instant::now(); while t0.elapsed() < std::time::Duration::from_millis(ms) { if !pid_alive(p) { return true; } std::thread::sleep(std::time::Duration::from_millis(50)); } !pid_alive(p) };
-    signal_group(p, procsig::INT);
+    sig(procsig::INT);
     if wait(3000) { return true; }
-    signal_group(p, procsig::TERM);
+    sig(procsig::TERM);
     if wait(5000) { return true; }
-    signal_group(p, procsig::KILL);
+    sig(procsig::KILL);
     wait(1500)
 }
 /// Espera o transcript da sessão PARAR de crescer (~500 ms sem mudar, no máx. 3 s): o `--resume` só depois que o
@@ -1206,10 +1217,10 @@ fn takeover_headless(state: &State<AppState>, task_id: &str) -> Result<Option<bo
     let spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or_default();
     if term::is_autopilot(&spec) { return Err(term::AUTOPILOT_OWNS.to_string()); }
     term::taking_set(task_id, true);
-    let _ = conn.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 1)", params![task_id, now_ms(), "trazendo a IA pro terminal — o turno de fundo parou num ponto seguro e a conversa continua aqui"]);
     let dead = stop_ladder(p);
     if let Ok(mut m) = state.procs.lock() { if m.get(task_id) == Some(&p) { m.remove(task_id); } }
     if !dead { term::taking_set(task_id, false); return Err("não consegui parar o turno de fundo desta tarefa — tente de novo em alguns segundos".into()); }
+    let _ = conn.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 1)", params![task_id, now_ms(), "trazendo a IA pro terminal — o turno de fundo parou num ponto seguro e a conversa continua aqui"]);
     let _ = conn.execute("UPDATE task SET busy_pid=NULL WHERE id=?1 AND busy_pid=?2", params![task_id, p as i64]);
     let _ = stop_set_review(&conn, task_id);
     transcript_settle(wt.as_deref().unwrap_or(""), sid.as_deref());
@@ -1230,7 +1241,7 @@ fn term_takeover(state: State<AppState>, task_id: String, cols: u16, rows: u16) 
 }
 /// Mensagem pro terminal de uma tarefa que roda no terminal: turno de fundo vivo → assume antes (abre com o texto como 1ª
 /// mensagem, na sessão certa); senão o roteamento de sempre (fila/abre).
-fn term_route_after_takeover(state: &State<AppState>, task_id: &str, kind: &str, msg: &str, as_req: bool, deliver: Option<&str>) -> Result<(), String> {
+pub(crate) fn term_route_after_takeover(state: &State<AppState>, task_id: &str, kind: &str, msg: &str, as_req: bool, deliver: Option<&str>) -> Result<(), String> {
     let r = (|| {
         if let Some(fresh) = takeover_headless(state, task_id)? {
             if fresh { term::set_fresh_next(task_id); }
@@ -1238,6 +1249,7 @@ fn term_route_after_takeover(state: &State<AppState>, task_id: &str, kind: &str,
         term::route(state, task_id, kind, msg, as_req, deliver)
     })();
     term::taking_set(task_id, false);
+    let _ = term::take_fresh_next(task_id); // não vaza pra uma abertura futura (só vale pra ESTA mensagem)
     r
 }
 
@@ -3768,7 +3780,11 @@ fn new_task(
     let ek = args.iter().position(|a| a == "--engine").and_then(|i| args.get(i + 1)).map(|e| e.to_lowercase()).unwrap_or_default();
     // Codex no terminal = a pessoa ESCOLHEU terminal (beta antiga ou a tela nova) — o padrão novo é só do Claude
     let chosen = setting_get("taskMode").as_deref() == Some("terminal");
-    let terminal = term::wants_terminal(term_mode.as_deref(), term::default_mode(), chosen, &ek);
+    // sem pedido explícito: a MESMA regra do início (term::starts_in_terminal) — rótulo só com o modelo ("opus") é Claude
+    let terminal = match term_mode.as_deref() {
+        Some("terminal") | Some("auto") => term::wants_terminal(term_mode.as_deref(), term::default_mode(), chosen, &ek),
+        _ => term::starts_in_terminal(&serde_json::json!({ "engine": ek }), term::default_mode(), chosen),
+    };
     // "auto" só fica GRAVADO quando é escolha (pedido explícito ou Ajustes › Automático) — gravado é respeitado em
     // todo início (term::starts_in_terminal); sem escolha fica AUSENTE e cada início decide pelo padrão daquele momento
     if let Some(m) = term_mode_arg(terminal, term_mode.as_deref(), term::default_mode()) {

@@ -445,7 +445,7 @@ function termLiveNote(t){
   const sp=(t&&t.spec)||{};
   if(sp.budgetHit) return { k:'budget', text:TERM_BAR.budget };
   if(sp.needsYou && sp.needsYou.kind==='plano') return { k:'plan', text:TERM_BAR.plan };
-  const r=sp.termRole; if(r && r.role==='reviewer') return { k:'review', text:`${r.name||'O revisor'} está revisando o trabalho de ${r.builder||'quem construiu'} · rodada ${r.round||1} de ${r.max||3}. Pode comentar.` };
+  const r=sp.termRole; if(r && r.role==='reviewer') return { k:'review', text:`${r.name||'O revisor'} está revisando o trabalho de ${r.builder||'quem construiu'} · rodada ${r.round||1} de ${r.max||2}. Pode comentar.` };
   return null;
 }
 /** Faixa do terminal SEM PTY vivo numa tarefa de fundo: assumindo / piloto / trabalhando sozinha. */
