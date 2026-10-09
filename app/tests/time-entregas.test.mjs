@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/js/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const E = new Function(cut(read('70-time-entregas.js'), '// @puro-entregas-inicio', '// @puro-entregas-fim')
-  + '\nreturn { entTravada, entPronta, entFora, entReqs, entMotivo, entPeso, entFiltra, entNums, entAgrupa, entVeCusto, entProvasPorTarefa, entFiltrosDe };')();
+  + '\nreturn { entFlag, entWhoValido, entTravada, entPronta, entFora, entReqs, entMotivo, entPeso, entFiltra, entNums, entAgrupa, entVeCusto, entProvasPorTarefa, entFiltrosDe };')();
 
 // regras injetadas (no app: flowBucket/epDelivered/tsWho/epAtivo)
 const BK = { backlog: 'fila', running: 'andamento', error: 'aguardando', conflict: 'aguardando', review: 'prontas', merged: 'anteriores', done: 'anteriores', cancelled: 'anteriores' };
@@ -96,4 +96,36 @@ test('provas por tarefa e filtros gravados', () => {
   assert.deepEqual(E.entFiltrosDe('{"who":"B","trav":1}'), { who: 'B', epic: '', trav: true, pront: false });
   assert.deepEqual(E.entFiltrosDe('lixo{', { epic: 'E1' }), { who: '', epic: 'E1', trav: false, pront: false });
   assert.deepEqual(E.entFiltrosDe(null, null), { who: '', epic: '', trav: false, pront: false });
+});
+
+test('pessoa = só o responsável: cartão sem dono não aparece sob quem criou; avatares só de responsáveis; filtro velho volta pra "todas"', () => {
+  const ts = [T('x1', { created_by: 'A', assignee: null }), T('x2', { created_by: 'B', assignee: 'A' })];
+  assert.deepEqual(E.entFiltra(ts, { who: 'A' }, fn).map((t) => t.id), ['x2']);
+  assert.deepEqual(E.entFiltra(ts, { who: '-' }, fn).map((t) => t.id), ['x1']);
+  assert.deepEqual(E.entNums(ts, fn).pessoas, ['A']);
+  assert.equal(E.entWhoValido('Z', ['A', 'B']), '');
+  assert.equal(E.entWhoValido('B', ['A', 'B']), 'B');
+  assert.equal(E.entWhoValido('-', []), '-');
+  assert.equal(E.entWhoValido('', ['A']), '');
+});
+
+test('flag efetivo (tsNorm) decide travada/encerrada quando vem em fn.flag', () => {
+  const t = T('f1', { flag: null, status: 'running' });
+  assert.equal(E.entTravada(t, fn), false);
+  assert.equal(E.entTravada(t, { ...fn, flag: () => 'blocked' }), true);
+  assert.equal(E.entFora(t, { ...fn, flag: () => 'closed' }), true);
+});
+
+test('entPodeVerCusto (a regra ÚNICA, ligada a cloudUserId/tsScopeTeamIds/cloudData)', () => {
+  const src = read('70-time-entregas.js');
+  const body = cut(src, 'function entPodeVerCusto(){', '\n}\n') + '\n}';
+  const mk = (me, cd) => new Function('entVeCusto', 'cloudUserId', 'tsScopeTeamIds', 'cloudTeamId', 'cloudData', body + '\nreturn entPodeVerCusto;')(E.entVeCusto, () => me, () => ['T1'], () => 'T1', cd)();
+  const tm = { T1: [{ user_id: 'A', role: 'lead' }, { user_id: 'B', role: 'member' }] };
+  assert.equal(mk('B', { teamMembers: tm, meRole: 'member' }), false, 'membro não vê o dos outros');
+  assert.equal(mk('A', { teamMembers: tm, meRole: 'member' }), true, 'líder vê');
+  assert.equal(mk('B', { teamMembers: tm, meRole: 'owner' }), true, 'owner vê');
+  assert.equal(mk('B', { teamMembers: tm, meRole: 'admin' }), true, 'admin vê');
+  assert.equal(mk('', { meRole: 'owner' }), true, 'owner com os times ainda carregando vê');
+  assert.equal(mk('A', null), false, 'sem saber nada: não vê');
+  assert.equal(mk('', undefined), false);
 });

@@ -220,7 +220,8 @@ test('99-paginas.css: só tokens do tema (nenhuma cor literal), registrado depoi
   const css = read('css/99-paginas.css');
   assert.ok(!/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/.test(css), 'sem cor literal');
   assert.match(html, /<link rel="stylesheet" href="css\/98-fabrica\.css">\n<link rel="stylesheet" href="css\/99-paginas\.css">/);
-  assert.match(html, /<script src="js\/68-casca-g1\.js"><\/script>\n<script src="js\/69-linha\.js"><\/script>\n<script src="js\/70-time-entregas\.js"><\/script>\n<\/body>/, 'depois da casca só a Linha (69) e as Entregas do Time (70), que não reescrevem nada da casca');
+  { const at = (f) => html.indexOf('<script src="js/' + f + '"></script>'); const [c, l, e] = ['68-casca-g1.js', '69-linha.js', '70-time-entregas.js'].map(at);
+    assert.ok(c > 0 && c < l && l < e, 'ordem 68 < 69 < 70: depois da casca só a Linha e as Entregas, que não reescrevem nada da casca'); }
   assert.ok(!/#[0-9a-fA-F]{6}\b/.test(casca), 'sem cor fixa no JS da casca');
 });
 

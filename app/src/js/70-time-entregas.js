@@ -8,13 +8,15 @@
 // em LOTE quando a aba abre e ficam em cache pelo conjunto de tarefas (sem polling).
 
 // @puro-entregas-inicio (testado em app/tests/time-entregas.test.mjs)
-// fn = { bucket(t) → etapa da Central (flowBucket), delivered(t) → epDelivered, who(t) → tsWho, ativo(ep, tasks) → epAtivo }
+// fn = { bucket(t) → etapa da Central (flowBucket), delivered(t) → epDelivered, ativo(ep, tasks) → epAtivo,
+//        flag(t) → flag efetivo (tsNorm: o da tarefa local vence, como no Quadro) }
+function entFlag(t, fn){ return fn.flag?fn.flag(t):(t&&t.flag); }
 // travada = etapa "aguardando" (erro, conflito, pergunta, plano pra aprovar) ou cartão bloqueado
-function entTravada(t, fn){ return !!t && (t.flag==='blocked' || fn.bucket(t)==='aguardando'); }
+function entTravada(t, fn){ return !!t && (entFlag(t, fn)==='blocked' || fn.bucket(t)==='aguardando'); }
 // pronta pra revisar = ainda não entregue e na etapa "prontas" ou "PR aberto" da Central
 function entPronta(t, fn){ return !!t && !fn.delivered(t) && !entTravada(t, fn) && ['prontas','praberto'].includes(fn.bucket(t)); }
 // cancelada/encerrada sem entrega: fora da conta de "x de y"
-function entFora(t, fn){ return !!t && !fn.delivered(t) && (t.status==='cancelled' || t.flag==='closed'); }
+function entFora(t, fn){ return !!t && !fn.delivered(t) && (t.status==='cancelled' || entFlag(t, fn)==='closed'); }
 // requisitos provados: a MESMA leitura do tsCardHtml (requirements_proof.list ou a própria lista; status 'done')
 function entReqs(t){
   const rp=t&&t.requirements_proof; const list=rp&&(Array.isArray(rp.list)?rp.list:(Array.isArray(rp)?rp:null));
@@ -36,12 +38,13 @@ function entPeso(t, fn){
   if(entFora(t, fn)) return 5;
   return ['fila','rascunho'].includes(fn.bucket(t))?3:2;
 }
-// filtros: f = { who:'' | uid | '-' (sem dono), epic:'' | id | '-' (sem épico), trav:bool, pront:bool }
+// filtros: pessoa = o RESPONSÁVEL (sem responsável só aparece em "sem dono")
+// f = { who:'' | uid | '-' (sem dono), epic:'' | id | '-' (sem épico), trav:bool, pront:bool }
 function entFiltra(tasks, f, fn){
   f=f||{};
   return (tasks||[]).filter(t=>{
     if(f.who==='-'){ if(t.assignee) return false; }
-    else if(f.who && fn.who(t)!==f.who) return false;
+    else if(f.who && t.assignee!==f.who) return false;
     if(f.epic==='-'){ if(t.epic_id) return false; }
     else if(f.epic && t.epic_id!==f.epic) return false;
     if(f.trav && f.pront) return entTravada(t, fn) || entPronta(t, fn);
@@ -53,7 +56,7 @@ function entFiltra(tasks, f, fn){
 // números do épico sobre TODAS as tarefas dele (a verdade do épico, não a fatia filtrada)
 function entNums(tasks, fn){
   const ts=(tasks||[]).filter(t=>!entFora(t, fn));
-  const pessoas=[...new Set(ts.map(fn.who).filter(Boolean))];
+  const pessoas=[...new Set(ts.map(t=>t.assignee).filter(Boolean))]; // só responsáveis
   return { ent:ts.filter(fn.delivered).length, tot:ts.length, prontas:ts.filter(t=>entPronta(t, fn)).length,
     travadas:ts.filter(t=>entTravada(t, fn)).length, pessoas, custo:(tasks||[]).reduce((s,t)=>s+(+t.cost_usd||0),0) };
 }
@@ -67,17 +70,20 @@ function entAgrupa(all, vis, epics, fn){
   for(const x of [...eps.filter(y=>y.ativo), ...eps.filter(y=>!y.ativo)]){
     seen.add(x.e.id);
     const itens=(vis||[]).filter(t=>t.epic_id===x.e.id).sort(ord);
-    if(itens.length) out.push({ ep:x.e, id:x.e.id, nome:x.e.name||'Épico', ativo:x.ativo, itens, ...entNums(x.ts, fn) });
+    if(itens.length) out.push({ ep:x.e, id:x.e.id, nome:x.e.name||'Épico', ativo:x.ativo, itens, tasks:x.ts, ...entNums(x.ts, fn) });
   }
   // sem épico (ou épico que não veio — arquivado/sem acesso): grupo do fim
   const solto=(vis||[]).filter(t=>!t.epic_id || !seen.has(t.epic_id)).sort(ord);
-  if(solto.length) out.push({ ep:null, id:'-', nome:'Sem épico', ativo:true, itens:solto, ...entNums((all||[]).filter(t=>!t.epic_id || !seen.has(t.epic_id)), fn) });
+  if(solto.length) out.push({ ep:null, id:'-', nome:'Sem épico', ativo:true, itens:solto, tasks:[], ...entNums((all||[]).filter(t=>!t.epic_id || !seen.has(t.epic_id)), fn) });
   return out;
 }
-// T8: custo nesta aba só pra líder de um dos times em vista ou owner/admin da org
+// pessoa salva no filtro que não está mais na lista → volta pra "todas" ('-' = sem dono continua valendo)
+function entWhoValido(who, members){ return (!who || who==='-' || (members||[]).includes(who))?(who||''):''; }
+// T8: custo só pra líder de um dos times em vista ou owner/admin da org. Owner/admin vale mesmo com os times ainda
+// carregando; sem saber nada (sem usuário e sem papel) → não vê
 function entVeCusto(me, teamIds, teamMembers, meRole){
   if(meRole==='owner' || meRole==='admin') return true;
-  if(!me) return false;
+  if(!me || !teamMembers) return false;
   return (teamIds||[]).some(tid=>((teamMembers||{})[tid]||[]).some(m=>m.user_id===me && m.role==='lead'));
 }
 // provas publicadas por tarefa (linhas de artifacts_meta) → { task_id: n }
@@ -90,37 +96,40 @@ function entFiltrosDe(raw, fallback){
 }
 // @puro-entregas-fim
 
-const ENT_FN={ bucket:t=>tsBucket(t), delivered:t=>epDelivered(t), who:t=>tsWho(t),
+const ENT_FN={ bucket:t=>tsBucket(t), delivered:t=>epDelivered(t), flag:t=>tsNorm(t).flag,
   ativo:(e, ts)=>typeof epAtivo==='function'?epAtivo(e, ts):(e.status!=='done'&&e.status!=='archived') };
 function entFiltros(){ return entFiltrosDe(lsGet('tmEntF'), { who:lsGet('tmDev')||'', epic:lsGet('tmEpic')||'' }); }
 function entSetF(patch){ lsSet('tmEntF', JSON.stringify({ ...entFiltros(), ...patch })); teamPaintSig=''; renderTeamBoard(); }
-// usado também pela Visão geral/Pessoas (43): custo por pessoa só pra quem pode ver
+// A regra ÚNICA de custo dos outros (aba Entregas, Visão geral, Pessoas e cartão do Quadro — 43 tsCostOk)
 function entPodeVerCusto(){
-  return entVeCusto(cloudUserId(), (typeof tsScopeTeamIds==='function')?tsScopeTeamIds():[cloudTeamId()],
-    (cloudData&&cloudData.teamMembers)||{}, cloudData&&cloudData.meRole);
+  const cd=(typeof cloudData!=='undefined'&&cloudData)||null;
+  return entVeCusto(cloudUserId(), cd?((typeof tsScopeTeamIds==='function')?tsScopeTeamIds():[cloudTeamId()]):[],
+    cd&&cd.teamMembers, cd&&cd.meRole);
 }
 // número da aba: o que ainda não foi entregue (nem cancelado)
 function entAbertas(all){ return (all||[]).filter(t=>!ENT_FN.delivered(t) && !entFora(t, ENT_FN)).length; }
 
 // ---- provas publicadas: UM lote por conjunto de tarefas, quando a aba está aberta ----
 let entProvas={ key:'', m:null, busy:false };
+// chave = tarefas + minuto do último teamFetch (o "atualizar"/refresh do time relê as contagens); erro → tenta de novo em 30 s
 function entProvasLoad(ids){
-  const key=ids.slice().sort().join(',');
-  if(entProvas.key===key && (entProvas.m || entProvas.busy)) return;
+  const key=Math.floor((+teamFetchedAt||0)/60000)+'|'+ids.slice().sort().join(',');
+  if(entProvas.key===key && (entProvas.m || entProvas.busy || (entProvas.err && Date.now()-entProvas.errAt<30000))) return;
   entProvas={ key, m:null, busy:true };
   const chunks=[]; for(let i=0;i<ids.length;i+=80) chunks.push(ids.slice(i, i+80));
-  Promise.all(chunks.map(c=>sbGet('artifacts_meta?select=task_id,name,kind,storage_path&task_id=in.('+c.map(i=>'"'+i+'"').join(',')+')')))
+  Promise.all(chunks.map(c=>sbGet('artifacts_meta?select=task_id&task_id=in.('+c.map(i=>'"'+i+'"').join(',')+')')))
     .then(rs=>{ if(entProvas.key!==key) return; entProvas={ key, m:entProvasPorTarefa([].concat(...rs)), busy:false }; if(tmView==='entregas'){ teamPaintSig=''; renderTeamBoard(); } })
-    .catch(e=>{ if(entProvas.key===key) entProvas={ key, m:{}, busy:false, err:true }; console.warn('provas do time', e&&e.message||e); });
+    .catch(e=>{ if(entProvas.key!==key) return; entProvas={ key, m:entProvas.m, busy:false, err:true, errAt:Date.now() }; console.warn('provas do time', e&&e.message||e);
+      if(tmView==='entregas'){ teamPaintSig=''; renderTeamBoard(); } });
 }
 
 function entAvatares(uids){
   const max=5, v=uids.slice(0, max);
-  return `<span class="en-avs" aria-label="${escA('pessoas: '+uids.map(tmName).join(', '))}">${v.map(u=>tsAv(u, false)).join('')}${uids.length>max?`<span class="en-avmore">+${uids.length-max}</span>`:''}</span>`;
+  return `<span class="en-avs" role="group" aria-label="${escA('pessoas: '+uids.map(tmName).join(', '))}">${v.map(u=>tsAv(u, false)).join('')}${uids.length>max?`<span class="en-avmore">+${uids.length-max}</span>`:''}</span>`;
 }
 function entProntoQuando(g){
   if(!g.ep || typeof linhaModelo!=='function') return '';
-  const m=linhaModelo(g.ep, (teamTasks||[]).filter(t=>t.epic_id===g.id));
+  const m=linhaModelo(g.ep, g.tasks||[]);
   if(!m.porDw) return '';
   const dw=((g.ep.spec||{}).doneWhen||[]).filter(Boolean);
   const tip=dw.map(d=>(d.checkedBy?'✓ ':'○ ')+(d.text||'')).join('\n');
@@ -138,19 +147,19 @@ function entGrupoHtml(g, veCusto){
     <div class="en-list" role="list">${g.itens.map(entItemHtml).join('')}</div></section>`;
 }
 function entItemHtml(t){
-  const fn=ENT_FN, trav=entTravada(t, fn), done=fn.delivered(t);
-  const st=t.flag==='blocked'?'blocked':tsSt(t);
+  const fn=ENT_FN, trav=entTravada(t, fn), done=fn.delivered(t), blk=entFlag(t, fn)==='blocked';
+  const st=blk?'blocked':tsSt(t);
   const waiting=!trav && typeof ctWaiting==='function' && ctWaiting(t);
-  const label=t.flag==='blocked'?stLabel('blocked'):(typeof ctStLabel==='function'?ctStLabel(t):stLabel(st));
+  const label=blk?stLabel('blocked'):(typeof ctStLabel==='function'?ctStLabel(t):stLabel(st));
   const cor=waiting?'var(--muted)':stColor(st);
   // com quem: o responsável; sem responsável, "Sem dono" e quem criou em texto menor
   const quem=t.assignee
     ? `<span class="en-who">${tsAv(t.assignee, tsOnline(t.assignee))}<span class="en-wn">com ${esc(tmName(t.assignee))}</span></span>`
     : `<span class="en-who sem"><span class="en-wn"><b>Sem dono</b><small>criada por ${esc(tmName(t.created_by))}</small></span></span>`;
   const ent=[];
-  if(t.pr_url) ent.push(`<button type="button" class="en-chip en-pr" data-lk="${escA(t.pr_url)}" title="abrir o PR no GitHub">${done?'ver a entrega':'pronto pra revisar'} ${icEm(IC.extlink)}</button>`);
+  if(t.pr_url) ent.push(`<button type="button" class="en-chip en-pr" data-enlk="${escA(t.pr_url)}" title="abrir o PR no GitHub">${done?'ver a entrega':trav?'ver o PR':'pronto pra revisar'} ${icEm(IC.extlink)}</button>`);
   const lk=typeof trkCardLink==='function'?trkCardLink(t):null;
-  if(lk&&(lk.code||lk.url)) ent.push(lk.url?`<button type="button" class="en-chip" data-lk="${escA(lk.url)}" title="abrir a issue no painel">${lk.code?`<span class="en-code">${esc(lk.code)}</span>`:'issue'} ${icEm(IC.extlink)}</button>`:`<span class="en-chip en-code" title="issue no painel">${esc(lk.code)}</span>`);
+  if(lk&&(lk.code||lk.url)) ent.push(lk.url?`<button type="button" class="en-chip" data-enlk="${escA(lk.url)}" title="abrir a issue no painel">${lk.code?`<span class="en-code">${esc(lk.code)}</span>`:'issue'} ${icEm(IC.extlink)}</button>`:`<span class="en-chip en-code" title="issue no painel">${esc(lk.code)}</span>`);
   const np=entProvas.m?(entProvas.m[t.id]||0):null;
   if(np) ent.push(`<button type="button" class="en-chip" data-entct="${escA(t.id)}" title="ver as provas na página da tarefa">${icEm(IC.camera)} ${nPl(np,'prova','provas')}</button>`);
   const rq=entReqs(t);
@@ -160,9 +169,9 @@ function entItemHtml(t){
   const atv=a?`<span class="en-agov">${esc(tmName(a.user_id).split(' ')[0])} ${esc(String(tsK(a.kind)).replace(/ (de|em)$/,''))}</span><span>${esc(agoTx(a.at))}</span>`:`<span>${esc(agoTx(t.updated_at))}</span>`;
   return `<div class="en-item${trav?' trav':''}${done?' done':''}" role="listitem">
     <div class="en-main"><button type="button" class="en-title" data-entct="${escA(t.id)}" title="abrir a tarefa">${esc(t.title||'tarefa')}</button>
-      ${trav?`<div class="en-why" style="color:${stColor(st)}" title="${escA(String(t.last_note||label))}">${icEm(IC.warn)} <b>Travada:</b> ${esc(entMotivo(t, label))}</div>`:''}</div>
+      ${trav?`<div class="en-why" style="color:${stColor(st)}" title="${escA(String(t.last_note||label))}">${icEm(IC.warn)} <span class="en-tx"><b>Travada:</b> ${esc(entMotivo(t, label))}</span></div>`:''}</div>
     ${quem}
-    <span class="en-st" style="--stc:${cor}"><i aria-hidden="true"></i>${esc(label)}</span>
+    <span class="en-st" style="--stc:${cor}"><i aria-hidden="true"></i><span class="en-tx">${esc(label)}</span></span>
     <span class="en-ents">${ent.join('')}</span>
     <span class="en-ago" title="última atividade">${atv}</span>
   </div>`;
@@ -172,9 +181,12 @@ function entregasHtml(ctx){
   const all=(ctx&&ctx.all)||[], members=(ctx&&ctx.members)||[];
   const f=entFiltros();
   if(f.epic && f.epic!=='-' && !(teamEpics||[]).some(e=>e.id===f.epic)) f.epic='';
+  f.who=entWhoValido(f.who, members);
   const vis=entFiltra(all, f, ENT_FN);
   if(all.length) entProvasLoad(all.map(t=>t.id));
-  const nTrav=all.filter(t=>entTravada(t, ENT_FN)).length, nPront=all.filter(t=>entPronta(t, ENT_FN)).length;
+  // contagens dos chips = com a pessoa e o épico escolhidos
+  const base=entFiltra(all, { who:f.who, epic:f.epic }, ENT_FN);
+  const nTrav=base.filter(t=>entTravada(t, ENT_FN)).length, nPront=base.filter(t=>entPronta(t, ENT_FN)).length;
   const eps=teamEpics||[];
   const epA=eps.filter(e=>ENT_FN.ativo(e, all.filter(t=>t.epic_id===e.id))), epD=eps.filter(e=>!epA.includes(e));
   const opt=(v,l,sel)=>`<option value="${escA(v)}"${sel?' selected':''}>${esc(l)}</option>`;
@@ -188,7 +200,8 @@ function entregasHtml(ctx){
   if(!all.length) body=emptyHtml({ icon:'kanban', title:'Nenhuma entrega no time ainda', help:'Quando alguém mandar uma tarefa pro time, ela aparece aqui com quem está, a situação e as provas.' });
   else if(!vis.length) body=emptyHtml({ icon:'search', title:'Nada com esses filtros', help:'Nenhuma tarefa bate com a pessoa, o épico ou a situação escolhida.', action:{ id:'enClear', label:'limpar filtros', primary:false } });
   else { const vc=entPodeVerCusto(); body=entAgrupa(all, vis, eps, ENT_FN).map(g=>entGrupoHtml(g, vc)).join(''); }
-  return `<h1>Entregas</h1>${bar}<div class="en-wrap">${body}</div>`;
+  const note=entProvas.err&&entProvas.key&&all.length?'<div class="en-note" role="status">não consegui ler as provas agora — tento de novo</div>':'';
+  return `<h1>Entregas</h1>${bar}${note}<div class="en-wrap">${body}</div>`;
 }
 function entregasWire(el){
   const all=teamTasks||[];
@@ -197,6 +210,8 @@ function entregasWire(el){
   el.querySelectorAll('[data-entf]').forEach(b=>{ b.onclick=()=>{ const k=b.dataset.entf; entSetF({ [k]:!entFiltros()[k] }); }; });
   { const b=el.querySelector('#enClear'); if(b) b.onclick=()=>entSetF({ who:'', epic:'', trav:false, pront:false }); }
   { const b=el.querySelector('#enRefresh'); if(b) b.onclick=()=>{ entProvas={ key:'', m:null, busy:false }; teamTasks=null; teamPaintSig=''; renderTeamBoard(); }; }
+  // PR e issue (data-enlk: o wireLinkChips do 43 não sobrescreve): só abre http(s)
+  el.querySelectorAll('[data-enlk]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const u=b.dataset.enlk||''; if(/^https?:\/\//i.test(u)) openExternal(u); }; });
   el.querySelectorAll('[data-entct]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const ct=all.find(x=>x.id===b.dataset.entct); if(ct) openCloudTaskPage(ct); }; });
   el.querySelectorAll('[data-entep]').forEach(b=>{ b.onclick=()=>{ const ep=(teamEpics||[]).find(x=>x.id===b.dataset.entep); if(ep&&window.openEpicPage) openEpicPage(ep); }; });
 }
