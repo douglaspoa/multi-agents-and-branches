@@ -275,7 +275,9 @@ function renderPlanner(){
     human.map(fieldHtml).join('')+
     `<details class="pltech" id="plRaw"${plRawOpen?' open':''}><summary><svg class="pltech-car" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 4.5l3.5 3.5L6 11.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="pltech-t">Detalhes técnicos</span><span class="pltech-d">identificador, pastas, arquivo da tarefa</span></summary>`+
       `<div class="pltech-b">${tech.map(fieldHtml).join('')}<div class="pltech-yh">o arquivo que o agente recebe <span class="mono">TASK.yaml</span></div><pre class="mono">${esc(plYaml())}</pre></div></details>`+
-    `<div class="plmeshfoot">${plResultHtml()}${plPlan?'':plForecastHtml(plPreviewFields())+plPreviewHtml(plPreviewFields())+`${plDestHtml()}<div class="g2row plcreaterow"><span class="g2help plcreatehint">${esc(plCreateHint())}</span><button class="btn${createPrimary?' primary':''}" id="plCreate"${plReady()&&!plBusy?'':' disabled'}>${plDestIsTeam()?'Mandar pro time':'Criar e rodar'} ${IC.arrow||''}</button></div>`}${plPlan?`<div class="dim plcreatehint">${plCreateHint()}</div>`:''}</div>`; // com épico proposto, o único CTA é o "Aprovar" do card (antes o "criar e rodar" criava UMA tarefa ignorando o épico)
+    // escolhas (Resultado · Previsão · o que a IA escolheu · destino) correm com o resumo; só a ação final gruda embaixo
+    `<div class="plmeshopts">${plResultHtml()}${plPlan?'':plForecastHtml(plPreviewFields())+plPreviewHtml(plPreviewFields())+plDestHtml()}</div>`+
+    `<div class="plmeshfoot">${plPlan?`<div class="plcreatehint">${plCreateHint()}</div>`:`<div class="plcreaterow"><span class="plcreatehint" id="plCreateHint">${esc(plCreateHint())}</span><button class="btn${createPrimary?' primary':''}" id="plCreate" aria-describedby="plCreateHint"${plReady()&&!plBusy?'':' disabled'}>${plDestIsTeam()?'Mandar pro time':'Criar e rodar'} ${IC.arrow||''}</button></div>`}</div>`; // com épico proposto, o único CTA é o "Aprovar" do card (antes o "criar e rodar" criava UMA tarefa ignorando o épico)
   mesh.querySelectorAll('[data-plart]').forEach(b=>b.onclick=()=>{ const k=b.dataset.plart; if(!plFields.artifacts) plFields.artifacts={doc:false,proof:false,tests:false}; plFields.artifacts[k]=!plFields.artifacts[k]; renderPlanner(); plAutoSave(); });
   // R8: listas do resumo crescem com o conteúdo (antes o 3º requisito ficava cortado numa caixa de 2 linhas)
   mesh.querySelectorAll('textarea.plfv').forEach(t=>{ chatGrow(t); t.addEventListener('input',()=>chatGrow(t)); });
@@ -286,7 +288,7 @@ function renderPlanner(){
   if(plCreating){ const c=$id('plCreate'); if(c){ c.disabled=true; c.textContent='criando…'; } }
   if(!plPlan && typeof estSchedule==='function'){ estSchedule(); } // previsão: recalcula com debounce (cache pelo conteúdo) — a linha de previsão relê estLast
   plWireResult(mesh);
-  if(!plPlan) plWirePreview(mesh.querySelector('.plmeshfoot'));
+  if(!plPlan) plWirePreview(mesh.querySelector('.plmeshopts'));
   { const d=$id('plRaw'); if(d) d.ontoggle=()=>{ plRawOpen=d.open; }; }
   if(keep){ const i=$id('plInput'); if(i){ if(iv!=null) i.value=iv; i.focus(); } }
 }
@@ -853,7 +855,7 @@ function plDestHtml(){
   if(typeof SB==='undefined' || !(SB.sess()&&cloudTeamId())) return '';
   const t=plDestIsTeam();
   return `<div class="g2row pldest"><div class="g2seg" role="radiogroup" aria-label="o que fazer ao criar"><button type="button" role="radio" aria-checked="${t}" class="${t?'on':''}" data-pldest="team" title="vira cartão no quadro do time, na fila — ninguém roda agora">Mandar pro time</button><button type="button" role="radio" aria-checked="${!t}" class="${t?'':'on'}" data-pldest="run" title="cria e o agente começa nesta máquina">Rodar agora</button></div>`+
-    (t?`<span class="g2help">responsável</span>${tmWhoBtnHtml(plWho,'id="plWho"')}`:'')+`</div>`;
+    (t?`<span class="pldest-who"><span class="g2help">responsável</span>${tmWhoBtnHtml(plWho,'id="plWho"')}</span>`:'')+`</div>`;
 }
 function plDestWire(root){
   if(!root) return;
