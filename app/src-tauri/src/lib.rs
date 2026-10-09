@@ -32,6 +32,7 @@ mod fabrica;
 mod plan_usage;
 mod projetos_conta;
 mod release;
+pub mod relatorio;
 mod pty;
 mod term;
 mod term_hist;
@@ -10546,6 +10547,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_repo,
+            relatorio::relatorio_salvar,
+            relatorio::relatorio_pdf,
+            relatorio::relatorio_mostrar,
             learn::learn_revert,
             learn::learn_check_text,
             learn::learn_import,

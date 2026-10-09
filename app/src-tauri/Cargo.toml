@@ -35,7 +35,10 @@ block2 = "0.6"
 objc2-foundation = "0.3"
 objc2-user-notifications = "0.3"
 # Prévia (navegador.rs): print nativo do WKWebView — as duas já vêm na árvore pelo wry (mesma versão no Cargo.lock)
-objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "WKWebView", "WKSnapshotConfiguration"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = ["std", "block2", "objc2-app-kit", "objc2-core-foundation", "WKWebView", "WKSnapshotConfiguration", "WKWebViewConfiguration", "WKPDFConfiguration", "WKNavigation"] }
+# Relatório de entregas em PDF (relatorio.rs): createPDF do WKWebView + corte em páginas A4 pelo CoreGraphics (já no Cargo.lock)
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFData", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGContext", "CGPDFContext", "CGPDFDocument", "CGPDFPage", "CGDataConsumer", "CGDataProvider", "CGBitmapContext", "CGColorSpace", "CGImage"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSImage", "NSImageRep", "NSBitmapImageRep"] }
 
 [profile.dev]

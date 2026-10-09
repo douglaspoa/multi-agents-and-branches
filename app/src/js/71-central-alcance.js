@@ -396,7 +396,7 @@ function caBodyOwn(el){
   if(!have && CA.err) html=(typeof errorHtml==='function')?errorHtml(CA.err, 'caRetry', 'Não consegui carregar as tarefas do time'):emptyHtml({ icon:'warn', title:'Não consegui carregar as tarefas do time', action:{ id:'caRetry', label:'tentar de novo' } });
   else if(!have) html=skeletonHtml('tabela', { cols:6, n:6, label:'buscando as tarefas do time' });
   else if(tab==='epicos') html=caEpicosHtml(scope);
-  else if(tab==='entregas') html=`<div class="ca-ent">${entregasHtml({ all:scope==='minhas'?caTasks('minhas'):caTasks(scope), members:caMembers(scope), noTitle:true })}</div>`;
+  else if(tab==='entregas') html=`<div class="ca-ent">${entregasHtml({ all:scope==='minhas'?caTasks('minhas'):caTasks(scope), members:caMembers(scope), noTitle:true, central:true })}</div>`;
   else if(typeof kbCentralNow==='function' && kbCentralNow(true)) html=caQuadroHtml(scope, kb=>{ kbVms=kb; });
   else html=caTarefasHtml(scope);
   html=`<div class="ca-wrap" data-scope="${scope}">${html}</div>`;

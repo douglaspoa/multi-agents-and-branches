@@ -57,7 +57,8 @@ function entMotivo(t, label, c){
   if(st==='aborted') return nota?entCurto('interrompida: '+nota):'interrompida';
   return nota||label||'';
 }
-// ordem dentro do grupo: o que pede o gestor primeiro (travada, pronta), depois andando, fila e entregues; recente antes
+// peso dentro do grupo (sem fn.mod): o que pede o gestor primeiro (travada, pronta), depois andando, fila e entregues.
+// Com fn.mod (o app): a ordem é a da MODIFICAÇÃO mais recente (regra do dono 09/10); o peso só desempata
 function entPeso(t, fn){
   if(entTravada(t, fn)) return 0;
   if(entPronta(t, fn)) return 1;
@@ -92,7 +93,7 @@ function entNums(tasks, fn){
 function entAgrupa(all, vis, epics, fn){
   const out=[], seen=new Set();
   const byEp=id=>(all||[]).filter(t=>t.epic_id===id);
-  const ord=(a,b)=>entPeso(a, fn)-entPeso(b, fn) || String(b.updated_at||'').localeCompare(String(a.updated_at||''));
+  const ord=(a,b)=>(fn.mod?fn.mod(b)-fn.mod(a):0) || entPeso(a, fn)-entPeso(b, fn) || String(b.updated_at||'').localeCompare(String(a.updated_at||''));
   const eps=(epics||[]).map(e=>({ e, ts:byEp(e.id) })).map(x=>({ ...x, ativo:fn.ativo(x.e, x.ts) }));
   for(const x of [...eps.filter(y=>y.ativo), ...eps.filter(y=>!y.ativo)]){
     seen.add(x.e.id);
@@ -115,6 +116,17 @@ function entVeCusto(me, teamIds, teamMembers, meRole){
 }
 // provas publicadas por tarefa (linhas de artifacts_meta) → { task_id: n }
 function entProvasPorTarefa(rows){ const m={}; (rows||[]).forEach(r=>{ if(r&&r.task_id) m[r.task_id]=(m[r.task_id]||0)+1; }); return m; }
+// as mesmas linhas agrupadas → { task_id: [linha] } (as miniaturas do modo por dia e do relatório; requirements.json fora)
+function entProvasLista(rows){ const m={}; (rows||[]).forEach(r=>{ if(r&&r.task_id&&r.name!=='requirements.json') (m[r.task_id]=m[r.task_id]||[]).push(r); }); return m; }
+// última atividade de cada tarefa (feed do time) → { task_id: ms } — entra na modificação
+function entAtvIndice(acts){ const m={}; (acts||[]).forEach(a=>{ const ms=modMs(a&&a.at); if(a&&ms>(m[a.task_id]||0)) m[a.task_id]=ms; }); return m; }
+// modificação de um cartão = o maior entre updated_at e a última atividade dele
+function entModDe(t, idx){ return t?modTs(t.updated_at, (idx||{})[t.id]||0):0; }
+// período no modo por épico: o que MEXEU no período — travada e pronta pra revisar ficam SEMPRE (o gestor precisa ver
+// a trava parada há dias; sumir com ela pelo período esconderia justamente o problema)
+function entBaseEpico(list, r, mod, fn){ return (list||[]).filter(t=>{ const ms=mod(t); return (!!ms && ms>=r.from && ms<r.to) || entTravada(t, fn) || entPronta(t, fn); }); }
+// modo da aba: 'epico' (padrão) | 'dia'
+function entModoDe(raw){ return raw==='dia'?'dia':'epico'; }
 // filtros gravados (JSON) → forma segura
 function entFiltrosDe(raw, fallback){
   let o=null; try{ o=raw?JSON.parse(raw):null; }catch(_){ o=null; }
@@ -123,7 +135,13 @@ function entFiltrosDe(raw, fallback){
 }
 // @puro-entregas-fim
 
-const ENT_FN={ bucket:t=>tsBucket(t), delivered:t=>epDelivered(t), flag:t=>tsNorm(t).flag,
+// modificação = o evento mais recente do item (o cartão ou a última atividade no feed do time) — 08-periodo modTs
+let entAtvIdx={ src:null, n:-1, m:{} };
+function entAtvAgora(){ const a=teamActivity||[]; if(entAtvIdx.src!==a || entAtvIdx.n!==a.length) entAtvIdx={ src:a, n:a.length, m:entAtvIndice(a) }; return entAtvIdx.m; }
+function entModTs(t){ return entModDe(t, entAtvAgora()); }
+// GET paginado do PostgREST (o teto de linhas do servidor cortava em silêncio): páginas de 1000, no máximo 10
+async function entGetTudo(q){ const out=[]; for(let i=0;i<10;i++){ const r=await sbGet(q+'&limit=1000&offset='+(i*1000)); out.push(...(r||[])); if(!r || r.length<1000) break; } return out; }
+const ENT_FN={ bucket:t=>tsBucket(t), delivered:t=>epDelivered(t), flag:t=>tsNorm(t).flag, mod:t=>entModTs(t),
   ativo:(e, ts)=>typeof epAtivo==='function'?epAtivo(e, ts):(e.status!=='done'&&e.status!=='archived'),
   prTrava:t=>!!entPrTrava(entPrOf(t)) || !!entIntentFalhou(t) };
 // o pedido do celular (abrir PR / merge) falhou e o PR ainda não existe → o cartão parou ali (motivo = a mensagem)
@@ -158,6 +176,17 @@ function entTravaCtx(t){
 // o texto que TODA tela mostra pra um cartão travado ('' quando não está travado)
 function entTravaTx(t){ if(!entTravada(t, ENT_FN)) return ''; return entMotivo(t, stLabel(tsSt(t)), entTravaCtx(t)); }
 function entFiltros(){ return entFiltrosDe(lsGet('tmEntF'), { who:lsGet('tmDev')||'', epic:lsGet('tmEpic')||'' }); }
+// modo (por épico | por dia) e período: lembrados POR PESSOA (o período pelo 08-periodo, tela 'entregas')
+function entMe(){ return (typeof cloudUserId==='function'&&cloudUserId())||''; }
+function entModo(){ return entModoDe(lsGet(userKey('en:modo', entMe()))); }
+function entPer(){ return periodGet('entregas'); }
+// o que a aba mostrou por último, POR TELA (Time e Central): o relatório usa os MESMOS dados, filtros e período
+const entUltimoCtx={};
+function entEscopo(central){
+  const cd=(typeof cloudData!=='undefined'&&cloudData)||{}, tn=((cd.teams||[]).find(t=>t.id===cloudTeamId())||{}).name||'time';
+  const s=(central && typeof caScope==='function')?caScope():((typeof tmScope!=='undefined'&&tmScope==='org')?'org':'time');
+  return s==='org'?'Org toda'+(cd.org&&cd.org.name?' · '+cd.org.name:''):s==='minhas'?'Minhas':'Do time · '+tn;
+}
 // a mesma aba mora no Time e na Central (71): quem pintou por último redesenha (entOnChange)
 let entOnChange=null;
 function entSetF(patch){ lsSet('tmEntF', JSON.stringify({ ...entFiltros(), ...patch })); entRepaint(); }
@@ -172,20 +201,21 @@ function entPodeVerCusto(){
 function entAbertas(all){ return (all||[]).filter(t=>!ENT_FN.delivered(t) && !entFora(t, ENT_FN)).length; }
 
 // ---- provas publicadas: UM lote por conjunto de tarefas, quando a aba está aberta ----
-let entProvas={ key:'', m:null, busy:false };
+let entProvas={ key:'', m:null, arts:null, busy:false, p:null };
 // chave = tarefas + minuto do último teamFetch (o "atualizar"/refresh do time relê as contagens); erro → tenta de novo em 30 s
 function entProvasLoad(ids){
   const key=Math.floor((+teamFetchedAt||0)/60000)+'|'+ids.slice().sort().join(',');
-  if(entProvas.key===key && (entProvas.m || entProvas.busy || (entProvas.err && Date.now()-entProvas.errAt<30000))) return;
-  entProvas={ key, m:null, busy:true };
+  if(entProvas.key===key && (entProvas.m || entProvas.busy || (entProvas.err && Date.now()-entProvas.errAt<30000))) return entProvas.p||Promise.resolve();
   const chunks=[]; for(let i=0;i<ids.length;i+=80) chunks.push(ids.slice(i, i+80));
-  Promise.all(chunks.map(c=>sbGet('artifacts_meta?select=task_id,name,kind&task_id=in.('+c.map(i=>'"'+i+'"').join(',')+')')))
-    .then(rs=>{ if(entProvas.key!==key) return; const rows=[].concat(...rs);
-      // img: a 1ª imagem de cada tarefa (o quadro do 72 mostra a miniatura quando a página do cartão já assinou a URL)
+  const p=Promise.all(chunks.map(c=>entGetTudo('artifacts_meta?select=task_id,name,kind,storage_path,created_at&task_id=in.('+c.map(i=>'"'+i+'"').join(',')+')&order=created_at.asc,id.asc')))
+    .then(rs=>{ if(entProvas.key!==key) return; const rows=[].concat(...rs).filter(r=>r&&r.name!=='requirements.json');
+      // img: a 1ª imagem de cada tarefa (o quadro do 72-kanban mostra a miniatura quando a página do cartão já assinou a URL)
       const img={}; rows.forEach(r=>{ if(r && r.task_id && !img[r.task_id] && (r.kind==='image' || /\.(png|jpe?g|gif|webp)$/i.test(r.name||''))) img[r.task_id]=r.name; });
-      entProvas={ key, m:entProvasPorTarefa(rows), img, busy:false }; if(entOnChange || tmView==='entregas') entRepaint(); if(typeof kbProvasDone==='function') kbProvasDone(); })
-    .catch(e=>{ if(entProvas.key!==key) return; entProvas={ key, m:entProvas.m, busy:false, err:true, errAt:Date.now() }; console.warn('provas do time', e&&e.message||e);
+      entProvas={ key, m:entProvasPorTarefa(rows), arts:entProvasLista(rows), img, busy:false, p:null }; if(entOnChange || tmView==='entregas') entRepaint(); if(typeof kbProvasDone==='function') kbProvasDone(); })
+    .catch(e=>{ if(entProvas.key!==key) return; entProvas={ key, m:entProvas.m, arts:entProvas.arts, img:entProvas.img, busy:false, err:true, errAt:Date.now(), p:null }; console.warn('provas do time', e&&e.message||e);
       if(entOnChange || tmView==='entregas') entRepaint(); });
+  entProvas={ key, m:null, arts:null, busy:true, p };
+  return p;
 }
 
 function entAvatares(uids){
@@ -245,31 +275,39 @@ function entItemHtml(t){
   </div>`;
 }
 // a aba: ctx = { all, members, noTitle } vindos do renderTeamBoard (43) ou da Central (71, sem o título — a página já tem)
+// Dois modos (mesa D5): por épico (a lista do gestor) e por dia (72). O período vale pros dois (contadores e listas).
 function entregasHtml(ctx){
   const all=(ctx&&ctx.all)||[], members=(ctx&&ctx.members)||[];
-  const f=entFiltros();
+  const f=entFiltros(), modo=entModo(), per=entPer(), r=periodRange(per), me=entMe(), tela=ctx&&ctx.central?'central':'time';
   if(f.epic && f.epic!=='-' && !(teamEpics||[]).some(e=>e.id===f.epic)) f.epic='';
-  f.who=entWhoValido(f.who, members);
-  const vis=entFiltra(all, f, ENT_FN);
+  f.who=entWhoValido(f.who, me?[...members, me]:members);
   if(all.length) entProvasLoad(all.map(t=>t.id));
-  // contagens dos chips = com a pessoa e o épico escolhidos
-  const base=entFiltra(all, { who:f.who, epic:f.epic }, ENT_FN);
+  // pessoa e épico escolhidos; no modo por épico, só o que MEXEU no período
+  // por dia, a pessoa é quem ENTREGOU (responsável, senão quem criou — diaFiltraQuem); por épico, o responsável
+  const pe=modo==='dia'?diaFiltraQuem(entFiltra(all, { epic:f.epic }, ENT_FN), f.who):entFiltra(all, { who:f.who, epic:f.epic }, ENT_FN);
+  const base=modo==='dia'?pe:entBaseEpico(pe, r, ENT_FN.mod, ENT_FN);
+  const vis=modo==='dia'?pe:entFiltra(base, { trav:f.trav, pront:f.pront }, ENT_FN);
+  entUltimoCtx[tela]={ all, members, f:{ ...f }, per, range:r, modo, pe, escopo:entEscopo(tela==='central') };
   const nTrav=base.filter(t=>entTravada(t, ENT_FN)).length, nPront=base.filter(t=>entPronta(t, ENT_FN)).length;
   const eps=teamEpics||[];
   const epA=eps.filter(e=>ENT_FN.ativo(e, all.filter(t=>t.epic_id===e.id))), epD=eps.filter(e=>!epA.includes(e));
   const opt=(v,l,sel)=>`<option value="${escA(v)}"${sel?' selected':''}>${esc(l)}</option>`;
-  const bar=`<div class="tssub en-bar">
+  const seg=`<span class="en-modo" role="radiogroup" aria-label="como mostrar as entregas">${[['epico','por épico'],['dia','por dia']].map(([k,l])=>`<button type="button" role="radio" aria-checked="${modo===k}" tabindex="${modo===k?0:-1}" class="${modo===k?'on':''}" data-enmodo="${k}">${l}</button>`).join('')}</span>`;
+  const mine=!!me && f.who===me;
+  const bar=`<div class="tssub en-bar">${seg}${periodPickerHtml('entregas', per)}
     <select class="sel" id="enWho" aria-label="filtrar por pessoa" style="width:150px">${opt('','todas as pessoas',!f.who)}${members.map(u=>opt(u, personName(u,{ you:'suffix' }), f.who===u)).join('')}${opt('-','sem dono',f.who==='-')}</select>
     <select class="sel" id="enEpic" aria-label="filtrar por épico" style="width:190px">${opt('','todos os épicos',!f.epic)}${epA.length?`<optgroup label="ativos">${epA.map(e=>opt(e.id, e.name, f.epic===e.id)).join('')}</optgroup>`:''}${epD.length?`<optgroup label="concluídos">${epD.map(e=>opt(e.id, e.name, f.epic===e.id)).join('')}</optgroup>`:''}${opt('-','sem épico',f.epic==='-')}</select>
-    <button type="button" class="fchip${f.trav?' on':''}" data-entf="trav" aria-pressed="${f.trav}">só travadas <span class="n">${nTrav}</span></button>
-    <button type="button" class="fchip${f.pront?' on':''}" data-entf="pront" aria-pressed="${f.pront}">só prontas pra revisar <span class="n">${nPront}</span></button>
-    <span style="flex:1"></span><button type="button" class="btn sm" id="enRefresh">atualizar</button></div>`;
+    ${me?`<button type="button" class="fchip${mine?' on':''}" data-entmine="1" aria-pressed="${mine}" title="${modo==='dia'?'só o que você entregou':'só o que está com você'}">só minhas</button>`:''}
+    ${modo==='dia'?'':`<button type="button" class="fchip${f.trav?' on':''}" data-entf="trav" aria-pressed="${f.trav}">só travadas <span class="n">${nTrav}</span></button>
+    <button type="button" class="fchip${f.pront?' on':''}" data-entf="pront" aria-pressed="${f.pront}">só prontas pra revisar <span class="n">${nPront}</span></button>`}
+    <span style="flex:1"></span><button type="button" class="btn sm" id="enReport" data-entela="${tela}" title="o relatório do período (o que saiu, o que travou e o que vem a seguir) — abre numa aba; exporta em PDF, Markdown ou HTML">${icEm(IC.doc)} gerar relatório</button><button type="button" class="btn sm" id="enRefresh">atualizar</button></div>`;
   let body;
   if(!all.length) body=emptyHtml({ icon:'kanban', title:'Nenhuma entrega no time ainda', help:'Quando alguém mandar uma tarefa pro time, ela aparece aqui com quem está, a situação e as provas.' });
-  else if(!vis.length) body=emptyHtml({ icon:'search', title:'Nada com esses filtros', help:'Nenhuma tarefa bate com a pessoa, o épico ou a situação escolhida.', action:{ id:'enClear', label:'limpar filtros', primary:false } });
+  else if(modo==='dia') body=typeof diaHtml==='function'?diaHtml(pe, r):'';
+  else if(!vis.length) body=emptyHtml({ icon:'search', title:pe.length&&!base.length?'Nada mexeu neste período':'Nada com esses filtros', help:pe.length&&!base.length?'Nenhum item teve atividade no período escolhido (travadas e prontas pra revisar aparecem sempre) — aumente o período pra ver os mais antigos.':'Nenhuma tarefa bate com a pessoa, o épico ou a situação escolhida.', action:{ id:'enClear', label:'limpar filtros', primary:false } });
   else { const vc=entPodeVerCusto(); body=entAgrupa(all, vis, eps, ENT_FN).map(g=>entGrupoHtml(g, vc)).join(''); }
   const note=entProvas.err&&entProvas.key&&all.length?'<div class="en-note" role="status">não consegui ler as provas agora — tento de novo</div>':'';
-  return `${ctx&&ctx.noTitle?'':'<h1>Entregas</h1>'}${bar}${note}<div class="en-wrap">${body}</div>`;
+  return `${ctx&&ctx.noTitle?'':'<h1>Entregas</h1>'}${bar}${note}<div class="en-wrap${modo==='dia'?' en-dia':''}">${body}</div>`;
 }
 // onChange: quem redesenha depois de mexer num filtro (padrão: o espaço Time)
 function entregasWire(el, onChange){
@@ -278,11 +316,17 @@ function entregasWire(el, onChange){
   { const s=el.querySelector('#enWho'); if(s) s.onchange=()=>entSetF({ who:s.value }); }
   { const s=el.querySelector('#enEpic'); if(s) s.onchange=()=>entSetF({ epic:s.value }); }
   el.querySelectorAll('[data-entf]').forEach(b=>{ b.onclick=()=>{ const k=b.dataset.entf; entSetF({ [k]:!entFiltros()[k] }); }; });
+  el.querySelectorAll('[data-entmine]').forEach(b=>{ b.onclick=()=>{ const me=entMe(); entSetF({ who:entFiltros().who===me?'':me }); }; });
+  el.querySelectorAll('[data-enmodo]').forEach(b=>{ b.onclick=()=>{ lsSet(userKey('en:modo', entMe()), entModoDe(b.dataset.enmodo)); entRepaint(); };
+    b.onkeydown=(e)=>{ if(e.key==='ArrowLeft'||e.key==='ArrowRight'){ e.preventDefault(); lsSet(userKey('en:modo', entMe()), entModo()==='dia'?'epico':'dia'); entRepaint(); setTimeout(()=>{ const on=el.querySelector('.en-modo .on'); if(on) on.focus(); }, 0); } }; });
+  periodPickerWire(el, ()=>entRepaint());
+  { const b=el.querySelector('#enReport'); if(b) b.onclick=()=>{ if(typeof relGerar==='function') relGerar(b, entUltimoCtx[b.dataset.entela||'time']); }; }
   { const b=el.querySelector('#enClear'); if(b) b.onclick=()=>entSetF({ who:'', epic:'', trav:false, pront:false }); }
-  { const b=el.querySelector('#enRefresh'); if(b) b.onclick=()=>{ entProvas={ key:'', m:null, busy:false }; teamTasks=null; teamFetchedAt=0; entRepaint(); }; }
+  { const b=el.querySelector('#enRefresh'); if(b) b.onclick=()=>{ entProvas={ key:'', m:null, arts:null, busy:false, p:null }; teamTasks=null; teamFetchedAt=0; entRepaint(); }; }
   // PR e issue (data-enlk: o wireLinkChips do 43 não sobrescreve): só abre http(s)
   el.querySelectorAll('[data-enlk]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const u=b.dataset.enlk||''; if(/^https?:\/\//i.test(u)) openExternal(u); }; });
   el.querySelectorAll('[data-entct]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const ct=all.find(x=>x.id===b.dataset.entct); if(ct) openCloudTaskPage(ct); }; });
   el.querySelectorAll('[data-entep]').forEach(b=>{ b.onclick=()=>{ const ep=(teamEpics||[]).find(x=>x.id===b.dataset.entep); if(ep&&window.openEpicPage) openEpicPage(ep); }; });
+  { const c=entUltimoCtx[onChange?'central':'time']; if(entModo()==='dia' && typeof diaWire==='function' && c) diaWire(el, c.pe); }
 }
-window.entregasHtml=entregasHtml; window.entregasWire=entregasWire; window.entPodeVerCusto=entPodeVerCusto; window.entAbertas=entAbertas;
+window.entregasHtml=entregasHtml; window.entregasWire=entregasWire; window.entUltimo=(tela)=>entUltimoCtx[tela||'time']; window.entPodeVerCusto=entPodeVerCusto; window.entAbertas=entAbertas;
