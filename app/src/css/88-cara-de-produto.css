@@ -37,6 +37,8 @@
 /* card do Time (tsCardHtml): mesmos chips de link do card da Central */
 .tslk{display:inline-flex;align-items:center;gap:3px;background:none;border:0;padding:0;cursor:pointer;color:var(--text-2);font:500 var(--fs-xs) var(--ui)}
 .tslk .mono{font-family:var(--code)}
+.tslk.tsnoiss{color:var(--warn);text-decoration:underline dotted;text-underline-offset:2px}
+.tslk.tsnoiss:disabled{opacity:.6;cursor:progress}
 .dc-req.blk i{border-color:transparent}.dc-req.blk i svg{width:14px;height:14px}
 .btn.sm.lkchip{font-size:var(--fs-xs)}
 /* fila dos épicos: nome do projeto é texto de gente */

@@ -116,13 +116,23 @@ function tsCardHtml(t, me, isAdmin){
     ${obj?`<div class="dc-obj">${esc(obj)}</div>`:''}
     ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?IC.ok:st==='blk'?IC.stErr:''}</i><span class="dc-rt" title="${escA(r)}">${esc(r)}</span></span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
     ${ctPhaseBar(t)}
-    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${(()=>{const c=((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/);const b=(lsGet('issueBase')||'').trim();return c?(b?`<button class="tslk" data-lk="${escA(b.replace(/\/+$/,'')+'/'+c[1])}" title="abrir a issue"><span class="mono">${esc(c[1])}</span> ${icEm(IC.extlink)}</button>`:`<span class="mono">${esc(c[1])}</span>`):''})()}${t.branch?`<span class="mono tsbr" title="${escA(t.branch)}">${esc(t.branch.split('/').pop())}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:var(--fs-xs)">pra si</span>':''}${isLocal?'':`<span class="tsnolocal" title="${escA('nenhum projeto aberto nesta máquina tem o repositório '+(proj.repo_remote||'')+' — clone a pasta e adicione em Projetos pra poder assumir')}">projeto que você não tem neste computador</span>`}</div>
+    <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${tsIssueChip(t, proj)}${t.branch?`<span class="mono tsbr" title="${escA(t.branch)}">${esc(t.branch.split('/').pop())}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:var(--fs-xs)">pra si</span>':''}${isLocal?'':`<span class="tsnolocal" title="${escA('nenhum projeto aberto nesta máquina tem o repositório '+(proj.repo_remote||'')+' — clone a pasta e adicione em Projetos pra poder assumir')}">projeto que você não tem neste computador</span>`}</div>
     ${whoTx?`<div class="tswho" title="${escA(whoTx)}">${esc(whoTx)}</div>`:''}
     <div class="foot">${tsAv(who, tsOnline(who))}${prov}<span style="flex:1"></span>
       ${isErr?`<span class="tstag" style="color:${stColor(st)};border:1px solid currentColor">${esc(stLabel(st))}</span>`:running?`<span class="tstag run">${esc(stLabel(st))}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando as tarefas da onda anterior forem concluídas ou mergeadas (onda = grupo de tarefas que rodam juntas)">na espera da onda anterior</span>`:''}
       ${canClaim?(sameRepo?`<button class="btn primary sm" data-act="claim" title="assumir e iniciar nesta máquina — a tarefa passa pra sua Execução" style="padding:3px 9px;font-size:var(--fs-xs)">${IC.play} assumir</button>`:isLocal?`<button class="btn sm" data-act="openproj" title="${escA('a tarefa é do projeto '+(proj.name||proj.repo_remote||'')+' — abrir ele aqui pra assumir')}" style="padding:3px 9px;font-size:var(--fs-xs)">abrir ${esc(proj.name||'o projeto')}</button>`:''):''}
       ${(t.status==='backlog'&&(t.created_by===me||isAdmin))?`<button class="btn sm" data-act="del" style="padding:3px 7px;font-size:var(--fs-xs)">${IC.x}</button>`:''}
     </div></div>`;
+}
+// issue do cartão: o vínculo gravado (spec.issueCode/issue_url — o painel cria quando o cartão nasce) ou o código na
+// branch/título; painel ligado pro projeto e cartão sem issue → selo "sem issue · criar" (tenta de novo, com o motivo)
+function tsIssueChip(t, proj){
+  const l=(typeof trkCardLink==='function'&&trkCardLink(t))||null;
+  const c=(l&&l.code)||(((t.branch||'')+' '+(t.title||'')).match(/\b([A-Z]{2,10}-\d+)\b/)||[])[1]||'';
+  const b=(lsGet('issueBase')||'').trim(), url=(l&&l.url)||(c&&b?b.replace(/\/+$/,'')+'/'+c:'');
+  if(c||url) return url?`<button class="tslk" data-lk="${escA(url)}" title="abrir a issue no painel">${c?`<span class="mono">${esc(c)}</span>`:'issue'} ${icEm(IC.extlink)}</button>`:`<span class="mono" title="issue no painel">${esc(c)}</span>`;
+  if(typeof trkCardMissing==='function' && trkCardMissing(t, proj)) return `<button class="tslk tsnoiss" data-act="issue" title="o painel de Issues cobre este projeto, mas este cartão ficou sem issue — clique pra criar agora">sem issue · criar</button>`;
+  return '';
 }
 function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'publicou provas em',comment:'comentou em',status:'mudou o status de'}[kind]||kind; }
 function renderTeamBoard(){
@@ -151,6 +161,9 @@ function renderTeamBoard(){
     return;
   }
   if(Date.now()-teamFetchedAt>10000){ teamFetch().then(()=>renderTeamBoard()).catch(()=>{}); }
+  // config do painel de Issues do time ATUAL (o selo "sem issue" depende dela): carrega uma vez por time; falhou, tenta de novo em 60 s
+  if(typeof trkLoad==='function' && typeof trkLoadedFor!=='undefined' && trkLoadedFor!==cloudTeamId() && Date.now()-(renderTeamBoard.__trkAt||0)>60000){ renderTeamBoard.__trkAt=Date.now();
+    trkLoad().then(()=>trkRepoRemote()).then(()=>{ teamPaintSig=''; renderTeamBoard(); }).catch(()=>{}); }
   const me=cloudUserId();
   const isAdmin=cloudData && (cloudData.meRole==='owner'||cloudData.meRole==='admin');
   const B=tsBuckets();
@@ -315,7 +328,7 @@ function renderTeamBoard(){
     invoke('review_pr',{ prUrl: ct.pr_url, agents:null }).then(()=>{ lastSig=''; refresh(); setView('flow'); }).catch(err=>{ showErr(err, 'Falha'); b.disabled=false; b.textContent='revisar com agente'; }); }; });
   el.querySelectorAll('[data-ct]').forEach(c=>{ c.onclick=(e)=>{ if(e.target.closest('[data-act],[data-pr],[data-rev]')) return; const ct=all.find(x=>x.id===c.dataset.ct); if(ct) openCloudTaskPage(ct); }; });
   el.querySelectorAll('.tscard [data-act]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.tscard').dataset.ct; const ct=all.find(x=>x.id===id); if(!ct) return;
-    if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='openproj'){ if(typeof epOpenProjectOf==='function') epOpenProjectOf(teamProj[ct.project_id]||{}); } else if(b.dataset.act==='del') teamDeleteCard(ct); }; });
+    if(b.dataset.act==='claim') teamClaimStart(ct, b); else if(b.dataset.act==='openproj'){ if(typeof epOpenProjectOf==='function') epOpenProjectOf(teamProj[ct.project_id]||{}); } else if(b.dataset.act==='del') teamDeleteCard(ct); else if(b.dataset.act==='issue' && typeof trkCardRetry==='function') trkCardRetry(ct, teamProj[ct.project_id]||{}, b); }; });
 }
 
 // itens do "pronto quando" do épico ("D1: texto") — vão no TASK.yaml pra o revisor saber o que julgar

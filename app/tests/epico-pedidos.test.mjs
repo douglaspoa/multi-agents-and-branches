@@ -214,3 +214,13 @@ test('tick: lista dos épicos no formato que o `cardume epic list` lê; recado a
   await sw.api.erTick();
   assert.ok(!sw.calls.some((x) => x[0] === 'epic_request_done'), 'resultado não vai pro projeto errado');
 });
+
+test('épico criado pelo terminal vai pro painel de Issues (trkPublishEpic) — vincular/desvincular não publicam', async () => {
+  const pub = [];
+  const c = load({ window: { trkPublishEpic: async (ep, rows) => { pub.push([ep.name, rows.length]); return { code: 'FND-1' }; } } });
+  await c.api.erApplyOne(req('create', { epic: { title: 'Contas' } }));
+  assert.deepEqual(pub, [['Contas', 0]]);
+  c.epics.push({ id: EP, team_id: 't1', name: 'Arquitetura', spec: {} });
+  await c.api.erApplyOne(req('link', { id: 'req-2', epicId: EP, tasks: [{ ref: 't-run', localId: 't-run', cloudId: CARD, title: 'Tarefa rodando' }] }));
+  assert.equal(pub.length, 1);
+});
