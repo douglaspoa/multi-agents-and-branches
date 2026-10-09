@@ -313,6 +313,56 @@
         "proofNote": "não consegui anexar as provas (sem rede | offline)"
       },
       "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| tela | provado — `a.png` |\n\n*não consegui anexar as provas (sem rede \\| offline)*\n"
+    },
+    {
+      "name": "etapa extra de design",
+      "input": {
+        "requirements": [
+          {
+            "text": "Tela de horários legível no celular",
+            "status": "provado",
+            "evidence": [
+              "design-depois-1.png"
+            ]
+          }
+        ],
+        "costByRole": [
+          {
+            "role": "builder",
+            "name": "Íris",
+            "usd": 0.4
+          },
+          {
+            "role": "designer",
+            "name": "Aria",
+            "usd": 0.2
+          }
+        ],
+        "totalUsd": 0.6,
+        "capUsd": 5,
+        "releases": [],
+        "rounds": [
+          {
+            "round": 1,
+            "verdict": "aprova",
+            "items": [],
+            "reviewer": "Nyx"
+          }
+        ],
+        "runs": [
+          {
+            "role": "builder",
+            "agentId": "iris",
+            "name": "Íris",
+            "version": 1,
+            "engine": "claude"
+          }
+        ],
+        "extraLines": [
+          "**Passou pelo agente de design (Aria):** contraste e espaçamento da lista — 2 arquivos"
+        ]
+      },
+      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| Tela de horários legível no celular | provado — `design-depois-1.png` |\n\n**Revisão:** rodada 1 (Nyx) — aprova\n\n**Passou pelo agente de design (Aria):** contraste e espaçamento da lista — 2 arquivos\n\n**Versões:** construção `iris@v1 · claude`\n"
     }
   ]
 }

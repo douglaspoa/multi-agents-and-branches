@@ -163,6 +163,9 @@ function entItemHtml(t){
   if(t.pr_url) ent.push(`<button type="button" class="en-chip en-pr" data-enlk="${escA(t.pr_url)}" title="abrir o PR no GitHub">${done?'ver a entrega':trav?'ver o PR':'pronto pra revisar'} ${icEm(IC.extlink)}</button>`);
   const lk=typeof trkCardLink==='function'?trkCardLink(t):null;
   if(lk&&(lk.code||lk.url)) ent.push(lk.url?`<button type="button" class="en-chip" data-enlk="${escA(lk.url)}" title="abrir a issue no painel">${lk.code?`<span class="en-code">${esc(lk.code)}</span>`:'issue'} ${icEm(IC.extlink)}</button>`:`<span class="en-chip en-code" title="issue no painel">${esc(lk.code)}</span>`);
+  // a tarefa deste cartão roda NESTA máquina e está pronta pra revisar → "pedir alteração" abre a mesma caixa (71)
+  const loc=typeof rqLocalOfCloud==='function'?rqLocalOfCloud(t.id):null;
+  if(loc && typeof rqCanAsk==='function' && rqCanAsk(loc)) ent.push(`<button type="button" class="en-chip" data-rqopen="${escA(loc.id)}" title="o agente da tarefa continua na mesma branch">pedir alteração</button>`);
   const np=entProvas.m?(entProvas.m[t.id]||0):null;
   if(np) ent.push(`<button type="button" class="en-chip" data-entct="${escA(t.id)}" title="ver as provas na página da tarefa">${icEm(IC.camera)} ${nPl(np,'prova','provas')}</button>`);
   const rq=entReqs(t);

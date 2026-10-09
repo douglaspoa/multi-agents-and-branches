@@ -634,6 +634,11 @@ function openTaskMenu(taskId, anchor){
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}), false, stIcon('review'));
   if(t.status!=='merged' && taskOffersMerge(t)) item('marcar como integrada (merge feito)', ()=>invoke('mark_task_status',{taskId,status:'merged'}), false, icEm(IC.merge));
   // E9 (bug #19): "em andamento" sem processo deixava um card "rodando" fantasma — agora o agente volta a trabalhar (pergunta antes)
+  // pronta pra revisar: a MESMA caixa do cabeçalho da tarefa (71-revisao-alteracao) — cartões e linha da Central
+  if(typeof rqCanAsk==='function' && rqCanAsk(t)){
+    item('pedir alteração…', ()=>rqOpen(taskId), false, IC.pencil, { stay:true, title:'o agente desta tarefa continua na mesma branch' });
+    item('chamar outro agente…', ()=>rqOpen(taskId, { mode:'agente' }), false, IC.ai, { stay:true, title:'design, revisor, testes… como etapa extra' });
+  }
   if(['review','delivered'].includes(t.status)) item('voltar pra em andamento · o agente continua', ()=>taskBackToRunning(taskId), false, IC.retry);
   if(t.flag!=='blocked') item('bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}), false, stIcon('blocked'));
   else item('desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}), false, IC.unlock);

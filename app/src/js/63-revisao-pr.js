@@ -273,15 +273,13 @@ function rvDetailHtml(t, m, sel){
   const meta=`<div class="rvmeta">${proven?'<span class="rvtag ok">com prova</span>':'<span class="rvtag wn">sem prova</span>'}${m.df.ready||r.refs.length?`<span class="rvtag">${nPl(r.refs.length,'trecho')} em ${nPl(nFiles,'arquivo')}</span>`:'<span class="rvtag">lendo os trechos…</span>'}${pinN?`<span class="rvtag info">${nPl(pinN,'comentário do revisor','comentários do revisor')}</span>`:''}${r.acc==='stale'?'<span class="rvtag wn">mudou depois do seu aceite</span>':''}</div>`;
   const noRefs=!r.refs.length && m.df.ready
     ? `<div class="rvnote">${m.map.explicit?'O agente não ligou nenhum trecho a este requisito.':'Nenhum trecho ligado a este requisito: o agente não registrou o mapa e não citou arquivos na prova.'} <button type="button" class="lnk" data-rvmapask>pedir ao agente pra registrar</button></div>` : '';
-  const askBox=ui.ask===sel
-    ? `<div class="rvask"><label for="rvAskTx" class="rvfh">O que mudar em R${r.i+1}?</label><textarea id="rvAskTx" class="in" rows="2" data-rvdraft placeholder="ex.: o botão some em aula de hoje que já começou">${esc(ui.draft||'')}</textarea><div class="rvaskb"><button type="button" class="btn sm" data-rvaskx>cancelar</button><button type="button" class="btn primary sm" data-rvasksend>mandar pro agente</button></div></div>` : '';
   const npBox=ui.noProof===sel
     ? `<div class="rvask"><label for="rvNpTx" class="rvfh">Por que aceitar R${r.i+1} sem prova? (fica registrado)</label><textarea id="rvNpTx" class="in" rows="2" data-rvdraft placeholder="ex.: o e-mail só sai em produção; conferi o template">${esc(ui.draft||'')}</textarea><div class="rvaskb"><button type="button" class="btn sm" data-rvaskx>cancelar</button><button type="button" class="btn primary sm" data-rvnpsend>aceitar sem prova</button></div></div>` : '';
   const accd=r.acc==='acc';
-  const foot = (ui.ask===sel||ui.noProof===sel) ? '' : !proven && !accd
-    ? `<div class="rvfoot"><button type="button" class="btn" data-rvchg>pedir mudança…</button><span class="rvsp"></span><button type="button" class="btn" data-rvnp>aceitar sem prova…</button><button type="button" class="btn primary" data-rvproofask>${IC.ai} pedir a prova ao agente</button></div>`
-    : `<div class="rvfoot"><button type="button" class="btn" data-rvchg>pedir mudança neste requisito…</button><span class="rvsp"></span><button type="button" class="btn${accd?'':' primary'}" data-rvacc aria-pressed="${accd}">${accd?IC.check+' aceito · desfazer':r.acc==='stale'?'aceitar de novo':'aceito este requisito'}</button></div>`;
-  return `<div class="rvr">${meta}<h3>R${r.i+1} ${esc(r.text)}</h3><p class="rvwhy"><b>O que o agente diz que fez:</b> ${did?esc(did):'<span class="dim">o agente não descreveu</span>'}</p>${rvProofHtml(t, r)}${noRefs}${r.refs.map(x=>rvHunkCard(t, x, m)).join('')}</div>${askBox}${npBox}${foot}`;
+  const foot = ui.noProof===sel ? '' : !proven && !accd
+    ? `<div class="rvfoot"><button type="button" class="btn" data-rvchg>pedir alteração…</button><span class="rvsp"></span><button type="button" class="btn" data-rvnp>aceitar sem prova…</button><button type="button" class="btn primary" data-rvproofask>${IC.ai} pedir a prova ao agente</button></div>`
+    : `<div class="rvfoot"><button type="button" class="btn" data-rvchg>pedir alteração neste requisito…</button><span class="rvsp"></span><button type="button" class="btn${accd?'':' primary'}" data-rvacc aria-pressed="${accd}">${accd?IC.check+' aceito · desfazer':r.acc==='stale'?'aceitar de novo':'aceito este requisito'}</button></div>`;
+  return `<div class="rvr">${meta}<h3>R${r.i+1} ${esc(r.text)}</h3><p class="rvwhy"><b>O que o agente diz que fez:</b> ${did?esc(did):'<span class="dim">o agente não descreveu</span>'}</p>${rvProofHtml(t, r)}${noRefs}${r.refs.map(x=>rvHunkCard(t, x, m)).join('')}</div>${npBox}${foot}`;
 }
 function rvTopHtml(t, m){
   const live=m.rows.filter(r=>r.status!=='deferred'), n=live.length, acc=live.filter(r=>r.acc==='acc').length;
@@ -301,7 +299,8 @@ function rvTopHtml(t, m){
   if(m.st.err) parts.push(`<span class="rvwarn" title="${escA(m.st.err)}">suas decisões não carregaram</span>`);
   const looseBox=rvUiOf(t.id).loose && last && last.verdict==='muda'
     ? `<div class="rvlooselist"><b>O que o revisor pediu na rodada ${last.round}</b><ul>${(last.items||[]).map((it,j)=>`<li><span>${esc(it)}</span><button type="button" class="lnk" data-rvitem="${j}">mandar pro agente</button></li>`).join('')}</ul>${loose.length<(last.items||[]).length?'<small class="dim">Os que citam arquivo:linha também aparecem presos ao trecho.</small>':''}</div>` : '';
-  return `<div class="rvtop">${parts.join('<span class="rvdot" aria-hidden="true">·</span>')}<span class="rvsp"></span><button type="button" class="btn sm" data-rvfull>ver diff completo</button></div>${looseBox}`;
+  const chg=(typeof rqCanAsk==='function' && rqCanAsk(t))?`<button type="button" class="btn sm" data-rqopen="${escA(t.id)}">Pedir alteração</button>`:'';
+  return `<div class="rvtop">${parts.join('<span class="rvdot" aria-hidden="true">·</span>')}<span class="rvsp"></span>${chg}<button type="button" class="btn sm" data-rvfull>ver diff completo</button></div>${looseBox}${typeof rqExtraBandHtml==='function'?rqExtraBandHtml(t):''}`;
 }
 function rvRender(t, main){
   const m=rvModel(t);
@@ -368,15 +367,9 @@ async function rvClick(taskId, e){
   if(d.rvproofask!=null){ b.disabled=true;
     const ok=await fwSendText(t.id, proofAskMsg([{ text:r.text, st:r.st, note:r.note }]));
     if(ok) toast('pedido de prova enviado ao agente','ok'); else b.disabled=false; return; }
-  if(d.rvchg!=null){ ui.ask=sel; ui.noProof=''; ui.draft=''; renderWorkspace(); return; }
+  if(d.rvchg!=null){ ui.ask=''; ui.noProof=''; ui.draft=''; rqOpen(taskId, { reqs:[r.i] }); return; } // a MESMA caixa do cabeçalho (71), com o requisito marcado
   if(d.rvnp!=null){ ui.noProof=sel; ui.ask=''; ui.draft=''; renderWorkspace(); return; }
   if(d.rvaskx!=null){ ui.ask=''; ui.noProof=''; ui.draft=''; renderWorkspace(); return; }
-  if(d.rvasksend!=null){ const tx=String(ui.draft||'').trim(); if(!tx){ const el=$id('rvAskTx'); if(el) el.focus(); toast('escreva o que mudar','warn'); return; }
-    b.disabled=true; b.textContent='enviando…';
-    const ok=await fwSendText(t.id, `Mudança pedida no requisito "${r.text}":\n${tx}`+(r.refs.length?`\nTrechos deste requisito: ${rvRefsTx(r.refs)}`:'')+'\nDepois rode os testes e atualize a prova e o requirements.json (did/code/tests).');
-    if(!ok){ b.disabled=false; b.textContent='mandar pro agente'; return; }
-    ui.ask=''; ui.draft=''; const st=rvSt[taskId], k=rvNorm(r.text); if(st && st.acc[k]){ const old=st.acc[k]; delete st.acc[k]; if(!await rvStSave(taskId)) st.acc[k]=old; }
-    toast('pedido enviado ao agente','ok'); rvRerender(taskId); return; }
   if(d.rvnpsend!=null){ const why=String(ui.draft||'').trim(); const words=why.split(/\s+/).filter(w=>/[\p{L}\p{N}]{2,}/u.test(w));
     if(words.length<3){ const el=$id('rvNpTx'); if(el) el.focus(); toast('escreva o motivo em uma frase (pelo menos 3 palavras)','warn'); return; }
     const st=rvSt[taskId]; if(!st||!m.df.ready){ toast('ainda carregando — tente de novo em instantes','warn'); return; }
@@ -440,7 +433,7 @@ function prvRender(t, main, info){
   const fixable=openCm>0 || gates.some(g=>g.st==='bad' && ['prova','revisor','checks','conflito'].includes(g.id));
   const gHtml=gates.map(g=>`<div class="prvg ${g.st}"><span class="prvst">${g.st==='ok'?'ok':g.st==='bad'?'falhou':g.st==='wn'?'falta':g.st==='run'?'andando':'não se aplica'}</span><b>${esc(g.label)}</b><small>${esc(g.val)}</small>${prvGateExit(g, first)}</div>`).join('');
   const head=info.state==='MERGED'?'Integrado na '+esc(info.baseRefName||'main'):info.state==='CLOSED'?'PR fechado sem integrar':'Pronto pra integrar?';
-  const bar=open?`<div class="prvbar"><button type="button" class="btn primary prvmerge" id="prvMerge"${why?` disabled aria-describedby="prvWhy"`:''}>${IC.merge} Integrar na ${esc(info.baseRefName||'main')}</button>${why?`<span class="prvwhy" id="prvWhy">${esc(why)}</span>${fixable?'<button type="button" class="btn" id="prvFixAll">'+IC.ai+' corrigir tudo com o agente</button>':''}`:'<span class="prvwhy">Integra com squash e apaga a branch remota.</span>'}<span class="rvsp"></span><button type="button" class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button type="button" class="btn sm" id="prPgCopy">copiar link</button><button type="button" class="btn sm" id="prPgRefresh">atualizar</button></div>`
+  const bar=open?`<div class="prvbar"><button type="button" class="btn primary prvmerge" id="prvMerge"${why?` disabled aria-describedby="prvWhy"`:''}>${IC.merge} Integrar na ${esc(info.baseRefName||'main')}</button>${why?`<span class="prvwhy" id="prvWhy">${esc(why)}</span>${fixable?'<button type="button" class="btn" id="prvFixAll">'+IC.ai+' corrigir tudo com o agente</button>':''}`:'<span class="prvwhy">Integra com squash e apaga a branch remota.</span>'}<span class="rvsp"></span>${typeof rqCanAsk==='function'&&rqCanAsk(t)?`<button type="button" class="btn sm" data-rqopen="${escA(t.id)}">Pedir alteração</button>`:''}<button type="button" class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button type="button" class="btn sm" id="prPgCopy">copiar link</button><button type="button" class="btn sm" id="prPgRefresh">atualizar</button></div>`
     : `<div class="prvbar"><span class="rvsp"></span><button type="button" class="btn sm" id="prPgOpen">${IC.extlink} abrir no GitHub</button><button type="button" class="btn sm" id="prPgRefresh">atualizar</button></div>`;
   const d=diffOf(t.id)||{};
   const files=rvCodeFiles(), addN=files.reduce((s,f)=>s+(+f.add||0),0)||(+d.additions||0), delN=files.reduce((s,f)=>s+(+f.del||0),0)||(+d.deletions||0);

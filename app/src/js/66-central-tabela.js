@@ -111,6 +111,7 @@ function ctExpHtml(r){
   const acts=[`<button type="button" class="btn sm primary" data-dcopen="${escA(r.id)}">Abrir tarefa <span class="kbd" aria-hidden="true">↵</span></button>`];
   if(r.pr) acts.push(`<button type="button" class="btn sm" data-lk="${escA(r.prUrl)}">Revisar PR #${esc(r.pr)}</button>`);
   const miss=r.nreq-r.ok;
+  if(typeof rqCanAsk==='function' ? rqCanAsk({ status:r.status, _cross:r.cross }) : ['review','delivered'].includes(r.status)) acts.push(`<button type="button" class="btn sm" data-rqopen="${escA(r.id)}">Pedir alteração</button>`); // 71: a mesma caixa da tarefa
   if(r.canAskProof && r.loaded && miss>0) acts.push(`<button type="button" class="btn sm" data-rowproof="${escA(r.id)}">Pedir ${miss===1?'a prova que falta':'as '+miss+' provas'}</button>`);
   const ring=r.nreq&&r.loaded&&!r.cross?`<span class="ctring" aria-hidden="true">${r.ok}</span>`:'';
   // F4: aviso do teto de custo (G3, 53-teto-protecao budgetNoticeHtml — já escapado lá) dentro da linha aberta

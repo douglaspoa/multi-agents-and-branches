@@ -1167,6 +1167,13 @@ export async function termMessage(orch: Orchestrator, taskId: string, kind: stri
     const k = (["doc", "tests", "proof", "all"].includes(String(o.deliver)) ? o.deliver : "all") as "doc" | "tests" | "proof" | "all";
     return deliverPrompt(k);
   }
+  if (kind === "stage") {
+    if ((orch.store.termGet(taskId)?.busy ?? 0) === 1) throw new Error("o terminal está no meio de um turno — chame o agente quando ele terminar");
+    // "Chamar outro agente…" no terminal vivo: a etapa começa aqui (registro + SHA de antes) e a instrução entra na
+    // MESMA sessão; o fim do turno (terminalTurnEnd) fecha a etapa com o que ela mudou. `deliver` = o agente.
+    const { prompt } = await orch.beginExtraStage(taskId, String(o.deliver ?? ""), { note: msg || undefined, by: "terminal" });
+    return prompt;
+  }
   if (kind === "rework") {
     termCapGate(orch, taskId, "aplicar o ajuste");
     const open = orch.store.openInstructions(taskId);

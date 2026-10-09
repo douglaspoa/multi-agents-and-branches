@@ -29,6 +29,8 @@ export const TEXT_FLAGS = new Set([
   "starfork-task", "term-mode", "deliver", "ai", "run",
   // F5: política da organização (P14) e teto da amostra (P15)
   "org-policy", "cap",
+  // revisão: pedir alteração / etapa extra (src/revisao-alteracao.ts)
+  "req",
 ]);
 
 /** Flags SEM valor (booleanas). */

@@ -3300,6 +3300,27 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
     Ok(())
 }
 
+/// "Chamar outro agente…" na revisão (src/revisao-alteracao.ts): ETAPA EXTRA com outro agente do time na MESMA branch.
+/// Terminal vivo → a instrução entra na mesma sessão (`term-msg --kind stage`, o fim do turno fecha a etapa);
+/// senão → `cardume etapa <tarefa> <agente>` (motor da tarefa, persona/skills do agente, teto conferido no motor).
+#[tauri::command(async)]
+fn extra_stage(state: State<AppState>, task_id: String, agent: String, note: Option<String>) -> Result<(), String> {
+    let a = agent.trim().to_string();
+    if a.is_empty() { return Err("escolha o agente".to_string()); }
+    let n = note.unwrap_or_default().trim().to_string();
+    if term::should_talk_in_terminal(&state, &task_id)? {
+        return term::route(&state, &task_id, "stage", &n, false, Some(&a));
+    }
+    let repo = repo_of(&state)?;
+    let mut cmd = node_cmd();
+    cmd.args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "etapa", &task_id, &a, "--repo", &repo.display().to_string()]);
+    if !n.is_empty() { cmd.arg("--msg"); cmd.arg(&n); }
+    cmd.current_dir(&repo);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    spawn_tracked(&state, &task_id, cmd)?;
+    Ok(())
+}
+
 /// Conversa com o agente numa tarefa pronta: retoma a sessão (--resume) por um
 /// turno pra corrigir/entregar o que faltou (ex.: "teste na UI real e me dê os prints").
 #[tauri::command(async)]
@@ -10589,6 +10610,7 @@ pub fn run() {
             rerun_task,
             deliver_artifact,
             talk_task,
+            extra_stage,
             review_pr,
             save_draft,
             load_draft,

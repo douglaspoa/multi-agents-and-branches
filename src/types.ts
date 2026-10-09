@@ -231,6 +231,8 @@ export interface TaskSpec {
   reviewOverride?: { reason: string; at: number; kind: string } | null;
   /** P10: o que rodou em cada papel (agente@versão · motor · skills) — vai pro Relatório do PR. */
   roleRuns?: import("./lifecycle.ts").RoleRun[];
+  /** Revisão: agentes chamados como ETAPA EXTRA ("Chamar outro agente…") — o que cada um mudou vai pra Revisão e pro PR. */
+  extraStages?: import("./revisao-alteracao.ts").ExtraStage[];
   /** F5 · P14: a política da organização (Empresa) que valia quando a tarefa nasceu — em frases, vai pro Relatório do PR. */
   orgPolicy?: { rules: string[]; tetoMaxUsd?: number; portao?: boolean } | null;
 }

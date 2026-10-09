@@ -246,6 +246,21 @@ export const TOOLS = [
     },
   },
   {
+    name: "extra_stage",
+    description:
+      "\"Chamar outro agente\" na revisão: começa uma ETAPA EXTRA desta tarefa com outro agente do time (design, revisor, qa, seguranca, performance, docs) — " +
+      "registra a etapa (o app mostra na faixa e no PR o que ela mudou) e devolve as instruções desse agente pra você seguir AGORA, nesta mesma branch e sessão. " +
+      "Use quando o humano pedir (ex.: \"passa pelo de design\"). Ao fim do turno a etapa fecha sozinha com os arquivos que mudaram.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "design | revisor | qa | seguranca | performance | docs (ou o nome/id do agente do time)" },
+        note: { type: "string", description: "O que o humano quer que esse agente olhe (opcional)." },
+      },
+      required: ["agent"],
+    },
+  },
+  {
     name: "list_skills",
     description: "Lista as skills disponíveis: primeiro as ATIVAS deste projeto, depois as outras do projeto e as pessoais — nome, descrição e origem. Depois use use_skill.",
     inputSchema: { type: "object", properties: {} },
@@ -584,6 +599,16 @@ export async function callTool(ctx: ToolCtx, name: string, args: any): Promise<T
     if (status !== "review") return { text: `status: ${STATUS_PT[status] ?? status}` };
     const st = await taskStatus(await orch(), TASK);
     return { text: `status: pronta pra revisão.\n${st.provado ? "Tudo provado ✓ — dá pra abrir o PR (open_pr)." : `Ainda falta para PROVADO:\n${st.faltaProvar.map((x) => `  - ${x}`).join("\n")}`}` };
+  }
+
+  if (name === "extra_stage") {
+    const o = await orch();
+    const agent = String(args?.agent ?? "").trim();
+    if (!agent) return { text: `diga o agente: ${o.extraAgents().map((a) => `${a.kind} (${a.name})`).join(", ")}`, isError: true };
+    try {
+      const { agent: a, prompt } = await o.beginExtraStage(TASK, agent, { note: String(args?.note ?? "").trim() || undefined, by: "mcp" });
+      return { text: `Etapa extra começou: a partir de agora, NESTE turno, você é ${a.name}. Siga:\n\n${prompt}` };
+    } catch (e) { return { text: (e as Error).message, isError: true }; }
   }
 
   if (name === "list_skills" || name === "use_skill") {

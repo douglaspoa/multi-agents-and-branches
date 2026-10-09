@@ -282,6 +282,8 @@ export interface ReportData {
   proofs?: Record<string, { url: string; kind: "img" | "video" }>;
   /** por que as provas não foram anexadas (ou o que ficou de fora) — vai em itálico abaixo da tabela */
   proofNote?: string;
+  /** etapas extras da revisão ("Passou pelo agente de design (Aria): …") — já formatadas por extraReportLines */
+  extraLines?: string[];
 }
 const ROLE_PT: Record<string, string> = { planner: "plano", builder: "construção", reviewer: "revisão", designer: "design", docs: "escrita", tester: "testes", retro: "retro", investigator: "investigação" };
 const md = (s: string) => String(s ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
@@ -304,6 +306,7 @@ export function starforkReport(d: ReportData): string {
   if (d.noProofReason) L.push(`**Aprovado sem prova**${d.noProofBy ? ` por ${md(d.noProofBy)}` : ""}: ${md(d.noProofReason)}`, "");
   if (d.reviewOverride) L.push(`**Seguiu sem nova revisão:** ${md(d.reviewOverride)}`, "");
   if (d.rounds.length) L.push(`**Revisão:** ${d.rounds.map((r) => `rodada ${r.round} (${md(r.reviewer)}) — ${r.verdict === "aprova" ? "aprova" : r.verdict === "muda" ? `muda (${r.items.length})` : "ilegível"}`).join(" · ")}`, "");
+  for (const x of d.extraLines ?? []) L.push(x, "");
   if (d.runs.length) L.push(`**Versões:** ${d.runs.map((r) => `${ROLE_PT[r.role] ?? r.role} \`${runTag(r)}\``).join(" · ")}`, "");
   if (d.orgPolicy?.length) L.push(`**Política da organização:** ${d.orgPolicy.map(md).join(" · ")}`, "");
   return L.join("\n").trimEnd() + "\n";
