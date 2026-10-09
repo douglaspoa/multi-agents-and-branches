@@ -252,10 +252,15 @@ test('ações do cartão: livre → assumir (só o nome) + ▶; meu → iniciar 
 });
 
 test('custo do cartão só pra quem atribui ou pro dono (T8); "Com o time" mostra quem está com ele, ou "sem dono" com assumir', () => {
-  const cost = (can) => new Function('tmCanAssignNow', 'tsWho', fn(S43, 'tsCostOk') + '\nreturn tsCostOk;')(() => can, (t) => t.assignee || t.created_by);
-  assert.equal(cost(false)({ assignee: 'bruno', created_by: 'ana' }, 'caio'), false, 'colega não vê o custo do outro');
-  assert.equal(cost(false)({ assignee: 'bruno' }, 'bruno'), true);
-  assert.equal(cost(true)({ assignee: 'bruno' }, 'ana'), true, 'líder vê');
+  // a regra é a de entPodeVerCusto (70); tmCanAssignNow só vale se o 70 não carregou
+  const cost = (can, ent) => new Function('tmCanAssignNow', 'tsWho', 'entPodeVerCusto', fn(S43, 'tsCostOk') + '\nreturn tsCostOk;')(() => can, (t) => t.assignee || t.created_by, ent);
+  const no = () => false, yes = () => true;
+  assert.equal(cost(false, no)({ assignee: 'bruno', created_by: 'ana' }, 'caio'), false, 'colega não vê o custo do outro');
+  assert.equal(cost(false, no)({ assignee: 'bruno' }, 'bruno'), true);
+  assert.equal(cost(true, yes)({ assignee: 'bruno' }, 'ana'), true, 'líder vê');
+  assert.equal(cost(true, no)({ assignee: 'bruno' }, 'caio'), false, 'entPodeVerCusto manda: false vence tmCanAssignNow true');
+  assert.equal(cost(false, yes)({ assignee: 'bruno' }, 'caio'), true, 'e o inverso');
+  assert.equal(cost(true, undefined)({ assignee: 'bruno' }, 'caio'), true, 'sem o 70: cai no tmCanAssignNow');
   const html = new Function('ctSent', 'flowSecCollapsed', 'flowSecHead', 'flowQuery', 'flowEpic', 'cloudUserId', 'ctStLabel', 'tsSt', 'stColor', 'trkCardLink', 'epNameOf', 'tsAv', 'tsOnline', 'tmName', 'esc', 'escA', 'agoTx', 'IC',
     cut(S46, '// @ct-sent-inicio', '// @ct-sent-fim') + fn(S46, 'ctSentHtml') + '\nreturn ctSentHtml;');
   const rows = [{ id: '1', title: 'Índice', created_by: 'ana', assignee: 'bruno', status: 'running', spec: {} }, { id: '2', title: 'Tela', created_by: 'caio', assignee: null, status: 'backlog', spec: { dispatch: 'team' } }];
