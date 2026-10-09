@@ -237,7 +237,7 @@ function railBadgeHtml(name, color){ const n=String(name||'').replace(/^[^\p{L}\
 // título da lista: "Demandas · N em aberto" (a contagem é a do rodapé — railCounts, mesma régua da Central)
 function railHeadHtml(vivas){ return `<div class="rhead"><span>Demandas</span><span class="n">${vivas===1?'1 em aberto':vivas+' em aberto'}</span></div>`; }
 // L14: tooltip da linha = título inteiro · estado · branch · projeto (sem hora relativa: a guarda el.__html continua valendo)
-function railRowTip(t, label, proj){ return [t.title, label, t.branch, proj].filter(Boolean).join(' · '); }
+function railRowTip(t, label, proj){ return [(typeof mdTitle==='function'?mdTitle(t.title||''):t.title), label, t.branch, proj].filter(Boolean).join(' · '); }
 // ↑/↓/Home/End entre as linhas da lista (L13)
 function railNavIdx(i, n, key){
   if(!n) return -1;
@@ -266,7 +266,7 @@ function renderRail(){
   const rowHtml=(t, st, proj, other)=>{ const [tg,tc,tl]=tagOf(st); const wait=RAIL_VOCE.has(flowBucket(t));
     const attrs=other?` data-proj="${escA(other)}"${t.id?` data-id="${escA(t.id)}"`:''}`:` data-id="${t.id}"`;
     const sel=!other && hi.ids.includes(t.id);
-    return `<div class="prow2${other?' other':''}${sel?' sel':''}${wait?' wait':''}"${attrs} role="button" tabindex="0"${!other&&hi.cur===t.id?' aria-current="page"':''} title="${escA(railRowTip(t, tl, proj))}"><span class="d${st==='running'||st==='thinking'?' run':''}" style="background:${tc}"></span><span class="tt">${esc(t.title)}</span>${other?'':sbEpDot(t)}<span class="tg" style="color:${tc}">${esc(tg)}</span></div>`; };
+    return `<div class="prow2${other?' other':''}${sel?' sel':''}${wait?' wait':''}"${attrs} role="button" tabindex="0"${!other&&hi.cur===t.id?' aria-current="page"':''} title="${escA(railRowTip(t, tl, proj))}"><span class="d${st==='running'||st==='thinking'?' run':''}" style="background:${tc}"></span><span class="tt">${esc(mdTitle(t.title||''))}</span>${other?'':sbEpDot(t)}<span class="tg" style="color:${tc}">${esc(tg)}</span></div>`; };
 
   // ---- PROJETO ATUAL ----
   let html = '';

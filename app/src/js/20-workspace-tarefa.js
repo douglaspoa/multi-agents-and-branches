@@ -239,7 +239,7 @@ function openWorkspace(taskId, path){
   const t=(state.tasks||[]).find(x=>x.id===taskId)||{};
   // cada aba lembra o PRÓPRIO arquivo e o PROJETO (antes: um tabTaskPath global — a aba B abria o arquivo da A,
   // e depois de trocar de projeto a aba velha abria uma tarefa que não existe no projeto atual)
-  let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, repo:state.repo, path:path||null, title:(t.title||'Tarefa').slice(0,26)}; TABS.push(tab); }
+  let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, repo:state.repo, path:path||null, title:(mdTitle(t.title||'')||'Tarefa').slice(0,26)}; TABS.push(tab); }
   else { if(t.title) tab.title=t.title.slice(0,26); if(path){ tab.path=path; tab.mode='codigo'; } if(!tab.repo) tab.repo=state.repo; }
   activateTab(id);
 }
@@ -775,7 +775,7 @@ function renderWorkspace(){
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); cols.classList.toggle('rv-req', fwMode==='revisao' && (typeof rvViewOf!=='function' || rvViewOf(t.id)!=='diff')); } }
   fwModesPaint(t);
-  { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
+  { const tn=$id('fwTaskName'), tt=mdTitle(t.title||''); tn.textContent=tt; tn.title=tt; } // cabeçalho: título salvo com ** aparece limpo
   // painel Dispositivo (57-dispositivo.js): barato — só o botão/visibilidade; o painel tem guarda própria
   if(typeof dvSync==='function') dvSync(t);
   // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico
@@ -890,12 +890,13 @@ function renderWorkspace(){
   const objShort=String(t.objective||'').split('[PLANO DO ORQUESTRADOR')[0].trim();
   const whyKey=t.id+'|'+(fwPath||'');
   const w=fwPath?fwWhyCache[whyKey]:undefined;
-  const whyInner = !fwPath ? esc(objShort)
-    : w===undefined ? `${esc(objShort)}<div style="margin-top:7px"><button class="btn sm" id="fwWhyAsk" title="a IA lê o diff deste arquivo e explica o que mudou e por quê (usa créditos)">${IC.ai} explicar este arquivo com IA</button></div>`
+  const objMd=`<div class="mdlite">${mdToHtml(objShort)}</div>`; // objetivo é markdown (vem da conversa/IA): formatado, não cru
+  const whyInner = !fwPath ? objMd
+    : w===undefined ? `${objMd}<div style="margin-top:7px"><button class="btn sm" id="fwWhyAsk" title="a IA lê o diff deste arquivo e explica o que mudou e por quê (usa créditos)">${IC.ai} explicar este arquivo com IA</button></div>`
     : w===null ? `<span class="dim">lendo o diff deste arquivo e escrevendo a explicação…</span>`
     : (w&&w.md) ? mdToHtml(w.md)
     : (w&&w.err) ? `<span style="color:var(--warn)">não consegui explicar este arquivo: ${esc(errShort(w.err))}</span> <a class="lnk" id="fwWhyRetry">tentar de novo</a>`
-    : `<span class="dim">sem alterações neste arquivo nesta branch.</span> ${esc(objShort)}`;
+    : `<span class="dim">sem alterações neste arquivo nesta branch.</span> ${objMd}`;
   const whyBand = `<div class="fwwhy${fwWhyOpen?' open':''}"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div class="fwwhyb"><div class="fwwhyh"><span class="fwwhyl">${fwPath&&w!==undefined?'O que foi feito neste arquivo e por quê':'Objetivo da tarefa'}</span><span style="flex:1"></span>${fwPath&&w&&w.md?`<button class="fwwhyre" id="fwWhyRedo" title="gerar de novo">↻</button>`:''}<button class="fwwhytg" id="fwWhyTg">${fwWhyOpen?'▴ menos':'▾ mais'}</button></div><div class="fwwhyt">${whyInner}</div></div></div>`;
   if(keepEditor){ /* editor aberto: fica como está (texto, cursor, rolagem) */ }
   else if(fwMode==='entrega'){ fwRenderEntrega(t, main); }

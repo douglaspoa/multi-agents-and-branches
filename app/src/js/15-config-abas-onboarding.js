@@ -347,7 +347,7 @@ function renderTabs(){
     // tela dividida = UMA aba-grupo com um segmento por membro (58-canvas, estilo grupo de abas do Chrome)
     if(it.group) return cvGroupTabHtml(it.group);
     const t=tabById(it.id); const on=t.id===activeTab; const base=(VIEW_META[t.kind]||{}).title||t.kind; if(t.title===base) seen[t.kind]=(seen[t.kind]||0)+1;
-    const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:t.title;
+    const title=(MULTI_KINDS.has(t.kind)&&counts[t.kind]>1&&t.title===base)?`${base} ${seen[t.kind]}`:mdTitle(t.title||''); // título salvo com **/crase (antes do fix) aparece limpo — só na exibição
     // R7: aba pelo teclado (role=tab, Tab chega, Enter abre, ←/→ passa, Delete/Backspace fecha), título inteiro no
     // tooltip (o texto corta em 28) e arrastável pra reordenar (a Central fica fixa na frente). O X é só pro mouse
     // (aria-hidden: controle dentro de role=tab não é permitido) — pelo teclado fecha com Delete.

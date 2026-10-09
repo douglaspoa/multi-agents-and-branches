@@ -175,7 +175,7 @@ function epicPageRender(){
       : bad ? `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a tarefa pra ver o erro">ver o problema</button>` : '';
     const vtx=verifyTx(s.verify), cov=(Array.isArray(s.covers)&&s.covers.length)?s.covers:[];
     return `<div class="ep-task" data-ept="${escA(t.id)}" tabindex="0" title="${escA('abrir '+t.title+' — Enter')}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:stIcon(est)}</span><div class="en-rt">
-      <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:var(--fs-xs)">· ${stTx}${(()=>{ const me=cloudUserId(), w=[ctWhoLabel(t, me, tmName), t.assignee&&t.assignee===me?'com você':''].filter(Boolean).join(' · '); return w?' · '+esc(w):''; })()}</span></div>
+      <div><b>${esc(mdTitle(t.title||''))}</b> <span class="dim" style="font-size:var(--fs-xs)">· ${stTx}${(()=>{ const me=cloudUserId(), w=[ctWhoLabel(t, me, tmName), t.assignee&&t.assignee===me?'com você':''].filter(Boolean).join(' · '); return w?' · '+esc(w):''; })()}</span></div>
       ${vtx||cov.length?`<div class="ep-verify">${vtx?IC.ok+' prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
     </div>${act?`<div class="ep-acts">${act}</div>`:''}</div>`; };
   // R5-2: "x/y entregues · z em revisão" — a onda atual ainda avança com revisão (comportamento mantido),
@@ -188,8 +188,8 @@ function epicPageRender(){
     : `<div class="en-empty">${c.loaded?'nenhuma tarefa neste épico ainda':skeletonHtml('lista',{ n:4, compact:true, inline:true, label:'carregando as tarefas do épico' })}</div>`;
   const dwHtml = dw.length
     ? dw.map((d,i)=>`<label class="ep-dw${d.checkedBy?' ok':''}"><input type="checkbox" data-epdw="${i}" ${d.checkedBy?'checked':''}${can?'':' disabled'}><span class="en-rt">
-        <div><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(d.id||('D'+(i+1)))}</span> ${esc(d.text||'')}</div>
-        ${d.checkedBy?`<div class="ep-dwby">marcado por ${epWho(d.checkedBy)}${d.checkedAt?' · há '+agoTx(d.checkedAt):''}${d.evidence?' · '+esc(d.evidence):''}</div>`:''}
+        <div><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(d.id||('D'+(i+1)))}</span> ${mdInline(d.text||'')}</div>
+        ${d.checkedBy?`<div class="ep-dwby">marcado por ${epWho(d.checkedBy)}${d.checkedAt?' · há '+agoTx(d.checkedAt):''}${d.evidence?' · '+mdInline(d.evidence):''}</div>`:''}
       </span></label>`).join('')
     : `<div class="en-empty">sem "pronto quando"${sv.entregue?' — todas as tarefas foram entregues: concluído':' — fica concluído quando todas as tarefas forem entregues'}${can&&!sv.entregue?' (ou defina os critérios abaixo)':''}</div>`;
   // R3-C2: status aparece UMA vez (sobretítulo); os números viram uma faixa compacta ABAIXO da descrição
@@ -200,8 +200,8 @@ function epicPageRender(){
   main.innerHTML=`<div class="enpage">${pageHead({ title:'Épico · '+(ep.name||'Épico'), scope:'time', scopeLabel:tmNm||'', sum:`<span class="ep-st ep-st-${escA(sv.st)}">${esc(EP_ST_PT[sv.st]||sv.st||'')}</span>${typeof aeEpicBadge==='function'?' · '+aeEpicBadge(sp):''}`, more:{ id:'epicPageMore', title:'Atualizar · abrir no Time · issue' } })}
     <div class="en-head">
       <div class="en-ht">
-        ${sp.outcome?`<p class="en-obj">${esc(sp.outcome)}</p>`:''}
-        ${sp.description?`<p class="en-obj dim" style="font-size:var(--fs-sm)">${esc(sp.description)}</p>`:''}
+        ${sp.outcome?`<div class="en-obj mdlite">${mdToHtml(sp.outcome)}</div>`:''}
+        ${sp.description?`<div class="en-obj dim mdlite" style="font-size:var(--fs-sm)">${mdToHtml(sp.description)}</div>`:''}
         <div class="en-kpis ep-kpis">
           ${sp.issue&&sp.issue.code?`<button class="en-kpi" ${sp.issue.url?`data-lk="${escA(sp.issue.url)}" title="abrir a issue do épico no painel"`:'disabled'}><b>${esc(sp.issue.code)}</b><span>issue${sp.issue.url?' ↗':''}</span></button>`:''}
           ${dw.length?`<div class="en-kpi" title="${escA(okN+' de '+dw.length+' critérios de pronto marcados — o épico fecha com todos')}"><b>${okN}/${dw.length}</b><span>pronto quando</span></div>`:''}
@@ -214,8 +214,8 @@ function epicPageRender(){
     <div class="en-grid">
       <section class="en-sec">
         <div class="seclbl2">Pronto quando <span class="dim">· D1, D2… = critérios; o épico só fecha com tudo marcado e nenhuma tarefa ainda ativa${can?'':' · só quem criou (ou admin) marca'}</span></div>${dwHtml}
-        ${reqs.length?`<div class="seclbl2" style="margin-top:14px">Requisitos <span class="dim">· R1, R2… = requisitos (as tarefas dizem quais cobrem)</span></div>${reqs.map(r=>`<div class="en-del"><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(r.id||'')}</span> ${esc(r.text||'')}</div>`).join('')}`:''}
-        ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${esc(b)}</div>`).join('')}`:''}
+        ${reqs.length?`<div class="seclbl2" style="margin-top:14px">Requisitos <span class="dim">· R1, R2… = requisitos (as tarefas dizem quais cobrem)</span></div>${reqs.map(r=>`<div class="en-del"><span class="mono dim ep-code" title="${escA(CODE_TIP)}">${esc(r.id||'')}</span> ${mdInline(r.text||'')}</div>`).join('')}`:''}
+        ${bounds.length?`<div class="seclbl2" style="margin-top:14px">Não muda</div>${bounds.map(b=>`<div class="en-del">⊘ ${mdInline(b)}</div>`).join('')}`:''}
         ${typeof aeEpicHistHtml==='function'?aeEpicHistHtml(sp, can, tasks, ep.id):''}
         ${can&&sp0.mode!=='start'&&tasks.some(t=>t.status==='backlog'&&Array.isArray((t.spec||{}).after)&&(t.spec||{}).after.length&&!(t.spec||{}).autoStart)?`<div style="margin-top:14px"><button class="btn sm" id="epAutoOn" title="cada tarefa começa sozinha, nesta máquina, quando as de que ela depende forem mergeadas">${IC.clock} próximas etapas começam sozinhas</button></div>`:''}
         ${!dw.length&&!sv.entregue&&can?`<div class="row1" style="margin-top:14px;gap:8px;display:flex;flex-wrap:wrap"><button class="btn sm primary" id="epDwSet">definir pronto quando</button><button class="btn sm" id="epLegacyDone">✓ marcar épico como concluído</button></div>`:''}
@@ -223,7 +223,7 @@ function epicPageRender(){
       <section class="en-sec"><div class="seclbl2 ep-taskshead"><span>Tarefas <span class="dim" title="${escA(EP_WAVE_TIP)}">· por etapa (a próxima começa quando esta termina); clique pra abrir</span></span>${startBtn?`<span class="ep-start">${startBtn}</span>`:''}</div>${tasksHtml}</section>
     </div>
     ${conv.length?`<details class="en-sec ep-conv"><summary class="seclbl2">Conversa que originou o épico <span class="dim">· ${conv.length} mensage${conv.length===1?'m':'ns'} do "montar conversando"</span></summary>
-      ${conv.map(m=>`<div class="plmsg ${m.who==='you'?'you':'bot'}">${m.who==='bot'?'<span class="plav">'+IC.starfork+'</span>':''}<div class="plbub">${m.who==='bot'?mdToHtml(String(m.text||'')):esc(m.text||'')}</div></div>`).join('')}</details>`:''}
+      ${conv.map(m=>`<div class="plmsg ${m.who==='you'?'you':'bot'}">${m.who==='bot'?'<span class="plav">'+IC.starfork+'</span>':''}<div class="plbub">${mdToHtml(String(m.text||''))}</div></div>`).join('')}</details>`:''}
   </div>`;
   main.querySelectorAll('[data-epdw]').forEach(cb=>cb.onchange=()=>epicToggleDone(ep, +cb.dataset.epdw, cb.checked));
   main.querySelectorAll('[data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
@@ -548,11 +548,11 @@ function epqEpicTasks(eid){
     if(lt) seen.add(lt.id);
     const st=lt?taskSt(lt):ct.status, flag=lt?lt.flag:ct.flag; // R5-1: status efetivo (pergunta aberta = aguardando você)
     const pr=lt?!!(lt.prUrl&&lt.status!=='merged'):!!(ct.pr_url&&!['merged','done','closed'].includes(ct.status));
-    out.push({ title:ct.title||(lt&&lt.title)||'tarefa', st, flag, b:epqBucket(st, flag, pr), wave:epqWave(ct), local:lt?lt.id:null, cloud:ct.id, who:ct.assignee||null });
+    out.push({ title:(typeof mdTitle==='function'?mdTitle(ct.title||(lt&&lt.title)||''):(ct.title||(lt&&lt.title)))||'tarefa', st, flag, b:epqBucket(st, flag, pr), wave:epqWave(ct), local:lt?lt.id:null, cloud:ct.id, who:ct.assignee||null });
   });
   locals.forEach(t=>{ if(seen.has(t.id)) return; // tarefa local ainda não espelhada na nuvem
     const pr=!!(t.prUrl&&t.status!=='merged');
-    out.push({ title:t.title||'tarefa', st:taskSt(t), flag:t.flag, b:epqBucket(taskSt(t), t.flag, pr), wave:Math.max(1, parseInt(t.epic.wave,10)||1), local:t.id, cloud:null }); });
+    out.push({ title:(typeof mdTitle==='function'?mdTitle(t.title||''):t.title)||'tarefa', st:taskSt(t), flag:t.flag, b:epqBucket(taskSt(t), t.flag, pr), wave:Math.max(1, parseInt(t.epic.wave,10)||1), local:t.id, cloud:null }); });
   return out.filter(x=>x.b!=='off').sort((a,b)=>a.wave-b.wave);
 }
 function epqSummaryHtml(eid, qn){
@@ -753,13 +753,13 @@ function epJoinItems(cloud, locals, d){
   const byLocal={}; (locals||[]).forEach(t=>{ byLocal[t.id]=t; });
   const out=[], seen=new Set(), wv=v=>Math.max(1, parseInt(v,10)||1);
   const fromLocal=(t, ct)=>{ seen.add(t.id); const st=d.st(t), b=d.bucket(st, t.flag, !!(t.prUrl&&t.status!=='merged'));
-    return { id:t.id, kind:'local', title:t.title||'tarefa', wave:wv((t.epic||{}).wave||(ct&&d.cardWave(ct))), b,
+    return { id:t.id, kind:'local', title:(typeof mdTitle==='function'?mdTitle(t.title||''):t.title)||'tarefa', wave:wv((t.epic||{}).wave||(ct&&d.cardWave(ct))), b,
       startable:t.status==='draft' && b!=='ok' && !d.started(t), mine:true, armed:!!(d.armedLoc||{})[t.id], t }; };
   (cloud||[]).forEach(ct=>{
     const lid=(ct.local_id&&byLocal[ct.local_id])?ct.local_id:(d.c2l||{})[ct.id], lt=lid&&byLocal[lid];
     if(lt){ if(!seen.has(lt.id)) out.push(fromLocal(lt, ct)); return; }
     const b=d.bucket(ct.status, ct.flag, !!(ct.pr_url&&!['merged','done','closed'].includes(ct.status)));
-    out.push({ id:ct.id, kind:'cloud', title:ct.title||'tarefa', wave:d.cardWave(ct), b,
+    out.push({ id:ct.id, kind:'cloud', title:(typeof mdTitle==='function'?mdTitle(ct.title||''):ct.title)||'tarefa', wave:d.cardWave(ct), b,
       startable:ct.status==='backlog' && b!=='ok', mine:!!d.mine(ct, d.me), armed:!!((ct.spec||{}).autoStart), ct });
   });
   (locals||[]).forEach(t=>{ if(!seen.has(t.id)) out.push(fromLocal(t)); });
