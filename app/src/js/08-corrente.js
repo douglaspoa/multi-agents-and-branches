@@ -1,10 +1,10 @@
 // Starfork — 08-corrente: "cada coisa mostra a CORRENTE inteira" (mock aprovado pelo dono, mesa 09/10 D2–D5).
-// issue → épico → tarefa (com quem) → PR → provas → entrega, em chips clicáveis IGUAIS em todo lugar (painel de Issues,
-// cabeçalho da tarefa, Entregas por dia). Fonte única: chainOf(tarefa local OU cartão da nuvem) → elos; chainHtml(elos)
+// issue → épico → tarefa (com quem) → PR → provas → entrega, em chips clicáveis IGUAIS em todo lugar (o painel de Issues
+// usa aqui; o cabeçalho da tarefa e as Entregas por dia usam nos PRs seguintes). Fonte única: chainOf(tarefa local OU cartão da nuvem) → elos; chainHtml(elos)
 // → chips. O clique é um só (delegado no documento): issue abre no painel (ou o link), épico abre a página dele, tarefa
 // abre a tarefa (a minha) ou a página de entrega (a do colega), PR abre no GitHub, provas abrem a entrega.
 
-// @puro-corrente-inicio (testado em app/tests/corrente.test.mjs)
+// @puro-corrente-inicio (testado em app/tests/periodo.test.mjs)
 // x = tarefa local ({ id, title, issueCode, issueUrl, epic:{epicId}, prUrl, status, flag }) ou cartão ({ id, team_id,
 // title, spec:{issueCode,issueUrl}, issue_url, epic_id, pr_url, assignee, created_by, status, local_id })
 // k = { card(localId)→cartão|null, local(cardId)→tarefa|null, epicName(id)→nome, me, proofs(x)→n|null }
@@ -71,13 +71,17 @@ document.addEventListener('click', e=>{
       const inPanel=d.code && typeof trkIssues!=='undefined' && (trkIssues||[]).some(i=>i.code===d.code) && typeof trkSelect==='function';
       if(inPanel){ if(window.openTab) window.openTab('issues'); trkSelect(d.code); }
       else if(d.url) openExternal(d.url);
-      else if(window.openTab){ window.openTab('issues'); if(typeof trkSelect==='function' && d.code) setTimeout(()=>{ try{ if((trkIssues||[]).some(i=>i.code===d.code)) trkSelect(d.code); }catch(_){ } }, 900); }
+      else if(window.openTab){ if(typeof trkPendingSel!=='undefined') trkPendingSel=d.code||''; window.openTab('issues'); } // seleciona quando as issues chegarem
     } else if(kind==='epic'){ if(typeof epOpenById==='function') epOpenById(d.id); }
     else if(kind==='pr'){ if(d.url) openExternal(d.url); }
     else if(kind==='task' || kind==='proof'){
       const local=d.local && ((typeof state!=='undefined'&&state.tasks)||[]).some(t=>t.id===d.local);
-      if(local) openWorkspace(d.local, kind==='proof'?'entrega':undefined);
-      else if(d.cloud){ const ct=((typeof teamTasks!=='undefined'&&teamTasks)||[]).find(c=>c.id===d.cloud); if(ct && typeof openCloudTaskPage==='function') openCloudTaskPage(ct); }
+      if(local){ openWorkspace(d.local); if(kind==='proof') setTimeout(()=>{ try{ fwMode='entrega'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace(); }catch(_){ } }, 50); }
+      else if(d.cloud){
+        const find=()=>((typeof teamTasks!=='undefined'&&teamTasks)||[]).find(c=>c.id===d.cloud);
+        const go=ct=>{ if(ct && typeof openCloudTaskPage==='function') openCloudTaskPage(ct); else if(typeof toast==='function') toast('Não achei esse cartão no time — talvez tenha sido apagado.','warn'); };
+        const ct=find(); if(ct) go(ct); else if(typeof teamFetch==='function') teamFetch(true).then(()=>go(find())).catch(e=>showErr(e,'Não consegui abrir o cartão'));
+      }
     }
   }catch(err){ if(typeof showErr==='function') showErr(err, 'Não consegui abrir'); }
 }, true);

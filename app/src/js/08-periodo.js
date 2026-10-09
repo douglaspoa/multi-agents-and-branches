@@ -49,6 +49,7 @@ function sortRows(list, ts, sort, val){
   if(sort && sort.col && sort.col!=='mod' && val){
     const d=sort.dir==='asc'?1:-1;
     out.sort((a,b)=>{ const x=val(a,sort.col), y=val(b,sort.col);
+      const ex=x==null||x==='', ey=y==null||y===''; if(ex||ey){ if(ex&&ey) return ts(b)-ts(a); return ex?1:-1; } // vazio sempre no fim
       const c=(typeof x==='number'&&typeof y==='number')?x-y:String(x==null?'':x).localeCompare(String(y==null?'':y),'pt-BR',{ numeric:true });
       return c*d || (ts(b)-ts(a)); });
     return out;

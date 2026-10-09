@@ -6075,7 +6075,7 @@ const TRACKER_AI_PROMPT: &str = r#"Você configura a conexão do Starfork com um
  },
  "fields": {"id": "id", "code": "code", "title": "title", "description": "description", "status": "status", "assignee": "campo com o ID de quem está com a issue ou null", "assigneeName": "campo com o NOME do responsável (ex.: assignee_name) ou null", "assigneeEmail": "campo com o e-mail do responsável ou null", "createdBy": "campo com o nome/e-mail de quem criou ou null", "priority": "priority ou null", "tags": "tags ou null", "createdAt": "created_at", "updatedAt": "updated_at", "url": "campo com link web ou null", "commentCount": "campo ou null"},
  "urlTemplate": "https://…/{{code}} se a doc der um link web por issue, senão vazio",
- "statuses": [{"id": "valor exato na API", "label": "rótulo em português", "kind": "todo|doing|blocked|done"}],
+ "statuses": [{"id": "valor exato na API", "label": "rótulo em português", "kind": "todo|doing|review|blocked|done (review = em revisão/code review, se a API tiver esse status)"}],
  "assigneeFormat": "email|id|name — o que a API espera em {{assignee}}",
  "priorities": ["valores aceitos em {{priority}}, na ordem da mais alta pra mais baixa; [] se a doc não listar"],
  "types": ["valores aceitos em {{type}} (ex.: task, bug); [] se não houver"],

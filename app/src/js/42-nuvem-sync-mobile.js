@@ -206,7 +206,7 @@ async function cloudShareTask(payload, opts){
   const who=opts.assignee||null;
   if(who && rows&&rows[0]){
     if(typeof tmAssignOptsNow==='function' && !tmAssignOptsNow().some(o=>o.id===who)) toast('O responsável escolhido não está mais disponível no time — o cartão ficou livre.','warn');
-    else try{ await cloudAssign(rows[0].id, who); rows[0].assignee=who; }catch(e){ toast('O cartão foi pro time, mas ficou livre: '+(typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e)),'warn'); }
+    else try{ await cloudAssign(rows[0].id, who); rows[0].assignee=who; if(typeof trkCardAssign==='function') trkCardAssign(rows[0], who); }catch(e){ toast('O cartão foi pro time, mas ficou livre: '+(typeof cloudErrMsg==='function'?cloudErrMsg(e):String(e&&e.message||e)),'warn'); }
   }
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'created', body:payload.title }).catch(()=>{});
   teamTasks=null;
@@ -216,7 +216,7 @@ async function cloudShareTask(payload, opts){
 async function cloudPublishSelf(localId, payload){
   if(!SB.sess() || !cloudTeamId()) return;
   const proj=await cloudEnsureProject();
-  const rows=await sbPost('tasks',{ local_id:localId, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:payload.title, status:'running', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), spec:cloudSpecOf(payload) });
+  const rows=await sbPost('tasks',{ local_id:localId, project_id:proj.id, team_id:cloudTeamId(), created_by:cloudUserId(), assignee:cloudUserId(), claim_mode:'reserved', title:payload.title, status:'running', epic_id:(typeof ntEpicVal==='function'?ntEpicVal():null), issue_url:payload.issueUrl||null, spec:Object.assign(cloudSpecOf(payload), payload.issue?{ issueCode:payload.issue }:{}) }); // a issue vai nas DUAS pontas (o time vê a tarefa na issue)
   tmapSet(localId, rows[0].id);
   if(rows[0].epic_id && window.epicMarkInProgress) epicMarkInProgress(rows[0].epic_id); // 1ª tarefa rodando → épico em andamento
   sbPost('task_activity',{ task_id:rows[0].id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});

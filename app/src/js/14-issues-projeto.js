@@ -10,7 +10,7 @@ let trkIssues=[], trkIssuesAt=0, trkErr='', trkQ='', trkFilter=lsGet('trkFilter'
 let trkProjects=[], trkRemote='', trkRemoteIds=null, trkRemoteFor=null, trkTimer=null, trkSyncAt=0, trkMine={}; // trkMine: mudanças que EU fiz (não viram aviso)
 let trkBg=0, trkBackoffMs=0, trkNextAt=0, trkBgErr=''; // 2º plano (contador: observador e sync podem rodar juntos): não registra erro; falha → recuo exponencial + UM aviso no quadro
 const TRK_RULES={ createOnTask:true, syncStatus:true, watch:true };
-const TRK_KINDS={ todo:'var(--muted)', doing:'var(--info)', blocked:'var(--warn)', done:'var(--good)' };
+const TRK_KINDS={ todo:'var(--muted)', doing:'var(--info)', review:'var(--st-review)', blocked:'var(--warn)', done:'var(--good)' };
 
 // ---------- config: nuvem primeiro, cache local sempre ----------
 function trkBlank(){ return { name:'', docs:'', connector:null, vars:{}, projects:[], allProjects:false, rules:{...TRK_RULES} }; }
@@ -93,11 +93,13 @@ async function trkCommentsLoad(code, fetchList, cur, apply){
 // vazio do quadro filtrado: o texto diz o que está ativo (busca, filtro ou os dois)
 function trkEmptyFilterText(q, filter){
   q=String(q||'').trim(); filter=filter||'all';
-  const fl=filter==='linked'?'“com tarefa”':filter==='unseen'?'“mudaram”':filter.startsWith('ep:')?'do épico '+filter.slice(3):'';
+  const fl=filter==='linked'?'“com tarefa”':filter==='unlinked'?'“sem tarefa”':filter==='mine'?'“comigo”':filter==='unseen'?'“mudaram”':filter.startsWith('ep:')?'do épico '+filter.slice(3):'';
   if(q&&fl) return { title:'Nenhuma issue com “'+q+'” no filtro '+fl, help:'A busca e o filtro juntos não acham nada — “mostrar todas” limpa os dois.' };
   if(q) return { title:'Nenhuma issue com “'+q+'”', help:'A busca olha código, título e pessoa. Tente outra palavra.' };
   if(filter==='unseen') return { title:'Nenhuma issue neste filtro', help:'Nada mudou desde a última vez que você olhou.' };
-  if(filter==='linked') return { title:'Nenhuma issue neste filtro', help:'Nenhuma issue tem tarefa vinculada ainda — abra uma issue e clique em “criar tarefa desta issue”.' };
+  if(filter==='linked') return { title:'Nenhuma issue neste filtro', help:'Nenhuma issue tem tarefa ligada no período — use “criar tarefa” ou “mandar pro time” numa issue sem tarefa.' };
+  if(filter==='unlinked') return { title:'Toda issue do período tem tarefa', help:'Nada solto: cada issue já tem uma tarefa no Starfork.' };
+  if(filter==='mine') return { title:'Nada com você no período', help:'Nenhuma issue atribuída a você no painel e nenhuma tarefa ligada com você.' };
   return { title:'Nenhuma issue neste filtro', help:'Volte pra lista completa.' };
 }
 // @puro-issues-fim
@@ -232,6 +234,109 @@ function trkTaskCode(t){ const l=trkLinks()[t.id]; if(l) return l; const c=(type
   const u=t.issueUrl||''; const hit=u&&trkIssues.find(i=>i.url===u||u.endsWith('/'+i.code)); return hit?hit.code:null; }
 function trkTasksFor(code){ return ((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>trkTaskCode(t)===code); }
 function trkTaskKind(t){ const s=t.status; if(s==='done'||s==='merged') return 'done'; if(['draft','queued','cancelled'].includes(s)) return null; return 'doing'; }
+// ---------- issue ↔ tarefa LIGADAS nas duas pontas (mesa 09/10, D2/D3) ----------
+// Fonte de verdade = o CARTÃO (spec.issueCode + issue_url): a issue enxerga a tarefa de QUALQUER pessoa do time (antes: só
+// as tarefas desta máquina). trk:links continua como atalho local (tarefa sem cartão). O status do painel anda sozinho
+// pela máquina que tem a tarefa: rodando → em andamento; pronta pra revisar / PR aberto → em revisão (SÓ se o conector tem
+// esse status — nunca "em andamento" no lugar); integrada/concluída → feito. Falha = selo na issue com o motivo.
+// @puro-trklig-inicio (testado em app/tests/issues-ligadas.test.mjs)
+function trkCodeFromUrl(u, issues){
+  u=String(u||''); if(!u) return '';
+  const hit=(issues||[]).find(i=>i.url&&(i.url===u||u.endsWith('/'+i.code))); if(hit) return hit.code;
+  const m=u.match(/\b([A-Z][A-Z0-9]{1,9}-\d+)\b/); return m?m[1]:'';
+}
+function trkCodeOfCard(ct, issues){ const s=(ct&&ct.spec)||{}; return String(s.issueCode||s.issue||'').trim()||trkCodeFromUrl(s.issueUrl||(ct&&ct.issue_url), issues); }
+// code → [{ local, card }]: a tarefa local e o cartão dela viram UMA entrada (tmap: localId → cardId)
+function trkLinkIdx(issues, tasks, cards, m, codeOfLocal){
+  const idx=new Map(), cardById=new Map((cards||[]).map(c=>[c.id,c])), used=new Set();
+  const push=(code, e)=>{ if(!code) return; if(!idx.has(code)) idx.set(code, []); idx.get(code).push(e); };
+  (tasks||[]).forEach(t=>{ const card=(m&&m[t.id]&&cardById.get(m[t.id]))||null; const code=codeOfLocal(t)||(card?trkCodeOfCard(card, issues):''); if(card) used.add(card.id); if(code) push(code, { local:t, card }); });
+  (cards||[]).forEach(ct=>{ if(used.has(ct.id)) return; const code=trkCodeOfCard(ct, issues); if(code) push(code, { local:null, card:ct }); });
+  return idx;
+}
+// tarefa → o "kind" que a issue deveria ter no painel (null = não mexe)
+function trkWantKind(t){
+  if(!t) return null; const s=t.status;
+  if(s==='done'||s==='merged') return 'done';
+  if(t.flag==='closed') return null;
+  if(['review','delivered'].includes(s)) return 'review'; // "pronta pra revisar" (delivered = pronta, no vocabulário do app)
+  if(['running','thinking','plan-review','asking','needs-you'].includes(s)) return (t.prUrl||t.pr_url)?'review':'doing';
+  return null; // erro, conflito, pausada, na fila, cancelada…: o painel fica como está
+}
+// status do conector pra um kind; "em revisão" só se o conector TEM um (kind review, ou o nome diz revisão/review)
+function trkStatusForKind(statuses, kind){
+  const L=statuses||[];
+  if(kind==='review') return L.find(s=>s.kind==='review') || L.find(s=>/\b(in[ _-]?)?review\b|revis[aã]o|code[ _-]?review/i.test(String(s.label||'')+' '+String(s.id||''))) || null;
+  return L.find(s=>s.kind===kind && !/\b(in[ _-]?)?review\b|revis[aã]o/i.test(String(s.label||'')+' '+String(s.id||''))) || null; // o único "doing" é de revisão: não mexe
+}
+function trkKindOfStatus(statuses, id){
+  const s=(statuses||[]).find(x=>x.id===id); if(!s) return null;
+  if(s.kind==='review' || (!['done','blocked'].includes(s.kind) && /\b(in[ _-]?)?review\b|revis[aã]o/i.test(String(s.label||'')+' '+String(s.id||'')))) return 'review';
+  return s.kind||null;
+}
+// anda? nunca reabre issue feita; bloqueada só sai quando a tarefa termina; review → doing quando a tarefa volta a rodar
+function trkShouldMove(cur, want){ if(!want || cur===want || cur==='done') return false; if(cur==='blocked' && want!=='done') return false; return true; }
+// uma linha do painel: a issue + o que está ligado a ela (o 1º vínculo vivo vence)
+function trkRowOf(i, entries, k){
+  k=k||{}; const E=(entries||[]).slice().sort((a,b)=>{ const live=e=>{ const t=e.local||e.card||{}; return ['cancelled','aborted'].includes(t.status)||t.flag==='closed'?0:1; }; return live(b)-live(a); });
+  const e=E[0]||null, t=e&&e.local, ct=e&&e.card;
+  const who=ct?(ct.assignee||null):(t?(k.me||null):null);
+  const pr=String((t&&t.prUrl)||(ct&&ct.pr_url)||'');
+  const mineWhy=(k.myEmail && String(i.assigneeEmail||'').toLowerCase()===k.myEmail)?'painel':(who&&who===k.me?'starfork':'');
+  const mod=k.modOf?k.modOf(i, t, ct):0;
+  return { i, local:t||null, card:ct||null, more:Math.max(0, E.length-1), who, pr, linked:!!e, mineWhy, mod };
+}
+// filtros do painel: todas · com tarefa · sem tarefa · comigo · mudaram · épico; período pela modificação
+function trkRowsFilter(rows, f, k){
+  k=k||{};
+  return rows.filter(r=>{
+    if(k.range && r.mod && !(r.mod>=k.range.from && r.mod<k.range.to)) return false; // sem data nenhuma: aparece sempre (nunca some)
+    if(f==='linked') return r.linked; if(f==='unlinked') return !r.linked; if(f==='mine') return !!r.mineWhy;
+    if(f==='unseen') return !!(k.unseen&&k.unseen[r.i.code]);
+    if(String(f).startsWith('ep:')){ const ec=String(f).slice(3); return r.i.code===ec||r.i.epicCode===ec; }
+    return true;
+  });
+}
+// @puro-trklig-fim
+// ---- o índice no app (tarefas desta máquina + cartões do time já carregados — nenhuma busca por linha) ----
+let trkIdxMemo=null;
+function trkIdxNow(){
+  const tasks=(typeof state!=='undefined'&&state.tasks)||[], cards=(typeof teamTasks!=='undefined'&&teamTasks)||[];
+  const m=(typeof tmap==='function'?tmap():{})||{}, links=lsGet('trk:links')||'';
+  const sig=tasks.map(t=>[t.id,t.status,t.prUrl||'',t.branch||'',t.issueUrl||'',t.issueCode||''].join(',')).join('|')+'#'+cards.map(c=>c.id+','+(c.updated_at||'')+','+(c.issue_url||'')).join('|')+'#'+JSON.stringify(m)+'#'+links;
+  if(trkIdxMemo && trkIdxMemo.sig===sig && trkIdxMemo.issues===trkIssues) return trkIdxMemo.idx;
+  const idx=trkLinkIdx(trkIssues, tasks, cards, m, t=>trkTaskCode(t));
+  trkIdxMemo={ sig, issues:trkIssues, idx }; return idx;
+}
+function trkEntriesFor(code){ return trkIdxNow().get(code)||[]; }
+// modificação da linha: o evento mais recente da issue OU da tarefa/cartão ligado (atividade do cartão incluída)
+function trkModOf(i, t, ct, ctx){
+  const act=ct?((ctx&&ctx.act&&ctx.act[ct.id])||[]):[];
+  const log=((ctx&&ctx.log)||{})[i.code];
+  return modTs(i.updatedAt, i.createdAt, t&&(t.finishedAt||t.updatedAt||t.updated_at), t&&t.createdAt, ct&&ct.updated_at, act, log&&log.at);
+}
+function trkRowsNow(){
+  const me=(typeof cloudUserId==='function'&&cloudUserId())||'', myEmail=String(trkMe()||'').toLowerCase(), idx=trkIdxNow();
+  const act={}; ((typeof teamActivity!=='undefined'&&teamActivity)||[]).forEach(a=>{ (act[a.task_id]=act[a.task_id]||[]).push(a.at); });
+  const mctx={ act, log:trkSyncLog() };
+  return trkIssues.map(i=>trkRowOf(i, idx.get(i.code), { me, myEmail, modOf:(i,t,ct)=>trkModOf(i,t,ct,mctx) }));
+}
+// situação da tarefa ligada (STATUS_META: a mesma da Central/Time)
+function trkRowSt(r){ if(r.local) return taskSt(r.local); if(r.card) return (typeof tsSt==='function'?tsSt(r.card):r.card.status); return ''; }
+// provas publicadas dos cartões ligados: UM lote por conjunto (nunca por linha)
+let trkProofs={ key:'', m:{}, busy:false };
+function trkProofsLoad(ids){
+  ids=[...new Set(ids.filter(Boolean))].sort(); const key=ids.join(',');
+  if(!ids.length || trkProofs.key===key || !(typeof SB!=='undefined'&&SB.sess())) return;
+  trkProofs={ key, m:{}, busy:true };
+  sbGet('artifacts_meta?select=task_id&task_id=in.('+ids.map(i=>'"'+i+'"').join(',')+')').then(rows=>{
+    if(trkProofs.key!==key) return; const m={}; (rows||[]).forEach(r=>{ m[r.task_id]=(m[r.task_id]||0)+1; }); trkProofs={ key, m, busy:false }; trkBgRepaint();
+  }).catch(()=>{ if(trkProofs.key===key) trkProofs={ key:'', m:{}, busy:false }; }); // falhou: o próximo render tenta de novo
+}
+// ---- o que o Starfork fez no painel (pra "no painel: está X — atualizado pelo Starfork" e a linha do tempo da tarefa) ----
+function trkSyncLog(){ try{ return JSON.parse(lsGet('trk:synclog')||'{}')||{}; }catch(_){ return {}; } }
+function trkSyncLogPut(code, rec){ const l=trkSyncLog(); l[code]=rec; const ks=Object.keys(l); if(ks.length>300) ks.sort((a,b)=>(l[a].at||0)-(l[b].at||0)).slice(0, ks.length-300).forEach(k=>delete l[k]); lsSet('trk:synclog', JSON.stringify(l)); }
+const trkSyncErr={}; // code → { why, want, at } — o selo da issue
 // tarefa andou → issue anda junto (nunca reabre issue concluída; só mexe se a issue existe no painel)
 // TODA chamada automática ao servidor (observador + sync de status) passa aqui: respeita o recuo depois
 // de falha, não bate no servidor sem a chave liberada nesta máquina (era o SECRET_UNBOUND a cada refresh —
@@ -252,23 +357,42 @@ async function trkBgRun(fn){
   finally{ trkBg--; }
 }
 function trkBgRepaint(){ try{ const o=$id('issuesOverlay'); if(o && o.style.display!=='none' && trkView==='board') issRender(); }catch(_){ } }
-async function trkSyncTasks(){
-  if(Date.now()-trkSyncAt<30000) return; trkSyncAt=Date.now();
+async function trkSyncTasks(force){
+  if(!force && Date.now()-trkSyncAt<30000) return; trkSyncAt=Date.now();
   try{
     await trkLoad(); if(!trkReady()||!trk.rules.syncStatus||!trk.connector.ops.updateStatus||!(await trkProjectOn())) return;
-    const tasks=(state.tasks||[]).filter(t=>trkTaskCode(t)&&trkTaskKind(t)); if(!tasks.length) return;
+    const codeOf=t=>{ if(trkTaskCode(t)) return trkTaskCode(t); const cid=((typeof tmap==='function'?tmap():{})||{})[t.id], c=cid&&((typeof teamTasks!=='undefined'&&teamTasks)||[]).find(x=>x.id===cid); return c?trkCodeOfCard(c, trkIssues):''; };
+    const live=new Set((state.tasks||[]).filter(t=>trkWantKind(t)).map(codeOf).filter(Boolean));
+    Object.keys(trkSyncErr).forEach(k=>{ if(!live.has(k)) delete trkSyncErr[k]; }); // a tarefa saiu da sincronia: o selo sai junto
+    const tasks=(state.tasks||[]).filter(t=>codeOf(t)&&trkWantKind(t)); if(!tasks.length){ trkBgRepaint(); return; }
     await trkBgRun(async()=>{
       if(Date.now()-trkIssuesAt>120000) await trkFetchIssues();
+      const sts=trk.connector.statuses||[], fails=[];
       for(const t of tasks){
-        const i=trkIssues.find(x=>x.code===trkTaskCode(t)); if(!i) continue;
-        const cur=(trkStatus(i.status)||{}).kind, want=trkTaskKind(t);
-        if(cur===want||cur==='done'||(cur==='blocked'&&want==='doing')) continue;
-        const to=trkStatusOfKind(want); if(!to) continue;
-        await trkCall('updateStatus',{ code:i.code, id:i.id, status:to.id }); i.status=to.id; trkMine[i.code]=to.id;
+        const i=trkIssues.find(x=>x.code===codeOf(t)); if(!i) continue;
+        const cur=trkKindOfStatus(sts, i.status), want=trkWantKind(t);
+        if(!trkShouldMove(cur, want)){ delete trkSyncErr[i.code]; continue; }
+        const to=trkStatusForKind(sts, want); if(!to){ delete trkSyncErr[i.code]; continue; } // o conector não tem esse estágio (ex.: revisão): não mexe — nunca finge
+        try{
+          await trkCall('updateStatus',{ code:i.code, id:i.id, status:to.id }); i.status=to.id; trkMine[i.code]=to.id; delete trkSyncErr[i.code];
+        }catch(e){
+          const why=trkErrText(e), prev=trkSyncErr[i.code];
+          trkSyncErr[i.code]={ why, want, label:to.label||to.id, at:Date.now() };
+          if(!prev || prev.want!==want) fails.push({ code:i.code, why, label:to.label||to.id }); // 1 aviso por issue por transição
+          continue;
+        }
+        trkSyncLogPut(i.code, { to:to.id, label:to.label||to.id, kind:want, at:Date.now(), task:t.id });
+        // o time vê na atividade do cartão (e a linha do tempo da tarefa junta): "FND-103 → Em revisão no painel"
+        try{ const cid=((typeof tmap==='function'?tmap():{})||{})[t.id];
+          if(cid && typeof sbPost==='function' && SB.sess()) sbPost('task_activity',{ task_id:cid, user_id:cloudUserId(), kind:'status', body:i.code+' → “'+(to.label||to.id)+'” no painel' }).catch(()=>{}); }catch(_){ }
       }
+      if(fails.length){ trkBgRepaint();
+        toast(fails.length===1?'Não atualizei '+fails[0].code+' no painel (“'+fails[0].label+'”): '+fails[0].why
+          :'Não atualizei '+fails.length+' issues no painel ('+fails.map(f=>f.code).join(', ')+'): '+fails[0].why, 'warn', { label:'tentar de novo', fn:()=>trkSyncRetry() }); }
     });
   }catch(_){ }
 }
+function trkSyncRetry(){ trkSyncAt=0; trkNextAt=0; Object.keys(trkSyncErr).forEach(k=>{ trkSyncErr[k].want='_'; }); trkSyncTasks(true).then(()=>trkBgRepaint()); }
 // TODA criação de tarefa passa aqui: regra ligada + projeto conectado + sem issue → cria e vincula
 async function trkBeforeNewTask(payload){
   // F5 · P14: política da organização (Empresa) entra no payload — e o que o motor não cumpriria é recusado aqui,
@@ -395,7 +519,7 @@ async function trkCardAssign(ct, uid){
     const known=(trkIssues||[]).find(i=>i.code===l.code); // o id real da API, quando o quadro de Issues já leu (senão o código)
     await trkCall('assign',{ code:l.code, id:(known&&known.id)||l.code, assignee:who });
     return true;
-  }catch(e){ console.warn('responsável na issue', e&&e.message||e); return false; }
+  }catch(e){ const l=trkCardLink(ct)||{}; toast('O cartão mudou de responsável, mas não atualizei '+(l.code||'a issue')+' no painel: '+trkErrText(e),'warn'); return false; } // nunca calado (D3)
 }
 window.trkCardAssign=trkCardAssign;
 window.trkIssueForCard=trkIssueForCard; window.trkCardMissing=trkCardMissing; window.trkCardRetry=trkCardRetry; window.trkCardLink=trkCardLink;
@@ -495,6 +619,8 @@ async function openIssues(){
     issRender();
     if(trkView==='board') trkReload();
     trkLoadProjects();
+    sortReset('issues');
+    if(typeof teamFetch==='function' && trkCloudOn()) teamFetch().then(()=>{ trkIdxMemo=null; trkBgRepaint(); }).catch(()=>{});
   }, { label:'lendo a conexão do painel de issues', shape:{ wrap:'sk-screen trk', head:true } });
 }
 async function trkLoadProjects(){
@@ -510,10 +636,12 @@ async function trkLoadProjects(){
   ((trk&&trk.projects)||[]).forEach(r=>add('', r, 'manual'));
   trkProjects=list; if(trkView==='conn' && trkReady()) issRender();
 }
+let trkPendingSel=''; // chip de issue clicado em outra tela: seleciona quando as issues chegarem
 async function trkReload(){
   trkBusy='load'; issRender();
   try{ await tabBusy('issues', trkFetchIssues(), { label:'buscando issues' }); trkBgErr=''; trkBackoffMs=0; trkNextAt=0; }catch(e){ trkErr=trkErrText(e); }
   trkBusy=''; issRender();
+  if(trkPendingSel){ const c=trkPendingSel; trkPendingSel=''; if(trkIssues.some(i=>i.code===c)) trkSelect(c); else toast('A issue '+c+' não está nos projetos deste painel.','warn'); }
 }
 const trkSw=(id,on,label,sub)=>`<div class="trk-row"><label class="sw"><input type="checkbox" id="${id}"${on?' checked':''}><span class="tr"><span class="kn"></span></span></label><div><div class="trk-rt">${label}</div>${sub?`<div class="trk-rs">${sub}</div>`:''}</div></div>`;
 // F4 (G1, mesa telas 15/16): padrão de página — abas Quadro · Nova issue · Conexão. O assistente de 3 etapas deixou de
@@ -728,13 +856,14 @@ function trkWhoIsHtml(pid){
 function trkAgo(iso){ const t=Date.parse(iso); if(!t) return ''; const m=Math.round((Date.now()-t)/60000); return m<1?'agora':m<60?m+'min':m<1440?Math.round(m/60)+'h':Math.round(m/1440)+'d'; }
 const trkEpColor=code=>(typeof epColor==='function')?epColor('trk:'+code):'var(--accent)'; // cor estável por épico (46)
 function trkCardHtml(i, inGroup){
-  const p=trkPerson(i.assignee, i.assigneeEmail), tasks=trkTasksFor(i.code), un=trkUnseen()[i.code];
-  const tst=tasks.length?(tasks[0].status?stLabel(taskSt(tasks[0])):'tarefa'):''; // R5-1: status efetivo (PR aberto = 'PR aberto', igual à Central)
+  const p=trkPerson(i.assignee, i.assigneeEmail), un=trkUnseen()[i.code];
+  const r=trkRowOf(i, trkEntriesFor(i.code), { me:(typeof cloudUserId==='function'&&cloudUserId())||'' }), stk=r.linked?trkRowSt(r):'';
+  const tasks=r.linked?[1]:[], tst=r.linked?stLabel(stk):''; // a tarefa ligada (sua ou de alguém do time) — situação do STATUS_META
   const ep=i.epicCode?` style="--epc:${trkEpColor(i.epicCode)}"`:'';
   return `<div class="trk-issue${un?' unseen':''}${trkSel===i.code?' sel':''}${ep?' has-ep':''}" draggable="true" data-trkcode="${escA(i.code)}" role="button" tabindex="0" aria-label="${escA(i.code+' — '+i.title)}"${ep}>
     <div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span>${i.epicCode&&!inGroup?`<span class="trk-epb" title="filha do épico ${escA(i.epicCode)}">◆ ${esc(i.epicCode)}</span>`:''}${i.priority!=null&&i.priority!==''?`<span class="trk-pri">${esc(String(i.priority))}</span>`:''}<span style="flex:1"></span>${un?`<span class="trk-new">${esc(un)}</span>`:''}</div>
     <div class="trk-it">${esc(i.title)}</div>
-    ${tasks.length?`<div class="trk-tl"><span class="trk-task" style="--stc:${stColor(taskSt(tasks[0]))}" title="${escA('tarefa vinculada: '+tst)}">⎇ tarefa ${esc(tst)}</span></div>`:''}
+    ${tasks.length?`<div class="trk-tl"><span class="trk-task" style="--stc:${stColor(stk)}" title="${escA('tarefa ligada: '+tst)}">⎇ tarefa ${esc(tst)}</span>${r.who?' '+personChip(r.who,{ short:true }):''}</div>`:''}
     <div class="trk-if">${p?`<span class="trk-av" role="img" aria-label="${escA(p.label)}" title="${escA(p.tip)}">${esc(p.ini)}</span><span class="trk-who" title="${escA(p.tip)}">${esc(p.label)}</span>`:'<span class="dim trk-who">sem responsável</span>'}<span class="trk-sp"></span>${i.commentCount?`<span class="trk-cc" title="${escA(i.commentCount+' comentário(s)')}">${IC.chat} ${esc(String(i.commentCount))}</span>`:''}<span class="dim trk-ago">${trkAgo(i.updatedAt)}</span></div>
   </div>`;
 }
@@ -749,18 +878,21 @@ function trkColCards(items, byCode){
 }
 function trkBoardHtml(){
   const c=trk.connector, q=trkQ.trim().toLowerCase(), un=trkUnseen();
-  let list=trkIssues;
-  if(q) list=list.filter(i=>(i.code+' '+i.title+' '+((trkPerson(i.assignee, i.assigneeEmail)||{}).full||'')+' '+i.assigneeEmail).toLowerCase().includes(q));
+  // linhas = issue + tarefa ligada (local OU cartão do time); período e filtros pela modificação (D2 + pedido do dono)
+  const per=periodGet('issues'), range=periodRange(per);
+  let rows=trkRowsNow(); trkProofsLoad(rows.filter(r=>r.card).map(r=>r.card.id));
+  if(q) rows=rows.filter(r=>{ const i=r.i, p=trkPerson(i.assignee, i.assigneeEmail)||{}; return (i.code+' '+i.title+' '+(p.label||'')+' '+(i.assigneeEmail||'')+' '+(r.who?personName(r.who,{ noYou:true }):'')+' '+((r.local||r.card||{}).title||'')).toLowerCase().includes(q); });
+  const inPer=trkRowsFilter(rows, 'all', { range });
   // F5: épicos = issues citadas como pai por alguma filha (campo parent ou "Épico: CODE" no corpo)
   const byCode={}; trkIssues.forEach(i=>{ byCode[i.code]=i; });
   const kidsOf={}; trkIssues.forEach(i=>{ if(i.epicCode) (kidsOf[i.epicCode]=kidsOf[i.epicCode]||[]).push(i); });
   const parents=Object.keys(kidsOf);
   if(trkFilter.startsWith('ep:') && trkIssues.length && !kidsOf[trkFilter.slice(3)]){ trkFilter='all'; lsSet('trkFilter','all'); }
-  if(trkFilter==='linked') list=list.filter(i=>trkTasksFor(i.code).length);
-  if(trkFilter==='unseen') list=list.filter(i=>un[i.code]);
-  if(trkFilter.startsWith('ep:')){ const ec=trkFilter.slice(3); list=list.filter(i=>i.code===ec||i.epicCode===ec); }
-  const filteredOut=!list.length && trkIssues.length>0; // busca/filtro zerou o quadro: vazio com "mostrar todas" (antes: 5 colunas de "—")
-  const linkedN=trkIssues.filter(i=>trkTasksFor(i.code).length).length, unN=Object.keys(un).length;
+  if(!['all','linked','unlinked','mine','unseen'].includes(trkFilter) && !trkFilter.startsWith('ep:')){ trkFilter='all'; lsSet('trkFilter','all'); }
+  rows=sortRows(trkRowsFilter(rows, trkFilter, { range, unseen:un }), r=>r.mod); // colunas também: a mais recente no topo
+  let list=rows.map(r=>r.i);
+  const filteredOut=!list.length && trkIssues.length>0; // busca/filtro/período zerou o quadro: vazio com "mostrar todas" (antes: 5 colunas de "—")
+  const linkedN=inPer.filter(r=>r.linked).length, unN=inPer.filter(r=>un[r.i.code]).length, mineN=inPer.filter(r=>r.mineWhy).length;
   // o pai com filhas visíveis vira CABEÇALHO do grupo dentro das colunas — não aparece de novo como cartão solto
   const shownKids=new Set(list.filter(i=>i.epicCode).map(i=>i.epicCode));
   list=list.filter(i=>!shownKids.has(i.code));
@@ -781,31 +913,63 @@ function trkBoardHtml(){
     : first && trkErr ? errorHtml(trkErr, 'trkRetry', null, { human:true }) // trkErr já é texto humano (trkErrText)
     : !first && !trkIssues.length && !trkErr ? emptyHtml({ icon:'search', title:'Nenhuma issue no painel', help:'Os projetos escolhidos não têm issues — ou o conector não trouxe nenhuma. '+(c.ops.create?'Crie a primeira por aqui.':'Confira os projetos e as regras em Conexão.'), action:{ id:'trkEmptyAct', label:c.ops.create?'+ nova issue':'atualizar' } })
     // o detalhe aberto (e o comentário sendo digitado) continua ao lado do vazio; emptyHtml escapa título e ajuda
-    : filteredOut ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${emptyHtml(Object.assign({ icon:'search', action:{ id:'trkClearFilter', label:'mostrar todas', primary:false } }, trkEmptyFilterText(trkQ, trkFilter)))}</div>${trkSel?trkDetailHtml():''}</div>`
-    : trkLayout==='lista' ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${trkListHtml(list.concat(trkIssues.filter(i=>shownKids.has(i.code)&&!list.includes(i))))}</div>${trkSel?trkDetailHtml():''}</div>`
+    : filteredOut ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${(!q&&trkFilter==='all')?emptyHtml({ icon:'search', title:'Nenhuma issue mudou — '+periodLabel(per).toLowerCase(), help:'O painel tem '+trkIssues.length+' issues, mas nenhuma (nem a tarefa ligada a ela) mudou neste período.', action:per.key==='30d'||per.key==='custom'?null:{ id:'trkPer30', label:'ver últimos 30 dias', primary:false } }):emptyHtml(Object.assign({ icon:'search', action:{ id:'trkClearFilter', label:'mostrar todas', primary:false } }, trkEmptyFilterText(trkQ, trkFilter)))}</div>${trkSel?trkDetailHtml():''}</div>`
+    : trkLayout==='lista' ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${trkListHtml(rows)}</div>${trkSel?trkDetailHtml():''}</div>`
     : `<div class="trk-boardwrap"><div class="trk-board" style="grid-template-columns:repeat(${cols.length},minmax(170px,1fr))">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
   return `${trkSecretsHint()}<div class="trk-tools">
       <div class="sk-search"><span class="sk-sd"></span><input id="trkQ" value="${escA(trkQ)}" placeholder="buscar código, título ou pessoa"></div>
-      ${chip('all','todas',trkIssues.length)}${chip('linked','com tarefa',linkedN,'issues com uma tarefa do Starfork vinculada')}${(unN||trkFilter==='unseen')?chip('unseen','mudaram',unN,'mudaram desde a última vez que você olhou'):''}${epChips}
-      <span class="trk-tacts"><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'atualizado '+trkAgo(new Date(trkIssuesAt).toISOString()):''}</span>
+      ${chip('all','Todas',inPer.length)}${chip('linked','Com tarefa',linkedN,'issues com uma tarefa do Starfork ligada (sua ou de alguém do time)')}${chip('unlinked','Sem tarefa',inPer.length-linkedN,'issues que ninguém pegou — dá pra criar a tarefa ou mandar pro time direto daqui')}${chip('mine','Comigo',mineN,'atribuídas a você no painel ou com tarefa com você')}${(unN||trkFilter==='unseen')?chip('unseen','mudaram',unN,'mudaram desde a última vez que você olhou'):''}${epChips}
+      ${periodPickerHtml('issues', per)}
+      <span class="trk-tacts"><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'fonte: '+esc(trk.name||'painel')+' · sincronizado '+(trkAgo(new Date(trkIssuesAt).toISOString())==='agora'?'agora':'há '+trkAgo(new Date(trkIssuesAt).toISOString())):''}</span>
       <button class="btn trk-refresh" id="trkRefresh" title="atualizar agora" aria-label="atualizar as issues agora"${trkBusy==='load'?' disabled':''}>${IC.refresh}</button>
       <span class="seg2 trklay" role="group" aria-label="Visualização"><button class="${trkLayout==='lista'?'on':''}" data-trklay="lista" aria-pressed="${trkLayout==='lista'}">Lista</button><button class="${trkLayout==='colunas'?'on':''}" data-trklay="colunas" aria-pressed="${trkLayout==='colunas'}">Colunas</button></span></span></div>
     ${trkErr&&!first?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:(trkBgErr?`<div class="imhint" style="border-left:2px solid var(--warn)">${esc(trkBgErr)}</div>`:'')}
     ${area}`;
 }
-// F4: visão em LISTA do quadro (padrão) — Código · Título · Status no painel · Com quem · Tarefa · Atualizada;
-// mesma seleção (data-trkcode) dos cartões, então o detalhe ao lado e o teclado continuam iguais
-function trkListHtml(items){
-  const un=trkUnseen();
-  const st=id=>{ const x=trkStatus(id); return x?(x.label||x.id):String(id||'—'); };
-  const rows=items.map(i=>{ const p=trkPerson(i.assignee, i.assigneeEmail), tasks=trkTasksFor(i.code), t=tasks[0];
+// LISTA = a tabela do mock (D2): Issue · Épico · Tarefa no Starfork · Com · Situação · PR·provas · Atualizada · ação.
+// Ordem padrão: modificação (a mais recente primeiro); clicar num cabeçalho ordena só enquanto a aba está aberta.
+const TRK_COLS=[['code','Issue'],['epic','Épico'],['task','Tarefa no Starfork'],['who','Com'],['st','Situação'],['pr','PR · provas'],['mod','Atualizada']];
+function trkRowEpic(r){
+  const id=(r.card&&r.card.epic_id)||(r.local&&r.local.epic&&r.local.epic.epicId)||'';
+  if(id) return { id, name:(typeof epNameOf==='function'&&epNameOf(id))||'épico' };
+  return r.i.epicCode?{ code:r.i.epicCode }:null;
+}
+function trkSortVal(r, col){
+  if(col==='code') return r.i.code; if(col==='epic'){ const e=trkRowEpic(r); return e?(e.name||e.code):''; }
+  if(col==='task') return r.linked?String((r.local||r.card).title||''):'';
+  if(col==='who') return r.linked?(r.who?personName(r.who,{ noYou:true }):'livre'):'';
+  if(col==='st') return r.linked?stLabel(trkRowSt(r)):''; if(col==='pr') return +((r.pr.match(/\/pull\/(\d+)/)||[])[1]||0)||'';
+  return r.mod;
+}
+function trkWhoCell(r){
+  if(!r.linked) return '<span class="dim">—</span>';
+  const chip=r.who?personChip(r.who,{ short:true }):`<span class="pchip free"><span class="tsav tmfree" aria-hidden="true">·</span><span class="pnm">livre</span></span>`;
+  return chip+(r.mineWhy==='painel'&&r.who!==((typeof cloudUserId==='function'&&cloudUserId())||'')?'<small class="trk-why">com você no painel</small>':'');
+}
+function trkSyncSeloHtml(code, full){
+  const e=trkSyncErr[code]; if(!e) return '';
+  const why='o Starfork tentou mudar pra “'+e.label+'” e o painel recusou: '+e.why;
+  return full?`<div class="trk-selo-box" role="status"><b>Não atualizei o painel.</b> ${esc(why)} <button class="btn sm" data-trksync="1">tentar de novo</button></div>`
+    :`<button class="trk-selo" data-trksync="1" title="${escA(why+' — clique pra tentar de novo')}">não atualizei o painel · tentar de novo</button>`;
+}
+function trkListHtml(rows){
+  const sort=sortGet('issues'), team=!!(typeof SB!=='undefined'&&SB.sess()&&typeof cloudTeamId==='function'&&cloudTeamId());
+  const st=id=>{ const x=trkStatus(id); return x?(x.label||x.id):String(id||'—'); }, un=trkUnseen();
+  const th=([col,label])=>`<th class="c-${col}" aria-sort="${sort.col===col?(sort.dir==='asc'?'ascending':'descending'):'none'}"><button type="button" class="trk-th${sort.col===col?' on':''}" data-trksort="${col}">${esc(label)}${sort.col===col?`<span aria-hidden="true">${sort.dir==='asc'?' ↑':' ↓'}</span>`:''}</button></th>`;
+  const body=sortRows(rows, r=>r.mod, sort, trkSortVal).map(r=>{
+    const i=r.i, x=r.local||r.card, ep=trkRowEpic(r), stk=r.linked?trkRowSt(r):'';
+    const proofs=r.card?(trkProofs.m[r.card.id]||0):0, c=r.linked?chainOfNow(x):null;
+    const epHtml=ep?(ep.id?chainHtml({ epic:{ id:ep.id, name:ep.name } }):`<span class="trk-epb" title="filha do épico ${escA(ep.code)} no painel">◆ ${esc(ep.code)}</span>`):'<span class="dim">—</span>';
+    const taskHtml=r.linked?chainHtml({ task:{ title:x.title||'tarefa', localId:r.local?r.local.id:'', cloudId:r.card?r.card.id:'' } })+(r.more?`<small class="dim"> +${r.more}</small>`:''):'<span class="trk-none">nenhuma ligada</span>';
+    const stHtml=r.linked?`<span class="chn-st" style="--stc:${stColor(stk)}">${esc(stLabel(stk))}</span>`:'<span class="chn-st" style="--stc:var(--muted)">sem tarefa</span>';
+    const prHtml=(c&&c.pr?chainHtml({ pr:c.pr }):'')+(proofs?chainHtml({ proofs, task:{ localId:r.local?r.local.id:'', cloudId:r.card.id } }):'')||'<span class="dim">—</span>';
+    const act=r.linked?`<button class="btn sm" data-trkact="open" data-code="${escA(i.code)}">abrir tarefa</button>`
+      :`<button class="btn sm primary" data-trkact="create" data-code="${escA(i.code)}" title="abre a Nova demanda preenchida com a issue — roda nesta máquina">criar tarefa</button>${team?`<button class="btn sm" data-trkact="team" data-code="${escA(i.code)}" title="vira cartão no quadro do time, com responsável — ninguém começa a rodar">mandar pro time</button>`:''}`;
     return `<tr class="trk-lr${trkSel===i.code?' sel':''}" data-trkcode="${escA(i.code)}" tabindex="0" aria-label="${escA(i.code+' — '+i.title)}">
-      <td class="mono trk-code">${esc(i.code)}</td><td><span class="trk-lt">${esc(i.title)}</span>${i.epicCode?`<span class="dim trk-lep"> · ◆ ${esc(i.epicCode)}</span>`:''}</td>
-      <td><span class="trk-st">${esc(st(i.status))}</span>${un[i.code]?' <span class="trk-new">mudou</span>':''}</td>
-      <td>${p?esc(p.label):'<span class="dim">sem responsável</span>'}</td>
-      <td>${t?`<span class="trk-task" style="--stc:${stColor(taskSt(t))}">${esc(stLabel(taskSt(t)))}</span>`:'<span class="dim">—</span>'}</td>
-      <td class="dim">${esc(trkAgo(i.updatedAt)||'')}</td></tr>`; }).join('');
-  return `<div class="ctwrap"><table class="cttable trk-ltbl" aria-label="issues"><thead><tr><th>Código</th><th>Título</th><th>Status no painel</th><th>Com quem</th><th>Tarefa</th><th>Atualizada</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      <td class="c-code"><div class="trk-iss">${chainHtml({ issue:{ code:i.code, url:i.url||'' } })}<span class="trk-pst" title="status no painel">${esc(st(i.status))}</span>${un[i.code]?'<span class="trk-new">mudou</span>':''}</div><span class="trk-lt">${esc(i.title)}</span>${trkSyncSeloHtml(i.code)}</td>
+      <td class="c-epic">${epHtml}</td><td class="c-task">${taskHtml}</td><td class="c-who">${trkWhoCell(r)}</td><td class="c-st">${stHtml}</td><td class="c-pr"><span class="chain">${prHtml}</span></td>
+      <td class="c-mod dim">${esc(modAgoTx(r.mod))}</td><td class="c-act"><span class="trk-acts">${act}</span></td></tr>`; }).join('');
+  return `<div class="ctwrap trk-tblwrap"><table class="cttable trk-ltbl trk-lig" aria-label="issues"><thead><tr>${TRK_COLS.map(th).join('')}<th class="c-act"><span class="sr-only">ações</span></th></tr></thead><tbody>${body}</tbody></table></div>`;
 }
 // JSON de IA, tolerante: cerca ```json (até o ÚLTIMO ``` — a fala pode ter cercas dentro), ou do 1º { ao último };
 // e conserta quebra de linha/tab crus dentro de strings.
@@ -1101,8 +1265,10 @@ function trkIssueSpec(i){
   return { title:i.title, objective:obj.join('\n').trim(), reqs:reqs.filter(Boolean), goal, bug:/bug/i.test(String(r.activity_type||r.type||'')) };
 }
 // @puro-issuespec-fim
-async function trkIssueToTask(i){
+// dest: 'run' = criar tarefa (roda aqui) · 'team' = mandar pro time (cartão + responsável, ninguém começa a rodar)
+async function trkIssueToTask(i, dest){
   const sp=trkIssueSpec(i);
+  // o destino vale SÓ pra este formulário (não muda a escolha lembrada da Nova demanda)
   // tudo que a issue já responde vem preenchido — cai em "Quem executa?"; sem requisitos suficientes pela política, para na etapa deles
   window.ntPresetStep=()=>[...new Set(sp.reqs)].length>=Math.max(1,+((typeof ntPolicy!=='undefined'&&ntPolicy.minRequirements)||1))?3:2;
   if(!await ntOpenFormTab()) return; // aba nova começa limpa: as listas entram depois
@@ -1113,12 +1279,74 @@ async function trkIssueToTask(i){
   { const b=$id('ntBranchType'); if(b&&sp.bug) b.value='fix'; }
   renderNtList('ntRequirements',ntReq); renderNtList('ntDeliverables',ntDel);
   { const e=$id('ntArtProof'); if(e) e.checked=true; }
+  if(typeof ntShareSync==='function') await ntShareSync(); // liga o "Ao criar" do #141 (Mandar pro time + responsável)
+  { const s=$id('ntShare'); if(dest && s){ s.value=dest==='team'?'team':(s.value==='local'?'local':'self'); if(typeof ntWhoPaint==='function') ntWhoPaint(); if(typeof ntCreateLabel==='function') ntCreateLabel(); } }
   if(typeof ntGate==='function') ntGate();
+}
+// "Tarefa no Starfork" do detalhe: a corrente de cada vínculo (com quem, situação, PR, provas) + criar / mandar pro
+// time / ligar a uma tarefa que já existe; "no painel" diz o que o Starfork mudou lá (e quando) ou por que não conseguiu
+function trkLinkOpts(){
+  const me=(typeof cloudUserId==='function'&&cloudUserId())||'', m=(typeof tmap==='function'?tmap():{})||{}, mapped=new Set(Object.values(m));
+  const loc=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!trkTaskCode(t)&&!['cancelled','aborted'].includes(t.status)).map(t=>({ v:'l:'+t.id, label:(t.title||'tarefa').slice(0,60), mod:modTs(t.finishedAt, t.createdAt) }));
+  const cards=((typeof teamTasks!=='undefined'&&teamTasks)||[]).filter(c=>!mapped.has(c.id)&&!trkCodeOfCard(c, trkIssues)&&(c.created_by===me||c.assignee===me)&&!['merged','done','cancelled'].includes(c.status))
+    .map(c=>({ v:'c:'+c.id, label:(c.title||'cartão').slice(0,52)+' · cartão do time', mod:modTs(c.updated_at) }));
+  return sortRows(loc.concat(cards), x=>x.mod);
+}
+function trkDetailLinksHtml(i){
+  const ents=trkEntriesFor(i.code), team=!!(typeof SB!=='undefined'&&SB.sess()&&typeof cloudTeamId==='function'&&cloudTeamId()), links=trkLinks();
+  const rows=ents.map(e=>{ const x=e.local||e.card, stk=e.local?taskSt(e.local):(typeof tsSt==='function'?tsSt(e.card):e.card.status);
+    const who=e.card?(e.card.assignee||null):((typeof cloudUserId==='function'&&cloudUserId())||null);
+    const c=chainOfNow(x, { proofs:()=>e.card?(trkProofs.m[e.card.id]||0):0 });
+    const whoHtml=who?personChip(who,{ short:true }):`<span class="pchip free"><span class="tsav tmfree" aria-hidden="true">·</span><span class="pnm">livre</span></span>`;
+    const manual=e.local&&links[e.local.id]===i.code, key=e.card?'c:'+e.card.id:'l:'+e.local.id;
+    return `<div class="trk-link"><div class="chain">${chainHtml(c,{ omit:['issue'], who:whoHtml, arrows:false, st:{ label:stLabel(stk), color:stColor(stk) } })}</div>
+      <div class="trk-link-acts">${(manual||e.card)?`<button class="btn sm ghost" data-trkunlink="${escA(manual?'l:'+e.local.id:key)}" title="desfaz o vínculo nas duas pontas (a tarefa e a issue continuam existindo)">desligar</button>`:''}</div></div>`; }).join('');
+  const log=trkSyncLog()[i.code], err=trkSyncErr[i.code];
+  const painel=err?trkSyncSeloHtml(i.code, true):(log&&log.to===i.status?`<p class="trk-rs">no painel: está “${esc(log.label)}” — atualizado pelo Starfork ${esc(modAgoTx(log.at))}</p>`:'');
+  const opts=trkLinkOpts();
+  return (rows||`<p class="trk-rs">Nenhuma tarefa ligada. Crie uma (roda nesta máquina) ou mande pro time com responsável — ninguém começa a rodar.</p>`)+painel+
+    `<div class="trk-bar" style="margin-top:8px">${!ents.length?`<button class="btn primary" id="trkMkTask">criar tarefa</button>${team?'<button class="btn" id="trkMkTeam">mandar pro time</button>':''}`:''}${opts.length?`<select class="in" id="trkLinkSel" style="flex:1;min-width:160px" aria-label="ligar a uma tarefa que já existe"><option value="">ligar a uma tarefa que já existe…</option>${opts.map(o=>`<option value="${escA(o.v)}">${esc(o.label)}</option>`).join('')}</select>`:''}</div>`;
+}
+// grava o vínculo nas DUAS pontas: tarefa local → atalho local (+ o cartão dela, se houver); cartão → spec.issueCode/issue_url
+async function trkCardIssueSet(cardId, code, url){
+  const cur=(await sbGet('tasks?select=spec,issue_url&id=eq.'+cardId))[0]; if(!cur) throw new Error('o cartão não existe mais');
+  const spec=Object.assign({}, cur.spec||{}); delete spec.issue; delete spec.issueUrl; delete spec.issueCode; if(code){ spec.issueCode=code; if(url) spec.issueUrl=url; } // nada da issue anterior fica
+  const res=await sbFetch('/rest/v1/tasks?id=eq.'+cardId, { method:'PATCH', headers:{ 'Prefer':'return=representation' }, body:JSON.stringify({ spec, issue_url:code?(url||null):null }) });
+  if(Array.isArray(res) && !res.length) throw new Error('a nuvem não deixou mudar este cartão (só quem está com ele, ou quem criou, mexe na spec)');
+  const c=((typeof teamTasks!=='undefined'&&teamTasks)||[]).find(x=>x.id===cardId); if(c){ c.spec=spec; c.issue_url=code?(url||null):null; }
+  sbPost('task_activity',{ task_id:cardId, user_id:cloudUserId(), kind:'edited', body:code?'ligou a issue '+code:'desligou a issue' }).catch(()=>{});
+}
+async function trkLinkTo(code, v){
+  const i=trkIssues.find(x=>x.code===code); if(!i||!v) return;
+  try{
+    let only='';
+    if(v.startsWith('l:')){ const tid=v.slice(2), l=trkLinks(), prev=l[tid]; l[tid]=code; lsSet('trk:links', JSON.stringify(l));
+      const cid=((typeof tmap==='function'?tmap():{})||{})[tid];
+      if(cid && SB.sess()){ try{ await trkCardIssueSet(cid, code, i.url||''); }catch(e){ const m=trkLinks(); if(prev) m[tid]=prev; else delete m[tid]; lsSet('trk:links', JSON.stringify(m)); throw e; } } // a nuvem recusou: nada fica pela metade
+      else if(cid) only=' (só nesta máquina — entre na conta pra o cartão do time guardar também)'; }
+    else if(v.startsWith('c:')) await trkCardIssueSet(v.slice(2), code, i.url||'');
+    trkIdxMemo=null; trkSyncAt=0; trkSyncTasks(); toast(only?'Ligado: '+code+' ↔ tarefa'+only:'Ligado: '+code+' ↔ tarefa — as duas pontas guardam o vínculo.', only?'warn':'ok');
+  }catch(e){ showErr(e, 'Não consegui ligar a issue à tarefa'); }
+  issRender();
+}
+async function trkUnlink(code, key){
+  if(!key) return;
+  if(key.startsWith('c:') && !await askYes('Desligar '+code+' desta tarefa? O cartão do time deixa de apontar pra issue (a issue e a tarefa continuam existindo).')) return;
+  try{
+    let undo=null;
+    if(key.startsWith('l:')){ const tid=key.slice(2), l=trkLinks(); delete l[tid]; lsSet('trk:links', JSON.stringify(l));
+      const cid=((typeof tmap==='function'?tmap():{})||{})[tid], c=cid&&((typeof teamTasks!=='undefined'&&teamTasks)||[]).find(x=>x.id===cid);
+      if(c && trkCodeOfCard(c, trkIssues)===code){ try{ await trkCardIssueSet(cid, '', ''); }catch(e){ const m=trkLinks(); m[tid]=code; lsSet('trk:links', JSON.stringify(m)); throw e; } }
+      undo={ label:'desfazer', fn:()=>trkLinkTo(code, key) }; }
+    else { await trkCardIssueSet(key.slice(2), '', ''); undo={ label:'desfazer', fn:()=>trkLinkTo(code, key) }; }
+    trkIdxMemo=null; trkSyncAt=0; trkSyncTasks(); const still=trkEntriesFor(code).length;
+    toast(still?'Desligado — mas a tarefa ainda aponta pra '+code+' pelo código na branch/título.':'Desligado nas duas pontas.', still?'warn':'ok', undo);
+  }catch(e){ showErr(e, 'Não consegui desligar'); }
+  issRender();
 }
 function trkDetailHtml(){
   const i=trkIssues.find(x=>x.code===trkSel); if(!i) return '';
-  const c=trk.connector, p=trkPerson(i.assignee, i.assigneeEmail), tasks=trkTasksFor(i.code);
-  const free=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!trkTaskCode(t));
+  const c=trk.connector, p=trkPerson(i.assignee, i.assigneeEmail);
   const comm=!c.ops.comments?`<p class="trk-rs">Este painel não expõe comentários pela API — observo status e atualizações.</p>`
     :trkComments===null?skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando comentários' })
     :trkCmErr?errorHtml('Não consegui ler os comentários: '+trkCmErr, 'trkCmRetry', null, { human:true })
@@ -1131,10 +1359,9 @@ function trkDetailHtml(){
     ${i.tags.length?`<div class="trk-ops">${i.tags.map(t=>`<span class="trk-op">${esc(String(t))}</span>`).join('')}</div>`:''}
     ${i.description?`<div class="trk-desc mdlite">${mdToHtml(i.description)}</div>`:''}
     <div class="trk-ct" style="margin-top:16px">Tarefa no Starfork</div>
-    ${tasks.map(t=>`<div class="trk-key"><span class="trk-task">⎇ ${esc(t.status?stLabel(taskSt(t)):'tarefa')}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.title||t.id)}</span>${trkLinks()[t.id]===i.code?`<button class="btn sm ghost" data-trkunlink="${escA(t.id)}" title="desfaz o vínculo que você fez à mão (a tarefa e a issue continuam existindo)">desvincular</button>`:''}<button class="btn sm" data-trkopen="${escA(t.id)}">abrir</button></div>`).join('')}
-    <div class="trk-bar" style="margin-top:8px"><button class="btn primary" id="trkMkTask">criar tarefa desta issue</button>${free.length?`<select class="in" id="trkLinkSel" style="flex:1"><option value="">vincular a uma tarefa existente…</option>${free.map(t=>`<option value="${escA(t.id)}">${esc((t.title||t.id).slice(0,60))}</option>`).join('')}</select>`:''}</div>
+    ${trkDetailLinksHtml(i)}
     <div class="trk-ct" style="margin-top:16px">Comentários</div>${comm}
-    <div class="trk-rs" style="margin-top:14px">${i.createdBy?'aberta por '+esc((trkPerson(i.createdBy)||{}).label||'')+' · ':''}criada ${trkAgo(i.createdAt)} · atualizada ${trkAgo(i.updatedAt)}</div></aside>`;
+    <div class="trk-rs" style="margin-top:14px">${i.createdBy?'aberta por '+esc((trkPerson(i.createdBy)||{}).label||'')+' · ':''}criada ${trkAgo(i.createdAt)} · issue atualizada ${trkAgo(i.updatedAt)}</div></aside>`;
 }
 async function trkMove(code, statusId){
   const i=trkIssues.find(x=>x.code===code); if(!i||i.status===statusId||statusId==='__other') return;
@@ -1161,10 +1388,18 @@ function trkBoardWire(body){
   const on=(id,fn)=>{ const b=body.querySelector('#'+id); if(b) b.onclick=fn; };
   { const qi=body.querySelector('#trkQ'); if(qi) qi.oninput=()=>{ const c0=qi.selectionStart, c1=qi.selectionEnd; trkQ=qi.value; issRender(); const n=$id('trkQ'); if(n){ n.focus(); try{ n.setSelectionRange(c0, c1); }catch(_){ } } }; }
   body.querySelectorAll('[data-trkfilter]').forEach(b=>b.onclick=()=>{ trkFilter=b.dataset.trkfilter; lsSet('trkFilter',trkFilter); issRender(); });
+  periodPickerWire(body, ()=>issRender());
+  body.querySelectorAll('[data-trksort]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); sortToggle('issues', b.dataset.trksort); issRender(); });
+  body.querySelectorAll('[data-trksync]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); trkSyncRetry(); });
+  body.querySelectorAll('[data-trkact]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const i=trkIssues.find(x=>x.code===b.dataset.code); if(!i) return;
+    const a=b.dataset.trkact;
+    if(a==='open'){ const r=trkRowsNow().find(x=>x.i.code===i.code); if(r&&r.local) openWorkspace(r.local.id); else if(r&&r.card&&typeof openCloudTaskPage==='function') openCloudTaskPage(r.card); }
+    else trkIssueToTask(i, a==='team'?'team':'run'); });
   on('trkRefresh', trkReload); on('trkMoreDone', ()=>{ trkMoreDone=true; issRender(); });
   body.querySelectorAll('[data-trklay]').forEach(b=>b.onclick=()=>{ trkLayout=b.dataset.trklay; lsSet('trkLayout', trkLayout); issRender(); });
   on('trkNewBtn', trkNIOpen); on('trkRetry', trkReload);
-  on('trkClearFilter', ()=>{ trkQ=''; trkFilter='all'; lsSet('trkFilter','all'); issRender(); }); on('trkEmptyAct', trk.connector.ops.create?trkNIOpen:trkReload);
+  on('trkClearFilter', ()=>{ trkQ=''; trkFilter='all'; lsSet('trkFilter','all'); issRender(); });
+  on('trkPer30', ()=>{ periodSet('issues', { key:'30d' }); issRender(); }); on('trkEmptyAct', trk.connector.ops.create?trkNIOpen:trkReload);
   body.querySelectorAll('[data-trkcode]').forEach(el=>{
     el.onclick=()=>trkSelect(el.dataset.trkcode);
     el.onkeydown=e=>{ if((e.key==='Enter'||e.key===' ')&&e.target===el){ e.preventDefault(); trkSelect(el.dataset.trkcode); } }; // teclado: Tab até o cartão, Enter abre
@@ -1187,15 +1422,11 @@ function trkBoardWire(body){
   { const s=body.querySelector('#trkDStatus'); if(s) s.onchange=()=>trkMove(trkSel, s.value); }
   body.querySelectorAll('[data-trkopen]').forEach(b=>b.onclick=()=>openWorkspace(b.dataset.trkopen));
   // vínculo feito à mão pelo "vincular a uma tarefa existente…" agora tem volta (antes: escolheu errado, ficava pra sempre)
-  body.querySelectorAll('[data-trkunlink]').forEach(b=>b.onclick=()=>{ const tid=b.dataset.trkunlink, l=trkLinks(), code=l[tid]; if(!code) return;
-    delete l[tid]; lsSet('trk:links',JSON.stringify(l)); trkSyncAt=0; trkSyncTasks(); issRender();
-    const t=((typeof state!=='undefined'&&state.tasks)||[]).find(x=>x.id===tid);
-    const undo={ label:'desfazer', fn:()=>{ const m=trkLinks(); m[tid]=code; lsSet('trk:links',JSON.stringify(m)); trkSyncAt=0; trkSyncTasks(); issRender(); } };
-    if(t && trkTaskCode(t)===code) toast('Vínculo manual desfeito, mas a tarefa ainda está vinculada pela URL/código da issue.','warn',undo);
-    else toast('Vínculo desfeito.','ok',undo); });
+  body.querySelectorAll('[data-trkunlink]').forEach(b=>b.onclick=()=>trkUnlink(trkSel, b.dataset.trkunlink));
   body.querySelectorAll('.trk-detail [data-lk]').forEach(b=>b.onclick=()=>openExternal(b.dataset.lk));
-  { const s=body.querySelector('#trkLinkSel'); if(s) s.onchange=()=>{ if(!s.value) return; const l=trkLinks(); l[s.value]=trkSel; lsSet('trk:links',JSON.stringify(l)); issRender(); trkSyncAt=0; trkSyncTasks(); }; }
-  on('trkMkTask', async()=>{ const i=trkIssues.find(x=>x.code===trkSel); if(i) trkIssueToTask(i); });
+  { const s=body.querySelector('#trkLinkSel'); if(s) s.onchange=()=>{ if(s.value) trkLinkTo(trkSel, s.value); }; }
+  on('trkMkTask', async()=>{ const i=trkIssues.find(x=>x.code===trkSel); if(i) trkIssueToTask(i, 'run'); });
+  on('trkMkTeam', async()=>{ const i=trkIssues.find(x=>x.code===trkSel); if(i) trkIssueToTask(i, 'team'); });
   const cmSend=async()=>{ const code=trkSel, t=(($id('trkCmIn')||{}).value||'').trim(), i=trkIssues.find(x=>x.code===code); if(!t||!i) return;
     const vars=trkCommentVars(trkOp('addComment'), t, (trk.connector.vars||[]).map(v=>v.name));
     const run=trkCmSendRun(trkCm, code, t, ()=>trkCall('addComment', Object.assign({ code:i.code, id:i.id }, vars)), ()=>trkSel);
