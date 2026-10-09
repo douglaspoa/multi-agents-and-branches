@@ -19,18 +19,22 @@ function trkCloudOn(){ return !!(typeof SB!=='undefined' && SB.sess() && cloudTe
 async function trkLoad(force){
   const key=trkCloudOn()?cloudTeamId():'local';
   if(trk && !force && trkLoadedFor===key) return trk;
-  let cfg=null;
+  let cfg=null, cloudSaid=false;
   if(trkCloudOn()){
-    try{ const rows=await sbGet('issue_trackers?select=config&team_id=eq.'+cloudTeamId()); if(rows&&rows[0]) cfg=rows[0].config; }catch(_){ }
-    if(cfg) invoke('tracker_local_set',{ config:cfg }).catch(()=>{});
+    try{ const rows=await sbGet('issue_trackers?select=config&team_id=eq.'+cloudTeamId()); cloudSaid=Array.isArray(rows); if(rows&&rows[0]) cfg=rows[0].config; }catch(_){ }
+    if(cfg) invoke('tracker_local_set',{ config:Object.assign({}, cfg, { _team:cloudTeamId() }) }).catch(()=>{});
   }
-  if(!cfg){ try{ cfg=await invoke('tracker_local_get'); }catch(_){ cfg=null; } }
+  // a cópia local guarda DE QUAL time ela é (_team): o time sem painel na nuvem não herda o painel de outro time
+  // (troca de time ativo, 74). Nuvem fora do ar → vale a cópia local como sempre.
+  if(!cfg){ try{ const loc=await invoke('tracker_local_get');
+    if(loc && (!cloudSaid || !trkCloudOn() || loc._team===cloudTeamId() || (!loc._team && !(typeof teamActiveList==='function' && teamActiveList().length>1)))) cfg=loc; }catch(_){ cfg=null; } }
+  if(cfg && cfg._team){ cfg=Object.assign({}, cfg); delete cfg._team; }
   trk=Object.assign(trkBlank(), cfg||{}); trk.rules=Object.assign({...TRK_RULES}, trk.rules||{});
   trkLoadedFor=key;
   return trk;
 }
 async function trkSave(){
-  await invoke('tracker_local_set',{ config:trk });
+  await invoke('tracker_local_set',{ config:trkCloudOn()?Object.assign({}, trk, { _team:cloudTeamId() }):trk });
   let cloud=false;
   if(trkCloudOn()){
     try{
@@ -658,10 +662,17 @@ function issRender(){
   trkView=trkViewNorm(trkView); if(!ready && trkView==='board') trkView='conn';
   const nb=$id('issuesBulkBody'); if(nb && body.contains(nb)) $id('issuesBulkOverlay').appendChild(nb); // a conversa sobrevive ao redesenho
   const un=Object.keys(trkUnseen()).length;
-  const head=pageHead({ title:'Issues', scope:trkCloudOn()?'time':'computador', scopeLabel:trkCloudOn()?'compartilhado':'sem nuvem — vale só aqui',
-    sum:(trk.name?'painel '+esc(trk.name)+' · ':'')+(ready?`${trkIssues.length} issues${un?` · <b>${un}</b> ${un===1?'mudou':'mudaram'}`:''}`:'conecte o painel de issues do time'),
+  // a aba conta o MESMO conjunto do quadro (issues que mexeram no período — o "Todas" dos chips); o total do painel
+  // fica no resumo ("9 no painel · 4 nos últimos 7 dias") — antes a aba dizia o total e a lista mostrava o período
+  const perI=periodGet('issues'), nPer=(ready&&trkIssuesAt)?trkRowsFilter(trkRowsNow(), 'all', { range:periodRange(perI) }).length:null;
+  const perTx=typeof perNoTx==='function'?perNoTx(perI, periodLabel(perI)):periodLabel(perI).toLowerCase();
+  const tmNm=trkCloudOn()&&typeof teamActive==='function'&&teamActive()?teamActive().name:'';
+  const tPick=trkCloudOn()&&typeof teamPickHtml==='function'?teamPickHtml({ ctx:'issues' }):''; // o painel é do time ativo: trocar aqui troca o painel
+  const head0=pageHead({ title:'Issues', ...(tPick?{ afterTitle:tPick }:{ scope:trkCloudOn()?'time':'computador', scopeLabel:trkCloudOn()?(tmNm||'compartilhado'):'sem nuvem — vale só aqui' }),
+    sum:(trk.name?'painel '+esc(trk.name)+' · ':'')+(ready?(nPer!=null&&nPer!==trkIssues.length?`${trkIssues.length} no painel · <b>${nPer}</b> ${esc(perTx)}`:`${trkIssues.length} issues`)+(un?` · <b>${un}</b> ${un===1?'mudou':'mudaram'}`:''):'conecte o painel de issues do time'),
     primary:(ready&&trk.connector.ops.create&&trkView!=='nova')?{ id:'trkHeadNew', label:'Nova issue', icon:'plus' }:null,
-    tabs:pageTabs('trk', [['board','Quadro',ready?trkIssues.length:null],['nova','Nova issue'],['conn','Conexão']], trkView) });
+    tabs:pageTabs('trk', [['board','Quadro',ready?(nPer!=null?nPer:trkIssues.length):null],['nova','Nova issue'],['conn','Conexão']], trkView) });
+  const head=head0;
   const view=trkView==='conn' ? trkConnHtml()+(ready?`<div class="trk-card"><div class="trk-ct">4 · Projetos e regras</div>${trkRulesHtml()}</div>`:'')
     : trkView==='nova' ? '<div id="trkNovaHost" class="trknova"></div>' : trkBoardHtml();
   body.innerHTML=`<div class="sk-screen trk">${head}

@@ -103,7 +103,7 @@ test('as três telas usam o MESMO componente (Central, Time, Issues) e o quadro 
   const S22 = read('js/22-quadro-fluxo.js'), S71 = read('js/71-central-alcance.js'), S43 = read('js/43-espaco-times.js'), S14 = read('js/14-issues-projeto.js'), S23 = read('js/23-kanban-artefatos-editor.js');
   assert.match(S22, /kbCentralMinhasHtml\(tasks\)/); assert.match(S22, /data-kbview="board"/);
   assert.match(S71, /kbCentralTeamHtml\(vis, scope\)/); assert.match(S71, /caFiltra\(all, f, me, CA_FN\)[\s\S]{0,900}kbCentralTeamHtml/, 'quadro do alcance respeita chips/projeto/pessoa');
-  assert.match(S43, /kbTeamBoardHtml\(vis\)/);
+  assert.match(S43, /kbTeamBoardHtml\(visP\)/); // o Quadro com o período (74 perAbertoOuNoPeriodo) — a aba conta o mesmo
   assert.match(S14, /kbIssueCard\(i, \{ inGroup, row:[^}]*drops:kbIssueDrops\(/); assert.match(S72, /trkRowOf\(i, trkEntriesFor\(i\.code\)/, "ligação pelo índice novo do 14"); assert.ok(!/trkTasksFor/.test(S72)); assert.match(S14, /kbBoardHtml\(\{ id:'issues'/);
   assert.match(S23, /function renderKanban\(\)\{[\s\S]{0,400}kbCentralKey\(\),'1'\)[\s\S]{0,120}setView\('flow'\)/, 'o Kanban antigo cai no quadro da Central');
   assert.match(S72, /function kbCentralKey\(\)\{ return userKey\('kb:central', /, 'lembrado por pessoa');

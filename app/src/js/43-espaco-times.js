@@ -68,7 +68,21 @@ function tsClaimShow(localId){
 // iniciais como no resto do app ("Douglas S." → DS; e-mail → só a parte antes do @)
 function tsIni(n){ const w=String(n||'?').replace(/@.*/,'').split(/[\s._-]+/).filter(Boolean); return ((w.length>1?w[0][0]+w[1][0]:(w[0]||'?').slice(0,2))).toUpperCase(); }
 function tsAv(uid, on){ return personAv(uid, { on }); } // fonte única (08-pessoas): iniciais + cor estável + e-mail só no tooltip
-function tsPeriodTasks(){ const per=lsGet('tmPeriod')||'all'; const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3; return (teamTasks||[]).filter(t=>!cut||new Date(t.updated_at).getTime()>=cut); }
+// período do Time = o seletor ÚNICO do 08-periodo (tela 'time', lembrado por pessoa; o mesmo da Central "Do time") —
+// antes era um <select> próprio (7/30/90/tudo) só na Visão geral e em Pessoas. Modificação = caModOf (fonte única).
+// o período antigo do Time (tmPeriod: 7/30/90/tudo) vira o do 08 uma vez: 7 → 7 dias; 30/90/tudo → 30 dias (o maior
+// pronto; "Personalizado" cobre o resto) — ninguém perde a escolha calado
+function tsPerMigra(){ try{ const old=lsGet('tmPeriod'); if(!old) return; if(!lsGet(periodKey('time'))) periodSet('time', { key:old==='7'?'7d':'30d' }); lsSet('tmPeriod',''); }catch(_){ } }
+function tsPer(){ tsPerMigra(); return periodGet('time'); }
+function tsRange(){ return periodRange(tsPer()); }
+function tsModOf(t){ return typeof caModOf==='function'?caModOf(t):modTs(t&&t.updated_at); }
+function tsInRange(ms, r){ return !!ms && ms>=r.from && ms<r.to; }
+function tsPeriodTasks(){ const r=tsRange(); return (teamTasks||[]).filter(t=>tsInRange(tsModOf(t), r)); }
+// o Quadro (e a Central "Do time"): em aberto sempre + concluída/cancelada que mexeu no período (74 perAbertoOuNoPeriodo)
+const TS_PER_FN={ delivered:t=>epDelivered(t), fora:t=>(typeof entFora==='function'&&typeof ENT_FN!=='undefined')?entFora(t, ENT_FN):(t.status==='cancelled'), mod:t=>tsModOf(t) };
+function tsQuadro(list){ return perAbertoOuNoPeriodo(list, tsRange(), TS_PER_FN); }
+// "4 de 129 · em aberto e concluídas nos últimos 7 dias" quando a tela mostra menos que o total ('' quando bate)
+function tsPerNo(){ const p=tsPer(); return perNoTx(p, periodLabel(p)); }
 // fase (1–5) e % de um cartão da NUVEM — mesma régua da Central
 function ctPhase(t){
   if(['merged','done'].includes(t.status)) return 5;
@@ -244,13 +258,19 @@ function renderTeamBoard(){
   all.forEach(t=>{ if(t.pr_url && (((t.spec||{}).kind==='review')||/^review (do |de )?pr/i.test(t.title||''))) tsRevBy[t.pr_url]=tsWho(t); });
   const tsRevChip=(u)=>u?`<span class="tstag" style="color:var(--good);border:1px solid currentColor" title="review já feito por ${escA(personName(u))} — parecer no cartão dele">✓ revisado · ${esc(personShort(u))}</span>`:'';
   const prs=all.filter(t=>t.pr_url && t.status!=='merged' && (t.spec||{}).kind!=='review');
+  // o que a tela mostra = o que a aba conta (mesmo período, épico e pessoa)
+  const rng=tsRange(), perNo=tsPerNo();
+  const visP=tsQuadro(vis);
+  const prsInt=all.filter(t=>t.pr_url && t.status==='merged' && (t.spec||{}).kind!=='review' && tsInRange(tsModOf(t), rng));
+  const feedP=(teamActivity||[]).filter(a=>tsInRange(modMs(a.at), rng));
+  const entN=typeof entTabN==='function'?entTabN({ all, members }):(typeof entAbertas==='function'?entAbertas(all):0);
   const fgn=tmapForeign(); const unsynced=(state.tasks||[]).filter(t=>!tmap()[t.id] && !fgn.has(t.id) && t.status!=='draft').length; // cartão de outra conta não conta
   // ---------- sidebar ----------
-  const NAV=[['overview','Visão geral',''],['board','Quadro',String(vis.length)],['entregas','Entregas',typeof entAbertas==='function'?String(entAbertas(all)||''):''],['prs','PRs pra revisar',prs.length?String(prs.length):''],['linha','Linha',''],['people','Pessoas',String(members.length)],['feed','Atividade','']];
+  const NAV=[['overview','Visão geral',''],['board','Quadro',String(visP.length)],['entregas','Entregas',entN?String(entN):''],['prs','PRs pra revisar',prs.length?String(prs.length):''],['linha','Linha',''],['people','Pessoas',String(members.length)],['feed','Atividade',feedP.length?String(feedP.length):'']];
   // navegação do Time = ABAS HORIZONTAIS (mesma disposição das outras telas — sem menu lateral próprio)
   const subTabs=`<div class="ftabs" style="margin-bottom:16px">`+
     NAV.map(([k,l,n])=>`<button class="ft${tmView===k?' on':''}" data-tsv="${k}">${l}${n?` <span class="n${k==='prs'&&prs.length?' hot':''}" style="font-size:var(--fs-xs);opacity:.8">${n}</span>`:''}</button>`).join('')+
-    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido em Conta e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim tsnavlbl" style="font-size:var(--fs-xs);align-self:center;white-space:nowrap">${orgScope?`${nPl((cloudData.teams||[]).length,'time','times')} · ${nPl(((cloudData.orgMembers)||[]).length,'pessoa','pessoas')}`:'time '+teamName}</span></div>`;
+    `<span class="grow"></span>${isAdmin?`<span class="tsscope" title="owner/admin: alterna entre o time escolhido em Conta e a organização inteira"><button class="${orgScope?'':'on'}" data-tscope="team">meu time</button><button class="${orgScope?'on':''}" data-tscope="org">toda a organização</button></span>`:''}<span class="dim tsnavlbl" style="font-size:var(--fs-xs);align-self:center;white-space:nowrap">${orgScope?`${nPl((cloudData.teams||[]).length,'time','times')} · ${nPl(((cloudData.orgMembers)||[]).length,'pessoa','pessoas')}`:''}</span></div>`;
   let side=``;
   // épicos viram CHIPS (no Quadro) — membros vivem na vista Pessoas
   // épicos: UM seletor (ativos primeiro, concluídos num grupo à parte) — a parede de chips empurrava o quadro pra baixo
@@ -273,8 +293,7 @@ function renderTeamBoard(){
   let main='', tbKbVms=null;
   // T8: custo POR PESSOA só pra líder do time ou owner/admin da org; cada um sempre vê o próprio
   const veCustoDe=uid=>uid===me || (typeof entPodeVerCusto==='function'?entPodeVerCusto():isAdmin);
-  const perNow=lsGet('tmPeriod')||'all';
-  const perSel=`<select class="sel" id="tbPeriod" aria-label="período" style="width:120px">${[['7','últimos 7 dias'],['30','30 dias'],['90','trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select>`;
+  const perSel=periodPickerHtml('time', tsPer());
   const devOpts=`<select class="sel" id="tbDev" aria-label="filtrar por dev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(personName(u,{ you:'suffix' }))}</option>`).join('')}</select>`;
   if(tmView==='overview'){
     const inP=tsPeriodTasks();
@@ -321,16 +340,19 @@ function renderTeamBoard(){
   } else if(tmView==='board'){
     // quadro único (72-kanban): as MESMAS colunas/cartões da Central (situação = flowBucket via tsBucket, STATUS_META),
     // ordem por modificação dentro da coluna; arrastar só onde há ação (assumir e iniciar / devolver)
-    const kb=kbTeamBoardHtml(vis); tbKbVms=kb.vms;
-    main=`<h1>Quadro do time</h1><div class="tssub">${devOpts}${epicChips}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>${kb.html}`;
+    const kb=kbTeamBoardHtml(visP); tbKbVms=kb.vms;
+    const dif=perContaTx(vis.length, visP.length, perNo);
+    main=`<h1>Quadro do time</h1><div class="tssub">${perSel}${devOpts}${epicChips}${unsynced?`<button class="btn sm" id="tbBackfill">⇡ publicar ${unsynced} local${unsynced===1?'':'is'}</button>`:''}<span style="flex:1"></span><button class="btn sm" id="tbRefresh">atualizar</button></div>${dif?`<p class="ts-percount" role="status">${esc(dif)}</p>`:''}${kb.html}`;
   } else if(tmView==='entregas'){
     // Entregas (70-time-entregas): a visão do gestor — uma lista por épico
     main=typeof entregasHtml==='function'?entregasHtml({ all, members }):'';
   } else if(tmView==='prs'){
-    main=`<h1>PRs pra revisar</h1><div class="tssub">todo cartão do time com PR aberto</div>`+
+    const intRow=t=>{ const n=(t.pr_url.match(/\/pull\/(\d+)/)||[])[1]; return `<div class="tspanel ts-prdone" style="display:flex;align-items:center;gap:12px"><span class="mono" style="color:var(--muted)">${n?'#'+n:'PR'}</span><div style="flex:1;min-width:0"><b style="font-size:var(--fs-base)" data-ct="${escA(t.id)}">${esc(t.title)}</b><div class="dim" style="font-size:var(--fs-xs)">de ${esc(tmName(tsWho(t)))} · ${esc(stLabel(tsSt(t)))} · ${agoTx(t.updated_at)}</div></div><button class="btn sm" data-pr="${escA(t.pr_url)}">abrir ↗</button></div>`; };
+    const intHtml=`<h2 class="ts-h2">Integrados ${esc(perNo)} <span class="dim">${prsInt.length}</span></h2>`+(prsInt.length?prsInt.map(intRow).join(''):`<p class="dim ts-percount">nenhum PR do time integrado ${esc(perNo)}</p>`);
+    main=`<h1>PRs pra revisar</h1><div class="tssub">${perSel}<span class="dim">os abertos aparecem sempre · o período vale pros integrados</span></div>`+
       (prs.length?prs.map(t=>{ const n=(t.pr_url.match(/\/pull\/(\d+)/)||[])[1];
         return `<div class="tspanel" style="display:flex;align-items:center;gap:12px"><span class="mono" style="color:var(--accent)">${n?'#'+n:'PR'}</span><div style="flex:1;min-width:0"><b style="font-size:var(--fs-base)">${esc(t.title)}</b><div class="dim" style="font-size:var(--fs-xs)">de ${esc(tmName(tsWho(t)))} · ${esc(stLabel(tsSt(t)))} · ${agoTx(t.updated_at)}</div></div>${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}">revisar com agente</button></div>`; }).join('')
-      :'<div class="emptyrepo" style="display:flex"><div class="big">Em dia ✓</div><div>nenhum PR do time esperando review.</div></div>');
+      :'<div class="emptyrepo" style="display:flex"><div class="big">Em dia ✓</div><div>nenhum PR do time esperando review.</div></div>')+intHtml;
   } else if(tmView==='linha'){
     // Linha do time (69-linha): todos os projetos, janela e saúde postas por uma pessoa
     main=typeof linhaTimeHtml==='function'?linhaTimeHtml():'';
@@ -357,10 +379,11 @@ function renderTeamBoard(){
                 <div class="tsbar" style="margin-top:5px"><i style="width:${pctOf(t.status)}%"></i></div></div>`; }).join('');
           })()}</div>`; }).join('')+`</div>`;
   } else if(tmView==='feed'){
-    main=`<h1>Atividade do time</h1><div class="tssub">mais recente primeiro</div><div class="tspanel tsfeed">`+
-      ((teamActivity||[]).length?(teamActivity||[]).slice(0,40).map(a=>{ const t=all.find(x=>x.id===a.task_id);
+    // o feed vem com os 60 eventos mais recentes do time (teamFetch): o texto diz quando a lista corta
+    main=`<h1>Atividade do time</h1><div class="tssub">${perSel}<span class="dim">mais recente primeiro · ${feedP.length>40?'mostrando 40 de '+feedP.length+' eventos':nPl(feedP.length,'evento','eventos')} ${esc(perNo)}${(teamActivity||[]).length>=60?' · entre os 60 mais recentes do time':''}</span></div><div class="tspanel tsfeed">`+
+      (feedP.length?feedP.slice(0,40).map(a=>{ const t=all.find(x=>x.id===a.task_id);
         return `<div class="fi">${tsAv(a.user_id,false)}<span class="tx"><b>${esc(personCap(tmName(a.user_id)))}</b> ${tsK(a.kind)} <b data-ct="${escA(a.task_id)}" style="cursor:pointer">${esc((t||{}).title||'tarefa')}</b>${a.body?` — ${esc(personActBody(a, 80))}`:''}</span><span class="tm">${agoTx(a.at)}</span></div>`; }).join('')
-      :'<div class="dim" style="font-size:var(--fs-sm)">sem atividade ainda</div>')+`</div>`;
+      :`<div class="dim" style="font-size:var(--fs-sm)">${(teamActivity||[]).length?'nada '+esc(perNo)+' — troque o período no seletor acima':'sem atividade ainda'}</div>`)+`</div>`;
   }
   void side;
   const html=`<div class="tspace"><div class="tmain">${subTabs}${main}</div></div>`;
@@ -379,7 +402,8 @@ function renderTeamBoard(){
   { const b=el.querySelector('#tbEpicAdd'); if(b) b.onclick=async()=>{ const n=await askText('Novo épico','ex.: Filtros avançados'); if(!n) return;
     const dw=typeof epDoneWhenAsk==='function'?await epDoneWhenAsk(b):[]; if(dw==null) return;
     try{ await sbPost('epics',{ team_id:cloudTeamId(), name:n.trim(), created_by:cloudUserId(), ...(dw.length?{ spec:{ doneWhen:dw } }:{}) }); teamTasks=null; teamPaintSig=''; renderTeamBoard(); toast('Épico “'+n.trim().slice(0,50)+'” criado'+(dw.length?' com '+dw.length+' ite'+(dw.length===1?'m':'ns')+' de pronto quando':'')+'.','ok'); }catch(e){ showErr(e, 'Não consegui criar o épico'); } }; }
-  { const s=el.querySelector('#tbPeriod'); if(s) s.onchange=e=>{ lsSet('tmPeriod', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
+  if(tmView!=='entregas') periodPickerWire(el, ()=>{ teamPaintSig=''; renderTeamBoard(); if(typeof caRerender==='function') caRerender(); }); // o mesmo período da Central "Do time"
+
   { const s=el.querySelector('#tbDev'); if(s) s.onchange=e=>{ lsSet('tmDev', e.target.value); teamPaintSig=''; renderTeamBoard(); }; }
   { const b=el.querySelector('#tbRefresh'); if(b) b.onclick=()=>{ teamTasks=null; teamPaintSig=''; renderTeamBoard(); }; }
   { const b=el.querySelector('#tbBackfill'); if(b) b.onclick=()=>cloudBackfill(b); }
@@ -519,7 +543,7 @@ async function ntShareSync(){
   const sel=$id('ntEpic'); if(!sel) return;
   const cur=sel.value;
   sel.innerHTML='<option value="">— sem épico —</option>'
-    + teamEpics.map(e=>`<option value="${escA(e.id)}">◆ ${esc(e.name)}</option>`).join('')
+    + teamEpics.filter(e=>!e.team_id||e.team_id===cloudTeamId()).map(e=>`<option value="${escA(e.id)}">◆ ${esc(e.name)}</option>`).join('') // só os do time de destino (na visão da org o teamEpics tem todos)
     + '<option value="__new__">＋ criar novo épico…</option>';
   if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
   sel.onchange=async()=>{
@@ -536,7 +560,11 @@ let ntWho='', ntShareTouched=false;
 function ntShareIsTeam(){ const r=$id('ntShareRow'), s=$id('ntShare'); return !!(r && r.dataset.cloud==='1' && s && s.value==='team'); }
 function ntShareDefault(){ const s=$id('ntShare'); if(!s || ntShareTouched) return; const sv=lsGet('nd:share'); s.value=tmDest()==='run'?(sv==='local'?'local':'self'):'team';
   if(!s.__wired){ s.__wired=1; s.addEventListener('change',()=>{ ntShareTouched=true; tmDestSet(s.value==='team'?'team':'run'); lsSet('nd:share', s.value); ntWhoPaint(); ntCreateLabel(); }); } ntCreateLabel(); }
-function ntWhoPaint(){ const row=$id('ntWhoRow'), slot=$id('ntWhoSlot'); if(!row||!slot) return; const on=ntShareIsTeam(); row.style.display=on?'flex':'none'; if(!on) return;
+// time de destino (74): só com mais de um time — é o seletor do time ativo (épicos e responsáveis da lista seguem ele)
+function ntDestTeamPaint(){ const row=$id('ntDestTeamRow'), slot=$id('ntDestTeamSlot'); if(!row||!slot) return; const r=$id('ntShareRow');
+  const on=!!(r && r.dataset.cloud==='1') && typeof teamActiveList==='function' && teamActiveList().length>1 && $id('ntShare') && $id('ntShare').value!=='local';
+  const h=on?teamPickHtml({ ctx:'nova', prefix:false }):''; row.style.display=(on&&h)?'flex':'none'; if(slot.__h!==h){ slot.__h=h; slot.innerHTML=h; } }
+function ntWhoPaint(){ const row=$id('ntWhoRow'), slot=$id('ntWhoSlot'); ntDestTeamPaint(); if(!row||!slot) return; const on=ntShareIsTeam(); row.style.display=on?'flex':'none'; if(!on) return;
   slot.innerHTML=tmWhoBtnHtml(ntWho,'id="ntWhoBtn"'); const b=$id('ntWhoBtn'); if(b) b.onclick=()=>tmWhoPick(b, ntWho, uid=>{ ntWho=uid||''; ntWhoPaint(); }); }
 // o botão de criar diz o que vai acontecer (fora do wizard: #ntCreate; no wizard, a última etapa relê ao pintar)
 function ntCreateLabel(){ const c=$id('ntCreate'); if(c && !c.disabled){ const svg=c.querySelector('svg'); c.textContent=ntShareIsTeam()?'Mandar pro time':'Iniciar execução'; if(svg) c.prepend(svg); }

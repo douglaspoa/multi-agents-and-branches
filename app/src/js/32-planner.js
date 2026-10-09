@@ -855,6 +855,7 @@ function plDestHtml(){
   if(typeof SB==='undefined' || !(SB.sess()&&cloudTeamId())) return '';
   const t=plDestIsTeam();
   return `<div class="g2row pldest"><div class="g2seg" role="radiogroup" aria-label="o que fazer ao criar"><button type="button" role="radio" aria-checked="${t}" class="${t?'on':''}" data-pldest="team" title="vira cartão no quadro do time, na fila — ninguém roda agora">Mandar pro time</button><button type="button" role="radio" aria-checked="${!t}" class="${t?'':'on'}" data-pldest="run" title="cria e o agente começa nesta máquina">Rodar agora</button></div>`+
+    (t&&typeof teamActiveList==='function'&&teamActiveList().length>1?`<span class="pldest-who" title="o cartão (ou o épico) vai pro time escolhido — trocar aqui troca o time ativo do app"><span class="g2help">time</span>${teamPickHtml({ ctx:'plan', prefix:false })}</span>`:'')+
     (t?`<span class="pldest-who"><span class="g2help">responsável</span>${tmWhoBtnHtml(plWho,'id="plWho"')}</span>`:'')+`</div>`;
 }
 function plDestWire(root){

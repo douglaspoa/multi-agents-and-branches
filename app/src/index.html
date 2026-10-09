@@ -49,6 +49,7 @@
 <link rel="stylesheet" href="css/99-gestao.css">
 <link rel="stylesheet" href="css/99-kanban.css">
 <link rel="stylesheet" href="css/99-entregas-dia.css">
+<link rel="stylesheet" href="css/99-time-ativo.css">
 </head>
 <body>
 <div class="app">
@@ -331,6 +332,7 @@
           <option value="self">Rodar agora — roda nesta máquina e o cartão sobe no seu nome</option>
           <option value="local">Rodar agora, só nesta máquina — não aparece no time</option>
         </select>
+        <div id="ntDestTeamRow" class="g2row" style="margin-top:9px;display:none" title="o cartão vai pro time escolhido — trocar aqui troca o time ativo do app (Time, Central, Issues)"><span class="g2help">time</span><span id="ntDestTeamSlot"></span></div>
         <div id="ntWhoRow" class="g2row" style="margin-top:9px;display:none"><span class="g2help">responsável</span><span id="ntWhoSlot"></span></div>
         <label style="margin-top:12px">Épico <span class="dim" style="text-transform:none;letter-spacing:0">(agrupa a tarefa no time)</span></label>
         <select class="sel" id="ntEpic" style="width:100%"><option value="">— sem épico —</option></select>
@@ -785,6 +787,7 @@
 <script src="js/71-revisao-alteracao.js"></script>
 <script src="js/72-corrente-tarefa.js"></script>
 <script src="js/72-gestao-time.js"></script>
+<script src="js/74-time-ativo.js"></script>
 <script src="js/99-e2e.js"></script>
 </body>
 </html>
