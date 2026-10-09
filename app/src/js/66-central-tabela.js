@@ -161,7 +161,7 @@ function ctRow(t){
 function ctHtml(tasks){ const rows=(tasks||[]).map(ctRow); CT.rows=new Map(rows.map(r=>[r.id, r])); return ctTableHtml(rows, { sort:CT.sort, open:CT.open }); }
 // depois de mexer NO LUGAR: o HTML que a Central pintaria agora (mesmas partes) vira o flowLastHtml — o próximo
 // render só reconstrói se algo de verdade mudou
-function ctSyncLast(){ const L=CT.last; if(!L) return; flowLastHtml=L.pre+ctTableHtml([...CT.rows.values()], { sort:CT.sort, open:CT.open }); }
+function ctSyncLast(){ const L=CT.last; if(!L) return; flowLastHtml=L.pre+ctTableHtml([...CT.rows.values()], { sort:CT.sort, open:CT.open })+(L.post||''); }
 /** Depois do innerHTML da Central: ordenar, abrir/recolher a linha, teclado — tudo no lugar (sem renderFlow). Os botões
  *  de ação reaproveitam os data-* que a Central liga; linha recém-inserida cai na delegação daqui. */
 function ctWire(el, src){

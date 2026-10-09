@@ -99,7 +99,10 @@ function entFiltrosDe(raw, fallback){
 const ENT_FN={ bucket:t=>tsBucket(t), delivered:t=>epDelivered(t), flag:t=>tsNorm(t).flag,
   ativo:(e, ts)=>typeof epAtivo==='function'?epAtivo(e, ts):(e.status!=='done'&&e.status!=='archived') };
 function entFiltros(){ return entFiltrosDe(lsGet('tmEntF'), { who:lsGet('tmDev')||'', epic:lsGet('tmEpic')||'' }); }
-function entSetF(patch){ lsSet('tmEntF', JSON.stringify({ ...entFiltros(), ...patch })); teamPaintSig=''; renderTeamBoard(); }
+// a mesma aba mora no Time e na Central (71): quem pintou por último redesenha (entOnChange)
+let entOnChange=null;
+function entSetF(patch){ lsSet('tmEntF', JSON.stringify({ ...entFiltros(), ...patch })); entRepaint(); }
+function entRepaint(){ teamPaintSig=''; if(entOnChange) entOnChange(); else renderTeamBoard(); }
 // A regra ÚNICA de custo dos outros (aba Entregas, Visão geral, Pessoas e cartão do Quadro — 43 tsCostOk)
 function entPodeVerCusto(){
   const cd=(typeof cloudData!=='undefined'&&cloudData)||null;
@@ -118,9 +121,9 @@ function entProvasLoad(ids){
   entProvas={ key, m:null, busy:true };
   const chunks=[]; for(let i=0;i<ids.length;i+=80) chunks.push(ids.slice(i, i+80));
   Promise.all(chunks.map(c=>sbGet('artifacts_meta?select=task_id&task_id=in.('+c.map(i=>'"'+i+'"').join(',')+')')))
-    .then(rs=>{ if(entProvas.key!==key) return; entProvas={ key, m:entProvasPorTarefa([].concat(...rs)), busy:false }; if(tmView==='entregas'){ teamPaintSig=''; renderTeamBoard(); } })
+    .then(rs=>{ if(entProvas.key!==key) return; entProvas={ key, m:entProvasPorTarefa([].concat(...rs)), busy:false }; if(entOnChange || tmView==='entregas') entRepaint(); })
     .catch(e=>{ if(entProvas.key!==key) return; entProvas={ key, m:entProvas.m, busy:false, err:true, errAt:Date.now() }; console.warn('provas do time', e&&e.message||e);
-      if(tmView==='entregas'){ teamPaintSig=''; renderTeamBoard(); } });
+      if(entOnChange || tmView==='entregas') entRepaint(); });
 }
 
 function entAvatares(uids){
@@ -176,7 +179,7 @@ function entItemHtml(t){
     <span class="en-ago" title="última atividade">${atv}</span>
   </div>`;
 }
-// a aba: ctx = { all, members } vindos do renderTeamBoard (43)
+// a aba: ctx = { all, members, noTitle } vindos do renderTeamBoard (43) ou da Central (71, sem o título — a página já tem)
 function entregasHtml(ctx){
   const all=(ctx&&ctx.all)||[], members=(ctx&&ctx.members)||[];
   const f=entFiltros();
@@ -201,15 +204,17 @@ function entregasHtml(ctx){
   else if(!vis.length) body=emptyHtml({ icon:'search', title:'Nada com esses filtros', help:'Nenhuma tarefa bate com a pessoa, o épico ou a situação escolhida.', action:{ id:'enClear', label:'limpar filtros', primary:false } });
   else { const vc=entPodeVerCusto(); body=entAgrupa(all, vis, eps, ENT_FN).map(g=>entGrupoHtml(g, vc)).join(''); }
   const note=entProvas.err&&entProvas.key&&all.length?'<div class="en-note" role="status">não consegui ler as provas agora — tento de novo</div>':'';
-  return `<h1>Entregas</h1>${bar}${note}<div class="en-wrap">${body}</div>`;
+  return `${ctx&&ctx.noTitle?'':'<h1>Entregas</h1>'}${bar}${note}<div class="en-wrap">${body}</div>`;
 }
-function entregasWire(el){
+// onChange: quem redesenha depois de mexer num filtro (padrão: o espaço Time)
+function entregasWire(el, onChange){
+  entOnChange=onChange||null;
   const all=teamTasks||[];
   { const s=el.querySelector('#enWho'); if(s) s.onchange=()=>entSetF({ who:s.value }); }
   { const s=el.querySelector('#enEpic'); if(s) s.onchange=()=>entSetF({ epic:s.value }); }
   el.querySelectorAll('[data-entf]').forEach(b=>{ b.onclick=()=>{ const k=b.dataset.entf; entSetF({ [k]:!entFiltros()[k] }); }; });
   { const b=el.querySelector('#enClear'); if(b) b.onclick=()=>entSetF({ who:'', epic:'', trav:false, pront:false }); }
-  { const b=el.querySelector('#enRefresh'); if(b) b.onclick=()=>{ entProvas={ key:'', m:null, busy:false }; teamTasks=null; teamPaintSig=''; renderTeamBoard(); }; }
+  { const b=el.querySelector('#enRefresh'); if(b) b.onclick=()=>{ entProvas={ key:'', m:null, busy:false }; teamTasks=null; teamFetchedAt=0; entRepaint(); }; }
   // PR e issue (data-enlk: o wireLinkChips do 43 não sobrescreve): só abre http(s)
   el.querySelectorAll('[data-enlk]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const u=b.dataset.enlk||''; if(/^https?:\/\//i.test(u)) openExternal(u); }; });
   el.querySelectorAll('[data-entct]').forEach(b=>{ b.onclick=(e)=>{ e.stopPropagation(); const ct=all.find(x=>x.id===b.dataset.entct); if(ct) openCloudTaskPage(ct); }; });
