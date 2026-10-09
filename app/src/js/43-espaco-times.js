@@ -108,14 +108,14 @@ function tsCardHtml(t, me, isAdmin){
   const bk=tsBucket(t), st=tsSt(t);
   const running=bk==='andamento' && t.status!=='backlog';
   const isErr=bk==='aguardando';
-  const obj=((t.spec||{}).objective||'').replace(/\s+/g,' ').slice(0,160);
+  const obj=mdPlain(String((t.spec||{}).objective||'').slice(0,1200)).slice(0,160); // resumo de 1 linha: sem ** / # / crases crus
   const reqs=((t.spec||{}).requirements||[]).filter(Boolean);
   const teamTag=(typeof tsOrgScope==='function'&&tsOrgScope())?`<span class="tsteamtag" title="time">${esc(tsTeamName(t.team_id)||'?')}</span>`:'';
   const epSt=(t.epic_id&&typeof epColor==='function')?` style="--epc:${epColor(t.epic_id)}"`:''; // F2: cor estável do épico
   return `<div class="tscard dcard-like${epSt?' has-ep':''}" data-ct="${escA(t.id)}"${epSt}>
     <div class="tt">${esc(t.title)}${teamTag}</div>
     ${obj?`<div class="dc-obj">${esc(obj)}</div>`:''}
-    ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?IC.ok:st==='blk'?IC.stErr:''}</i><span class="dc-rt" title="${escA(r)}">${esc(r)}</span></span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
+    ${reqs.length?`<div class="dc-reqs">${reqs.slice(0,3).map((r,i)=>{ const p=list&&list.find(x=>reqNorm(x.req)===reqNorm(r)); const st=p?(p.status==='done'?'ok':'blk'):'na'; return `<span class="dc-req ${st}"><i>${st==='ok'?IC.ok:st==='blk'?IC.stErr:''}</i><span class="dc-rt" title="${escA(mdPlain(r))}">${esc(mdPlain(r))}</span></span>`; }).join('')}${reqs.length>3?`<span class="dc-more">+${reqs.length-3}</span>`:''}</div>`:''}
     ${ctPhaseBar(t)}
     <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${tsIssueChip(t, proj)}${t.branch?`<span class="mono tsbr" title="${escA(t.branch)}">${esc(t.branch.split('/').pop())}</span>`:''}${t.cost_usd>0?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:var(--fs-xs)">pra si</span>':''}${isLocal?'':`<span class="tsnolocal" title="${escA('nenhum projeto aberto nesta máquina tem o repositório '+(proj.repo_remote||'')+' — clone a pasta e adicione em Projetos pra poder assumir')}">projeto que você não tem neste computador</span>`}</div>
     ${whoTx?`<div class="tswho" title="${escA(whoTx)}">${esc(whoTx)}</div>`:''}
@@ -385,16 +385,17 @@ function openCloudTask(ct){
     ${(ct.pr_url||ct.issue_url||((ct.branch||'').match(/\b[A-Z]{2,10}-\d+\b/)))?`<div style="display:flex;gap:8px;margin-bottom:10px">${linkChips({prUrl:ct.pr_url, issueUrl:ct.issue_url, branch:ct.branch, title:ct.title})}</div>`:''}
     <div class="imhint">criada por <b>${esc(tmName(ct.created_by))}</b> · ${esc(ctStLabel(ct))}${ct.assignee?' · com <b>'+esc(tmName(ct.assignee))+'</b>':''}${ct.claim_mode==='reserved'?' · <b>reservada pra si</b>':''}</div>
     <label style="margin-top:10px">Título</label><input class="in" id="ctTitle" value="${escA(ct.title)}" ${canEdit?'':'disabled'}>
-    <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
+    <label style="margin-top:12px">Objetivo</label><textarea class="in ta" id="ctObj" data-mdprev rows="4" ${canEdit?'':'disabled'}>${esc(sp.objective||'')}</textarea>
     <label style="margin-top:12px">Requisitos <span class="dim" style="text-transform:none;letter-spacing:0">(um por linha — o agente é cobrado por cada um)</span></label>
-    <textarea class="in ta" id="ctReqs" rows="${Math.max(3,reqs.length+1)}" ${canEdit?'':'disabled'}>${esc(reqs.join('\n'))}</textarea>
-    ${(sp.deliverables||[]).length?`<label style="margin-top:12px">Entregáveis</label><div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px">${(sp.deliverables||[]).map(d=>`<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:3px 0"><span style="color:var(--accent)">◆</span><span>${esc(d)}</span></div>`).join('')}</div>`:''}
+    <textarea class="in ta" id="ctReqs" data-mdprev="list" rows="${Math.max(3,reqs.length+1)}" ${canEdit?'':'disabled'}>${esc(reqs.join('\n'))}</textarea>
+    ${(sp.deliverables||[]).length?`<label style="margin-top:12px">Entregáveis</label><div style="border:1px solid var(--border);border-radius:8px;padding:8px 10px">${(sp.deliverables||[]).map(d=>`<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:3px 0"><span style="color:var(--accent)">◆</span><span>${mdInline(d)}</span></div>`).join('')}</div>`:''}
     <label style="margin-top:12px">Épico</label>
     <select class="sel" id="ctEpic" style="width:100%"><option value="">— sem épico —</option>${teamEpics.map(e=>`<option value="${escA(e.id)}"${ct.epic_id===e.id?' selected':''}>${esc(e.name)}</option>`).join('')}</select>
     <div id="ctReqProof"></div>
     <div id="ctProofs"></div>
     <div id="ctAct" class="dim" style="font-size:var(--fs-xs);margin-top:12px">${skeletonHtml('lista',{ n:3, compact:true, inline:true, label:'carregando a atividade' })}</div>
     <div style="display:flex;gap:8px;margin-top:14px"><span style="flex:1"></span>${canEdit?'<button class="btn primary" id="ctSave">salvar alterações</button>':''}</div>`;
+  if(typeof mdPrevSync==='function') mdPrevSync(body); // objetivo/requisitos formatados; "editar" volta pro campo (o markdown salvo não muda)
   // requisitos com prova (sincronizados do requirements.json do dev)
   { const rp=ct.requirements_proof; const el=$id('ctReqProof');
     if(el && rp && Array.isArray(rp.list||rp) ){
