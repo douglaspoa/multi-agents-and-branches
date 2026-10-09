@@ -57,6 +57,6 @@ while :; do
   sleep 0.5
 done
 kill $APID 2>/dev/null; sleep 2; kill -9 $APID 2>/dev/null || true
-pkill -f "$E/engine/cli.mjs" 2>/dev/null || true; pkill -f "$E/fake-claude.mjs" 2>/dev/null || true; pkill -f "$E/repo/.cardume" 2>/dev/null || true
+pkill -f "$E/engine/cli.mjs" 2>/dev/null || true; pkill -f "$E/fake-claude.mjs" 2>/dev/null || true; pkill -9 -f "$E/repo/.cardume" 2>/dev/null || true  # shell interativo ignora SIGTERM
 echo "prints em $E/shots · relatório em $E/report.txt"
 grep -q '^FALHA\|^ERRO' "$E/report.txt" && exit 1 || exit 0
