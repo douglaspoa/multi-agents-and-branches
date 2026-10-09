@@ -116,7 +116,7 @@ function erPickMember(members, profiles, q){
   const hit=all.filter(x=>erFold(x.p.email)===f || erFold(x.p.name)===f || erFold(String(x.p.email||'').split('@')[0])===f);
   if(hit.length===1) return { uid:hit[0].uid };
   if(hit.length>1) return { err:'mais de uma pessoa do time bate com "'+q+'" — use o e-mail' };
-  return { err:'"'+q+'" não é do time. Pessoas do time: '+(all.map(x=>x.p.name||x.p.email||'?').join(', ')||'(nenhuma)') };
+  return { err:'"'+q+'" não é do time. Pessoas do time: '+(all.map(x=>x.p.name||String(x.p.email||'').split('@')[0]||'pessoa sem nome').join(', ')||'(nenhuma)') };
 }
 // cartões novos do épico (idempotente pelo id do pedido: local_id card-<pedido>-<n>), na fila do time, SEM rodar e sem início automático
 async function erCreateCards(r, ep){
@@ -245,8 +245,9 @@ async function erApplyOne(r){
   }
   if(r._cards){ (r._cards.fails||[]).forEach(f=>failed.push(f)); }
   const res=erResult(r, ep, linked, failed);
+  if(r._cards && r._cards.created.length && r._cards.who && typeof personEnsure==='function') await personEnsure(r._cards.who);
   if(r._cards && r._cards.created.length){ const n=r._cards.created.length, w=r._cards.who;
-    res.message=res.message.replace(/\.$/,'')+' · '+n+(n===1?' cartão novo':' cartões novos')+' na fila do time'+(w?' com '+(((typeof tmProfiles==='function'?tmProfiles():{})[w]||{}).name||(typeof tmName==='function'?tmName(w):'a pessoa')):', livres')+' — ninguém começou a rodar.'; }
+    res.message=res.message.replace(/\.$/,'')+' · '+n+(n===1?' cartão novo':' cartões novos')+' na fila do time'+(w?' com '+(typeof personName==='function'?personName(w,{ noYou:true, settled:true }):'a pessoa'):', livres')+' — ninguém começou a rodar.'; }
   return res;
 }
 

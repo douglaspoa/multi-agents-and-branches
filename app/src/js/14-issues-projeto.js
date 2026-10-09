@@ -686,19 +686,24 @@ function trkRulesKeep(body){
 
 // ----- estágio 3: quadro -----
 function trkPretty(v){ return String(v).split('@')[0].replace(/[._]+/g,' '); }
-function trkPerson(v){
-  if(v==null||v==='') return null;
-  if(typeof v==='object') v=v.name||v.full_name||v.login||v.email||v.id||'';
-  v=String(v); const known=(trk.people||{})[v]; const uuid=!known && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(v);
-  const nm=known?trkPretty(known):(uuid?v.slice(0,4):trkPretty(v));
-  const ini=uuid?'#':nm.split(/[\s._-]+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase();
-  return { label:uuid?'id '+nm:nm, ini, full:known||v, unnamed:uuid };
+// responsável/autor que o PAINEL devolve → pessoa (mesa 09/10, D1: nunca o id). Casa por e-mail com alguém do time
+// (personName: "você", nome, parte do e-mail); o mapa trk.people (id do painel → e-mail, escolhido em "quem é?") vale
+// pro time; um nome/login que o painel manda aparece como veio; só um código → "sem nome no painel".
+function trkPerson(v, email){
+  if(v==null||v===''){ return email?trkPerson(email):null; }
+  if(typeof v==='object') v=v.email||v.name||v.full_name||v.login||v.id||'';
+  v=String(v); const known=(trk.people||{})[v];
+  const mail=[known, v, email].find(x=>x && String(x).includes('@'));
+  if(mail){ const nm=personName(mail), real=personName(mail,{ noYou:true }); return { label:nm, ini:personInitials(real), full:v, mail, tip:personTip(mail), unnamed:false }; }
+  if(known && !personLooksId(known)){ const nm=trkPretty(known); return { label:nm, ini:personInitials(nm), full:v, tip:nm+' (no painel)', unnamed:false }; }
+  if(personLooksId(v) || /^\d{3,}$/.test(v)) return { label:'sem nome no painel', ini:'?', full:v, tip:'o painel só manda um código desta pessoa — diga quem é', unnamed:true };
+  const nm=trkPretty(v); return { label:nm, ini:personInitials(nm), full:v, tip:nm+' (no painel)', unnamed:false };
 }
 // pessoas conhecidas (pro chat sugerir e pra escolher responsável): mapa do time + quem já aparece nas issues.
 // `id` é o que vai pra API: o e-mail quando conhecido (assigneeFormat=email), senão o próprio valor.
 function trkPeopleList(){ const m=new Map(); const put=(id,name)=>{ if(id&&!m.has(id)) m.set(id,name); };
   Object.entries(trk.people||{}).forEach(([id,n])=>put(String(n).includes('@')?n:id, trkPretty(n)));
-  trkIssues.forEach(i=>{ const p=trkPerson(i.assignee); if(p&&!p.unnamed) put(i.assigneeEmail||p.full,p.label); });
+  trkIssues.forEach(i=>{ const p=trkPerson(i.assignee, i.assigneeEmail); if(p&&!p.unnamed) put(i.assigneeEmail||p.full,p.label); });
   { const me=(trk&&trkReady())?trkCtx().email:''; if(me) put(me, trkPretty(me)); }
   return [...m].map(([id,name])=>({ id, name })); }
 // a API devolve só o id do responsável: quando EU mando um e-mail e volta um id, aprendo o par (vale pro time)
@@ -713,17 +718,24 @@ async function trkAssign(code, who){
   catch(e){ trkErr='Não troquei o responsável de '+code+': '+trkErrText(e); }
   issRender();
 }
+// seletor "quem é?" pro responsável que o painel só manda como código: só gente do time (nome, nunca o id)
+function trkWhoIsHtml(pid){
+  const mem=(typeof tmTeamMembers==='function'?tmTeamMembers():[]).map(m=>m.user_id).filter(Boolean), all=personProfiles();
+  const opts=mem.map(u=>({ mail:String((all[u]||{}).email||''), nm:personName(u,{ you:'suffix' }) })).filter(x=>x.mail).sort((a,b)=>a.nm.localeCompare(b.nm,'pt-BR'));
+  if(!opts.length) return `<button class="btn sm" id="trkNamePerson" data-pid="${escA(pid)}" style="padding:2px 7px;font-size:var(--fs-xs);margin-left:6px">quem é?</button>`; // sem lista do time: nome livre (nunca o código)
+  return `<select class="in trk-whois" id="trkNamePerson" data-pid="${escA(pid)}" aria-label="quem é a pessoa responsável no painel"><option value="">quem é?</option>${opts.map(o=>`<option value="${escA(o.mail)}">${esc(o.nm)}</option>`).join('')}</select>`;
+}
 function trkAgo(iso){ const t=Date.parse(iso); if(!t) return ''; const m=Math.round((Date.now()-t)/60000); return m<1?'agora':m<60?m+'min':m<1440?Math.round(m/60)+'h':Math.round(m/1440)+'d'; }
 const trkEpColor=code=>(typeof epColor==='function')?epColor('trk:'+code):'var(--accent)'; // cor estável por épico (46)
 function trkCardHtml(i, inGroup){
-  const p=trkPerson(i.assignee), tasks=trkTasksFor(i.code), un=trkUnseen()[i.code];
+  const p=trkPerson(i.assignee, i.assigneeEmail), tasks=trkTasksFor(i.code), un=trkUnseen()[i.code];
   const tst=tasks.length?(tasks[0].status?stLabel(taskSt(tasks[0])):'tarefa'):''; // R5-1: status efetivo (PR aberto = 'PR aberto', igual à Central)
   const ep=i.epicCode?` style="--epc:${trkEpColor(i.epicCode)}"`:'';
   return `<div class="trk-issue${un?' unseen':''}${trkSel===i.code?' sel':''}${ep?' has-ep':''}" draggable="true" data-trkcode="${escA(i.code)}" role="button" tabindex="0" aria-label="${escA(i.code+' — '+i.title)}"${ep}>
     <div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span>${i.epicCode&&!inGroup?`<span class="trk-epb" title="filha do épico ${escA(i.epicCode)}">◆ ${esc(i.epicCode)}</span>`:''}${i.priority!=null&&i.priority!==''?`<span class="trk-pri">${esc(String(i.priority))}</span>`:''}<span style="flex:1"></span>${un?`<span class="trk-new">${esc(un)}</span>`:''}</div>
     <div class="trk-it">${esc(i.title)}</div>
     ${tasks.length?`<div class="trk-tl"><span class="trk-task" style="--stc:${stColor(taskSt(tasks[0]))}" title="${escA('tarefa vinculada: '+tst)}">⎇ tarefa ${esc(tst)}</span></div>`:''}
-    <div class="trk-if">${p?`<span class="trk-av" role="img" aria-label="${escA(p.full)}" title="${escA(p.full)}">${esc(p.ini)}</span><span class="trk-who" title="${escA(p.full)}">${esc(p.label)}</span>`:'<span class="dim trk-who">sem responsável</span>'}<span class="trk-sp"></span>${i.commentCount?`<span class="trk-cc" title="${escA(i.commentCount+' comentário(s)')}">${IC.chat} ${esc(String(i.commentCount))}</span>`:''}<span class="dim trk-ago">${trkAgo(i.updatedAt)}</span></div>
+    <div class="trk-if">${p?`<span class="trk-av" role="img" aria-label="${escA(p.label)}" title="${escA(p.tip)}">${esc(p.ini)}</span><span class="trk-who" title="${escA(p.tip)}">${esc(p.label)}</span>`:'<span class="dim trk-who">sem responsável</span>'}<span class="trk-sp"></span>${i.commentCount?`<span class="trk-cc" title="${escA(i.commentCount+' comentário(s)')}">${IC.chat} ${esc(String(i.commentCount))}</span>`:''}<span class="dim trk-ago">${trkAgo(i.updatedAt)}</span></div>
   </div>`;
 }
 // F5: numa coluna, as filhas de um mesmo épico ficam juntas sob um cabeçalho "◆ CÓDIGO · título do pai · n"
@@ -738,7 +750,7 @@ function trkColCards(items, byCode){
 function trkBoardHtml(){
   const c=trk.connector, q=trkQ.trim().toLowerCase(), un=trkUnseen();
   let list=trkIssues;
-  if(q) list=list.filter(i=>(i.code+' '+i.title+' '+((trkPerson(i.assignee)||{}).full||'')+' '+i.assigneeEmail).toLowerCase().includes(q));
+  if(q) list=list.filter(i=>(i.code+' '+i.title+' '+((trkPerson(i.assignee, i.assigneeEmail)||{}).full||'')+' '+i.assigneeEmail).toLowerCase().includes(q));
   // F5: épicos = issues citadas como pai por alguma filha (campo parent ou "Épico: CODE" no corpo)
   const byCode={}; trkIssues.forEach(i=>{ byCode[i.code]=i; });
   const kidsOf={}; trkIssues.forEach(i=>{ if(i.epicCode) (kidsOf[i.epicCode]=kidsOf[i.epicCode]||[]).push(i); });
@@ -786,7 +798,7 @@ function trkBoardHtml(){
 function trkListHtml(items){
   const un=trkUnseen();
   const st=id=>{ const x=trkStatus(id); return x?(x.label||x.id):String(id||'—'); };
-  const rows=items.map(i=>{ const p=trkPerson(i.assignee), tasks=trkTasksFor(i.code), t=tasks[0];
+  const rows=items.map(i=>{ const p=trkPerson(i.assignee, i.assigneeEmail), tasks=trkTasksFor(i.code), t=tasks[0];
     return `<tr class="trk-lr${trkSel===i.code?' sel':''}" data-trkcode="${escA(i.code)}" tabindex="0" aria-label="${escA(i.code+' — '+i.title)}">
       <td class="mono trk-code">${esc(i.code)}</td><td><span class="trk-lt">${esc(i.title)}</span>${i.epicCode?`<span class="dim trk-lep"> · ◆ ${esc(i.epicCode)}</span>`:''}</td>
       <td><span class="trk-st">${esc(st(i.status))}</span>${un[i.code]?' <span class="trk-new">mudou</span>':''}</td>
@@ -990,7 +1002,7 @@ function trkNIRender(){
     +(n.busy?chatThinkHtml(`<span class="pltyping"><i></i><i></i><i></i></span> pesquisando em ${esc(n.project?n.project.name:'…')} pra fechar as arestas…${n.prog?'<br><span style="font-size:var(--fs-xs)">'+esc(n.prog)+'</span>':''}`):'');
   const cards=n.items.map((it,k)=>{
     const lock=n.running||it.state==='ok', st=it.state==='ok'?'ok':(it.open.length||it.state==='fail')?'ask':it.skip?'wait':'ok';
-    const who=trkPerson(it.assignee);
+    const who=trkPerson(it.assignee, it.assigneeEmail);
     const tag=it.state==='ok'?`✓ ${esc(it.code)}`:it.state==='run'?'criando…':it.state==='fail'?'falhou':it.skip?'pulada':it.open.length?it.open.length+' em aberto':'pronta';
     return `<div class="plfield ${st} trk-ni" data-ni="${k}"><div class="plfhead"><span class="pldot"></span><span class="plfk mono">issue ${k+1}</span><span class="plfsrc">${tag}</span><span style="flex:1"></span>${lock?'':`<button class="trk-nix" data-niskip="${k}" title="${it.skip?'voltar a criar esta':'não criar esta'}">${it.skip?'↺':IC.x}</button>`}</div>
       <input class="plfv in nt" value="${escA(it.title)}" placeholder="título"${lock?' disabled':''}>
@@ -1062,7 +1074,7 @@ async function trkNICreate(){
     it.state='run'; it.err=''; trkNIRender();
     try{
       const description=[it.description, it.reqs.length?'Requisitos:\n'+it.reqs.map(r=>'- '+r).join('\n'):'', 'Projeto: '+n.project.name+(n.project.remote?' ('+n.project.remote+')':''),
-        (it.assignee&&!canAssign)?'Responsável: '+((trkPerson(it.assignee)||{}).label||it.assignee):'',
+        (it.assignee&&!canAssign)?'Responsável: '+((trkPerson(it.assignee, it.assigneeEmail)||{}).label||it.assignee):'',
         n.epic?('Épico: '+(parent&&parent.code?parent.code+' — ':'')+n.epic.title):''].filter(Boolean).join('\n\n');
       const i=await trkCreateIssue(it.title, description, it.goal, { assignee:it.assignee||'', priority:it.priority||'', type:it.type||(withParent?trkStoryType():''), parent:(withParent&&parent)?parent.code:'', parentId:(withParent&&parent)?(parent.id||''):'' });
       if(withParent&&parent&&i&&i.code&&!inCreateParent&&opChild){ try{ await trkCall('addChild',{ parent:parent.code, parentId:parent.id||'', child:i.code, childId:i.id||'' }); }catch(e){ console.warn('addChild', e); } }
@@ -1105,7 +1117,7 @@ async function trkIssueToTask(i){
 }
 function trkDetailHtml(){
   const i=trkIssues.find(x=>x.code===trkSel); if(!i) return '';
-  const c=trk.connector, p=trkPerson(i.assignee), tasks=trkTasksFor(i.code);
+  const c=trk.connector, p=trkPerson(i.assignee, i.assigneeEmail), tasks=trkTasksFor(i.code);
   const free=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!trkTaskCode(t));
   const comm=!c.ops.comments?`<p class="trk-rs">Este painel não expõe comentários pela API — observo status e atualizações.</p>`
     :trkComments===null?skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando comentários' })
@@ -1115,7 +1127,7 @@ function trkDetailHtml(){
   return `<aside class="trk-detail"><div class="trk-ih"><span class="mono trk-code">${esc(i.code)}</span><span style="flex:1"></span>${i.url?`<button class="btn sm" data-lk="${escA(i.url)}">abrir ↗</button>`:''}<button class="x" id="trkDClose">${IC.x}</button></div>
     <h2 class="trk-dt">${esc(i.title)}</h2>
     <div class="trk-grid2" style="gap:10px"><label class="trk-f">Status<select class="in" id="trkDStatus"${c.ops.updateStatus?'':' disabled'}>${(c.statuses||[]).map(s=>`<option value="${escA(s.id)}"${s.id===i.status?' selected':''}>${esc(s.label||s.id)}</option>`).join('')}</select></label>
-      <div class="trk-f">Com quem está${trkOp('assign')?`<div class="trk-bar" style="margin-top:6px"><input class="in" id="trkDWho" list="trkDPeople" value="${escA(i.assigneeEmail||(p&&!p.unnamed?p.full:''))}" placeholder="${c.assigneeFormat==='email'?'e-mail do responsável':'responsável'}"><button class="btn sm" id="trkDWhoSave">ok</button>${trkMe()&&i.assigneeEmail!==trkMe()?'<button class="btn sm primary" id="trkDMine" title="me colocar como responsável">ficar comigo</button>':''}<datalist id="trkDPeople">${trkPeopleList().map(x=>`<option value="${escA(x.id)}">${esc(x.name)}</option>`).join('')}</datalist></div>`:''}<div class="trk-if" style="margin-top:9px">${p?`<span class="trk-av" aria-hidden="true">${esc(p.ini)}</span><span title="${escA(p.full)}">${esc(p.label)}</span>${p.unnamed?`<button class="btn sm" id="trkNamePerson" data-pid="${escA(p.full)}" style="padding:2px 7px;font-size:var(--fs-xs)">dar nome</button>`:''}`:'<span class="dim">sem responsável</span>'}</div></div></div>
+      <div class="trk-f">Com quem está${trkOp('assign')?`<div class="trk-bar" style="margin-top:6px"><input class="in" id="trkDWho" list="trkDPeople" value="${escA(i.assigneeEmail||(p&&!p.unnamed?p.full:''))}" placeholder="${c.assigneeFormat==='email'?'e-mail do responsável':'responsável'}"><button class="btn sm" id="trkDWhoSave">ok</button>${trkMe()&&i.assigneeEmail!==trkMe()?'<button class="btn sm primary" id="trkDMine" title="me colocar como responsável">ficar comigo</button>':''}<datalist id="trkDPeople">${trkPeopleList().map(x=>`<option value="${escA(x.id)}">${esc(x.name)}</option>`).join('')}</datalist></div>`:''}<div class="trk-if" style="margin-top:9px">${p?`<span class="trk-av" aria-hidden="true">${esc(p.ini)}</span><span title="${escA(p.tip)}">${esc(p.label)}</span>${p.unnamed?trkWhoIsHtml(p.full):''}`:'<span class="dim">sem responsável</span>'}</div></div></div>
     ${i.tags.length?`<div class="trk-ops">${i.tags.map(t=>`<span class="trk-op">${esc(String(t))}</span>`).join('')}</div>`:''}
     ${i.description?`<div class="trk-desc mdlite">${mdToHtml(i.description)}</div>`:''}
     <div class="trk-ct" style="margin-top:16px">Tarefa no Starfork</div>
@@ -1167,8 +1179,11 @@ function trkBoardWire(body){
   on('trkDMine', ()=>trkAssign(trkSel, trkMe()));
   on('trkDWhoSave', ()=>{ const v=($id('trkDWho').value||'').trim(); if(v) trkAssign(trkSel, v); });
   { const w=body.querySelector('#trkDWho'); if(w) w.onkeydown=e=>{ if(e.key==='Enter'&&!e.isComposing){ e.preventDefault(); const v=w.value.trim(); if(v) trkAssign(trkSel, v); } }; }
-  on('trkNamePerson', async()=>{ const id=body.querySelector('#trkNamePerson').dataset.pid; const n=await askText('Quem é '+id.slice(0,8)+'…? (vale pro time)','nome da pessoa'); if(!n) return;
-    trk.people=Object.assign({}, trk.people||{}, { [id]:n.trim() }); await trkSave(); issRender(); });
+  // "quem é?" (D1): o painel só mandou um código — escolhe da LISTA do time (vale pro time, grava id do painel → e-mail)
+  const whoIs=async(id, val)=>{ if(!id||!val) return; const prev=trk.people;
+    trk.people=Object.assign({}, trk.people||{}, { [id]:val }); try{ await trkSave(); }catch(e){ trk.people=prev; showErr(e, 'salvar quem é a pessoa do painel'); } issRender(); };
+  { const s=body.querySelector('#trkNamePerson'); if(s){ if(s.tagName==='SELECT') s.onchange=()=>whoIs(s.dataset.pid, s.value);
+    else s.onclick=async()=>{ const n=await askText('Quem é esta pessoa? (vale pro time)','nome da pessoa'); if(n&&n.trim()) whoIs(s.dataset.pid, n.trim()); }; } }
   { const s=body.querySelector('#trkDStatus'); if(s) s.onchange=()=>trkMove(trkSel, s.value); }
   body.querySelectorAll('[data-trkopen]').forEach(b=>b.onclick=()=>openWorkspace(b.dataset.trkopen));
   // vínculo feito à mão pelo "vincular a uma tarefa existente…" agora tem volta (antes: escolheu errado, ficava pra sempre)

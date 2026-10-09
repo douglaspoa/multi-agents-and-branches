@@ -945,8 +945,8 @@ async function cloudPrReviewCheck(prUrl){
     const r=(rows||[]).find(t=>((t.spec||{}).kind==='review')||/^review (do |de )?pr/i.test(t.title||''));
     if(!r) return null;
     const who=r.assignee||r.created_by;
-    const p=teamProfiles[who];
-    return { name:(p&&(p.name||p.email))||String(who).slice(0,8), when:agoTx(r.updated_at), mine:who===cloudUserId() };
+    await personEnsure(who);
+    return { name:personName(who,{ noYou:true, settled:true }), when:agoTx(r.updated_at), mine:who===cloudUserId() }; // fonte única (08): nunca o id
   }catch(_){ return null; }
 }
 // BUG-18: duplo clique criava 2 tarefas (o overlapCheck tem await antes de desativar o botão) — uma submissão por vez

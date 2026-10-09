@@ -128,7 +128,7 @@ test('cartão mandado pro time nasce com a issue no spec; falha do painel avisa 
 });
 
 // ---- PR2: mandar pro time, responsável, início automático só com dono ----
-const RESP = new Function(cut(S42, '// @time-resp-inicio', '// @time-resp-fim') + cut(S42, '// @exec-inicio', '// @exec-fim')
+const RESP = new Function(cut(readFileSync(new URL('../src/js/08-pessoas.js', import.meta.url), 'utf8'), '// @puro-pessoas-inicio', '// @puro-pessoas-fim') + cut(S42, '// @time-resp-inicio', '// @time-resp-fim') + cut(S42, '// @exec-inicio', '// @exec-fim')
   + '\nreturn { tmCanAssign, tmAssignOpts, tmDestDefault, ctMineFor, ctAutoMine };')();
 const MEM = [{ user_id: 'ana', role: 'lead' }, { user_id: 'bruno', role: 'member' }, { user_id: 'caio', role: 'member' }];
 const PROF = { ana: { name: 'Ana Souza' }, bruno: { name: 'Bruno Lima' }, caio: { email: 'caio@exemplo.dev' } };

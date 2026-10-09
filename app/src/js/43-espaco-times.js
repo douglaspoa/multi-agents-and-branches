@@ -67,7 +67,7 @@ function tsClaimShow(localId){
 }
 // iniciais como no resto do app ("Douglas S." → DS; e-mail → só a parte antes do @)
 function tsIni(n){ const w=String(n||'?').replace(/@.*/,'').split(/[\s._-]+/).filter(Boolean); return ((w.length>1?w[0][0]+w[1][0]:(w[0]||'?').slice(0,2))).toUpperCase(); }
-function tsAv(uid, on){ const n=tmName(uid); return `<span class="tsav${on?' on':''}" style="background:${agentColor(n)}" title="${escA(n)}">${esc(tsIni(n))}</span>`; }
+function tsAv(uid, on){ return personAv(uid, { on }); } // fonte única (08-pessoas): iniciais + cor estável + e-mail só no tooltip
 function tsPeriodTasks(){ const per=lsGet('tmPeriod')||'all'; const cut=per==='all'?0:Date.now()-parseInt(per,10)*86400e3; return (teamTasks||[]).filter(t=>!cut||new Date(t.updated_at).getTime()>=cut); }
 // fase (1–5) e % de um cartão da NUVEM — mesma régua da Central
 function ctPhase(t){
@@ -164,7 +164,7 @@ function tsActsHtml(t, me, canClaim, sameRepo, isLocal, proj){
 async function tsClaimOnly(ct, btn){
   if(btn){ btn.disabled=true; btn.textContent='assumindo…'; }
   try{
-    if(ct.assignee && ct.assignee!==cloudUserId()) throw new Error('já está com '+tmName(ct.assignee)+' — peça pra devolver, ou ao líder do time pra trocar'); // vale mesmo com a nuvem sem a 0032
+    if(ct.assignee && ct.assignee!==cloudUserId()){ await personEnsure(ct.assignee); throw new Error('já está com '+personName(ct.assignee,{ settled:true })+' — peça pra devolver, ou ao líder do time pra trocar'); } // vale mesmo com a nuvem sem a 0032
     const j=await sbRpc('claim_task',{ p_task:ct.id });
     if(!j||!j.ok) throw new Error((j&&j.error)||'não deu pra assumir');
     ct.assignee=cloudUserId(); if(typeof trkCardAssign==='function') trkCardAssign(ct, ct.assignee);
@@ -183,6 +183,7 @@ function tsReassign(ct, btn){
   return new Promise(done=>{ tmWhoPick(btn, ct.assignee||'', async uid=>{ // a lista é do time DO CARTÃO (ct.team_id)
     try{
       if((uid||null)===(ct.assignee||null)) return;
+      await personEnsure([ct.assignee, uid]); // pergunta e aviso saem com o nome (nunca "carregando…")
       if(ct.assignee && ct.assignee!==cloudUserId() && !await askYes(tmName(ct.assignee)+' é avisado'+(uid?' e o cartão passa pra '+tmName(uid):' e o cartão fica livre')+'. Se ele já começou nesta máquina dele, combine antes.', 'Tirar “'+String(ct.title||'').slice(0,50)+'” de '+tmName(ct.assignee)+'?')) return;
       await cloudAssign(ct.id, uid); ct.assignee=uid||null; if(uid && typeof trkCardAssign==='function') trkCardAssign(ct, uid);
       teamTasks=null; teamPaintSig=''; lastSig=''; renderTeamBoard(); refresh().catch(()=>{});
@@ -240,7 +241,7 @@ function renderTeamBoard(){
   // reviews feitos pelo time (dedup): pr_url → quem revisou
   const tsRevBy={};
   all.forEach(t=>{ if(t.pr_url && (((t.spec||{}).kind==='review')||/^review (do |de )?pr/i.test(t.title||''))) tsRevBy[t.pr_url]=tsWho(t); });
-  const tsRevChip=(u)=>u?`<span class="tstag" style="color:var(--good);border:1px solid currentColor" title="review já feito por ${escA(tmName(u))} — parecer no cartão dele">✓ revisado · ${esc(tmName(u).slice(0,14))}</span>`:'';
+  const tsRevChip=(u)=>u?`<span class="tstag" style="color:var(--good);border:1px solid currentColor" title="review já feito por ${escA(personName(u))} — parecer no cartão dele">✓ revisado · ${esc(personShort(u))}</span>`:'';
   const prs=all.filter(t=>t.pr_url && t.status!=='merged' && (t.spec||{}).kind!=='review');
   const fgn=tmapForeign(); const unsynced=(state.tasks||[]).filter(t=>!tmap()[t.id] && !fgn.has(t.id) && t.status!=='draft').length; // cartão de outra conta não conta
   // ---------- sidebar ----------
@@ -273,7 +274,7 @@ function renderTeamBoard(){
   const veCustoDe=uid=>uid===me || (typeof entPodeVerCusto==='function'?entPodeVerCusto():isAdmin);
   const perNow=lsGet('tmPeriod')||'all';
   const perSel=`<select class="sel" id="tbPeriod" aria-label="período" style="width:120px">${[['7','últimos 7 dias'],['30','30 dias'],['90','trimestre'],['all','tudo']].map(([v,l])=>`<option value="${v}"${v===perNow?' selected':''}>${l}</option>`).join('')}</select>`;
-  const devOpts=`<select class="sel" id="tbDev" aria-label="filtrar por dev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(tmName(u))}</option>`).join('')}</select>`;
+  const devOpts=`<select class="sel" id="tbDev" aria-label="filtrar por dev" style="width:140px"><option value="">todos os devs</option>${members.map(u=>`<option value="${escA(u)}"${u===devSel?' selected':''}>${esc(personName(u,{ you:'suffix' }))}</option>`).join('')}</select>`;
   if(tmView==='overview'){
     const inP=tsPeriodTasks();
     // entregue = a regra ÚNICA epDelivered (mergeada/concluída/finalizada) — pronta pra revisar ainda não conta (= Quadro, épico, Linha)
@@ -301,7 +302,7 @@ function renderTeamBoard(){
     </div>
     <div class="tscols"><div>
       <div class="tspanel"><div class="tsph">Agora no time <span style="flex:1"></span><span style="color:var(--accent);font-size:var(--fs-xs)">● ao vivo</span></div>
-        ${doing.length?doing.slice(0,6).map(t=>{ const who=tsWho(t); return `<div class="tslive"><span class="who">${tsAv(who,tsOnline(who))}${esc(tmName(who)).slice(0,14)}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer"><b>${esc(t.stage||'agente')}</b> · ${esc(t.title)}${t.last_note?' — '+esc(t.last_note.slice(0,60)):''}</span><span class="tstag run">${esc(stLabel(tsSt(t)))}</span></div>`; }).join(''):'<div class="dim" style="font-size:var(--fs-sm)">nenhuma tarefa em andamento agora</div>'}
+        ${doing.length?doing.slice(0,6).map(t=>{ const who=tsWho(t); return `<div class="tslive"><span class="who">${tsAv(who,tsOnline(who))}${esc(personShort(who))}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer"><b>${esc(t.stage||'agente')}</b> · ${esc(t.title)}${t.last_note?' — '+esc(t.last_note.slice(0,60)):''}</span><span class="tstag run">${esc(stLabel(tsSt(t)))}</span></div>`; }).join(''):'<div class="dim" style="font-size:var(--fs-sm)">nenhuma tarefa em andamento agora</div>'}
       </div>
       <div class="tspanel"><div class="tsph">PRs esperando gente</div>
         ${prs.length?prs.slice(0,5).map(t=>`<div class="tslive"><span class="mono" style="color:var(--accent);font-size:var(--fs-xs)">${esc((t.pr_url.match(/\/pull\/(\d+)/)||[])[1]?'#'+(t.pr_url.match(/\/pull\/(\d+)/)||[])[1]:'PR')}</span><span class="what" data-ct="${escA(t.id)}" style="cursor:pointer">${esc(t.title)}</span>${tsAv(tsWho(t),false)}${tsRevChip(tsRevBy[t.pr_url])}<button class="btn sm" data-pr="${escA(t.pr_url)}" style="padding:3px 8px;font-size:var(--fs-xs)">abrir ↗</button><button class="btn ${tsRevBy[t.pr_url]?'':'primary '}sm" data-rev="${escA(t.id)}" style="padding:3px 8px;font-size:var(--fs-xs)">revisar com agente</button></div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">nenhum PR aberto — em dia ✓</div>'}
@@ -313,7 +314,7 @@ function renderTeamBoard(){
           // em andamento = o MESMO tsRunningOf do KPI e de Pessoas (agora, não "no período"); quem só tem trabalho rodando também aparece
           members.forEach(u=>{ const r=tsRunningOf(u).length; if(r) (per[u]||(per[u]={d:0,r:0,u:0})).r=r; });
           const rows=Object.entries(per).sort((a,b)=>b[1].d-a[1].d);
-          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(tmName(u).slice(0,14))}</span><span class="what">${nPl(v.d,'entregue','entregues')} · ${v.r} em andamento</span>${veCustoDe(u)?`<span class="dim tscost" style="font-size:var(--fs-xs)">${fmtUsd(v.u)}</span>`:''}</div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">sem atividade no período</div>'; })()}
+          return rows.length?rows.map(([u,v])=>`<div class="tslive"><span class="who" title="${escA(tmName(u))}">${tsAv(u,tsOnline(u))}${esc(personShort(u))}</span><span class="what">${nPl(v.d,'entregue','entregues')} · ${v.r} em andamento</span>${veCustoDe(u)?`<span class="dim tscost" style="font-size:var(--fs-xs)">${fmtUsd(v.u)}</span>`:''}</div>`).join(''):'<div class="dim" style="font-size:var(--fs-sm)">sem atividade no período</div>'; })()}
       </div>
     </div></div>`;
   } else if(tmView==='board'){
@@ -361,7 +362,7 @@ function renderTeamBoard(){
   } else if(tmView==='feed'){
     main=`<h1>Atividade do time</h1><div class="tssub">mais recente primeiro</div><div class="tspanel tsfeed">`+
       ((teamActivity||[]).length?(teamActivity||[]).slice(0,40).map(a=>{ const t=all.find(x=>x.id===a.task_id);
-        return `<div class="fi">${tsAv(a.user_id,false)}<span class="tx"><b>${esc(tmName(a.user_id))}</b> ${tsK(a.kind)} <b data-ct="${escA(a.task_id)}" style="cursor:pointer">${esc((t||{}).title||'tarefa')}</b>${a.body?` — ${esc(a.body.slice(0,80))}`:''}</span><span class="tm">${agoTx(a.at)}</span></div>`; }).join('')
+        return `<div class="fi">${tsAv(a.user_id,false)}<span class="tx"><b>${esc(personCap(tmName(a.user_id)))}</b> ${tsK(a.kind)} <b data-ct="${escA(a.task_id)}" style="cursor:pointer">${esc((t||{}).title||'tarefa')}</b>${a.body?` — ${esc(personActBody(a, 80))}`:''}</span><span class="tm">${agoTx(a.at)}</span></div>`; }).join('')
       :'<div class="dim" style="font-size:var(--fs-sm)">sem atividade ainda</div>')+`</div>`;
   }
   void side;
@@ -484,7 +485,7 @@ function openCloudTask(ct){
   }).catch(()=>{});
   sbGet('task_activity?select=user_id,kind,body,at&task_id=eq.'+ct.id+'&order=id.desc&limit=8').then(rows=>{
     const K={created:'criou',edited:'editou',claimed:'assumiu',released:'devolveu',assigned:'atribuiu',started:'iniciou',delivered:'entregou',comment:'comentou',status:'status'};
-    const d=$id('ctAct'); if(d) d.innerHTML = rows.length? rows.map(a=>`${esc(tmName(a.user_id))} <b>${K[a.kind]||a.kind}</b> · ${agoTx(a.at)}`).join('<br>') : 'sem atividade ainda';
+    const d=$id('ctAct'); if(d) d.innerHTML = rows.length? rows.map(a=>`${esc(personCap(tmName(a.user_id)))} <b>${K[a.kind]||a.kind}</b> · ${agoTx(a.at)}`).join('<br>') : 'sem atividade ainda';
   }).catch(()=>{});
   { const b=$id('ctSave'); if(b) b.onclick=async()=>{
       b.disabled=true; b.textContent='salvando…';

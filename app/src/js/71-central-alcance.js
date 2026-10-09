@@ -175,14 +175,14 @@ function caInQueue(t){ return typeof epQueueMine==='function' && epQueueMine().s
 function caWho(t){
   const me=caMe();
   if(!t.assignee) return `<span class="ca-who free"><span class="tsav tmfree" aria-hidden="true"></span><span class="ca-wn">livre</span></span>`;
-  return `<span class="ca-who" title="${escA('com '+tmName(t.assignee))}">${tsAv(t.assignee, tsOnline(t.assignee))}<span class="ca-wn">${esc(tmName(t.assignee).split(/\s+/)[0])}</span>${t.assignee===me?'<span class="ca-you">você</span>':''}</span>`;
+  return `<span class="ca-who" title="${escA('com '+tmName(t.assignee))}">${tsAv(t.assignee, tsOnline(t.assignee))}<span class="ca-wn">${esc(personShort(t.assignee,{ noYou:true }))}</span>${t.assignee===me?'<span class="ca-you">você</span>':''}</span>`;
 }
 function caSt(t){
   const fn=CA_FN, blk=entFlag(t, fn)==='blocked', done=fn.delivered(t);
   const sk=blk?'blocked':(done?tsSt(t):(t.pr_url?'pr-open':tsSt(t)));
   let label=blk?stLabel('blocked'):ctStLabel(t);
   const run=['running','thinking'].includes(tsNorm(t).status);
-  if(run && t.assignee) label+=' por '+(t.assignee===caMe()?'você':tmName(t.assignee).split(/\s+/)[0]);
+  if(run && t.assignee) label+=' por '+personShort(t.assignee);
   return `<span class="ca-st" style="--stc:${stColor(sk)}"><i aria-hidden="true"></i><span>${esc(label)}</span></span>`;
 }
 function caProjBadge(pid){ const p=teamProj[pid]||{}; const n=p.name||'projeto'; return `<span class="ca-proj"><i style="background:${projColor('cloud:'+(p.repo_remote||n))}" aria-hidden="true"></i>${esc(n)}</span>`; }
@@ -328,7 +328,7 @@ function caFiltersOwn(el){
     const opt=(v,l,s)=>`<option value="${escA(v)}"${s?' selected':''}>${esc(l)}</option>`;
     h=`<div class="ca-filters"><div class="ffchips" role="group" aria-label="mostrar">${CA_CHIPS.map(([k,l])=>`<button type="button" class="fchip${f.chip===k?' on':''}" aria-pressed="${f.chip===k}" data-cachip="${k}">${l}<span class="n">${n(k)}</span></button>`).join('')}</div><span class="grow"></span>`+
       `<select class="sel ffsel" id="caProj" aria-label="filtrar por projeto">${opt('','Todos os projetos',!f.proj)}${projs.map(p=>opt(p.id, p.name, f.proj===p.id)).join('')}</select>`+
-      `<select class="sel ffsel" id="caWhoSel" aria-label="filtrar por pessoa">${opt('','Todas as pessoas',!f.who)}${ppl.map(u=>opt(u, tmName(u), f.who===u)).join('')}${opt('-','Sem dono',f.who==='-')}</select>`+
+      `<select class="sel ffsel" id="caWhoSel" aria-label="filtrar por pessoa">${opt('','Todas as pessoas',!f.who)}${ppl.map(u=>opt(u, personName(u,{ you:'suffix' }), f.who===u)).join('')}${opt('-','Sem dono',f.who==='-')}</select>`+
       `<button type="button" class="btn sm ghost ca-refresh" id="caRefresh" title="buscar de novo na nuvem" aria-label="atualizar">${(typeof IC!=='undefined'&&(IC.refresh||IC.retry))||'atualizar'}</button></div>`;
   }
   if(el.__html===h && (el.firstChild || !h)) return true;

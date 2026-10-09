@@ -180,7 +180,7 @@ async function openPrefs(){
     const rows=await tabBusy('projeto', sbGet('project_prefs?select=repo,content,updated_by,updated_at&org_id=eq.'+k.orgId+'&'+remoteInQ('repo', k.ids)), { label:'buscando as convenções do time' });
     const r=remotePick(rows, k.ids, 'repo'); // salvar grava na forma nova — a antiga fica como estava
     prefsLoaded=(r&&r.content)||''; editorSet(ta, prefsLoaded);
-    if(r){ const who=(cloudData.profileByUser&&cloudData.profileByUser[r.updated_by])||{}; $id('prefsMeta').textContent='última edição: '+((who.name||who.email||'alguém'))+' · '+new Date(r.updated_at).toLocaleString('pt-BR'); }
+    if(r){ await personEnsure(r.updated_by); $id('prefsMeta').textContent='última edição: '+personName(r.updated_by,{ settled:true })+' · '+new Date(r.updated_at).toLocaleString('pt-BR'); }
     else $id('prefsMeta').textContent='ainda em branco — escreva as convenções do projeto';
   }catch(e){ $id('prefsMeta').textContent=humanErr(e,'Não consegui carregar as convenções').msg; }
   prefsBarSync();

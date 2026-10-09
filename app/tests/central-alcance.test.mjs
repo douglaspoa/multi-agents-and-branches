@@ -139,7 +139,7 @@ test('"Com o time" (46) só esconde a livre que aparece em "Livres no seu time" 
 
 test('responsável é escolhido no time DO CARTÃO (Org toda)', () => {
   const s42 = read('js/42-nuvem-sync-mobile.js');
-  const pure = cut(s42, '// @time-resp-inicio', '// @time-resp-fim');
+  const pure = cut(readFileSync(new URL('../src/js/08-pessoas.js', import.meta.url), 'utf8'), '// @puro-pessoas-inicio', '// @puro-pessoas-fim') + cut(s42, '// @time-resp-inicio', '// @time-resp-fim');
   const glue = ['function tmTeamMembers(', 'function tmProfiles(', 'function tmCanAssignNow(', 'function tmAssignOptsNow('].map((h) => { const i = s42.indexOf(h); return s42.slice(i, s42.indexOf('\n', i)); }).join('\n');
   const cloudData = { meRole: 'member', teamMembers: { T1: [{ user_id: 'eu', role: 'member' }, { user_id: 'ana', role: 'member' }], T2: [{ user_id: 'eu', role: 'lead' }, { user_id: 'leo', role: 'member' }] }, profileByUser: { eu: { name: 'Eu' }, ana: { name: 'Ana' }, leo: { name: 'Leo' } } };
   const M = new Function('cloudData', 'cloudTeamId', 'cloudUserId', 'teamProfiles', pure + glue + '\nreturn { tmTeamMembers, tmCanAssignNow, tmAssignOptsNow };')(cloudData, () => 'T1', () => 'eu', {});
