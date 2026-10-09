@@ -125,9 +125,11 @@ const VIEW_META={
   pilotorun:{title:'Progresso do piloto',icon:'<path d="M2.5 13.5h11"/><path d="M3.5 10.5l3-3 2.4 2 3.6-4.5" stroke-linecap="round" stroke-linejoin="round"/>'},
   // "Começar por uma ideia" (59-ideia): conversa com a mesa + pesquisa + decisão → projeto — funciona sem projeto
   ideia:{title:'Ideia',icon:'<path d="M8 1.9a4.3 4.3 0 0 0-2.6 7.7c.5.4.8.9.8 1.5v.4h3.6v-.4c0-.6.3-1.1.8-1.5A4.3 4.3 0 0 0 8 1.9z" stroke-linejoin="round"/><path d="M6.3 13.2h3.4M6.9 14.6h2.2" stroke-linecap="round"/>'},
+  // relatório do período da aba Entregas (73): documento pra exportar em PDF/Markdown/HTML
+  relent:{title:'Relatório de entregas',icon:'<path d="M4 2.5h5.2L12 5.3v8.2H4z" stroke-linejoin="round"/><path d="M6 10.8V9M8 10.8V7.4M10 10.8V8.4" stroke-linecap="round"/>'},
   env:{title:'Ambiente',icon:'<path d="M8 13.5c-2.5-1.6-5-3.9-5-6.7A2.9 2.9 0 0 1 8 4.6a2.9 2.9 0 0 1 5 2.2c0 2.8-2.5 5.1-5 6.7z" stroke-linejoin="round"/>'},
 };
-const VIEW_OVERLAY={ memoria:'memOverlay', mesa:'mesaOverlay', orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', web:'cvSplit', device:'cvSplit', doc:'cvSplit', cttask:'ctPageOverlay', epic:'epicOverlay', uso:'usoOverlay', piloto:'pilotoOverlay', pilotorun:'pilotoRunOverlay', ideia:'ideiaOverlay' };
+const VIEW_OVERLAY={ memoria:'memOverlay', mesa:'mesaOverlay', orq:'orqOverlay', projetos:'projetosOverlay', nova:'ndOverlay', planner:'plannerOverlay', form:'ntOverlay', skills:'skOverlay', issues:'issuesOverlay', issuesbulk:'issuesBulkOverlay', prefs:'prefsOverlay', cfg:'cfgOverlay', daily:'dailyOverlay', chat:'pcOverlay', conta:'cloudOverlay', agents:'agOverlay', env:'envOverlay', task:'fwOverlay', web:'cvSplit', device:'cvSplit', doc:'cvSplit', cttask:'ctPageOverlay', epic:'epicOverlay', uso:'usoOverlay', piloto:'pilotoOverlay', pilotorun:'pilotoRunOverlay', ideia:'ideiaOverlay', relent:'relEntOverlay' };
 let tabTaskId=null, tabTaskPath=null; // tarefa aberta na aba "task"
 // Views de INSTÂNCIA MÚLTIPLA: cada aba guarda o próprio estado (nova, planner, form, orq)
 // e o restaura ao voltar — dá pra ter duas "Montar conversando" abertas sem uma pisar na outra.
@@ -160,7 +162,8 @@ function viewOpen(kind, tab){
                 return; }
               fwOpenInner(tabTaskId, path); },
             cttask:()=>{ if(window.ctPageOpenInner) window.ctPageOpenInner(tab); },
-            epic:()=>{ if(window.epicPageOpenInner) window.epicPageOpenInner(tab); } }[kind];
+            epic:()=>{ if(window.epicPageOpenInner) window.epicPageOpenInner(tab); },
+            relent:()=>{ if(window.relOpenInner) window.relOpenInner(tab); } }[kind];
   if(f) f();
 }
 // cada aba tem um id único: 'flow', o próprio kind (views únicas), 'task:<id>' (uma por tarefa)

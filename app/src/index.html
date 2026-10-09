@@ -48,6 +48,7 @@
 <link rel="stylesheet" href="css/99-ligacoes.css">
 <link rel="stylesheet" href="css/99-gestao.css">
 <link rel="stylesheet" href="css/99-kanban.css">
+<link rel="stylesheet" href="css/99-entregas-dia.css">
 </head>
 <body>
 <div class="app">
@@ -667,6 +668,13 @@
   </div>
 </div>
 
+<!-- relatório do período (aba Entregas › gerar relatório, 73): documento em aba — exporta PDF/Markdown/HTML -->
+<div class="overlay fwoverlay" id="relEntOverlay" style="display:none">
+  <div class="fw">
+    <div class="fwmain" id="relEntMain"></div>
+  </div>
+</div>
+
 <div class="overlay fwoverlay" id="epicOverlay" style="display:none">
   <div class="fw">
     <!-- F4: cabeçalho no padrão de página (pageHead, dentro do #epicPageMain) — sem "fechar esc"; ⌘W fecha a aba -->
@@ -772,6 +780,8 @@
 <script src="js/70-time-entregas.js"></script>
 <script src="js/71-central-alcance.js"></script>
 <script src="js/72-kanban.js"></script>
+<script src="js/72-entregas-dia.js"></script>
+<script src="js/73-relatorio-entregas.js"></script>
 <script src="js/71-revisao-alteracao.js"></script>
 <script src="js/72-corrente-tarefa.js"></script>
 <script src="js/72-gestao-time.js"></script>

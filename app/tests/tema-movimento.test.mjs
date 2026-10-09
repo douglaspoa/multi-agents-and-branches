@@ -43,8 +43,8 @@ test('os dois temas definem o MESMO conjunto de tokens (nada cai no valor do out
 
 test('JS: cor literal só dentro de blocos // @cor-dado-inicio … @cor-dado-fim, e só nos arquivos permitidos', () => {
   // dado/identidade, nunca tema: Daily exportado, marca dos fornecedores de IA, logo do Google, fallbacks do termTheme e a
-  // cor GRAVADA no agente (o <input type=color> exige hex). Todo o resto usa var(--token).
-  const ALLOW = ['12-chat-prefs-daily.js', '29-ia-picker.js', '44-onboarding.js', '60-terminal.js', '33-switcher-projetos.js', '61-meu-time.js'];
+  // cor GRAVADA no agente (o <input type=color> exige hex), CSS do relatório de entregas EXPORTADO. Todo o resto usa var(--token).
+  const ALLOW = ['12-chat-prefs-daily.js', '29-ia-picker.js', '44-onboarding.js', '60-terminal.js', '33-switcher-projetos.js', '61-meu-time.js', '73-relatorio-entregas.js'];
   const COR = /['"`(:,=](#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3}))(?![\w-])|\brgba?\(\s*\d|\bhsla?\(\s*\d|\bhsla?\(\$\{/;
   for (const f of JS) {
     const src = rd('js/' + f);
