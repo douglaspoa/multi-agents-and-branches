@@ -185,6 +185,7 @@ function flowOtherFiltersOk(t, skip){
 }
 function renderFlowFilters(){
   const el=$id('flowFilters'); if(!el) return;
+  if(typeof caFiltersOwn==='function' && caFiltersOwn(el)) return; // alcance do time / Épicos / Entregas: a barra é do 71
   // preserva foco/caret da busca (o poll pode re-renderizar durante digitação)
   const ae=document.activeElement, wasSearch=ae&&ae.id==='ffSearch', caret=wasSearch?ae.selectionStart:0;
   // os chips contam SÓ o que a aba atual (Execução/Concluídas) mostra — senão "Review 29" aparece
@@ -495,7 +496,10 @@ function renderFlowHead(){
     sum=`<b>${done.length}</b> ${done.length===1?'entrega':'entregas'}${prs?` · <b>${prs}</b> ${prs===1?'PR':'PRs'}`:''}${canc?` · ${canc} ${canc===1?'cancelada':'canceladas'}`:''}`;
   } else sum=centralSumHtml(fc);
   const scope=(typeof projList==='function' && projList().length>1 && projFilter==='all')?'todos os projetos':(projFilter!=='all'?projShort(projFilter):pathBase(state.repo||''));
-  put(pageHead({ title:'Central', scope:'computador', scopeLabel:scope, sum, right:'<span id="coordChip" class="coordchip"></span>' }));
+  // Central com alcance (71): Minhas · Do time · Org toda + abas Tarefas/Épicos/Entregas; sem time = o cabeçalho de sempre
+  const ca=(typeof caHead==='function')?caHead({ sum, scopeLabel:scope }):null;
+  put(ca || pageHead({ title:'Central', scope:'computador', scopeLabel:scope, sum, right:'<span id="coordChip" class="coordchip"></span>' }));
+  if(ca && typeof caWireHead==='function') caWireHead(el);
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
 function taskPct(t){
@@ -757,6 +761,7 @@ function renderFlow(){
   renderFlowHead();
   renderFlowFilters();
   const el=$id("flow");
+  if(typeof caBodyOwn==='function' && caBodyOwn(el)) return; // 71: Do time / Org toda / Épicos / Entregas
   // F4 (D20): Concluídas › Resumo do período = o antigo Daily (commits e marcos por tarefa + relatório) no lugar da lista
   { const rs=$id('flowResumo'), on=flowScope==='done' && centralDoneSub==='res';
     if(rs){ rs.hidden=!on; el.hidden=on; if(on){ if(typeof centralResumoMount==='function') centralResumoMount(rs); return; } } }
@@ -826,6 +831,8 @@ function renderFlow(){
   // planos do orquestrador entram no topo em QUALQUER ordenação/agrupamento (sem busca ativa)
   if(window.orqBoardHtml && !flowQuery.trim()) html=window.orqBoardHtml(flowScope)+html;
   if(typeof CT!=='undefined') CT.last=ctTbl!=null?{ pre:html.slice(0, html.length-ctTbl.length) }:null;
+  // Minhas (71): "Com você no time" e "Livres no seu time" no FIM da Central (depois da tabela/cartões)
+  { const tail=(typeof caMinhasHtml==='function')?caMinhasHtml(flowScope):''; if(tail){ html+=tail; if(typeof CT!=='undefined' && CT.last) CT.last.post=tail; } }
   // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
   if(html===flowLastHtml && el.firstChild) return;
   el.innerHTML=html; flowLastHtml=html;
