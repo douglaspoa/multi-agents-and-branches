@@ -155,6 +155,7 @@ test('o tick do time usa a regra única e não tem mais aviso "do time" pra todo
   const tick = fn(read('43-espaco-times.js'), 'teamNotifTick');
   assert.match(tick, /ctNotifKind\(t, me, teamTasks\)/);
   assert.doesNotMatch(tick, /PR do time pra revisar|Nova tarefa no backlog do time/);
-  // todo pushNotif do tick depende do tipo devolvido pela regra
-  for (const line of tick.split('\n').filter((l) => l.includes('pushNotif('))) assert.match(line, /if\(kind===/);
+  // todo pushNotif do tick depende do tipo devolvido pela regra (cartão: ctNotifKind; mudança de dono: ctOwnerNotif, mesa 09/10)
+  for (const line of tick.split('\n').filter((l) => l.includes('pushNotif('))) assert.match(line, /if\(kind===|if\(k\) pushNotif\(k\.title, k\.body/);
+  assert.match(tick, /const k=ctOwnerNotif\(a, t, me\);/);
 });

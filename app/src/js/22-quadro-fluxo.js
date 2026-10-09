@@ -770,7 +770,7 @@ function renderFlow(){
   // fila dos épicos (46): respeita busca/status/tipo/agente/épico lá dentro; entra DEPOIS de
   // "Aguardando você" e "Em andamento" (recolhida por padrão se há algo esperando você)
   const nWaitYou=flowScope==='done'?0:src.filter(t=>flowScopeOk(t)&&flowBucket(t)==='aguardando').length;
-  const epHtml=flowEpicGroupsHtml(src, window.epBoardHtml?window.epBoardHtml(flowScope, { waitingYou:nWaitYou }):'');
+  const epHtml=flowEpicGroupsHtml(src, window.epBoardHtml?window.epBoardHtml(flowScope, { waitingYou:nWaitYou }):'')+(window.ctSentHtml?window.ctSentHtml(flowScope):''); // + "Com o time" (46)
   if(!src.length){ html=epHtml+ghost; }
   else {
     const vis=flowVisible(src).slice();
