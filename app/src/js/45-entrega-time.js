@@ -72,7 +72,7 @@ function ctPageRender(){
     ? docs.map(a=>`<div class="en-doc"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${a.created_at?'há '+agoTx(a.created_at):''}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-cart="${escA(a.storage_path)}" data-cname="${escA(a.name)}">abrir</button><button class="btn sm ghost" data-cdl="${escA(a.storage_path)}" title="abrir no navegador (link assinado, 1h)">↗</button></span></div>`).join('')
     : `<div class="en-empty">${c.loaded?'nenhum documento publicado ainda':skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando os documentos' })}</div>`;
   const dels=(sp.deliverables||[]).filter(Boolean);
-  const K={created:'criou o cartão',edited:'editou o cartão',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'publicou provas',comment:'comentou',status:'mudou o status'};
+  const K={created:'criou o cartão',edited:'editou o cartão',claimed:'assumiu',released:'devolveu',assigned:'atribuiu a alguém',started:'iniciou',delivered:'publicou provas',comment:'comentou',status:'mudou o status'};
   const act=c.act||[];
   const timeline = act.length
     ? `<div class="stepper">${act.map((a,i)=>{ const last=i===act.length-1; return `<div class="step ${last?'cur':'done'}" style="cursor:default"><span class="smark">${last?'●':'✓'}</span><span class="stx"><span class="srole" style="text-transform:none">${esc(tmName(a.user_id))} · ${esc(K[a.kind]||a.kind)}</span><span class="sname">${esc(new Date(a.at).toLocaleString('pt-BR'))}${a.body?' — '+esc(String(a.body).slice(0,160)):''}</span></span></div>`; }).join('')}</div>`
@@ -86,7 +86,7 @@ function ctPageRender(){
     <div class="en-head">
       <div class="en-ht">
         ${sp.objective?`<p class="en-obj">${esc(sp.objective)}</p>`:''}
-        <div class="ctp-who">${tsAv(who, tsOnline(who))}<span>${ct.assignee?'com <b>'+esc(tmName(ct.assignee))+'</b> · ':''}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span>${ct.status==='backlog'?`<button class="btn sm primary" id="ctpStart" title="assumir e iniciar agora nesta máquina">▶ iniciar</button>`:''}${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button><button class="btn sm ghost" id="ctpCancel" title="remover do backlog do time">✕ cancelar</button>`:''}</div>
+        <div class="ctp-who">${ct.assignee?tsAv(ct.assignee, tsOnline(ct.assignee)):'<span class="tsav tmfree" aria-hidden="true">·</span>'}<span>${ct.assignee?'com <b>'+esc(ct.assignee===me?'você':tmName(ct.assignee))+'</b> · ':'<b>sem dono</b> · '}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span><span class="ctp-acts">${ctpActsHtml(ct, me)}</span>${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button><button class="btn sm ghost" id="ctpCancel" title="remover do backlog do time">✕ cancelar</button>`:''}</div>
       </div>
       <div class="en-kpis">
         ${prN?`<button class="en-kpi" data-lk="${escA(ct.pr_url)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
@@ -118,9 +118,22 @@ function ctPageRender(){
       { label:'Atualizar', hint:'da nuvem', act:()=>ctPageLoad(ct.id, true).then(()=>{ if(ctpTask&&ctpTask.id===ct.id) ctPageRender(); }) },
       ...(ct.pr_url?[{ label:'Abrir o PR', hint:prN?'#'+prN:'', act:()=>openExternal(ct.pr_url) }]:[]),
       ...(canEdit?[{ label:'Editar cartão', act:()=>openCloudTask(ct) }, { label:'Cancelar cartão…', danger:true, act:()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); } }]:[]) ]); }
-  bindClick('ctpStart', ()=>{ if(window.epCardStart) epCardStart(ct, $id('ctpStart')); else teamClaimStart(ct, $id('ctpStart')); });
+  // assumir / iniciar / devolver / trocar — as MESMAS regras e ações do cartão no quadro do Time (43: tsActsHtml)
+  main.querySelectorAll('.ctp-acts [data-act]').forEach(b=>b.onclick=async()=>{ const a=b.dataset.act;
+    if(a==='claim'){ if(window.epCardStart) await epCardStart(ct, b); else await teamClaimStart(ct, b); }
+    else if(a==='claimonly') await tsClaimOnly(ct, b); else if(a==='release') await tsRelease(ct, b); else if(a==='reassign') await tsReassign(ct, b);
+    else if(a==='openproj' && typeof epOpenProjectOf==='function') epOpenProjectOf((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{});
+    ctPageLoad(ct.id, true).then(()=>{ if(ctpTask&&ctpTask.id===ct.id) ctPageRender(); }); });
   bindClick('ctpCancel', ()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); });
   { const h=$id('ctPageName'); if(h) h.textContent=ct.title; const s=$id('ctPageSub'); if(s) s.textContent=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||''; }
+}
+function ctpActsHtml(ct, me){
+  if(typeof tsActsHtml!=='function') return '';
+  const proj=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||null);
+  if(ct.project_id && !proj) return tsActsHtml(ct, me, ct.status==='backlog' && (ct.claim_mode==='open'||ct.created_by===me), false, false, {}); // projeto ainda não carregado: só assumir/devolver (nunca iniciar no repo errado)
+  const sameRepo=!proj.repo_remote||remoteSame(proj.repo_remote, (typeof teamRepoIds!=='undefined'&&teamRepoIds)||{ remote:(typeof teamRepoRemote!=='undefined'?teamRepoRemote:'') });
+  const here=((typeof localRemoteList!=='undefined'&&localRemoteList)||[]);
+  return tsActsHtml(ct, me, ct.status==='backlog' && (ct.claim_mode==='open'||ct.created_by===me), sameRepo, sameRepo||ctProjLocal(proj, here), proj);
 }
 // Abre um artefato PUBLICADO (Storage) no mesmo visualizador dos artefatos locais.
 async function openCloudArtifact(storagePath, name){

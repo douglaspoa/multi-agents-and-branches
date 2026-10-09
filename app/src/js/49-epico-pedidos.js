@@ -246,7 +246,7 @@ async function erApplyOne(r){
   if(r._cards){ (r._cards.fails||[]).forEach(f=>failed.push(f)); }
   const res=erResult(r, ep, linked, failed);
   if(r._cards && r._cards.created.length){ const n=r._cards.created.length, w=r._cards.who;
-    res.message=res.message.replace(/\.$/,'')+' · '+n+(n===1?' cartão novo':' cartões novos')+' na fila do time'+(w?' com '+(typeof tmName==='function'?tmName(w):'a pessoa'):', livres')+' — ninguém começou a rodar.'; }
+    res.message=res.message.replace(/\.$/,'')+' · '+n+(n===1?' cartão novo':' cartões novos')+' na fila do time'+(w?' com '+(((typeof tmProfiles==='function'?tmProfiles():{})[w]||{}).name||(typeof tmName==='function'?tmName(w):'a pessoa')):', livres')+' — ninguém começou a rodar.'; }
   return res;
 }
 
