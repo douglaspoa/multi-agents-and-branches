@@ -11,8 +11,9 @@
 // fn = { bucket(t) → etapa da Central (flowBucket), delivered(t) → epDelivered, ativo(ep, tasks) → epAtivo,
 //        flag(t) → flag efetivo (tsNorm: o da tarefa local vence, como no Quadro) }
 function entFlag(t, fn){ return fn.flag?fn.flag(t):(t&&t.flag); }
-// travada = etapa "aguardando" (erro, conflito, pergunta, plano pra aprovar) ou cartão bloqueado
-function entTravada(t, fn){ return !!t && (entFlag(t, fn)==='blocked' || fn.bucket(t)==='aguardando'); }
+// travada = etapa "aguardando" (erro, conflito, pergunta, plano pra aprovar), cartão bloqueado ou PR aberto que não anda
+// (checagem do GitHub falhou / conflito com a base — fn.prTrava, quando a tela sabe; entregue nunca é travada)
+function entTravada(t, fn){ return !!t && (entFlag(t, fn)==='blocked' || fn.bucket(t)==='aguardando' || (!!fn.prTrava && !fn.delivered(t) && !entFora(t, fn) && !!fn.prTrava(t))); }
 // pronta pra revisar = ainda não entregue e na etapa "prontas" ou "PR aberto" da Central
 function entPronta(t, fn){ return !!t && !fn.delivered(t) && !entTravada(t, fn) && ['prontas','praberto'].includes(fn.bucket(t)); }
 // cancelada/encerrada sem entrega: fora da conta de "x de y"
@@ -23,12 +24,38 @@ function entReqs(t){
   if(!list||!list.length) return null;
   return { ok:list.filter(x=>x&&x.status==='done').length, tot:list.length };
 }
-// motivo da trava numa frase: a última nota (1ª frase, curta) ou o rótulo da situação
-function entMotivo(t, label){
-  const n=String((t&&t.last_note)||'').replace(/\s+/g,' ').trim();
-  if(!n) return label||'';
-  const s=(n.match(/^.*?[.!?](\s|$)/)||[n])[0].trim();
-  return s.length>90?s.slice(0,89).trimEnd()+'…':s;
+// MOTIVO DA TRAVA numa frase curta — A fonte única (mesa 09/10, D6.2): Central (tarefas e épicos), quadro do Time, aba
+// Entregas e a página do cartão do colega mostram ESTE texto (via entTravaTx). Sem `c` (contexto) é a regra antiga:
+// a 1ª frase da última nota ou o rótulo da situação. c = entTravaCtx(t) = { st (status efetivo: tsSt), flag,
+// pergunta (1ª pergunta aberta), needsYou {kind,text}, loop {what,text}, pr (entPrTrava), intent (falha do celular) }
+const ENT_NY={ teto:'teto de custo atingido', rodadas:'revisão pediu a 3ª rodada', veredito:'revisão sem veredito legível', plano:'plano pra aprovar' };
+function entCurto(s, max){ s=String(s||'').replace(/\s+/g,' ').trim(); max=max||90; return s.length>max?s.slice(0,max-1).trimEnd()+'…':s; }
+function entNota(t){ const n=String((t&&t.last_note)||'').replace(/\s+/g,' ').trim(); return n?entCurto((n.match(/^.*?[.!?](\s|$)/)||[n])[0].trim()):''; }
+// PR que não anda: o que o GitHub diz (pr_status local ou o resumo que a máquina de quem fez publica no cartão)
+function entPrTrava(pr){
+  if(!pr || typeof pr!=='object') return null;
+  const st=String(pr.state||'').toUpperCase(); if(st==='MERGED' || st==='CLOSED') return null;
+  if(pr.at && Date.now()-Date.parse(pr.at)>86400000) return null; // retrato de mais de 1 dia (quem fez ficou offline): não afirma trava
+  const conflito=pr.mergeable==='CONFLICTING';
+  const nomes=(Array.isArray(pr.failing)?pr.failing:Array.isArray(pr.failingChecks)?pr.failingChecks:[]).map(String).filter(Boolean);
+  const n=+pr.checksFail||nomes.length||0;
+  return (conflito || n) ? { conflito, n, nomes:nomes.slice(0,3) } : null;
+}
+function entMotivo(t, label, c){
+  const nota=entNota(t);
+  if(!c) return nota||label||'';
+  const st=String(c.st||'');
+  if(c.pergunta) return entCurto('pergunta pendente: '+c.pergunta);
+  if(st==='plan-review') return 'plano pra aprovar';
+  if(c.flag==='blocked' || st==='blocked') return nota?entCurto('bloqueada: '+nota):'bloqueada'; // bloqueio manual vence o resto
+  if(c.loop) return entCurto('repetindo o mesmo erro'+((c.loop.what||c.loop.text)?': '+(c.loop.what||c.loop.text):''));
+  if(st==='needs-you') return entCurto((c.needsYou&&(ENT_NY[c.needsYou.kind]||c.needsYou.text))||'precisa de uma decisão');
+  if(st==='conflict' || (c.pr&&c.pr.conflito)) return 'conflito com a base';
+  if(c.pr && c.pr.n) return entCurto('checagem do PR falhou'+(c.pr.nomes.length?': '+c.pr.nomes.join(', '):''));
+  if(c.intent) return entCurto(c.intent);
+  if(st==='error') return nota?entCurto('erro: '+nota):'parou com erro';
+  if(st==='aborted') return nota?entCurto('interrompida: '+nota):'interrompida';
+  return nota||label||'';
 }
 // ordem dentro do grupo: o que pede o gestor primeiro (travada, pronta), depois andando, fila e entregues; recente antes
 function entPeso(t, fn){
@@ -97,7 +124,39 @@ function entFiltrosDe(raw, fallback){
 // @puro-entregas-fim
 
 const ENT_FN={ bucket:t=>tsBucket(t), delivered:t=>epDelivered(t), flag:t=>tsNorm(t).flag,
-  ativo:(e, ts)=>typeof epAtivo==='function'?epAtivo(e, ts):(e.status!=='done'&&e.status!=='archived') };
+  ativo:(e, ts)=>typeof epAtivo==='function'?epAtivo(e, ts):(e.status!=='done'&&e.status!=='archived'),
+  prTrava:t=>!!entPrTrava(entPrOf(t)) || !!entIntentFalhou(t) };
+// o pedido do celular (abrir PR / merge) falhou e o PR ainda não existe → o cartão parou ali (motivo = a mensagem)
+function entIntentFalhou(t){
+  const ir=((t&&t.spec)||{}).intentResult;
+  if(!ir || ir.ok!==false || !ir.msg || !['openPr','merge'].includes(ir.kind)) return '';
+  if(t.status==='cancelled' || (ir.at && Date.now()-Date.parse(ir.at)>86400000)) return ''; // cancelada / pedido de mais de 1 dia
+  const lp=entLocal(t);
+  if(ir.kind==='openPr' && (t.pr_url || (lp&&lp.prUrl))) return ''; // o PR saiu depois (pelo Mac): o pedido velho não trava
+  if(ir.kind==='merge' && epDelivered(t)) return '';
+  return (ir.kind==='merge'?'merge falhou: ':'não abriu o PR: ')+String(ir.msg);
+}
+// o PR do cartão: o da tarefa LOCAL (pr_status desta máquina) vence; senão o resumo que a máquina de quem fez publicou
+// a tarefa desta máquina do cartão (local_id ou o mapa da conta — a MESMA busca da Central, caLocalOf)
+function entLocal(t){ try{ return (typeof caLocalOf==='function'?caLocalOf(t):(typeof tsLocalOf==='function'?tsLocalOf(t):null))||null; }catch(_){ return null; } }
+function entPrOf(t){
+  const l=t?entLocal(t):null;
+  if(!t || !(t.pr_url || (l&&l.prUrl))) return null;
+  const pc=(l && typeof prCache!=='undefined' && prCache[l.id]) || null;
+  return (pc && pc.exists) ? pc : (((t.spec||{}).prInfo)||null);
+}
+// contexto da trava (o que a tela sabe agora — nada de busca nova): status efetivo, pergunta aberta (só da tarefa desta
+// máquina), decisão do ciclo, detector de loop, PR e o pedido do celular que falhou (abrir PR/merge)
+function entTravaCtx(t){
+  if(!t) return {};
+  const l=entLocal(t), src=l||t, sp=src.spec||{};
+  const pend=(l && typeof pendingOf==='function')?pendingOf(l.id):[];
+  const intent=entIntentFalhou(t);
+  return { st:typeof tsSt==='function'?tsSt(t):t.status, flag:ENT_FN.flag(t), pergunta:pend.length?String(pend[0].prompt||'responder o agente'):'',
+    needsYou:sp.needsYou||null, loop:(l && typeof taskLoop==='function')?taskLoop(l):null, pr:entPrTrava(entPrOf(t)), intent };
+}
+// o texto que TODA tela mostra pra um cartão travado ('' quando não está travado)
+function entTravaTx(t){ if(!entTravada(t, ENT_FN)) return ''; return entMotivo(t, stLabel(tsSt(t)), entTravaCtx(t)); }
 function entFiltros(){ return entFiltrosDe(lsGet('tmEntF'), { who:lsGet('tmDev')||'', epic:lsGet('tmEpic')||'' }); }
 // a mesma aba mora no Time e na Central (71): quem pintou por último redesenha (entOnChange)
 let entOnChange=null;
@@ -175,7 +234,7 @@ function entItemHtml(t){
   const atv=a?`<span class="en-agov">${esc(personShort(a.user_id))} ${esc(String(tsK(a.kind)).replace(/ (de|em)$/,''))}</span><span>${esc(agoTx(a.at))}</span>`:`<span>${esc(agoTx(t.updated_at))}</span>`;
   return `<div class="en-item${trav?' trav':''}${done?' done':''}" role="listitem">
     <div class="en-main"><button type="button" class="en-title" data-entct="${escA(t.id)}" title="abrir a tarefa">${esc(t.title||'tarefa')}</button>
-      ${trav?`<div class="en-why" style="color:${stColor(st)}" title="${escA(String(t.last_note||label))}">${icEm(IC.warn)} <span class="en-tx"><b>Travada:</b> ${esc(entMotivo(t, label))}</span></div>`:''}</div>
+      ${trav?(()=>{ const why=entTravaTx(t)||label; return `<div class="en-why" style="color:${stColor('error')}" title="${escA(why)}">${icEm(IC.warn)} <span class="en-tx"><b>Travada:</b> ${esc(why)}</span></div>`; })():''}</div>
     ${quem}
     <span class="en-st" style="--stc:${cor}"><i aria-hidden="true"></i><span class="en-tx">${esc(label)}</span></span>
     <span class="en-ents">${ent.join('')}</span>

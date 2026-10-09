@@ -119,6 +119,7 @@ function tsCardHtml(t, me, isAdmin){
     ${ctPhaseBar(t)}
     <div class="meta">${ep?`<span class="tsepc" title="${escA('épico “'+ep+'”'+((t.spec||{}).wave?' · onda '+(t.spec||{}).wave:''))}">${IC.epic} ${esc(ep)}${(t.spec||{}).wave?' · onda '+esc(String((t.spec||{}).wave)):''}</span>`:''}${t.pr_url?`<button class="tslk" data-lk="${escA(t.pr_url)}" title="abrir o Pull Request no GitHub" style="color:var(--info)">PR ${icEm(IC.extlink)}</button>`:''}${tsIssueChip(t, proj)}${t.branch?`<span class="mono tsbr" title="${escA(t.branch)}">${esc(t.branch.split('/').pop())}</span>`:''}${(t.cost_usd>0&&tsCostOk(t, me))?`<span>${fmtUsd(+t.cost_usd)}</span>`:''}${t.claim_mode==='reserved'?'<span class="tmbadge" style="font-size:var(--fs-xs)">pra si</span>':''}${isLocal?'':`<span class="tsnolocal" title="${escA('nenhum projeto aberto nesta máquina tem o repositório '+(proj.repo_remote||'')+' — clone a pasta e adicione em Projetos pra poder assumir')}">projeto que você não tem neste computador</span>`}</div>
     ${whoTx?`<div class="tswho" title="${escA(whoTx)}">${esc(whoTx)}</div>`:''}
+    ${(()=>{ const why=typeof entTravaTx==='function'?entTravaTx(t):''; return why?`<div class="gt-why" title="${escA(why)}">${IC.warn}<span>${esc(why)}</span></div>`:''; })()}
     <div class="foot">${t.assignee?tsAv(t.assignee, tsOnline(t.assignee)):`<span class="tsav tmfree" title="sem responsável — quem assumir aparece aqui" aria-label="sem responsável">·</span>`}${!t.assignee?'<span class="tsowner dim">sem dono</span>':t.assignee===me?'<span class="tsowner">com você</span>':(t.assignee===t.created_by?`<span class="tsowner" title="${escA('com '+tmName(t.assignee))}">${esc(tmName(t.assignee).split(/\s+/)[0])}</span>`:'')}${prov}<span style="flex:1"></span>
       ${isErr?`<span class="tstag" style="color:${stColor(st)};border:1px solid currentColor">${esc(stLabel(st))}</span>`:running?`<span class="tstag run">${esc(stLabel(st))}</span>`:ctWaiting(t)?`<span class="tstag" title="começa sozinha quando as tarefas da onda anterior forem concluídas ou mergeadas (onda = grupo de tarefas que rodam juntas)">na espera da onda anterior</span>`:''}
       ${tsActsHtml(t, me, canClaim, sameRepo, isLocal, proj)}
@@ -570,6 +571,12 @@ async function teamNotifTick(){
   if(!SB.sess() || !cloudTeamId() || !cloudScopeOk()) return;
   await teamFetch(); if(!teamTasks) return;
   const me=cloudUserId(), prs=seenSet('sb:seenpr'), cards=seenSet('sb:seencard'), revs=seenSet('sb:seenrev');
+  // cartão que já avisei NESTA volta (o "Nova tarefa pra você" do cartão) não avisa de novo pela atividade.
+  // (antes era declarado DEPOIS do laço abaixo: o 1º "Nova tarefa pra você" quebrava a volta com ReferenceError)
+  const told=new Set();
+  // QUEM PERDEU o cartão (D6.1, 72): a foto "no meu nome" da última busca × agora — vale também na 1ª volta depois
+  // de reabrir o app (a foto fica no localStorage); as atividades avisadas aqui não repetem como "mudou de mãos"
+  let lostTold=new Set(); try{ lostTold=await gtLostTick(me, teamTasks); }catch(e){ if(typeof tickErr==='function') tickErr('gtLostTick', e); }
   for(const t of teamTasks){
     const isRev=((t.spec||{}).kind==='review')||/^review (do |de )?pr/i.test(t.title||'');
     const kind=teamNotifReady ? ctNotifKind(t, me, teamTasks) : null; // 1ª carga só semeia o "visto"
@@ -583,10 +590,13 @@ async function teamNotifTick(){
   }
   // MUDOU DE DONO (mesa 09/10, T3/T4 · aviso só quando muda de dono): pela atividade do cartão — quem assumiu/devolveu
   // a demanda que EU criei, e quem atribuiu um cartão a MIM. A 1ª carga só semeia o "visto".
-  const acts=seenSet('sb:seenact'), told=new Set(); // cartão que já avisei NESTA volta (o "Nova tarefa pra você" do cartão) não avisa de novo pela atividade
+  const acts=seenSet('sb:seenact'), lostSeen=seenSet('sb:seenlost');
   for(const a of (teamActivity||[]).slice().reverse()){
-    const key=String(a.id||(a.task_id+':'+a.at)); if(acts.has(key)) continue; seenAdd('sb:seenact', key);
-    if(!teamNotifReady) continue;
+    const key=String(a.id||(a.task_id+':'+a.at)); if(acts.has(key)) continue;
+    // a troca de um cartão que saiu do MEU nome é do aviso de perda (72): se ele falhou nesta volta, não marca nem avisa aqui
+    if(lostTold.fail && lostTold.fail.has(a.task_id) && ['assigned','released','claimed'].includes(a.kind)) continue;
+    seenAdd('sb:seenact', key);
+    if(!teamNotifReady || lostTold.has(key) || lostSeen.has(key)) continue;
     if(a.kind==='assigned' && told.has(a.task_id)) continue;
     const t=teamTasks.find(x=>x.id===a.task_id); const k=ctOwnerNotif(a, t, me);
     if(k) pushNotif(k.title, k.body, 'view:team');

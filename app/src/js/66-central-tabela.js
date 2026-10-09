@@ -91,7 +91,7 @@ function ctRowHtml(r, op){
     :r.nreq?`<b>${r.loaded?r.ok:'…'}</b>/${r.nreq}${r.ad?` <span class="ctad" title="${escA(r.ad===1?'1 adiado com motivo':r.ad+' adiados com motivo')}">+${r.ad} adiado${r.ad===1?'':'s'}</span>`:''}`
     :r.ad?`<span class="ctad">${r.ad} adiado${r.ad===1?'':'s'}</span>`:'<span class="ctdim">—</span>';
   return `<tr class="ctrow${op?' open':''}${r.needsYou?' needs':''}" data-ctrow="${escA(r.id)}" tabindex="0" aria-label="${escA(r.title+' — '+(r.stLabel||''))}" title="${escA(r.title)}">`+
-    `<td class="ct-title"><div class="ctti"><button type="button" class="ctchev" data-cttog="${escA(r.id)}" aria-label="${escA('resumo de '+r.title)}" aria-expanded="${op}">${op?'▾':'▸'}</button><span class="ctt"><span class="cttx">${esc(r.title)}</span>${r.code?`<span class="ctcode mono">${esc(r.code)}</span>`:''}</span></div></td>`+
+    `<td class="ct-title"><div class="ctti"><button type="button" class="ctchev" data-cttog="${escA(r.id)}" aria-label="${escA('resumo de '+r.title)}" aria-expanded="${op}">${op?'▾':'▸'}</button><span class="ctt"><span class="cttx">${esc(r.title)}</span>${r.code?`<span class="ctcode mono">${esc(r.code)}</span>`:''}${r.why?`<span class="ca-why ct-why" title="${escA(r.why)}">${(typeof IC!=='undefined'&&IC.warn)||''}<span>${esc(r.why)}</span></span>`:''}</span></div></td>`+
     `<td class="ct-proj">${r.badge||''}<span class="ctpn">${esc(r.proj||'')}</span></td>`+
     `<td class="ct-ia">${esc(r.ia||'—')}</td>`+
     `<td class="ct-etapa">${ctRouteHtml(r.stages, r.pos, r.n, r.label)}</td>`+
@@ -129,7 +129,9 @@ function ctTableHtml(rows, o){
 // ---------------------------------------------------------------- estado + dados da linha
 // rows: id → dados da última pintura (abrir/ordenar mexem NO LUGAR, sem refazer a Central); last: o que a Central
 // pintou da última vez (pra devolver o HTML equivalente ao flowLastHtml e o próximo render não reconstruir à toa)
-const CT={ open:new Set(), rows:new Map(), last:null, clickT:0, sort:(()=>{ try{ const v=JSON.parse(lsGet('ctSort')||'null'); if(v && CT_SORTABLE.has(v.key)) return v; }catch(_){ } return { key:'upd', dir:'desc' }; })() };
+// ordem: SEMPRE pela modificação ao abrir (pedido do dono, 09/10); a coluna clicada vale só enquanto a Central está aberta
+// (não é gravada — 72: sortOnScreenOpen volta pra 'upd' quando a pessoa volta pra Central)
+const CT={ open:new Set(), rows:new Map(), last:null, clickT:0, sort:{ key:'upd', dir:'desc' } };
 const CT_NEEDS_ST=new Set(typeof AGUARDA_ST!=='undefined'?AGUARDA_ST:['plan-review','needs-you','error','conflict','aborted']); // a MESMA lista do "aguardando você" (00-util) — antes faltava 'aborted'
 function ctRow(t){
   // rascunho armado pelo "Iniciar épico" (46: epAutoLocalHas) = na espera — começa sozinho; "Iniciar" continua pra começar já
@@ -146,10 +148,18 @@ function ctRow(t){
   const ok=loaded?Math.max(0, nreq-(g.missing||[]).length):0;
   const path=t.repo||state.repo||''; const proj=t.proj||pathBase(path);
   const ev=(typeof lastEventOf==='function')?lastEventOf(t.id):null;
-  const ts=ev?+new Date(ev.ts):taskTs(t);
+  // modificação = o evento mais recente da tarefa (último evento, fim) — a mesma régua do "atualizado há X" (08-periodo)
+  const ts=(typeof modTs==='function')?(modTs(ev&&ev.ts, t.finishedAt, taskTs(t))||taskTs(t)):(ev?+new Date(ev.ts):taskTs(t));
   const ia=(typeof aiRunLabel==='function')?String(aiRunLabel(t.engine, '')).replace(/ · padrão da assinatura$/,''):(t.engine||'');
   const asking=pendingOf(t.id).length>0;
-  return { id:t.id, title:(typeof mdTitle==='function'?mdTitle(t.title||''):(t.title||'')), // só exibição
+  // motivo da trava (70, fonte única): só quando a linha pede você ou está bloqueada
+  let why='';
+  const prTrv=(typeof entPrTrava==='function' && typeof prCache!=='undefined' && t.prUrl && !taskEncerrada(t))?entPrTrava(prCache[t.id]):null;
+  if((asking || CT_NEEDS_ST.has(t.status) || t.flag==='blocked' || prTrv || (typeof taskLoop==='function' && taskLoop(t))) && typeof entMotivo==='function'){
+    try{ const pd=pendingOf(t.id); why=entMotivo(t, '', { st, flag:t.flag, pergunta:pd.length?String(pd[0].prompt||'responder o agente'):'', needsYou:(t.spec||{}).needsYou||null,
+      loop:typeof taskLoop==='function'?taskLoop(t):null, pr:prTrv }); }catch(_){ why=''; }
+  }
+  return { why, id:t.id, title:(typeof mdTitle==='function'?mdTitle(t.title||''):(t.title||'')), // só exibição
     code:(typeof issueCodeOf==='function'&&issueCodeOf(t))||'', proj, badge:(typeof railBadgeHtml==='function')?railBadgeHtml(proj, (typeof projColor==='function')?projColor(path):''):'',
     ia:t.orchestration?'Orquestrador':ia, stages:stages.map(s=>({ label:s.label, state:s.state, word:s.word })), pos:sum?sum.pos:0, n:stages.length, label:sum?sum.label:'', now:sum?sum.now:'',
     nreq, ok, ad, loaded, cross, gateSt:g.st, canAskProof:!cross && ['review','delivered'].includes(t.status) && g.st==='unproven' && !t.prUrl,
@@ -184,7 +194,7 @@ function ctWire(el, src){
     ctSyncLast();
   };
   const sortBy=(k)=>{
-    CT.sort=ctNextSort(CT.sort, k); lsSet('ctSort', JSON.stringify(CT.sort));
+    CT.sort=ctNextSort(CT.sort, k);
     const tb=table.tBodies[0]; const groups=new Map();
     tb.querySelectorAll('tr[data-ctrow]').forEach(tr=>{ const g=[tr]; const nx=tr.nextElementSibling; if(nx && nx.classList.contains('ctexp')) g.push(nx); groups.set(tr.dataset.ctrow, g); });
     // F3: as linhas reordenam com FLIP (cada uma desliza do lugar velho pro novo; reduzir movimento = corte)

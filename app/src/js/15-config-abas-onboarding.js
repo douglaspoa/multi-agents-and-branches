@@ -190,6 +190,7 @@ function tabIcon(kind){ if(kind==='flow') return '<rect x="2.5" y="3" width="11"
 function activateTab(id){ const mvChanged=id!==activeTab; if(id!==activeTab) saveTabState(tabById(activeTab)); activeTab=id;
   // a demanda da aba ativa vira a "selecionada" (Central/grafo) e a barra lateral repinta o destaque (railHi, 25)
   { const at=tabById(id); if(at && at.taskId) selected=at.taskId; }
+  if(mvChanged && typeof sortOnScreenOpen==='function') sortOnScreenOpen(tabById(id)); // coluna clicada vale só com a tela aberta (72)
   renderTabs(); showActiveView(); if(typeof renderRail==='function') renderRail();
   if(mvChanged && typeof mvViewIn==='function' && tabById(id)){ const at=tabById(id); mvViewIn(at.kind!=='flow' ? $id((typeof cvViewTarget==='function' && cvViewTarget(at)) || VIEW_OVERLAY[at.kind]) : $id('flowPane')); } // F3: a tela nova entra
   if(typeof cvOnViewChange==='function') cvOnViewChange(); } // canvas: stream/webview reavaliam (sem laço)

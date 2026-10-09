@@ -1,0 +1,30 @@
+/* Starfork — 99-gestao: gestão do time (mesa 09/10, D6) — motivo da trava e cabeçalhos ordenáveis da Central.
+   Só tokens existentes. Motivo = destaque discreto: texto pequeno na cor de erro, ícone de alerta, uma linha. */
+
+/* ---- motivo da trava (Central: linha e épico · quadro do Time · página do cartão do colega) ---- */
+.ca-why{display:inline-flex;align-items:center;gap:4px;font-weight:550}
+.ca-why svg,.gt-why svg{width:12px;height:12px;flex:none}
+.ca-why>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gt-why{display:flex;align-items:center;gap:5px;margin-top:6px;font-size:var(--fs-xs);line-height:1.35;color:var(--st-err);font-weight:550;min-width:0}
+.gt-why>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gt-why b{font-weight:700}
+.ctp-why{margin-top:8px;font-size:var(--fs-sm)}
+.ctp-why>span{white-space:normal}
+
+/* ---- cabeçalho ordenável (padrão = modificação mais recente; clique vale com a tela aberta) ---- */
+.ca-tbl th[aria-sort]{padding:0}
+.ca-sort{display:inline-flex;align-items:center;gap:4px;width:100%;padding:7px 10px;background:none;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer;white-space:nowrap;border-radius:0}
+.ca-sort:hover{color:var(--text)}
+.ca-sort.on{color:var(--text)}
+.ca-sar{display:inline-flex;opacity:0;transition:opacity .12s ease-out,transform .12s ease-out}
+.ca-sar svg{width:11px;height:11px}
+.ca-sort:hover .ca-sar{opacity:.55}
+.ca-sort.on .ca-sar{opacity:1}
+.ca-sort.on.asc .ca-sar{transform:rotate(180deg)}
+.ca-sort:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.ca-tbl .c-atv time{font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: reduce){ .ca-sar{transition:none} }
+
+/* "atualizado há X" embaixo do título só quando a coluna Atualizado sai (mesma régua do 99-central-alcance) */
+.ca-mod{display:none;margin-top:2px;font-size:var(--fs-xs);font-weight:400;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+@container (max-width: 1180px){ .ca-mod{display:block} }
