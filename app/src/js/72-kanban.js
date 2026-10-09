@@ -151,7 +151,7 @@ function kbTeamVm(t, x){
     chain:chainHtml(c, { omit:['task','who','st','proof'] }), who:kbWho(t.assignee), reqs:entReqs(t), thumb:th.thumb, proofs:th.n,
     trav:travTx, travTip:travTx?String(t.last_note||travTx):'', ago:a.ago, agoTip:a.tip,
     drops:kbTeamDrops(t, { me, canAssign, sameRepo, bucket, st:tsNorm(t).status }), /* st: o status local vence (a nuvem atrasa) */ acts:prim, menu:true, ref:t, cls:x.org?'org':'',
-    tag:x.org?(typeof tsTeamName==='function'?tsTeamName(t.team_id):''):'' };
+    tag:(x.org||x.tag)?(typeof tsTeamName==='function'?tsTeamName(t.team_id):''):'' };
 }
 // menu ⋯ do cartão do time: as ações de caAcoes que não estão no cartão + abrir + remover (criador/admin, na fila)
 function kbTeamMenu(ct, anchor, after){
@@ -218,11 +218,12 @@ function kbToggleWire(root){ (root||document).querySelectorAll('[data-kbview]').
 // Minhas: tarefas desta máquina (já filtradas pela Central) + do time "com você" e "livres" (as mesmas seções da lista)
 function kbCentralMinhasHtml(tasks){
   const vms=(tasks||[]).map(kbLocalVm);
-  if(typeof caOn==='function' && caOn() && caScope()==='minhas' && caSrc()){
+  const mSrc=typeof caMineSrc==='function'?caMineSrc():caSrc();
+  if(typeof caOn==='function' && caOn() && caScope()==='minhas' && mSrc){
     const q=String(flowQuery||'').trim().toLowerCase(), fe=flowEpic;
-    const m=caMinhas(caSrc(), caMe(), caMyTeams(), CA_FN, t=>!!caLocalOf(t), caInQueue);
+    const m=caMinhas(mSrc, caMe(), caMyTeams(), CA_FN, t=>!!caLocalOf(t), caInQueue), multi=typeof taMultiTeam==='function'&&taMultiTeam();
     const ok=t=>(!q||String(t.title||'').toLowerCase().includes(q)) && (fe==='all'||t.epic_id===fe) && (flowStatus==='all'||kbColOf(tsBucket(t), { concluidas:'prontas', rascunho:'fila' })===flowStatus);
-    m.comigo.concat(m.livres).filter(ok).forEach(t=>vms.push(kbTeamVm(t, { me:caMe(), colMap:{ concluidas:'prontas' } })));
+    m.comigo.concat(m.livres).filter(ok).forEach(t=>vms.push(kbTeamVm(t, { me:caMe(), colMap:{ concluidas:'prontas' }, tag:multi })));
   }
   const cols=kbGroup(vms, KB_CENTRAL_COLS.map(k=>kbCol(k)));
   return { n:cols.reduce((a,c)=>a+c.n, 0), html:kbBoardHtml({ id:'central', label:'quadro da Central', cols, card:vm=>kbCardHtml(vm, KB_IC()), empty:kbEmpty, more:kbMore }), vms };

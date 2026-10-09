@@ -145,7 +145,7 @@ test('A12: "+ épico" e a página do épico definem o "pronto quando"', () => {
   assert.deepEqual(E.epDoneWhenParse('- um\n• dois'), [{ id: 'D1', text: 'um' }, { id: 'D2', text: 'dois' }]);
   assert.deepEqual(E.epDoneWhenParse(''), []);
   assert.equal(E.epDoneWhenParse(Array.from({ length: 12 }, (_, i) => 'i' + i).join(';')).length, 8);
-  const add = cut(TIME, "el.querySelector('#tbEpicAdd')", "el.querySelector('#tbPeriod')");
+  const add = cut(TIME, "el.querySelector('#tbEpicAdd')", "if(tmView!=='entregas') periodPickerWire");
   assert.match(add, /epDoneWhenAsk\(b\)/); assert.match(add, /spec:\{ doneWhen:dw \}/); assert.match(add, /if\(dw==null\) return;/);
   assert.match(EPICO, /bindClick\('epDwSet'/); assert.match(EPICO, /sheetAsk\(\{ anchor, title:'Pronto quando'/, 'folha, não modal');
 });

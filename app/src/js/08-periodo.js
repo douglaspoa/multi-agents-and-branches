@@ -74,9 +74,11 @@ function sortGet(screen){ return sortSession[screen]||{ col:'mod', dir:'desc' };
 function sortToggle(screen, col){ const s=sortGet(screen); sortSession[screen]=s.col===col?{ col, dir:s.dir==='desc'?'asc':'desc' }:{ col, dir:col==='mod'?'desc':'asc' }; return sortSession[screen]; }
 function sortReset(screen){ delete sortSession[screen]; }
 // seletor de período (mesmo em toda tela): <select> + de/até quando "Personalizado"
-function periodPickerHtml(screen, p){
-  p=p||periodGet(screen); const id='per-'+screen;
-  return `<span class="perpick" data-perscreen="${escA(screen)}"><select class="sel perpick-sel" id="${escA(id)}" aria-label="período">${PERIODOS.map(([k,l])=>`<option value="${k}"${p.key===k?' selected':''}>${esc(l)}</option>`).join('')}</select>${p.key==='custom'?`<input type="date" class="in perpick-d" data-per="from" value="${escA(p.from||perFmtDay(Date.now()-6*86400000))}" aria-label="de"><span class="dim">até</span><input type="date" class="in perpick-d" data-per="to" value="${escA(p.to||perFmtDay(Date.now()))}" aria-label="até">`:''}</span>`;
+// where: sufixo do id quando a mesma tela de período aparece em dois lugares abertos ao mesmo tempo (Time e Central)
+function periodPickerHtml(screen, p, where){
+  p=p||periodGet(screen); const id='per-'+screen+(where?'-'+where:'');
+  const ic=(typeof IC!=='undefined'&&IC.cal)||''; // calendário: o seletor tem cara de controle (dono 09/10: "nem tenho como alterar a data")
+  return `<span class="perpick" data-perscreen="${escA(screen)}">${ic?`<span class="perpick-ic" aria-hidden="true">${ic}</span>`:''}<select class="sel perpick-sel" id="${escA(id)}" aria-label="período" title="período — muda o que a tela mostra e os números">${PERIODOS.map(([k,l])=>`<option value="${k}"${p.key===k?' selected':''}>${esc(l)}</option>`).join('')}</select>${p.key==='custom'?`<input type="date" class="in perpick-d" data-per="from" value="${escA(p.from||perFmtDay(Date.now()-6*86400000))}" aria-label="de"><span class="dim">até</span><input type="date" class="in perpick-d" data-per="to" value="${escA(p.to||perFmtDay(Date.now()))}" aria-label="até">`:''}</span>`;
 }
 function periodPickerWire(root, onChange){
   (root||document).querySelectorAll('.perpick').forEach(w=>{

@@ -788,10 +788,14 @@ async function appVersionPing(){
 setTimeout(appVersionPing, 8000);
 setInterval(()=>{ appVerSent=''; appVersionPing(); }, 30*60000);
 let teamFetchP=null; // promise compartilhada: chamadas concorrentes esperam o MESMO fetch
+// a busca é DE UM alcance (time ativo + escopo): trocar de time no meio não reaproveita a busca do time velho —
+// espera ela terminar (a resposta velha é descartada) e busca o time novo (74-time-ativo)
+function teamFetchKey(){ return cloudTeamId()+'|'+tsScopeTeamIds().join(','); }
 function teamFetch(force){
-  if(teamFetchP) return teamFetchP;
+  if(teamFetchP){ if(teamFetchP.__key===teamFetchKey()) return teamFetchP; return teamFetchP.catch(()=>{}).then(()=>teamFetch(true)); }
   if(!force && teamTasks && Date.now()-teamFetchedAt<10000) return Promise.resolve();
-  teamFetchP=teamFetchRun().finally(()=>{ teamFetchP=null; });
+  const key=teamFetchKey();
+  teamFetchP=teamFetchRun().finally(()=>{ teamFetchP=null; }); teamFetchP.__key=key;
   return teamFetchP;
 }
 async function teamFetchRun(){
@@ -799,6 +803,7 @@ async function teamFetchRun(){
   try{
     const teamId=cloudTeamId(); if(!teamId) return;
     const ids=tsScopeTeamIds(); if(!ids.length) return;
+    const same=()=>cloudTeamId()===teamId && tsScopeTeamIds().join(',')===ids.join(','); // trocou de time/escopo no meio: a resposta é do time velho (74)
     const inq='team_id=in.('+ids.map(i=>'"'+i+'"').join(',')+')';
     const [tasks, projs, eps, acts]=await Promise.all([
       sbGet('tasks?select=*&'+inq+'&order=updated_at.desc&limit='+(ids.length>1?600:200)),
@@ -806,15 +811,19 @@ async function teamFetchRun(){
       sbGet('epics?select=id,name,status,team_id,spec,created_by,created_at,updated_at&'+inq+'&status=neq.archived&order=created_at').catch(()=>sbGet('epics?select=id,name,status,team_id&'+inq+'&status=neq.archived&order=created_at')).catch(()=>[]), // fallback: nuvem sem a 0025
       sbGet('task_activity?select=id,task_id,user_id,kind,body,at&order=id.desc&limit=60').catch(()=>[]),
     ]);
-    teamEpics=eps||[]; teamActivity=acts||[];
-    teamProj={}; projs.forEach(p=>teamProj[p.id]=p);
+    if(!same()) return;
     const uids=new Set(); tasks.forEach(t=>{ uids.add(t.created_by); if(t.assignee) uids.add(t.assignee); });
-    (teamActivity||[]).forEach(a=>uids.add(a.user_id));
+    (acts||[]).forEach(a=>uids.add(a.user_id));
     ids.forEach(tid=>((cloudData&&cloudData.teamMembers&&cloudData.teamMembers[tid])||[]).forEach(m=>uids.add(m.user_id)));
     if(tsOrgScope()) ((cloudData&&cloudData.orgMembers)||[]).forEach(m=>uids.add(m.user_id)); // membro da org sem time também aparece
-    if(uids.size){ const profs=await sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'); teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
-    { const ids=await repoRemoteIds(); teamRepoRemote=ids.remote; teamRepoIds=ids; }
+    const profs=uids.size?await sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'):null;
+    const rids=await repoRemoteIds();
     await localRemoteIdsList().catch(()=>[]); // cartão de projeto que não existe nesta máquina ganha o aviso (tsCardHtml)
+    if(!same()) return; // nada do time velho é gravado: tudo entra junto, depois do último await
+    teamEpics=eps||[]; teamActivity=acts||[];
+    teamProj=Object.assign({}, typeof taMineProj==='function'?taMineProj():{}); projs.forEach(p=>teamProj[p.id]=p); // + os projetos dos meus outros times (Minhas, 74)
+    if(profs){ teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
+    teamRepoRemote=rids.remote; teamRepoIds=rids;
     teamTasks=tasks; teamFetchedAt=Date.now();
   } finally { teamFetching=false; }
 }

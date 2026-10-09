@@ -679,7 +679,7 @@ async function ajRenderTimes(host){
   host.querySelectorAll('[data-ajt]').forEach(b=>b.onclick=async()=>{
     const act=b.dataset.ajt, tid=b.dataset.team, uid=b.dataset.uid, t=d.teams.find(x=>x.id===tid)||{};
     try{
-      if(act==='use'){ lsSet('sb:team', tid); after(); return; }
+      if(act==='use'){ if(!(typeof teamActiveSet==='function' && teamActiveSet(tid))) lsSet('sb:team', tid); after(); return; } // a porta única do time ativo (74): limpa o time velho e redesenha tudo
       if(act==='add'){ const sel=$id('ajAdd-'+tid); if(!sel||!sel.value) return; await sbPost('team_members',{ team_id:tid, user_id:sel.value, role:'member' }); cloudMsg='✓ adicionado ao time'; after(); return; }
       if(act==='menu'){
         const v=await sheetAsk({ anchor:b, title:t.name, choices:[{ value:'rename', label:'renomear' }].concat(isAdmin?[{ value:'del', label:'excluir o time', hint:'os membros perdem o vínculo', danger:true }]:[]), ok:'continuar' }); if(!v) return;

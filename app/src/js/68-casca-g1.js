@@ -173,7 +173,12 @@ function timeHeadPaint(){
   let prs=(typeof teamTasks!=='undefined'&&teamTasks)?teamTasks.filter(t=>t.pr_url&&!['merged','done'].includes(t.status)).length:0;
   const S=window._timeSum; if(S){ n=S.n; eps=S.eps; prs=S.prs; } // o quadro já contou (mesmas regras das abas)
   const sum=i.org?`${n} ${n===1?'pessoa':'pessoas'} · ${eps} ${eps===1?'épico ativo':'épicos ativos'} · <b>${prs}</b> ${prs===1?'PR':'PRs'} pra revisar`:'';
-  const head=pageHead({ title:'Time', scope:'time', scopeLabel:i.team?i.team.name:(i.org?i.org.name:''), sum });
+  // o chip "Time · X" é o SELETOR do time ativo (74-time-ativo): com 1 time só continua chip simples. Na visão
+  // "toda a organização" (owner/admin) o chip diz isso — trocar o time ativo volta a valer ao escolher "meu time"
+  const orgV=typeof tsOrgScope==='function'&&tsOrgScope();
+  const pick=(!orgV && typeof teamPickHtml==='function')?teamPickHtml({ ctx:'time' }):'';
+  const head=pick?pageHead({ title:'Time', sum, afterTitle:pick })
+    :pageHead({ title:'Time', scope:'time', scopeLabel:orgV?'toda a organização':(i.team?i.team.name:(i.org?i.org.name:'')), sum });
   const h=$id('timeHead'); if(h && h.__html!==head){ h.__html=head; h.innerHTML=head; }
 }
 if(typeof showActiveView==='function' && !showActiveView.__g1){ const sa=showActiveView; showActiveView=function(){ const r=sa.apply(this, arguments);

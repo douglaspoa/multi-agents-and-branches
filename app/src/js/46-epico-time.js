@@ -196,7 +196,7 @@ function epicPageRender(){
   // (antes eram 5 blocos ao lado, apertando o texto, e "em andamento" aparecia 3 vezes)
   // F4 (G1, mesa tela 24): padrão de página — título UMA vez (= título da aba), selo do time, status no resumo, ↻ no ⋯;
   // sem "fechar esc" (⌘W fecha a aba); "onda" virou "etapa" na interface
-  const tmNm=(((typeof cloudData!=='undefined'&&cloudData&&cloudData.teams)||[]).find(x=>x.id===(typeof cloudTeamId==='function'?cloudTeamId():''))||{}).name;
+  const tmNm=(((typeof cloudData!=='undefined'&&cloudData&&cloudData.teams)||[]).find(x=>x.id===(ep.team_id||(typeof cloudTeamId==='function'?cloudTeamId():'')))||{}).name; // o time DO épico (não o ativo)
   main.innerHTML=`<div class="enpage">${pageHead({ title:'Épico · '+(ep.name||'Épico'), scope:'time', scopeLabel:tmNm||'', sum:`<span class="ep-st ep-st-${escA(sv.st)}">${esc(EP_ST_PT[sv.st]||sv.st||'')}</span>${typeof aeEpicBadge==='function'?' · '+aeEpicBadge(sp):''}`, more:{ id:'epicPageMore', title:'Atualizar · abrir no Time · issue' } })}
     <div class="en-head">
       <div class="en-ht">

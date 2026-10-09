@@ -154,7 +154,13 @@ function caMyTeams(){
 }
 function caScopeTeams(scope){ return scope==='org'?new Set(((cloudData&&cloudData.teams)||[]).map(t=>t.id)):(scope==='minhas'?caMyTeams():new Set([cloudTeamId()])); }
 function caSrc(){ return (CA.tid===cloudTeamId() && (teamTasks||(CA.last&&CA.last.tasks)))||null; }
-function caTasks(scope){ return caDoEscopo(caSrc()||[], scope, { me:caMe(), myTeams:caMyTeams(), scopeTeams:caScopeTeams(scope) }, CA_FN); }
+// Minhas junta TODOS os meus times (74 caMineSrc: limitação do #145); Do time/Org toda = o teamFetch do alcance
+function caTasks(scope){ const src=scope==='minhas'&&typeof caMineSrc==='function'?caMineSrc():caSrc(); return caDoEscopo(src||[], scope, { me:caMe(), myTeams:caMyTeams(), scopeTeams:caScopeTeams(scope) }, CA_FN); }
+// período (o MESMO do Time — tela 'time' do 08-periodo): em aberto sempre + concluída que mexeu no período (43 tsQuadro)
+function caPer(list){ return typeof tsQuadro==='function'?tsQuadro(list):list; }
+function caPerDif(total, shown, what){ return (typeof perContaTx==='function'&&typeof tsPerNo==='function')?perContaTx(total, shown, tsPerNo(), what):''; }
+// épicos no período: os ativos sempre; o concluído só se ele (ou tarefa dele) mexeu no período
+function caEpPer(eps, all){ const r=typeof tsRange==='function'?tsRange():null; if(!r) return eps; return eps.filter(e=>{ const ts=all.filter(t=>t.epic_id===e.id); if(CA_FN.ativo(e, ts)) return true; const md=caEpModOf(e, ts); return !!md && md>=r.from && md<r.to; }); }
 function caMembers(scope){
   const tm=(cloudData&&cloudData.teamMembers)||{}, ids=[...caScopeTeams(scope)];
   return [...new Set(ids.flatMap(tid=>(tm[tid]||[]).map(m=>m.user_id)).concat(caTasks(scope).map(t=>t.assignee).filter(Boolean)))];
@@ -222,8 +228,8 @@ function caTableHtml(list, o){
   list=sortRows(list, caModOf, sortGet(SC), caSortVal);
   const rq=t=>{ const r=entReqs(t); return r?`<span class="ca-num${r.ok===r.tot?' ok':''}">${r.ok}/${r.tot}</span>`:'<span class="ca-dim">—</span>'; };
   const sub=t=>{ const bits=[caProjBadge(t.project_id)];
-    if(o.sub==='epic' && t.epic_id){ const e=((typeof teamEpics!=='undefined'&&teamEpics)||[]).find(x=>x.id===t.epic_id); if(e) bits.push(`<span class="ca-epn">${(typeof IC!=='undefined'&&IC.epic)||''}${esc(e.name)}</span>`); }
-    if(o.team) bits.push(`<span class="ca-dim">${esc(tsTeamName(t.team_id))}</span>`);
+    if(o.sub==='epic' && t.epic_id){ const en=typeof taEpicName==='function'?taEpicName(t.epic_id):(((typeof teamEpics!=='undefined'&&teamEpics)||[]).find(x=>x.id===t.epic_id)||{}).name; if(en) bits.push(`<span class="ca-epn">${(typeof IC!=='undefined'&&IC.epic)||''}${esc(en)}</span>`); }
+    if(o.team) bits.push(`<span class="ca-teamtag" title="time">${esc(tsTeamName(t.team_id))}</span>`);
     { const m=entTravaTx(t); if(m) bits.push(`<span class="ca-why" title="${escA('travada: '+m)}">${(typeof IC!=='undefined'&&IC.warn)||''}<span>${esc(m)}</span></span>`); } // motivo da trava (70, fonte única)
     return bits.join('<span class="ca-sep" aria-hidden="true">·</span>'); };
   return `<table class="ca-tbl"><thead><tr>${caTh(SC,'dem','Demanda','c-dem')}${caTh(SC,'com','Com','c-com')}${caTh(SC,'st','Situação','c-st')}${caTh(SC,'req','Requisitos','c-req')}<th scope="col" class="c-iss">Issue</th>${o.cost?'<th scope="col" class="c-cus">Custo</th>':''}${caTh(SC,'mod','Atualizado','c-atv')}<th scope="col" class="c-act"><span class="sr-only">ações</span></th></tr></thead><tbody>`+
@@ -237,12 +243,17 @@ function caAvs(uids, livre){
   return `<span class="ca-faces" role="img" aria-label="${escA(uids.length?'pessoas: '+uids.map(tmName).join(', '):'ninguém ainda')}">${v.map(u=>tsAv(u, false)).join('')}${uids.length>5?`<span class="ca-more-n">+${uids.length-5}</span>`:''}${livre?'<span class="tsav tmfree" title="tem tarefa livre"></span>':''}</span>`;
 }
 function caBar(ok, tot){ const p=tot?Math.round(ok/tot*100):0; return `<span class="ca-bar" role="img" aria-label="${escA(ok+' de '+tot+' entregues')}"><i style="width:${p}%"></i></span>`; }
+// vazio da lista e do quadro: o time sem tarefa nenhuma × tudo concluído fora do período (o seletor de período resolve)
+function caVazioPer(scope){
+  const tem=caTasks(scope).length;
+  return emptyHtml({ icon:'kanban', title:tem?'Nada mexeu neste período':'O time ainda não tem tarefas', help:tem?'Todas as tarefas do alcance estão concluídas e nenhuma mexeu no período — troque o período no seletor acima.':'Quando alguém mandar uma demanda pro time, ela aparece aqui com quem está com ela.', action:tem?null:{ id:'caNova', label:'Nova demanda' } });
+}
 // Do time / Org toda › Tarefas: grupos por épico (entAgrupa do 70)
 function caTarefasHtml(scope){
-  const all=caTasks(scope), me=caMe();
+  const all=caPer(caTasks(scope)), me=caMe();
   const f=caFiltrosValidos(caFiltros(), all.map(t=>t.project_id), caMembers(scope));
   const vis=caFiltra(all, f, me, CA_FN);
-  if(!all.length) return emptyHtml({ icon:'kanban', title:'O time ainda não tem tarefas', help:'Quando alguém mandar uma demanda pro time, ela aparece aqui com quem está com ela.', action:{ id:'caNova', label:'Nova demanda' } });
+  if(!all.length) return caVazioPer(scope);
   if(!vis.length) return emptyHtml({ icon:'search', title:'Nada aqui com esse filtro', help:'Nenhuma tarefa do alcance bate com o filtro, o projeto ou a pessoa escolhida.', action:{ id:'caClear', label:'limpar filtros', primary:false } });
   const cost=entPodeVerCusto(), org=scope==='org';
   // grupos também pela modificação: o épico com a tarefa mexida por último sobe (ativos antes dos concluídos)
@@ -261,10 +272,10 @@ function caTarefasHtml(scope){
 }
 // Do time / Org toda › Tarefas em QUADRO (72-kanban): o mesmo alcance e os mesmos chips/projeto/pessoa da lista
 function caQuadroHtml(scope, got){
-  const all=caTasks(scope), me=caMe();
+  const all=caPer(caTasks(scope)), me=caMe();
   const f=caFiltrosValidos(caFiltros(), all.map(t=>t.project_id), caMembers(scope));
   const vis=caFiltra(all, f, me, CA_FN);
-  if(!all.length) return emptyHtml({ icon:'kanban', title:'O time ainda não tem tarefas', help:'Quando alguém mandar uma demanda pro time, ela aparece aqui com quem está com ela.', action:{ id:'caNova', label:'Nova demanda' } });
+  if(!all.length) return caVazioPer(scope);
   if(!vis.length) return emptyHtml({ icon:'search', title:'Nada aqui com esse filtro', help:'Nenhuma tarefa do alcance bate com o filtro, o projeto ou a pessoa escolhida.', action:{ id:'caClear', label:'limpar filtros', primary:false } });
   if(typeof entProvasLoad==='function') entProvasLoad(((typeof teamTasks!=='undefined'&&teamTasks)||all).map(t=>t.id)); // provas: um lote pelo conjunto (o mesmo da aba Entregas)
   const kb=kbCentralTeamHtml(vis, scope); got(kb.vms);
@@ -272,8 +283,9 @@ function caQuadroHtml(scope, got){
 }
 function caEpicosHtml(scope){
   if(scope==='minhas') scope='time'; // os épicos são do time (Minhas não tem épico "meu")
-  const eps=caEpics(scope), all=caTasks(scope), org=scope==='org';
-  if(!eps.length) return emptyHtml({ icon:'epic', title:'Nenhum épico ainda', help:'Um épico junta várias tarefas de uma entrega maior. Crie um pela Nova demanda ou pelo Time.' });
+  const all=caTasks(scope), eps0=caEpics(scope), eps=caEpPer(eps0, all), org=scope==='org';
+  if(!eps0.length) return emptyHtml({ icon:'epic', title:'Nenhum épico ainda', help:'Um épico junta várias tarefas de uma entrega maior. Crie um pela Nova demanda ou pelo Time.' });
+  if(!eps.length) return emptyHtml({ icon:'search', title:'Nenhum épico mexeu neste período', help:'Os '+eps0.length+' épicos do alcance estão concluídos e nenhum mexeu no período — aumente o período pra ver os mais antigos.' });
   const fn=CA_FN, SC='central:epicos';
   const base=eps.map(e=>({ e, ts:all.filter(t=>t.epic_id===e.id) })).map(x=>({ ...x, n:caEpicoLinha(x.e, x.ts, fn), ativo:fn.ativo(x.e, x.ts), md:caEpModOf(x.e, x.ts) }));
   // ordem: modificação mais recente (o épico ou a tarefa dele mexida por último); coluna clicada vale com a tela aberta
@@ -296,22 +308,24 @@ function caEpicosHtml(scope){
 function caMinhasHtml(scopeFlow){
   if(scopeFlow==='done' || !caOn() || caScope()!=='minhas' || caTab()!=='tarefas') return '';
   caEnsure();
-  const src=caSrc();
+  const src=typeof caMineSrc==='function'?caMineSrc():caSrc();
   if(!src) return CA.err?`<div class="ca-sec ca-errline" role="status">${IC.warn||''}<span>Não consegui ler as tarefas do time agora — tento de novo em instantes.</span><button type="button" class="btn sm ghost" data-caact="retry">tentar de novo</button></div>`:'';
   // a busca e o épico da Central valem aqui também (como no "Com o time")
   const q=String((typeof flowQuery!=='undefined'&&flowQuery)||'').trim().toLowerCase(), fe=(typeof flowEpic!=='undefined')?flowEpic:'all';
   const m=caMinhas(src, caMe(), caMyTeams(), CA_FN, t=>!!caLocalOf(t), caInQueue);
   const qf=l=>l.filter(t=>(!q||String(t.title||'').toLowerCase().includes(q)) && (fe==='all'||t.epic_id===fe));
   const comigo=qf(m.comigo), livres=qf(m.livres), cost=entPodeVerCusto();
+  const multi=typeof taMultiTeam==='function'&&taMultiTeam(); // mais de um time: cada linha diz de qual time é
   const sec=(k, title, help, list)=>{ if(!list.length) return ''; const col=flowSecCollapsed(k, false);
-    return `<div class="secgrp ca-sec${col?' collapsed':''}" data-sec="${k}">${flowSecHead(k, title, list.length, '', col, IC.users||'')}${col?'':`<div class="ca-help">${esc(help)}</div>`+caTableHtml(list, { cost, sub:'epic' })}</div>`; };
-  return sec('cacomigo','Com você no time','no seu nome e ainda não roda neste computador — inicie aqui ou devolva pro time', comigo)+
-    sec('calivres','Livres no seu time','ninguém assumiu ainda · assumir põe o seu nome pra todo o time e avisa quem criou', livres);
+    return `<div class="secgrp ca-sec${col?' collapsed':''}" data-sec="${k}">${flowSecHead(k, title, list.length, '', col, IC.team||IC.users||'')}${col?'':`<div class="ca-help">${esc(help)}</div>`+caTableHtml(list, { cost, sub:'epic', team:multi })}</div>`; };
+  const parcial=typeof taMineErr==='function'&&taMineErr()?`<div class="ca-sec ca-errline" role="status">${IC.warn||''}<span>Não consegui ler as tarefas dos seus outros times agora — a lista abaixo pode estar incompleta. Tento de novo em instantes.</span></div>`:'';
+  return parcial+sec('cacomigo',multi?'Com você nos seus times':'Com você no time','no seu nome e ainda não roda neste computador — inicie aqui ou devolva pro time', comigo)+
+    sec('calivres',multi?'Livres nos seus times':'Livres no seu time','ninguém assumiu ainda · assumir põe o seu nome pra todo o time e avisa quem criou'+(multi?' · junta todos os times em que você está':''), livres);
 }
 window.caMinhasHtml=caMinhasHtml;
 // o "Com o time" (46) só esconde uma livre quando ela de fato aparece em "Livres no seu time" (dado carregado, do meu time,
 // fora da fila dos épicos) — senão ela sumiria das duas seções
-function caFreeShown(t){ const src=caSrc(); if(!src || !t) return false; const x=src.find(y=>y.id===t.id); return !!x && caLivre(x, CA_FN) && caMyTeams().has(x.team_id) && !caInQueue(x); }
+function caFreeShown(t){ const src=typeof caMineSrc==='function'?caMineSrc():caSrc(); if(!src || !t) return false; const x=src.find(y=>y.id===t.id); return !!x && caLivre(x, CA_FN) && caMyTeams().has(x.team_id) && !caInQueue(x); }
 window.caFreeShown=caFreeShown;
 
 // ---- cabeçalho: título + alcance + resumo + abas (22: renderFlowHead chama) ----
@@ -320,8 +334,10 @@ function caHead(o){
   const scope=caScope(), tab=caTab(), me=caMe(), role=caRole();
   const seg=`<span class="ca-scope" role="radiogroup" aria-label="alcance da Central">${caScopesFor(role).map(([k,l])=>`<button type="button" role="radio" aria-checked="${scope===k}" tabindex="${scope===k?0:-1}" class="${scope===k?'on':''}" data-cascope="${k}" title="${escA(k==='minhas'?'o que está com você ou rodando neste computador, e as livres do seu time':k==='time'?'tudo do time escolhido, com quem está com cada item':'todos os times e projetos da organização (só admin)')}">${l}</button>`).join('')}</span>`;
   const teams=(cloudData.teams||[]);
-  const teamSel=scope==='time' && teams.length>1 ? `<select class="sel ca-teamsel" id="caTeam" aria-label="time">${teams.map(t=>`<option value="${escA(t.id)}"${t.id===cloudTeamId()?' selected':''}>${esc(t.name)}</option>`).join('')}</select>` : '';
-  const tasks=caTasks(scope==='minhas'?'time':scope);
+  void teams;
+  // "Do time": o seletor ÚNICO do time ativo (74) — o mesmo do chip da página Time; trocar aqui troca lá
+  const teamSel=scope==='time' && typeof teamPickHtml==='function' ? teamPickHtml({ ctx:'central' }) : '';
+  const tasks=caPer(caTasks(scope==='minhas'?'time':scope));
   let sum=o&&o.sum||'';
   if(!(scope==='minhas' && tab==='tarefas') && caSrc()){
     const r=caResumo(scope==='minhas'?caTasks('minhas'):tasks, me, CA_FN);
@@ -330,11 +346,11 @@ function caHead(o){
   // Minhas: as abertas desta máquina (a mesma conta da aba "Em aberto") + as duas seções do time
   let nT;
   if(scope==='minhas'){ let src=[]; try{ src=boardSource(); }catch(_){ src=state.tasks||[]; }
-    const src2=caSrc()||[], m=caMinhas(src2, me, caMyTeams(), CA_FN, t=>!!caLocalOf(t), caInQueue);
+    const src2=(typeof caMineSrc==='function'?caMineSrc():caSrc())||[], m=caMinhas(src2, me, caMyTeams(), CA_FN, t=>!!caLocalOf(t), caInQueue);
     nT=src.filter(t=>notHidden(t) && !taskEncerrada(t)).length+m.comigo.length+m.livres.length; }
   else nT=caFiltra(tasks, { chip:'todas' }, me, CA_FN).length;
-  const nE=caEpics(scope==='minhas'?'time':scope).length;
-  const nEnt=typeof entAbertas==='function'?entAbertas(scope==='minhas'?caTasks('minhas'):tasks):null;
+  const nE=caEpPer(caEpics(scope==='minhas'?'time':scope), caTasks(scope==='minhas'?'time':scope)).length; // = as linhas da aba Épicos
+  const nEnt=typeof entTabN==='function'?entTabN({ all:scope==='minhas'?caTasks('minhas'):caTasks(scope), members:caMembers(scope) }):null; // = o que a aba Entregas lista
   const tabs=pageTabs('central', [['tarefas','Tarefas',nT],['epicos','Épicos',caSrc()?nE:null],['entregas','Entregas',caSrc()?nEnt:null]], tab);
   const local=scope==='minhas' && tab==='tarefas'; // Minhas › Tarefas continua dizendo de qual computador/projeto é
   return pageHead({ title:'Central', sum, ...(local?{ scope:'computador', scopeLabel:o&&o.scopeLabel }:{}), right:'<span id="coordChip" class="coordchip"></span>', tabs }).replace('<span class="pgh-sp">', seg+teamSel+'<span class="pgh-sp">');
@@ -350,9 +366,6 @@ function caWireHead(el){
     const sib=[...b.parentElement.querySelectorAll('button')], i=sib.indexOf(b), n=sib[(i+(e.key==='ArrowRight'?1:-1)+sib.length)%sib.length];
     if(n){ e.preventDefault(); n.click(); setTimeout(()=>{ const q=n.dataset.cascope?`[data-cascope="${n.dataset.cascope}"]`:`[data-pgtab="${n.dataset.pgtab}"]`; const x=el.querySelector(q); if(x) x.focus(); }, 0); }
   });
-  el.addEventListener('change', e=>{ if(e.target.id!=='caTeam') return; const tid=e.target.value;
-    lsSet('sb:team', tid); if(cloudData) cloudData.members=(cloudData.teamMembers||{})[tid]||[];
-    teamTasks=null; CA.last=null; teamPaintSig=''; if(typeof ctSent!=='undefined') ctSent.sig=''; caRerender(); });
 }
 window.caHead=caHead; window.caWireHead=caWireHead;
 
@@ -362,23 +375,30 @@ function caFiltersOwn(el){
   const scope=caScope(), tab=caTab();
   let h='';
   if(tab==='tarefas'){
-    const all=caTasks(scope), me=caMe(), f=caFiltrosValidos(caFiltros(), all.map(t=>t.project_id), caMembers(scope));
+    const all0=caTasks(scope), all=caPer(all0), me=caMe(), f=caFiltrosValidos(caFiltros(), all.map(t=>t.project_id), caMembers(scope));
+    const dif=caPerDif(all0.length, all.length);
     const base=caFiltra(all, { proj:f.proj, who:f.who }, me, CA_FN);
     const n=k=>caFiltra(base, { chip:k }, me, CA_FN).length;
     const projs=[...new Set(all.map(t=>t.project_id).filter(Boolean))].map(id=>teamProj[id]).filter(Boolean).sort((a,b)=>String(a.name).localeCompare(String(b.name),'pt-BR'));
     const ppl=caMembers(scope).sort((a,b)=>tmName(a).localeCompare(tmName(b),'pt-BR'));
     const opt=(v,l,s)=>`<option value="${escA(v)}"${s?' selected':''}>${esc(l)}</option>`;
-    h=`<div class="ca-filters"><div class="ffchips" role="group" aria-label="mostrar">${CA_CHIPS.map(([k,l])=>`<button type="button" class="fchip${f.chip===k?' on':''}" aria-pressed="${f.chip===k}" data-cachip="${k}">${l}<span class="n">${n(k)}</span></button>`).join('')}</div><span class="grow"></span>`+
+    h=`<div class="ca-filters"><div class="ffchips" role="group" aria-label="mostrar">${CA_CHIPS.map(([k,l])=>`<button type="button" class="fchip${f.chip===k?' on':''}" aria-pressed="${f.chip===k}" data-cachip="${k}">${l}<span class="n">${n(k)}</span></button>`).join('')}</div><span class="grow"></span>${periodPickerHtml('time', null, 'central')}`+
       `<select class="sel ffsel" id="caProj" aria-label="filtrar por projeto">${opt('','Todos os projetos',!f.proj)}${projs.map(p=>opt(p.id, p.name, f.proj===p.id)).join('')}</select>`+
       `<select class="sel ffsel" id="caWhoSel" aria-label="filtrar por pessoa">${opt('','Todas as pessoas',!f.who)}${ppl.map(u=>opt(u, personName(u,{ you:'suffix' }), f.who===u)).join('')}${opt('-','Sem dono',f.who==='-')}</select>`+
-      `<button type="button" class="btn sm ghost ca-refresh" id="caRefresh" title="buscar de novo na nuvem" aria-label="atualizar">${(typeof IC!=='undefined'&&(IC.refresh||IC.retry))||'atualizar'}</button>${typeof kbToggleHtml==='function'?kbToggleHtml(true):''}</div>`;
+      `<button type="button" class="btn sm ghost ca-refresh" id="caRefresh" title="buscar de novo na nuvem" aria-label="atualizar">${(typeof IC!=='undefined'&&(IC.refresh||IC.retry))||'atualizar'}</button>${typeof kbToggleHtml==='function'?kbToggleHtml(true):''}</div>`
+      +(dif?`<div class="ca-perrow"><span class="ts-percount" role="status">${esc(dif)}</span></div>`:'');
+  } else if(tab==='epicos'){
+    const all=caTasks(scope==='minhas'?'time':scope), e0=caEpics(scope==='minhas'?'time':scope), e1=caEpPer(e0, all);
+    const dif=caPerDif(e0.length, e1.length, 'épicos ativos e concluídos');
+    h=`<div class="ca-perrow">${periodPickerHtml('time', null, 'central')}${dif?`<span class="ts-percount" role="status">${esc(dif)}</span>`:''}</div>`;
   }
   if(el.__html===h && (el.firstChild || !h)) return true;
   el.__html=h; el.innerHTML=h;
   el.querySelectorAll('[data-cachip]').forEach(b=>b.onclick=()=>caSetF({ chip:b.dataset.cachip }));
   { const s=el.querySelector('#caProj'); if(s) s.onchange=()=>caSetF({ proj:s.value }); }
   { const s=el.querySelector('#caWhoSel'); if(s) s.onchange=()=>caSetF({ who:s.value }); }
-  { const b=el.querySelector('#caRefresh'); if(b) b.onclick=()=>{ teamTasks=null; teamFetchedAt=0; caRerender(); }; }
+  { const b=el.querySelector('#caRefresh'); if(b) b.onclick=()=>{ teamTasks=null; teamFetchedAt=0; if(typeof taMineStale==='function') taMineStale(); caRerender(); }; }
+  periodPickerWire(el, ()=>{ caRerender(); if(typeof teamPaintSig!=='undefined') teamPaintSig=''; }); // o mesmo período da página Time
   if(typeof kbToggleWire==='function') kbToggleWire(el);
   return true;
 }
@@ -412,10 +432,10 @@ function caBodyOwn(el){
 window.caBodyOwn=caBodyOwn;
 
 // ---- ações das linhas (delegadas: valem na Central do time e nas seções da Minhas) ----
-function caTaskById(id){ return (caSrc()||[]).find(t=>t.id===id); }
+function caTaskById(id){ return (caSrc()||[]).find(t=>t.id===id) || ((typeof caMineSrc==='function'?caMineSrc():null)||[]).find(t=>t.id===id); }
 function caOpen(ct){ const l=caLocalOf(ct); if(l){ selected=l.id; if(typeof openOrEdit==='function') openOrEdit(l); else openWorkspace(l.id); return; } openCloudTaskPage(ct); }
 async function caAct(act, ct, b){
-  const done=()=>{ teamFetchedAt=0; caRerender(); };
+  const done=()=>{ teamFetchedAt=0; if(typeof taMineStale==='function') taMineStale(); caRerender(); };
   switch(act){
     case 'claim': await tsClaimOnly(ct, b); return done();
     case 'assign': await tsReassign(ct, b); return done();

@@ -199,6 +199,24 @@ function entPodeVerCusto(){
 }
 // número da aba: o que ainda não foi entregue (nem cancelado)
 function entAbertas(all){ return (all||[]).filter(t=>!ENT_FN.delivered(t) && !entFora(t, ENT_FN)).length; }
+// o CONJUNTO que a aba mostra (pessoa/épico/situação + período) — a lista e o número da aba usam este (bug 09/10: a aba
+// contava as abertas de sempre e a lista, o que mexeu no período)
+function entConjunto(all, f, modo, r){
+  const pe=modo==='dia'?diaFiltraQuem(entFiltra(all, { epic:f.epic }, ENT_FN), f.who):entFiltra(all, { who:f.who, epic:f.epic }, ENT_FN);
+  const base=modo==='dia'?pe:entBaseEpico(pe, r, ENT_FN.mod, ENT_FN);
+  const vis=modo==='dia'?pe:entFiltra(base, { trav:f.trav, pront:f.pront }, ENT_FN);
+  return { pe, base, vis };
+}
+// número da aba Entregas (Time e Central) = os itens que a aba lista: por épico, as linhas; por dia, as entregas dos dias
+function entTabN(ctx){
+  const all=(ctx&&ctx.all)||[], members=(ctx&&ctx.members)||[], me=entMe(), f=entFiltros(), modo=entModo(), r=periodRange(entPer());
+  if(f.epic && f.epic!=='-' && !(teamEpics||[]).some(e=>e.id===f.epic)) f.epic='';
+  f.who=entWhoValido(f.who, me?[...members, me]:members);
+  const c=entConjunto(all, f, modo, r);
+  if(modo!=='dia') return c.vis.length;
+  if(typeof diaItensDe!=='function' || typeof diaAgrupa!=='function') return 0;
+  return diaAgrupa(diaItensDe(c.pe), r).dias.reduce((s,d)=>s+d.itens.length, 0);
+}
 
 // ---- provas publicadas: UM lote por conjunto de tarefas, quando a aba está aberta ----
 let entProvas={ key:'', m:null, arts:null, busy:false, p:null };
@@ -284,9 +302,7 @@ function entregasHtml(ctx){
   if(all.length) entProvasLoad(all.map(t=>t.id));
   // pessoa e épico escolhidos; no modo por épico, só o que MEXEU no período
   // por dia, a pessoa é quem ENTREGOU (responsável, senão quem criou — diaFiltraQuem); por épico, o responsável
-  const pe=modo==='dia'?diaFiltraQuem(entFiltra(all, { epic:f.epic }, ENT_FN), f.who):entFiltra(all, { who:f.who, epic:f.epic }, ENT_FN);
-  const base=modo==='dia'?pe:entBaseEpico(pe, r, ENT_FN.mod, ENT_FN);
-  const vis=modo==='dia'?pe:entFiltra(base, { trav:f.trav, pront:f.pront }, ENT_FN);
+  const { pe, base, vis }=entConjunto(all, f, modo, r);
   entUltimoCtx[tela]={ all, members, f:{ ...f }, per, range:r, modo, pe, escopo:entEscopo(tela==='central') };
   const nTrav=base.filter(t=>entTravada(t, ENT_FN)).length, nPront=base.filter(t=>entPronta(t, ENT_FN)).length;
   const eps=teamEpics||[];
@@ -294,7 +310,7 @@ function entregasHtml(ctx){
   const opt=(v,l,sel)=>`<option value="${escA(v)}"${sel?' selected':''}>${esc(l)}</option>`;
   const seg=`<span class="en-modo" role="radiogroup" aria-label="como mostrar as entregas">${[['epico','por épico'],['dia','por dia']].map(([k,l])=>`<button type="button" role="radio" aria-checked="${modo===k}" tabindex="${modo===k?0:-1}" class="${modo===k?'on':''}" data-enmodo="${k}">${l}</button>`).join('')}</span>`;
   const mine=!!me && f.who===me;
-  const bar=`<div class="tssub en-bar">${seg}${periodPickerHtml('entregas', per)}
+  const bar=`<div class="tssub en-bar">${seg}${periodPickerHtml('entregas', per, tela==='central'?'central':'')}
     <select class="sel" id="enWho" aria-label="filtrar por pessoa" style="width:150px">${opt('','todas as pessoas',!f.who)}${members.map(u=>opt(u, personName(u,{ you:'suffix' }), f.who===u)).join('')}${opt('-','sem dono',f.who==='-')}</select>
     <select class="sel" id="enEpic" aria-label="filtrar por épico" style="width:190px">${opt('','todos os épicos',!f.epic)}${epA.length?`<optgroup label="ativos">${epA.map(e=>opt(e.id, e.name, f.epic===e.id)).join('')}</optgroup>`:''}${epD.length?`<optgroup label="concluídos">${epD.map(e=>opt(e.id, e.name, f.epic===e.id)).join('')}</optgroup>`:''}${opt('-','sem épico',f.epic==='-')}</select>
     ${me?`<button type="button" class="fchip${mine?' on':''}" data-entmine="1" aria-pressed="${mine}" title="${modo==='dia'?'só o que você entregou':'só o que está com você'}">só minhas</button>`:''}
@@ -329,4 +345,4 @@ function entregasWire(el, onChange){
   el.querySelectorAll('[data-entep]').forEach(b=>{ b.onclick=()=>{ const ep=(teamEpics||[]).find(x=>x.id===b.dataset.entep); if(ep&&window.openEpicPage) openEpicPage(ep); }; });
   { const c=entUltimoCtx[onChange?'central':'time']; if(entModo()==='dia' && typeof diaWire==='function' && c) diaWire(el, c.pe); }
 }
-window.entregasHtml=entregasHtml; window.entregasWire=entregasWire; window.entUltimo=(tela)=>entUltimoCtx[tela||'time']; window.entPodeVerCusto=entPodeVerCusto; window.entAbertas=entAbertas;
+window.entregasHtml=entregasHtml; window.entregasWire=entregasWire; window.entUltimo=(tela)=>entUltimoCtx[tela||'time']; window.entPodeVerCusto=entPodeVerCusto; window.entAbertas=entAbertas; window.entTabN=entTabN;

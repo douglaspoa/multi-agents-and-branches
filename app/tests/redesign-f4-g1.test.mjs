@@ -202,7 +202,7 @@ test('Regras (inventário 13): checagens e proteção SEM conta; documento com a
 });
 test('Issues: abas Quadro · Nova issue · Conexão; endereço base das issues na Conexão; lista ou colunas', () => {
   const i = read('js/14-issues-projeto.js');
-  assert.match(i, /tabs:pageTabs\('trk', \[\['board','Quadro',ready\?trkIssues\.length:null\],\['nova','Nova issue'\],\['conn','Conexão'\]\], trkView\)/);
+  assert.match(i, /tabs:pageTabs\('trk', \[\['board','Quadro',ready\?\(nPer!=null\?nPer:trkIssues\.length\):null\],\['nova','Nova issue'\],\['conn','Conexão'\]\], trkView\)/); // a aba conta o período (time-ativo)
   assert.match(i, /function trkNIOpen\(\)\{ trkView='nova'; trkSel=null; if\(window\.openTab\) window\.openTab\('issues',\{ sub:'nova' \}\); \}/);
   assert.match(i, /id="trkIssueBase" value="\$\{escA\(lsGet\('issueBase'\)\|\|''\)\}"/);
   assert.match(i, /function trkListHtml\(rows\)\{/);
