@@ -155,3 +155,15 @@
 .orq-msg>span{flex:1;min-width:0}
 .orq-msg.err{background:color-mix(in srgb,var(--st-err,var(--crit)) 8%,transparent);border:1px solid color-mix(in srgb,var(--st-err,var(--crit)) 25%,var(--border));color:var(--text-2)}
 .orq-msg .btn{flex:none}
+/* pedido formatado (Confira o pedido / vista Markdown): o markdown do usuário/IA não herda o rótulo em caixa alta nem o âmbar do "aguardando" */
+#ntOverlay #ntMdPrev .mdlite h1,#ntOverlay #ntMdPrev .mdlite h2,#ntOverlay #ntMdPrev .mdlite h3,#ntOverlay #ntMdPrev .mdlite h4,#ntOverlay #ntMdPrev .mdlite h5,#ntOverlay #ntMdPrev .mdlite h6{font:600 1em/1.4 var(--display,inherit);letter-spacing:0;text-transform:none;color:var(--text-2);margin:10px 0 3px}
+#ntOverlay #ntMdPrev .mdlite em{color:inherit}
+#ntOverlay .listrow .mdprevbox{flex:1;min-width:0}
+.en-how.mdlite{white-space:normal}
+.en-obj.mdlite{max-width:72ch}
+.plplan .ppobj.mdlite p{margin:0 0 3px}.plplan .ppobj.mdlite ul,.plplan .ppobj.mdlite ol{margin:2px 0 3px}
+.plplan .ppverify .mdprevbox{display:inline-block;vertical-align:middle;min-width:200px;max-width:100%}
+.plplan .ppdwrow .mdprevbox{flex:1;min-width:0}
+/* faixas recolhidas que agora recebem markdown em bloco: o line-clamp do WebKit não corta blocos aninhados — teto de altura junto */
+.fwwhy:not(.open) .fwwhyt{max-height:4.7em}
+html.sfpane .en-obj.mdlite{max-height:3.2em;overflow:hidden}

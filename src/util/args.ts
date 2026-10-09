@@ -19,21 +19,25 @@ export const TEXT_FLAGS = new Set([
   // task edit / epic edit (src/agent-edits.ts)
   "req-add", "req-remove", "deliv-add", "note", "by-agent", "by-task", "description", "outcome", "done-when-add", "done-when-remove",
   "patch", "undo", "edit-id", "reject", "by-role",
+  // epic new / link / apply-link (src/epic-requests.ts)
+  "tasks", "epic-title", "wait", "card", "para",
   // claude-statusline install (src/claude-statusline.ts)
   "node",
   // piloto automático (src/autopilot.ts)
   "idea", "dir", "name", "platform", "parallel", "attempts", "budget-usd", "plan",
   // modo terminal (src/terminal.ts)
-  "starfork-task", "term-mode", "deliver", "ai",
+  "starfork-task", "term-mode", "deliver", "ai", "run",
   // F5: política da organização (P14) e teto da amostra (P15)
   "org-policy", "cap",
   // conselheiro (advisor do Claude Code, src/advisor.ts)
   "advisor",
+  // revisão: pedir alteração / etapa extra (src/revisao-alteracao.ts)
+  "req",
 ]);
 
 /** Flags SEM valor (booleanas). */
 export const BOOL_FLAGS = new Set([
-  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design", "resume",
+  "json", "no-wait", "no-git", "stop", "status", "as-req", "no-start", "light", "hitl", "artifact-proof", "artifact-tests", "no-tests", "no-overlap-check", "with-design", "resume", "quiet", "clear", "nova-sessao", "so-pr",
 ]);
 
 const isKnownFlag = (tok: string) => tok.startsWith("--") && (TEXT_FLAGS.has(tok.slice(2)) || BOOL_FLAGS.has(tok.slice(2)) || tok === "--artifact-doc");

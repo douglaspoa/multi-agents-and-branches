@@ -66,27 +66,27 @@ function ctPageRender(){
   const proofsHtml = imgs.length
     ? `<div class="en-proofs">${imgs.map((a,i)=>{ const th=c.urls[a.storage_path]; return `<button class="en-proof" data-lb="${i}" title="${escA(a.name)}">${th?`<img src="${escA(th)}" alt="">`:`<span class="en-ph">${IC.image}</span>`}<span class="en-pn">${esc(a.name)}</span>${evidenceNames.has(String(a.name).split('/').pop())?'<span class="en-pv">evidência</span>':''}</button>`; }).join('')}</div>`
     : `<div class="en-empty">${c.loaded?'nenhum print publicado — quem executa publica as provas pelo botão "publicar provas pro time" na tarefa dele':skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando as provas' })}</div>`;
-  const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${esc(r.text)}</div>${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>{ const a=findArt(e); return a?`<button class="reqevb mono" data-cart="${escA(a.storage_path)}" data-cname="${escA(a.name)}">${esc(e)}</button>`:`<span class="reqevb mono" title="essa evidência ainda não foi publicada pro time" style="opacity:.5;cursor:default">${esc(e)}</span>`; }).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem requisitos no cartão</div>';
+  const reqHtml = rows.length ? rows.map(r=>`<div class="en-req ${r.st}"><span class="reqst ${r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div>${mdInline(r.text)}</div>${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>{ const a=findArt(e); return a?`<button class="reqevb mono" data-cart="${escA(a.storage_path)}" data-cname="${escA(a.name)}">${esc(e)}</button>`:`<span class="reqevb mono" title="essa evidência ainda não foi publicada pro time" style="opacity:.5;cursor:default">${esc(e)}</span>`; }).join('')}</div>`:''}${r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div></div>`).join('') : '<div class="en-empty">sem requisitos no cartão</div>';
   const docIc=n=>/\.pdf$/i.test(n)?'PDF':/\.html?$/i.test(n)?'HTML':/\.md$/i.test(n)?'MD':/\.json$/i.test(n)?'JSON':'TXT';
   const docsHtml = docs.length
     ? docs.map(a=>`<div class="en-doc"><span class="en-dic">${docIc(a.name)}</span><span class="en-dn">${esc(a.name)}<span class="en-dd">${a.created_at?'há '+agoTx(a.created_at):''}${a.size?' · '+(a.size<1024?a.size+' B':Math.round(a.size/1024)+' KB'):''}</span></span><span class="en-dacts"><button class="btn sm ghost" data-cart="${escA(a.storage_path)}" data-cname="${escA(a.name)}">abrir</button><button class="btn sm ghost" data-cdl="${escA(a.storage_path)}" title="abrir no navegador (link assinado, 1h)">↗</button></span></div>`).join('')
     : `<div class="en-empty">${c.loaded?'nenhum documento publicado ainda':skeletonHtml('lista',{ n:2, compact:true, inline:true, label:'carregando os documentos' })}</div>`;
   const dels=(sp.deliverables||[]).filter(Boolean);
-  const K={created:'criou o cartão',edited:'editou o cartão',claimed:'assumiu',released:'liberou',started:'iniciou',delivered:'publicou provas',comment:'comentou',status:'mudou o status'};
+  const K={created:'criou o cartão',edited:'editou o cartão',claimed:'assumiu',released:'devolveu',assigned:'atribuiu a alguém',started:'iniciou',delivered:'publicou provas',comment:'comentou',status:'mudou o status'};
   const act=c.act||[];
   const timeline = act.length
     ? `<div class="stepper">${act.map((a,i)=>{ const last=i===act.length-1; return `<div class="step ${last?'cur':'done'}" style="cursor:default"><span class="smark">${last?'●':'✓'}</span><span class="stx"><span class="srole" style="text-transform:none">${esc(tmName(a.user_id))} · ${esc(K[a.kind]||a.kind)}</span><span class="sname">${esc(new Date(a.at).toLocaleString('pt-BR'))}${a.body?' — '+esc(String(a.body).slice(0,160)):''}</span></span></div>`; }).join('')}</div>`
     : `<div class="en-empty">${c.loaded?'sem atividade registrada':skeletonHtml('lista',{ n:3, compact:true, inline:true, label:'carregando a atividade' })}</div>`;
-  const note = ct.last_note ? `<div class="seclbl2" style="margin-top:14px">Última nota do agente${ct.stage?` <span class="dim">· ${esc(ct.stage)}</span>`:''}</div><div class="en-how">${esc(ct.last_note)}</div>` : '';
+  const note = ct.last_note ? `<div class="seclbl2" style="margin-top:14px">Última nota do agente${ct.stage?` <span class="dim">· ${esc(ct.stage)}</span>`:''}</div><div class="en-how mdlite">${mdToHtml(ct.last_note)}</div>` : '';
   // F4 (G1, mesa tela 25): "Tarefa do colega" no padrão de página — título UMA vez, selo "Time · leitura", custo em
   // US$ (≈ R$) como no resto; revisar com agente (PR aberto) é a ação primária; ↻ no ⋯; Esc não fecha a aba
   const proj=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||'';
-  main.innerHTML=`<div class="enpage">${pageHead({ title:ct.title||'Tarefa do colega', scope:'time', scopeLabel:'leitura', sum:`${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''} · tarefa de ${esc(tmName(who))}${proj?' · '+esc(proj):''}`,
+  main.innerHTML=`<div class="enpage">${pageHead({ title:mdTitle(ct.title||'')||'Tarefa do colega', scope:'time', scopeLabel:'leitura', sum:`${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''} · tarefa de ${esc(tmName(who))}${proj?' · '+esc(proj):''}`,
       primary:(prN&&!done)?{ id:'ctpReview', label:'Revisar com agente' }:null, more:{ id:'ctPageMore', title:'Atualizar · editar · cancelar' } })}
     <div class="en-head">
       <div class="en-ht">
-        ${sp.objective?`<p class="en-obj">${esc(sp.objective)}</p>`:''}
-        <div class="ctp-who">${tsAv(who, tsOnline(who))}<span>${ct.assignee?'com <b>'+esc(tmName(ct.assignee))+'</b> · ':''}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span>${ct.status==='backlog'?`<button class="btn sm primary" id="ctpStart" title="assumir e iniciar agora nesta máquina">▶ iniciar</button>`:''}${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button><button class="btn sm ghost" id="ctpCancel" title="remover do backlog do time">✕ cancelar</button>`:''}</div>
+        ${sp.objective?`<div class="en-obj mdlite">${mdToHtml(sp.objective)}</div>`:''}
+        <div class="ctp-who">${ct.assignee?tsAv(ct.assignee, tsOnline(ct.assignee)):'<span class="tsav tmfree" aria-hidden="true">·</span>'}<span>${ct.assignee?'com <b>'+esc(ct.assignee===me?'você':tmName(ct.assignee))+'</b> · ':'<b>sem dono</b> · '}criada por <b>${esc(tmName(ct.created_by))}</b>${ct.branch?' · <span class="mono">'+esc(ct.branch)+'</span>':''}</span><span class="ctp-acts">${ctpActsHtml(ct, me)}</span>${canEdit?`<button class="btn sm ghost" id="ctpEdit">editar cartão</button><button class="btn sm ghost" id="ctpCancel" title="remover do backlog do time">✕ cancelar</button>`:''}</div>
       </div>
       <div class="en-kpis">
         ${prN?`<button class="en-kpi" data-lk="${escA(ct.pr_url)}"><b>PR #${prN}</b><span>${done?'mergeado':'aberto'} ↗</span></button>`:''}
@@ -96,7 +96,7 @@ function ctPageRender(){
       </div>
     </div>
     <div class="en-grid">
-      <section class="en-sec"><div class="seclbl2">Entregáveis <span class="dim">· requisitos e a prova de cada um</span></div>${reqHtml}${dels.length?`<div class="seclbl2" style="margin-top:14px">Escopo combinado</div>${dels.map(x=>`<div class="en-del">◆ ${esc(x)}</div>`).join('')}`:''}${note}</section>
+      <section class="en-sec"><div class="seclbl2">Entregáveis <span class="dim">· requisitos e a prova de cada um</span></div>${reqHtml}${dels.length?`<div class="seclbl2" style="margin-top:14px">Escopo combinado</div>${dels.map(x=>`<div class="en-del">◆ ${mdInline(x)}</div>`).join('')}`:''}${note}</section>
       <section class="en-sec"><div class="seclbl2">Provas <span class="dim">· prints publicados por ${esc(tmName(who))}</span></div>${proofsHtml}
         <div class="seclbl2" style="margin-top:16px">Documentos</div>${docsHtml}</section>
     </div>
@@ -118,9 +118,22 @@ function ctPageRender(){
       { label:'Atualizar', hint:'da nuvem', act:()=>ctPageLoad(ct.id, true).then(()=>{ if(ctpTask&&ctpTask.id===ct.id) ctPageRender(); }) },
       ...(ct.pr_url?[{ label:'Abrir o PR', hint:prN?'#'+prN:'', act:()=>openExternal(ct.pr_url) }]:[]),
       ...(canEdit?[{ label:'Editar cartão', act:()=>openCloudTask(ct) }, { label:'Cancelar cartão…', danger:true, act:()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); } }]:[]) ]); }
-  bindClick('ctpStart', ()=>{ if(window.epCardStart) epCardStart(ct, $id('ctpStart')); else teamClaimStart(ct, $id('ctpStart')); });
+  // assumir / iniciar / devolver / trocar — as MESMAS regras e ações do cartão no quadro do Time (43: tsActsHtml)
+  main.querySelectorAll('.ctp-acts [data-act]').forEach(b=>b.onclick=async()=>{ const a=b.dataset.act;
+    if(a==='claim'){ if(window.epCardStart) await epCardStart(ct, b); else await teamClaimStart(ct, b); }
+    else if(a==='claimonly') await tsClaimOnly(ct, b); else if(a==='release') await tsRelease(ct, b); else if(a==='reassign') await tsReassign(ct, b);
+    else if(a==='openproj' && typeof epOpenProjectOf==='function') epOpenProjectOf((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{});
+    ctPageLoad(ct.id, true).then(()=>{ if(ctpTask&&ctpTask.id===ct.id) ctPageRender(); }); });
   bindClick('ctpCancel', ()=>{ if(window.epCardCancel) epCardCancel(ct); else teamDeleteCard(ct); });
   { const h=$id('ctPageName'); if(h) h.textContent=ct.title; const s=$id('ctPageSub'); if(s) s.textContent=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||''; }
+}
+function ctpActsHtml(ct, me){
+  if(typeof tsActsHtml!=='function') return '';
+  const proj=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||null);
+  if(ct.project_id && !proj) return tsActsHtml(ct, me, ct.status==='backlog' && (ct.claim_mode==='open'||ct.created_by===me), false, false, {}); // projeto ainda não carregado: só assumir/devolver (nunca iniciar no repo errado)
+  const sameRepo=!proj.repo_remote||remoteSame(proj.repo_remote, (typeof teamRepoIds!=='undefined'&&teamRepoIds)||{ remote:(typeof teamRepoRemote!=='undefined'?teamRepoRemote:'') });
+  const here=((typeof localRemoteList!=='undefined'&&localRemoteList)||[]);
+  return tsActsHtml(ct, me, ct.status==='backlog' && (ct.claim_mode==='open'||ct.created_by===me), sameRepo, sameRepo||ctProjLocal(proj, here), proj);
 }
 // Abre um artefato PUBLICADO (Storage) no mesmo visualizador dos artefatos locais.
 async function openCloudArtifact(storagePath, name){

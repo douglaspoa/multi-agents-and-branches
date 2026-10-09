@@ -200,6 +200,8 @@ export class Store {
       "ALTER TABLE pending ADD COLUMN meta TEXT",
       // terminal integrado (shell): qual IA está rodando DENTRO do shell agora ('' = só o shell, no prompt)
       "ALTER TABLE term_session ADD COLUMN cli TEXT",
+      // terminal sempre vivo (09/10): a IA está num menu/permissão/pergunta — o app NÃO cola pedido nela agora
+      "ALTER TABLE term_session ADD COLUMN waiting INTEGER",
     ]) {
       try {
         this.db.exec(stmt);
@@ -488,6 +490,10 @@ export class Store {
   termSetSession(taskId: string, sessionId: string): void {
     this.db.prepare(`INSERT INTO term_session (task_id, session_id, updated_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET session_id = excluded.session_id, updated_at = excluded.updated_at`).run(taskId, sessionId, Date.now());
     this.setSession(taskId, sessionId);
+  }
+  /** A IA está esperando a pessoa num menu/permissão/pergunta (o app segura os pedidos na fila dele até sair). */
+  termSetWaiting(taskId: string, waiting: boolean): void {
+    this.db.prepare(`INSERT INTO term_session (task_id, waiting, updated_at) VALUES (?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET waiting = excluded.waiting, updated_at = excluded.updated_at`).run(taskId, waiting ? 1 : 0, Date.now());
   }
   /** IA rodando no shell do terminal (`starfork ia` grava ao abrir; '' ao sair). */
   termSetCli(taskId: string, cli: string): void {

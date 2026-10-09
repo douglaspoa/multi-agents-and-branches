@@ -278,6 +278,12 @@ export interface ReportData {
   runs: Pick<RoleRun, "role" | "agentId" | "name" | "version" | "engine" | "model">[];
   /** F5 · P14: as regras da política da organização que valiam na tarefa (ausente = sem política) */
   orgPolicy?: string[];
+  /** provas publicadas no branch `starfork-provas` (pr-provas.ts): nome da evidência → link (imagem vira miniatura) */
+  proofs?: Record<string, { url: string; kind: "img" | "video" }>;
+  /** por que as provas não foram anexadas (ou o que ficou de fora) — vai em itálico abaixo da tabela */
+  proofNote?: string;
+  /** etapas extras da revisão ("Passou pelo agente de design (Aria): …") — já formatadas por extraReportLines */
+  extraLines?: string[];
 }
 const ROLE_PT: Record<string, string> = { planner: "plano", builder: "construção", reviewer: "revisão", designer: "design", docs: "escrita", tester: "testes", retro: "retro", investigator: "investigação" };
 const md = (s: string) => String(s ?? "").replace(/\|/g, "\\|").replace(/\s+/g, " ").trim();
@@ -286,16 +292,21 @@ export function starforkReport(d: ReportData): string {
   const L: string[] = ["## Relatório Starfork", ""];
   if (d.requirements.length) {
     L.push("**Requisitos × provas**", "", "| Requisito | Prova |", "|---|---|");
-    for (const r of d.requirements) L.push(`| ${md(r.text)} | ${r.status === "provado" ? `provado — ${r.evidence.map((e) => "`" + md(e) + "`").join(", ") || "evidência no disco"}` : r.status} |`);
+    const lk = d.proofs ?? {};
+    const code = (e: string) => "`" + md(e) + "`";
+    // com prova publicada: miniatura clicável (imagem) / link (vídeo) + o nome como legenda; sem: a lista de nomes
+    const cell = (r: ReportData["requirements"][number], i: number) => r.status !== "provado" ? r.status
+      : !r.evidence.some((e) => lk[e]) ? `provado — ${r.evidence.map(code).join(", ") || "evidência no disco"}`
+      : "provado<br>" + r.evidence.map((e) => !lk[e] ? code(e) : lk[e].kind === "img" ? `![R${i + 1}](${lk[e].url})<br>${code(e)}` : `[▶ ${md(e)}](${lk[e].url})`).join("<br>");
+    d.requirements.forEach((r, i) => L.push(`| ${md(r.text)} | ${cell(r, i)} |`));
     L.push("");
+    if (Object.keys(lk).length) L.push("*Provas no branch `starfork-provas` deste repositório (fora do código do PR) — clique na miniatura pra ver no tamanho real.*", "");
   }
+  if (d.proofNote) L.push(`*${md(d.proofNote)}*`, "");
   if (d.noProofReason) L.push(`**Aprovado sem prova**${d.noProofBy ? ` por ${md(d.noProofBy)}` : ""}: ${md(d.noProofReason)}`, "");
   if (d.reviewOverride) L.push(`**Seguiu sem nova revisão:** ${md(d.reviewOverride)}`, "");
   if (d.rounds.length) L.push(`**Revisão:** ${d.rounds.map((r) => `rodada ${r.round} (${md(r.reviewer)}) — ${r.verdict === "aprova" ? "aprova" : r.verdict === "muda" ? `muda (${r.items.length})` : "ilegível"}`).join(" · ")}`, "");
-  const per = d.costByRole.filter((c) => c.usd > 0).map((c) => `${ROLE_PT[c.role] ?? c.role} (${md(c.name)}) ${fmtUsdBr(c.usd)}`).join(" · ");
-  // capUsd 0 só existe no piloto com `--budget-usd 0` (sem teto por escolha explícita, mantido por compatibilidade)
-  L.push(`**Custo:** ${fmtUsdBr(d.totalUsd)} ${d.capUsd > 0 ? `de ${fmtUsdBr(d.capUsd)} de teto` : "— sem teto (explícito)"}${per ? ` — ${per}` : ""}`, "");
-  if (d.releases.length) L.push("**Liberações de teto**", "", ...d.releases.map((r) => `- +${fmtUsdBr(r.usd)} (teto ${fmtUsdBr(r.capBefore)} → ${fmtUsdBr(r.capAfter)}): ${md(r.reason)}`), "");
+  for (const x of d.extraLines ?? []) L.push(x, "");
   if (d.runs.length) L.push(`**Versões:** ${d.runs.map((r) => `${ROLE_PT[r.role] ?? r.role} \`${runTag(r)}\``).join(" · ")}`, "");
   if (d.orgPolicy?.length) L.push(`**Política da organização:** ${d.orgPolicy.map(md).join(" · ")}`, "");
   return L.join("\n").trimEnd() + "\n";

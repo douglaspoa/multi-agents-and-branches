@@ -595,6 +595,12 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .ep-task .en-rt{ flex:1; min-width:0; }
 .ep-acts{ display:flex; gap:6px; align-items:center; flex:none; }
 .ep-acts .btn{ padding:3px 9px; font-size:var(--fs-xs); }
+/* "Iniciar épico" na página: à direita do título da lista, sem herdar a caixa-alta do rótulo */
+.en-sec .seclbl2.ep-taskshead{ justify-content:space-between; flex-wrap:wrap; row-gap:6px; }
+.ep-taskshead .ep-start{ margin-left:auto; display:inline-flex; }
+.ep-taskshead .ep-start .btn{ font:500 var(--fs-sm) var(--ui); letter-spacing:0; text-transform:none; gap:6px; }
+.epqh .btn.epstart{ gap:5px; }
+.btn.epstart[aria-busy="true"]{ cursor:progress; opacity:.7; }
 .ep-wave{ cursor:help; }
 .ep-wave.cur{ color:var(--st-run); }
 

@@ -23,7 +23,7 @@ function makeCtx() {
   const writes = [];
   class FakeTerm {
     constructor(o) { this.opts = o; this.cols = 100; this.rows = 30; this.out = []; writes.push(this.out); }
-    loadAddon(a) { this.addon = a; } open(el) { this.el = el; } onData(fn) { this.onDataFn = fn; }
+    loadAddon(a) { this.addon = a; } open(el) { this.el = el; } onData(fn) { const p = this.onDataFn; this.onDataFn = p ? (d) => { p(d); fn(d); } : fn; }
     write(d) { this.out.push(d); } reset() { this.out.length = 0; this.out.push('<reset>'); } focus() {}
   }
   class FakeFit { fit() {} }
@@ -66,7 +66,8 @@ test('montar: liga eventos, pinta o histórico e escreve o que chegou DURANTE o 
   listeners['term-data']({ payload: { taskId: 't1', data: 'DEPOIS' } }); // chegou antes da resposta do attach
   release({ alive: true, data: 'HISTORICO' });
   await tick(); await tick();
-  assert.deepEqual(st.term.out, ['<reset>', 'HISTORICO', 'DEPOIS']);
+  // um write só: RIS + retrato + o que chegou no meio (reset() + write assíncrono pintava um quadro vazio)
+  assert.deepEqual(st.term.out, ['\x1bcHISTORICODEPOIS']);
   listeners['term-data']({ payload: { taskId: 't1', data: 'ao vivo' } });
   assert.equal(st.term.out.at(-1), 'ao vivo');
   assert.ok(calls.some(([c, a]) => c === 'term_resize' && a.cols === 100 && a.rows === 30), 'PTY no tamanho do xterm');
@@ -143,7 +144,8 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   ctx.__answers.term_attach = { alive: true, data: 'VIVO' };
   ctx.termGoLive('t1'); await tick(); await tick();
   assert.equal(st.mode, 'live');
-  assert.deepEqual(st.term.out, ['<reset>', 'VIVO']);
+  assert.equal(st.term.out.at(-1), '\x1bcVIVO', 'troca num write só, sem reset() antes');
+  assert.ok(!st.term.out.includes('<reset>'));
   // o terminal fechou: volta pro histórico (rascunho sem nada gravado → "abrir terminal")
   ctx.state.tasks[0].status = 'draft';
   ctx.__answers.term_history = { source: 'none', items: [], stamp: '' };
@@ -152,7 +154,7 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   assert.match(st.bar.innerHTML, /abrir terminal/);
 });
 
-test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos sozinhos pedem automático', () => {
+test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos sozinhos rodam no terminal', () => {
   const ws = src('20-workspace-tarefa.js');
   assert.match(ws, /function fwPaintThread\(t\)\{ const th=\$id\('fwThread'\); if\(!th\|\|!t\|\|th\.dataset\.term\) return;/);
   assert.match(ws, /if\(th && !th\.dataset\.term\)/);
@@ -161,9 +163,10 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t, sheetGrab, termHadFocus\);[^\n]*\} else termSweep\(\);/);
   // terminal integrado (64): o dock (sugestões/anexar/botões) entra entre o terminal e o compositor
   assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}<div id="tlBudget">\$\{tlBudgetHtml\(t\)\}<\/div>\$\{typeof tiDockHtml==='function'\?tiDockHtml\(t\):''\}\$\{composer\}/);
-  assert.match(src('34-orquestrador.js'), /termMode:'auto', start:startNow/);
-  assert.match(src('59-ideia.js'), /payload\.termMode='auto'/);
-  assert.match(src('43-espaco-times.js'), /if\(opts\.auto\) payload\.termMode='auto'/);
+  // terminal sempre vivo (09/10): os caminhos que começam SOZINHOS não pedem mais automático — rodam no terminal
+  assert.doesNotMatch(src('34-orquestrador.js'), /termMode:'auto'/);
+  assert.doesNotMatch(src('59-ideia.js'), /payload\.termMode='auto'/);
+  assert.doesNotMatch(src('43-espaco-times.js'), /payload\.termMode='auto'/);
   assert.match(src('32-planner.js'), /teamClaimStart\(c\.row, null, \{ auto:true \}\)/);
   assert.match(src('46-epico-time.js'), /teamClaimStart\(ct, null, \{ silent:true, auto:true \}\)/);
   const cfg = src('67-ajustes.js'); // F4 · G3: Ajustes › Como as tarefas rodam

@@ -550,6 +550,28 @@ textarea.plfv{resize:vertical;line-height:1.5}
 .mdview pre.mdcode code{background:none;padding:0}
 .mdview a{color:var(--accent)} .mdview hr{border:none;border-top:1px solid var(--border);margin:14px 0}
 .mdview strong{font-weight:700} .mdview h1,.mdview h2{border-bottom:1px solid var(--border);padding-bottom:5px}
+/* markdown LEVE (fluxo de criar demanda, cartões, Entrega): medida ~72ch, títulos discretos, listas, código em mono */
+.mdlite{max-width:72ch;line-height:1.55;overflow-wrap:anywhere}
+.mdlite>:first-child{margin-top:0}.mdlite>:last-child{margin-bottom:0}
+.mdlite p{margin:0 0 6px}
+.mdlite ul,.mdlite ol{margin:4px 0 6px;padding-left:20px}.mdlite li{margin:2px 0}.mdlite li::marker{color:var(--text-3,var(--muted))}
+.mdlite h1,.mdlite h2,.mdlite h3,.mdlite h4,.mdlite h5,.mdlite h6{font-size:1em;font-weight:600;color:var(--text-2,var(--text));margin:10px 0 3px;border:0;padding:0;letter-spacing:0;text-transform:none}
+.mdlite code{font-family:var(--mono,ui-monospace,monospace);font-size:.88em;background:var(--surface-3);padding:1px 5px;border-radius:5px}
+.mdlite pre.mdcode{font-family:var(--mono,ui-monospace,monospace);font-size:.86em;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm,6px);padding:8px 11px;margin:4px 0 8px;overflow-x:auto;line-height:1.45;white-space:pre}
+.mdlite pre.mdcode code{background:none;padding:0;font-size:1em}
+.mdlite a{color:var(--accent)}.mdlite strong{font-weight:650;color:inherit}.mdlite hr{border:0;border-top:1px solid var(--border);margin:8px 0}
+.mdlite .mdtablew{overflow-x:auto}.mdlite table{border-collapse:collapse;font-size:.92em}.mdlite th,.mdlite td{border:1px solid var(--border);padding:3px 7px;text-align:left}
+/* prévia de campo editável: parece o campo, mostra o texto formatado; "editar" volta pro campo (mdPrevSync) */
+.mdprevbox{border:.5px solid var(--border-strong,var(--border));border-radius:var(--r-sm,8px);background:var(--surface);padding:8px 11px;font-size:var(--fs-sm);cursor:text;min-height:34px;max-height:340px;overflow:auto;display:flow-root}
+.mdprevbox:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--border))}
+.mdprevbox.inl{display:flex;align-items:baseline;gap:8px;padding:6px 6px 6px 10px;min-height:0}
+.mdprevbox.inl .mdprev-b{flex:1;min-width:0}
+.mdprevbox.ro{cursor:default}
+.mdprevbox[hidden]{display:none}
+.mdprev-ed{float:right;margin:0 0 4px 10px;font:500 var(--fs-xs) var(--display,inherit);color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:1px 8px;cursor:pointer}
+.mdprev-ed:hover{color:var(--text);border-color:var(--accent)}
+.mdprev-ed:focus-visible{color:var(--text);outline:2px solid transparent;box-shadow:var(--ring)}
+.mdprevbox.inl .mdprev-ed{float:none;margin:0;flex:none;order:2;padding:1px 5px;line-height:1}.mdprevbox.inl .mdprev-ed svg{margin-right:0!important}
 .pipe .st b{color:var(--text-2);text-transform:none;letter-spacing:0}
 .pipe .st.cur b{color:var(--accent)}
 /* review humano */

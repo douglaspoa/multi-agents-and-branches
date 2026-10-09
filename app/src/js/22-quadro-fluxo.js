@@ -185,6 +185,7 @@ function flowOtherFiltersOk(t, skip){
 }
 function renderFlowFilters(){
   const el=$id('flowFilters'); if(!el) return;
+  if(typeof caFiltersOwn==='function' && caFiltersOwn(el)) return; // alcance do time / Épicos / Entregas: a barra é do 71
   // preserva foco/caret da busca (o poll pode re-renderizar durante digitação)
   const ae=document.activeElement, wasSearch=ae&&ae.id==='ffSearch', caret=wasSearch?ae.selectionStart:0;
   // os chips contam SÓ o que a aba atual (Execução/Concluídas) mostra — senão "Review 29" aparece
@@ -496,7 +497,10 @@ function renderFlowHead(){
     sum=`<b>${done.length}</b> ${done.length===1?'entrega':'entregas'}${prs?` · <b>${prs}</b> ${prs===1?'PR':'PRs'}`:''}${canc?` · ${canc} ${canc===1?'cancelada':'canceladas'}`:''}`;
   } else sum=centralSumHtml(fc);
   const scope=(typeof projList==='function' && projList().length>1 && projFilter==='all')?'todos os projetos':(projFilter!=='all'?projShort(projFilter):pathBase(state.repo||''));
-  put(pageHead({ title:'Central', scope:'computador', scopeLabel:scope, sum, right:'<span id="coordChip" class="coordchip"></span>' }));
+  // Central com alcance (71): Minhas · Do time · Org toda + abas Tarefas/Épicos/Entregas; sem time = o cabeçalho de sempre
+  const ca=(typeof caHead==='function')?caHead({ sum, scopeLabel:scope }):null;
+  put(ca || pageHead({ title:'Central', scope:'computador', scopeLabel:scope, sum, right:'<span id="coordChip" class="coordchip"></span>' }));
+  if(ca && typeof caWireHead==='function') caWireHead(el);
 }
 // % de conclusão da tarefa: fase + requisitos PROVADOS puxam a barra
 function taskPct(t){
@@ -527,7 +531,7 @@ function pvChips(t, withLabel){
 async function openTaskSummary(taskId){
   const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
   $id('sumOverlay').style.display='flex';
-  $id('sumTitle').textContent=t.title;
+  $id('sumTitle').textContent=mdTitle(t.title||'');
   $id('sumBody').innerHTML='<div class="dim" style="font-size:var(--fs-sm)">montando o resumo…</div>';
   $id('sumClose').onclick=()=>{ $id('sumOverlay').style.display='none'; };
   if(reqProofCache[t.id]===undefined) await loadReqProofs(t.id).catch(()=>{});
@@ -561,7 +565,7 @@ function renderTaskSummary(t){
       <b style="font-size:15px;font-variant-numeric:tabular-nums">${pct}%</b>
     </div>
     <div class="dim" style="font-size:var(--fs-xs);margin-bottom:12px">fase atual: <b>${esc(PHASES[ph-1])}</b> · ${esc(t.branch||'')}${cost.usd>0?' · '+fmtCost(cost.usd):''}</div>
-    ${t.objective?`<div class="seclbl2">Objetivo</div><div style="font-size:var(--fs-sm);margin-bottom:12px">${esc(t.objective)}</div>`:''}
+    ${t.objective?`<div class="seclbl2">Objetivo</div><div class="mdlite" style="font-size:var(--fs-sm);margin-bottom:12px">${mdToHtml(t.objective)}</div>`:''}
     <div class="seclbl2">O que já foi feito</div>
     ${reqs.length?reqs.map((r,i)=>{ const ok=m[i]&&m[i].status==='done'; return `<div style="display:flex;gap:8px;font-size:var(--fs-sm);padding:4px 0"><span style="color:${ok?'var(--good)':'var(--muted)'};flex:none">${ok?IC.ok:IC.stQueue}</span><span${ok?'':' style="color:var(--muted)"'}>${esc(r)}</span>${ok&&m[i].evidence&&m[i].evidence.length?`<span class="dim mono" style="font-size:var(--fs-xs);align-self:center">${esc(String(m[i].evidence[0]).slice(0,28))}</span>`:''}</div>`; }).join(''):''}
     ${dels.length?`<div style="margin-top:6px">${li(dels,icEm(IC.doc),'var(--info)')}</div>`:''}
@@ -631,6 +635,11 @@ function openTaskMenu(taskId, anchor){
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}), false, stIcon('review'));
   if(t.status!=='merged' && taskOffersMerge(t)) item('marcar como integrada (merge feito)', ()=>invoke('mark_task_status',{taskId,status:'merged'}), false, icEm(IC.merge));
   // E9 (bug #19): "em andamento" sem processo deixava um card "rodando" fantasma — agora o agente volta a trabalhar (pergunta antes)
+  // pronta pra revisar: a MESMA caixa do cabeçalho da tarefa (71-revisao-alteracao) — cartões e linha da Central
+  if(typeof rqCanAsk==='function' && rqCanAsk(t)){
+    item('pedir alteração…', ()=>rqOpen(taskId), false, IC.pencil, { stay:true, title:'o agente desta tarefa continua na mesma branch' });
+    item('chamar outro agente…', ()=>rqOpen(taskId, { mode:'agente' }), false, IC.ai, { stay:true, title:'design, revisor, testes… como etapa extra' });
+  }
   if(['review','delivered'].includes(t.status)) item('voltar pra em andamento · o agente continua', ()=>taskBackToRunning(taskId), false, IC.retry);
   if(t.flag!=='blocked') item('bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}), false, stIcon('blocked'));
   else item('desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}), false, IC.unlock);
@@ -741,8 +750,8 @@ function flowEpicGroupsHtml(src, epHtml){
   }
   if(q) [...by.keys()].forEach(eid=>{ if(!(nameOf(eid).toLowerCase().includes(q) || by.get(eid).some(t=>(t.title||'').toLowerCase().includes(q)))) by.delete(eid); });
   if(!by.size) return epHtml;
-  const groups=[...by.keys()].map(eid=>`<div class="epqep" style="--epc:${epColor(eid)}"><div class="epqh" style="cursor:default" title="todas as tarefas deste épico já começaram — cada ponto abre uma">`+
-    `<span class="secchev">${IC.epic}</span><span class="tsepc epqname">${esc(nameOf(eid))}</span><span class="epqsum">${epqSummaryHtml(eid, 0)}</span><span style="flex:1"></span>`+
+  const groups=[...by.keys()].map(eid=>`<div class="epqep" style="--epc:${epColor(eid)}"><div class="epqh" style="cursor:default" title="tarefas deste épico nesta máquina — cada ponto abre uma">`+
+    `<span class="secchev">${IC.epic}</span><span class="tsepc epqname">${esc(nameOf(eid))}</span><span class="epqsum">${epqSummaryHtml(eid, 0)}</span><span style="flex:1"></span>${typeof epStartBtnHtml==='function'?epStartBtnHtml(eid, { primary:true }):''}`+
     `<button class="btn sm ghost" data-epqopen="${escA(eid)}" title="abrir a página do épico (checklist, requisitos e todas as tarefas)">abrir</button></div></div>`).join('');
   if(epHtml){
     if(/class="secgrp epqgrp collapsed"/.test(epHtml)) return epHtml; // seção recolhida: nada de corpo
@@ -758,6 +767,7 @@ function renderFlow(){
   renderFlowHead();
   renderFlowFilters();
   const el=$id("flow");
+  if(typeof caBodyOwn==='function' && caBodyOwn(el)) return; // 71: Do time / Org toda / Épicos / Entregas
   // F4 (D20): Concluídas › Resumo do período = o antigo Daily (commits e marcos por tarefa + relatório) no lugar da lista
   { const rs=$id('flowResumo'), on=flowScope==='done' && centralDoneSub==='res';
     if(rs){ rs.hidden=!on; el.hidden=on; if(on){ if(typeof centralResumoMount==='function') centralResumoMount(rs); return; } } }
@@ -771,7 +781,7 @@ function renderFlow(){
   // fila dos épicos (46): respeita busca/status/tipo/agente/épico lá dentro; entra DEPOIS de
   // "Aguardando você" e "Em andamento" (recolhida por padrão se há algo esperando você)
   const nWaitYou=flowScope==='done'?0:src.filter(t=>flowScopeOk(t)&&flowBucket(t)==='aguardando').length;
-  const epHtml=flowEpicGroupsHtml(src, window.epBoardHtml?window.epBoardHtml(flowScope, { waitingYou:nWaitYou }):'');
+  const epHtml=flowEpicGroupsHtml(src, window.epBoardHtml?window.epBoardHtml(flowScope, { waitingYou:nWaitYou }):'')+(window.ctSentHtml?window.ctSentHtml(flowScope):''); // + "Com o time" (46)
   if(!src.length){ html=epHtml+ghost; }
   else {
     const vis=flowVisible(src).slice();
@@ -827,6 +837,8 @@ function renderFlow(){
   // planos do orquestrador entram no topo em QUALQUER ordenação/agrupamento (sem busca ativa)
   if(window.orqBoardHtml && !flowQuery.trim()) html=window.orqBoardHtml(flowScope)+html;
   if(typeof CT!=='undefined') CT.last=ctTbl!=null?{ pre:html.slice(0, html.length-ctTbl.length) }:null;
+  // Minhas (71): "Com você no time" e "Livres no seu time" no FIM da Central (depois da tabela/cartões)
+  { const tail=(typeof caMinhasHtml==='function')?caMinhasHtml(flowScope):''; if(tail){ html+=tail; if(typeof CT!=='undefined' && CT.last) CT.last.post=tail; } }
   // idêntico ao último render E o DOM ainda tem o conteúdo → não reconstrói (sem piscar)
   if(html===flowLastHtml && el.firstChild) return;
   el.innerHTML=html; flowLastHtml=html;

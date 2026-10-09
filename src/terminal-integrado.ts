@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { evidenceExists, type Orchestrator } from "./orchestrator.ts";
 import { parseSkillMd, skillsDir } from "./learn.ts";
 import { norm } from "./req-map.ts";
+import { ASK_STYLE } from "./ask-style.ts";
 import { slugify, type AgentStatus, type TaskRow, type TaskSpec } from "./types.ts";
 
 // ======================= suggest_replies =======================
@@ -363,8 +364,10 @@ export const INTEGRADO_RULE =
   `Você está no terminal integrado do Starfork: a pessoa conversa com você pelo app. Ferramentas do MCP cardume:\n` +
   `- suggest_replies: termine TODA resposta chamando suggest_replies (ou \`starfork sugerir\` no shell) com 2–4 próximas perguntas/ações curtas que o humano provavelmente mandaria (viram botões no app) — inclusive quando só respondeu uma pergunta.\n` +
   `- Quando o humano pedir na conversa: status / o que falta → task_status; marcar pronta pra revisão ou esperando ele → set_status; abrir PR → open_pr; ` +
-  `tarefa nova ou quebrar esta → create_task; skills → list_skills e use_skill.\n` +
-  `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n`;
+  `tarefa nova ou quebrar esta → create_task; skills → list_skills e use_skill; ` +
+  `agrupar tarefas num épico → create_epic (épico novo) ou link_tasks_to_epic (épico existente; list_epics mostra os do time) — vincula tarefas JÁ existentes, NUNCA recrie uma tarefa pra trocar o épico; tirar do épico → unlink_tasks_from_epic.\n` +
+  `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n` +
+  `- Perguntar ao humano (AskUserQuestion, ask_human ou \`starfork perguntar\`):${ASK_STYLE}\n`;
 export const INTEGRADO_CLAUDE_CMDS = `- Comandos deste projeto: ${STARFORK_COMMANDS.map((c) => "/" + c.name).join(", ")}.\n`;
 
 // ======================= `starfork …` no shell (qualquer IA) =======================
@@ -373,13 +376,19 @@ export const SHELL_COMMANDS: { cmd: string; tool: string; desc: string }[] = [
   { cmd: "starfork status", tool: "task_status", desc: "requisitos × provas, entregáveis, PR e o que falta pra provado/entregue" },
   { cmd: "starfork sugerir \"<resposta 1>\" \"<resposta 2>\" […]", tool: "suggest_replies", desc: "2 a 4 respostas curtas que o humano provavelmente mandaria (viram botões no app)" },
   { cmd: "starfork etapa review|needs-you|running [--nota \"…\"]", tool: "set_status", desc: "pronta pra revisão · esperando o humano · construindo" },
+  { cmd: "starfork etapa <design|revisor|qa|seguranca|performance|docs> [\"o que olhar\"]", tool: "extra_stage", desc: "chama OUTRO agente do time como etapa extra da revisão (mesma branch); o app mostra o que ele mudou" },
+  { cmd: "starfork alteracao \"<o que mudar>\" [--req 1,3]", tool: "talk", desc: "pedido de alteração pro agente desta tarefa (mesma sessão) — o mesmo do botão \"Pedir alteração\"" },
   { cmd: "starfork skills", tool: "list_skills", desc: "skills do projeto e pessoais" },
   { cmd: "starfork skill <nome>", tool: "use_skill", desc: "imprime as instruções da skill pra você seguir" },
   { cmd: "starfork tarefa \"<título>\" [--objetivo …] [--requisito …]… [--fora-do-epico]", tool: "create_task", desc: "tarefa NOVA no projeto (rascunho — o humano inicia pelo quadro)" },
+  { cmd: "starfork epico novo \"<título>\" [--descricao …] [--outcome …] [--pronto …]… [--tarefas id1,id2] [--cartao \"título\"]… [--para <e-mail|nome>]", tool: "create_epic", desc: "cria um ÉPICO no time (o app executa), vincula tarefas existentes e/ou manda cartões NOVOS pro time sem rodar" },
+  { cmd: "starfork epico vincular <épico> <tarefa>…", tool: "link_tasks_to_epic", desc: "põe tarefas EXISTENTES num épico (id ou nome) — sem recriar nem reiniciar" },
+  { cmd: "starfork epico desvincular <tarefa>…", tool: "unlink_tasks_from_epic", desc: "tira tarefas do épico (elas continuam como estão)" },
+  { cmd: "starfork epico status [<pedido>] · starfork epicos", tool: "epic_request_status", desc: "desfecho dos pedidos de épico · épicos do time" },
   { cmd: "starfork pr [--rascunho] [--titulo …] [--corpo …]", tool: "open_pr", desc: "abre o PR (exige provas, a não ser --rascunho)" },
   { cmd: "starfork requisito \"<texto>\"", tool: "add_requirement", desc: "registra um requisito novo pedido pelo humano" },
   { cmd: "starfork entregavel \"<item>\"", tool: "add_deliverable", desc: "registra um entregável novo" },
-  { cmd: "starfork perguntar \"<pergunta>\" [--opcao a --opcao b]", tool: "ask_human", desc: "pergunta ao humano pelo app (espera a resposta)" },
+  { cmd: "starfork perguntar \"<pergunta curta?>\" [--contexto \"tópico\"]… [--opcao \"Rótulo — descrição\"]…", tool: "ask_human", desc: "pergunta ao humano pelo app (espera a resposta): 1 frase com '?', contexto em 3–5 tópicos, opções com rótulo curto + descrição" },
   { cmd: "starfork mapa --json '{\"req\":…,\"code\":[…]}'", tool: "map_requirement", desc: "liga um requisito aos trechos de código/testes" },
 ];
 export const SECTION_BEGIN = "<!-- starfork:inicio -->";
@@ -393,6 +402,7 @@ export function shellInstructions(): string {
     `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n` +
     `- Pra falar com o Starfork use as ferramentas do MCP "cardume" (se a sua IA tiver) OU estes comandos no shell (mesmo efeito):\n` +
     SHELL_COMMANDS.map((c) => `  - \`${c.cmd}\` — ${c.desc} (= ${c.tool})`).join("\n") + "\n" +
+    `- Perguntar ao humano:${ASK_STYLE}\n` +
     `- Termine TODA resposta chamando \`starfork sugerir\` (ou a tool suggest_replies) com 2–4 próximas perguntas/ações curtas — inclusive quando só respondeu uma pergunta.\n` +
     `- Quando terminar: \`starfork status\`; se não faltar prova, \`starfork etapa review --nota "o que foi provado"\`. PR só quando o humano pedir.\n`;
 }

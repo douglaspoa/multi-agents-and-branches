@@ -20,7 +20,9 @@ export class MockEngine implements AgentEngine {
   }
 
   async *run(input: RunInput): AsyncIterable<AgentEvent> {
-    if (input.role === "planner") {
+    if (/^ETAPA EXTRA DA REVISÃO/.test(String(input.promptOverride ?? ""))) {
+      yield* this.extraStage(input);
+    } else if (input.role === "planner") {
       yield* this.plan(input);
     } else if (input.role === "reviewer") {
       yield* this.review(input);
@@ -30,6 +32,20 @@ export class MockEngine implements AgentEngine {
     // custo por PAPEL (testes do teto/ciclo): CARDUME_MOCK_ROLE_COST_USD vale pra todo papel, inclusive revisão
     const per = Number(process.env.CARDUME_MOCK_ROLE_COST_USD);
     if (per > 0) yield { type: "note", text: `custo do turno (mock, ${input.role})`, cost: { usd: per, inTok: 500, outTok: 50 } };
+  }
+
+  /** "Chamar outro agente…" (src/revisao-alteracao.ts): mexe numa folha de estilo + escreve o resumo da etapa. */
+  private async *extraStage(input: RunInput): AsyncIterable<AgentEvent> {
+    const { spec, cwd } = input;
+    const rel = join("src", "styles", `${spec.id}-${input.role}.css`);
+    await mkdir(dirname(join(cwd, rel)), { recursive: true });
+    let n = 0;
+    try { n = ((await readFile(join(cwd, rel), "utf8")).match(/\n/g) ?? []).length; } catch { /* 1ª vez */ }
+    await writeFile(join(cwd, rel), Array.from({ length: n + 1 }, (_, i) => `.${spec.id}-${i}{gap:${8 + i}px}`).join("\n") + "\n", "utf8");
+    yield { type: "edit", text: `${rel} — ajuste da etapa extra (${input.agentName ?? input.role})`, ok: true };
+    await mkdir(join(cwd, ".cardume", "artifacts"), { recursive: true });
+    await writeFile(join(cwd, ".cardume", "artifacts", "etapa-extra.md"), `mock: ${input.agentName ?? input.role} ajustou o espaçamento em ${rel}\n`, "utf8");
+    yield { type: "done", text: `etapa extra (mock) — ${rel}`, ok: true };
   }
 
   private async *plan(input: RunInput): AsyncIterable<AgentEvent> {

@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MAX_CHARS, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
 import { homedir, userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
-import { ClaudeEngine } from "./engine/claude.ts";
+import { ClaudeEngine, adjustRuleOf } from "./engine/claude.ts";
 import { aiOnce, engineOf, readAiPrefs, type AiTier } from "./ai-once.ts";
 import { DshEngine, isDshLabel } from "./engine/dsh.ts";
 import { CodexEngine } from "./engine/codex.ts";
@@ -30,7 +30,13 @@ import { loadConfig } from "./config.ts";
 import { oldVerdict, saveSample, type SampleResult } from "./amostra.ts";
 import { recordUsage } from "./usage-ledger.ts";
 import { loopReset, loopTrack, loopTurnEnd, type ToolAttempt } from "./loop-detect.ts";
+import { ASK_STYLE } from "./ask-style.ts";
+import { attachProofs, proofKind, replaceReport, type AttachResult } from "./pr-provas.ts";
+import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, extraStageAgents, extraStagePrompt, finishExtraStage, newExtraStage, resolveExtraAgent, runningExtra, upsertExtraStage, type ExtraAgent, type ExtraStage } from "./revisao-alteracao.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
+
+/** Catálogo do projeto sem estourar (config ilegível → só os padrões). */
+function loadConfigSafe(repo: string) { try { return loadConfig(repo).agents; } catch { return []; } }
 
 /**
  * O "maestro": cria a worktree, escreve o TASK.yaml, reivindica o escopo e roda
@@ -93,6 +99,29 @@ export function processStartMs(pid: number): number | null {
 /** Gerúndio do papel pra frase da pausa ("antes de Nyx revisar"). */
 const ROLE_GERUND: Record<string, string> = { planner: "planejar", builder: "construir", reviewer: "revisar", tester: "testar", designer: "desenhar", docs: "escrever", investigator: "investigar" };
 
+/** Ajustes › "Revisor automático no terminal" (`termRevisorAuto`). DESLIGADO por padrão até o teste de fumaça em zsh
+ * (oh-my-zsh/p10k) e bash passar no Mac do dono (veto do Rafa na mesa 09/10) — desligado = a pessoa pede pela doca. */
+export const REVISOR_AUTO_DEFAULT = false;
+export function revisorAutoOn(): boolean {
+  if (process.env.STARFORK_REVISOR_AUTO === "1") return true;
+  if (process.env.STARFORK_REVISOR_AUTO === "0") return false;
+  try {
+    const v = JSON.parse(readFileSync(join(homedir(), ".constellation", "settings.json"), "utf8"))?.termRevisorAuto;
+    if (v === true || v === "1" || v === "true") return true;
+    if (v === false || v === "0" || v === "false") return false;
+  } catch { /* sem Ajustes */ }
+  return REVISOR_AUTO_DEFAULT;
+}
+/** PURA: por que o revisor NÃO pode entrar no terminal (motivo em português simples) — "" = pode. A troca de papel é
+ * no shell (macOS/Linux); o revisor precisa de uma IA de terminal. */
+export function reviewerBlockedWhy(engine: string, platform: string): string {
+  if (platform === "win32") return "no Windows o terminal é a própria IA (sem troca de papel)";
+  const e = String(engine ?? "").trim().toLowerCase();
+  if (!e || e === "mock" || e.startsWith("gateway") || e.startsWith("logcomex")) return "o revisor desta equipe usa uma IA sem terminal";
+  // sem aviso de fim de turno (Gemini CLI, opencode): o veredito nunca seria lido e a tarefa ficaria "rodando"
+  if (e.startsWith("gemini") || e.startsWith("opencode")) return "o revisor desta equipe usa uma IA que não avisa quando termina";
+  return "";
+}
 /** Teto padrão de Configurações (`costCap` em ~/.constellation/settings.json, espelhado pelo app). */
 export function readCostCapSetting(): number {
   try {
@@ -982,11 +1011,11 @@ export class Orchestrator {
 
   /** Regra da conversa pros motores COM ask_human (Claude, DeepSeek): pergunta e espera no mesmo turno. */
   private static readonly CHAT_RULE_ASK =
-    "\n\n[CONVERSA CONTÍNUA — NÃO FINALIZE SOZINHO] (1) Precisando de QUALQUER resposta/decisão minha, chame mcp__cardume__ask_human (com options quando fizer sentido) e AGUARDE — a conversa segue no MESMO turno; NUNCA finalize com pergunta em texto. (2) Ao CONCLUIR o pedido, também NÃO finalize: chame ask_human dizendo o que fez e perguntando se quero mais algum ajuste (ex.: options ['Está ótimo, pode finalizar','Quero ajustar algo']) e AGUARDE. (3) Só finalize de verdade quando eu mandar (ex.: 'pode finalizar') ou quando o sistema avisar que estou inativo — aí encerre com um resumo educado. (4) PEDIDO NOVO = REGISTRO OBRIGATÓRIO: se a minha mensagem pedir algo que ainda NÃO fazia parte da tarefa (não é correção/ajuste do que você já fez), registre PRIMEIRO com mcp__cardume__add_requirement (critério curto e verificável — ele entra na checklist X/Y que eu acompanho) e, sendo uma entrega nova, TAMBÉM com mcp__cardume__add_deliverable; só então implemente. 'Entender' o pedido sem registrar NÃO vale — pedido registrado só na conversa não conta na checklist.";
+    "\n\n[CONVERSA CONTÍNUA — NÃO FINALIZE SOZINHO] (1) Precisando de QUALQUER resposta/decisão minha, chame mcp__cardume__ask_human (com options quando fizer sentido) e AGUARDE — a conversa segue no MESMO turno; NUNCA finalize com pergunta em texto. (2) Ao CONCLUIR o pedido, também NÃO finalize: chame ask_human dizendo o que fez e perguntando se quero mais algum ajuste (ex.: options ['Está ótimo, pode finalizar','Quero ajustar algo']) e AGUARDE. (3) Só finalize de verdade quando eu mandar (ex.: 'pode finalizar') ou quando o sistema avisar que estou inativo — aí encerre com um resumo educado. (4) PEDIDO NOVO = REGISTRO OBRIGATÓRIO: se a minha mensagem pedir algo que ainda NÃO fazia parte da tarefa (não é correção/ajuste do que você já fez), registre PRIMEIRO com mcp__cardume__add_requirement (critério curto e verificável — ele entra na checklist X/Y que eu acompanho) e, sendo uma entrega nova, TAMBÉM com mcp__cardume__add_deliverable; só então implemente. 'Entender' o pedido sem registrar NÃO vale — pedido registrado só na conversa não conta na checklist." + ASK_STYLE;
   /** Regra da conversa pros motores SEM ask_human (Codex/gateway): mandar o agente "chamar ask_human e AGUARDAR"
    * sem ter a ferramenta o deixava preso esperando (sleep/loop) até o watchdog de inatividade matar o turno. */
   private static readonly CHAT_RULE_TEXT =
-    "\n\n[CONVERSA CONTÍNUA] Neste motor NÃO existe a ferramenta ask_human. (1) Precisando de uma resposta/decisão minha, termine a resposta com a PERGUNTA em texto (objetiva; numere as opções quando fizer sentido) e finalize o turno — eu respondo aqui na conversa e você continua desta mesma sessão. NUNCA fique esperando resposta (sleep, loop, polling). (2) Ao CONCLUIR o pedido, diga em poucas linhas o que fez e pergunte se quero mais algum ajuste. (3) PEDIDO NOVO (algo que não fazia parte da tarefa): diga explicitamente no fim que é um requisito novo, pra eu registrar.";
+    "\n\n[CONVERSA CONTÍNUA] Neste motor NÃO existe a ferramenta ask_human. (1) Precisando de uma resposta/decisão minha, termine a resposta com a PERGUNTA em texto (objetiva; numere as opções quando fizer sentido) e finalize o turno — eu respondo aqui na conversa e você continua desta mesma sessão. NUNCA fique esperando resposta (sleep, loop, polling). (2) Ao CONCLUIR o pedido, diga em poucas linhas o que fez e pergunte se quero mais algum ajuste. (3) PEDIDO NOVO (algo que não fazia parte da tarefa): diga explicitamente no fim que é um requisito novo, pra eu registrar. Ao perguntar: o contexto em até 3–5 tópicos curtos e, por último, a pergunta em UMA frase curta terminando em '?', com as opções numeradas (rótulo curto — descrição de 1 linha).";
 
   /** Interlocutor quando a tarefa não tem papel que converse: o motor DA TAREFA (ou a IA padrão do usuário). Nunca o Claude fixo. */
   private static fallbackRole(spec: TaskSpec): TaskSpec["roles"][number] {
@@ -1008,6 +1037,7 @@ export class Orchestrator {
     if (kind === "talk") return `mensagem — "${String(payload.message ?? "").slice(0, 80)}"`;
     if (kind === "deliver") return `gerar ${payload.kind === "all" ? "todos os entregáveis" : `entregável (${payload.kind})`}`;
     if (kind === "rework") return "revisar/endereçar comentários do PR (rework)";
+    if (kind === "extra") return `etapa extra — ${String(payload.agent ?? "")}`;
     return kind;
   }
 
@@ -1106,6 +1136,7 @@ export class Orchestrator {
         if (item.kind === "talk") await this.talkToAgentInner(taskId, String(p.message ?? ""), !!p.asReq, p.agent ? String(p.agent) : undefined);
         else if (item.kind === "deliver") await this.deliverArtifactInner(taskId, (p.kind as "doc" | "tests" | "proof" | "all") ?? "all");
         else if (item.kind === "rework") await this.reworkTaskInner(taskId);
+        else if (item.kind === "extra") await this.extraStageInner(taskId, String(p.agent ?? ""), { note: p.note ? String(p.note) : undefined, by: p.by ? String(p.by) : undefined });
       } catch (err) {
         this.store.addEvent(taskId, "Sistema", "error", `pedido da fila falhou: ${(err as Error).message}`, false);
       }
@@ -1559,6 +1590,13 @@ export class Orchestrator {
         await commitLoose();
         await run("git", ["-C", task.worktree, "push", "-u", "origin", task.branch], { env: netEnv(), timeout: netTimeoutMs() });
         this.store.addEvent(taskId, agent, "note", `PR atualizado (push): ${spec.prUrl}`, true);
+        // provas novas desde a abertura: sobem pro branch de provas e o Relatório Starfork do corpo é reescrito
+        const att = await this.attachProofs(taskId, task);
+        if (Object.keys(att.links).length || att.note) {
+          const r = await rewritePrReport(spec.prUrl, await this.reportFor(taskId, task, att), task.worktree, ghEnvFor(this.ws.repo));
+          if (r.changed) this.store.addEvent(taskId, agent, "note", `Relatório Starfork do PR atualizado (${Object.keys(att.links).length} prova(s) anexada(s))`, true);
+          else if (r.error) this.store.addEvent(taskId, agent, "note", `não consegui atualizar o relatório do PR: ${r.error.slice(0, 140)}`, false);
+        }
         return { ok: true, url: spec.prUrl };
       } catch (err) {
         const msg = String((err as { stderr?: string }).stderr || (err as Error).message || err).trim().slice(0, 300);
@@ -1584,7 +1622,9 @@ export class Orchestrator {
         ? `${String(o.body).trim()}\n\n`
         : `## O quê\n${spec.objective || spec.title}\n\n` +
           ((spec.deliverables ?? []).length ? `## Entregáveis\n${(spec.deliverables ?? []).map((d) => "- " + d).join("\n")}\n\n` : "");
-      const body = head + (await this.reportFor(taskId, task)) + "\n" +
+      const att = await this.attachProofs(taskId, task); // provas → branch starfork-provas (nunca lança; falha vira nota)
+      if (Object.keys(att.links).length) this.store.addEvent(taskId, agent, "note", `${Object.keys(att.links).length} prova(s) anexada(s) ao PR (branch starfork-provas)`, true);
+      const body = head + (await this.reportFor(taskId, task, att)) + "\n" +
         (o.auto ? `_Aberto automaticamente pelo Starfork (sem pendências nos requisitos)._` : o.draft ? `_Rascunho aberto pelo agente no terminal do Starfork._` : `_Aberto pelo agente no terminal do Starfork (requisitos provados)._`);
       // --draft no FIM: o gh falso dos testes lê a branch pela posição ($6)
       const args = ["pr", "create", "--base", base, "--head", task.branch, "--title", title, "--body", body, ...(o.draft ? ["--draft"] : [])];
@@ -1613,10 +1653,8 @@ export class Orchestrator {
   }
 
   /** Relatório Starfork do PR (requisitos × provas, motivos, custo por papel, liberações, rodadas e versão por papel). */
-  async reportFor(taskId: string, task?: TaskRow): Promise<string> {
-    const t = task ?? this.store.getTask(taskId);
-    if (!t) return "";
-    const spec = this.freshSpec(taskId) ?? (JSON.parse(t.spec_json) as TaskSpec);
+  /** Requisitos × provas desta tarefa (requirements.json da worktree, ou a cópia guardada em .cardume/artifacts/<id>/). */
+  private async reqProofs(taskId: string, t: TaskRow): Promise<{ artDir: string; requirements: ReportData["requirements"] }> {
     const artDir = join(t.worktree, ".cardume", "artifacts");
     let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
     for (const p of [join(artDir, "requirements.json"), join(this.ws.repo, ".cardume", "artifacts", taskId, "requirements.json")]) {
@@ -1627,13 +1665,37 @@ export class Orchestrator {
       const proven = r.status === "done" && ev.some((e) => evidenceExists(artDir, t.worktree, e));
       return { text: String(r.req ?? "requisito"), status: r.status === "deferred" ? "adiado" : proven ? "provado" : "sem prova", evidence: proven ? ev.filter((e) => evidenceExists(artDir, t.worktree, e)) : [] };
     });
+    return { artDir, requirements };
+  }
+
+  /**
+   * PROVAS NO PR: as imagens/vídeos que provam requisitos sobem pro branch órfão `starfork-provas` (pasta <tarefa>/)
+   * do próprio repositório, com o git e a conta do GitHub da tarefa. Nunca lança (falha = nota no relatório).
+   * `decide` = resposta do app à pergunta do repositório público (grava a opção do projeto).
+   */
+  async attachProofs(taskId: string, task?: TaskRow, o: { decide?: "on" | "off" } = {}): Promise<AttachResult> {
+    const t = task ?? this.store.getTask(taskId);
+    if (!t || !existsSync(t.worktree)) return { links: {}, note: "" };
+    const { artDir, requirements } = await this.reqProofs(taskId, t);
+    const files = requirements.filter((r) => r.status === "provado").flatMap((r) => r.evidence)
+      .filter((e) => proofKind(e)).map((e) => ({ name: e, path: evidencePath(artDir, t.worktree, e) })).filter((f) => f.path);
+    return attachProofs({ dir: t.worktree, prefix: taskId, files, ghEnv: ghEnvFor(this.ws.repo), gitEnv: netEnv(), decide: o.decide });
+  }
+
+  async reportFor(taskId: string, task?: TaskRow, att?: Pick<AttachResult, "links" | "note">): Promise<string> {
+    const t = task ?? this.store.getTask(taskId);
+    if (!t) return "";
+    const spec = this.freshSpec(taskId) ?? (JSON.parse(t.spec_json) as TaskSpec);
+    const { requirements } = await this.reqProofs(taskId, t);
     const costByRole = (this.store.db.prepare(`SELECT COALESCE(role, '') AS role, agent AS name, SUM(usd) AS usd FROM cost WHERE task_id = ? GROUP BY role, agent ORDER BY MIN(id)`).all(taskId) as { role: string; name: string; usd: number }[]).map((c) => ({ role: c.role, name: c.name, usd: Number(c.usd) || 0 }));
     return starforkReport({
       requirements, costByRole, totalUsd: this.store.taskSpend(taskId),
       // piloto com `--budget-usd 0`: sem teto por escolha explícita (compatibilidade) — o relatório diz isso, não inventa um teto
       capUsd: spec.autopilot && !(Number(spec.budgetUsd) > 0) ? 0 : effectiveCap(spec.budgetUsd, readCostCapSetting()),
-      reviewOverride: spec.reviewOverride?.reason, releases: spec.budgetReleases ?? [], rounds: spec.reviewRounds ?? [], runs: spec.roleRuns ?? [],
+      reviewOverride: spec.reviewOverride?.reason, releases: spec.budgetReleases ?? [], rounds: spec.reviewRounds ?? [], runs: spec.roleRuns ?? [], extraLines: extraReportLines(spec.extraStages),
       orgPolicy: spec.orgPolicy?.rules,
+      ...(att && Object.keys(att.links).length ? { proofs: att.links } : {}),
+      ...(att?.note ? { proofNote: att.note } : {}),
     });
   }
 
@@ -1643,7 +1705,7 @@ export class Orchestrator {
    * isolada (.cardume/reviews/<id>/) e monta o review factual do diff do PR.
    * Reaproveita toda a máquina de streaming/custo/pause-abort das tarefas.
    */
-  async reviewPr(spec: TaskSpec, pr: string): Promise<void> {
+  async reviewPr(spec: TaskSpec, pr: string, o: { noStart?: boolean } = {}): Promise<void> {
     const repo = this.git.repo;
     let meta: { number?: number; title?: string; url?: string; baseRefName?: string } = {};
     try {
@@ -1679,7 +1741,18 @@ export class Orchestrator {
     this.store.createTask(spec, branch, dir, base);
     const lines = diff.split("\n").length;
     this.store.addEvent(spec.id, spec.agent, "status", `review do ${branch} — ${lines} linhas de diff`, true);
-
+    // o app abre o revisor no TERMINAL (terminal sempre vivo): só prepara a pasta e a tarefa
+    if (o.noStart) { this.store.setStatus(spec.id, "draft"); return; }
+    await this.runReviewPrRoles(spec, dir, diff);
+  }
+  /** Revisão de PR preparada com --no-start rodando no modo AUTOMÁTICO (motor sem terminal, ou Ajustes › Automático). */
+  async runReviewPrTask(taskId: string): Promise<void> {
+    const t = this.store.getTask(taskId);
+    if (!t) throw new Error(`tarefa ${taskId} não encontrada`);
+    const diff = await readFile(join(t.worktree, "DIFF.patch"), "utf8");
+    await this.runReviewPrRoles(JSON.parse(t.spec_json) as TaskSpec, t.worktree, diff);
+  }
+  private async runReviewPrRoles(spec: TaskSpec, dir: string, diff: string): Promise<void> {
     const roles = spec.roles.length ? spec.roles : [{ role: "reviewer" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
     for (let i = 0; i < roles.length; i++) {
       const r = roles[i];
@@ -2065,6 +2138,8 @@ export class Orchestrator {
       next = "review";
       this.store.addEvent(taskId, "Sistema", "note", "entrega completa depois do erro (requirements.json com todos os requisitos provados) — status corrigido para pronta pra revisar", true);
     }
+    // o agente chamou a tool extra_stage NESTE turno (conversa): a etapa fecha com o que o turno mudou
+    if (runningExtra(this.freshSpec(taskId)?.extraStages)) await this.finishExtraStage(taskId, !failed).catch(() => null);
     this.store.setStatus(taskId, next);
     if (failed) this.store.addEvent(taskId, role.name, "note", `não consegui rodar — veja o erro acima`, false, role.role);
     else notify("Starfork", `${role.name} respondeu`, task.title);
@@ -2280,6 +2355,139 @@ export class Orchestrator {
     notify("Starfork", "Ajuste aplicado (time inteiro) — pronto para review", task.title);
   }
 
+  // ---------------------------------------------------------------- revisão: etapa extra (src/revisao-alteracao.ts)
+
+  /** Os agentes que dá pra chamar como etapa extra (catálogo do projeto + padrões). */
+  extraAgents(): ExtraAgent[] {
+    try { return extraStageAgents(loadConfig(this.ws.repo).agents); } catch { return extraStageAgents([]); }
+  }
+  /** O projeto tem a skill Impeccable (`.claude/skills/impeccable`) — no repo ou na worktree da tarefa? */
+  private hasImpeccable(worktree?: string): boolean {
+    return [this.ws.repo, worktree].filter(Boolean).some((d) => existsSync(join(d as string, ".claude", "skills", "impeccable", "SKILL.md")));
+  }
+  /**
+   * COMEÇA uma etapa extra: confere (agente existe, nenhuma outra rodando, teto abaixo de 80%), grava em spec.extraStages
+   * (rodando, SHA de antes, gasto de antes) e devolve a instrução do agente. Quem roda: `runExtraStage` (motor da tarefa)
+   * ou o terminal vivo (a instrução entra na MESMA sessão; o fim do turno fecha a etapa — terminalTurnEnd).
+   */
+  async beginExtraStage(taskId: string, query: string, o: { note?: string; by?: string } = {}): Promise<{ stage: ExtraStage; agent: ExtraAgent; prompt: string }> {
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    const spec = JSON.parse(task.spec_json) as TaskSpec;
+    const agent = resolveExtraAgent(loadConfigSafe(this.ws.repo), query);
+    if (!agent) throw new Error(`não conheço o agente "${query}" — use: ${this.extraAgents().map((a) => `${a.kind} (${a.name})`).join(", ")}`);
+    const run0 = runningExtra(spec.extraStages);
+    // etapa "rodando" de um processo que caiu (sem turno vivo há 45 min) não trava a tarefa pra sempre: fecha como "não terminou"
+    if (run0 && extraIsStale(run0, Date.now()) && !this.extraTurnAlive(taskId)) await this.finishExtraStage(taskId, false);
+    else if (run0) throw new Error(`a etapa extra de ${run0.name} ainda está rodando nesta tarefa`);
+    const spent = this.store.taskSpend(taskId);
+    const cap = effectiveCap(spec.budgetUsd, readCostCapSetting());
+    const gate = extraCapGate(spent, cap);
+    if (!gate.ok) throw new Error(gate.why);
+    let sha = "";
+    try {
+      // o que já estava solto na worktree é do agente de antes — commita ANTES de marcar o SHA (senão vira "mudança da etapa")
+      if (spec.kind !== "review") await this.git.commitAll(task.worktree, `starfork: antes da etapa extra (${extraLabel(agent.kind)})`);
+      sha = await this.git.headHash(task.worktree);
+    } catch { /* worktree sem git */ }
+    // dois pedidos ao mesmo tempo (terminal + MCP): confere de novo logo antes de gravar
+    const again = runningExtra(this.freshSpec(taskId)?.extraStages);
+    if (again) throw new Error(`a etapa extra de ${again.name} ainda está rodando nesta tarefa`);
+    const stage = { ...newExtraStage(spec.extraStages, agent, { at: Date.now(), by: o.by || "app", note: o.note, shaBefore: sha }), spentBefore: spent } as ExtraStage & { spentBefore: number };
+    this.store.patchSpec(taskId, { extraStages: upsertExtraStage(this.freshSpec(taskId)?.extraStages, stage) });
+    try { await rm(join(task.worktree, ".cardume", "artifacts", "etapa-extra.md"), { force: true }); } catch { /* sem arquivo */ }
+    this.store.addEvent(taskId, "Sistema", "note", `etapa extra: ${agent.name} (${extraLabel(agent.kind)}) entrou na tarefa${o.note ? ` — "${o.note.slice(0, 120)}"` : ""} · teto ${fmtUsdBr(cap)}, gasto ${fmtUsdBr(spent)}`, true);
+    const prompt = extraStagePrompt(agent, { note: o.note, impeccable: agent.kind === "design" && this.hasImpeccable(task.worktree), reqs: spec.requirements, base: (spec.base || task.base || "").replace(/^origin\//, "") });
+    return { stage, agent, prompt };
+  }
+  /** Tem turno vivo nesta tarefa (outro processo com o lock, ou o terminal ocupado)? */
+  private extraTurnAlive(taskId: string): boolean {
+    try {
+      const pid = Number((this.store.db.prepare("SELECT busy_pid FROM task WHERE id = ?").get(taskId) as { busy_pid?: number } | undefined)?.busy_pid) || 0;
+      if (pid && pid !== process.pid && pidAlive(pid)) return true;
+    } catch { /* banco antigo */ }
+    return (this.store.termGet(taskId)?.busy ?? 0) === 1;
+  }
+  /** FECHA a etapa extra que está rodando: arquivos que ela mudou (SHA de antes..HEAD), os fora de tela (design), resumo e custo. */
+  async finishExtraStage(taskId: string, ok: boolean): Promise<ExtraStage | null> {
+    const task = this.store.getTask(taskId);
+    const spec = this.freshSpec(taskId);
+    const cur = runningExtra(spec?.extraStages) as (ExtraStage & { spentBefore?: number }) | null;
+    if (!task || !spec || !cur) return null;
+    let sha = "", files: string[] = [];
+    try {
+      sha = await this.git.headHash(task.worktree);
+      if (cur.shaBefore && sha) files = (await run("git", ["-C", task.worktree, "diff", "--name-only", `${cur.shaBefore}..${sha}`])).stdout.split("\n").map((x) => x.trim()).filter(Boolean);
+    } catch { /* sem git */ }
+    let summary = "";
+    try { summary = readFileSync(join(task.worktree, ".cardume", "artifacts", "etapa-extra.md"), "utf8").split("\n").filter((l) => l.trim() && !/^#/.test(l.trim())).slice(0, 3).join(" "); } catch { /* sem resumo */ }
+    const usd = Math.max(0, this.store.taskSpend(taskId) - (Number(cur.spentBefore) || 0));
+    const { spentBefore: _drop, ...clean } = cur;
+    const done = finishExtraStage(clean, { ok, at: Date.now(), shaAfter: sha, files, summary, usd });
+    this.store.patchSpec(taskId, { extraStages: upsertExtraStage(spec.extraStages, done) });
+    const n = done.files?.length ?? 0;
+    this.store.addEvent(taskId, done.name, "note", ok
+      ? `etapa extra de ${extraLabel(done.kind)} terminou — mudou ${n} ${n === 1 ? "arquivo" : "arquivos"}${done.outsideUi?.length ? ` (${done.outsideUi.length} fora de tela: ${done.outsideUi.slice(0, 3).join(", ")})` : ""}`
+      : `etapa extra de ${extraLabel(done.kind)} não terminou`, ok, done.role, done.agentId);
+    return done;
+  }
+  /** "Chamar outro agente…" (modo automático / CLI): roda o agente escolhido na MESMA branch e volta pra "pronta pra revisar". */
+  async runExtraStage(taskId: string, query: string, o: { note?: string; by?: string } = {}): Promise<void> {
+    await this.withTaskLock(taskId, "extra", { agent: query, note: o.note ?? "", by: o.by ?? "app" }, () => this.extraStageInner(taskId, query, o));
+  }
+  private async extraStageInner(taskId: string, query: string, o: { note?: string; by?: string }): Promise<void> {
+    const t0 = this.store.getTask(taskId);
+    if (!t0) throw new Error(`tarefa ${taskId} não encontrada`);
+    // a mesma regra do app (changeGate): rascunho/plano esperando aprovação/cancelada não ganham etapa extra
+    const g = changeGate({ status: t0.status });
+    if (!g.ok && !["running", "thinking", "queued"].includes(t0.status)) { this.store.addEvent(taskId, "Sistema", "note", `não chamei o agente: ${g.why}`, false); return; }
+    await this.ensureTaskWorktree(taskId);
+    const task = this.store.getTask(taskId);
+    if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
+    let begun: Awaited<ReturnType<Orchestrator["beginExtraStage"]>>;
+    try { begun = await this.beginExtraStage(taskId, query, o); }
+    catch (e) { this.store.addEvent(taskId, "Sistema", "note", `não chamei o agente: ${(e as Error).message}`, false); return; }
+    const spec = JSON.parse(this.store.getTask(taskId)!.spec_json) as TaskSpec;
+    const { agent, prompt } = begun;
+    // motor/modelo = os da tarefa (a IA que a pessoa escolheu); persona e skills = as do agente chamado
+    const base0 = spec.roles?.find((r) => r.role === "builder") ?? spec.roles?.[0] ?? Orchestrator.fallbackRole(spec);
+    const role: AgentRole = { role: agent.role, agentId: agent.id, name: agent.name, engine: base0.engine, model: base0.model, persona: agent.persona };
+    // volta pro estado de antes (pronta pra revisar; erro/conflito continuam visíveis), nunca fica "rodando"
+    const prev = (["running", "thinking", "queued"].includes(task.status) ? "review" : task.status) as AgentStatus;
+    let failed = false;
+    try {
+      this.store.setStatus(taskId, "running");
+      loopReset(this.store, taskId); // etapa extra = outro agente, outro pedido: o detector de loop recomeça
+      this.recordRoleRun(taskId, spec, role);
+      const engine = this.engineFor(role.engine, role.model, spec.autonomy.approval);
+      const ctx = `## Seu perfil (${role.name} · ${extraLabel(agent.kind)})\n${agent.persona}\n\n` + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec);
+      for await (const ev of engine.run({ cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext(role), promptOverride: prompt + this.historyDigest(taskId), onAttempt: (a: ToolAttempt) => { loopTrack(this.store, taskId, a); } })) {
+        if (ev.type === "session" || ev.type === "claim") continue;
+        if (ev.type === "error") failed = true;
+        this.store.addEvent(taskId, role.name, ev.type, ev.text, ev.ok, role.role, role.agentId);
+        if (ev.cost && (ev.cost.usd > 0 || ev.cost.inTok > 0 || ev.cost.outTok > 0)) {
+          this.store.addCost(taskId, role.name, role.role, ev.cost.usd, ev.cost.inTok, ev.cost.outTok, ev.cost.ms ?? 0, role.engine, role.model, ev.cost.cachedTok ?? 0, role.agentId);
+        }
+      }
+    } catch (err) {
+      failed = true;
+      this.store.addEvent(taskId, role.name, "error", (err as Error).message, false, role.role, role.agentId);
+    }
+    loopTurnEnd(this.store, taskId);
+    // falhou no meio: o que ela já mexeu vira commit "(parcial)" — senão fica solto na worktree e o próximo turno leva com outro nome
+    {
+      if (!failed) await this.collectArtifacts(taskId, task.worktree, role.name).catch(() => {});
+      try {
+        if (await this.git.commitAll(task.worktree, `etapa extra (${extraLabel(agent.kind)})${failed ? " parcial" : ""}: ${role.name}`)) {
+          const d = await this.git.diffStat(task.worktree, task.base);
+          this.store.setDiff(taskId, d.files, d.add, d.del);
+        }
+      } catch { /* nada a commitar */ }
+    }
+    try { await this.finishExtraStage(taskId, !failed); } finally { this.store.setStatus(taskId, prev); }
+    notify("Starfork", failed ? `${role.name} não terminou a etapa extra` : `${role.name} passou pela tarefa — pronta pra revisar`, task.title);
+  }
+
   /** Detecta um código de issue (FND-853, ABC-12…) nos eventos e renomeia a branch. */
   private async maybeRenameBranchFromIssue(taskId: string, task: TaskRow, spec: TaskSpec): Promise<void> {
     const text = this.store.eventsForTask(taskId).map((e) => e.text).join("  ");
@@ -2386,18 +2594,22 @@ export class Orchestrator {
   // fim de cada papel acontece aqui, disparado pelo hook Stop (fim do turno) — mesma régua de entrega.
 
   /** Papel, contexto (barramento, memória, skills, épico) e a spec — o mesmo que um papel do pipeline recebe. */
-  terminalContext(taskId: string): { task: TaskRow; spec: TaskSpec; role: AgentRole; ctx: string } {
+  terminalContext(taskId: string, o: { role?: "reviewer"; round?: number } = {}): { task: TaskRow; spec: TaskSpec; role: AgentRole; ctx: string } {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
-    if (stickEngines(spec)) this.store.updateSpec(taskId, JSON.stringify(spec));
+    if (stickEngines(spec)) this.store.patchSpec(taskId, { engine: spec.engine, ...(spec.roles ? { roles: spec.roles } : {}) });
     this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     const roles = spec.roles?.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
-    // um terminal = uma sessão: conversa com quem CONSTRÓI (o planner/reviewer do pipeline viram pedidos na conversa)
-    const role = roles.find((r) => r.role === "builder") ?? roles.find((r) => canTalk(r.engine)) ?? roles[0];
+    // um terminal = uma sessão por vez: quem CONSTRÓI; o REVISOR (terminal sempre vivo, 09/10) entra no mesmo terminal na
+    // troca de papel, com a lente e a regra do VEREDITO.md do pipeline
+    const builder = roles.find((r) => r.role === "builder") ?? roles.find((r) => canTalk(r.engine)) ?? roles[0];
+    const role = o.role === "reviewer" ? roles.find((r) => r.role === "reviewer") ?? builder : builder;
     this.prepEpic(spec, task.worktree);
     const persona = role.persona ? `## Seu perfil (${role.name} · ${role.role})\n${role.persona}\n\n` : "";
-    const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec) + this.epicContext(spec);
+    const lens = FLOW_BY_KIND[taskKindOf(spec)].find((x) => x.role === "reviewer")?.lens ?? "codigo";
+    const reviewCtx = o.role === "reviewer" && role.role === "reviewer" ? verdictInstructions(lens, o.round ?? 1) : "";
+    const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec) + this.epicContext(spec) + reviewCtx;
     return { task, spec, role, ctx };
   }
 
@@ -2406,7 +2618,7 @@ export class Orchestrator {
    * coleta artefatos, roda o GATE (verifyProofs) e leva a tarefa pra "review". Se um turno novo começou
    * no meio (sessão ocupada de novo), não mexe no status. Devolve o resultado do gate.
    */
-  async terminalTurnEnd(taskId: string, isBusy: () => boolean = () => false): Promise<{ ok: boolean; reasons: string[] } | null> {
+  async terminalTurnEnd(taskId: string, isBusy: () => boolean = () => false, o: { deferPr?: boolean } = {}): Promise<{ ok: boolean; reasons: string[]; openPr?: boolean } | null> {
     const task = this.store.getTask(taskId);
     if (!task) return null;
     const spec = JSON.parse(task.spec_json) as TaskSpec;
@@ -2414,8 +2626,14 @@ export class Orchestrator {
     const agent = role?.name || spec.agent;
     // tarefa INTEGRADA reaberta só pra conversa: nada de commit, gate, status ou PR — o turno foi só pergunta/resposta
     if (task.status === "merged") return null;
+    // fim do turno do REVISOR no terminal: veredito → volta pro construtor (muda) / segue pro gate (aprova) / você decide
+    const reviewing = spec.termRole?.role === "reviewer";
+    if (reviewing) {
+      const next = await this.terminalReviewEnd(taskId, task, spec);
+      if (next !== "segue") return { ok: false, reasons: ["revisão pediu mudanças"] };
+    }
     await this.collectArtifacts(taskId, task.worktree, agent).catch(() => {});
-    if (spec.kind !== "review") {
+    if (spec.kind !== "review" && !reviewing) {
       try {
         if (await this.git.commitAll(task.worktree, `starfork(terminal): ${task.title}`)) {
           this.store.addEvent(taskId, agent, "note", "mudanças do turno commitadas na branch ✓", true, role?.role);
@@ -2426,9 +2644,25 @@ export class Orchestrator {
         this.store.addEvent(taskId, agent, "note", `falha ao commitar o turno: ${(err as Error).message}`, false, role?.role);
       }
     }
+    // revisão de PR no terminal: o review FATUAL do diff (o mesmo do modo automático) — uma vez
+    if (spec.kind === "review" && !this.store.getReview(taskId)) {
+      try {
+        const diff = await readFile(join(task.worktree, "DIFF.patch"), "utf8");
+        const review = buildReview(diff, agent);
+        this.store.addReview(taskId, review);
+        this.store.addEvent(taskId, agent, "note", `review pronto: ${review.summary}`, true, "reviewer");
+      } catch { /* sem DIFF.patch (pasta de revisão antiga): segue sem o resumo fatual */ }
+    }
+    // etapa extra que rodou NESTE turno do terminal (o app mandou a instrução pra mesma sessão): fecha com o que mudou
+    if (runningExtra(this.freshSpec(taskId)?.extraStages)) await this.finishExtraStage(taskId, true).catch(() => null);
     const gate = await this.verifyProofs(taskId, task, spec).catch((e) => ({ ok: false, reasons: [String((e as Error)?.message ?? e)] }));
     this.store.addEvent(taskId, "Sistema", "note", gate.ok ? "gate de verificação: ok — requisitos provados com evidência" : `gate de verificação: pendente — ${gate.reasons.slice(0, 3).join(" · ")}`, gate.ok);
     if (isBusy()) return gate; // a pessoa já mandou outra coisa: o turno novo manda no status
+    // fim de uma rodada de CONSTRUÇÃO com revisor na equipe: o terminal troca pro revisor (o app executa a troca)
+    if (!reviewing && spec.termBuild) {
+      this.store.patchSpec(taskId, { termBuild: null });
+      if (this.terminalHandoffToReviewer(taskId, spec, agent)) return gate;
+    }
     const cur = this.store.getTask(taskId);
     const wasReview = cur?.status === "review";
     if (cur && ["running", "thinking", "queued", "draft", "review", "error"].includes(cur.status)) {
@@ -2440,9 +2674,85 @@ export class Orchestrator {
       notify("Starfork", "Turno concluído no terminal — pronta pra revisar", task.title);
       this.appendHistory(taskId);
       this.harvestRunbook(task.worktree);
-      if (gate.ok) await this.maybeOpenPr(taskId, task, spec);
+      if (gate.ok) {
+        // em linha (hook Stop): o PR sai destacado depois (push + gh podem demorar) — quem chamou dispara
+        if (o.deferPr) return { ...gate, openPr: true };
+        await this.maybeOpenPr(taskId, task, spec);
+      }
     }
     return gate;
+  }
+  /** Construtor terminou uma rodada de construção: pede a troca pro revisor (true) ou explica por que não (false). */
+  private terminalHandoffToReviewer(taskId: string, spec: TaskSpec, builderName: string): boolean {
+    const reviewer = spec.roles?.find((r) => r.role === "reviewer");
+    if (!reviewer || spec.kind === "review") return false;
+    if (!revisorAutoOn()) {
+      // desligado (padrão até o teste de fumaça): diz UMA vez por tarefa por que o revisor não entrou e como pedir
+      if (!spec.termReviewHint) {
+        this.store.patchSpec(taskId, { termReviewHint: true });
+        this.store.addEvent(taskId, "Sistema", "note", `${reviewer.name} (revisor) não entra sozinho no terminal — peça em Revisão / PR › Pedir revisão, ou ligue em Ajustes › Revisor automático no terminal`, true);
+      }
+      return false;
+    }
+    const why = reviewerBlockedWhy(engineKind(reviewer.engine), process.platform);
+    if (why) { this.store.addEvent(taskId, "Sistema", "note", `revisão automática não rodou: ${why} — peça em Revisão / PR › Pedir revisão`, false); return false; }
+    const round = (spec.reviewRounds?.length ?? 0) + 1;
+    if (round > MAX_REVIEW_ROUNDS) return false; // rodadas já gastas (a pessoa liberou mais uma): segue pro gate
+    this.store.patchSpec(taskId, { termHandoff: { to: "reviewer", round, at: Date.now() } });
+    this.store.setStage(taskId, "reviewer");
+    this.store.addEvent(taskId, "Sistema", "note", `${builderName} terminou a construção — ${reviewer.name} revisa agora no terminal (rodada ${round} de ${MAX_REVIEW_ROUNDS})`, true);
+    return true;
+  }
+  /** Fim do turno do revisor no terminal: grava a rodada e decide a volta. "segue" = o fim de turno continua pro gate. */
+  private async terminalReviewEnd(taskId: string, task: TaskRow, spec: TaskSpec): Promise<"segue" | "refaz" | "precisa"> {
+    const tr = spec.termRole!;
+    const round = tr.round || 1;
+    const roles = spec.roles ?? [];
+    const ri = roles.findIndex((r) => r.role === "reviewer");
+    const r = roles[ri] ?? { role: "reviewer" as Role, name: tr.name, engine: spec.engine, model: spec.model };
+    let text = "";
+    try { text = await readFile(join(task.worktree, ".cardume", "VEREDITO.md"), "utf8"); } catch { /* sem arquivo */ }
+    if (!text.trim()) text = this.store.eventsForTask(taskId).filter((e) => e.agent === tr.name && (e.type === "done" || e.type === "note")).map((e) => e.text).slice(-3).join("\n");
+    // o revisor não devia mexer em código: se mexeu, fica registrado (commit próprio + nota) — nunca no nome de quem constrói
+    if (spec.kind !== "review") {
+      try { if (await this.git.commitAll(task.worktree, `starfork(terminal): mudanças do revisor ${tr.name}`)) this.store.addEvent(taskId, "Sistema", "note", `${tr.name} (revisor) alterou arquivos — ficaram num commit próprio na branch; confira na Revisão`, false); }
+      catch { /* sem commit: segue com o veredito */ }
+    }
+    const verdict = parseVerdict(text);
+    const rec: ReviewRound = { round, verdict: verdict.kind, items: verdict.items, at: Date.now(), reviewer: r.name, agentId: r.agentId, engine: engineKind(r.engine), model: r.model };
+    const rounds = [...(spec.reviewRounds ?? []), rec];
+    this.store.patchSpec(taskId, { reviewRounds: rounds });
+    this.store.addEvent(taskId, r.name, "veredito", roundText(rec) + (verdict.items.length ? `\n${verdict.items.map((x) => `- ${x}`).join("\n")}` : ""), verdict.kind === "aprova", "reviewer", r.agentId);
+    const decision = reviewDecision(round, verdict);
+    const pi = ri >= 0 ? producerIndex(roles, ri) : -1;
+    const builder = pi >= 0 ? roles[pi] : roles.find((x) => x.role === "builder");
+    if (decision === "refaz" && builder) {
+      const adjustment = `A revisão ${round} (${r.name}) pediu estas mudanças:\n${verdict.items.map((x) => `- ${x}`).join("\n")}`;
+      const next = { ...spec, adjustment };
+      this.store.patchSpec(taskId, { adjustment, termHandoff: { to: "builder", round, msg: adjustRuleOf(next).trim() || adjustment, at: Date.now() } });
+      try { await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(next), "utf8"); } catch { /* worktree some */ }
+      this.store.setStage(taskId, "builder");
+      this.store.addEvent(taskId, "Sistema", "note", `${r.name} pediu mudanças — voltando pra ${builder.name} no terminal (rodada ${round + 1} de ${MAX_REVIEW_ROUNDS}, conta no teto)`, true);
+      return "refaz";
+    }
+    // volta QUIETA pro construtor (a conversa continua com quem constrói), aprovado ou parado pra você decidir
+    this.store.patchSpec(taskId, { termHandoff: { to: "builder", round, at: Date.now() } });
+    this.store.setStage(taskId, "builder");
+    if (decision === "segue") return "segue";
+    const why = decision === "precisa-veredito"
+      ? `${r.name} terminou a revisão ${round} sem um veredito legível · decida: seguir pra prova, mais uma rodada ou parar`
+      : builder ? `${r.name} pediu mudanças ${round} vezes · decida: seguir pra prova, mais uma rodada ou parar` : `${r.name} pediu mudanças e não há quem construa nesta equipe · decida`;
+    this.store.patchSpec(taskId, { needsYou: { kind: decision === "precisa-veredito" ? "veredito" : "rodadas", text: why, at: Date.now() } satisfies NeedsYou });
+    this.store.setStatus(taskId, "needs-you");
+    this.store.addEvent(taskId, "Sistema", "note", why, false);
+    notify("Starfork", "Precisa de você — a revisão não fechou", task.title);
+    return "precisa";
+  }
+  /** O PR do fim de turno do terminal, destacado do hook Stop (`turn-end <id> --so-pr`). */
+  async terminalOpenPr(taskId: string): Promise<void> {
+    const task = this.store.getTask(taskId);
+    if (!task || task.status === "merged") return;
+    await this.maybeOpenPr(taskId, task, JSON.parse(task.spec_json) as TaskSpec);
   }
 
   close(): void {
@@ -2470,16 +2780,39 @@ export function deliverPrompt(kind: "doc" | "tests" | "proof" | "all"): string {
  * citada assim reprovava) e caminho do repo relativo à worktree ("tests/login.test.ts"). Recusa ".", "..",
  * pastas, absolutos fora dessas pastas e symlink que aponta pra fora. */
 export function evidenceExists(artDir: string, worktree: string, e: string): boolean {
+  return !!evidencePath(artDir, worktree, e);
+}
+/** O caminho REAL da evidência (mesmas regras do evidenceExists) — "" quando não vale. */
+export function evidencePath(artDir: string, worktree: string, e: string): string {
   const raw = String(e ?? "").trim();
-  if (!raw || raw === "." || raw === "..") return false;
+  if (!raw || raw === "." || raw === "..") return "";
   const real = (p: string) => { try { return realpathSync(p); } catch { return ""; } };
   const roots = [real(artDir), real(worktree)].filter(Boolean);
   const inside = (p: string) => roots.some((r) => { const rel = relative(r, p); return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel); });
   const name = raw.replace(/^(\.\/)?(\.cardume\/artifacts\/)?/, "");
   const cands = isAbsolute(raw) ? [raw] : [join(artDir, name), join(worktree, raw)];
-  return cands.some((p) => {
+  for (const p of cands) {
     const r = real(p);
-    if (!r || !inside(r)) return false;
-    try { return statSync(r).isFile(); } catch { return false; }
-  });
+    if (!r || !inside(r)) continue;
+    try { if (statSync(r).isFile()) return r; } catch { /* some */ }
+  }
+  return "";
+}
+
+/** Reescreve a seção "## Relatório Starfork" do corpo de um PR aberto (gh pr view → replaceReport → gh pr edit). Nunca lança. */
+export async function rewritePrReport(prUrl: string, report: string, cwd: string, env?: NodeJS.ProcessEnv): Promise<{ changed: boolean; error?: string }> {
+  try {
+    const { stdout } = await run(ghBin(), ["pr", "view", prUrl, "--json", "body", "-q", ".body"], { cwd, env: env ?? netEnv(), timeout: Math.min(netTimeoutMs(), 30_000) });
+    const body = stdout.replace(/\n$/, "");
+    const next = replaceReport(body, report);
+    if (next.trim() === body.trim()) return { changed: false };
+    // REST e não `gh pr edit`: o pr edit do gh 2.6x falha em repositório com Projects (classic) desativado
+    // ("Projects (classic) is being deprecated…") e o corpo nunca era trocado
+    const m = prUrl.match(/github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)/);
+    const args = m ? ["api", "-X", "PATCH", `repos/${m[1]}/${m[2]}/pulls/${m[3]}`, "-f", `body=${next}`, "--silent"] : ["pr", "edit", prUrl, "--body", next];
+    await run(ghBin(), args, { cwd, env: env ?? netEnv(), timeout: netTimeoutMs() });
+    return { changed: true };
+  } catch (e) {
+    return { changed: false, error: String((e as { stderr?: string }).stderr || (e as Error).message || e).trim() };
+  }
 }

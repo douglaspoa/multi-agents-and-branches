@@ -28,24 +28,27 @@ function ntGate(){
   }
   if($id('ntRight').classList.contains('mdview')) ntMdRender();
   ntSideRender();
+  if(typeof mdPrevSync==='function') mdPrevSync($id('ntOverlay')); // objetivo/requisitos preenchidos (Conversar, issue, design): prévia formatada + "editar"
 }
 // ---- vista MARKDOWN do spec (redesign p9): mesma spec, outra representação ----
 function ntMdRender(){
   const el=$id('ntMdPrev'); if(!el) return;
   const v=id=>{ const e=$id(id); return e?e.value.trim():''; };
   const pend='<em>— aguardando definição —</em>';
-  const li=a=>a.filter(Boolean).map(x=>`<div>• ${esc(x)}</div>`).join('')||pend;
+  // o pedido do jeito que o agente recebe, mas FORMATADO (antes: requisitos e títulos com ** e crases crus)
+  const li=a=>{ const h=mdListHtml(a); return h?`<div class="mdlite">${h}</div>`:pend; };
+  const md=s=>`<div class="mdlite">${chatMd(s)}</div>`, tl=s=>mdInline(s);
   let h='';
   if(ntMode==='build'){
-    h=`<h2>Título</h2>${v('ntTitle')?esc(v('ntTitle')):pend}<h2>Objetivo</h2>${v('ntObj')?chatMd(v('ntObj')):pend}`+
+    h=`<h2>Título</h2>${v('ntTitle')?tl(v('ntTitle')):pend}<h2>Objetivo</h2>${v('ntObj')?md(v('ntObj')):pend}`+
       ((ntDel||[]).filter(Boolean).length?`<h2>Entregáveis</h2>${li(ntDel)}`:'')+
       `<h2>Requisitos / critérios de aceite</h2>${li(ntReq||[])}`;
   } else if(ntMode==='fix'){
-    h=`<h2>O que corrigir</h2>${v('ntFixTitle')?esc(v('ntFixTitle')):pend}<h2>Detalhes</h2>${v('ntFixObj')?chatMd(v('ntFixObj')):pend}<h2>Critérios de aceite</h2>${li(ntFixReq||[])}`;
+    h=`<h2>O que corrigir</h2>${v('ntFixTitle')?tl(v('ntFixTitle')):pend}<h2>Detalhes</h2>${v('ntFixObj')?md(v('ntFixObj')):pend}<h2>Critérios de aceite</h2>${li(ntFixReq||[])}`;
   } else if(ntMode==='design'){
-    h=`<h2>O que projetar</h2>${v('ntDzTitle')?esc(v('ntDzTitle')):pend}<h2>Contexto e fluxo</h2>${v('ntDzObj')?chatMd(v('ntDzObj')):pend}<h2>Telas / estados</h2>${v('ntDzScreens')?esc(v('ntDzScreens')):pend}`;
+    h=`<h2>O que projetar</h2>${v('ntDzTitle')?tl(v('ntDzTitle')):pend}<h2>Contexto e fluxo</h2>${v('ntDzObj')?md(v('ntDzObj')):pend}<h2>Telas / estados</h2>${v('ntDzScreens')?`<div class="mdlite">${mdInline(v('ntDzScreens'))}</div>`:pend}`;
   } else if(ntMode==='invest'){
-    h=`<h2>O que investigar</h2>${v('ntInvTitle')?esc(v('ntInvTitle')):pend}<h2>Sintoma / pergunta</h2>${v('ntInvObj')?chatMd(v('ntInvObj')):pend}`;
+    h=`<h2>O que investigar</h2>${v('ntInvTitle')?tl(v('ntInvTitle')):pend}<h2>Sintoma / pergunta</h2>${v('ntInvObj')?md(v('ntInvObj')):pend}`;
   } else {
     h=`<h2>PR</h2>${v('ntPr')?esc(v('ntPr')):pend}`;
   }
@@ -130,7 +133,7 @@ function wizRender(){
   foot.innerHTML=
     `<span class="dim" id="wizMiss" style="font-size:var(--fs-xs);color:var(--warn)"></span>`+
     (st.opt?`<button class="btn nf-ghost" id="wizSkip">pular</button>`:'')+
-    `<button class="btn primary" id="wizNext">${last?'Iniciar execução':'próximo →'}</button>`;
+    `<button class="btn primary" id="wizNext">${last?((typeof ntShareIsTeam==='function'&&ntShareIsTeam())?'Mandar pro time':'Iniciar execução'):'próximo →'}</button>`;
   bindClick('wizBack', ()=>{ wizN=steps[Math.max(0,steps.findIndex(s=>s.n===wizN)-1)].n; wizRender(); });
   bindClick('wizSkip', ()=>{ wizN=steps[steps.findIndex(s=>s.n===wizN)+1].n; wizRender(); });
   { const b=$id('wizNext'); if(b) b.onclick=()=>{
@@ -497,7 +500,7 @@ async function openLinkedFix(t){
   renderNtList('ntFixReqs', ntFixReq);
   ['ntFixArtProof','ntFixArtTests','ntFixArtDoc'].forEach(id=>{ const e=$id(id); if(e) e.checked=true; });
   renderNtLink(); ntMarkBase(); if(typeof renderTabs==='function') renderTabs(); // título da aba = a correção
-  const o=$id('ntFixObj'); o.focus(); o.setSelectionRange(o.value.length,o.value.length); o.scrollTop=o.scrollHeight;
+  const o=$id('ntFixObj'); o.__mdedit=true; if(typeof mdPrevSync==='function') mdPrevSync(o.parentNode); o.focus(); o.setSelectionRange(o.value.length,o.value.length); // escrevendo: o campo, não a prévia o.scrollTop=o.scrollHeight;
 }
 function renderNtLink(){
   const el=$id('ntLinkChip'); if(!el) return;
@@ -549,8 +552,9 @@ function ntSideRender(){
   const min=Math.max(1,+ntPolicy.minRequirements||1), nReq=(ntMode==='build'?ntReq:ntMode==='fix'?ntFixReq:[]).filter(x=>x&&x.trim()).length;
   const wait='<span class="wait">— aguardando definição —</span>', cut=(t,n)=>t.length>n?t.slice(0,n-1)+'…':t;
   const pick=document.querySelector('input[name="howflow"]:checked'), whoEl=pick&&pick.closest('label'), who=whoEl?((whoEl.querySelector('.ht')||{}).textContent||''):'';
-  const html=`<div class="g2k">Pedido até aqui</div><div class="g2mdprev"><h4>${v(F[0])?esc(cut(v(F[0]),80)):wait}</h4>`+
-    (ntMode==='review'?'':`<h5>${ntMode==='invest'?'Sintoma':'Objetivo'}</h5><span>${v(F[1])?esc(cut(v(F[1]),180)):wait}</span>`)+
+  const pl=t=>mdPlain(t); // resumo de uma linha: texto sem marcação (antes ** e # crus)
+  const html=`<div class="g2k">Pedido até aqui</div><div class="g2mdprev"><h4>${v(F[0])?esc(cut(mdTitle(v(F[0])),80)):wait}</h4>`+
+    (ntMode==='review'?'':`<h5>${ntMode==='invest'?'Sintoma':'Objetivo'}</h5><span>${v(F[1])?esc(cut(pl(v(F[1])),180)):wait}</span>`)+
     ((ntMode==='build'||ntMode==='fix')?`<h5>Requisitos</h5><span>${nReq} — a política pede ${min}${nReq>=min?' ✓':''}</span>`:'')+
     `<h5>Quem executa</h5><span class="${who?'':'wait'}">${who?esc(who):'recomendação do projeto'}</span></div>`+
     (typeof ndPadroesHtml==='function'?ndPadroesHtml(ntPolicy, 'ntStd', ND_STD_OPEN.ntStd!==false):'');

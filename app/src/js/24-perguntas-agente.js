@@ -42,16 +42,17 @@ async function editDraft(t){
   if(typeof ntMarkBase==='function') ntMarkBase(); // o rascunho está no banco: fechar sem mexer não pergunta
 }
 const startingTasks=new Set();
+// devolve true quando o motor aceitou o início (o "Iniciar épico" conta por aqui; o status só muda depois)
 async function startTask(taskId){
   // duplo clique em ▶ / "aprovar plano" subia dois times na mesma worktree: um pedido por vez
-  if(startingTasks.has(taskId)) return;
+  if(startingTasks.has(taskId)) return false;
   // slots: aviso leve quando já há muita coisa em paralelo (não bloqueia).
   const live = state.tasks.filter(x=>ACTIVE_ST.has(x.status)||x.status==='paused').length;
-  if(live>=slotMax && !await askYes(`Já há ${live} execuções em andamento (limite ${slotMax}).\nIniciar mesmo assim?`)) return;
+  if(live>=slotMax && !await askYes(`Já há ${live} execuções em andamento (limite ${slotMax}).\nIniciar mesmo assim?`)) return false;
   startingTasks.add(taskId);
   document.querySelectorAll(`[data-rowplay="${CSS.escape(taskId)}"], #fwApprovePlan`).forEach(b=>{ b.disabled=true; });
-  try{ await invoke("start_task",{taskId}); lastSig=""; await refresh(); }
-  catch(e){ if(/já está rodando/.test(String(e))) toast('Essa tarefa já está rodando','info'); else showErr(e, 'Falha ao iniciar'); }
+  try{ await invoke("start_task",{taskId}); lastSig=""; await refresh(); return true; }
+  catch(e){ if(/já está rodando/.test(String(e))){ toast('Essa tarefa já está rodando','info'); return true; } showErr(e, 'Falha ao iniciar'); return false; }
   finally{ startingTasks.delete(taskId); }
 }
 async function pauseTask(taskId){

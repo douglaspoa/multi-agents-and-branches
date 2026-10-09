@@ -19,6 +19,7 @@ mod ai_once;
 mod bin_resolve;
 mod autopilot;
 mod epic_context;
+mod epic_requests;
 mod gh_contas;
 mod learn;
 mod media_proto;
@@ -30,6 +31,7 @@ mod ideia;
 mod fabrica;
 mod plan_usage;
 mod projetos_conta;
+mod release;
 mod pty;
 mod term;
 mod term_hist;
@@ -51,6 +53,10 @@ mod procsig {
     pub const CONT: i32 = libc::SIGCONT;
     #[cfg(unix)]
     pub const STOP: i32 = libc::SIGSTOP;
+    #[cfg(unix)]
+    pub const INT: i32 = libc::SIGINT;
+    #[cfg(windows)]
+    pub const INT: i32 = 2;
     #[cfg(windows)]
     pub const KILL: i32 = 9;
     #[cfg(windows)]
@@ -1167,6 +1173,120 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
     Ok(())
 }
 
+// ============================ e2e do APP (só na build de teste: `--features e2e`) ============================
+/// Roteiro de teste (STARFORK_E2E_SCRIPT) que o front roda ao subir — só existe na build de teste isolada (identificador e
+/// HOME próprios). No app de verdade recusa sempre: nada de código vindo de fora.
+#[tauri::command(async)]
+fn e2e_script() -> Result<String, String> {
+    if !cfg!(feature = "e2e") { return Err("indisponível".into()); }
+    let p = std::env::var("STARFORK_E2E_SCRIPT").map_err(|_| "sem roteiro".to_string())?;
+    std::fs::read_to_string(p).map_err(|e| e.to_string())
+}
+/// Uma linha do relatório do roteiro de teste (STARFORK_E2E_REPORT).
+#[tauri::command(async)]
+fn e2e_report(line: String) -> Result<(), String> {
+    if !cfg!(feature = "e2e") { return Err("indisponível".into()); }
+    use std::io::Write;
+    let p = std::env::var("STARFORK_E2E_REPORT").map_err(|_| "sem relatório".to_string())?;
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(p).map_err(|e| e.to_string())?;
+    writeln!(f, "{}", line.replace('\n', " ")).map_err(|e| e.to_string())
+}
+
+// ============================ ASSUMIR no terminal (turno de fundo → PTY) ============================
+/// Processo de FUNDO (headless `cardume start/talk/rework…`) desta tarefa, vivo agora — o PID do PTY não conta (o hook
+/// grava o pid do terminal no mesmo `busy_pid` quando a sessão do terminal está ocupada).
+pub(crate) fn headless_busy_pid(state: &State<AppState>, task_id: &str) -> Option<i32> { headless_pid(state, task_id) }
+fn headless_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
+    let live_pty = term::mgr().and_then(|m| m.live(task_id)).map(|s| s.pid as i32);
+    live_task_pid(state, task_id).filter(|p| Some(*p) != live_pty)
+}
+/// Escada de sinais no GRUPO do turno de fundo (o node do motor é líder — setsid): SIGINT (o `claude -p` e o node saem
+/// limpos, sem retry nem "erro"), 3 s → SIGTERM, 8 s → SIGKILL (Téo na mesa). Devolve se morreu.
+fn stop_ladder(p: i32) -> bool {
+    // líder de grupo (o app sobe o motor com setsid) → o grupo inteiro; senão (motor que alguém subiu num terminal) → a
+    // subárvore do processo, filhos primeiro — kill(-pid) num não-líder não faz nada (Edge Case Hunter)
+    #[cfg(unix)]
+    let leader = unsafe { libc::getpgid(p) } == p;
+    #[cfg(not(unix))]
+    let leader = true;
+    let sig = |s: i32| {
+        if leader { signal_group(p, s); return; }
+        #[cfg(unix)]
+        for x in term::subtree(&term::ps_table(), p as i64) { unsafe { libc::kill(x as i32, s); } }
+    };
+    sig(procsig::CONT); // pausado (teto) também precisa poder sair
+    let wait = |ms: u64| { let t0 = std::time::Instant::now(); while t0.elapsed() < std::time::Duration::from_millis(ms) { if !pid_alive(p) { return true; } std::thread::sleep(std::time::Duration::from_millis(50)); } !pid_alive(p) };
+    sig(procsig::INT);
+    if wait(3000) { return true; }
+    sig(procsig::TERM);
+    if wait(5000) { return true; }
+    sig(procsig::KILL);
+    wait(1500)
+}
+/// Espera o transcript da sessão PARAR de crescer (~500 ms sem mudar, no máx. 3 s): o `--resume` só depois que o
+/// último escritor soltou — dois escritores bifurcam a sessão.
+fn transcript_settle(worktree: &str, sid: Option<&str>) {
+    let (Some(cfg), Some(sid)) = (term_hist::claude_config_dir(), sid.filter(|s| !s.is_empty())) else { return };
+    let Some(p) = term_hist::find_transcript(&cfg, worktree, sid) else { return };
+    let stamp = || std::fs::metadata(&p).ok().map(|m| (m.len(), m.modified().ok()));
+    let t0 = std::time::Instant::now();
+    let mut last = stamp();
+    let mut same_since = std::time::Instant::now();
+    while t0.elapsed() < std::time::Duration::from_secs(3) {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let now = stamp();
+        if now != last { last = now; same_since = std::time::Instant::now(); } else if same_since.elapsed() >= std::time::Duration::from_millis(500) { return; }
+    }
+}
+/// Antes de qualquer coisa ir pro terminal: se um turno de FUNDO está vivo, ASSUME — para num ponto seguro e devolve se a
+/// sessão do terminal deve ser NOVA (o turno era de planner/revisor). Sem turno de fundo → Ok(None). Piloto automático
+/// → erro explicado (ele é dono do processo).
+fn takeover_headless(state: &State<AppState>, task_id: &str) -> Result<Option<bool>, String> {
+    let Some(p) = headless_pid(state, task_id) else { return Ok(None) };
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = open(&path)?;
+    let (spec_json, stage, wt, sid): (String, Option<String>, Option<String>, Option<String>) = conn
+        .query_row("SELECT spec_json, stage, worktree, session_id FROM task WHERE id=?1", params![task_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+        .map_err(|e| e.to_string())?;
+    let spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or_default();
+    if term::is_autopilot(&spec) { return Err(term::AUTOPILOT_OWNS.to_string()); }
+    term::taking_set(task_id, true);
+    let dead = stop_ladder(p);
+    if let Ok(mut m) = state.procs.lock() { if m.get(task_id) == Some(&p) { m.remove(task_id); } }
+    if !dead { term::taking_set(task_id, false); return Err("não consegui parar o turno de fundo desta tarefa — tente de novo em alguns segundos".into()); }
+    let _ = conn.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 1)", params![task_id, now_ms(), "trazendo a IA pro terminal — o turno de fundo parou num ponto seguro e a conversa continua aqui"]);
+    let _ = conn.execute("UPDATE task SET busy_pid=NULL WHERE id=?1 AND busy_pid=?2", params![task_id, p as i64]);
+    let _ = stop_set_review(&conn, task_id);
+    transcript_settle(wt.as_deref().unwrap_or(""), sid.as_deref());
+    Ok(Some(!term::takeover_resumes(stage.as_deref().unwrap_or(""), &spec)))
+}
+/// "Assumir no terminal" (a 1ª tecla no terminal de uma tarefa de fundo): para o turno de fundo e abre o PTY retomando a
+/// MESMA sessão (ou nova, se o turno era de planner/revisor), quieto — as teclas guardadas no front entram depois.
+#[tauri::command(async)]
+fn term_takeover(state: State<AppState>, task_id: String, cols: u16, rows: u16) -> Result<(), String> {
+    let r = (|| {
+        let fresh = takeover_headless(&state, &task_id)?.unwrap_or(false);
+        let repo = repo_of(&state)?;
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        term::open_task_x(&repo, &db, &task_id, cols, rows, true, None, true, fresh).map(|_| ())
+    })();
+    term::taking_set(&task_id, false);
+    r
+}
+/// Mensagem pro terminal de uma tarefa que roda no terminal: turno de fundo vivo → assume antes (abre com o texto como 1ª
+/// mensagem, na sessão certa); senão o roteamento de sempre (fila/abre).
+pub(crate) fn term_route_after_takeover(state: &State<AppState>, task_id: &str, kind: &str, msg: &str, as_req: bool, deliver: Option<&str>) -> Result<(), String> {
+    let r = (|| {
+        if let Some(fresh) = takeover_headless(state, task_id)? {
+            if fresh { term::set_fresh_next(task_id); }
+        }
+        term::route(state, task_id, kind, msg, as_req, deliver)
+    })();
+    term::taking_set(task_id, false);
+    let _ = term::take_fresh_next(task_id); // não vaza pra uma abertura futura (só vale pra ESTA mensagem)
+    r
+}
+
 /// Grava o status de uma tarefa direto no DB (usado por pausar/abortar, já que o
 /// orquestrador está congelado/morto e não vai gravar sozinho).
 fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Result<(), String> {
@@ -1186,7 +1306,7 @@ fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
     // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal)
     // advisor: o conselheiro PEDIDO na tarefa (faixa, Entrega e doca do terminal — src/advisor.ts)
-    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "advisor"] {
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "termRole", "advisor"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     // Cadeado 1 na faixa: a tarefa pausa pra aprovar o plano?
@@ -1268,6 +1388,12 @@ struct Task {
     /// spec — nada de corrida com patch_task_spec); o front lê `t.loop`.
     #[serde(rename = "loop", skip_serializing_if = "Option::is_none")]
     loop_warn: Option<serde_json::Value>,
+    /// A tarefa roda no TERMINAL (regra única term::starts_in_terminal, já resolvida — o front não relê spec.termMode):
+    /// tarefa do CLI sem `termMode` aparece como terminal antes de o PTY abrir.
+    term_run: bool,
+    /// Um turno de FUNDO (headless) é dono da tarefa agora: lock vivo que NÃO é o PTY dela — o terminal mostra "a IA está
+    /// trabalhando sozinha · digite aqui para entrar na conversa" e a 1ª tecla assume (term_takeover)
+    bg: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -1844,6 +1970,43 @@ fn task_edit_cli(state: State<AppState>, task_id: String, patch: Option<String>,
         if let Some(v) = v.filter(|s| !s.trim().is_empty()) { args.push(flag.into()); args.push(v); }
     }
     let out = node_cmd().args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").output().map_err(|e| e.to_string())?;
+    agent_edits::parse_cli_edit(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
+}
+
+// ---------- pedidos de épico do motor (src/epic-requests.ts): criar épico / vincular tarefas existentes ----------
+/// Pedidos ainda sem resultado (o front executa com a sessão do time).
+#[tauri::command(async)]
+fn epic_requests_pending(state: State<AppState>) -> Result<Vec<serde_json::Value>, String> {
+    let repo = active_repo(&state)?;
+    Ok(epic_requests::read_pending(&repo.join(".cardume").join("epic-requests")))
+}
+
+/// Resultado de um pedido (o CLI/MCP que pediu está esperando por ele).
+#[tauri::command(async)]
+fn epic_request_done(state: State<AppState>, id: String, result: String) -> Result<(), String> {
+    let repo = active_repo(&state)?;
+    epic_requests::write_result(&repo.join(".cardume").join("epic-requests"), &id, &result)
+}
+
+/// Lista dos épicos do time pro `cardume epic list` / tool list_epics.
+#[tauri::command(async)]
+fn write_team_epics(state: State<AppState>, json: String) -> Result<(), String> {
+    let repo = active_repo(&state)?;
+    epic_requests::write_epics(&repo.join(".cardume").join("epic-requests"), &json)
+}
+
+/// A nuvem confirmou → a tarefa LOCAL passa a ser (ou deixa de ser) do épico. Proxy do CLI
+/// `cardume epic apply-link <taskId> --json (--epic-id <id> [--epic-title …] [--patch '{"doneWhen":[…],"seq":N}'] | --clear)`.
+/// Nunca muda status/worktree/sessão da tarefa.
+#[tauri::command(async)]
+#[allow(clippy::too_many_arguments)]
+fn epic_link_cli(state: State<AppState>, task_id: String, epic_id: Option<String>, epic_title: Option<String>, done_when: Option<Vec<String>>, seq: Option<i64>,
+                 by_agent: Option<String>, by_task: Option<String>) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    let by = by_agent.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "Starfork".to_string());
+    let args = epic_requests::link_cli_args(&cli_path(&repo), &repo.display().to_string(), &task_id, epic_id.as_deref(), epic_title.as_deref(),
+        &done_when.unwrap_or_default(), seq.unwrap_or(0), &by, by_task.as_deref());
+    let out = node_cmd().args(&args).current_dir(&repo).env_remove("CARDUME_ROLE").env_remove("CARDUME_TASK").output().map_err(|e| e.to_string())?;
     agent_edits::parse_cli_edit(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))
 }
 
@@ -2877,6 +3040,8 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
     };
     // quantas vezes o conselheiro foi consultado (evento do motor headless "Conselheiro consultado") — por tarefa
     let advisor_calls = advisor_calls_by_task(&conn)?;
+    // o modo padrão é lido UMA vez por retrato (setting_get abre o arquivo de Ajustes)
+    let (term_default, term_chosen) = (term::default_mode(), setting_get("taskMode").as_deref() == Some("terminal"));
     let tasks = conn
         .prepare(&format!(
             "SELECT id,title,objective,status,agent,stage,roles_json,branch,worktree,base,engine,model,created_at,spec_json,sort_order,flag,{}, \
@@ -2890,6 +3055,9 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
             let roles_json: String = r.get(6)?;
             let spec_json: String = r.get(13)?;
             let spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or_default();
+            let tid: String = r.get(0)?;
+            let bpid: Option<i64> = r.get::<_, Option<i64>>(16).unwrap_or(None).filter(|pid| pid_alive(*pid as i32));
+            let pty_pid = term::mgr().and_then(|m| m.live(&tid)).map(|s| s.pid as i64);
             Ok(Task {
                 id: r.get(0)?,
                 title: r.get(1)?,
@@ -2924,13 +3092,11 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                     if m.is_empty() { None } else { Some(serde_json::Value::Object(m)) }
                 },
                 depends_on: spec.get("dependsOn").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
-                spec: with_advisor_calls(task_front_spec(&spec), advisor_calls.get(&r.get::<_, String>(0)?).copied()),
-                busy: r
-                    .get::<_, Option<i64>>(16)
-                    .unwrap_or(None)
-                    .map(|pid| pid_alive(pid as i32))
-                    .unwrap_or(false),
+                spec: with_advisor_calls(task_front_spec(&spec), advisor_calls.get(&tid).copied()),
+                term_run: term::starts_in_terminal(&spec, term_default, term_chosen),
+                busy: bpid.is_some(),
                 queued: 0,
+                bg: bpid.is_some() && bpid != pty_pid,
                 loop_warn: None,
             })
         })
@@ -3109,7 +3275,7 @@ fn rework_task(state: State<AppState>, task_id: String, text: String) -> Result<
     // enfileira o feedback como instrução (reutiliza o mesmo mecanismo)
     add_instruction(state.clone(), task_id.clone(), text.clone())?;
     if term::is_terminal(&state, &task_id) {
-        return term::route(&state, &task_id, "rework", "", false, None); // "pedir ajuste" na mesma sessão
+        return term_route_after_takeover(&state, &task_id, "rework", "", false, None); // "pedir ajuste" na mesma sessão
     }
     let repo = repo_of(&state)?;
     let mut cmd = node_cmd();
@@ -3185,7 +3351,7 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
     let repo = repo_of(&state)?;
     let k = if kind == "tests" || kind == "proof" || kind == "all" { kind } else { "doc".to_string() };
     if term::is_terminal(&state, &task_id) {
-        return term::route(&state, &task_id, "deliver", "", false, Some(&k)); // "pedir prova/doc/testes"
+        return term_route_after_takeover(&state, &task_id, "deliver", "", false, Some(&k)); // "pedir prova/doc/testes"
     }
     let mut cmd = node_cmd();
     cmd.args([
@@ -3204,6 +3370,27 @@ fn deliver_artifact(state: State<AppState>, task_id: String, kind: String) -> Re
     Ok(())
 }
 
+/// "Chamar outro agente…" na revisão (src/revisao-alteracao.ts): ETAPA EXTRA com outro agente do time na MESMA branch.
+/// Terminal vivo → a instrução entra na mesma sessão (`term-msg --kind stage`, o fim do turno fecha a etapa);
+/// senão → `cardume etapa <tarefa> <agente>` (motor da tarefa, persona/skills do agente, teto conferido no motor).
+#[tauri::command(async)]
+fn extra_stage(state: State<AppState>, task_id: String, agent: String, note: Option<String>) -> Result<(), String> {
+    let a = agent.trim().to_string();
+    if a.is_empty() { return Err("escolha o agente".to_string()); }
+    let n = note.unwrap_or_default().trim().to_string();
+    if term::should_talk_in_terminal(&state, &task_id)? {
+        return term::route(&state, &task_id, "stage", &n, false, Some(&a));
+    }
+    let repo = repo_of(&state)?;
+    let mut cmd = node_cmd();
+    cmd.args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "etapa", &task_id, &a, "--repo", &repo.display().to_string()]);
+    if !n.is_empty() { cmd.arg("--msg"); cmd.arg(&n); }
+    cmd.current_dir(&repo);
+    cmd.stdout(Stdio::null()).stderr(Stdio::null());
+    spawn_tracked(&state, &task_id, cmd)?;
+    Ok(())
+}
+
 /// Conversa com o agente numa tarefa pronta: retoma a sessão (--resume) por um
 /// turno pra corrigir/entregar o que faltou (ex.: "teste na UI real e me dê os prints").
 #[tauri::command(async)]
@@ -3217,7 +3404,8 @@ fn talk_task(state: State<AppState>, task_id: String, message: String, as_req: O
     // AUTOMÁTICO→TERMINAL: tarefa Claude parada (inclusive as antigas, headless) retoma a sessão no PTY
     // (`claude --resume <sessão>`) — a aba Terminal substituiu a Conversa
     if term::should_talk_in_terminal(&state, &task_id)? {
-        return term::route(&state, &task_id, "talk", &m, as_req.unwrap_or(false), None);
+        // tarefa de terminal com turno de FUNDO vivo (legado, ou a que estava rodando no deploy): assume e manda
+        return term_route_after_takeover(&state, &task_id, "talk", &m, as_req.unwrap_or(false), None);
     }
     let mut cmd = node_cmd();
     cmd.args([
@@ -3477,6 +3665,21 @@ fn advisor_flag(v: Option<&str>) -> Option<&'static str> {
     match v.map(|s| s.trim().to_ascii_lowercase()).as_deref() { Some("opus") => Some("opus"), Some("fable") => Some("fable"), _ => None }
 }
 
+/// PURA: o `--term-mode` que a criação grava. terminal → "terminal"; automático só quando foi ESCOLHA (pedido "auto"
+/// ou o padrão "auto" de Ajustes); senão nada (ausente = decide no início, pelo padrão).
+fn term_mode_arg(terminal: bool, explicit: Option<&str>, default: &str) -> Option<&'static str> {
+    if terminal { Some("terminal") } else if explicit == Some("auto") || default == "auto" { Some("auto") } else { None }
+}
+#[cfg(test)]
+mod term_mode_arg_tests {
+    #[test]
+    fn auto_so_gravado_quando_escolhido() {
+        assert_eq!(super::term_mode_arg(true, None, "terminal"), Some("terminal"));
+        assert_eq!(super::term_mode_arg(false, Some("auto"), "terminal"), Some("auto"), "pedido explícito");
+        assert_eq!(super::term_mode_arg(false, None, "auto"), Some("auto"), "Ajustes › Automático");
+        assert_eq!(super::term_mode_arg(false, None, "terminal"), None, "codex sem escolher: ausente, decide no início");
+    }
+}
 #[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 fn new_task(
@@ -3676,9 +3879,17 @@ fn new_task(
     let ek = args.iter().position(|a| a == "--engine").and_then(|i| args.get(i + 1)).map(|e| e.to_lowercase()).unwrap_or_default();
     // Codex no terminal = a pessoa ESCOLHEU terminal (beta antiga ou a tela nova) — o padrão novo é só do Claude
     let chosen = setting_get("taskMode").as_deref() == Some("terminal");
-    let terminal = term::wants_terminal(term_mode.as_deref(), term::default_mode(), chosen, &ek);
-    args.push("--term-mode".to_string());
-    args.push(if terminal { "terminal" } else { "auto" }.to_string());
+    // sem pedido explícito: a MESMA regra do início (term::starts_in_terminal) — rótulo só com o modelo ("opus") é Claude
+    let terminal = match term_mode.as_deref() {
+        Some("terminal") | Some("auto") => term::wants_terminal(term_mode.as_deref(), term::default_mode(), chosen, &ek),
+        _ => term::starts_in_terminal(&serde_json::json!({ "engine": ek }), term::default_mode(), chosen),
+    };
+    // "auto" só fica GRAVADO quando é escolha (pedido explícito ou Ajustes › Automático) — gravado é respeitado em
+    // todo início (term::starts_in_terminal); sem escolha fica AUSENTE e cada início decide pelo padrão daquele momento
+    if let Some(m) = term_mode_arg(terminal, term_mode.as_deref(), term::default_mode()) {
+        args.push("--term-mode".to_string());
+        args.push(m.to_string());
+    }
     // terminal: o CLI só CRIA (worktree, TASK.yaml); quem abre o terminal é o app, quando a criação termina
     let open_terminal = terminal && start != Some(false);
     if open_terminal { args.push("--no-start".to_string()); }
@@ -4017,11 +4228,10 @@ fn start_task(state: State<AppState>, task_id: String) -> Result<(), String> {
         return Err("essa tarefa já está rodando".into());
     }
     let repo = repo_of(&state)?;
-    // MODO TERMINAL: ▶ abre o CLI oficial num terminal (a tela da tarefa se conecta a ele)
+    // MODO TERMINAL (a regra única — tarefa do CLI sem termMode inclusive): ▶ abre o CLI oficial num terminal
     if term::is_terminal(&state, &task_id) {
         let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
-        term::open_task(&repo, &db, &task_id, 120, 34, true, None)?;
-        return Ok(());
+        return term::start_in_terminal(&state, &repo, &db, &task_id);
     }
     let mut cmd = node_cmd();
     cmd.args([
@@ -4064,8 +4274,22 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
         repo.display().to_string(),
     ];
     push_opt(&mut args, "--agents", &agents);
+    // terminal sempre vivo: o motor só PREPARA (pasta, diff, tarefa); o revisor abre no TERMINAL — ou, no modo
+    // automático (motor sem terminal / Ajustes › Automático), roda de fundo como antes
+    args.push("--no-start".to_string());
     let mut cmd = node_cmd();
-    cmd.args(&args).current_dir(&repo);
+    cmd.args(&args).current_dir(&repo).stdin(Stdio::null()).env("CARDUME_NOTIFY", "0");
+    let out = output_timeout(cmd, 120).map_err(|e| format!("não consegui preparar a revisão do PR: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("não consegui preparar a revisão do PR: {}", err.lines().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" ").trim()));
+    }
+    if term::is_terminal(&state, &id) {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        return term::start_in_terminal(&state, &repo, &db, &id);
+    }
+    let mut cmd = node_cmd();
+    cmd.args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "review-pr", "--run", &id, "--repo", &repo.display().to_string()]).current_dir(&repo);
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &id, cmd)?;
     Ok(())
@@ -5319,75 +5543,13 @@ fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Optio
 }
 
 /// Publica a release (zip portátil + latest.json) no canal do time usando a
-/// SESSÃO logada do app — nada de senha em env. Só funciona na instalação dev
-/// (CARDUME_CLI aponta pro fonte, onde vive o dist/).
+/// SESSÃO logada do app — nada de senha em env. Só na instalação dev (CARDUME_CLI ou a
+/// marca do deploy-local.sh) e só de um pacote da main — regras e ordem do upload em release.rs.
 #[tauri::command(async)]
 fn publish_release(url: String, anon: String, token: String, notes: Option<String>) -> Result<String, String> {
-    let cli = std::env::var("CARDUME_CLI").map_err(|_| "só a instalação de desenvolvimento publica releases")?;
-    // CARDUME_CLI → .../src/cli.ts → raiz do produto
-    let root = PathBuf::from(&cli).parent().and_then(|p| p.parent()).map(|p| p.to_path_buf()).ok_or("CARDUME_CLI inesperado")?;
-    let zip = root.join("dist").join("Starfork-portable.zip");
-    let bin = root.join("dist").join("Starfork-portable.app").join("Contents").join("MacOS").join("Starfork");
-    if !zip.exists() { return Err(format!("rode scripts/package-app.sh antes — sem {}", zip.display())); }
-    let mtime_ms = |p: &PathBuf| -> Option<i64> {
-        std::fs::metadata(p).and_then(|m| m.modified()).ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_millis() as i64)
-    };
-    let build_ms = mtime_ms(&bin).ok_or("binário do portable não encontrado")?;
-    // GUARD: se o app DEV (deploy-local) é bem mais novo que o portable, o pacote
-    // está DEFASADO — publicar mandaria um build velho pros colegas. Barra.
-    let dev_bin = root.join("dist").join("Starfork.app").join("Contents").join("MacOS").join("Starfork");
-    let old_dev_bin = root.join("dist").join("Constellation.app").join("Contents").join("MacOS").join("Constellation");
-    if let Some(dev_ms) = mtime_ms(&dev_bin).or_else(|| mtime_ms(&old_dev_bin)) {
-        // 30min de folga: ignora o skew de reempacotar+redeploy na mesma sessão,
-        // mas pega o caso real (portable de dias atrás, esquecido).
-        if dev_ms > build_ms + 1_800_000 {
-            return Err("o pacote portable está DEFASADO (seu build atual é bem mais novo) — rode `scripts/package-app.sh` pra reempacotar com o código de agora ANTES de publicar, senão os colegas recebem uma versão antiga.".to_string());
-        }
-    }
-    let size = std::fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
-    // 1) zip — primeiro com o nome novo e, em seguida, com o antigo (Constellation-portable.zip):
-    // clientes de antes do rename (ou links velhos) continuam achando o release.
-    // Só o Starfork-portable.zip pode falhar a publicação; o alias antigo é best-effort.
-    let mut warn = String::new();
-    for name in ["Starfork-portable.zip", "Constellation-portable.zip"] {
-        let mut c1 = Command::new("curl");
-        c1.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
-            "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
-            "-H", "x-upsert: true", "-H", "Content-Type: application/zip",
-            "--data-binary"]).arg(format!("@{}", zip.display()))
-            .arg(format!("{url}/storage/v1/object/releases/{name}"));
-        let r1 = output_timeout(c1, 300)?;
-        let code1 = String::from_utf8_lossy(&r1.stdout).trim().to_string();
-        if code1 != "200" {
-            if name == "Starfork-portable.zip" { return Err(format!("upload do {name} falhou (HTTP {code1}) — você é o owner do canal?")); }
-            warn = format!(" · aviso: alias {name} não subiu (HTTP {code1})");
-        }
-    }
-    // 2) latest.json
-    let d = build_ms / 1000;
-    let version = {
-        let out = Command::new("date").args(["-r", &d.to_string(), "+%d/%m %H:%M"]).output().map_err(|e| e.to_string())?;
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
-    };
-    let meta = serde_json::json!({
-        "buildMs": build_ms, "version": version, "file": "Starfork-portable.zip",
-        "size": size, "notes": notes.unwrap_or_else(|| "Melhorias e correções.".into()),
-        "publishedAt": chrono_iso_now(),
-    });
-    let tmp = std::env::temp_dir().join("constellation-latest.json");
-    std::fs::write(&tmp, meta.to_string()).map_err(|e| e.to_string())?;
-    let mut c2 = Command::new("curl");
-    c2.args(["-s", "-o", "/dev/null", "-w", "%{http_code}", "-X", "POST",
-        "-H", &format!("apikey: {anon}"), "-H", &format!("Authorization: Bearer {token}"),
-        "-H", "x-upsert: true", "-H", "Content-Type: application/json",
-        "--data-binary"]).arg(format!("@{}", tmp.display()))
-        .arg(format!("{url}/storage/v1/object/releases/latest.json"));
-    let r2 = output_timeout(c2, 60)?;
-    let code2 = String::from_utf8_lossy(&r2.stdout).trim().to_string();
-    if code2 != "200" { return Err(format!("latest.json falhou (HTTP {code2})")); }
-    Ok(format!("release {version} publicada ({:.1} MB) — os apps do time recebem o aviso de atualizar em até ~2 min{warn}", size as f64 / 1048576.0))
+    let src = release::dev_source().ok_or("só a instalação de desenvolvimento publica releases — instale o app pelo scripts/deploy-local.sh (no checkout do repositório) e tente de novo.")?;
+    let pkg = release::preflight(&src)?;
+    release::upload(&url, &anon, &token, &pkg, notes)
 }
 fn chrono_iso_now() -> String {
     let out = Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output().ok();
@@ -6450,11 +6612,12 @@ fn apns_push(token: String, title: String, body: String, category: Option<String
     if code == "200" { Ok(code) } else { Err(format!("APNs respondeu {code}")) }
 }
 
-/// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte)? O updater
-/// se esconde nela — atualizar por cima destruiria o ambiente do Douglas.
+/// Instalação de DESENVOLVIMENTO (CARDUME_CLI apontando pro fonte, ou a marca
+/// dev-source.json que o deploy-local.sh grava no .app)? O updater se esconde nela —
+/// atualizar por cima destruiria o ambiente do Douglas — e "Publicar release" aparece.
 #[tauri::command(async)]
 fn is_dev_install() -> bool {
-    std::env::var("CARDUME_CLI").map(|v| !v.is_empty()).unwrap_or(false)
+    release::dev_source().is_some()
 }
 
 /// Destino do update: instala no lugar, exceto o rename único Constellation.app →
@@ -7535,6 +7698,89 @@ fn pr_compare_url(state: State<AppState>, task_id: String, base: String) -> Resu
     let b = if base.trim().is_empty() { "main" } else { base.trim() };
     Ok(format!("https://github.com/{path}/compare/{b}...{branch}?expand=1"))
 }
+/// JSON da última linha do stdout do motor (o CLI imprime 1 objeto); sem JSON → erro com o stderr.
+fn cli_json_line(stdout: &str, stderr: &str) -> Result<serde_json::Value, String> {
+    stdout.lines().rev().map(str::trim).filter(|l| l.starts_with('{'))
+        .find_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .ok_or_else(|| { let e = stderr.trim(); if e.is_empty() { "o motor não respondeu".to_string() } else { e.chars().take(300).collect() } })
+}
+
+/// PROVAS NO PR (src/pr-provas.ts): sobe as imagens/vídeos de prova da tarefa pro branch órfão `starfork-provas`
+/// do repositório e devolve `{ links, note, needConfirm?, visibility?, setting? }`. `decide` (on|off) grava a opção do
+/// projeto antes — a resposta do "repositório público: publicar os prints?". Pesado (rede): async, com teto de tempo.
+#[tauri::command(async)]
+fn pr_attach_proofs(state: State<AppState>, task_id: String, decide: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = active_repo(&state)?;
+    let mut args = vec!["--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "pr-provas".into(), task_id, "--repo".into(), repo.display().to_string()];
+    if let Some(d) = decide.filter(|d| d == "on" || d == "off") { args.push("--decide".into()); args.push(d); }
+    let mut c = node_cmd();
+    c.args(&args).current_dir(&repo).env_remove("CARDUME_ROLE");
+    let out = output_timeout(c, 300)?;
+    cli_ok(cli_json_line(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))?)
+}
+/// `{ error }` do motor vira Err (a tela mostra "não consegui anexar as provas (motivo)" e tenta de novo depois).
+fn cli_ok(v: serde_json::Value) -> Result<serde_json::Value, String> {
+    match v.get("error").and_then(|e| e.as_str()) { Some(e) if !e.is_empty() => Err(e.to_string()), _ => Ok(v) }
+}
+/// Chave do .git/config com a opção do projeto — a MESMA do motor (src/pr-provas.ts PROVAS_SETTING_KEY).
+const PROVAS_SETTING_KEY: &str = "starfork.provasNoPr";
+
+/// Reescreve a seção "## Relatório Starfork" do corpo do PR aberto da tarefa (provas novas depois da abertura).
+#[tauri::command(async)]
+fn pr_update_report(state: State<AppState>, task_id: String, report: String, url: Option<String>) -> Result<serde_json::Value, String> {
+    let repo = active_repo(&state)?;
+    if !report.contains("## Relatório Starfork") { return Err("relatório vazio".into()); }
+    let f = std::env::temp_dir().join(format!("starfork-relatorio-{}-{}.md", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
+    std::fs::write(&f, report.as_bytes()).map_err(|e| e.to_string())?;
+    let mut c = node_cmd();
+    let mut args = vec!["--disable-warning=ExperimentalWarning".to_string(), cli_path(&repo), "pr-relatorio".into(), task_id, "--file".into(), f.display().to_string(), "--repo".into(), repo.display().to_string()];
+    if let Some(u) = url.filter(|u| u.starts_with("https://github.com/")) { args.push("--url".into()); args.push(u); }
+    c.args(&args).current_dir(&repo).env_remove("CARDUME_ROLE");
+    let out = output_timeout(c, 120);
+    let _ = std::fs::remove_file(&f);
+    let out = out?;
+    cli_ok(cli_json_line(&String::from_utf8_lossy(&out.stdout), &String::from_utf8_lossy(&out.stderr))?)
+}
+
+/// Opção do projeto "Mostrar as provas no PR" (`starfork.provasNoPr` no .git/config): `value` on|off grava, "ask" volta
+/// ao padrão (apaga a chave); devolve a atual ("" = padrão: liga em repositório privado, pergunta uma vez em público).
+#[tauri::command(async)]
+fn provas_setting(state: State<AppState>, value: Option<String>) -> Result<String, String> {
+    let repo = active_repo(&state)?;
+    if let Some(v) = value.filter(|v| !v.is_empty()) {
+        let args: Vec<&str> = match v.as_str() {
+            "on" | "off" => vec!["config", PROVAS_SETTING_KEY, &v],
+            "ask" => vec!["config", "--unset-all", PROVAS_SETTING_KEY],
+            _ => return Err("valor inválido (on|off|ask)".into()),
+        };
+        let o = Command::new("git").arg("-C").arg(&repo).args(&args).output().map_err(|e| e.to_string())?;
+        // --unset de chave que não existe sai 5: já está no padrão
+        if !o.status.success() && !(v == "ask" && o.status.code() == Some(5)) { return Err(String::from_utf8_lossy(&o.stderr).trim().to_string()); }
+    }
+    let o = Command::new("git").arg("-C").arg(&repo).args(["config", "--get", PROVAS_SETTING_KEY]).output().map_err(|e| e.to_string())?;
+    let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    Ok(if v == "on" || v == "off" { v } else { String::new() })
+}
+
+#[cfg(test)]
+mod provas_pr_tests {
+    use super::{cli_json_line, cli_ok, PROVAS_SETTING_KEY};
+    #[test]
+    fn chave_igual_a_do_motor_e_erro_do_motor_vira_err() {
+        // src/pr-provas.ts: PROVAS_SETTING_KEY = "starfork.provasNoPr" (app/tests/provas-pr.test.mjs confere os dois lados)
+        assert_eq!(PROVAS_SETTING_KEY, "starfork.provasNoPr");
+        assert_eq!(cli_ok(serde_json::json!({ "links": {}, "note": "", "error": "boom" })).unwrap_err(), "boom");
+        assert!(cli_ok(serde_json::json!({ "links": {}, "note": "" })).is_ok());
+        assert_eq!(cli_json_line("{\"a\":1}\n{quebrado\n", "").unwrap()["a"], 1, "linha quebrada não esconde o JSON bom");
+    }
+    #[test]
+    fn json_da_ultima_linha_ou_erro_com_stderr() {
+        assert_eq!(cli_json_line("log\n{\"links\":{},\"note\":\"x\"}\n", "").unwrap()["note"], "x");
+        assert_eq!(cli_json_line("", "  boom \n").unwrap_err(), "boom");
+        assert_eq!(cli_json_line("nada", "").unwrap_err(), "o motor não respondeu");
+    }
+}
+
 /// Abre um PR: faz push da branch da tarefa e cria o PR (base escolhida).
 #[tauri::command(async)]
 fn open_pr(state: State<AppState>, task_id: String, base: String, title: String, body: String) -> Result<String, String> {
@@ -10379,10 +10625,17 @@ pub fn run() {
             agent_edits_done,
             write_epic_context,
             epic_context_requests,
+            epic_requests_pending,
+            epic_request_done,
+            write_team_epics,
+            epic_link_cli,
             task_edit_cli,
             epic_sync_cli,
             task_agent_edit,
             resolve_conflict,
+            term_takeover,
+            e2e_script,
+            e2e_report,
             list_projects,
             set_projects_user,
             projects_scope,
@@ -10484,6 +10737,7 @@ pub fn run() {
             rerun_task,
             deliver_artifact,
             talk_task,
+            extra_stage,
             review_pr,
             save_draft,
             load_draft,
@@ -10534,6 +10788,9 @@ pub fn run() {
             read_ref,
             list_branches,
             open_pr,
+            pr_attach_proofs,
+            pr_update_report,
+            provas_setting,
             pr_compare_url,
             pr_status,
             pr_resolve_thread,

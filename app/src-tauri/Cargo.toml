@@ -40,3 +40,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 
 [profile.dev]
 incremental = true
+
+[features]
+# build de TESTE isolada (e2e do app): liga os comandos e2e_script/e2e_report — no app de verdade eles só recusam
+e2e = []

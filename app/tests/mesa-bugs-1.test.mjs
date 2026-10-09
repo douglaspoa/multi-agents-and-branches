@@ -16,14 +16,15 @@ test('#1 página do épico rola como a "Entrega do time"', () => {
   assert.match(read('css/60-grafo-times-nova-demanda.css'), /#ctPageMain,#epicPageMain\{flex:1;min-height:0;overflow:auto\}/);
 });
 
-test('#2/#3 folha de pergunta: pergunta e opções encolhem por igual, abre no FIM do texto; pane pequeno rola a folha inteira com pular/próxima presos', () => {
+test('#2/#3 folha de pergunta: título no topo (a frase que pergunta), contexto encolhe antes das opções; pane pequeno rola a folha inteira com pular/próxima presos', () => {
+  // 08/10 (pergunta legível): o "abre no FIM do texto" deu lugar ao título = a frase com "?" no topo (tlAskSplit)
   const css = read('css/95-terminal.css');
-  assert.match(css, /\.tlq\{flex:0 1 auto;/); assert.match(css, /\.tlopts\{flex:0 1 auto;/);
-  assert.match(css, /\.tlq,\.tlopts\{background:linear-gradient/, 'sombra de rolagem (a barra do macOS é sobreposta)');
+  assert.match(css, /\.tlq\{flex:0 1 auto;/); assert.match(css, /\.tlopts\{flex:0 1 auto;/); assert.match(css, /\.tlctx\{flex:0 1000 auto;/);
+  assert.match(css, /\.tlq,\.tlctx:not\(\.fold\),\.tlopts\{background:linear-gradient/, 'sombra de rolagem (a barra do macOS é sobreposta)');
   assert.match(css, /\.tlsheethost\.tight \.tlsheet\{overflow-y:auto/);
   assert.match(css, /\.tlsheethost\.tight \.tlsf\{position:sticky;bottom:0/);
-  assert.match(tl, /function tlAskScrollEnd\(el\)\{[\s\S]*?q\.scrollTop=q\.scrollHeight/);
-  assert.match(tl, /tlAskScrollPut\(el, same\?el\.__sc:null\)/, 'mesma pergunta mantém a rolagem; pergunta nova vai pro fim');
+  assert.match(tl, /function tlAskScrollStart\(el\)\{[^\n]*n\.scrollTop=0/);
+  assert.match(tl, /tlAskScrollPut\(el, same\?el\.__sc:null\)/, 'mesma pergunta mantém a rolagem; pergunta nova abre no topo');
   assert.match(tl, /tlAskKeepVisible\(b\)/, 'a opção com foco nunca fica atrás da borda');
 });
 

@@ -93,7 +93,7 @@ test('fiação: faixa do ciclo ao vivo, notificação, snapshot e Ajustes', () =
   assert.match(paint, /host\.innerHTML=loop\+strip/);
   assert.match(cut(core, 'function detectNotifs(snap){', '\nconst prevEvTop'), /loopWatch\(tasks\)/);
   assert.match(cut(core, 'function snapSig(){', '\n}\n'), /x\.loop&&x\.loop\.at/, 'o aviso que some sem evento novo repinta lateral/Central');
-  assert.match(cut(read('js/20-workspace-tarefa.js'), 'async function fwLiveUpdate(){', '\n}\n'), /loopLivePaint\(t\);[^\n]*\n\s*if\(sig===fwLiveSig\) return;/);
+  assert.match(cut(read('js/20-workspace-tarefa.js'), 'async function fwLiveUpdate(){', '\n}\n'), /loopLivePaint\(t\);[^\n]*\n(?:(?!\s*if\(sig===fwLiveSig\))[^\n]*\n){0,4}\s*if\(sig===fwLiveSig\) return;/, 'o aviso de loop repinta ANTES do corte por assinatura (a faixa do terminal vivo pode ficar entre os dois)');
   const modo = cut(aj, 'function ajRenderModo(host){', '\n}\n');
   assert.match(modo, /Pausar a tarefa quando a IA repetir o mesmo erro/);
   assert.match(modo, /lsSet\('loopPause', lp\.checked\?'1':'0'\)/);

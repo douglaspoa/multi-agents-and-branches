@@ -214,7 +214,7 @@ test('terminal não vivo: o seletor mostra a IA da tarefa (recomendado); integra
   const row = TI.tiAiRowHtml({ cli: null, taskAi: 'codex', rec });
   assert.match(row, /<option value="claude" selected>Claude · Opus</); assert.ok(!/shell \(sem IA\)/.test(row));
   const ti = read('js/64-terminal-integrado.js');
-  assert.match(ti, /cli:\(live && s && typeof s\.cli==='string'\)\?s\.cli:null/, '"shell (sem IA)" só com PTY vivo');
+  assert.match(ti, /cli:\(live && s && s\.alive && typeof s\.cli==='string'\)\?s\.cli:null/, '"shell (sem IA)" só com PTY vivo — e o retrato do status também vivo');
   assert.ok(!/termGone/.test(cut(ti, 'function tiBlockedWhy(', '\n}\n')), 'integrada não bloqueia mais a digitação');
   assert.match(ti, /class="tiact ticomp" data-ti="comp"/);
   assert.match(read('js/60-terminal.js'), /'não consegui abrir o terminal: '/, 'falha ao abrir vira linha no terminal');

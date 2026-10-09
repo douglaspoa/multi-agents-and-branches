@@ -31,26 +31,30 @@ impl PtySink for TauriSink {
         // troca de IA (term_switch_ai) já reabriu o terminal: o fim do processo VELHO não mexe no estado do novo —
         // em memória (sessão nova registrada com outro pid) e no banco (UPDATE … WHERE pid = o que saiu, atômico)
         let replaced = mgr().and_then(|m| m.get(task_id)).map(|s| s.pid != pid).unwrap_or(false);
+        // encerrado por ficar parado? (sai do conjunto SEMPRE — senão o próximo fim normal levaria a nota errada)
+        let reaped = reaped().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
         if replaced { return; }
         shells().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
         let db = dbs().lock().unwrap_or_else(|e| e.into_inner()).get(task_id).cloned();
-        if let Some(c) = db.and_then(|d| open_rw(&d).ok()) { record_exit(&c, task_id, pid, code); }
-        let _ = self.app.emit("term-exit", serde_json::json!({ "taskId": task_id, "code": code }));
+        if let Some(c) = db.and_then(|d| open_rw(&d).ok()) { record_exit_with(&c, task_id, pid, if reaped { REAPED_NOTE } else { exit_note(code) }); }
+        // reaped: o front não trata como "acabou de fechar" — voltar à tarefa retoma na hora
+        let _ = self.app.emit("term-exit", serde_json::json!({ "taskId": task_id, "code": code, "reaped": reaped }));
     }
 }
 
 /// Fim do processo `pid` no banco: livre, sem pid/IA, "rodando" → revisão, nota no feed. SÓ se a sessão gravada
 /// ainda é a desse pid (outra já aberta no lugar = nada muda). Devolve se gravou.
-pub fn record_exit(c: &Connection, task_id: &str, pid: u32, code: Option<u32>) -> bool {
+pub fn record_exit(c: &Connection, task_id: &str, pid: u32, code: Option<u32>) -> bool { record_exit_with(c, task_id, pid, exit_note(code)) }
+pub fn record_exit_with(c: &Connection, task_id: &str, pid: u32, note: &str) -> bool {
     ensure_cli_col(c);
-    let n = c.execute("UPDATE term_session SET busy=0, pid=NULL, cli='', updated_at=?3 WHERE task_id=?1 AND pid=?2", params![task_id, pid as i64, now_ms()]).unwrap_or(0);
+    let n = c.execute("UPDATE term_session SET busy=0, pid=NULL, cli='', waiting=0, updated_at=?3 WHERE task_id=?1 AND pid=?2", params![task_id, pid as i64, now_ms()]).unwrap_or(0);
     if n == 0 { return false; }
     let _ = c.execute("UPDATE task SET busy_pid=NULL WHERE id=?1 AND busy_pid=?2", params![task_id, pid as i64]);
     // processo saiu no meio de um turno (crash, /exit com trabalho rodando): não fica "rodando" pra sempre
     let _ = c.execute("UPDATE task SET status='review' WHERE id=?1 AND status IN ('running','thinking')", params![task_id]);
     let _ = c.execute(
         "INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'status', ?3, 1)",
-        params![task_id, now_ms(), exit_note(code)],
+        params![task_id, now_ms(), note],
     );
     true
 }
@@ -74,6 +78,10 @@ fn registry() -> Option<PidRegistry> {
 pub fn init(app: tauri::AppHandle) {
     let m = Arc::new(PtyManager::new(Arc::new(TauriSink { app }), registry()));
     let _ = PTY.set(m.clone());
+    // terminal parado fora da tela é encerrado (Ajustes › termIdleMin); reabrir a tarefa retoma sozinho
+    std::thread::Builder::new().name("term-reaper".into()).spawn(|| loop { std::thread::sleep(REAP_EVERY); reap_tick(); }).ok();
+    // troca de papel no terminal (revisor automático): o fim de turno pede, o app executa no PTY
+    std::thread::Builder::new().name("term-handoff".into()).spawn(|| loop { std::thread::sleep(HANDOFF_EVERY); handoff_tick(); }).ok();
     std::thread::spawn(move || {
         if let Some(r) = &m.registry {
             let n = r.sweep(pty::looks_like_agent);
@@ -95,10 +103,39 @@ fn spec_of(db: &Path, task_id: &str) -> Option<serde_json::Value> {
     let s: String = c.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get(0)).ok()?;
     serde_json::from_str(&s).ok()
 }
-/// A tarefa está em MODO TERMINAL? (fixo no spec; tarefa antiga = automático)
+/// A tarefa RODA NO TERMINAL (PTY)? A regra ÚNICA de todos os caminhos de início/conversa (mesa 09/10 — "terminal
+/// sempre vivo"): ▶ Iniciar, "Iniciar épico", onda/rascunho armado, re-rodar, pedir ajuste/prova, conversa, "corrigir
+/// com o agente". Tarefa criada pelo CLI/MCP (sem `termMode`) decide AQUI pelo padrão — antes caía no headless.
 pub fn is_terminal(state: &State<AppState>, task_id: &str) -> bool {
-    db_of(state).ok().and_then(|db| spec_of(&db, task_id)).map(|s| s.get("termMode").and_then(|v| v.as_str()) == Some("terminal")).unwrap_or(false)
+    let chosen = setting_get("taskMode").as_deref() == Some("terminal");
+    db_of(state).ok().and_then(|db| spec_of(&db, task_id)).map(|s| starts_in_terminal(&s, default_mode(), chosen)).unwrap_or(false)
 }
+/// Motor que decide o terminal: o do construtor (o papel que conversa no terminal), senão o da tarefa.
+pub fn spec_engine(spec: &serde_json::Value) -> String {
+    let st = |v: Option<&serde_json::Value>| v.and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    let roles = spec.get("roles").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let role = roles.iter().find(|r| r.get("role").and_then(|x| x.as_str()) == Some("builder")).or(roles.first());
+    role.map(|r| st(r.get("engine"))).filter(|e| !e.is_empty()).unwrap_or_else(|| st(spec.get("engine")))
+}
+pub fn starts_in_terminal(spec: &serde_json::Value, default: &str, chosen: bool) -> bool { starts_in_terminal_on(spec, default, chosen, cfg!(windows)) }
+/// PURA: `termMode` "terminal" → sim; "auto" gravado → NÃO (escolha explícita: `--term-mode auto` no CLI ou o
+/// "Automático" de Ajustes na criação — veto da Júlia na mesa); AUSENTE (CLI/MCP, tarefa antiga) → o padrão de agora
+/// (`wants_terminal`: Claude Code = terminal; outros motores só se a pessoa escolheu terminal; gateway/mock = não).
+/// Piloto automático nunca: ele conduz a tarefa dentro do processo dele (gate, rodadas, merge).
+pub fn starts_in_terminal_on(spec: &serde_json::Value, default: &str, chosen: bool, windows: bool) -> bool {
+    if spec.get("autopilot").map(|v| v.as_bool().unwrap_or(!v.is_null())).unwrap_or(false) { return false; }
+    match spec.get("termMode").and_then(|v| v.as_str()) {
+        Some("terminal") => true,
+        Some("auto") => false,
+        _ => {
+            let e = spec_engine(spec);
+            // rótulo só com o modelo ("opus", "Claude · Sonnet") é Claude Code — a mesma régua do front (aiEngineOf)
+            wants_terminal_on(None, default, chosen, &e, windows) || (default == "terminal" && claude_engine(&e) && ai_of_engine(&e) == "claude")
+        }
+    }
+}
+/// Tarefa do piloto automático? (o piloto é dono do processo dela — não se assume no terminal)
+pub fn is_autopilot(spec: &serde_json::Value) -> bool { spec.get("autopilot").map(|v| v.as_bool().unwrap_or(!v.is_null())).unwrap_or(false) }
 /// Modo padrão das tarefas novas (Configurações → "modo das tarefas"). Layout A aprovado (03/10): o TERMINAL é o
 /// padrão pro Claude Code. `taskModeSet=2` = a pessoa escolheu na tela nova (vale o que ela escolheu); sem isso, um
 /// "auto" gravado é da tela antiga (onde "Automático" era só o padrão salvo junto) e não conta como escolha.
@@ -181,6 +218,7 @@ fn ensure_cli_col(c: &Connection) {
         "CREATE TABLE IF NOT EXISTS term_session (task_id TEXT PRIMARY KEY, pid INTEGER, engine TEXT, busy INTEGER NOT NULL DEFAULT 0, session_id TEXT, started_at INTEGER, updated_at INTEGER, cli TEXT)", [],
     );
     let _ = c.execute("ALTER TABLE term_session ADD COLUMN cli TEXT", []);
+    let _ = c.execute("ALTER TABLE term_session ADD COLUMN waiting INTEGER", []);
 }
 fn log_path(repo: &Path, task_id: &str) -> PathBuf { repo.join(".cardume").join("term").join(format!("{task_id}.log")) }
 
@@ -204,10 +242,81 @@ fn engine_json(repo: &Path, args: &[String]) -> Result<serde_json::Value, String
 
 /// Abre (ou devolve) o terminal da tarefa. Pode demorar (o motor monta o contexto) — chame fora da UI.
 pub fn open_task(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, resume: bool, message: Option<&str>) -> Result<Arc<pty::PtySession>, String> {
+    open_task_q(repo, db, task_id, cols, rows, resume, message, false)
+}
+/// Trava POR TAREFA de toda a abertura (term-prep + spawn): auto-início × aba abrindo × clique duplo × ceifador — uma
+/// coisa por vez; quem chega depois recebe o PTY já vivo (mesa 09/10, Rafa).
+static OPEN_LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+pub fn open_lock(task_id: &str) -> Arc<Mutex<()>> {
+    OPEN_LOCKS.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner()).entry(task_id.to_string()).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
+}
+/// A 1ª mensagem de uma tarefa nova (mesma do TS: KICKOFF em src/terminal.ts) — vai pro PTY já aberto quieto quando
+/// alguém aperta ▶ com o terminal aberto só pra olhar.
+pub const KICKOFF: &str = "Comece: leia .cardume/TASK.yaml e execute a tarefa seguindo as instruções do Starfork (no seu system prompt).";
+/// Tarefas sendo ASSUMIDAS agora (turno de fundo → PTY): taskId → início (ms). Expira sozinho (60 s) — app que cai no meio
+/// não deixa a tarefa no limbo (veto da Júlia).
+static TAKING: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+pub const TAKEOVER_TTL_MS: i64 = 60_000;
+pub fn taking_set(task_id: &str, on: bool) {
+    let mut m = TAKING.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner());
+    if on { m.insert(task_id.to_string(), now_ms()); } else { m.remove(task_id); }
+}
+pub fn taking(task_id: &str) -> bool {
+    TAKING.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner()).get(task_id).map(|t| now_ms() - t < TAKEOVER_TTL_MS).unwrap_or(false)
+}
+/// Abrir o terminal com um turno de fundo vivo (o front assume pela 1ª tecla — term_takeover).
+pub const BG_RUNNING: &str = "a IA está trabalhando sozinha nesta tarefa — digite no terminal para entrar na conversa";
+/// Tarefa do piloto automático com turno de fundo: não se assume (o piloto é dono do processo — gate, rodadas, merge).
+pub const AUTOPILOT_OWNS: &str = "o piloto automático conduz esta tarefa sozinho — pare o piloto (aba Piloto › parar) pra assumir no terminal";
+/// A próxima abertura deste terminal é em sessão NOVA (assumiu um turno de fundo de planner/revisor).
+static FRESH_NEXT: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+pub fn set_fresh_next(task_id: &str) { FRESH_NEXT.get_or_init(|| Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.to_string()); }
+pub(crate) fn take_fresh_next(task_id: &str) -> bool { FRESH_NEXT.get_or_init(|| Mutex::new(Default::default())).lock().unwrap_or_else(|e| e.into_inner()).remove(task_id) }
+/// ▶ Iniciar de uma tarefa de terminal: sem PTY → abre com o kickoff (o term-prep confere o teto); PTY já aberto QUIETO
+/// (a pessoa estava olhando) e a IA livre → o kickoff vai nele; IA ocupada → já está trabalhando, nada a fazer.
+pub fn start_in_terminal(state: &State<AppState>, repo: &Path, db: &Path, task_id: &str) -> Result<(), String> {
+    let m = mgr().ok_or("terminal indisponível")?;
+    {
+        // "está vivo?" e "abrir" sob a MESMA trava: a aba abrindo quieta no meio não engole o ▶ (Edge Case Hunter)
+        let lock = open_lock(task_id);
+        let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
+        if m.live(task_id).is_none() { return open_task_locked(repo, db, task_id, 120, 34, true, None, false, false).map(|_| ()); }
+    }
+    if idle_probe(db.to_path_buf(), task_id.to_string())() == Some(false) { return Ok(()); }
+    route(state, task_id, "kickoff", "", false, None)
+}
+/// PURA: assumir retoma a sessão gravada? Só se o turno de fundo era de QUEM CONVERSA no terminal (o construtor, ou o
+/// 1º papel numa equipe sem construtor). Planner/revisor → sessão NOVA que continua da worktree (nunca --resume da
+/// sessão do revisor — Rafa/Júlia na mesa).
+pub fn takeover_resumes(stage: &str, spec: &serde_json::Value) -> bool {
+    let st = stage.trim();
+    if st.is_empty() { return true; }
+    let roles = spec.get("roles").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+    let talk = roles.iter().find(|r| r.get("role").and_then(|x| x.as_str()) == Some("builder")).or(roles.first())
+        .and_then(|r| r.get("role").and_then(|x| x.as_str())).unwrap_or("builder").to_string();
+    st == talk || (st == "builder" && roles.is_empty())
+}
+/// `quiet`: o app retomando SOZINHO ao abrir a tarefa — a IA só abre e espera (sem kickoff, sem mudar status, sem
+/// gastar); o 1º envio da pessoa passa pelos portões de sempre. Com mensagem, o quieto não vale.
+pub fn open_task_q(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, resume: bool, message: Option<&str>, quiet: bool) -> Result<Arc<pty::PtySession>, String> {
+    open_task_x(repo, db, task_id, cols, rows, resume, message, quiet, false)
+}
+/// `fresh`: sessão NOVA mesmo havendo uma gravada (assumir um turno de fundo de planner/revisor).
+#[allow(clippy::too_many_arguments)]
+pub fn open_task_x(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, resume: bool, message: Option<&str>, quiet: bool, fresh: bool) -> Result<Arc<pty::PtySession>, String> {
+    let lock = open_lock(task_id);
+    let _g = lock.lock().unwrap_or_else(|e| e.into_inner());
+    open_task_locked(repo, db, task_id, cols, rows, resume, message, quiet, fresh)
+}
+/// O corpo do open_task — quem chama JÁ segura a trava da tarefa (open_lock).
+#[allow(clippy::too_many_arguments)]
+fn open_task_locked(repo: &Path, db: &Path, task_id: &str, cols: u16, rows: u16, resume: bool, message: Option<&str>, quiet: bool, fresh: bool) -> Result<Arc<pty::PtySession>, String> {
     let m = mgr().ok_or("terminal indisponível")?;
     if let Some(s) = m.live(task_id) { let _ = s.resize(cols, rows); return Ok(s); }
     let mut a = vec!["term-prep".to_string(), task_id.to_string()];
-    if resume { a.push("--resume".into()); }
+    if resume && !fresh { a.push("--resume".into()); }
+    if fresh { a.push("--nova-sessao".into()); }
+    if quiet && message.map(|m| m.trim().is_empty()).unwrap_or(true) { a.push("--quiet".into()); }
     if let Some(msg) = message.filter(|m| !m.trim().is_empty()) { a.push("--msg".into()); a.push(msg.to_string()); }
     let v = engine_json(repo, &a)?;
     let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
@@ -274,17 +383,46 @@ pub fn route(state: &State<AppState>, task_id: &str, kind: &str, msg: &str, as_r
         RouteAction::Queue => {}
     }
     if live {
-        let n = m.enqueue(task_id, text, idle_probe(db.clone(), task_id.to_string()))?;
-        if n > 1 || idle_probe(db.clone(), task_id.to_string())() == Some(false) {
+        // a IA que vai LER: a do shell (cli) ou o próprio PTY (Windows)
+        let ai = if cli.is_empty() { m.live(task_id).map(|s| s.engine.clone()).unwrap_or_default() } else { cli.clone() };
+        let busy = idle_probe(db.clone(), task_id.to_string())() == Some(false);
+        let native = native_queue(&ai);
+        // Claude Code: a fila é a DELE (o que chega no meio do turno ele guarda e mostra) — o app só segura enquanto há
+        // um menu/permissão aberto (colar ali escolheria uma opção). Codex: a fila do app (entrega com a IA livre).
+        let n = if native { m.enqueue_mode(task_id, text, ready_probe(db.clone(), task_id.to_string()), false)? }
+            else { m.enqueue(task_id, text, idle_probe(db.clone(), task_id.to_string()))? };
+        if busy || n > 1 {
             if let Ok(c) = open_rw(&db) {
                 let _ = c.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 1)",
-                    params![task_id, now_ms(), format!("Na fila ({n}º): o terminal está no meio de um turno — entrego assim que ele terminar.")]);
+                    params![task_id, now_ms(), queue_note(native, n)]);
             }
         }
         return Ok(());
     }
     let (cols, rows) = last_size(task_id);
-    open_task(&repo, &db, task_id, cols, rows, true, Some(&text)).map(|_| ())
+    let fresh = take_fresh_next(task_id);
+    open_task_x(&repo, &db, task_id, cols, rows, true, Some(&text), false, fresh).map(|_| ())
+}
+/// Marca de "menu aberto" sem nenhum hook há tanto tempo é velha (Esc num menu não dispara hook nenhum).
+pub const WAITING_STALE_MS: i64 = 10 * 60_000;
+/// IA cuja fila é a dela mesma (Claude Code — e o DeepSeek, que roda dentro dele).
+pub fn native_queue(ai: &str) -> bool { matches!(ai, "claude" | "deepseek") }
+/// Aviso no feed quando o pedido não entra na hora (a Bia: "anotado" — nunca some calado).
+pub fn queue_note(native: bool, n: usize) -> String {
+    if native { "Anotado — entra quando a IA terminar o que está fazendo (a fila é a do próprio Claude Code, visível no terminal).".to_string() }
+    else { format!("Na fila ({n}º): o terminal está no meio de um turno — entrego assim que ele terminar.") }
+}
+/// Pode COLAR agora na IA de fila nativa? Não com um menu/permissão/pergunta aberta (term_session.waiting = 1, gravado
+/// pelo hook Notification permission_prompt/elicitation e pela pergunta nativa). Sem coluna/linha = pode.
+fn ready_probe(db: PathBuf, task_id: String) -> Arc<dyn Fn() -> Option<bool> + Send + Sync> {
+    Arc::new(move || {
+        let Ok(c) = open_rw(&db) else { return Some(true) };
+        let (w, upd, cli) = c.query_row("SELECT COALESCE(waiting,0), COALESCE(updated_at,0), COALESCE(cli,'') FROM term_session WHERE task_id=?1", params![task_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))).unwrap_or((0, 0, "claude".into()));
+        // a IA saiu pro prompt do shell: NADA vai pro shell (viraria comando) — o próximo pedido reabre a IA (Edge Case Hunter)
+        if cli.is_empty() { return Some(false); }
+        // menu aberto há mais de 10 min sem nenhum hook: marca velha (fechado por um caminho que não avisa) — entrega
+        Some(w == 0 || now_ms() - upd > WAITING_STALE_MS)
+    })
 }
 /// O que fazer com um pedido do app pro terminal da tarefa.
 #[derive(Debug, PartialEq)]
@@ -460,7 +598,9 @@ fn read_tail(p: &Path, cap: u64) -> Result<(String, bool), String> {
 /// O histórico de uma tarefa (testável: banco, repo e config do Claude entram por parâmetro).
 pub fn history_for(db: &Path, repo: &Path, cfg: Option<&Path>, task_id: &str, since: Option<&str>, live: bool, default: &str) -> Result<HistInfo, String> {
     let t = task_row(db, task_id).ok_or("tarefa não encontrada")?;
-    let is_term = spec_of(db, task_id).map(|s| s.get("termMode").and_then(|v| v.as_str()) == Some("terminal")).unwrap_or(false);
+    // a regra ÚNICA (a mesma do ▶ e do compositor): tarefa do CLI sem termMode também "retoma no terminal"
+    let chosen = setting_get("taskMode").as_deref() == Some("terminal");
+    let is_term = spec_of(db, task_id).map(|s| starts_in_terminal(&s, default, chosen)).unwrap_or(false);
     let mut h = HistInfo { worktree_exists: !t.worktree.is_empty() && Path::new(&t.worktree).is_dir(), merged: t.status == "merged", worktree: t.worktree.clone(), alive: live,
         resumes: talk_decision(&t, is_term, live, default) == Ok(true), ..Default::default() };
     // mesma precedência do term-prep (src/terminal.ts): a sessão da tarefa, depois a do terminal
@@ -498,6 +638,263 @@ pub fn term_history(state: State<AppState>, task_id: String, since: Option<Strin
     history_for(&db, &repo, cfg.as_deref(), &task_id, since.as_deref(), live, default_mode())
 }
 
+// ============================ troca de papel no terminal (revisor automático) ============================
+// O fim de turno (TS, orchestrator.terminalTurnEnd) grava spec.termHandoff = {to: reviewer|builder, round, msg?, at}; aqui o
+// app EXECUTA no PTY: espera a IA livre há 2 s (sem fila, sem menu aberto), fecha SÓ a IA (SIGTERM na subárvore do pid
+// dela — nunca no grupo do shell, nem Ctrl+C/Esc/`/exit`), espera o `_ia-exit` e o prompt do shell, e DIGITA a linha
+// visível `'<shim>' ia <ia> --papel revisor --rodada N` (ou a volta: `--resume --papel construtor [--msg-file …]`).
+const HANDOFF_EVERY: std::time::Duration = std::time::Duration::from_millis(1500);
+/// Terminal livre há quanto tempo antes da troca (a fila do Claude pode reacender o turno — Téo na mesa).
+pub const HANDOFF_QUIET_MS: i64 = 2000;
+static HANDING: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+fn handing() -> &'static Mutex<std::collections::HashSet<String>> { HANDING.get_or_init(|| Mutex::new(Default::default())) }
+/// O pedido de troca gravado no spec.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Handoff { pub to: String, pub round: u32, pub msg: String, pub at: i64 }
+pub fn handoff_of(spec: &serde_json::Value) -> Option<Handoff> {
+    let h = spec.get("termHandoff").filter(|v| v.is_object())?;
+    let to = h.get("to").and_then(|v| v.as_str()).filter(|t| *t == "reviewer" || *t == "builder")?.to_string();
+    Some(Handoff { to, round: h.get("round").and_then(|v| v.as_u64()).unwrap_or(1) as u32, msg: h.get("msg").and_then(|v| v.as_str()).unwrap_or("").to_string(), at: h.get("at").and_then(|v| v.as_i64()).unwrap_or(0) })
+}
+/// Última tecla da PESSOA em cada terminal: a troca de papel espera ela parar de digitar (rascunho não se perde).
+static TYPED: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+fn typed_now(task_id: &str) { TYPED.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner()).insert(task_id.to_string(), now_ms()); }
+fn typed_at(task_id: &str) -> i64 { TYPED.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap_or_else(|e| e.into_inner()).get(task_id).copied().unwrap_or(0) }
+/// Quanto tempo sem tecla da pessoa antes da troca de papel.
+pub const HANDOFF_TYPING_MS: i64 = 8000;
+/// PURA: dá pra trocar agora? IA livre há ≥ 2 s, nada na fila do app, nenhum menu/permissão aberto.
+/// `asked_at` = quando o fim de turno pediu: o hook Stop ainda está saindo nos primeiros instantes (fechar a IA aí mataria
+/// o próprio hook) — espera ≥ 1,5 s depois do pedido e a trava do fim de turno solta (`turn_end_running`).
+pub fn handoff_ready(busy: bool, waiting: bool, queued: usize, idle_since: i64, asked_at: i64, turn_end_running: bool, now: i64) -> bool {
+    !busy && !waiting && queued == 0 && !turn_end_running && idle_since > 0 && now - idle_since >= HANDOFF_QUIET_MS && now - asked_at >= 1500
+}
+/// PURA: a linha que o app digita no shell pra subir o papel (IA + modelo do papel; revisor = sessão nova).
+pub fn role_launch_line(shim: &Path, ai: &str, model: &str, h: &Handoff, with_msg: bool) -> String {
+    let sh = shim.display().to_string();
+    let m = if model.is_empty() { String::new() } else { format!(" --modelo {}", sh_arg(model)) };
+    let tail = if h.to == "reviewer" { format!(" --papel revisor --rodada {}", h.round.max(1)) }
+        // volta SEM pedido (aprovado / você decide) = quieta: a IA só abre e espera (não muda o status, não gasta)
+        else { format!(" --resume --papel construtor{}", if with_msg { format!(" --msg-file {NEXT_MSG_REL}") } else { " --quieto".to_string() }) };
+    format!("\x05\x15'{}' ia {ai}{m}{tail}\r", sh.replace('\'', "'\\''"))
+}
+/// IA + modelo de quem entra: revisor = o motor/modelo do papel revisor; construtor = o recomendado da tarefa.
+pub fn role_ai(spec: &serde_json::Value, to: &str) -> (String, String) {
+    if to == "reviewer" {
+        let roles = spec.get("roles").and_then(|r| r.as_array()).cloned().unwrap_or_default();
+        if let Some(r) = roles.iter().find(|r| r.get("role").and_then(|x| x.as_str()) == Some("reviewer")) {
+            let e = r.get("engine").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let e = if e.trim().is_empty() { spec.get("engine").and_then(|x| x.as_str()).unwrap_or("").to_string() } else { e };
+            return (ai_of_engine(&e).to_string(), r.get("model").and_then(|x| x.as_str()).unwrap_or("").trim().to_string());
+        }
+    }
+    let rec = recommended_of(spec);
+    (rec.ai, rec.model)
+}
+/// Processos (pid, ppid, comm) da máquina — pra achar a IA dentro do shell e a subárvore dela.
+pub(crate) fn ps_table() -> Vec<(i64, i64, i64, String)> {
+    let Ok(o) = std::process::Command::new("ps").args(["-A", "-o", "pid=,ppid=,pgid=,comm="]).output() else { return vec![] };
+    String::from_utf8_lossy(&o.stdout).lines().filter_map(|l| {
+        let mut it = l.split_whitespace();
+        let (p, pp, g) = (it.next()?.parse().ok()?, it.next()?.parse().ok()?, it.next()?.parse().ok()?);
+        Some((p, pp, g, it.collect::<Vec<_>>().join(" ")))
+    }).collect()
+}
+/// PURA: a IA rodando no shell = o 1º descendente do líder do PTY que não é shell (o `claude`/node que o shim sobe).
+/// Só o grupo em PRIMEIRO PLANO do terminal (`fg` = tpgid do líder): um `npm run dev &` que a pessoa deixou rodando
+/// no shell nunca é confundido com a IA (Blind Hunter).
+pub fn ai_pid_in(table: &[(i64, i64, i64, String)], leader: i64, fg: i64) -> Option<i64> {
+    let is_shell = |c: &str| { let n = c.trim().rsplit('/').next().unwrap_or("").trim_start_matches('-'); ["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh"].contains(&n) };
+    let mut frontier = vec![leader];
+    while let Some(p) = frontier.pop() {
+        let mut kids: Vec<&(i64, i64, i64, String)> = table.iter().filter(|x| x.1 == p).collect();
+        kids.sort_by_key(|x| x.0);
+        for k in kids { if !is_shell(&k.3) && k.2 == fg { return Some(k.0); } frontier.push(k.0); }
+    }
+    None
+}
+fn tpgid_of(leader: u32) -> Option<i64> {
+    let o = std::process::Command::new("ps").args(["-o", "tpgid=", "-p", &leader.to_string()]).output().ok()?;
+    String::from_utf8_lossy(&o.stdout).trim().parse::<i64>().ok().filter(|n| *n > 0)
+}
+/// PURA: a subárvore de `root` (filhos primeiro, a raiz por último) — servidores MCP, bash das ferramentas.
+pub fn subtree(table: &[(i64, i64, i64, String)], root: i64) -> Vec<i64> {
+    let mut out = vec![]; let mut stack = vec![root];
+    while let Some(p) = stack.pop() { out.push(p); for x in table.iter().filter(|x| x.1 == p) { stack.push(x.0); } }
+    out.reverse(); out
+}
+#[cfg(unix)]
+fn kill_list(pids: &[i64], sig: i32) { for p in pids { unsafe { libc::kill(*p as i32, sig); } } }
+#[cfg(not(unix))]
+fn kill_list(_pids: &[i64], _sig: i32) {}
+fn handoff_tick() {
+    let Some(m) = mgr() else { return };
+    for s in m.list().into_iter().filter(|s| s.alive() && is_shell(&s.task_id)) {
+        let tid = s.task_id.clone();
+        if handing().lock().unwrap_or_else(|e| e.into_inner()).contains(&tid) { continue; }
+        let Some(db) = dbs().lock().unwrap_or_else(|e| e.into_inner()).get(&tid).cloned() else { continue };
+        let Some(spec) = spec_of(&db, &tid) else { continue };
+        let Some(h) = handoff_of(&spec) else { continue };
+        let Ok(c) = open_rw(&db) else { continue };
+        let (busy, waiting, upd) = c.query_row("SELECT busy, COALESCE(waiting,0), COALESCE(updated_at,0) FROM term_session WHERE task_id=?1", params![tid], |r| Ok((r.get::<_, i64>(0)? == 1, r.get::<_, i64>(1)? == 1, r.get::<_, i64>(2)?))).unwrap_or((true, false, 0));
+        let wt: String = c.query_row("SELECT worktree FROM task WHERE id=?1", params![tid], |r| r.get(0)).unwrap_or_default();
+        let lock = Path::new(&wt).join(".cardume").join("term").join("turn-end.lock");
+        if !handoff_ready(busy, waiting, s.queue_len(), upd, h.at, lock.exists(), now_ms()) { continue; }
+        if now_ms() - typed_at(&tid) < HANDOFF_TYPING_MS { continue; } // a pessoa está digitando no terminal
+        // pega o pedido (atômico: some do spec só se ainda é ESTE)
+        let n = c.execute("UPDATE task SET spec_json=json_remove(spec_json,'$.termHandoff') WHERE id=?1 AND json_extract(spec_json,'$.termHandoff.at')=?2", params![tid, h.at]).unwrap_or(0);
+        if n != 1 { continue; }
+        handing().lock().unwrap_or_else(|e| e.into_inner()).insert(tid.clone());
+        std::thread::spawn(move || {
+            let r = run_handoff(&db, &tid, &spec, &h);
+            if let Err(e) = r {
+                web_log(format!("[term] {tid}: troca de papel falhou: {e}"));
+                if let Ok(c) = open_rw(&db) {
+                    // nunca "rodando" pra sempre: a tarefa vai pra revisão (a pessoa decide) e a marca do revisor sai
+                    let _ = c.execute("UPDATE task SET status='review' WHERE id=?1 AND status IN ('running','thinking')", params![tid]);
+                    if h.to == "builder" { let _ = c.execute("UPDATE task SET spec_json=json_remove(spec_json,'$.termRole') WHERE id=?1", params![tid]); }
+                    let txt = if h.to == "reviewer" { format!("revisão automática não rodou: {e} — peça em Revisão / PR › Pedir revisão") } else { format!("não consegui voltar pra quem constrói no terminal: {e} — digite `starfork ia claude --resume` no terminal") };
+                    let _ = c.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 0)", params![tid, now_ms(), txt]);
+                }
+            }
+            handing().lock().unwrap_or_else(|e| e.into_inner()).remove(&tid);
+        });
+    }
+}
+fn run_handoff(db: &Path, task_id: &str, spec: &serde_json::Value, h: &Handoff) -> Result<(), String> {
+    let s = mgr().and_then(|m| m.live(task_id)).ok_or("o terminal fechou")?;
+    let wt: String = open_rw(db)?.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get(0)).map_err(|e| e.to_string())?;
+    let wt = PathBuf::from(wt);
+    // 1) fecha SÓ a IA (a subárvore dela), se ainda estiver rodando
+    if !cli_of(db, task_id).is_empty() {
+        let table = ps_table();
+        if let Some(ai) = tpgid_of(s.pid).and_then(|fg| ai_pid_in(&table, s.pid as i64, fg)) {
+            let tree = subtree(&table, ai);
+            kill_list(&tree, libc_term());
+            let t0 = std::time::Instant::now();
+            while t0.elapsed() < std::time::Duration::from_secs(5) && !cli_of(db, task_id).is_empty() { std::thread::sleep(std::time::Duration::from_millis(100)); }
+            if !cli_of(db, task_id).is_empty() {
+                kill_list(&subtree(&ps_table(), ai), libc_kill());
+                let t1 = std::time::Instant::now();
+                while t1.elapsed() < std::time::Duration::from_secs(3) && !cli_of(db, task_id).is_empty() { std::thread::sleep(std::time::Duration::from_millis(100)); }
+            }
+        }
+    }
+    if !cli_of(db, task_id).is_empty() { return Err("a IA não fechou".into()); }
+    // 2) o prompt do shell de volta (o shim já restaurou o TTY)
+    let t0 = std::time::Instant::now();
+    loop {
+        if shell_at_prompt(foreground_comm(s.pid).as_deref()).is_ok() { break; }
+        if t0.elapsed() > std::time::Duration::from_secs(6) { return Err("o terminal está rodando outro comando".into()); }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(400)); // o prompt desenhar (rc pesado: o zsh guarda o que chega antes)
+    // 3) digita a linha do papel (visível)
+    let (ai, model) = role_ai(spec, &h.to);
+    let with_msg = h.to == "builder" && !h.msg.trim().is_empty();
+    if with_msg {
+        let p = wt.join(NEXT_MSG_REL);
+        if let Some(d) = p.parent() { let _ = std::fs::create_dir_all(d); }
+        std::fs::write(&p, &h.msg).map_err(|e| format!("não consegui gravar o pedido do revisor: {e}"))?;
+    }
+    if let Ok(c) = open_rw(db) {
+        ensure_cli_col(&c);
+        let busy = if h.to == "reviewer" || with_msg { 1 } else { 0 };
+        let _ = c.execute("UPDATE term_session SET cli=?2, busy=?3, updated_at=?4 WHERE task_id=?1", params![task_id, ai, busy, now_ms()]);
+    }
+    launched_set(task_id, &ai, &model);
+    s.write_bytes(role_launch_line(&shim_path(&wt), &ai, &model, h, with_msg).as_bytes())
+}
+#[cfg(unix)]
+fn libc_term() -> i32 { libc::SIGTERM }
+#[cfg(unix)]
+fn libc_kill() -> i32 { libc::SIGKILL }
+#[cfg(not(unix))]
+fn libc_term() -> i32 { 15 }
+#[cfg(not(unix))]
+fn libc_kill() -> i32 { 9 }
+
+// ============================ terminal parado: encerrar o que ninguém olha ============================
+/// Nota no feed quando o app encerra um terminal parado.
+pub const REAPED_NOTE: &str = "terminal parado encerrado (ninguém olhava) — reabre sozinho quando você voltar à tarefa";
+const REAP_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+/// Padrão de Ajustes › termIdleMin (minutos; 0 = nunca encerra).
+pub const IDLE_MIN_DEFAULT: f64 = 15.0;
+/// Teto de terminais vivos FORA DA TELA: passou, os parados mais antigos (≥ 1 min sem ninguém olhar) saem antes do prazo.
+pub const LIVE_CAP: usize = 8;
+static REAPED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+fn reaped() -> &'static Mutex<std::collections::HashSet<String>> { REAPED.get_or_init(|| Mutex::new(Default::default())) }
+/// Minutos de Ajustes → ms (lixo = padrão; ≤ 0 = desligado → 0).
+pub fn idle_ms_of(setting: Option<&str>) -> i64 {
+    let m = setting.and_then(|v| v.trim().trim_matches('"').parse::<f64>().ok()).filter(|v| v.is_finite()).unwrap_or(IDLE_MIN_DEFAULT);
+    if m <= 0.0 { 0 } else { (m * 60_000.0) as i64 }
+}
+/// Retrato de um terminal pro encerramento (tudo que a regra pura precisa).
+#[derive(Clone, Debug, Default)]
+pub struct ReapIn {
+    pub watchers: usize,
+    /// ms epoch desde quando ninguém olha (0 = alguém olhando)
+    pub unseen_since: i64,
+    pub last_out: i64,
+    /// a IA está num turno (hook) — nunca encerra
+    pub busy: bool,
+    pub queued: usize,
+    /// nada além do shell/da IA parada em 1º plano (um `npm run dev`, um vim… = não está parado)
+    pub fg_idle: bool,
+    /// IA sem hooks de ocupado (gemini/opencode): só a saída diz se trabalha — exige silêncio do prazo inteiro
+    pub no_hooks: bool,
+}
+/// PURA: este terminal pode ser encerrado agora? `min_unseen` = há quanto tempo (ms) ninguém olha, no mínimo.
+pub fn reap_ok(r: &ReapIn, now: i64, min_unseen: i64) -> bool {
+    if r.watchers > 0 || r.unseen_since <= 0 || r.busy || r.queued > 0 || !r.fg_idle { return false; }
+    let quiet_ms = if r.no_hooks { min_unseen } else { min_unseen.min(60_000) };
+    now - r.unseen_since >= min_unseen && now - r.last_out >= quiet_ms
+}
+/// PURA: quem encerrar. Parado há `idle_ms` sai; e, se ainda sobrarem mais de `cap` vivos, os parados mais antigos (≥ 1 min).
+pub fn reap_pick(list: &[(String, ReapIn)], now: i64, idle_ms: i64, cap: usize) -> Vec<String> {
+    if idle_ms <= 0 { return vec![]; }
+    let mut out: Vec<String> = list.iter().filter(|(_, r)| reap_ok(r, now, idle_ms)).map(|(id, _)| id.clone()).collect();
+    // o teto é dos que estão FORA da tela: os vistos não contam
+    let left = list.iter().filter(|(id, r)| r.watchers == 0 && !out.contains(id)).count();
+    if left > cap {
+        let mut extra: Vec<&(String, ReapIn)> = list.iter().filter(|(id, r)| !out.contains(id) && reap_ok(r, now, 60_000.min(idle_ms))).collect();
+        extra.sort_by_key(|(_, r)| r.unseen_since);
+        out.extend(extra.into_iter().take(left - cap).map(|(id, _)| id.clone()));
+    }
+    out
+}
+fn reap_in(s: &pty::PtySession) -> ReapIn {
+    let db = dbs().lock().unwrap_or_else(|e| e.into_inner()).get(&s.task_id).cloned();
+    reap_in_with(s, db.as_deref(), is_shell(&s.task_id))
+}
+/// O retrato do encerramento a partir da sessão, do banco dela e se o PTY é o shell (testável fora do app).
+pub fn reap_in_with(s: &pty::PtySession, db: Option<&Path>, shell: bool) -> ReapIn {
+    let (unseen_since, last_out) = s.idle_marks();
+    let (busy, cli) = db.and_then(|d| open_rw(d).ok()).and_then(|c| {
+        c.query_row("SELECT busy, cli FROM term_session WHERE task_id=?1", params![s.task_id], |r| Ok((r.get::<_, i64>(0)? == 1, r.get::<_, Option<String>>(1)?.unwrap_or_default()))).ok()
+    }).unwrap_or((true, String::new())); // sem banco/linha: não dá pra saber se está num turno → trata como ocupado
+    // shell no prompt: só se TODO o 1º plano é shell; IA rodando no shell (ou o PTY = a IA): quem diz é o hook
+    let fg_idle = if shell && cli.is_empty() { shell_at_prompt(foreground_comm(s.pid).as_deref()).is_ok() } else { true };
+    let at_prompt = shell && cli.is_empty();
+    let ai = if cli.is_empty() { s.engine.clone() } else { cli };
+    ReapIn { watchers: s.watchers(), unseen_since, last_out, busy, queued: s.queue_len(), fg_idle, no_hooks: !at_prompt && !ai_has_hooks(&ai) }
+}
+fn reap_tick() {
+    let Some(m) = mgr() else { return };
+    let idle_ms = idle_ms_of(setting_get("termIdleMin").as_deref());
+    if idle_ms <= 0 { return; }
+    let list: Vec<(String, ReapIn)> = m.list().into_iter().filter(|s| s.alive()).map(|s| (s.task_id.clone(), reap_in(&s))).collect();
+    for id in reap_pick(&list, pty::now_ms(), idle_ms, LIVE_CAP) {
+        // a pessoa abriu a tarefa entre o retrato e agora: fica
+        if m.get(&id).map(|s| s.watchers() > 0).unwrap_or(true) { continue; }
+        // abertura/kickoff em voo nesta tarefa (mesma trava do open_task): fica — nunca mata o PTY que vai receber o ▶
+        let lk = open_lock(&id);
+        let Ok(_g) = lk.try_lock() else { continue };
+        reaped().lock().unwrap_or_else(|e| e.into_inner()).insert(id.clone());
+        web_log(format!("[term] {id}: terminal parado fora da tela — encerrado (termIdleMin)"));
+        if !m.kill(&id) { reaped().lock().unwrap_or_else(|e| e.into_inner()).remove(&id); }
+    }
+}
+
 // ============================ comandos Tauri ============================
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -509,6 +906,8 @@ pub struct TermInfo {
     shell: bool,
     /// lançamento recomendado da tarefa (IA + modelo da criação, ou o escolhido no app) + a linha exata do shell
     recommended: Recommended,
+    /// ASSUMINDO agora (turno de fundo parando pra virar terminal) — a barra explica em uma linha
+    taking: bool,
 }
 
 fn info(state: &State<AppState>, task_id: &str, data: String) -> TermInfo {
@@ -523,16 +922,21 @@ fn info(state: &State<AppState>, task_id: &str, data: String) -> TermInfo {
     let cli = if alive { db.as_ref().map(|d| cli_of(d, task_id)).unwrap_or_default() } else { String::new() };
     let recommended = db.as_ref().and_then(|d| spec_of(d, task_id)).map(|sp| recommended_of(&sp)).unwrap_or_default();
     TermInfo { alive, data, cols, rows, engine: s.map(|s| s.engine.clone()).unwrap_or_default(), busy, queued: m.map(|m| m.queued(task_id)).unwrap_or(0), session_id: sid,
-        cli, shell: alive && is_shell(task_id), recommended }
+        cli, shell: alive && is_shell(task_id), recommended, taking: taking(task_id) }
 }
 
 /// Abre o terminal (novo ou retomando a sessão gravada) e já devolve o histórico pra pintar.
 #[tauri::command(async)]
-pub fn term_open(state: State<AppState>, task_id: String, cols: u16, rows: u16, resume: Option<bool>) -> Result<TermInfo, String> {
+pub fn term_open(state: State<AppState>, task_id: String, cols: u16, rows: u16, resume: Option<bool>, quiet: Option<bool>) -> Result<TermInfo, String> {
     let repo = repo_of(&state)?;
     let db = db_of(&state)?;
+    // turno de FUNDO vivo nesta tarefa: abrir o PTY em paralelo poria dois escritores na mesma sessão — quem assume é o
+    // term_takeover (1ª tecla); abrir pra olhar espera
+    if mgr().and_then(|m| m.live(&task_id)).is_none() && crate::headless_busy_pid(&state, &task_id).is_some() {
+        return Err(BG_RUNNING.to_string());
+    }
     remember_size(&task_id, cols, rows);
-    let s = open_task(&repo, &db, &task_id, cols, rows, resume.unwrap_or(true), None)?;
+    let s = open_task_q(&repo, &db, &task_id, cols, rows, resume.unwrap_or(true), None, quiet.unwrap_or(false))?;
     let data = s.attach();
     Ok(info(&state, &task_id, data))
 }
@@ -555,6 +959,7 @@ pub fn term_detach(task_id: String) -> Result<(), String> {
 #[tauri::command(async)]
 pub fn term_write(state: State<AppState>, task_id: String, data: String) -> Result<(), String> {
     mgr().and_then(|m| m.live(&task_id)).ok_or("o terminal desta tarefa não está aberto")?.write_bytes(data.as_bytes())?;
+    typed_now(&task_id);
     // Esc digitado no terminal interrompe o turno e o Claude Code NÃO dispara o Stop: marca livre (o próximo
     // PreToolUse volta pra ocupado se o Esc só tinha fechado um menu)
     if data == "\x1b" { mark_idle(&state, &task_id, None); }
@@ -562,7 +967,8 @@ pub fn term_write(state: State<AppState>, task_id: String, data: String) -> Resu
 }
 fn mark_idle(state: &State<AppState>, task_id: &str, note: Option<&str>) {
     if let Ok(db) = db_of(state) { if let Ok(c) = open_rw(&db) {
-        let _ = c.execute("UPDATE term_session SET busy=0, updated_at=?2 WHERE task_id=?1", params![task_id, now_ms()]);
+        // Esc também fecha menu de permissão/pergunta (o Claude Code não avisa): a fila nativa volta a entregar
+        let _ = c.execute("UPDATE term_session SET busy=0, waiting=0, updated_at=?2 WHERE task_id=?1", params![task_id, now_ms()]);
         let _ = c.execute("UPDATE task SET busy_pid=NULL WHERE id=?1", params![task_id]);
         if let Some(n) = note { let _ = c.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 1)", params![task_id, now_ms(), n]); }
     } }
@@ -579,7 +985,8 @@ pub fn term_send(state: State<AppState>, task_id: String, text: String, mode: Op
         interrupt(&state, &task_id)?;
         std::thread::sleep(std::time::Duration::from_millis(400));
     }
-    route(&state, &task_id, "talk", &text, as_req.unwrap_or(false), None)
+    // turno de FUNDO vivo: assume antes (nunca dois escritores na mesma sessão)
+    crate::term_route_after_takeover(&state, &task_id, "talk", &text, as_req.unwrap_or(false), None)
 }
 #[tauri::command(async)]
 pub fn term_interrupt(state: State<AppState>, task_id: String) -> Result<(), String> { crate::loop_clear_db(&state, &task_id); interrupt(&state, &task_id) } // Esc da pessoa = intervenção: o detector de loop zera
@@ -820,5 +1227,169 @@ mod modo_padrao_tests {
         assert_eq!(row(&c), (Some(200), 1, "gemini".into(), "running".into(), Some(200), 0));
         assert!(record_exit(&c, "t", 200, Some(0)), "a sessão atual saiu: grava");
         assert_eq!(row(&c), (None, 0, "".into(), "review".into(), None, 1));
+    }
+}
+
+#[cfg(test)]
+mod sempre_vivo_tests {
+    use super::{native_queue, queue_note, starts_in_terminal_on, takeover_resumes};
+    fn j(v: &str) -> serde_json::Value { serde_json::from_str(v).unwrap() }
+    #[test]
+    fn regra_unica_do_inicio() {
+        // tarefa do CLI/MCP: sem termMode → decide pelo padrão (o bug do print: caía no headless)
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"claude"}"#), "terminal", false, false), "CLI sem termMode, Claude → PTY");
+        assert!(starts_in_terminal_on(&j(r#"{"roles":[{"role":"builder","engine":"claude"}]}"#), "terminal", false, false));
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"opus"}"#), "terminal", false, false), "rótulo só com o modelo = Claude");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"claude"}"#), "auto", false, false), "Ajustes › Automático escolhido");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"claude","termMode":"auto"}"#), "terminal", false, false), "auto GRAVADO = escolha (veto da Júlia)");
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"claude","termMode":"terminal"}"#), "auto", false, false), "terminal gravado vence");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"codex"}"#), "terminal", false, false), "codex: só se a pessoa escolheu terminal");
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"codex"}"#), "terminal", true, false));
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"gateway"}"#), "terminal", true, false), "gateway sem CLI");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":""}"#), "terminal", true, false), "mock");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"claude","termMode":"terminal","autopilot":true}"#), "terminal", true, false), "piloto automático nunca");
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"claude","autopilot":{"run":"x"}}"#), "terminal", true, false));
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"claude","autopilot":false}"#), "terminal", false, false));
+        assert!(starts_in_terminal_on(&j(r#"{"engine":"claude","autopilot":null}"#), "terminal", false, false));
+        assert!(!starts_in_terminal_on(&j(r#"{"engine":"gemini"}"#), "terminal", true, true), "Windows: gemini não");
+    }
+    #[test]
+    fn assumir_retoma_so_a_sessao_de_quem_conversa() {
+        let team = j(r#"{"roles":[{"role":"planner"},{"role":"builder"},{"role":"reviewer"}]}"#);
+        assert!(takeover_resumes("builder", &team));
+        assert!(takeover_resumes("", &team), "sem etapa gravada: a sessão da tarefa");
+        assert!(!takeover_resumes("reviewer", &team), "turno do revisor: sessão nova");
+        assert!(!takeover_resumes("planner", &team));
+        assert!(takeover_resumes("reviewer", &j(r#"{"roles":[{"role":"reviewer"}]}"#)), "revisão de PR: o revisor É quem conversa");
+        assert!(takeover_resumes("builder", &j(r#"{}"#)));
+    }
+    #[test]
+    fn kickoff_igual_ao_do_motor() {
+        let ts = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/terminal.ts")).unwrap();
+        assert!(ts.contains(&format!("export const KICKOFF = \"{}\";", super::KICKOFF)), "o ▶ com o terminal aberto manda o MESMO kickoff do term-prep");
+    }
+    #[test]
+    fn fila_nativa_so_no_claude_e_sempre_avisa() {
+        assert!(native_queue("claude") && native_queue("deepseek"));
+        assert!(!native_queue("codex") && !native_queue("gemini") && !native_queue(""));
+        assert!(queue_note(true, 1).starts_with("Anotado"));
+        assert!(queue_note(false, 2).contains("2º"));
+    }
+}
+
+#[cfg(test)]
+mod troca_de_papel_tests {
+    use super::{ai_pid_in, handoff_of, handoff_ready, role_ai, role_launch_line, subtree, Handoff};
+    use std::path::Path;
+    fn j(v: &str) -> serde_json::Value { serde_json::from_str(v).unwrap() }
+    #[test]
+    fn pedido_de_troca_no_spec() {
+        assert_eq!(handoff_of(&j(r#"{"termHandoff":{"to":"reviewer","round":2,"at":5}}"#)), Some(Handoff { to: "reviewer".into(), round: 2, msg: "".into(), at: 5 }));
+        assert_eq!(handoff_of(&j(r#"{"termHandoff":null}"#)), None);
+        assert_eq!(handoff_of(&j(r#"{"termHandoff":{"to":"planner","at":1}}"#)), None, "só revisor/construtor");
+    }
+    #[test]
+    fn so_troca_com_a_ia_livre_ha_2s_sem_fila_sem_menu_e_com_o_hook_fora() {
+        let now = 100_000;
+        assert!(handoff_ready(false, false, 0, now - 2500, now - 2000, false, now));
+        assert!(!handoff_ready(true, false, 0, now - 2500, now - 2000, false, now), "turno em curso");
+        assert!(!handoff_ready(false, true, 0, now - 2500, now - 2000, false, now), "menu/permissão aberto");
+        assert!(!handoff_ready(false, false, 1, now - 2500, now - 2000, false, now), "pedido na fila");
+        assert!(!handoff_ready(false, false, 0, now - 1000, now - 2000, false, now), "livre há só 1 s (a fila do Claude pode reacender)");
+        assert!(!handoff_ready(false, false, 0, now - 2500, now - 500, false, now), "o hook Stop ainda saindo");
+        assert!(!handoff_ready(false, false, 0, now - 2500, now - 2000, true, now), "fim de turno ainda rodando");
+    }
+    #[test]
+    fn linha_visivel_do_papel() {
+        let rv = Handoff { to: "reviewer".into(), round: 1, msg: "".into(), at: 0 };
+        assert_eq!(role_launch_line(Path::new("/w/s"), "claude", "opus", &rv, false), "\x05\x15'/w/s' ia claude --modelo opus --papel revisor --rodada 1\r");
+        let bd = Handoff { to: "builder".into(), round: 1, msg: "corrija".into(), at: 0 };
+        assert_eq!(role_launch_line(Path::new("/w/s"), "claude", "", &bd, true), "\x05\x15'/w/s' ia claude --resume --papel construtor --msg-file .cardume/term/next-msg.txt\r");
+        let q = Handoff { to: "builder".into(), round: 1, msg: "".into(), at: 0 };
+        assert_eq!(role_launch_line(Path::new("/w/s"), "claude", "", &q, false), "\x05\x15'/w/s' ia claude --resume --papel construtor --quieto\r", "aprovado: volta quieta (não rebaixa o review)");
+        let spec = j(r#"{"engine":"claude","roles":[{"role":"builder","engine":"claude","model":"sonnet"},{"role":"reviewer","engine":"codex","model":"o4"}]}"#);
+        assert_eq!(role_ai(&spec, "reviewer"), ("codex".to_string(), "o4".to_string()));
+        assert_eq!(role_ai(&spec, "builder"), ("claude".to_string(), "sonnet".to_string()));
+    }
+    #[test]
+    fn acha_a_ia_dentro_do_shell_e_a_subarvore_dela() {
+        // líder zsh(10) → sh do shim(11) → claude(12) → mcp node(13), bash da ferramenta(14) → sleep(15)
+        // + um `npm run dev &` (8, grupo 8) que a pessoa deixou no shell ANTES da IA: nunca é a IA
+        let t = vec![(8, 10, 8, "node".to_string()), (10, 1, 10, "-zsh".to_string()), (11, 10, 11, "/bin/sh".into()), (12, 11, 11, "claude".into()), (13, 12, 11, "node".into()), (14, 12, 11, "/bin/bash".into()), (15, 14, 11, "sleep".into()), (99, 1, 99, "outro".into())];
+        assert_eq!(ai_pid_in(&t, 10, 11), Some(12), "o 1º descendente que não é shell, no grupo em primeiro plano");
+        assert_eq!(ai_pid_in(&t, 10, 10), None, "IA não está em primeiro plano: nada a fechar");
+        let mut sub = subtree(&t, 12); assert_eq!(sub.pop(), Some(12), "a IA por último (filhos primeiro)");
+        sub.sort(); assert_eq!(sub, vec![13, 14, 15]);
+        assert_eq!(ai_pid_in(&[(10, 1, 10, "-zsh".to_string())], 10, 10), None, "shell no prompt: nada a fechar");
+    }
+}
+
+#[cfg(test)]
+mod terminal_parado_tests {
+    use super::{idle_ms_of, reap_ok, reap_pick, ReapIn, IDLE_MIN_DEFAULT};
+    const MIN: i64 = 60_000;
+    fn parado(desde: i64) -> ReapIn { ReapIn { unseen_since: desde, last_out: desde, fg_idle: true, ..Default::default() } }
+
+    #[test]
+    fn prazo_de_ajustes_em_minutos_padrao_15_zero_desliga() {
+        assert_eq!(idle_ms_of(None), (IDLE_MIN_DEFAULT * 60_000.0) as i64);
+        assert_eq!(idle_ms_of(Some("15")), 15 * MIN);
+        assert_eq!(idle_ms_of(Some("\"5\"")), 5 * MIN, "valor gravado como texto JSON");
+        assert_eq!(idle_ms_of(Some("0")), 0, "0 = nunca encerra");
+        assert_eq!(idle_ms_of(Some("-3")), 0);
+        assert_eq!(idle_ms_of(Some("lixo")), 15 * MIN, "lixo = padrão");
+    }
+
+    #[test]
+    fn fim_por_ficar_parado_grava_a_nota_propria() {
+        use super::{record_exit_with, REAPED_NOTE};
+        let c = rusqlite::Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE task (id TEXT, status TEXT, busy_pid INTEGER); CREATE TABLE event (task_id TEXT, agent TEXT, ts INTEGER, type TEXT, text TEXT, ok INTEGER); \
+            CREATE TABLE term_session (task_id TEXT PRIMARY KEY, pid INTEGER, engine TEXT, busy INTEGER NOT NULL DEFAULT 0, session_id TEXT, started_at INTEGER, updated_at INTEGER, cli TEXT); \
+            INSERT INTO task VALUES ('t','review',NULL); INSERT INTO term_session (task_id, pid, busy, cli) VALUES ('t', 42, 0, 'claude');").unwrap();
+        assert!(record_exit_with(&c, "t", 42, REAPED_NOTE));
+        let (txt, st): (String, String) = c.query_row("SELECT e.text, t.status FROM event e, task t", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(txt, REAPED_NOTE);
+        assert_eq!(st, "review", "status intocado");
+        assert!(REAPED_NOTE.contains("reabre sozinho"));
+    }
+
+    #[test]
+    fn teto_conta_so_os_fora_da_tela() {
+        let now = 100 * MIN;
+        let l = |v: Vec<(&str, ReapIn)>| v.into_iter().map(|(a, b)| (a.to_string(), b)).collect::<Vec<_>>();
+        // 3 na tela (split) + 2 fora parados há 5 min, teto 2: os vistos não empurram os de fora pra fora
+        let list = l(vec![("v1", ReapIn { watchers: 1, ..parado(0) }), ("v2", ReapIn { watchers: 1, ..parado(0) }), ("v3", ReapIn { watchers: 1, ..parado(0) }),
+            ("f1", parado(now - 5 * MIN)), ("f2", parado(now - 4 * MIN))]);
+        assert!(reap_pick(&list, now, 15 * MIN, 2).is_empty());
+    }
+
+    #[test]
+    fn so_encerra_o_que_ninguem_olha_parado_livre_sem_fila_e_sem_programa_em_primeiro_plano() {
+        let now = 100 * MIN;
+        assert!(reap_ok(&parado(now - 16 * MIN), now, 15 * MIN), "fora da tela há 16 min, parado");
+        assert!(!reap_ok(&parado(now - 14 * MIN), now, 15 * MIN), "ainda dentro do prazo");
+        assert!(!reap_ok(&ReapIn { watchers: 1, ..parado(now - 30 * MIN) }, now, 15 * MIN), "alguém olhando");
+        assert!(!reap_ok(&ReapIn { unseen_since: 0, ..parado(now - 30 * MIN) }, now, 15 * MIN), "0 = olhando");
+        assert!(!reap_ok(&ReapIn { busy: true, ..parado(now - 30 * MIN) }, now, 15 * MIN), "turno em curso nunca");
+        assert!(!reap_ok(&ReapIn { queued: 1, ..parado(now - 30 * MIN) }, now, 15 * MIN), "mensagem na fila");
+        assert!(!reap_ok(&ReapIn { fg_idle: false, ..parado(now - 30 * MIN) }, now, 15 * MIN), "npm run dev/vim no shell");
+        assert!(!reap_ok(&ReapIn { last_out: now - 10_000, ..parado(now - 30 * MIN) }, now, 15 * MIN), "falou há 10 s");
+        assert!(reap_ok(&ReapIn { last_out: now - 2 * MIN, ..parado(now - 30 * MIN) }, now, 15 * MIN), "IA com hooks: 1 min de silêncio basta");
+        assert!(!reap_ok(&ReapIn { no_hooks: true, last_out: now - 2 * MIN, ..parado(now - 30 * MIN) }, now, 15 * MIN), "sem hooks: silêncio do prazo inteiro");
+    }
+
+    #[test]
+    fn escolhe_os_vencidos_e_acima_do_teto_os_parados_mais_antigos() {
+        let now = 100 * MIN;
+        let l = |v: Vec<(&str, ReapIn)>| v.into_iter().map(|(a, b)| (a.to_string(), b)).collect::<Vec<_>>();
+        let list = l(vec![("velha", parado(now - 20 * MIN)), ("nova", parado(now - 2 * MIN)), ("vista", ReapIn { watchers: 1, ..parado(0) })]);
+        assert_eq!(reap_pick(&list, now, 15 * MIN, 8), vec!["velha"]);
+        assert!(reap_pick(&list, now, 0, 8).is_empty(), "desligado");
+        // 3 fora da tela com teto 1: a vencida sai, e ainda sobram 2 → sai a parada mais antiga (≥ 1 min); a vista nunca
+        let list = l(vec![("a", parado(now - 20 * MIN)), ("b", parado(now - 5 * MIN)), ("c", parado(now - 3 * MIN)), ("vista", ReapIn { watchers: 1, ..parado(0) })]);
+        assert_eq!(reap_pick(&list, now, 15 * MIN, 1), vec!["a", "b"]);
+        let list = l(vec![("x", parado(now - 30_000)), ("y", parado(now - 20_000)), ("z", parado(now - 10_000))]);
+        assert!(reap_pick(&list, now, 15 * MIN, 1).is_empty(), "acima do teto mas ninguém parado há 1 min: fica");
     }
 }

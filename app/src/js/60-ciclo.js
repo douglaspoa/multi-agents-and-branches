@@ -195,7 +195,9 @@ function taskStages(t, x){
   const ny=t.status==='needs-you'?(sp.needsYou||null):null;
   const fin=!!t.prUrl || ['merged','done','closed'].includes(t.status) || t.flag==='closed';
   const ready=['review','delivered'].includes(t.status);
-  const afterRoles=ready||fin;
+  const extras=Array.isArray(sp.extraStages)?sp.extraStages:[];
+  // etapa extra rodando ("Chamar outro agente…"): o time da tarefa já terminou — só a extra está "agora"
+  const afterRoles=ready||fin||extras.some(s=>s.status==='rodando');
   const rounds=Array.isArray(sp.reviewRounds)?sp.reviewRounds:[];
   let cur=roles.findIndex(r=>r.role===t.stage); if(cur<0) cur=0;
   // parada ENTRE etapas (teto): a próxima é a que espera; rodadas/veredito: a decisão é sobre a revisão
@@ -223,6 +225,16 @@ function taskStages(t, x){
     if(r.role==='reviewer' && rounds.length && state==='feito'){ const last=rounds[rounds.length-1]; st.word=last.verdict==='aprova'?'aprovou':last.verdict==='muda'?'pediu mudança':'sem veredito'; }
     return st;
   });
+  // etapas EXTRAS da revisão (≡ flowWithExtras do src/revisao-alteracao.ts): depois de Revisar, antes de Provar
+  if(extras.length){
+    let at=out.map(s=>s.role).lastIndexOf('reviewer'); if(at<0) at=out.length-1;
+    const LBL={ design:'Design', revisor:'Revisão', qa:'Testes', seguranca:'Segurança', performance:'Performance', docs:'Docs' }; // ≡ STRIP_LABEL (src/revisao-alteracao.ts)
+    const ex=extras.map(s=>{ const n=(s.files||[]).length;
+      return { id:s.id, label:'+ '+(LBL[s.kind]||s.kind), role:s.role, who:s.name, extra:true, lock:0, usd:+s.usd||0,
+        state:s.status==='rodando'?'agora':s.status==='falhou'?'precisa':'feito',
+        word:s.status==='rodando'?(CIC_DOING[s.role]||'trabalhando'):s.status==='falhou'?'parou':(n+(n===1?' arquivo':' arquivos')) }; });
+    out.splice(at+1, 0, ...ex);
+  }
   // etapas do app (sem agente): prova, portão (Cadeado 2) e retro
   const pv=x.proof||'none';
   out.push(fin ? { id:'provar', label:'Provar', state:'feito', word:'provado', lock:0 }
@@ -307,15 +319,21 @@ function cicloReport(d){
   const L=['## Relatório Starfork',''];
   if(d.requirements.length){
     L.push('**Requisitos × provas**','','| Requisito | Prova |','|---|---|');
-    for(const r of d.requirements) L.push(`| ${md(r.text)} | ${r.status==='provado'?`provado — ${r.evidence.map(e=>'`'+md(e)+'`').join(', ')||'evidência no disco'}`:r.status} |`);
+    const lk=d.proofs||{};
+    const code=e=>'`'+md(e)+'`';
+    // com prova publicada (branch starfork-provas): miniatura clicável / link do vídeo + nome como legenda
+    const cell=(r,i)=>r.status!=='provado'?r.status
+      : !r.evidence.some(e=>lk[e])?`provado — ${r.evidence.map(code).join(', ')||'evidência no disco'}`
+      : 'provado<br>'+r.evidence.map(e=>!lk[e]?code(e):lk[e].kind==='img'?`![R${i+1}](${lk[e].url})<br>${code(e)}`:`[▶ ${md(e)}](${lk[e].url})`).join('<br>');
+    d.requirements.forEach((r,i)=>L.push(`| ${md(r.text)} | ${cell(r,i)} |`));
     L.push('');
+    if(Object.keys(lk).length) L.push('*Provas no branch `starfork-provas` deste repositório (fora do código do PR) — clique na miniatura pra ver no tamanho real.*','');
   }
+  if(d.proofNote) L.push(`*${md(d.proofNote)}*`,'');
   if(d.noProofReason) L.push(`**Aprovado sem prova**${d.noProofBy?` por ${md(d.noProofBy)}`:''}: ${md(d.noProofReason)}`,'');
   if(d.reviewOverride) L.push(`**Seguiu sem nova revisão:** ${md(d.reviewOverride)}`,'');
   if(d.rounds.length) L.push(`**Revisão:** ${d.rounds.map(r=>`rodada ${r.round} (${md(r.reviewer)}) — ${r.verdict==='aprova'?'aprova':r.verdict==='muda'?`muda (${r.items.length})`:'ilegível'}`).join(' · ')}`,'');
-  const per=d.costByRole.filter(c=>c.usd>0).map(c=>`${CIC_ROLE_PT[c.role]||c.role} (${md(c.name)}) ${cicUsdBr(c.usd)}`).join(' · ');
-  L.push(`**Custo:** ${cicUsdBr(d.totalUsd)} ${d.capUsd>0?`de ${cicUsdBr(d.capUsd)} de teto`:'— sem teto (explícito)'}${per?` — ${per}`:''}`,'');
-  if(d.releases.length) L.push('**Liberações de teto**','',...d.releases.map(r=>`- +${cicUsdBr(r.usd)} (teto ${cicUsdBr(r.capBefore)} → ${cicUsdBr(r.capAfter)}): ${md(r.reason)}`),'');
+  for(const x of (d.extraLines||[])) L.push(x,'');
   if(d.runs.length) L.push(`**Versões:** ${d.runs.map(r=>`${CIC_ROLE_PT[r.role]||r.role} \`${tag(r)}\``).join(' · ')}`,'');
   if(d.orgPolicy&&d.orgPolicy.length) L.push(`**Política da organização:** ${d.orgPolicy.map(md).join(' · ')}`,'');
   return L.join('\n').trimEnd()+'\n';
@@ -329,12 +347,15 @@ function cicloReportFor(t){
     const ov=(typeof proofOvGet==='function')?proofOvGet(t.id):null;
     const byRole={}; for(const c of (typeof costsOf==='function'?costsOf(t.id):[])){ const k=(c.role||'')+'|'+c.agent; (byRole[k]=byRole[k]||{ role:c.role||'', name:c.agent, usd:0 }).usd+=(+c.usd||0); }
     const who=(typeof cloudUser==='function'&&cloudUser()&&cloudUser().name)||'';
+    const pv=(typeof provasOf==='function')?provasOf(t.id):null; // provas no PR (60-provas-pr): links do branch starfork-provas
     return '\n\n'+cicloReport({
       requirements:rows.map(r=>({ text:r.text, status:r.st==='ok'&&r.evidence.length?'provado':'sem prova', evidence:r.st==='ok'?r.evidence:[] })),
       noProofReason:ov&&ov.reason||'', noProofBy:ov&&ov.reason?who:'', reviewOverride:(sp.reviewOverride&&sp.reviewOverride.reason)||'',
       costByRole:Object.values(byRole), totalUsd:taskCost(t.id).usd, capUsd:(sp.autopilot && !(+sp.budgetUsd>0))?0:budgetOf(t),
       releases:Array.isArray(sp.budgetReleases)?sp.budgetReleases:[], rounds:Array.isArray(sp.reviewRounds)?sp.reviewRounds:[], runs:Array.isArray(sp.roleRuns)?sp.roleRuns:[],
       orgPolicy:sp.orgPolicy&&Array.isArray(sp.orgPolicy.rules)?sp.orgPolicy.rules:undefined,
+      extraLines:(typeof rqExtraReportLines==='function'&&Array.isArray(sp.extraStages))?rqExtraReportLines(sp.extraStages):undefined,
+      proofs:pv&&pv.links&&Object.keys(pv.links).length?pv.links:undefined, proofNote:(pv&&pv.note)||undefined,
     });
   }catch(e){ console.error('relatório starfork', e); return ''; }
 }
@@ -376,6 +397,13 @@ function cicloStageDetail(t, s){
   if(s.role==='reviewer'){
     const rs=Array.isArray(sp.reviewRounds)?sp.reviewRounds:[];
     body=rs.length?rs.map(r=>`<p><b>Rodada ${r.round}:</b> ${r.verdict==='aprova'?'aprovou':r.verdict==='muda'?'pediu mudanças':'não deu veredito legível'}</p>${r.items&&r.items.length?'<ul>'+r.items.map(i=>`<li>${esc(i)}</li>`).join('')+'</ul>':''}`).join(''):'<p class="dim">ainda sem veredito</p>';
+  } else if(s.extra){
+    // etapa extra ("Chamar outro agente…"): o resumo dela + os arquivos que mudou (os fora de tela em destaque)
+    const x=(Array.isArray(sp.extraStages)?sp.extraStages:[]).find(e=>e.id===s.id)||{};
+    const out=Array.isArray(x.outsideUi)?x.outsideUi:[];
+    body=`<p>${esc(x.summary||(x.status==='rodando'?'trabalhando nesta mesma branch…':x.status==='falhou'?'não terminou — veja o log':'terminou sem resumo'))}</p>`
+      +((x.files||[]).length?'<ul>'+x.files.slice(0,12).map(f=>`<li class="mono">${esc(f)}${out.includes(f)?' — <b>fora de tela</b>':''}</li>`).join('')+'</ul>':'')
+      +(x.note?`<p class="dim">Você pediu: ${esc(x.note)}</p>`:'');
   } else if(s.id==='provar'){
     const rows=(typeof reqRows==='function')?reqRows(t):[];
     body=rows.length?'<ul>'+rows.map(r=>`<li>${esc(r.text)} — <b>${r.st==='ok'&&r.evidence.length?'provado':'falta prova'}</b></li>`).join('')+'</ul>':'<p class="dim">esta tarefa não tem requisitos com prova</p>';

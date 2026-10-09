@@ -12,6 +12,13 @@ cd "$(dirname "$0")/.."
 # 'sudo xcodebuild -license'). O desktop compila 100% com as CLT — fixamos.
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Library/Developer/CommandLineTools}"
 
+source scripts/build-mark.sh
+# o pacote "diz" de qual commit veio (dist/Starfork-portable.json) — apaga o antigo já: pacote
+# que falhar no meio não pode ficar com o carimbo do anterior
+rm -f dist/Starfork-portable.json
+PKG_HEAD=$(git rev-parse HEAD)
+PKG_DIRTY=$(tree_dirty .)
+
 echo "→ 1/4 bundle do motor (esbuild)"
 rm -rf app/src-tauri/resources
 mkdir -p app/src-tauri/resources/engine app/src-tauri/resources/mcp
@@ -42,6 +49,9 @@ mkdir -p "$PORT/Contents/Resources"
 rm -rf "$PORT/Contents/Resources/engine" "$PORT/Contents/Resources/mcp"
 cp -R app/src-tauri/resources/engine "$PORT/Contents/Resources/engine"
 cp -R app/src-tauri/resources/mcp "$PORT/Contents/Resources/mcp"
+# o template dist/Starfork.app vem do deploy-local e carrega a marca de instalação DEV:
+# colega NÃO é instalação dev (sumiria o auto-update dele) — remove ANTES de assinar
+strip_dev_mark "$PORT"
 # Info.plist SEM caminhos de máquina: só um PATH genérico (homebrew/local)
 /usr/libexec/PlistBuddy -c "Delete :LSEnvironment" "$PORT/Contents/Info.plist" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$PORT/Contents/Info.plist"
@@ -123,12 +133,13 @@ TXT
 # Constellation-portable.zip = o MESMO zip com o nome antigo: clientes antigos em update
 # (ou links velhos) continuam achando o release.
 ( cd dist && rm -f Starfork-portable.zip Constellation-portable.zip && mkdir -p _pkg && rm -rf _pkg/* && cp -R Starfork-portable.app _pkg/Starfork.app && cp LEIA-ME.txt _pkg/ && ditto -c -k --sequesterRsrc _pkg Starfork-portable.zip && cp Starfork-portable.zip Constellation-portable.zip && rm -rf _pkg )
+if [ "$(git rev-parse HEAD)" != "$PKG_HEAD" ]; then
+  echo "✖ o checkout mudou de commit durante o empacotamento — rode scripts/package-app.sh de novo" >&2; exit 1
+fi
+BUILD_DIRTY=$PKG_DIRTY write_portable_meta . dist/Starfork-portable.zip dist/Starfork-portable.json
 echo "✔ dist/Starfork-portable.zip pronto — instale em outro Mac: descompacta, arrasta pra /Applications, abre (botão direito → Abrir na 1ª vez)."
 
-# publica no canal de releases quando as credenciais do owner estão no ambiente
-if [ -n "${CONSTELLATION_EMAIL:-}" ] && [ -n "${CONSTELLATION_PASSWORD:-}" ]; then
-  echo "→ 5/5 publicando release"
-  node scripts/publish-release.mjs "${RELEASE_NOTES:-}" || echo "⚠ publicação falhou (o zip local continua válido)"
-else
-  echo "ℹ release NÃO publicada (defina CONSTELLATION_EMAIL/CONSTELLATION_PASSWORD pra publicar o ⬆ atualizar)"
-fi
+# publicar NÃO é daqui: a release do time sai só pelo botão "Publicar release pro time" do app
+# instalado pelo deploy-local — ele confere commit/main/sujeira e o zip no canal antes de avisar
+# o time (o antigo scripts/publish-release.mjs pulava tudo isso e foi removido).
+echo "ℹ pra mandar pro time: no app, Publicar release pro time (só sai se este pacote é da main)."

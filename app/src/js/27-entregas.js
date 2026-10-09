@@ -53,7 +53,7 @@ function flowDemandCard(t){
   if(reqProofCache[t.id]===undefined) loadReqProofs(t.id).then(flowRerenderSoon);
   const rows=reqRows(t);
   const okN=rows.filter(r=>r.st==='ok').length;
-  const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?IC.ok:r.st==='blk'?IC.stErr:''}</i><span class="dc-rt">${esc(r.text)}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
+  const reqsHtml = rows.length ? `<div class="dc-reqs">${rows.slice(0,4).map(r=>`<span class="dc-req ${r.st}"><i>${r.st==='ok'?IC.ok:r.st==='blk'?IC.stErr:''}</i><span class="dc-rt">${esc(mdPlain(r.text))}</span></span>`).join('')}${rows.length>4?`<span class="dc-more">+${rows.length-4}</span>`:''}</div>` : '';
   const msg= asking.length ? `<b>${esc(asking[0].agent||t.agent)} perguntou</b> — ${esc((asking[0].prompt||'').slice(0,90))}`
     : t.status==='plan-review' ? 'plano pronto — aprove pra continuar'
     : t.status==='needs-you' ? 'precisa de você — abra pra decidir'
@@ -88,8 +88,8 @@ function flowDemandCard(t){
   const bare=!t.objective && !rows.length; // sem descrição nem requisitos: o card não reserva o espaço (sumia num buraco)
   const mName=boardModelName(t.model);
   return `<div class="dcard${done?' done':''}${epSt?' has-ep':''}${bare?' dc-bare':''}" data-id="${escA(t.id)}"${epSt}>
-    <div class="dc-top"><span class="d" style="background:${dot}"></span><span class="dc-title">${esc(t.title)}</span>${typeof epTaskBadge==='function'?epTaskBadge(t):''}${typeof taskOriginHtml==='function'?taskOriginHtml(t):''}<span class="dc-type" style="color:${TYPE_COLOR[ty]||'var(--muted)'}">${esc(TYPE_PT[ty]||ty)}</span>${t.orchestration?`<span class="dc-orq" data-orq="${escA(t.orchestration.id)}" data-orq-task="${escA(t.id)}" title="fase ${escA(t.orchestration.phase||'')} do plano — abrir o grafo">${IC.orq} ${esc(String(t.orchestration.title||'plano').slice(0,28))}</span>`:''}<span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(proj)}</span><span style="flex:1"></span>${pvChips(t,true)}${linkChips(t)}${primary}<button class="btn sm dc-menu" data-tmenu="${escA(t.id)}" title="mudar status / encerrar" aria-label="mais ações">${IC.more}</button></div>
-    ${t.objective?`<div class="dc-obj">${esc(String(t.objective).split('[PLANO DO ORQUESTRADOR')[0].replace(/\s+/g,' ').slice(0,220))}</div>`:''}
+    <div class="dc-top"><span class="d" style="background:${dot}"></span><span class="dc-title">${esc(mdTitle(t.title||''))}</span>${typeof epTaskBadge==='function'?epTaskBadge(t):''}${typeof taskOriginHtml==='function'?taskOriginHtml(t):''}<span class="dc-type" style="color:${TYPE_COLOR[ty]||'var(--muted)'}">${esc(TYPE_PT[ty]||ty)}</span>${t.orchestration?`<span class="dc-orq" data-orq="${escA(t.orchestration.id)}" data-orq-task="${escA(t.id)}" title="fase ${escA(t.orchestration.phase||'')} do plano — abrir o grafo">${IC.orq} ${esc(String(t.orchestration.title||'plano').slice(0,28))}</span>`:''}<span class="prj"><span class="prjd" style="background:${projColor(t.repo||state.repo)}"></span>${esc(proj)}</span><span style="flex:1"></span>${pvChips(t,true)}${linkChips(t)}${primary}<button class="btn sm dc-menu" data-tmenu="${escA(t.id)}" title="mudar status / encerrar" aria-label="mais ações">${IC.more}</button></div>
+    ${t.objective?`<div class="dc-obj">${esc(mdPlain(String(t.objective).split('[PLANO DO ORQUESTRADOR')[0].slice(0,1200)).slice(0,220)) /* corta ANTES de formatar: o card repinta muito */}</div>`:''}
     ${reqsHtml}
     <div class="dc-foot"><span class="ini2" aria-hidden="true" style="background:${agentColor(t.agent)}">${agentBadge(t.agent)}</span><span class="dc-agent">${esc(t.agent||'')}${mName?` <span class="dc-model" title="${escA(t.model)}">· ${esc(mName)}</span>`:''}</span>${foot}<span class="tm">${agoShort(ev?+new Date(ev.ts):taskTs(t))}</span></div>
   </div>`;
@@ -487,7 +487,7 @@ function fwRenderEntrega(t, main){
   // tracejado com "adiado — motivo: …", nunca riscado
   const reqHtml = rows.length ? rows.map((r,i)=>{ const ad=typeof reqIsAdiado==='function' && reqIsAdiado(r); const pr=r.st==='ok'&&r.evidence.length>0;
       const ck=pr?'ok':ad?'ad':'';
-      return `<div class="en-req ${r.st}${ad?' ad':''}"><span class="reqst ${ad?'ad':r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${ad?'':r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div><b class="tlrn">R${i+1}</b> ${esc(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}" title="${escA(e)}">${esc(enEvName(t.id, e)||e)}</button>`).join('')}</div>`:''}${ad?`<div class="reqnote en-adnote">${esc(typeof tlAdiadoSub==='function'?tlAdiadoSub(r.note):'adiado')}</div>`:r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div>${typeof tlStampHtml==='function'?tlStampHtml(ck):''}</div>`; }).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
+      return `<div class="en-req ${r.st}${ad?' ad':''}"><span class="reqst ${ad?'ad':r.st==='ok'?'ok':r.st==='blk'?'blk':'na'}">${ad?'':r.st==='ok'?IC.check:r.st==='blk'?'!':'·'}</span><div class="en-rt"><div><b class="tlrn">R${i+1}</b> ${mdInline(r.text)}</div>${enEvMediaHtml(t, r.evidence, arts, imgs)}${r.evidence.length?`<div class="en-ev">${r.evidence.map(e=>`<button class="reqevb mono" data-art="${escA(e)}" title="${escA(e)}">${esc(enEvName(t.id, e)||e)}</button>`).join('')}</div>`:''}${ad?`<div class="reqnote en-adnote">${esc(typeof tlAdiadoSub==='function'?tlAdiadoSub(r.note):'adiado')}</div>`:r.note&&r.st==='blk'?`<div class="reqnote">${esc(r.note)}</div>`:''}</div>${typeof tlStampHtml==='function'?tlStampHtml(ck):''}</div>`; }).join('') : '<div class="en-empty">sem critérios de aceite nesta demanda</div>';
   const docIc=n=>({ pdf:'PDF', md:'MD', csv:'CSV', html:'HTML', image:'IMG', video:'VÍDEO', text:'TXT' }[pvKind(n)]||'ARQ');
   const listed=nonCode?arts:docs;
   const pvSel=enPvPick(t, nonCode?arts:docs);
@@ -512,13 +512,13 @@ function fwRenderEntrega(t, main){
   const pvSec=enPvHtml(t, nonCode?arts:docs);
   const html=`<div class="enpage${nonCode?' en-noncode':''}" data-task="${escA(t.id)}">
     <div class="en-head">
-      <div class="en-ht"><span class="ndeyebrow">${esc(EN_TYPE_TX[taskType(t)]||'demanda')} · ${done?'concluída':nonCode&&['review','delivered'].includes(t.status)?'pronta pra você conferir':esc(PHASES[taskPhase(t)-1]||'')}</span><h2 class="en-h1">${esc(t.title)}</h2>${t.objective?`<p class="en-obj">${esc(t.objective)}</p>`:''}</div>
+      <div class="en-ht"><span class="ndeyebrow">${esc(EN_TYPE_TX[taskType(t)]||'demanda')} · ${done?'concluída':nonCode&&['review','delivered'].includes(t.status)?'pronta pra você conferir':esc(PHASES[taskPhase(t)-1]||'')}</span><h2 class="en-h1">${esc(mdTitle(t.title))}</h2>${t.objective?`<div class="en-obj mdlite">${mdToHtml(t.objective)}</div>`:''}</div>
       <div class="en-kpis">${kpis}${enStampEntregue(t)}</div>
     </div>
     ${enLiveHtml(t)}
     ${nonCode?enSaveBarHtml(t, arts)+pvSec:enVerifHtml(t)}
     <div class="en-grid">
-      <section class="en-sec"><div class="seclbl2">Entregáveis <span class="dim">· requisitos e a prova de cada um</span></div>${reqHtml}${dels.length?`<div class="seclbl2" style="margin-top:14px">Escopo combinado</div>${dels.map(x=>`<div class="en-del">◆ ${esc(x)}</div>`).join('')}`:''}${rev&&rev.howToTest?`<div class="seclbl2" style="margin-top:14px">Como testar</div><div class="en-how">${esc(rev.howToTest)}</div>`:''}</section>
+      <section class="en-sec"><div class="seclbl2">Entregáveis <span class="dim">· requisitos e a prova de cada um</span></div>${reqHtml}${dels.length?`<div class="seclbl2" style="margin-top:14px">Escopo combinado</div>${dels.map(x=>`<div class="en-del">◆ ${mdInline(x)}</div>`).join('')}`:''}${rev&&rev.howToTest?`<div class="seclbl2" style="margin-top:14px">Como testar</div><div class="en-how mdlite">${mdToHtml(rev.howToTest)}</div>`:''}</section>
       <section class="en-sec">${nonCode?'':`<div class="seclbl2">Provas <span class="dim">· prints e vídeos anexados pelo agente</span></div>${proofsHtml}`}
         <div class="seclbl2"${nonCode?'':' style="margin-top:16px"'}>${nonCode?'Arquivos entregues':'Documentos'} <span style="flex:1"></span><button class="btn sm${(typeof fwPrimaryAction==='function'&&fwPrimaryAction(t))?'':' primary'}" id="enGen" title="a IA escreve o relatório desta entrega — o que foi feito, por quê, como e o que foi validado">${IC.ai} gerar relatório da entrega</button></div>
         <div id="enGenOut"></div>${docsHtml}</section>

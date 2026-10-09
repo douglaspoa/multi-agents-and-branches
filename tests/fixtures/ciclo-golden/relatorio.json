@@ -100,7 +100,7 @@
           }
         ]
       },
-      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| lista mostra os itens \\| com preço | provado — `proof-1.png`, `tests.md` |\n| exportar CSV | sem prova |\n| modo escuro | adiado |\n\n**Aprovado sem prova** por Douglas: o CSV fica pra tarefa do relatório\n\n**Revisão:** rodada 1 (Nyx) — muda (2) · rodada 2 (Nyx) — aprova\n\n**Custo:** US$ 0,76 de US$ 2,00 de teto — plano (Vega) US$ 0,10 · construção (Íris) US$ 0,46 · revisão (Nyx) US$ 0,20\n\n**Liberações de teto**\n\n- +US$ 1,00 (teto US$ 1,00 → US$ 2,00): a revisão pediu mais uma rodada\n\n**Versões:** plano `vega@v1 · claude` · construção `iris@v3 · claude · opus` · revisão `nyx@v4 · codex`\n"
+      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| lista mostra os itens \\| com preço | provado — `proof-1.png`, `tests.md` |\n| exportar CSV | sem prova |\n| modo escuro | adiado |\n\n**Aprovado sem prova** por Douglas: o CSV fica pra tarefa do relatório\n\n**Revisão:** rodada 1 (Nyx) — muda (2) · rodada 2 (Nyx) — aprova\n\n**Versões:** plano `vega@v1 · claude` · construção `iris@v3 · claude · opus` · revisão `nyx@v4 · codex`\n"
     },
     {
       "input": {
@@ -112,7 +112,7 @@
         "rounds": [],
         "runs": []
       },
-      "expected": "## Relatório Starfork\n\n**Custo:** US$ 0,00 de US$ 5,00 de teto\n"
+      "expected": "## Relatório Starfork\n"
     },
     {
       "input": {
@@ -130,7 +130,7 @@
         "rounds": [],
         "runs": []
       },
-      "expected": "## Relatório Starfork\n\n**Custo:** US$ 0,30 — sem teto (explícito) — construção (Piloto 1) US$ 0,30\n"
+      "expected": "## Relatório Starfork\n"
     },
     {
       "input": {
@@ -240,7 +240,129 @@
           "regra com | barra"
         ]
       },
-      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| lista mostra os itens \\| com preço | provado — `proof-1.png`, `tests.md` |\n| exportar CSV | sem prova |\n| modo escuro | adiado |\n\n**Aprovado sem prova** por Douglas: o CSV fica pra tarefa do relatório\n\n**Revisão:** rodada 1 (Nyx) — muda (2) · rodada 2 (Nyx) — aprova\n\n**Custo:** US$ 0,76 de US$ 2,00 de teto — plano (Vega) US$ 0,10 · construção (Íris) US$ 0,46 · revisão (Nyx) US$ 0,20\n\n**Liberações de teto**\n\n- +US$ 1,00 (teto US$ 1,00 → US$ 2,00): a revisão pediu mais uma rodada\n\n**Versões:** plano `vega@v1 · claude` · construção `iris@v3 · claude · opus` · revisão `nyx@v4 · codex`\n\n**Política da organização:** toda tarefa passa pelo portão — nenhum PR abre sozinho e a prova é obrigatória · teto de no máximo US$ 5,00 por tarefa · toda equipe tem um revisor · o revisor roda em motor ou modelo diferente de quem constrói · aprendizado compartilhado com o time é aprovado por outra pessoa da organização · regra com \\| barra\n"
+      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| lista mostra os itens \\| com preço | provado — `proof-1.png`, `tests.md` |\n| exportar CSV | sem prova |\n| modo escuro | adiado |\n\n**Aprovado sem prova** por Douglas: o CSV fica pra tarefa do relatório\n\n**Revisão:** rodada 1 (Nyx) — muda (2) · rodada 2 (Nyx) — aprova\n\n**Versões:** plano `vega@v1 · claude` · construção `iris@v3 · claude · opus` · revisão `nyx@v4 · codex`\n\n**Política da organização:** toda tarefa passa pelo portão — nenhum PR abre sozinho e a prova é obrigatória · teto de no máximo US$ 5,00 por tarefa · toda equipe tem um revisor · o revisor roda em motor ou modelo diferente de quem constrói · aprendizado compartilhado com o time é aprovado por outra pessoa da organização · regra com \\| barra\n"
+    },
+    {
+      "input": {
+        "costByRole": [],
+        "totalUsd": 0.5,
+        "capUsd": 2,
+        "releases": [],
+        "rounds": [],
+        "runs": [],
+        "requirements": [
+          {
+            "text": "tela | lista",
+            "status": "provado",
+            "evidence": [
+              "mobile-ios-1.png",
+              "tests.md"
+            ]
+          },
+          {
+            "text": "vídeo",
+            "status": "provado",
+            "evidence": [
+              "fluxo.mp4"
+            ]
+          },
+          {
+            "text": "csv",
+            "status": "sem prova",
+            "evidence": []
+          },
+          {
+            "text": "nome",
+            "status": "provado",
+            "evidence": [
+              "a.png"
+            ]
+          }
+        ],
+        "proofs": {
+          "mobile-ios-1.png": {
+            "url": "https://github.com/o/r/blob/starfork-provas/t/mobile-ios-1.png?raw=true",
+            "kind": "img"
+          },
+          "fluxo.mp4": {
+            "url": "https://github.com/o/r/blob/starfork-provas/t/fluxo.mp4",
+            "kind": "video"
+          }
+        },
+        "proofNote": "fora do PR: grande.png — grande demais"
+      },
+      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| tela \\| lista | provado<br>![R1](https://github.com/o/r/blob/starfork-provas/t/mobile-ios-1.png?raw=true)<br>`mobile-ios-1.png`<br>`tests.md` |\n| vídeo | provado<br>[▶ fluxo.mp4](https://github.com/o/r/blob/starfork-provas/t/fluxo.mp4) |\n| csv | sem prova |\n| nome | provado — `a.png` |\n\n*Provas no branch `starfork-provas` deste repositório (fora do código do PR) — clique na miniatura pra ver no tamanho real.*\n\n*fora do PR: grande.png — grande demais*\n"
+    },
+    {
+      "input": {
+        "costByRole": [],
+        "totalUsd": 0.5,
+        "capUsd": 2,
+        "releases": [],
+        "rounds": [],
+        "runs": [],
+        "requirements": [
+          {
+            "text": "tela",
+            "status": "provado",
+            "evidence": [
+              "a.png"
+            ]
+          }
+        ],
+        "proofNote": "não consegui anexar as provas (sem rede | offline)"
+      },
+      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| tela | provado — `a.png` |\n\n*não consegui anexar as provas (sem rede \\| offline)*\n"
+    },
+    {
+      "name": "etapa extra de design",
+      "input": {
+        "requirements": [
+          {
+            "text": "Tela de horários legível no celular",
+            "status": "provado",
+            "evidence": [
+              "design-depois-1.png"
+            ]
+          }
+        ],
+        "costByRole": [
+          {
+            "role": "builder",
+            "name": "Íris",
+            "usd": 0.4
+          },
+          {
+            "role": "designer",
+            "name": "Aria",
+            "usd": 0.2
+          }
+        ],
+        "totalUsd": 0.6,
+        "capUsd": 5,
+        "releases": [],
+        "rounds": [
+          {
+            "round": 1,
+            "verdict": "aprova",
+            "items": [],
+            "reviewer": "Nyx"
+          }
+        ],
+        "runs": [
+          {
+            "role": "builder",
+            "agentId": "iris",
+            "name": "Íris",
+            "version": 1,
+            "engine": "claude"
+          }
+        ],
+        "extraLines": [
+          "**Passou pelo agente de design (Aria):** contraste e espaçamento da lista — 2 arquivos"
+        ]
+      },
+      "expected": "## Relatório Starfork\n\n**Requisitos × provas**\n\n| Requisito | Prova |\n|---|---|\n| Tela de horários legível no celular | provado — `design-depois-1.png` |\n\n**Revisão:** rodada 1 (Nyx) — aprova\n\n**Passou pelo agente de design (Aria):** contraste e espaçamento da lista — 2 arquivos\n\n**Versões:** construção `iris@v1 · claude`\n"
     }
   ]
 }

@@ -140,7 +140,8 @@ test('Time: o cartão compartilhado não leva o conselheiro; quem assume usa o P
   vm.runInContext(fn(NUV, 'cloudSpecOf') + '\nglobalThis.f=cloudSpecOf;', c);
   const out = c.f({ title: 'x', advisor: 'opus', engine: 'claude' });
   assert.equal('advisor' in out, false); assert.equal(out.title, 'x');
-  assert.match(NUV, /spec:cloudSpecOf\(payload\) \}\);[\s\S]*spec:cloudSpecOf\(payload\) \}\);/, 'compartilhar e "pra si" usam o filtro');
+  // compartilhar (cartão do time, com a issue e dispatch:'team' — #141) e "pra si" usam o filtro
+  assert.match(NUV, /spec:\{ \.\.\.cloudSpecOf\(spec\), dispatch:'team' \}[\s\S]*spec:cloudSpecOf\(payload\) \}\);/, 'compartilhar e "pra si" usam o filtro');
   const TIMES = read('js/43-espaco-times.js'), made = [];
   const run = async (auto) => {
     const c3 = { console, window: {}, defaultAiEngine: () => 'claude', aiDefaults: () => ({ eng: 'claude', model: '', advisor: '' }), epicDoneWhenOf: () => null,

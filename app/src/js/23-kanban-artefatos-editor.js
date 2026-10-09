@@ -17,7 +17,7 @@ function kCard(t){
     : t.status==='plan-review'?'plano pronto · aprove pra continuar'
     : t.status==='conflict'?'conflito de merge — resolva'
     : (t.prUrl && t.status!=='merged' && t.flag!=='closed' && ['review','delivered','running','thinking','queued','paused'].includes(t.status))?'PR aberto · aguardando revisão/merge'
-    : ['review','delivered'].includes(t.status)?'pronta pra revisar · aprovar ou pedir ajuste'
+    : ['review','delivered'].includes(t.status)?'pronta pra revisar · aprovar ou pedir alteração'
     : t.status==='error'?'erro — veja o log'
     : t.status==='aborted'?'interrompida — descarte ou refaça'
     : t.status==='paused'?'pausada — retome quando quiser'
@@ -291,8 +291,18 @@ function ghHtmlClean(md){
     .replace(/<\/?(details|summary|div|p|span|sub|sup|b|i|strong|em|table|thead|tbody|tr|td|th|img|picture|source|h[1-6])\b[^>]*>/gi,'')
     .replace(/\n{3,}/g,'\n\n').trim();
 }
+// texto de IA às vezes chega "escapado": \n literal (JSON escapado duas vezes) ou a resposta inteira dentro de uma
+// cerca ```markdown. Só mexe quando NÃO há quebra de linha de verdade, há 2+ "\n" literais E eles têm cara de
+// markdown escapado ("\n\n" de parágrafo ou "\n- item", "\n# título", "\n1. passo") — caminho C:\new\notes,
+// "troque \r\n por \n" e um "\n" citado ficam como estão. Fonte única: o mdToHtml passa por aqui.
+function mdTidy(s){
+  let t=String(s==null?'':s);
+  if(!/\n/.test(t) && (t.match(/\\n/g)||[]).length>=2 && /\\n\\n|\\n\s*(?:[-*+]\s|#{1,6}\s|\d+[.)]\s|```)/.test(t)) t=t.replace(/\\r\\n|\\n/g,'\n').replace(/\\t/g,'  ').replace(/\\"/g,'"');
+  const f=t.trim().match(/^```(?:markdown|md)\s*\n([\s\S]*?)\n```$/i); if(f) t=f[1];
+  return t;
+}
 function mdToHtml(md){
-  md=ghHtmlClean(md);
+  md=ghHtmlClean(typeof mdTidy==='function'?mdTidy(md):md); // typeof: testes que extraem só o mdToHtml seguem valendo
   const e=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
   const link=(m,label,url)=>{ const h=mdSafeHref(url); return h?`<a href="${e(h)}" data-exthref="${e(h)}" rel="noreferrer">${label}</a>`:label; };
   const inline=s=>e(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,link);
@@ -322,6 +332,81 @@ function mdToHtml(md){
   }
   fp(); fl(); if(inCode&&code.length) html+='<pre class="mdcode"><code>'+e(code.join('\n'))+'</code></pre>';
   return html;
+}
+// @md-puro-inicio — derivados do mdToHtml (NUNCA um parser novo): todos escapam o texto (dado de IA/issue é não confiável)
+// uma linha (requisito, critério, item): sem <p> em volta; o marcador de lista/título do começo cai ("- x", "1. x", "## x")
+function mdInline(s){
+  const one=mdTidy(s).trim();
+  // várias linhas num lugar de UMA linha (☐ requisito, ◆ entregável, R1 …): cada linha inline, separadas por <br> —
+  // nunca <p>/<ul> dentro de <span>
+  if(/\n/.test(one)) return one.split(/\n+/).map(l=>l.trim()).filter(l=>l && !/^```/.test(l)).map(mdInline).join('<br>');
+  const h=mdToHtml(one.replace(/^\s*(?:[-*+]|\d+[.)]|#{1,6})\s+/,''));
+  const m=h.match(/^<p>([\s\S]*)<\/p>$/); return (m && !/<\/p>/.test(m[1])) ? m[1] : h;
+}
+// lista de itens (requisitos, entregáveis) → <ul> formatada; cada item numa linha só
+function mdListHtml(arr){
+  const items=(Array.isArray(arr)?arr:[]).map(x=>mdTidy(x).replace(/\s*\n\s*/g,' ').replace(/^\s*(?:[-*+]|\d+[.)])\s+/,'').trim()).filter(Boolean);
+  return items.length ? mdToHtml(items.map(x=>'- '+x).join('\n')) : '';
+}
+// TEXTO puro (sem marcação) pra resumo de uma linha / título / chip: o chamador ainda passa no esc()
+function mdPlain(s){
+  const h=mdToHtml(s).replace(/<li>/g,'• ').replace(/<\/(p|li|h[1-6]|pre|tr|td|th|ul|ol)>|<br\s*\/?>|<hr>/g,' ').replace(/<[^>]+>/g,'');
+  const t=h.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
+  return t.replace(/^• (?!.*• )/,'');
+}
+// TÍTULO (vira nome de branch, aba, cartão): tira só a marcação de ênfase/código/título — não é resumo: "2*3*4",
+// "<div>", "1. Configurar CI" e "3) Ajustar X" ficam como estão
+function mdTitle(s){
+  const t=String(s==null?'':s).replace(/\*\*([^*\n]+)\*\*/g,'$1').replace(/__([^_\n]+)__/g,'$1').replace(/`([^`\n]+)`/g,'$1').replace(/^\s*#{1,6}\s+/,'').replace(/\s+/g,' ').trim();
+  return t || String(s==null?'':s).trim();
+}
+// tem cara de markdown? (decide se o campo editável mostra a prévia formatada)
+function mdLooks(s){
+  const t=mdTidy(s);
+  return /(^|\n)\s*([-*+]\s|\d+[.)]\s|#{1,6}\s|```)|\*\*[^*\n]+\*\*|(^|[^*\w])\*[^*\s][^*\n]*\*|`[^`\n]+`|\[[^\]\n]+\]\([^)\s]+\)/.test(t);
+}
+// @md-puro-fim
+// campo editável (textarea/input) com markdown: fora da edição mostra a PRÉVIA formatada + "editar"; clicar volta pro
+// campo. O valor nunca muda (o que vai pro agente continua markdown). data-mdprev="" bloco · "inline" uma linha · "list" um por linha
+function mdPrevHtml(kind, v){
+  if(kind==='list') return mdListHtml(String(v||'').split('\n'));
+  return kind==='inline' ? mdInline(v) : mdToHtml(v);
+}
+function mdPrevWants(kind, v){
+  v=String(v||''); if(!v.trim()) return false;
+  if(kind==='list') return v.split('\n').some(x=>x.trim());
+  return mdLooks(v); // texto puro (log, passos colados sem marcação) continua no campo, com as quebras dele
+}
+function mdPrevSync(root){
+  if(!root || !root.querySelectorAll) return;
+  root.querySelectorAll('textarea[data-mdprev],input[data-mdprev]').forEach(el=>{
+    const kind=el.dataset.mdprev||'';
+    let box=el.__mdbox;
+    if(!box || !box.isConnected || box.nextElementSibling!==el){
+      if(box && box.isConnected) box.remove(); // nada de prévia órfã quando o campo mudou de lugar
+      box=document.createElement('div'); box.className='mdprevbox'+(kind==='inline'?' inl':'');
+      // nome do campo (o <label for>, o rótulo do resumo ou o placeholder) pro leitor de tela: "editar Objetivo"
+      const pv=el.previousElementSibling, lb=(el.id && document.querySelector('label[for="'+el.id+'"]')) || (pv && pv.tagName==='LABEL' ? pv : null) || (el.closest('.plfield')||{ querySelector:()=>null }).querySelector('.plfk');
+      const lbTx=lb ? (([...lb.childNodes].find(n=>n.nodeType===3 && n.textContent.trim())||lb).textContent) : '';
+      const nm=String(lbTx||el.getAttribute('aria-label')||el.getAttribute('placeholder')||'').replace(/\s+/g,' ').trim().slice(0,40);
+      box.setAttribute('role','group'); if(nm) box.setAttribute('aria-label', nm);
+      const pen=(typeof ic==='function')?ic('edit',12):''; // uma linha: só o lápis (coluna estreita); bloco: lápis + "editar"
+      box.innerHTML=`<button type="button" class="mdprev-ed" aria-label="${escA('editar '+(nm||'o texto'))}" title="editar">${kind==='inline'&&pen?pen:pen+'editar'}</button><div class="mdlite mdprev-b"></div>`; // botão antes: flutua no canto
+      el.parentNode.insertBefore(box, el); el.__mdbox=box;
+      const edit=(focus)=>{ el.__mdedit=true; box.hidden=true; el.style.display=''; el.__mdhid=false;
+        if(el.tagName==='TEXTAREA' && typeof chatGrow==='function' && el.classList.contains('plfv')) try{ chatGrow(el); }catch(_){ }
+        if(focus) try{ el.focus(); const n=el.value.length; el.setSelectionRange(n,n); }catch(_){ } };
+      box.addEventListener('click', ev=>{ if(el.disabled || (ev.target.closest && ev.target.closest('a'))) return; edit(true); });
+      // arrastar um print pro campo (anexo): o campo volta na hora e recebe o drop/colar dele (attWireRefField)
+      box.addEventListener('dragenter', ()=>{ if(!el.disabled) edit(false); });
+      if(!el.__mdblur){ el.__mdblur=true; el.addEventListener('blur', ()=>{ el.__mdedit=false; setTimeout(()=>{ if(el.isConnected && el.parentNode) mdPrevSync(el.parentNode); },0); }); }
+    }
+    const v=el.value||'';
+    const show=!el.__mdedit && document.activeElement!==el && mdPrevWants(kind, v);
+    if(show){ const k=kind+'\u0001'+v; if(box.__k!==k){ box.lastChild.innerHTML=mdPrevHtml(kind, v); box.__k=k; } box.firstChild.hidden=!!el.disabled; }
+    box.hidden=!show; box.classList.toggle('ro', !!el.disabled);
+    if(show){ el.style.display='none'; el.__mdhid=true; } else if(el.__mdhid){ el.style.display=''; el.__mdhid=false; }
+  });
 }
 // BUG-12: links do Markdown renderizado (e qualquer <a target=_blank> http) abrem no navegador do sistema
 document.addEventListener('click', ev=>{
@@ -412,9 +497,12 @@ async function sendRework(taskId, inputEl, prefix){
   const v=(inputEl.value||'').trim(); if(!v) return;
   inputEl.disabled=true;
   try{
-    await invoke("rework_task",{ taskId, text:(prefix||'')+v });
+    // a MESMA mensagem do "Pedir alteração" (71: rqChangeText) e o MESMO caminho (1 turno na mesma sessão — antes
+    // o rework re-rodava o time inteiro por padrão; "refazer com o time" agora é opção explícita no painel)
+    const text=(typeof rqChangeText==='function')?rqChangeText({ text:(prefix||'')+v, from:'commit' }):(prefix||'')+v;
+    if(!await fwSendText(taskId, text)) return;
     inputEl.value=""; closeCommit(); lastSig=""; await refresh();
-  }catch(e){ showErr(e, 'Falha ao pedir ajuste'); }
+  }catch(e){ showErr(e, 'Falha ao pedir alteração'); }
   finally{ if(inputEl){ inputEl.disabled=false; } }
 }
 async function resolvePending(id, answer){

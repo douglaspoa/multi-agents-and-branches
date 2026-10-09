@@ -8,6 +8,10 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Library/Developer/CommandLineTools}"
 
 # Motor bundlado tem que entrar no .app JUNTO do binário — senão o deploy troca só
 # o Rust e o app roda com o cli.mjs/server.mjs ANTIGOS (mudança de TS não chega).
+source scripts/build-mark.sh
+DL_HEAD=$(git rev-parse HEAD)   # a marca tem que dizer o commit de onde o binário SAIU
+DL_DIRTY=$(tree_dirty .)
+
 echo "→ bundle do motor (esbuild)"
 rm -rf app/src-tauri/resources
 mkdir -p app/src-tauri/resources/engine app/src-tauri/resources/mcp
@@ -41,6 +45,14 @@ echo "→ build release"
 
 mkdir -p "$APP/Contents/MacOS"
 cp app/src-tauri/target/release/cardume-app "$APP/Contents/MacOS/Starfork"
+
+# Marca de instalação DEV (raiz do fonte + commit/branch) — ANTES de assinar: Resources é selado
+# pelo codesign. É ela que libera "Publicar release pro time" no app aberto pelo Finder (sem CARDUME_CLI).
+if [ "$(git rev-parse HEAD)" != "$DL_HEAD" ]; then
+  echo "✖ o checkout mudou de commit durante o build — rode scripts/deploy-local.sh de novo" >&2; exit 1
+fi
+BUILD_DIRTY=$DL_DIRTY write_dev_mark "$APP" .
+echo "→ marca dev: $(git rev-parse --short HEAD) ($(git rev-parse --abbrev-ref HEAD))"
 
 # Developer ID quando existir (identidade definitiva); senão ad-hoc.
 # NUNCA usar "Apple Development" aqui: sem provisioning profile o Gatekeeper

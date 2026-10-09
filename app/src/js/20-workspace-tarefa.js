@@ -239,13 +239,15 @@ function openWorkspace(taskId, path){
   const t=(state.tasks||[]).find(x=>x.id===taskId)||{};
   // cada aba lembra o PRÓPRIO arquivo e o PROJETO (antes: um tabTaskPath global — a aba B abria o arquivo da A,
   // e depois de trocar de projeto a aba velha abria uma tarefa que não existe no projeto atual)
-  let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, repo:state.repo, path:path||null, title:(t.title||'Tarefa').slice(0,26)}; TABS.push(tab); }
+  let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, repo:state.repo, path:path||null, title:(mdTitle(t.title||'')||'Tarefa').slice(0,26)}; TABS.push(tab); }
   else { if(t.title) tab.title=t.title.slice(0,26); if(path){ tab.path=path; tab.mode='codigo'; } if(!tab.repo) tab.repo=state.repo; }
   activateTab(id);
 }
 async function fwOpenInner(taskId, path){
   // voltando pra MESMA tarefa com o editor aberto: não joga fora o que está sendo editado
   if(fwTask===taskId && fwEditing && (path||null)===(fwPath||null) && $id('fwText')){ $id('fwOverlay').style.display='flex'; renderWorkspace(); return; }
+  // abriu a tarefa: o teclado vai pro terminal assim que ele aparecer (e a sessão parada já volta viva — 60-terminal)
+  if(!path && typeof termWantFocus==='function') termWantFocus(taskId);
   fwTask=taskId; fwPath=path; fwSelA=0; fwSelB=0; fwContent=''; fwAdded=[]; fwEditing=false; fwReadErr='';
   fwFiles=[]; fwEvents=[]; fwEvLast=0; fwLiveSig=''; fwAgentSel=null; fwFilesSig=''; fwFilesAt=0;
   fwFileLoading = path ? taskId+'|'+path : '';
@@ -376,6 +378,8 @@ async function fwLiveUpdate(){
   if(fwMode==='previa' && typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(t.id);
   if(typeof termHistTick==='function') termHistTick(t); // aba Terminal sem PTY: o histórico acompanha a sessão em segundo plano
   if(typeof loopLivePaint==='function') loopLivePaint(t); // aviso do detector de loop: entra/sai sem esperar um renderWorkspace
+  // faixa do terminal VIVO (teto pausou, plano pronto, revisor entrou/saiu) muda sem mexer na assinatura — repinta só se mudou
+  { const ts=typeof TERM!=='undefined'&&TERM[t.id]; if(ts && ts.alive && ts.mode==='live' && typeof termSetAlive==='function') termSetAlive(t.id, true); }
   if(sig===fwLiveSig) return; // nada mudou → não mexe no DOM (digitação fica leve)
   fwLiveSig=sig;
   // o agente anunciou/trocou o preview DEPOIS de a aba abrir: o cabeçalho (fwReviewBar) só era montado
@@ -513,10 +517,14 @@ function fwActionHtml(t){
   const a=fwPrimaryAction(t);
   // sem prova: o "aprovar sem prova…" fica à vista ao lado (some no cabeçalho estreito — continua no ⋯)
   const sec=(a&&a.id==='fwAskProof')?`<button class="btn sm ghost fwnoproof" id="fwNoProof" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar sem prova…</button>`:'';
-  if(!a) return sec;
+  // pronta pra revisar: "Pedir alteração" SEMPRE à vista (mesa 09/10 — antes era só "pedir ajuste" escondido no ⋯) e
+  // "Chamar agente…" ao lado; os dois abrem o MESMO painel (71-revisao-alteracao)
+  const rq=(typeof rqCanAsk==='function' && rqCanAsk(t))
+    ? `<button class="btn sm fwrqbtn" id="fwChange" title="o agente desta tarefa continua na mesma branch — texto, prints e requisitos afetados">Pedir alteração</button><button class="btn sm ghost fwrqbtn fwrqag" id="fwCallAgent" title="chama outro agente do time (design, revisor, testes…) como etapa extra">Chamar agente…</button>` : '';
+  if(!a) return rq+sec;
   const lbl=String(a.html).replace(/<[^>]*>/g,'').trim();
   const html=String(a.html).replace(/([^>]*)$/, (m)=>m.trim()?`<span class="fwal">${m}</span>`:m);
-  return sec+`<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}" aria-label="${escA(lbl)}">${html}</button>`;
+  return rq+sec+`<button class="${a.cls||'btn primary sm'}" id="${a.id}" title="${escA(a.title||'')}" aria-label="${escA(lbl)}">${html}</button>`;
 }
 // itens do ⋯ (secundários) — só o que faz sentido na fase atual
 function fwMoreItems(t){
@@ -526,7 +534,7 @@ function fwMoreItems(t){
   it.push({ k:'sum', label:`resumo e progresso · ${taskPct(t)}%`, hint:'tudo que já foi feito + o que falta' });
   if(t.status==='draft' && typeof editDraft==='function') it.push({ k:'editdraft', label:'editar o rascunho', hint:'reabre a Nova demanda preenchida' });
   if(prim==='fwAskProof') it.push({ k:'noproof', label:'aprovar sem prova…', hint:'exige um motivo — vai no PR' });
-  if(['review','delivered'].includes(t.status) && !t.prUrl) it.push({ k:'askfix', label:'pedir ajuste', hint:'vira instrução direta pro agente' });
+  if(typeof rqCanAsk==='function' && rqCanAsk(t)){ it.push({ k:'askfix', label:'pedir alteração', hint:'o agente continua na mesma branch' }); it.push({ k:'callagent', label:'chamar outro agente…', hint:'design, revisor, testes… como etapa extra' }); }
   if(t.prUrl){ const n=fwPrNum(t);
     if(prim!=='fwPrGo' && fwMode!=='pr') it.push({ k:'prgo', label:`ver PR #${n} aqui` });
     if(prim!=='fwPrGh') it.push({ k:'prgh', label:`abrir PR #${n} no GitHub` });
@@ -586,7 +594,8 @@ function fwOpenMore(t, anchor){
 async function fwMoreDo(t, k, anchor){
   const pv=taskPreviewTarget(t);
   if(k==='sum') openTaskSummary(t.id);
-  else if(k==='askfix') fwAskFix();
+  else if(k==='askfix') rqOpen(t.id);
+  else if(k==='callagent') rqOpen(t.id, { mode:'agente' });
   else if(k==='noproof') await approveNoProof(t);
   else if(k==='editdraft') await editDraft(t);
   else if(k==='prgo'){ fwMode='pr'; fwRememberTab(); renderWorkspace(); }
@@ -770,11 +779,12 @@ function renderWorkspace(){
   // modo que o TIPO esconde (ex.: Código numa investigação, guardado na aba) cai na Entrega
   if(typeof fwModesList==='function' && !fwModesList(t).some(([k])=>k===fwMode)){ fwMode='entrega'; fwRememberTab(); }
   { const p=$id('fwPhases'); if(p) p.innerHTML=phasesHtml(t); }
+  if(typeof rqPaint==='function') rqPaint(t); // 71: painel "Pedir alteração" / "Chamar outro agente…" (assinatura própria)
   if(typeof cicloPaint==='function') cicloPaint(t); // faixa de etapas + "precisa de você" (60-ciclo), com assinatura própria
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); cols.classList.toggle('rv-req', fwMode==='revisao' && (typeof rvViewOf!=='function' || rvViewOf(t.id)!=='diff')); } }
   fwModesPaint(t);
-  { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
+  { const tn=$id('fwTaskName'), tt=mdTitle(t.title||''); tn.textContent=tt; tn.title=tt; } // cabeçalho: título salvo com ** aparece limpo
   // painel Dispositivo (57-dispositivo.js): barato — só o botão/visibilidade; o painel tem guarda própria
   if(typeof dvSync==='function') dvSync(t);
   // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico
@@ -792,6 +802,8 @@ function renderWorkspace(){
       rb.innerHTML=pvBtn+fwActionHtml(t);
       fwPrimShown=(fwPrimaryAction(t)||{}).id||'';
       bindClick('fwAnswer', ()=>fwAskFix());
+      bindClick('fwChange', ()=>rqOpen(t.id));
+      bindClick('fwCallAgent', ()=>rqOpen(t.id, { mode:'agente' }));
       bindClick('fwStopTop', ()=>stopTask(t.id));
       // FT-5: aprovar passa pelo gate de verificação (21: chkApproveClick/chkDecorateApprove)
       if(typeof chkDecorateApprove==='function') chkDecorateApprove($id('fwApprove'), t);
@@ -889,12 +901,13 @@ function renderWorkspace(){
   const objShort=String(t.objective||'').split('[PLANO DO ORQUESTRADOR')[0].trim();
   const whyKey=t.id+'|'+(fwPath||'');
   const w=fwPath?fwWhyCache[whyKey]:undefined;
-  const whyInner = !fwPath ? esc(objShort)
-    : w===undefined ? `${esc(objShort)}<div style="margin-top:7px"><button class="btn sm" id="fwWhyAsk" title="a IA lê o diff deste arquivo e explica o que mudou e por quê (usa créditos)">${IC.ai} explicar este arquivo com IA</button></div>`
+  const objMd=`<div class="mdlite">${mdToHtml(objShort)}</div>`; // objetivo é markdown (vem da conversa/IA): formatado, não cru
+  const whyInner = !fwPath ? objMd
+    : w===undefined ? `${objMd}<div style="margin-top:7px"><button class="btn sm" id="fwWhyAsk" title="a IA lê o diff deste arquivo e explica o que mudou e por quê (usa créditos)">${IC.ai} explicar este arquivo com IA</button></div>`
     : w===null ? `<span class="dim">lendo o diff deste arquivo e escrevendo a explicação…</span>`
     : (w&&w.md) ? mdToHtml(w.md)
     : (w&&w.err) ? `<span style="color:var(--warn)">não consegui explicar este arquivo: ${esc(errShort(w.err))}</span> <a class="lnk" id="fwWhyRetry">tentar de novo</a>`
-    : `<span class="dim">sem alterações neste arquivo nesta branch.</span> ${esc(objShort)}`;
+    : `<span class="dim">sem alterações neste arquivo nesta branch.</span> ${objMd}`;
   const whyBand = `<div class="fwwhy${fwWhyOpen?' open':''}"><svg viewBox="0 0 16 16" fill="none" stroke="var(--accent)" stroke-width="1.3" stroke-linejoin="round"><path d="M7 2.6l1 2.6 2.6 1-2.6 1L7 9.8 6 7.2 3.4 6.2 6 5.2z"/></svg><div class="fwwhyb"><div class="fwwhyh"><span class="fwwhyl">${fwPath&&w!==undefined?'O que foi feito neste arquivo e por quê':'Objetivo da tarefa'}</span><span style="flex:1"></span>${fwPath&&w&&w.md?`<button class="fwwhyre" id="fwWhyRedo" title="gerar de novo">↻</button>`:''}<button class="fwwhytg" id="fwWhyTg">${fwWhyOpen?'▴ menos':'▾ mais'}</button></div><div class="fwwhyt">${whyInner}</div></div></div>`;
   if(keepEditor){ /* editor aberto: fica como está (texto, cursor, rolagem) */ }
   else if(fwMode==='entrega'){ fwRenderEntrega(t, main); }

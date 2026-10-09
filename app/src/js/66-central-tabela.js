@@ -99,12 +99,19 @@ function ctRowHtml(r, op){
     `<td class="ct-pr">${r.pr?`<button type="button" class="ctlink" data-lk="${escA(r.prUrl)}" title="abrir o PR no GitHub">#${esc(r.pr)}</button>`:'<span class="ctdim">—</span>'}</td>`+
     `<td class="ct-situacao"><span class="ctst" style="--stc:${escA(r.stColor||'var(--muted)')}"><i aria-hidden="true"></i>${esc(r.stLabel||'')}</span></td>`+
     `<td class="ct-upd">${esc(r.ago||'')}</td>`+
-    `<td class="ct-act">${ctActBtn(r, a)}</td></tr>`;
+    `<td class="ct-act"><span class="ctacts">${ctActBtn(r, a)}${ctMoreBtn(r)}</span></td></tr>`;
+}
+// ⋯ da linha: abre o MESMO menu dos cartões (22: openTaskMenu — concluir, marcar pronta, integrada, bloquear…).
+// O ícone vem de IC (10-core); fora do app (teste) cai no texto.
+function ctMoreBtn(r){
+  const ic=(typeof IC!=='undefined'&&IC.more)||'⋯';
+  return `<button type="button" class="btn sm ghost ctmore" data-tmenu="${escA(r.id)}" aria-haspopup="menu" aria-label="mais ações" title="mais ações — concluir, mudar status">${ic}</button>`;
 }
 function ctExpHtml(r){
   const acts=[`<button type="button" class="btn sm primary" data-dcopen="${escA(r.id)}">Abrir tarefa <span class="kbd" aria-hidden="true">↵</span></button>`];
   if(r.pr) acts.push(`<button type="button" class="btn sm" data-lk="${escA(r.prUrl)}">Revisar PR #${esc(r.pr)}</button>`);
   const miss=r.nreq-r.ok;
+  if(typeof rqCanAsk==='function' ? rqCanAsk({ status:r.status, _cross:r.cross }) : ['review','delivered'].includes(r.status)) acts.push(`<button type="button" class="btn sm" data-rqopen="${escA(r.id)}">Pedir alteração</button>`); // 71: a mesma caixa da tarefa
   if(r.canAskProof && r.loaded && miss>0) acts.push(`<button type="button" class="btn sm" data-rowproof="${escA(r.id)}">Pedir ${miss===1?'a prova que falta':'as '+miss+' provas'}</button>`);
   const ring=r.nreq&&r.loaded&&!r.cross?`<span class="ctring" aria-hidden="true">${r.ok}</span>`:'';
   // F4: aviso do teto de custo (G3, 53-teto-protecao budgetNoticeHtml — já escapado lá) dentro da linha aberta
@@ -125,7 +132,8 @@ function ctTableHtml(rows, o){
 const CT={ open:new Set(), rows:new Map(), last:null, clickT:0, sort:(()=>{ try{ const v=JSON.parse(lsGet('ctSort')||'null'); if(v && CT_SORTABLE.has(v.key)) return v; }catch(_){ } return { key:'upd', dir:'desc' }; })() };
 const CT_NEEDS_ST=new Set(typeof AGUARDA_ST!=='undefined'?AGUARDA_ST:['plan-review','needs-you','error','conflict','aborted']); // a MESMA lista do "aguardando você" (00-util) — antes faltava 'aborted'
 function ctRow(t){
-  const st=taskSt(t), b=flowBucket(t);
+  // rascunho armado pelo "Iniciar épico" (46: epAutoLocalHas) = na espera — começa sozinho; "Iniciar" continua pra começar já
+  const st=(t.status==='draft' && typeof epAutoLocalHas==='function' && epAutoLocalHas(t.id))?'waiting':taskSt(t), b=flowBucket(t);
   let stages=[], sum=null;
   if((t.roles||[]).length && typeof taskStages==='function' && typeof cicloStripX==='function'){ try{ const x=cicloStripX(t); stages=taskStages(t, x); sum=stagesSummary(stages, x); }catch(_){ stages=[]; } }
   const cross=!!t._cross; // tarefa de OUTRO projeto (agregada): as provas moram lá — estado final, nunca "carregando"
@@ -141,7 +149,8 @@ function ctRow(t){
   const ts=ev?+new Date(ev.ts):taskTs(t);
   const ia=(typeof aiRunLabel==='function')?String(aiRunLabel(t.engine, '')).replace(/ · padrão da assinatura$/,''):(t.engine||'');
   const asking=pendingOf(t.id).length>0;
-  return { id:t.id, title:t.title||'', code:(typeof issueCodeOf==='function'&&issueCodeOf(t))||'', proj, badge:(typeof railBadgeHtml==='function')?railBadgeHtml(proj, (typeof projColor==='function')?projColor(path):''):'',
+  return { id:t.id, title:(typeof mdTitle==='function'?mdTitle(t.title||''):(t.title||'')), // só exibição
+    code:(typeof issueCodeOf==='function'&&issueCodeOf(t))||'', proj, badge:(typeof railBadgeHtml==='function')?railBadgeHtml(proj, (typeof projColor==='function')?projColor(path):''):'',
     ia:t.orchestration?'Orquestrador':ia, stages:stages.map(s=>({ label:s.label, state:s.state, word:s.word })), pos:sum?sum.pos:0, n:stages.length, label:sum?sum.label:'', now:sum?sum.now:'',
     nreq, ok, ad, loaded, cross, gateSt:g.st, canAskProof:!cross && ['review','delivered'].includes(t.status) && g.st==='unproven' && !t.prUrl,
     pr:(typeof prNumOf==='function')?prNumOf(t):'', prUrl:t.prUrl||'', status:t.status, blocked:t.flag==='blocked', asking,
@@ -153,7 +162,7 @@ function ctRow(t){
 function ctHtml(tasks){ const rows=(tasks||[]).map(ctRow); CT.rows=new Map(rows.map(r=>[r.id, r])); return ctTableHtml(rows, { sort:CT.sort, open:CT.open }); }
 // depois de mexer NO LUGAR: o HTML que a Central pintaria agora (mesmas partes) vira o flowLastHtml — o próximo
 // render só reconstrói se algo de verdade mudou
-function ctSyncLast(){ const L=CT.last; if(!L) return; flowLastHtml=L.pre+ctTableHtml([...CT.rows.values()], { sort:CT.sort, open:CT.open }); }
+function ctSyncLast(){ const L=CT.last; if(!L) return; flowLastHtml=L.pre+ctTableHtml([...CT.rows.values()], { sort:CT.sort, open:CT.open })+(L.post||''); }
 /** Depois do innerHTML da Central: ordenar, abrir/recolher a linha, teclado — tudo no lugar (sem renderFlow). Os botões
  *  de ação reaproveitam os data-* que a Central liga; linha recém-inserida cai na delegação daqui. */
 function ctWire(el, src){
@@ -189,11 +198,12 @@ function ctWire(el, src){
     const s=e.target.closest('[data-ctsort]'); if(s){ e.stopPropagation(); sortBy(s.dataset.ctsort); return; }
     const c=e.target.closest('[data-cttog]'); if(c){ e.stopPropagation(); toggle(c.dataset.cttog); return; }
     // botões das linhas recém-inseridas (sem o onclick que a Central ligou no render): mesma ação
-    const b=e.target.closest('[data-dcopen],[data-rowproof],[data-rowplay],[data-lk]');
+    const b=e.target.closest('[data-dcopen],[data-rowproof],[data-rowplay],[data-lk],[data-tmenu]');
     if(b){ e.stopPropagation();
       if(b.dataset.dcopen) open(b.dataset.dcopen);
       else if(b.dataset.rowplay){ const id=b.dataset.rowplay; crossRun(id, ()=>startTask(id)); } // L13 (mesa-bugs-2): "Iniciar" de outro projeto troca pro dono antes (antes agia no projeto ativo)
       else if(b.dataset.lk) openExternal(b.dataset.lk);
+      else if(b.dataset.tmenu) openTaskMenu(b.dataset.tmenu, b); // ⋯ da linha: o menu único dos cartões (nunca abre a linha)
       else if(b.dataset.rowproof){ const id=b.dataset.rowproof; crossRun(id, ()=>proofAsk(taskOf(id), b)); }
       return; }
     const tr=e.target.closest('tr[data-ctrow]'); if(!tr || e.target.closest('button,a,input,select')) return;

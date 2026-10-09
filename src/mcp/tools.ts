@@ -5,6 +5,7 @@ import type { TaskSpec } from "../types.ts";
 import { Store } from "../store.ts";
 import { CoordinationBus } from "../bus.ts";
 import { notify } from "../util/notify.ts";
+import { askPending } from "../ask-style.ts";
 import type { Orchestrator } from "../orchestrator.ts";
 import { dirname } from "node:path";
 import { editEpic, editTask, type EditAuthor } from "../agent-edits.ts";
@@ -41,12 +42,14 @@ export const TOOLS = [
   {
     name: "ask_human",
     description:
-      "Pergunte ao humano quando houver ambiguidade sobre requisitos ou uma decisão que precise de aprovação. BLOQUEIA até o humano responder na UI do Starfork. Use apenas quando realmente necessário.",
+      "Pergunte ao humano quando houver ambiguidade sobre requisitos ou uma decisão que precise de aprovação. BLOQUEIA até o humano responder na UI do Starfork. Use apenas quando realmente necessário." +
+      " Formato (a folha do app é pequena): `question` = UMA frase curta terminando em '?'; o porquê vai em `context` (3–5 tópicos curtos); cada opção 'Rótulo curto — descrição de 1 linha'.",
     inputSchema: {
       type: "object",
       properties: {
-        question: { type: "string", description: "A pergunta, clara e específica." },
-        options: { type: "array", items: { type: "string" }, description: "Opções de resposta (opcional)." },
+        question: { type: "string", description: "A pergunta em UMA frase curta terminando em '?' (sem o contexto dentro)." },
+        context: { type: "string", description: "Opcional: o contexto em até 3–5 tópicos curtos, um '- item' por linha. Aparece recolhido abaixo da pergunta." },
+        options: { type: "array", items: { type: "string" }, description: "Opções de resposta (opcional), cada uma 'Rótulo curto — descrição de 1 linha'. A resposta volta com o texto da opção inteiro." },
       },
       required: ["question"],
     },
@@ -164,6 +167,56 @@ export const TOOLS = [
     },
   },
   {
+    name: "create_epic",
+    description:
+      "CRIA um ÉPICO no time (o épico é da nuvem do time: o app do Starfork executa com a sessão dele) e, se você passar task_ids, já VINCULA essas tarefas EXISTENTES a ele — sem recriar nem reiniciar nenhuma. Use quando o humano pedir pra agrupar tarefas num épico novo. Devolve o id do épico e as tarefas vinculadas. Sem login/time no app → RECUSADO (diga ao humano pra entrar na conta e escolher um time). App fechado → o pedido fica PENDENTE (nada criado ainda); confira depois com epic_request_status. Pra pôr tarefas num épico que JÁ existe, use link_tasks_to_epic.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Nome curto do épico." },
+        description: { type: "string", description: "Descrição (opcional)." },
+        outcome: { type: "string", description: "1 frase: pra quem, o que muda e o sinal de que funcionou (opcional)." },
+        done_when: { type: "array", items: { type: "string" }, description: "'Pronto quando' — checagens que uma PESSOA roda (viram D1, D2…). Opcional." },
+        task_ids: { type: "array", items: { type: "string" }, description: "Tarefas EXISTENTES a vincular (id local, id do cartão ou título). Opcional." },
+        cards: { type: "array", items: { type: "string" }, description: "Títulos de cartões NOVOS que já nascem no épico, na fila do time, SEM rodar (mandar pro time). Opcional." },
+        assignee: { type: "string", description: "E-mail ou nome de quem do time fica com os cartões novos (só líder/admin põe outra pessoa). Vazio = livres. Opcional." },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "link_tasks_to_epic",
+    description:
+      "VINCULA tarefas que JÁ EXISTEM (rascunhos, rodando, em revisão…) a um épico do time — sem recriar, reiniciar nem conversar com elas: só o épico delas muda (spec, TASK.yaml e o cartão do time); quem está rodando recebe um recado no próximo turno. Também MOVE de um épico pra outro. NUNCA recrie uma tarefa pra trocar o épico. O app executa (precisa estar aberto e logado no time; senão fica pendente/recusado, nunca falso). Veja os épicos com list_epics.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        epic: { type: "string", description: "Id do épico ou o NOME dele (o app procura entre os épicos do time). Vazio = o épico desta tarefa." },
+        task_ids: { type: "array", items: { type: "string" }, description: "Tarefas a vincular: id local, id do cartão da nuvem ou título." },
+      },
+      required: ["task_ids"],
+    },
+  },
+  {
+    name: "unlink_tasks_from_epic",
+    description: "TIRA tarefas do épico em que estão (elas continuam como estão — nada é recriado nem reiniciado). O app executa na nuvem do time.",
+    inputSchema: {
+      type: "object",
+      properties: { task_ids: { type: "array", items: { type: "string" }, description: "Tarefas: id local, id do cartão ou título." } },
+      required: ["task_ids"],
+    },
+  },
+  {
+    name: "epic_request_status",
+    description: "Desfecho dos pedidos de épico (create_epic / link / unlink): feito, recusado (com o motivo) ou ainda pendente (app fechado). Sem id = os 10 mais recentes.",
+    inputSchema: { type: "object", properties: { request_id: { type: "string", description: "Id do pedido (opcional)." } } },
+  },
+  {
+    name: "list_epics",
+    description: "Lista os épicos do TIME (id — nome · status · nº de tarefas), pra escolher em qual vincular. A lista vem do app (aberto e logado).",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
     name: "suggest_replies",
     description:
       "No FIM de todo turno em que você para esperando o humano, sugira de 2 a 4 respostas CURTAS (até 60 caracteres) e concretas que ele provavelmente mandaria a seguir (ex.: \"pode seguir\", \"mostra o diff\", \"abre o PR\"). O app mostra como botões que mandam o texto pro terminal. Não substitui a sua resposta: chame depois de responder.",
@@ -190,6 +243,21 @@ export const TOOLS = [
         note: { type: "string", description: "Por que (1 frase) — aparece no feed da tarefa." },
       },
       required: ["status", "note"],
+    },
+  },
+  {
+    name: "extra_stage",
+    description:
+      "\"Chamar outro agente\" na revisão: começa uma ETAPA EXTRA desta tarefa com outro agente do time (design, revisor, qa, seguranca, performance, docs) — " +
+      "registra a etapa (o app mostra na faixa e no PR o que ela mudou) e devolve as instruções desse agente pra você seguir AGORA, nesta mesma branch e sessão. " +
+      "Use quando o humano pedir (ex.: \"passa pelo de design\"). Ao fim do turno a etapa fecha sozinha com os arquivos que mudaram.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        agent: { type: "string", description: "design | revisor | qa | seguranca | performance | docs (ou o nome/id do agente do time)" },
+        note: { type: "string", description: "O que o humano quer que esse agente olhe (opcional)." },
+      },
+      required: ["agent"],
     },
   },
   {
@@ -254,16 +322,17 @@ export async function callTool(ctx: ToolCtx, name: string, args: any): Promise<T
     const question = String(args?.question ?? "").trim();
     const options: string[] | undefined = Array.isArray(args?.options) ? args.options : undefined;
     if (!question) return { text: "pergunta vazia", isError: true };
+    const ask = askPending(question, args?.context); // pergunta + contexto (meta.question): a folha do app separa os dois
     // PILOTO AUTOMÁTICO: não há humano — responde NA HORA mandando a IA decidir e registrar a suposição
     // (src/autopilot.ts liga CARDUME_AUTOPILOT=1; nada de notificação nem espera)
     if (process.env.CARDUME_AUTOPILOT === "1") {
-      const id = store.addPending(TASK, AGENT, "question", question, options);
+      const id = store.addPending(TASK, AGENT, "question", ask.prompt, options, ask.meta);
       store.answerPending(id, AUTOPILOT_ANSWER);
       store.addEvent(TASK, AGENT, "note", `perguntou (piloto automático, sem humano): ${question}`, undefined);
       store.addEvent(TASK, "Piloto automático", "note", `resposta automática: decida e registre a suposição em .cardume/artifacts/ASSUMPTIONS.md`, true);
       return { text: AUTOPILOT_ANSWER };
     }
-    const id = store.addPending(TASK, AGENT, "question", question, options);
+    const id = store.addPending(TASK, AGENT, "question", ask.prompt, options, ask.meta);
     store.addEvent(TASK, AGENT, "note", `perguntou ao humano: ${question}`, undefined);
     notify("Starfork", question, `${AGENT} precisa de você`);
     // Bloqueia até a UI responder (poll no SQLite).
@@ -472,6 +541,35 @@ export async function callTool(ctx: ToolCtx, name: string, args: any): Promise<T
     }
   }
 
+  if (name === "create_epic" || name === "link_tasks_to_epic" || name === "unlink_tasks_from_epic") {
+    const { epicRequestFlow, flowText } = await import("../epic-requests.ts");
+    const me = store.getTask(TASK);
+    const by: EditAuthor = { agent: AGENT, taskId: TASK || undefined, taskTitle: me?.title, role: ROLE || undefined };
+    const arr = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x)) : typeof v === "string" && v.trim() ? [v] : []);
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    try {
+      const r = await epicRequestFlow({
+        store, cardumeDir: dirname(DB), by,
+        kind: name === "create_epic" ? "create" : name === "link_tasks_to_epic" ? "link" : "unlink",
+        epic: name === "create_epic" ? { title: String(args?.title ?? ""), description: str(args?.description), outcome: str(args?.outcome), doneWhen: arr(args?.done_when), cards: arr(args?.cards), assignee: str(args?.assignee) } : undefined,
+        epicRef: str(args?.epic), taskRefs: arr(args?.task_ids),
+        waitMs: process.env.CARDUME_EPIC_WAIT_MS !== undefined ? Number(process.env.CARDUME_EPIC_WAIT_MS) || 0 : undefined,
+      });
+      return { text: flowText(r), isError: !r.ok };
+    } catch (e) {
+      return { text: `falha no pedido de épico: ${(e as Error).message}`, isError: true };
+    }
+  }
+  if (name === "epic_request_status") {
+    const { requestStatusText } = await import("../epic-requests.ts");
+    const r = requestStatusText(dirname(DB), typeof args?.request_id === "string" ? args.request_id : undefined);
+    return { text: r.text, isError: !r.ok };
+  }
+  if (name === "list_epics") {
+    const { epicsListText } = await import("../epic-requests.ts");
+    return { text: epicsListText(dirname(DB)) };
+  }
+
   if (name === "suggest_replies") {
     const { cleanSuggestions } = await import("../terminal-integrado.ts");
     const r = cleanSuggestions(args?.options);
@@ -501,6 +599,16 @@ export async function callTool(ctx: ToolCtx, name: string, args: any): Promise<T
     if (status !== "review") return { text: `status: ${STATUS_PT[status] ?? status}` };
     const st = await taskStatus(await orch(), TASK);
     return { text: `status: pronta pra revisão.\n${st.provado ? "Tudo provado ✓ — dá pra abrir o PR (open_pr)." : `Ainda falta para PROVADO:\n${st.faltaProvar.map((x) => `  - ${x}`).join("\n")}`}` };
+  }
+
+  if (name === "extra_stage") {
+    const o = await orch();
+    const agent = String(args?.agent ?? "").trim();
+    if (!agent) return { text: `diga o agente: ${o.extraAgents().map((a) => `${a.kind} (${a.name})`).join(", ")}`, isError: true };
+    try {
+      const { agent: a, prompt } = await o.beginExtraStage(TASK, agent, { note: String(args?.note ?? "").trim() || undefined, by: "mcp" });
+      return { text: `Etapa extra começou: a partir de agora, NESTE turno, você é ${a.name}. Siga:\n\n${prompt}` };
+    } catch (e) { return { text: (e as Error).message, isError: true }; }
   }
 
   if (name === "list_skills" || name === "use_skill") {

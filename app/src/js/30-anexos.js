@@ -185,7 +185,7 @@ function chatComposer(cfg){
 function chatCopyBtn(){ return '<button class="ccopy" title="copiar">⧉</button>'; }
 function chatMsgHtml(m){
   const w=m.who||m.role, t=String(m.text||'');
-  if(w==='you'||w==='user') return `<div class="plmsg you chatmsg"><div class="plbub">${esc(t)}${attRowHtml(m.atts)}</div></div>`;
+  if(w==='you'||w==='user') return `<div class="plmsg you chatmsg"><div class="plbub">${mdToHtml(t)}${attRowHtml(m.atts)}</div></div>`; // igual ao chat da tarefa (chatMd): a sua mensagem também formata
   if(w==='sys') return `<div class="plmsg sys chatmsg"><div class="plbub">${esc(t)}</div></div>`;
   return `<div class="plmsg bot chatmsg"><span class="plav">${IC.starfork}</span><div class="plbub">${mdToHtml(t)}${chatCopyBtn()}</div></div>`;
 }
@@ -233,7 +233,7 @@ async function pickRefsInto(arr, render){ try{ const paths=await invoke('pick_re
 async function pickRefs(){ await pickRefsInto(ntRefs, renderNtRefs); }
 function renderNtList(id, arr){
   const el=$id(id);
-  el.innerHTML = arr.length ? arr.map((v,i)=>`<div class="listrow"><input class="in" data-li="${i}" value="${escA(v)}" placeholder="descreva…"><button class="iconbtn" data-lrm="${i}" title="remover">${IC.trash}</button></div>`).join("") : '<div class="dim">nenhum item — clique "+ item"</div>';
+  el.innerHTML = arr.length ? arr.map((v,i)=>`<div class="listrow"><input class="in" data-li="${i}" data-mdprev="inline" value="${escA(v)}" placeholder="descreva…"><button class="iconbtn" data-lrm="${i}" title="remover">${IC.trash}</button></div>`).join("") : '<div class="dim">nenhum item — clique "+ item"</div>';
   el.querySelectorAll("[data-li]").forEach(inp=>inp.addEventListener("input",()=>{ arr[+inp.dataset.li]=inp.value; ntGate(); }));
   el.querySelectorAll("[data-lrm]").forEach(b=>b.onclick=()=>{ arr.splice(+b.dataset.lrm,1); renderNtList(id,arr); ntGate(); });
   if(typeof ntGate==='function') ntGate();
