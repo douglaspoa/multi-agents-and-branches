@@ -1,0 +1,103 @@
+/* Starfork — 99-central-alcance: a Central com alcance (71-central-alcance.js). Seletor Minhas · Do time · Org toda ao lado
+   do título, abas Tarefas/Épicos/Entregas e as tabelas do time agrupadas por épico. Sem cartão dentro de cartão: o épico
+   é uma faixa com cabeçalho e a tabela embaixo. Colunas que não cabem somem por prioridade (container query) — nunca
+   rolagem horizontal. */
+
+/* ---- alcance ---- */
+.ca-scope{display:inline-flex;gap:2px;padding:2px;border-radius:9px;background:var(--surface-2);border:1px solid var(--border);flex:none}
+.ca-scope button{font:550 var(--fs-sm)/1 var(--ui);color:var(--text-2);background:transparent;border:0;border-radius:7px;padding:6px 11px;cursor:pointer;white-space:nowrap}
+.ca-scope button:hover{color:var(--text)}
+.ca-scope button.on{background:var(--surface);color:var(--text);font-weight:650;box-shadow:0 1px 2px color-mix(in srgb,var(--shade) 16%,transparent),0 0 0 1px var(--border)}
+.ca-scope button:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.ca-teamsel{max-width:160px;padding:4px 26px 4px 10px;font-size:var(--fs-sm)}
+#flowHead>.pghead{min-width:0;flex:1 1 100%;max-width:100%}
+#flowHead .pgh-t{flex-wrap:wrap;row-gap:8px}
+
+/* ---- filtros ---- */
+.ca-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:2px 0 14px}
+.ca-filters .grow{flex:1}
+.ca-filters .ffsel{max-width:170px}
+.ca-refresh{padding:4px 7px}
+.ca-refresh svg{width:14px;height:14px}
+
+/* ---- corpo ---- */
+.ca-wrap{container-type:inline-size;display:flex;flex-direction:column;gap:14px;padding-bottom:24px}
+.ca-wrap>.ld-empty{margin-top:24px}
+.ca-grp{border:1px solid var(--border);border-radius:12px;background:var(--surface);overflow:hidden}
+.ca-eph{display:flex;align-items:center;flex-wrap:wrap;gap:6px 14px;padding:10px 14px;background:var(--surface-2)}
+.ca-grp:has(.ca-tbl) .ca-eph{border-bottom:1px solid var(--border)}
+.ca-eph .grow{flex:1 1 0}
+.ca-tog{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%;font:650 var(--fs-md)/1.25 var(--ui);color:var(--text);background:none;border:0;padding:3px 5px;margin:-3px -5px;border-radius:7px;cursor:pointer;text-align:left}
+.ca-tog:hover .ca-epname{text-decoration:underline;text-underline-offset:3px;text-decoration-color:var(--border-strong)}
+.ca-eph.solto .ca-epname{color:var(--text-2)}
+.ca-chev,.ca-epic{display:inline-flex;flex:none;width:14px;height:14px}
+.ca-chev svg,.ca-epic svg{width:14px;height:14px}
+.ca-chev{color:var(--muted)}
+.ca-epname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ca-epm{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px 10px;font-size:var(--fs-sm);color:var(--muted)}
+.ca-num{font-variant-numeric:tabular-nums;color:var(--text-2)}
+.ca-num b{color:var(--text);font-weight:700}
+.ca-num.ok{color:var(--st-done)}
+.ca-num.crit{color:var(--st-err);font-weight:700}
+.ca-bar{display:inline-block;width:88px;height:6px;border-radius:3px;background:var(--border);overflow:hidden;vertical-align:middle;flex:none}
+.ca-bar i{display:block;height:100%;background:var(--st-done);border-radius:3px}
+.ca-faces{display:inline-flex;align-items:center}
+.ca-faces .tsav{box-shadow:0 0 0 2px var(--surface-2)}
+.ca-faces .tsav+.tsav{margin-left:-5px}
+.ca-more-n{font-size:var(--fs-xs);color:var(--muted);margin-left:5px}
+.ca-proj{display:inline-flex;align-items:center;gap:5px;font-size:var(--fs-xs);color:var(--text-2);white-space:nowrap}
+.ca-proj i{width:8px;height:8px;border-radius:2px;flex:none}
+.ca-dim{color:var(--muted);font-size:var(--fs-xs)}
+.ca-none{padding:14px;color:var(--muted);font-size:var(--fs-sm);text-align:center}
+.ca-sec{container-type:inline-size}
+.ca-help{font-size:var(--fs-xs);color:var(--muted);margin:-2px 0 8px}
+.ca-errline{display:flex;align-items:center;gap:8px;font-size:var(--fs-sm);color:var(--warn);margin:8px 0}
+.ca-errline svg{width:14px;height:14px;flex:none}
+.ca-foot{margin:2px 2px 0;font-size:var(--fs-xs);color:var(--muted)}
+
+/* ---- tabela ---- */
+.ca-tbl{width:100%;border-collapse:collapse;font-size:var(--fs-sm);table-layout:fixed}
+/* larguras fixas: os grupos (um épico = uma tabela) ficam com as colunas alinhadas entre si */
+.ca-tbl .c-com{width:128px}.ca-tbl .c-st{width:158px}.ca-tbl .c-req{width:92px}.ca-tbl .c-iss{width:104px}.ca-tbl .c-cus{width:86px}.ca-tbl .c-atv{width:84px}.ca-tbl th.c-act{width:228px}
+.ca-eps .c-pj{width:170px}.ca-eps .c-and{width:150px}.ca-eps .c-ppl{width:110px}.ca-eps .c-n{width:92px}.ca-eps th.c-act{width:80px}
+.ca-eps .c-and .ca-num{margin-right:8px}
+.ca-eps,.ca-sec .ca-tbl{border:1px solid var(--border);border-radius:12px;background:var(--surface);border-collapse:separate;border-spacing:0;overflow:hidden}
+.ca-tbl th{text-align:left;font-weight:600;font-size:var(--fs-xs);color:var(--muted);padding:7px 10px;white-space:nowrap;background:var(--surface-2);border-bottom:1px solid var(--border)}
+.ca-tbl td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:middle;color:var(--text-2)}
+.ca-tbl tbody tr:last-child td{border-bottom:0}
+.ca-tbl tbody tr:hover td{background:color-mix(in srgb,var(--surface-2) 55%,transparent)}
+.ca-tbl td.c-dem{overflow:hidden}
+.ca-tbl .c-act{text-align:right;white-space:nowrap}
+.ca-tbl .c-com,.ca-tbl .c-st,.ca-tbl .c-iss{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ca-tbl .c-n,.ca-tbl .c-req,.ca-tbl .c-cus{white-space:nowrap;font-variant-numeric:tabular-nums}
+.ca-tbl .c-atv{white-space:nowrap;font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums}
+.ca-tbl td.c-cus{font-family:var(--mono);font-size:var(--fs-xs)}
+.ca-eps tr.fechado .ca-title{color:var(--muted)}
+.ca-title{display:inline-flex;align-items:center;gap:6px;max-width:100%;font:600 var(--fs-base)/1.35 var(--ui);color:var(--text);background:none;border:0;padding:1px 3px;margin:-1px -3px;border-radius:5px;cursor:pointer;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ca-title:hover{color:var(--accent)}
+.ca-sub{display:flex;align-items:center;flex-wrap:wrap;gap:2px 6px;margin-top:2px;font-size:var(--fs-xs);color:var(--muted);min-width:0}
+.ca-sep{color:var(--border-strong)}
+.ca-epn{display:inline-flex;align-items:center;gap:4px;min-width:0;max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ca-epn svg{width:11px;height:11px;flex:none}
+.ca-why{color:var(--st-err);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:44ch}
+.ca-who{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:var(--text)}
+.ca-who.free{color:var(--muted)}
+.ca-who .tsav.tmfree{background:transparent;border:1.5px dashed var(--border-strong)}
+.ca-you{font-size:var(--fs-xs);font-weight:650;color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:var(--r-pill);padding:0 6px;line-height:16px}
+.ca-st{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--text);max-width:100%}
+.ca-st span{overflow:hidden;text-overflow:ellipsis}
+.ca-st i{width:7px;height:7px;border-radius:var(--r-pill);background:var(--stc);flex:none}
+.ca-acts{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end}
+.ca-acts .btn[disabled]{opacity:.5;cursor:not-allowed}
+.ca-more svg{width:14px;height:14px}
+.ca-tbl .tslk{font-size:var(--fs-xs)}
+.ca-tbl .tsnoiss{color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 45%,transparent);border-radius:var(--r-pill);padding:1px 8px;background:none;cursor:pointer;white-space:nowrap}
+.ca-title:focus-visible,.ca-tog:focus-visible,.ca-tbl .btn:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.ca-ent h1{display:none}
+
+/* colunas por prioridade (Demanda, Situação e ações nunca saem; "Com" só abaixo de 620 px, quando já virou avatar): atividade → requisitos → custo → issue; "Com" vira avatar */
+@container (max-width: 1180px){ .ca-tbl .c-atv{display:none} }
+@container (max-width: 1080px){ .ca-tbl .c-req,.ca-eps .c-liv{display:none} }
+@container (max-width: 980px){ .ca-tbl .c-cus,.ca-eps .c-ppl{display:none} }
+@container (max-width: 860px){ .ca-bar{display:none} .ca-tbl .c-iss{display:none} .ca-who .ca-wn,.ca-who .ca-you{display:none} .ca-tbl .c-com{width:56px} .ca-tbl .c-st{width:140px} .ca-tbl th.c-act{width:206px} }
+@container (max-width: 620px){ .ca-tbl .c-com,.ca-eps .c-pj{display:none} .ca-acts .ca-more{display:none} .ca-tbl th.c-act{width:176px} }
