@@ -526,7 +526,7 @@ function pvChips(t, withLabel){
 async function openTaskSummary(taskId){
   const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
   $id('sumOverlay').style.display='flex';
-  $id('sumTitle').textContent=t.title;
+  $id('sumTitle').textContent=mdTitle(t.title||'');
   $id('sumBody').innerHTML='<div class="dim" style="font-size:var(--fs-sm)">montando o resumo…</div>';
   $id('sumClose').onclick=()=>{ $id('sumOverlay').style.display='none'; };
   if(reqProofCache[t.id]===undefined) await loadReqProofs(t.id).catch(()=>{});

@@ -175,7 +175,7 @@ function epicPageRender(){
       : bad ? `<button class="btn sm${pri(t)}" data-eprev="${escA(t.id)}" title="abrir a tarefa pra ver o erro">ver o problema</button>` : '';
     const vtx=verifyTx(s.verify), cov=(Array.isArray(s.covers)&&s.covers.length)?s.covers:[];
     return `<div class="ep-task" data-ept="${escA(t.id)}" tabindex="0" title="${escA('abrir '+t.title+' — Enter')}"><span class="reqst ${dn?'ok':rv?'rev':bad?'blk':'na'}" title="${escA(stLabel(est))}">${dn?IC.check:stIcon(est)}</span><div class="en-rt">
-      <div><b>${esc(t.title)}</b> <span class="dim" style="font-size:var(--fs-xs)">· ${stTx}${(()=>{ const me=cloudUserId(), w=[ctWhoLabel(t, me, tmName), t.assignee&&t.assignee===me?'com você':''].filter(Boolean).join(' · '); return w?' · '+esc(w):''; })()}</span></div>
+      <div><b>${esc(mdTitle(t.title||''))}</b> <span class="dim" style="font-size:var(--fs-xs)">· ${stTx}${(()=>{ const me=cloudUserId(), w=[ctWhoLabel(t, me, tmName), t.assignee&&t.assignee===me?'com você':''].filter(Boolean).join(' · '); return w?' · '+esc(w):''; })()}</span></div>
       ${vtx||cov.length?`<div class="ep-verify">${vtx?IC.ok+' prova: '+esc(vtx):''}${cov.length?` <span class="mono dim ep-code" title="${escA('cobre '+cov.join(', ')+' — '+CODE_TIP)}">cobre ${esc(cov.join(' '))}</span>`:''}</div>`:''}
     </div>${act?`<div class="ep-acts">${act}</div>`:''}</div>`; };
   // R5-2: "x/y entregues · z em revisão" — a onda atual ainda avança com revisão (comportamento mantido),
@@ -548,11 +548,11 @@ function epqEpicTasks(eid){
     if(lt) seen.add(lt.id);
     const st=lt?taskSt(lt):ct.status, flag=lt?lt.flag:ct.flag; // R5-1: status efetivo (pergunta aberta = aguardando você)
     const pr=lt?!!(lt.prUrl&&lt.status!=='merged'):!!(ct.pr_url&&!['merged','done','closed'].includes(ct.status));
-    out.push({ title:ct.title||(lt&&lt.title)||'tarefa', st, flag, b:epqBucket(st, flag, pr), wave:epqWave(ct), local:lt?lt.id:null, cloud:ct.id, who:ct.assignee||null });
+    out.push({ title:(typeof mdTitle==='function'?mdTitle(ct.title||(lt&&lt.title)||''):(ct.title||(lt&&lt.title)))||'tarefa', st, flag, b:epqBucket(st, flag, pr), wave:epqWave(ct), local:lt?lt.id:null, cloud:ct.id, who:ct.assignee||null });
   });
   locals.forEach(t=>{ if(seen.has(t.id)) return; // tarefa local ainda não espelhada na nuvem
     const pr=!!(t.prUrl&&t.status!=='merged');
-    out.push({ title:t.title||'tarefa', st:taskSt(t), flag:t.flag, b:epqBucket(taskSt(t), t.flag, pr), wave:Math.max(1, parseInt(t.epic.wave,10)||1), local:t.id, cloud:null }); });
+    out.push({ title:(typeof mdTitle==='function'?mdTitle(t.title||''):t.title)||'tarefa', st:taskSt(t), flag:t.flag, b:epqBucket(taskSt(t), t.flag, pr), wave:Math.max(1, parseInt(t.epic.wave,10)||1), local:t.id, cloud:null }); });
   return out.filter(x=>x.b!=='off').sort((a,b)=>a.wave-b.wave);
 }
 function epqSummaryHtml(eid, qn){
@@ -751,13 +751,13 @@ function epJoinItems(cloud, locals, d){
   const byLocal={}; (locals||[]).forEach(t=>{ byLocal[t.id]=t; });
   const out=[], seen=new Set(), wv=v=>Math.max(1, parseInt(v,10)||1);
   const fromLocal=(t, ct)=>{ seen.add(t.id); const st=d.st(t), b=d.bucket(st, t.flag, !!(t.prUrl&&t.status!=='merged'));
-    return { id:t.id, kind:'local', title:t.title||'tarefa', wave:wv((t.epic||{}).wave||(ct&&d.cardWave(ct))), b,
+    return { id:t.id, kind:'local', title:(typeof mdTitle==='function'?mdTitle(t.title||''):t.title)||'tarefa', wave:wv((t.epic||{}).wave||(ct&&d.cardWave(ct))), b,
       startable:t.status==='draft' && b!=='ok' && !d.started(t), mine:true, armed:!!(d.armedLoc||{})[t.id], t }; };
   (cloud||[]).forEach(ct=>{
     const lid=(ct.local_id&&byLocal[ct.local_id])?ct.local_id:(d.c2l||{})[ct.id], lt=lid&&byLocal[lid];
     if(lt){ if(!seen.has(lt.id)) out.push(fromLocal(lt, ct)); return; }
     const b=d.bucket(ct.status, ct.flag, !!(ct.pr_url&&!['merged','done','closed'].includes(ct.status)));
-    out.push({ id:ct.id, kind:'cloud', title:ct.title||'tarefa', wave:d.cardWave(ct), b,
+    out.push({ id:ct.id, kind:'cloud', title:(typeof mdTitle==='function'?mdTitle(ct.title||''):ct.title)||'tarefa', wave:d.cardWave(ct), b,
       startable:ct.status==='backlog' && b!=='ok', mine:!!d.mine(ct, d.me), armed:!!((ct.spec||{}).autoStart), ct });
   });
   (locals||[]).forEach(t=>{ if(!seen.has(t.id)) out.push(fromLocal(t)); });

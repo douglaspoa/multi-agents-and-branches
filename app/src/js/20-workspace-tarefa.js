@@ -239,7 +239,7 @@ function openWorkspace(taskId, path){
   const t=(state.tasks||[]).find(x=>x.id===taskId)||{};
   // cada aba lembra o PRÓPRIO arquivo e o PROJETO (antes: um tabTaskPath global — a aba B abria o arquivo da A,
   // e depois de trocar de projeto a aba velha abria uma tarefa que não existe no projeto atual)
-  let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, repo:state.repo, path:path||null, title:(t.title||'Tarefa').slice(0,26)}; TABS.push(tab); }
+  let tab=tabById(id); if(!tab){ tab={id, kind:'task', taskId, repo:state.repo, path:path||null, title:(mdTitle(t.title||'')||'Tarefa').slice(0,26)}; TABS.push(tab); }
   else { if(t.title) tab.title=t.title.slice(0,26); if(path){ tab.path=path; tab.mode='codigo'; } if(!tab.repo) tab.repo=state.repo; }
   activateTab(id);
 }
@@ -775,7 +775,7 @@ function renderWorkspace(){
   // modo da tela (conversa · código · revisão · PR · entrega) — layout muda junto; árvore recolhível em todos
   { const cols=$id('fwCols'); if(cols){ cols.classList.remove('m-conversa','m-codigo','m-revisao','m-pr','m-entrega','m-previa'); cols.classList.add('m-'+fwMode); cols.classList.toggle('notree', fwTreeHidden()); cols.classList.toggle('rv-req', fwMode==='revisao' && (typeof rvViewOf!=='function' || rvViewOf(t.id)!=='diff')); } }
   fwModesPaint(t);
-  { const tn=$id('fwTaskName'); tn.textContent=t.title; tn.title=t.title; }
+  { const tn=$id('fwTaskName'), tt=mdTitle(t.title||''); tn.textContent=tt; tn.title=tt; } // cabeçalho: título salvo com ** aparece limpo
   // painel Dispositivo (57-dispositivo.js): barato — só o botão/visibilidade; o painel tem guarda própria
   if(typeof dvSync==='function') dvSync(t);
   // R5-7: selo do épico ao lado do título (mesmo "◆ nome · onda N" da Central); clique abre o épico

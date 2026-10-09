@@ -81,7 +81,7 @@ function ctPageRender(){
   // F4 (G1, mesa tela 25): "Tarefa do colega" no padrão de página — título UMA vez, selo "Time · leitura", custo em
   // US$ (≈ R$) como no resto; revisar com agente (PR aberto) é a ação primária; ↻ no ⋯; Esc não fecha a aba
   const proj=((typeof teamProj!=='undefined'&&teamProj[ct.project_id])||{}).name||'';
-  main.innerHTML=`<div class="enpage">${pageHead({ title:ct.title||'Tarefa do colega', scope:'time', scopeLabel:'leitura', sum:`${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''} · tarefa de ${esc(tmName(who))}${proj?' · '+esc(proj):''}`,
+  main.innerHTML=`<div class="enpage">${pageHead({ title:mdTitle(ct.title||'')||'Tarefa do colega', scope:'time', scopeLabel:'leitura', sum:`${esc(ctStLabel(ct))}${ep?' · ◆ '+esc(ep):''} · tarefa de ${esc(tmName(who))}${proj?' · '+esc(proj):''}`,
       primary:(prN&&!done)?{ id:'ctpReview', label:'Revisar com agente' }:null, more:{ id:'ctPageMore', title:'Atualizar · editar · cancelar' } })}
     <div class="en-head">
       <div class="en-ht">

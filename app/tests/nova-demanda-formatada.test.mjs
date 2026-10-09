@@ -119,3 +119,9 @@ test('fiação: os campos e telas do fluxo usam a fonte única (sem esc() cru no
   for (const [f, re] of [['js/27-entregas.js', /class="en-obj mdlite">\$\{mdToHtml\(t\.objective\)\}/], ['js/45-entrega-time.js', /class="en-obj mdlite">\$\{mdToHtml\(sp\.objective\)\}/],
     ['js/46-epico-time.js', /class="en-obj mdlite">\$\{mdToHtml\(sp\.outcome\)\}/], ['js/43-espaco-times.js', /id="ctObj" data-mdprev/], ['js/43-espaco-times.js', /const obj=mdPlain\(/]]) assert.match(read(f), re, f);
 });
+
+test('título salvo antes do fix (com **) aparece limpo na barra lateral, abas, Central, quadro e cabeçalho — sem regravar', () => {
+  for (const [f, re] of [['js/25-grafo.js', /<span class="tt">\$\{esc\(mdTitle\(t\.title\|\|''\)\)\}<\/span>/], ['js/15-config-abas-onboarding.js', /:mdTitle\(t\.title\|\|''\); \/\/ título salvo/],
+    ['js/66-central-tabela.js', /title:\(typeof mdTitle==='function'\?mdTitle\(t\.title/], ['js/43-espaco-times.js', /<div class="tt">\$\{esc\(mdTitle\(t\.title/], ['js/27-entregas.js', /class="dc-title">\$\{esc\(mdTitle\(t\.title/],
+    ['js/20-workspace-tarefa.js', /tt=mdTitle\(t\.title\|\|''\); tn\.textContent=tt/], ['js/27-entregas.js', /class="en-h1">\$\{esc\(mdTitle\(t\.title\)\)/]]) assert.match(read(f), re, f);
+});
