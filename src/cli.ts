@@ -506,6 +506,8 @@ async function cmdRm(repo: string, taskId: string) {
 }
 
 async function cmdReviewPr(repo: string, a: Args) {
+  // revisão já preparada (--no-start) indo pro modo automático: só roda o revisor
+  if (a.flags.run) { const orch = new Orchestrator(repo); try { await orch.runReviewPrTask(a.flags.run); } finally { orch.close(); } return; }
   const pr = a.flags.pr;
   if (!pr) {
     console.error(c.red("✕ use --pr <url|número>"));
@@ -535,8 +537,8 @@ async function cmdReviewPr(repo: string, a: Args) {
   };
   const orch = new Orchestrator(repo);
   console.log(c.dim(`→ revisando ${pr} · revisor: ${roles.map((r) => r.name).join(", ")}`));
-  await orch.reviewPr(spec, pr);
-  console.log(c.green("✓") + " review do PR pronto");
+  await orch.reviewPr(spec, pr, { noStart: !!a.flags["no-start"] });
+  console.log(c.green("✓") + (a.flags["no-start"] ? ` revisão ${spec.id} preparada — o revisor abre no terminal` : " review do PR pronto"));
   orch.close();
 }
 

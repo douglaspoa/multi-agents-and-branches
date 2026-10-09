@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MAX_CHARS, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
 import { homedir, userInfo } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
-import { ClaudeEngine } from "./engine/claude.ts";
+import { ClaudeEngine, adjustRuleOf } from "./engine/claude.ts";
 import { aiOnce, engineOf, readAiPrefs, type AiTier } from "./ai-once.ts";
 import { DshEngine, isDshLabel } from "./engine/dsh.ts";
 import { CodexEngine } from "./engine/codex.ts";
@@ -94,6 +94,27 @@ export function processStartMs(pid: number): number | null {
 /** Gerúndio do papel pra frase da pausa ("antes de Nyx revisar"). */
 const ROLE_GERUND: Record<string, string> = { planner: "planejar", builder: "construir", reviewer: "revisar", tester: "testar", designer: "desenhar", docs: "escrever", investigator: "investigar" };
 
+/** Ajustes › "Revisor automático no terminal" (`termRevisorAuto`). DESLIGADO por padrão até o teste de fumaça em zsh
+ * (oh-my-zsh/p10k) e bash passar no Mac do dono (veto do Rafa na mesa 09/10) — desligado = a pessoa pede pela doca. */
+export const REVISOR_AUTO_DEFAULT = false;
+export function revisorAutoOn(): boolean {
+  if (process.env.STARFORK_REVISOR_AUTO === "1") return true;
+  if (process.env.STARFORK_REVISOR_AUTO === "0") return false;
+  try {
+    const v = JSON.parse(readFileSync(join(homedir(), ".constellation", "settings.json"), "utf8"))?.termRevisorAuto;
+    if (v === true || v === "1" || v === "true") return true;
+    if (v === false || v === "0" || v === "false") return false;
+  } catch { /* sem Ajustes */ }
+  return REVISOR_AUTO_DEFAULT;
+}
+/** PURA: por que o revisor NÃO pode entrar no terminal (motivo em português simples) — "" = pode. A troca de papel é
+ * no shell (macOS/Linux); o revisor precisa de uma IA de terminal. */
+export function reviewerBlockedWhy(engine: string, platform: string): string {
+  if (platform === "win32") return "no Windows o terminal é a própria IA (sem troca de papel)";
+  const e = String(engine ?? "").trim().toLowerCase();
+  if (!e || e === "mock" || e.startsWith("gateway") || e.startsWith("logcomex")) return "o revisor desta equipe usa uma IA sem terminal";
+  return "";
+}
 /** Teto padrão de Configurações (`costCap` em ~/.constellation/settings.json, espelhado pelo app). */
 export function readCostCapSetting(): number {
   try {
@@ -1673,7 +1694,7 @@ export class Orchestrator {
    * isolada (.cardume/reviews/<id>/) e monta o review factual do diff do PR.
    * Reaproveita toda a máquina de streaming/custo/pause-abort das tarefas.
    */
-  async reviewPr(spec: TaskSpec, pr: string): Promise<void> {
+  async reviewPr(spec: TaskSpec, pr: string, o: { noStart?: boolean } = {}): Promise<void> {
     const repo = this.git.repo;
     let meta: { number?: number; title?: string; url?: string; baseRefName?: string } = {};
     try {
@@ -1709,7 +1730,18 @@ export class Orchestrator {
     this.store.createTask(spec, branch, dir, base);
     const lines = diff.split("\n").length;
     this.store.addEvent(spec.id, spec.agent, "status", `review do ${branch} — ${lines} linhas de diff`, true);
-
+    // o app abre o revisor no TERMINAL (terminal sempre vivo): só prepara a pasta e a tarefa
+    if (o.noStart) { this.store.setStatus(spec.id, "draft"); return; }
+    await this.runReviewPrRoles(spec, dir, diff);
+  }
+  /** Revisão de PR preparada com --no-start rodando no modo AUTOMÁTICO (motor sem terminal, ou Ajustes › Automático). */
+  async runReviewPrTask(taskId: string): Promise<void> {
+    const t = this.store.getTask(taskId);
+    if (!t) throw new Error(`tarefa ${taskId} não encontrada`);
+    const diff = await readFile(join(t.worktree, "DIFF.patch"), "utf8");
+    await this.runReviewPrRoles(JSON.parse(t.spec_json) as TaskSpec, t.worktree, diff);
+  }
+  private async runReviewPrRoles(spec: TaskSpec, dir: string, diff: string): Promise<void> {
     const roles = spec.roles.length ? spec.roles : [{ role: "reviewer" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
     for (let i = 0; i < roles.length; i++) {
       const r = roles[i];
@@ -2411,18 +2443,22 @@ export class Orchestrator {
   // fim de cada papel acontece aqui, disparado pelo hook Stop (fim do turno) — mesma régua de entrega.
 
   /** Papel, contexto (barramento, memória, skills, épico) e a spec — o mesmo que um papel do pipeline recebe. */
-  terminalContext(taskId: string): { task: TaskRow; spec: TaskSpec; role: AgentRole; ctx: string } {
+  terminalContext(taskId: string, o: { role?: "reviewer"; round?: number } = {}): { task: TaskRow; spec: TaskSpec; role: AgentRole; ctx: string } {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
-    if (stickEngines(spec)) this.store.updateSpec(taskId, JSON.stringify(spec));
+    if (stickEngines(spec)) this.store.patchSpec(taskId, { engine: spec.engine, ...(spec.roles ? { roles: spec.roles } : {}) });
     this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     const roles = spec.roles?.length ? spec.roles : [{ role: "builder" as Role, name: spec.agent, engine: spec.engine, model: spec.model }];
-    // um terminal = uma sessão: conversa com quem CONSTRÓI (o planner/reviewer do pipeline viram pedidos na conversa)
-    const role = roles.find((r) => r.role === "builder") ?? roles.find((r) => canTalk(r.engine)) ?? roles[0];
+    // um terminal = uma sessão por vez: quem CONSTRÓI; o REVISOR (terminal sempre vivo, 09/10) entra no mesmo terminal na
+    // troca de papel, com a lente e a regra do VEREDITO.md do pipeline
+    const builder = roles.find((r) => r.role === "builder") ?? roles.find((r) => canTalk(r.engine)) ?? roles[0];
+    const role = o.role === "reviewer" ? roles.find((r) => r.role === "reviewer") ?? builder : builder;
     this.prepEpic(spec, task.worktree);
     const persona = role.persona ? `## Seu perfil (${role.name} · ${role.role})\n${role.persona}\n\n` : "";
-    const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec) + this.epicContext(spec);
+    const lens = FLOW_BY_KIND[taskKindOf(spec)].find((x) => x.role === "reviewer")?.lens ?? "codigo";
+    const reviewCtx = o.role === "reviewer" && role.role === "reviewer" ? verdictInstructions(lens, o.round ?? 1) : "";
+    const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec) + this.epicContext(spec) + reviewCtx;
     return { task, spec, role, ctx };
   }
 
@@ -2439,8 +2475,14 @@ export class Orchestrator {
     const agent = role?.name || spec.agent;
     // tarefa INTEGRADA reaberta só pra conversa: nada de commit, gate, status ou PR — o turno foi só pergunta/resposta
     if (task.status === "merged") return null;
+    // fim do turno do REVISOR no terminal: veredito → volta pro construtor (muda) / segue pro gate (aprova) / você decide
+    const reviewing = spec.termRole?.role === "reviewer";
+    if (reviewing) {
+      const next = await this.terminalReviewEnd(taskId, task, spec);
+      if (next !== "segue") return { ok: false, reasons: ["revisão pediu mudanças"] };
+    }
     await this.collectArtifacts(taskId, task.worktree, agent).catch(() => {});
-    if (spec.kind !== "review") {
+    if (spec.kind !== "review" && !reviewing) {
       try {
         if (await this.git.commitAll(task.worktree, `starfork(terminal): ${task.title}`)) {
           this.store.addEvent(taskId, agent, "note", "mudanças do turno commitadas na branch ✓", true, role?.role);
@@ -2451,9 +2493,23 @@ export class Orchestrator {
         this.store.addEvent(taskId, agent, "note", `falha ao commitar o turno: ${(err as Error).message}`, false, role?.role);
       }
     }
+    // revisão de PR no terminal: o review FATUAL do diff (o mesmo do modo automático) — uma vez
+    if (spec.kind === "review" && !this.store.getReview(taskId)) {
+      try {
+        const diff = await readFile(join(task.worktree, "DIFF.patch"), "utf8");
+        const review = buildReview(diff, agent);
+        this.store.addReview(taskId, review);
+        this.store.addEvent(taskId, agent, "note", `review pronto: ${review.summary}`, true, "reviewer");
+      } catch { /* sem DIFF.patch (pasta de revisão antiga): segue sem o resumo fatual */ }
+    }
     const gate = await this.verifyProofs(taskId, task, spec).catch((e) => ({ ok: false, reasons: [String((e as Error)?.message ?? e)] }));
     this.store.addEvent(taskId, "Sistema", "note", gate.ok ? "gate de verificação: ok — requisitos provados com evidência" : `gate de verificação: pendente — ${gate.reasons.slice(0, 3).join(" · ")}`, gate.ok);
     if (isBusy()) return gate; // a pessoa já mandou outra coisa: o turno novo manda no status
+    // fim de uma rodada de CONSTRUÇÃO com revisor na equipe: o terminal troca pro revisor (o app executa a troca)
+    if (!reviewing && spec.termBuild) {
+      this.store.patchSpec(taskId, { termBuild: null });
+      if (this.terminalHandoffToReviewer(taskId, spec, agent)) return gate;
+    }
     const cur = this.store.getTask(taskId);
     const wasReview = cur?.status === "review";
     if (cur && ["running", "thinking", "queued", "draft", "review", "error"].includes(cur.status)) {
@@ -2472,6 +2528,60 @@ export class Orchestrator {
       }
     }
     return gate;
+  }
+  /** Construtor terminou uma rodada de construção: pede a troca pro revisor (true) ou explica por que não (false). */
+  private terminalHandoffToReviewer(taskId: string, spec: TaskSpec, builderName: string): boolean {
+    const reviewer = spec.roles?.find((r) => r.role === "reviewer");
+    if (!reviewer || spec.kind === "review") return false;
+    if (!revisorAutoOn()) return false; // desligado (padrão até o teste de fumaça): a pessoa pede pela doca (Revisão / PR)
+    const why = reviewerBlockedWhy(engineKind(reviewer.engine), process.platform);
+    if (why) { this.store.addEvent(taskId, "Sistema", "note", `revisão automática não rodou: ${why} — peça em Revisão / PR › Pedir revisão`, false); return false; }
+    const round = (spec.reviewRounds?.length ?? 0) + 1;
+    if (round > MAX_REVIEW_ROUNDS) return false; // rodadas já gastas (a pessoa liberou mais uma): segue pro gate
+    this.store.patchSpec(taskId, { termHandoff: { to: "reviewer", round, at: Date.now() } });
+    this.store.setStage(taskId, "reviewer");
+    this.store.addEvent(taskId, "Sistema", "note", `${builderName} terminou a construção — ${reviewer.name} revisa agora no terminal (rodada ${round} de ${MAX_REVIEW_ROUNDS})`, true);
+    return true;
+  }
+  /** Fim do turno do revisor no terminal: grava a rodada e decide a volta. "segue" = o fim de turno continua pro gate. */
+  private async terminalReviewEnd(taskId: string, task: TaskRow, spec: TaskSpec): Promise<"segue" | "refaz" | "precisa"> {
+    const tr = spec.termRole!;
+    const round = tr.round || 1;
+    const roles = spec.roles ?? [];
+    const ri = roles.findIndex((r) => r.role === "reviewer");
+    const r = roles[ri] ?? { role: "reviewer" as Role, name: tr.name, engine: spec.engine, model: spec.model };
+    let text = "";
+    try { text = await readFile(join(task.worktree, ".cardume", "VEREDITO.md"), "utf8"); } catch { /* sem arquivo */ }
+    if (!text.trim()) text = this.store.eventsForTask(taskId).filter((e) => e.agent === tr.name && (e.type === "done" || e.type === "note")).map((e) => e.text).slice(-3).join("\n");
+    const verdict = parseVerdict(text);
+    const rec: ReviewRound = { round, verdict: verdict.kind, items: verdict.items, at: Date.now(), reviewer: r.name, agentId: r.agentId, engine: engineKind(r.engine), model: r.model };
+    const rounds = [...(spec.reviewRounds ?? []), rec];
+    this.store.patchSpec(taskId, { reviewRounds: rounds });
+    this.store.addEvent(taskId, r.name, "veredito", roundText(rec) + (verdict.items.length ? `\n${verdict.items.map((x) => `- ${x}`).join("\n")}` : ""), verdict.kind === "aprova", "reviewer", r.agentId);
+    const decision = reviewDecision(round, verdict);
+    const pi = ri >= 0 ? producerIndex(roles, ri) : -1;
+    const builder = pi >= 0 ? roles[pi] : roles.find((x) => x.role === "builder");
+    if (decision === "refaz" && builder) {
+      const adjustment = `A revisão ${round} (${r.name}) pediu estas mudanças:\n${verdict.items.map((x) => `- ${x}`).join("\n")}`;
+      const next = { ...spec, adjustment };
+      this.store.patchSpec(taskId, { adjustment, termHandoff: { to: "builder", round, msg: adjustRuleOf(next).trim() || adjustment, at: Date.now() } });
+      try { await writeFile(join(task.worktree, ".cardume", "TASK.yaml"), taskToYaml(next), "utf8"); } catch { /* worktree some */ }
+      this.store.setStage(taskId, "builder");
+      this.store.addEvent(taskId, "Sistema", "note", `${r.name} pediu mudanças — voltando pra ${builder.name} no terminal (rodada ${round + 1} de ${MAX_REVIEW_ROUNDS}, conta no teto)`, true);
+      return "refaz";
+    }
+    // volta QUIETA pro construtor (a conversa continua com quem constrói), aprovado ou parado pra você decidir
+    this.store.patchSpec(taskId, { termHandoff: { to: "builder", round, at: Date.now() } });
+    this.store.setStage(taskId, "builder");
+    if (decision === "segue") return "segue";
+    const why = decision === "precisa-veredito"
+      ? `${r.name} terminou a revisão ${round} sem um veredito legível · decida: seguir pra prova, mais uma rodada ou parar`
+      : builder ? `${r.name} pediu mudanças ${round} vezes · decida: seguir pra prova, mais uma rodada ou parar` : `${r.name} pediu mudanças e não há quem construa nesta equipe · decida`;
+    this.store.patchSpec(taskId, { needsYou: { kind: decision === "precisa-veredito" ? "veredito" : "rodadas", text: why, at: Date.now() } satisfies NeedsYou });
+    this.store.setStatus(taskId, "needs-you");
+    this.store.addEvent(taskId, "Sistema", "note", why, false);
+    notify("Starfork", "Precisa de você — a revisão não fechou", task.title);
+    return "precisa";
   }
   /** O PR do fim de turno do terminal, destacado do hook Stop (`turn-end <id> --so-pr`). */
   async terminalOpenPr(taskId: string): Promise<void> {

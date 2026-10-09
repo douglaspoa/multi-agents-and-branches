@@ -154,7 +154,7 @@ test('terminal fechado: o xterm mostra o HISTÓRICO da sessão (sem PTY) e "reto
   assert.match(st.bar.innerHTML, /abrir terminal/);
 });
 
-test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos sozinhos pedem automático', () => {
+test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos sozinhos rodam no terminal', () => {
   const ws = src('20-workspace-tarefa.js');
   assert.match(ws, /function fwPaintThread\(t\)\{ const th=\$id\('fwThread'\); if\(!th\|\|!t\|\|th\.dataset\.term\) return;/);
   assert.match(ws, /if\(th && !th\.dataset\.term\)/);
@@ -163,9 +163,10 @@ test('conversa não pinta por cima do terminal; composer fica embaixo; caminhos 
   assert.match(ws, /if\(isTerm\)\{ termMount\(t\); tlWire\(t, sheetGrab, termHadFocus\);[^\n]*\} else termSweep\(\);/);
   // terminal integrado (64): o dock (sugestões/anexar/botões) entra entre o terminal e o compositor
   assert.match(src('60-terminal-layout.js'), /\$\{termSlotHtml\(t\)\}<div id="tlBudget">\$\{tlBudgetHtml\(t\)\}<\/div>\$\{typeof tiDockHtml==='function'\?tiDockHtml\(t\):''\}\$\{composer\}/);
-  assert.match(src('34-orquestrador.js'), /termMode:'auto', start:startNow/);
-  assert.match(src('59-ideia.js'), /payload\.termMode='auto'/);
-  assert.match(src('43-espaco-times.js'), /if\(opts\.auto\) payload\.termMode='auto'/);
+  // terminal sempre vivo (09/10): os caminhos que começam SOZINHOS não pedem mais automático — rodam no terminal
+  assert.doesNotMatch(src('34-orquestrador.js'), /termMode:'auto'/);
+  assert.doesNotMatch(src('59-ideia.js'), /payload\.termMode='auto'/);
+  assert.doesNotMatch(src('43-espaco-times.js'), /payload\.termMode='auto'/);
   assert.match(src('32-planner.js'), /teamClaimStart\(c\.row, null, \{ auto:true \}\)/);
   assert.match(src('46-epico-time.js'), /teamClaimStart\(ct, null, \{ silent:true, auto:true \}\)/);
   const cfg = src('67-ajustes.js'); // F4 · G3: Ajustes › Como as tarefas rodam

@@ -26,7 +26,7 @@ export const TEXT_FLAGS = new Set([
   // piloto automático (src/autopilot.ts)
   "idea", "dir", "name", "platform", "parallel", "attempts", "budget-usd", "plan",
   // modo terminal (src/terminal.ts)
-  "starfork-task", "term-mode", "deliver", "ai",
+  "starfork-task", "term-mode", "deliver", "ai", "run",
   // F5: política da organização (P14) e teto da amostra (P15)
   "org-policy", "cap",
 ]);

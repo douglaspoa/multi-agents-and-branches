@@ -32,7 +32,7 @@ import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, suggestedSinc
 import { resolveToolCached, toolPath } from "./engine/bin-resolve.ts";
 import { protectArgs, protectEnabled } from "./engine/protect.ts";
 import { engineKind, Orchestrator, deliverPrompt, readCostCapSetting } from "./orchestrator.ts";
-import { capCheck, capPauseText, effectiveCap } from "./lifecycle.ts";
+import { capCheck, capPauseText, effectiveCap, MAX_REVIEW_ROUNDS } from "./lifecycle.ts";
 import { Store } from "./store.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import type { AgentStatus, TaskSpec } from "./types.ts";
@@ -337,7 +337,8 @@ export function applyHook(store: Store, taskId: string, eff: HookEffect): void {
   if (!task) return;
   let spec: TaskSpec | null = null;
   try { spec = JSON.parse(task.spec_json); } catch { /* spec ilegível: feed segue com o nome do agente */ }
-  const role = spec?.roles?.find((r) => r.role === "builder") ?? spec?.roles?.[0];
+  // quem fala no terminal agora: o revisor (troca de papel) ou quem constrói
+  const role = (spec?.termRole?.role === "reviewer" ? spec?.roles?.find((r) => r.role === "reviewer") : undefined) ?? spec?.roles?.find((r) => r.role === "builder") ?? spec?.roles?.[0];
   const agent = role?.name || task.agent;
   if (eff.sessionId) store.termSetSession(taskId, eff.sessionId);
   // turno novo, fim de turno ou sessão fechada: nenhum hook espera mais a pergunta (Esc no TTY mata o hook)
@@ -646,12 +647,15 @@ export interface AiLaunch { ai: TermAi; program: string; args: string[]; env: Re
  *    / `opencode --continue`); sem sessão → nova.
  *  - message: 1ª mensagem (ex.: follow-up mandado com a IA fechada).   - model: vazio = termModelOf.
  */
-export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: { resume?: boolean; message?: string; model?: string; quiet?: boolean; continueNote?: boolean } = {}): AiLaunch {
+export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: { resume?: boolean; message?: string; model?: string; quiet?: boolean; continueNote?: boolean; papel?: "revisor" | "construtor"; round?: number } = {}): AiLaunch {
   // QUIETO (o app retoma sozinho ao abrir a tarefa — 08/10): a IA só ABRE e espera; nada de 1ª mensagem/kickoff
   // (não gasta nada até a pessoa mandar), status/etapa intocados e sem notas de "abrindo" no feed
   const quiet = !!opts.quiet;
-  const { task, spec, role, ctx } = orch.terminalContext(taskId);
-  const model = String(opts.model ?? termModelOf(spec, role, ai)).trim();
+  // troca de PAPEL no terminal (revisor automático): o revisor entra com a persona, a lente e a regra do VEREDITO.md
+  const reviewer = opts.papel === "revisor";
+  const round = Math.max(1, Number(opts.round) || 1);
+  const { task, spec, role, ctx } = orch.terminalContext(taskId, reviewer ? { role: "reviewer", round } : {});
+  const model = String(opts.model ?? (reviewer ? (aiOfEngine(role.engine) === ai ? role.model ?? "" : "") : termModelOf(spec, role, ai))).trim();
   // DeepSeek: a chave é conferida ANTES de mexer em qualquer coisa (erro claro em vez de um `claude` sem login)
   const dsEnv = ai === "deepseek" ? deepseekClaudeEnv(model || undefined, dshKey()) : null;
   if (!existsSync(task.worktree)) throw new Error(task.status === "merged" ? "a worktree desta tarefa foi apagada ao integrar — pra mexer de novo, abra uma tarefa nova de ajuste" : "a worktree desta tarefa não existe mais");
@@ -663,6 +667,9 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   const st = readTermState(task.worktree);
   const cur = task.session_id || orch.store.termGet(taskId)?.session_id || "";
   let sid = opts.resume && aiHasHooks(ai) ? sessionFor(ai, st, cur, aiOfEngine(role.engine || spec.engine)) : "";
+  // a volta pro CONSTRUTOR retoma a sessão DELE (a do revisor nunca); o revisor abre sempre numa sessão nova
+  if (opts.papel === "construtor" && spec.termBuilderSid && aiHasHooks(ai)) sid = spec.termBuilderSid;
+  if (reviewer) sid = "";
   // gemini/opencode não têm id de sessão pra nós: retomam "a última desta pasta" — só se já rodaram aqui
   const resumeLast = !!opts.resume && !aiHasHooks(ai) && !!st.started?.[ai];
   // assumiu um turno de fundo de planner/revisor: sessão NOVA que continua do que está na worktree
@@ -690,6 +697,14 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     CARDUME_ROLE: role.role,
     STARFORK_TERMINAL: "1",
   };
+  // quem fala agora (a faixa do app e o feed usam): revisor guarda a sessão do construtor; construtor limpa a marca
+  if (!quiet || opts.papel) {
+    if (reviewer) {
+      const builderName = (spec.roles ?? []).find((r) => r.role === "builder")?.name || spec.agent;
+      try { rmSync(join(task.worktree, ".cardume", "VEREDITO.md"), { force: true }); } catch { /* sem veredito velho */ }
+      orch.store.patchSpec(taskId, { termRole: { role: "reviewer", name: role.name, builder: builderName, round, max: MAX_REVIEW_ROUNDS }, ...(spec.termRole?.role === "reviewer" ? {} : { termBuilderSid: cur || null }) });
+    } else if (spec.termRole) orch.store.patchSpec(taskId, { termRole: null, ...(opts.papel === "construtor" ? { termBuilderSid: null } : {}) });
+  }
   const CONTINUE = "A sessão anterior deste terminal se perdeu. O trabalho já feito está NESTA worktree: confira git status, git diff e .cardume/artifacts, releia .cardume/TASK.yaml e continue de onde parou.";
   const first = quiet ? "" : [lostSession ? CONTINUE : "", (opts.message ?? "").trim()].filter(Boolean).join("\n\n");
   // quieto com a sessão perdida: o aviso vai nas INSTRUÇÕES (system prompt / developer) — a IA sabe de onde continuar
@@ -717,7 +732,9 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     // as regras do Starfork vão no SYSTEM PROMPT (reenviado a cada abertura, inclusive no --resume): a conversa
     // no terminal começa limpa, com um pedido curto — e não com 10 KB de regra na 1ª mensagem
     args.push("--append-system-prompt", `${ctx}\n\n## Instruções do Starfork para esta tarefa\n${prompt}\n\n${INTEGRADO_RULE}${INTEGRADO_CLAUDE_CMDS}${INTEGRADO_SHELL}${mergedNote ? `\n${mergedNote}` : ""}${quietNote}`);
-    const kick = first || (sid || merged || quiet ? "" : KICKOFF);
+    const kick = first || (sid || merged || quiet ? "" : reviewer ? reviewKick(round) : KICKOFF);
+    // rodada de CONSTRUÇÃO: o kickoff de uma tarefa nova ou a volta do revisor com mudanças (no fim dela, o revisor)
+    if (kick === KICKOFF || (opts.papel === "construtor" && first)) orch.store.patchSpec(taskId, { termBuild: true });
     // Cadeado 1 (aprovar o plano) no terminal: SÓ no kickoff de uma tarefa nova, em plan mode — o ExitPlanMode nativo é
     // o cadeado (vira "precisa de você"); no --resume nunca (senão o cadeado reabriria a cada abertura)
     const planGate = kick === KICKOFF && planApprovalOn(spec);
@@ -754,7 +771,8 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
       args.push("-c", `hooks.${ev}=${toml([{ hooks: [{ type: "command", command: shellCmd(hookArgv(base, ev, CODEX_ENV_TASK, "")), timeout: 30 }] }])}`);
     }
     if (model) args.push("-m", model);
-    const kick = first || (sid ? "" : genericKick());
+    const kick = first || (sid ? "" : reviewer ? reviewKick(round) : genericKick());
+    if ((!sid && !reviewer && kick && !first) || (opts.papel === "construtor" && first)) orch.store.patchSpec(taskId, { termBuild: true });
     if (kick) args.push(kick);
     kicked = !!kick;
     Object.assign(env, loadLlmEnv());
@@ -798,6 +816,8 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   return { ai, program: bin, args, env, envRemove, resumed: !!(sid || resumeLast), sessionId: sid || null, cwd: task.worktree, busy };
 }
 
+/** 1ª mensagem do REVISOR no terminal (a regra do veredito vai no system prompt — verdictInstructions). */
+export const reviewKick = (round: number) => `Revise o trabalho desta tarefa (rodada ${round} de ${MAX_REVIEW_ROUNDS}): leia .cardume/TASK.yaml, o diff da branch (git diff da base até HEAD) e as provas em .cardume/artifacts. NÃO altere código. No fim, escreva o veredito em .cardume/VEREDITO.md como pedem as instruções do Starfork (no seu system prompt).`;
 /** A tarefa pede aprovação do plano antes de construir (Cadeado 1)? */
 export const planApprovalOn = (spec: TaskSpec) => spec?.autonomy?.planApproval === "review";
 /** Kickoff das IAs sem plan mode nativo quando a tarefa pede aprovação do plano. */
@@ -835,8 +855,9 @@ export const claudeJsonPath = (env: NodeJS.ProcessEnv = process.env) => env.CLAU
  */
 export function trustClaudeProject(worktree: string, repo: string, env: NodeJS.ProcessEnv = process.env): boolean {
   try {
-    const root = join(repo, ".cardume", "worktrees") + "/";
-    if (!worktree.startsWith(root)) return false;
+    // pastas do Starfork: worktrees das tarefas e as pastas de revisão de PR (.cardume/reviews)
+    const roots = ["worktrees", "reviews"].map((d) => join(repo, ".cardume", d) + "/");
+    if (!roots.some((root) => worktree.startsWith(root))) return false;
     const p = claudeJsonPath(env);
     if (!existsSync(p)) return false;
     const cfg = JSON.parse(readFileSync(p, "utf8"));
@@ -1033,13 +1054,15 @@ export function launchScript(L: AiLaunch, base: string[]): string {
   for (const [k, v] of Object.entries(L.env)) if (name.test(k)) out.push(`export ${k}=${shqp(v)}`);
   out.push([L.program, ...L.args].map(shqp).join(" "));
   out.push("__sf_rc=$?");
+  // a IA saiu (fim normal, troca de papel, sinal): o TTY volta são — modo de linha, colagem e cursor (Téo na mesa)
+  out.push("stty sane 2>/dev/null; printf '\\033[?2004l\\033[?25h' 2>/dev/null");
   out.push(`${base.map(shqp).join(" ")} starfork _ia-exit ${L.ai} >/dev/null 2>&1`);
   out.push("exit $__sf_rc");
   return out.join("\n") + "\n";
 }
 
 /** `starfork ia-prep <ia>` (dentro do shell): prepara a IA, grava que ela está rodando e imprime o script. */
-export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resume?: boolean; quiet?: boolean; msgFile?: string; model?: string }): { script: string; launch: AiLaunch } {
+export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resume?: boolean; quiet?: boolean; msgFile?: string; model?: string; papel?: string; round?: number }): { script: string; launch: AiLaunch } {
   let message = "";
   let msgPath = "";
   try {
@@ -1056,7 +1079,10 @@ export function iaPrep(orch: Orchestrator, taskId: string, ai: TermAi, o: { resu
     const continueNote = !!st0.continueNext;
     delete st0.continueNext;
     writeTermState(task.worktree, st0);
-    const launch = aiLaunch(orch, taskId, ai, { resume: o.resume, message, model: o.model, quiet: !!o.quiet && !message.trim(), continueNote });
+    const papel = o.papel === "revisor" || o.papel === "construtor" ? o.papel : undefined;
+    // troca de papel (revisor automático) gasta: passa pelo portão do teto nas DUAS direções (Júlia na mesa)
+    if (papel && !(o.quiet && !message.trim() && papel === "construtor")) termCapGate(orch, taskId, papel === "revisor" ? "revisar" : "voltar pra construção");
+    const launch = aiLaunch(orch, taskId, ai, { resume: o.resume, message, model: o.model, quiet: !!o.quiet && !message.trim(), continueNote, papel, round: o.round });
     // relê: o aiLaunch grava a barra de status da pessoa (prevStatusLine) no mesmo arquivo
     const st = readTermState(task.worktree);
     st.lastAi = ai;
@@ -1118,6 +1144,7 @@ export async function termMessage(orch: Orchestrator, taskId: string, kind: stri
   if (kind === "kickoff") {
     // ▶ com o terminal aberto só pra olhar: o kickoff vai nele — pelo portão do teto, como abrir pra trabalhar
     termCapGate(orch, taskId, "começar a tarefa");
+    orch.store.patchSpec(taskId, { termBuild: true });
     return KICKOFF;
   }
   if (kind === "deliver") {
@@ -1129,6 +1156,8 @@ export async function termMessage(orch: Orchestrator, taskId: string, kind: stri
     const adjustment = [...open.map((i) => i.text.trim()), msg].filter(Boolean).filter((x, i, a) => a.indexOf(x) === i).join("\n");
     for (const i of open) orch.store.markInstructionApplied(i.id);
     if (adjustment) { spec.adjustment = adjustment; await writeSpec(); }
+    // "pedir ajuste" é rodada de CONSTRUÇÃO: no fim dela o revisor (se houver e estiver ligado) entra
+    orch.store.patchSpec(taskId, { termBuild: true });
     return adjustRuleOf(spec).trim() || msg;
   }
   if (!msg) throw new Error("mensagem vazia");

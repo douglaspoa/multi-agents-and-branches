@@ -1142,6 +1142,7 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
 // ============================ ASSUMIR no terminal (turno de fundo → PTY) ============================
 /// Processo de FUNDO (headless `cardume start/talk/rework…`) desta tarefa, vivo agora — o PID do PTY não conta (o hook
 /// grava o pid do terminal no mesmo `busy_pid` quando a sessão do terminal está ocupada).
+pub(crate) fn headless_busy_pid(state: &State<AppState>, task_id: &str) -> Option<i32> { headless_pid(state, task_id) }
 fn headless_pid(state: &State<AppState>, task_id: &str) -> Option<i32> {
     let live_pty = term::mgr().and_then(|m| m.live(task_id)).map(|s| s.pid as i32);
     live_task_pid(state, task_id).filter(|p| Some(*p) != live_pty)
@@ -1239,7 +1240,7 @@ fn set_task_status(state: &State<AppState>, task_id: &str, status: &str) -> Resu
 fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
     // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal)
-    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns"] {
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "termRole"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     // Cadeado 1 na faixa: a tarefa pausa pra aprovar o plano?
@@ -1298,6 +1299,9 @@ struct Task {
     /// A tarefa roda no TERMINAL (regra única term::starts_in_terminal, já resolvida — o front não relê spec.termMode):
     /// tarefa do CLI sem `termMode` aparece como terminal antes de o PTY abrir.
     term_run: bool,
+    /// Um turno de FUNDO (headless) é dono da tarefa agora: lock vivo que NÃO é o PTY dela — o terminal mostra "a IA está
+    /// trabalhando sozinha · digite aqui para entrar na conversa" e a 1ª tecla assume (term_takeover)
+    bg: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -2957,6 +2961,9 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
             let roles_json: String = r.get(6)?;
             let spec_json: String = r.get(13)?;
             let spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or_default();
+            let tid: String = r.get(0)?;
+            let bpid: Option<i64> = r.get::<_, Option<i64>>(16).unwrap_or(None).filter(|pid| pid_alive(*pid as i32));
+            let pty_pid = term::mgr().and_then(|m| m.live(&tid)).map(|s| s.pid as i64);
             Ok(Task {
                 id: r.get(0)?,
                 title: r.get(1)?,
@@ -2993,12 +3000,9 @@ fn snapshot_at(path: Option<PathBuf>) -> Result<Snapshot, String> {
                 depends_on: spec.get("dependsOn").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default(),
                 spec: task_front_spec(&spec),
                 term_run: term::starts_in_terminal(&spec, term_default, term_chosen),
-                busy: r
-                    .get::<_, Option<i64>>(16)
-                    .unwrap_or(None)
-                    .map(|pid| pid_alive(pid as i32))
-                    .unwrap_or(false),
+                busy: bpid.is_some(),
                 queued: 0,
+                bg: bpid.is_some() && bpid != pty_pid,
             })
         })
         .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -4136,8 +4140,22 @@ fn review_pr(state: State<AppState>, pr_url: String, agents: Option<String>) -> 
         repo.display().to_string(),
     ];
     push_opt(&mut args, "--agents", &agents);
+    // terminal sempre vivo: o motor só PREPARA (pasta, diff, tarefa); o revisor abre no TERMINAL — ou, no modo
+    // automático (motor sem terminal / Ajustes › Automático), roda de fundo como antes
+    args.push("--no-start".to_string());
     let mut cmd = node_cmd();
-    cmd.args(&args).current_dir(&repo);
+    cmd.args(&args).current_dir(&repo).stdin(Stdio::null()).env("CARDUME_NOTIFY", "0");
+    let out = output_timeout(cmd, 120).map_err(|e| format!("não consegui preparar a revisão do PR: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        return Err(format!("não consegui preparar a revisão do PR: {}", err.lines().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" ").trim()));
+    }
+    if term::is_terminal(&state, &id) {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        return term::start_in_terminal(&state, &repo, &db, &id);
+    }
+    let mut cmd = node_cmd();
+    cmd.args(["--disable-warning=ExperimentalWarning", &cli_path(&repo), "review-pr", "--run", &id, "--repo", &repo.display().to_string()]).current_dir(&repo);
     cmd.stdout(Stdio::null()).stderr(Stdio::null());
     spawn_tracked(&state, &id, cmd)?;
     Ok(())

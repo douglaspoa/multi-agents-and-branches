@@ -77,7 +77,7 @@ test('fiação: sem reset() + write (quadro vazio), histórico como placeholder,
   assert.match(term, /listen\('term-exit'[^\n]*\n?[^\n]*st\.exitAt=p\.reaped\?0:Date\.now\(\)/);
   // clique/tecla no histórico: a mesma troca (quieta, sem a linha "abrindo a sessão…" por cima)
   const go = cut(ti, 'async function tiGoLive(taskId, o){', '\n}\n');
-  assert.match(go, /termResume\(taskId, \{ quiet:true, auto:!!\(o&&o\.auto\) \}\)/);
+  assert.match(go, /termResume\(taskId, \{ quiet:true, auto:!!\(o&&o\.auto\), takeover:!!\(o&&o\.takeover\) \}\)/);
   assert.ok(!/abrindo a sessão…/.test(go));
   assert.match(ws, /if\(!path && typeof termWantFocus==='function'\) termWantFocus\(taskId\);/, 'abrir a tarefa pede o foco pro terminal');
 });

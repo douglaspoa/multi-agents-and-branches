@@ -18,7 +18,8 @@
 const TERM = {};
 // tarefa integrada (worktree apagada): o backend recria a pasta e retoma a sessão — dá pra conversar de novo (04/10)
 const TERM_WT_GONE='tarefa integrada · digite pra perguntar sobre o que foi feito'; // taskId → { term, fit, host, attached, alive, mode:'live'|'hist', hinfo, hstamp, ro, lastSize, opening }
-function termModeOf(t){ return !!(t && t.spec && t.spec.termMode === 'terminal'); }
+// regra ÚNICA resolvida no backend (term::starts_in_terminal → t.termRun): tarefa do CLI/MCP sem termMode também é terminal
+function termModeOf(t){ return !!(t && (t.termRun || (t.spec && t.spec.termMode === 'terminal'))); }
 /** A tarefa mostra a aba Terminal (e não a Conversa)? Modo terminal sempre; senão toda tarefa Claude Code que já rodou. */
 function termViewOf(t){
   if(!t) return false;
@@ -273,6 +274,12 @@ async function termResume(taskId, o){
       const cols=(st.term&&st.term.cols)||120, rows=(st.term&&st.term.rows)||34;
       // o histórico FICA na tela; o que o PTY desenhar vai pra fila (st.pend) e entra de uma vez na troca
       st.attached=true; st.pend=[]; st.pendAt=0; st.holding=true;
+      // ASSUMIR: um turno de fundo é dono da sessão — para ele num ponto seguro e abre o PTY na MESMA sessão (o backend
+      // espera o processo morrer e o transcript parar). A faixa diz "Trazendo a IA pra cá… nada se perde."
+      if(o.takeover){ st.taking=true; st.takeErr=false; termSetAlive(taskId, false);
+        try{ await invoke('term_takeover',{ taskId, cols, rows }); }
+        catch(e){ st.takeErr=true; throw e; }
+        finally{ st.taking=false; } }
       const info=await invoke('term_open',{ taskId, cols, rows, resume:true, quiet:!!o.quiet });
       // saiu da tela / descartado / o terminal fechou enquanto abria: solta o attach que o term_open fez
       const drop=()=>{ invokeQuiet('term_detach',{ taskId }).catch(()=>{}); return false; };
@@ -392,7 +399,7 @@ async function termHistLoad(taskId, force){
     const wt=String(h.worktree||(t&&t.worktree)||'').split('/').filter(Boolean).pop()||'';
     const eng=(t&&typeof aiEngineOf==='function')?aiEngineOf(t.engine):'claude';
     const head=`${eng} · ${h.sessionId?'sessão '+String(h.sessionId).slice(0,8):'sem sessão gravada'}${wt?' · worktree '+wt:''} · histórico${h.source==='transcript'?(h.clipped?' (só o fim — a sessão é longa)':''):h.source==='log'?' (log do terminal)':' (eventos da tarefa)'}`;
-    const foot=termGone(h)?'tarefa integrada · digite aqui pra perguntar sobre o que foi feito — a sessão retoma neste terminal':termHeadless(t)?'rodando em segundo plano — o histórico se atualiza sozinho':h.resumes?'fim do histórico · digite aqui pra continuar a conversa — a sessão retoma neste terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Ajustes › Como as tarefas rodam)';
+    const foot=termGone(h)?'tarefa integrada · digite aqui pra perguntar sobre o que foi feito — a sessão retoma neste terminal':termHeadless(t)?termBgNote(t, false).text.toLowerCase():h.resumes?'fim do histórico · digite aqui pra continuar a conversa — a sessão retoma neste terminal':'fim do histórico · o compositor manda a mensagem no modo automático (Ajustes › Como as tarefas rodam)';
     // log cru do PTY: sai da tela alternativa/colagem antes do rodapé (o TUI pode ter deixado ligado)
     const out=st.hraw!==undefined ? st.hraw+'\x1b[?1049l\x1b[?2004l\x1b[?25h\x1b[0m\r\n\r\n'+thC('2','╰─ '+foot)+'\r\n'
       : (st.hlast={ items:st.hitems||thFromEvents(evs), o:{ head, foot, notes:st.hitems?thSysNotes(evs):[] } }, thRender(st.hlast.items, { ...st.hlast.o, cols:st.term.cols }));
@@ -419,7 +426,33 @@ function termHistTick(t){
   const due=termHeadless(t) ? Date.now()-(st.hat||0)>2500 : sysSig!==st.hsys;
   if(due) termHistLoad(t.id, false);
 }
-function termHeadless(t){ return !!t && !termModeOf(t) && (ACTIVE_ST.has(t.status)||t.status==='thinking'||!!t.busy); }
+// turno de FUNDO dono da tarefa agora (t.bg: lock vivo que não é o PTY — tarefa antiga, ou a que rodava no deploy).
+// Sem t.bg (snapshot antigo): o critério de antes. Digitar ASSUME (term_takeover); clicar só foca.
+function termHeadless(t){ if(!t) return false; if(typeof t.bg==='boolean') return t.bg; return !termModeOf(t) && (ACTIVE_ST.has(t.status)||t.status==='thinking'||!!t.busy); }
+// @term-bar-puro-inicio (puro — testado em app/tests/terminal-sempre-vivo.test.mjs)
+const TERM_BAR={
+  bg:'A IA está trabalhando sozinha. Digite aqui para entrar na conversa.',
+  taking:'Trazendo a IA pra cá… nada se perde.',
+  takeFail:'Não deu pra trazer agora',
+  autopilot:'O piloto automático conduz esta tarefa sozinho — pare o piloto para entrar na conversa.',
+  budget:'Pausei: chegou a 80% do limite de gasto. Liberar e continuar?',
+  plan:'A IA fez um plano · aprove no terminal (Enter) ou peça mudança',
+};
+/** Faixa do terminal VIVO (só o que muda o que a pessoa faz agora): teto pausado, plano esperando aprovação, revisor falando. */
+function termLiveNote(t){
+  const sp=(t&&t.spec)||{};
+  if(sp.budgetHit) return { k:'budget', text:TERM_BAR.budget };
+  if(sp.needsYou && sp.needsYou.kind==='plano') return { k:'plan', text:TERM_BAR.plan };
+  const r=sp.termRole; if(r && r.role==='reviewer') return { k:'review', text:`${r.name||'O revisor'} está revisando o trabalho de ${r.builder||'quem construiu'} · rodada ${r.round||1} de ${r.max||3}. Pode comentar.` };
+  return null;
+}
+/** Faixa do terminal SEM PTY vivo numa tarefa de fundo: assumindo / piloto / trabalhando sozinha. */
+function termBgNote(t, taking){
+  if(taking) return { k:'taking', text:TERM_BAR.taking };
+  if(t && t.spec && t.spec.autopilot) return { k:'autopilot', text:TERM_BAR.autopilot };
+  return { k:'bg', text:TERM_BAR.bg };
+}
+// @term-bar-puro-fim
 function termGone(h){ return !!(h && h.merged && !h.worktreeExists); }
 /** A worktree desta tarefa foi apagada ao integrar? (então não há sessão pra retomar) */
 function termWtGone(taskId){ const st=TERM[taskId]; return !!(st && st.mode==='hist' && termGone(st.hinfo)); }
@@ -432,16 +465,20 @@ async function termGoLive(taskId){
 }
 function termSetAlive(taskId, alive){
   const st=TERM[taskId]; if(!st) return; st.alive=alive;
+  const t=(state.tasks||[]).find(x=>x.id===taskId); const h=st.hinfo||{};
   if(alive){
     st.mode='live';
-    const th=st.trust ? `<span>${esc('a IA pergunta se você confia nesta pasta — é a pasta da tarefa, criada pelo Starfork a partir do seu repositório')}</span><span class="cc-sp"></span><button class="btn sm primary" data-termtrust="yes" data-task="${escA(taskId)}">confiar e continuar</button><button class="btn sm" data-termtrust="no" data-task="${escA(taskId)}" title="fecha a IA (Esc); o terminal volta pro shell">sair</button>` : '';
+    let th=st.trust ? `<span>${esc('a IA pergunta se você confia nesta pasta — é a pasta da tarefa, criada pelo Starfork a partir do seu repositório')}</span><span class="cc-sp"></span><button class="btn sm primary" data-termtrust="yes" data-task="${escA(taskId)}">confiar e continuar</button><button class="btn sm" data-termtrust="no" data-task="${escA(taskId)}" title="fecha a IA (Esc); o terminal volta pro shell">sair</button>` : '';
+    // faixa de UMA linha do que muda o que a pessoa faz: teto pausado (decidir), plano pra aprovar, revisor falando
+    if(!th){ const n=termLiveNote(t);
+      if(n) th=`<span data-termnote="${n.k}">${esc(n.text)}</span><span class="cc-sp"></span>`+(n.k==='budget'?`<button class="btn sm primary" data-termbudget="${escA(taskId)}" title="abre a decisão do teto: liberar mais (com motivo) ou parar aqui">decidir</button>`:''); }
     st.bar.style.display=th?'flex':'none'; if(st.bar.__html!==th){ st.bar.__html=th; st.bar.innerHTML=th; } return;
   }
-  const t=(state.tasks||[]).find(x=>x.id===taskId); const h=st.hinfo||{};
   const fresh=t && (t.status==='draft' || t.status==='queued') && (!h.source || h.source==='none');
   let html;
   if(termGone(h)) html=`<span>${esc(TERM_WT_GONE)}</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}" title="retoma a sessão da tarefa (a pasta dela é recriada)">conversar</button><button class="btn sm" data-termfix="${escA(taskId)}">abrir tarefa de ajuste</button>`;
-  else if(termHeadless(t)) html=`<span><span class="pulse" style="--pc:var(--good)"></span> rodando em segundo plano (modo automático) · o histórico se atualiza sozinho</span><span class="cc-sp"></span>`;
+  else if(st.taking || termHeadless(t)){ const n=termBgNote(t, !!st.taking);
+    html=`<span data-termnote="${n.k}"><span class="pulse" style="--pc:var(--good)"></span> ${esc(n.text)}</span><span class="cc-sp"></span>`+(st.takeErr?`<span class="dim">${esc(TERM_BAR.takeFail)}</span><button class="btn sm" data-termtake="${escA(taskId)}">tentar de novo</button>`:''); }
   else if(fresh) html=`<span>o terminal desta tarefa ainda não foi aberto</span><span class="cc-sp"></span><button class="btn sm primary" data-termopen="${escA(taskId)}">abrir terminal</button>`;
   // redesenho F1: sem a barra "histórico · digite pra continuar" — digitar ou clicar no terminal já retoma, e o
   // "retomar sessão" mora na barra de status (tlBarHtml). Fica só o aviso que muda o que acontece: modo automático.
@@ -505,8 +542,10 @@ try{
 }catch(_){ }
 document.addEventListener('visibilitychange', ()=>{ for(const id in TERM){ if(document.hidden) termDetach(id); else if(TERM[id].host.isConnected) termFit(id); } });
 document.addEventListener('click', (e)=>{
-  const b=e.target.closest&&e.target.closest('[data-termopen],[data-termfix],[data-termtrust]'); if(!b) return; e.stopPropagation();
+  const b=e.target.closest&&e.target.closest('[data-termopen],[data-termfix],[data-termtrust],[data-termtake],[data-termbudget]'); if(!b) return; e.stopPropagation();
   if(b.dataset.termopen){ termOpen(b.dataset.termopen); return; }
+  if(b.dataset.termtake){ if(typeof tiGoLive==='function') tiGoLive(b.dataset.termtake, { takeover:true }); return; }
+  if(b.dataset.termbudget){ if(typeof tiCompShow==='function') tiCompShow(b.dataset.termbudget); return; }
   if(b.dataset.termtrust){ const id=b.dataset.task, st=TERM[id]; if(!st) return; // Enter = a 1ª opção (sim); Esc = sair
     invokeQuiet('term_write',{ taskId:id, data:b.dataset.termtrust==='yes'?'\r':'\x1b' }).catch(()=>{}); st.trust=false; st.ttail=''; termSetAlive(id, true); try{ st.term.focus(); }catch(_){ } return; }
   const t=(state.tasks||[]).find(x=>x.id===b.dataset.termfix); if(t && typeof openLinkedFix==='function') openLinkedFix(t);

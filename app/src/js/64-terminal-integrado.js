@@ -285,9 +285,10 @@ function tiResumable(taskId){
 }
 // um aviso por vez no próprio terminal (não repete a cada tecla)
 function tiHint(taskId, text){ const now=Date.now(); if(now-(TI.hintAt[taskId]||0)<4000) return; TI.hintAt[taskId]=now; termSayLine(taskId, text); }
+// só o piloto automático segura a tecla (ele é dono do processo); turno de fundo comum = a tecla ASSUME (term_takeover)
 function tiBlockedWhy(taskId){
-  const st=TERM[taskId], t=tiTask(taskId);
-  if(termHeadless(t)) return 'rodando em segundo plano (modo automático) — use as sugestões e os botões embaixo, ou o compositor: entram na fila';
+  const t=tiTask(taskId);
+  if(termHeadless(t) && t.spec && t.spec.autopilot) return TERM_BAR.autopilot;
   return '';
 }
 
@@ -297,7 +298,8 @@ function tiHistKey(taskId, d){
   const st=TERM[taskId]; if(!st || !tiKeyOpens(d)) return;
   const why=tiBlockedWhy(taskId); if(why){ tiHint(taskId, why); return; }
   TI.buf[taskId]=tiBufPush(TI.buf[taskId], d, TI_MAX_BUF);
-  tiGoLive(taskId);
+  // tarefa de FUNDO: a 1ª tecla assume (para o turno de fundo num ponto seguro e retoma a mesma sessão no PTY)
+  tiGoLive(taskId, { takeover:termHeadless(tiTask(taskId)) });
 }
 /** onData do xterm (60-terminal chama ANTES de tudo): true = guardou na fila da abertura em voo. */
 function tiTakeKey(taskId, d){
@@ -314,7 +316,7 @@ async function tiGoLive(taskId, o){
   if(TI.going[taskId]) return false;
   TI.going[taskId]=1; TI.lastData[taskId]=0;
   try{
-    const ok=await termResume(taskId, { quiet:true, auto:!!(o&&o.auto) });
+    const ok=await termResume(taskId, { quiet:true, auto:!!(o&&o.auto), takeover:!!(o&&o.takeover) });
     if(!ok || !st.alive){ delete TI.buf[taskId]; return false; } // termResume já mostrou o erro
     tiFlush(taskId); // UM term_write com tudo, em ordem; só depois disso as teclas voltam a ir direto pro PTY
     return true;
@@ -326,7 +328,7 @@ function tiType(taskId, text){
   const st=TERM[taskId]; if(!st || !text) return;
   if(st.alive){ invokeQuiet('term_write',{ taskId, data:text }).catch(()=>{}); try{ st.term.focus(); }catch(_){ } return; }
   TI.buf[taskId]=tiBufPush(TI.buf[taskId], text, TI_MAX_BUF);
-  tiGoLive(taskId);
+  tiGoLive(taskId, { takeover:termHeadless(tiTask(taskId)) });
 }
 try{ window.__TAURI__.event.listen('term-data', ev=>{ const p=ev&&ev.payload; if(p && p.taskId) TI.lastData[p.taskId]=Date.now(); }); }catch(_){ }
 
@@ -335,7 +337,9 @@ function tiHostWire(taskId, st){
   const host=st.host;
   // clique no histórico (sem selecionar texto) retoma a sessão — o foco já fica no xterm
   st.box.addEventListener('mouseup', (e)=>{
-    if(e.button!==0 || st.alive || st.mode!=='hist' || !tiResumable(taskId)) return;
+    if(e.button!==0 || st.alive || st.mode!=='hist') return;
+    // tarefa de FUNDO: clicar só foca (clique acidental não mata um turno longo — mesa 09/10); digitar assume
+    if(!tiResumable(taskId)){ const t=tiTask(taskId); if(termHeadless(t)) tiHint(taskId, termBgNote(t, false).text); return; }
     try{ if(st.term && st.term.hasSelection && st.term.hasSelection()) return; }catch(_){ }
     tiGoLive(taskId);
   });
@@ -361,9 +365,9 @@ function tiAttachOk(taskId){ return !!taskId; } // integrada também anexa: o ba
 function tiAttached(taskId, atts){
   atts=(atts||[]).filter(a=>a && a.rel); if(!atts.length) return;
   const t=tiTask(taskId);
-  if(termHeadless(t)){
+  if(termHeadless(t) && t.spec && t.spec.autopilot){
     (fwPend[taskId]=fwPend[taskId]||[]).push(...atts); TI.compTmp[taskId]=1;
-    toast('anexo salvo — vai junto da próxima mensagem do compositor (a tarefa roda em segundo plano)', 'info');
+    toast('anexo salvo — o piloto automático conduz esta tarefa; vai junto da próxima mensagem do compositor', 'info');
     if(typeof renderWorkspace==='function') renderWorkspace(); return;
   }
   tiType(taskId, atts.map(a=>tiAtRef(a.rel)).join(''));
@@ -441,11 +445,13 @@ async function tiSend(taskId, text){
   const t=tiTask(taskId); if(!t || !String(text||'').trim()) return false;
   const st=TERM[taskId];
   if(tiBudgetOpen(t)){ toast('a tarefa está pausada no teto de custo — decida no cartão do teto primeiro', 'warn'); return false; }
-  if(termHeadless(t) || (st && !st.alive && st.hinfo && st.hinfo.resumes===false)) return (typeof fwSendText==='function') ? fwSendText(taskId, text) : false;
+  // de FUNDO: o talk_task ASSUME (para o turno de fundo e abre o PTY com o pedido como 1ª mensagem) — o xterm vira o vivo
+  if(termHeadless(t)){ const ok=(typeof fwSendText==='function') ? await fwSendText(taskId, text) : false; if(ok && typeof termGoLive==='function') termGoLive(taskId); return ok; }
+  if(st && !st.alive && st.hinfo && st.hinfo.resumes===false) return (typeof fwSendText==='function') ? fwSendText(taskId, text) : false;
   const live=!!(st && st.alive), busy=!!(t.busy || ACTIVE_ST.has(t.status) || t.status==='thinking' || pendingOf(taskId).length);
   try{ await invoke('term_send', { taskId, text, mode:'queue' }); }
   catch(e){ showErr(e, 'Não consegui mandar pro terminal'); return false; }
-  if(live && busy) toast('na fila — o agente lê assim que terminar o turno', 'info');
+  if(live && busy) toast('anotado — entra quando a IA terminar o que está fazendo', 'info');
   else if(!live){ toast('retomando a sessão no terminal com o pedido…', 'info'); if(typeof termGoLive==='function') termGoLive(taskId); }
   lastSig=''; refresh().catch(()=>{});
   tlFocusTerm(taskId);
