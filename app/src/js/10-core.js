@@ -360,33 +360,48 @@ async function notifCfgMount(){
     +(st!=='unsupported'?'<button class="btn sm" id="notifOpen" type="button">'+IC.extlink+' abrir Ajustes do Sistema</button>':'')+'</div>';
   bindClick('notifOpen', notifOpenSettings);
 }
-let lastNotif=null; // {id, ts} — última notificação disparada (pro roteamento do clique)
+// @notif-vm-inicio (o trecho de pushNotif até detectNotifs roda numa vm em app/tests/notificacao-foco.test.mjs)
+// AVISO NUNCA TROCA A TELA SOZINHO (bug do dono, 14/10: "na tela da tarefa, no terminal, chega uma notificação e
+// volta pra listagem"). Antes: notificação com a janela sem foco guardava o id e o PRÓXIMO ganho de foco da janela
+// (voltar de outro app, sair do navegador/webview do canvas) era tratado como "clicou na notificação" → openTab('flow')
+// e a tarefa sumia atrás da Central. Agora só o CLIQUE de verdade (evento nativo 'notif-open' do macOS) navega — e
+// abre o destino como ABA (nova ou já aberta), sem fechar a tarefa em que você estava.
 function pushNotif(title, body, taskId){
   if(!notifOn) return;
-  if(taskId && !document.hasFocus()) lastNotif={ id:taskId, ts:Date.now() };
-  // caminho nativo: atribuição correta (Starfork) — clicar abre o APP
+  // caminho nativo: atribuição correta (Starfork) — clicar abre o APP e manda 'notif-open' com o id
   // falha (sem permissão, fora do .app) → plugin; invokeQuiet: não é erro pra mostrar, é só o caminho B
   invokeQuiet('notify_native', { title, body: String(body||'').slice(0,180), taskId: taskId||null })
     .catch(()=>{ const n=notifApi(); if(n) try{ n.sendNotification({ title, body: String(body||'').slice(0,180) }); }catch(_){} });
 }
-function notifRoute(id){
-  // A9: a vista "Time" saiu da Central — a notificação do time abre a ABA Time (antes clicava o #viewSeg escondido e ficava na Central)
-  if(id==='view:team'){ if(window.openTab) window.openTab('time'); else if(typeof setView==='function') setView('team'); return; }
-  if(id && (state.tasks||[]).some(t=>t.id===id)){
-    selected=id;
-    if(window.openTab && typeof activeTab!=='undefined' && activeTab!=='flow') window.openTab('flow'); // com outra aba na frente a tarefa ficava escondida
-    const b=document.querySelector('#viewSeg button[data-v="flow"]'); if(b && !activeIs('flow')) b.click();
-    render();
-  }
+// @notif-rota-puro-inicio (testado em app/tests/notificacao-foco.test.mjs)
+// pra onde o CLIQUE numa notificação leva: a aba Time (avisos do time) ou a ABA da tarefa — nunca a Central
+function notifTarget(id, tasks){
+  id=String(id||'');
+  if(!id) return null;
+  if(id==='view:team') return { kind:'team' };
+  return (tasks||[]).some(t=>t && t.id===id) ? { kind:'task', id } : { kind:'other', id };
 }
-// clique na notificação → o macOS ativa o app (atribuição) e nós roteamos:
-// pelo evento nativo quando a lib entrega o clique, ou pelo GANHO DE FOCO logo
-// após uma notificação (banner clicado ativa o app em segundos).
-try{ window.__TAURI__.event.listen('notif-open', (ev)=>{ lastNotif=null; notifRoute(ev.payload||''); }); }catch(_){ }
+// @notif-rota-puro-fim
+function notifRoute(id){
+  const to=notifTarget(id, state.tasks);
+  if(!to) return;
+  // A9: a vista "Time" saiu da Central — a notificação do time abre a ABA Time (a aba da tarefa continua lá em cima)
+  if(to.kind==='team'){ if(window.openTab) window.openTab('time'); else if(typeof setView==='function') setView('team'); return; }
+  // tarefa deste projeto: a aba DELA (reaproveita se já está aberta) pelo MESMO abridor do cartão (rascunho → editor);
+  // as outras abas ficam como estão
+  if(to.kind==='task'){ selected=to.id; const t=state.tasks.find(x=>x.id===to.id);
+    if(typeof openOrEdit==='function') openOrEdit(t); else if(typeof openWorkspace==='function') openWorkspace(to.id); return; }
+  // tarefa de outro projeto (lista agregada): o abridor do cartão troca de projeto e abre a aba dela; sumiu → diz (clique não fica mudo)
+  let src=[]; try{ src=(typeof boardSource==='function' && boardSource())||[]; }catch(_){ }
+  if(typeof openTaskById!=='function' || !src.some(x=>x && x.id===to.id)){ toast('Não achei essa tarefa no projeto aberto — abra o projeto dela pela barra lateral.','warn'); return; }
+  openTaskById(to.id);
+}
+// clique na notificação → o macOS ativa o app (atribuição) e o delegate nativo manda 'notif-open' com o id.
+// Ganhar foco NÃO é clique: nada de rotear no 'focus' (era o que jogava a pessoa pra listagem).
+try{ window.__TAURI__.event.listen('notif-open', (ev)=>{ notifRoute(ev.payload||''); }); }catch(_){ }
 window.addEventListener('focus', ()=>{
   // liberou nos Ajustes e voltou pro app: religa sem reiniciar (e o bloco das Configurações acompanha)
   if(notifState==='denied' || notifState==='notDetermined') notifRefresh().then(st=>{ if(st!=='unsupported') notifOn = st!=='denied'; if($id('notifHost')) notifCfgMount(); }).catch(()=>{});
-  if(lastNotif && Date.now()-lastNotif.ts<180000){ const id=lastNotif.id; lastNotif=null; notifRoute(id); }
 });
 // ⌘K — busca global (redesign): vai pra Central de execuções e foca a busca.
 // Com outra aba na frente (Skills, Conta…) a busca ficava escondida atrás dela: ativa a aba Central antes.
@@ -439,6 +454,7 @@ function detectNotifs(snap){
   for(const e of (snap.events||[])){ const k=e.taskId||e.task_id; if(k && e.id>(top[k]||0)) top[k]=e.id; }
   for(const k in top){ if(prevEvTop[k]!==undefined && prevEvTop[k]!==top[k]) commitsStale[k]=true; prevEvTop[k]=top[k]; }
 }
+// @notif-vm-fim
 const prevEvTop={};
 const costWarned=new Set();
 async function refresh(){

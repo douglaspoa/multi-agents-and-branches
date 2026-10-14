@@ -98,7 +98,8 @@ test('A8 + revisão: "assumir" leva pra Execução com a tarefa selecionada SEM 
 
 test('A9: notificação do time abre a ABA Time (não o #viewSeg escondido)', () => {
   const r = cut(CORE, 'function notifRoute', '// clique na notificação');
-  assert.match(r, /id==='view:team'\)\{ if\(window\.openTab\) window\.openTab\('time'\)/);
+  assert.match(r, /to\.kind==='team'\)\{ if\(window\.openTab\) window\.openTab\('time'\)/);
+  assert.match(cut(CORE, 'function notifTarget', '\n}\n'), /id==='view:team'\) return \{ kind:'team' \}/);
   assert.doesNotMatch(r, /data-v="team"/);
 });
 
