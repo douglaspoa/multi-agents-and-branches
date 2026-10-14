@@ -92,9 +92,9 @@ plano em épicos/ondas, custo estimado em R$ antes de rodar, Windows/Linux/macOS
 
 ## 4. Do que os usuários reclamam nos concorrentes (e como a gente ganha)
 
-Pesquisa em threads do Hacker News, issues do GitHub, fóruns oficiais e Trustpilot. Os links estão na tabela.
+Pesquisa em threads do Hacker News, issues do GitHub, fóruns oficiais e Trustpilot, mais menções no Reddit/X e
+anúncios ativos via Viral Recast (no fim desta seção). Os links estão nas tabelas.
 Algumas reclamações são do próprio Claude Code/Codex, que todo orquestrador herda.
-Não verificamos X, G2 nem Product Hunt.
 
 | # | Reclamação | Frequência | Onde aparece | O Starfork já resolve? |
 |---|---|---|---|---|
@@ -131,6 +131,50 @@ a resposta**, e a landing não diz isso com essas palavras. A mensagem principal
 - *"Agentes em paralelo também no Windows e no Linux."* (dor #6). Vale uma página "Alternativa ao Conductor para Windows".
 - *"O agente não apaga o seu banco."* Em vídeo, o modo protegido bloqueando os comandos dos incidentes reais (dor #9).
 - *"Revise provas, não 2.000 linhas de diff."* (dor #4)
+
+### O que as redes mostram (Viral Recast, 14/10/2026)
+
+Menções no Reddit e no X (últimos 12 meses), anúncios ativos (Meta, Google, LinkedIn) e conteúdo em alta no Brasil.
+
+**Menções: o que as pessoas dizem**
+
+- **Conductor é o mais citado** como resposta para "como rodar vários Claude Code ao mesmo tempo?". Elogiam a UI e os worktrees automáticos.
+  A crítica principal é **segurança**: *"Agents run directly on your system without sandboxing"* (FAQ deles), e um usuário
+  [parou de usar por isso](https://www.reddit.com/r/conductorbuild/comments/1t0875l/approvals_and_sandboxing/). → **Nosso modo protegido responde a isso.**
+- **Superset tem fãs fiéis**: *"game changer"*, *"I rarely open WebStorm these days"*. O que elogiam: **avisa quando o agente precisa de você**,
+  sessões que sobrevivem ao reiniciar, é grátis e roda no Windows. O **fundador responde pessoalmente nos threads** do Reddit.
+- **Mudança de preço da Anthropic (15/06)**: usuários relatam que `claude -p` e o Agent SDK deixaram de consumir a assinatura e passaram a usar
+  créditos ([r/conductorbuild](https://www.reddit.com/r/conductorbuild/comments/1txiqp6/conductor_strategy_wrt_anthropics_15th_of_june/),
+  [r/programare](https://www.reddit.com/r/programare/comments/1tt2jbt/termicdev_inlocuitor_conductorbuild_open_source/)). Clones como o Termic
+  nasceram rodando o CLI oficial num PTY por causa disso. **O nosso Modo Terminal (`src/terminal.ts`) já faz isso.** ⚠️ Confirmar qual modo é o padrão,
+  porque a landing promete "usa sua assinatura".
+- **Mercado lotado de clones** (Tempest, Termic, herdr, T3 Code, Emdash, Polyscope, JetBrains Air, Zed com agentes paralelos, Devin Desktop).
+  Um comentário resume: *"Basically the same thing… vote with your wallet"*. **Orquestrar worktrees virou commodity**: o diferencial
+  precisa ser a prova, o gate, o time e o Brasil.
+- **Dores que se repetem**: *"A clean git merge of my two agents' worktrees that failed its own tests"* (conflito semântico),
+  agentes que burlam testes e *"Codex burnout"*, de quem não lembra mais o código que "entregou".
+  → Ideias de produto: **gate de integração** depois do merge e um **resumo do que mudou** para a pessoa continuar entendendo o próprio código.
+- **No Brasil (r/brdev, r/MicroSaaSBR)**: os devs já conhecem Conductor e Orca. O Orca é elogiado pelo **app de celular**. Ninguém citou o Starfork.
+
+**Anúncios: quem paga e como**
+
+| Quem | O que vimos | O que aprender |
+|---|---|---|
+| **Conductor** | **Zero anúncios** em Meta, Google e LinkedIn | Cresceu só por indicação (Reddit, YC). O boca a boca funciona neste nicho |
+| **Devin** | ~150 anúncios no Meta e ~500 no Google. Vários no ar há **97–118 dias** com 6–7 variações (sinal de que convertem) | (1) **Vídeo de criador (UGC)** com *"comente DEVIN que eu te mando o link"*; (2) anúncio de busca **"Cursor AI Alternative"** levando para `devin.ai/cursor` |
+| **Brasil, "agentes de IA programação"** | 53 anúncios, **todos de cursos** (Hashtag, Alura, Asimov, PUC). **Nenhum produto concorrente anunciando** | **O espaço pago no Brasil está livre.** E os criadores de IA brasileiros já têm a audiência certa |
+
+**Conteúdo em alta no Brasil**: criadores pequenos com muito alcance falando de Claude Code, como
+[Felipe Tâmbara](https://www.tiktok.com/@felipetambara/video/7692456982581759253) (1,8 mil seguidores, 13 mil views, 312 comentários com "comente X")
+e [Rodrigo Tadewald](https://www.tiktok.com/@rodrigotadewald/video/7695805193274854664) (Asimov). Um vídeo gringo sobre **rate limit**
+(*"Claude, what time do you reset?"*) passou de 42 mil views em 1 dia, o que confirma a dor #7.
+
+**O que fazer com isso:**
+
+1. **Parcerias com 3–5 criadores BR de Claude Code** no formato que já converte para o Devin (vídeo curto + "comente STARFORK").
+2. **Google Ads de conquista**: "alternativa ao Conductor para Windows", "Conductor em português" e "Superset alternativa".
+3. **Founder-led no Reddit e no TabNews**: o Douglas respondendo threads de "qual orquestrador vocês usam?", como o fundador do Superset faz.
+4. **Mensagem de segurança contra o Conductor**: "Agentes com modo protegido. O Conductor roda sem sandbox."
 
 ---
 
@@ -254,6 +298,7 @@ cerca de 2 e-mails por hora, o que não serve para produção. O script já prev
 
 ## 8. Riscos e decisões em aberto
 
+- **Cobrança do `claude -p` pela Anthropic:** se a mudança de 15/06 se confirmar, o Modo Terminal precisa ser o padrão e a landing precisa deixar claro em qual modo "usa sua assinatura" vale.
 - **Onde está o código da landing?** Ela é um app React separado e não está neste repo. Precisamos do acesso para as Fases 1–2.
 - **Prova social real:** não temos depoimentos nem métricas publicadas. Fase 1 depende de coletar 3 depoimentos reais e liberar os números do banco. **Não inventar.**
 - **Performance do app:** toda mudança da Fase 3 precisa medir CPU antes/depois (restrição do PRODUCT.md).
