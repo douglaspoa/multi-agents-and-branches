@@ -179,8 +179,8 @@ function projetosRender(ov){
   projOvLast=ov||[];
   const n=(ov||[]).length;
   const all=(ov||[]).map(p=>({ p, fc:projCountsOf(p) }));
-  const tot=all.reduce((a,x)=>({ ag:a.ag+x.fc.aguardando, pr:a.pr+x.fc.prontas }), { ag:0, pr:0 });
-  const head=pageHead({ title:'Projetos', scope:'computador', sum:`${n} ${n===1?'projeto':'projetos'} · <b>${tot.ag}</b> aguardando você · <b>${tot.pr}</b> ${tot.pr===1?'pronta':'prontas'} pra revisar`,
+  const tot=all.reduce((a,x)=>({ ag:a.ag+x.fc.aguardando, pr:a.pr+x.fc.prontas, pa:a.pa+(x.fc.praberto||0) }), { ag:0, pr:0, pa:0 });
+  const head=pageHead({ title:'Projetos', scope:'computador', sum:`${n} ${n===1?'projeto':'projetos'} · <b>${tot.ag}</b> aguardando você · <b>${tot.pr}</b> ${tot.pr===1?'pronta':'prontas'} pra revisar${tot.pa?` · <b>${tot.pa}</b> ${tot.pa===1?'PR aberto':'PRs abertos'}`:''}`,
     primary:{ id:'projNewBtn', label:'Novo projeto', icon:'plus' }, more:{ id:'projMoreBtn', title:'Abrir pasta que já tenho · começar pela Fábrica' } });
   const mac=(typeof osKind!=='function'||osKind()==='mac');
   const cards=all.map(({p, fc})=>{

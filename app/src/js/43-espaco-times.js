@@ -207,7 +207,7 @@ function tsReassign(ct, btn){
     finally{ done(); } }, ct.team_id); });
 }
 window.tsClaimOnly=tsClaimOnly; window.tsRelease=tsRelease; window.tsReassign=tsReassign; window.tsActsHtml=tsActsHtml;
-function tsK(kind){ return {created:'criou',edited:'editou',claimed:'assumiu',released:'devolveu',assigned:'atribuiu',started:'iniciou',delivered:'publicou provas em',comment:'comentou em',status:'mudou o status de'}[kind]||kind; }
+function tsK(kind){ return actVerb(kind); } // texto da atividade: fonte única ACT_KIND_PT (00-util) — nunca o código cru ("pr_opened")
 function renderTeamBoard(){
   const el=$id('teamBoard'); if(!el) return;
   if(!SB.sess() || !cloudTeamId()){
@@ -507,8 +507,7 @@ function openCloudTask(ct){
     el.querySelectorAll('[data-proof]').forEach(b=>{ b.onclick=async()=>{ try{ openExternal(await cloudSignedUrl(b.dataset.proof)); }catch(e){ showErr(e, 'Falha ao abrir'); } }; });
   }).catch(()=>{});
   sbGet('task_activity?select=user_id,kind,body,at&task_id=eq.'+ct.id+'&order=id.desc&limit=8').then(rows=>{
-    const K={created:'criou',edited:'editou',claimed:'assumiu',released:'devolveu',assigned:'atribuiu',started:'iniciou',delivered:'entregou',comment:'comentou',status:'status'};
-    const d=$id('ctAct'); if(d) d.innerHTML = rows.length? rows.map(a=>`${esc(personCap(tmName(a.user_id)))} <b>${K[a.kind]||a.kind}</b> · ${agoTx(a.at)}`).join('<br>') : 'sem atividade ainda';
+    const d=$id('ctAct'); if(d) d.innerHTML = rows.length? rows.map(a=>`${esc(personCap(tmName(a.user_id)))} <b>${esc(actShort(a.kind))}</b> · ${agoTx(a.at)}`).join('<br>') : 'sem atividade ainda';
   }).catch(()=>{});
   { const b=$id('ctSave'); if(b) b.onclick=async()=>{
       b.disabled=true; b.textContent='salvando…';

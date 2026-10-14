@@ -10,7 +10,7 @@
 // @puro-tcorrente-inicio (testado em app/tests/corrente-tarefa.test.mjs)
 // a = linha de task_activity · nm(uid) → nome (personName) · stMerged = rótulo de 'merged' (STATUS_META)
 function tcActText(a, nm){
-  const w0=nm(a.user_id), who=w0==='você'?'Você':w0, b=String(a.body||'').trim(); // começo de frase
+  const w0=nm(a.user_id), who=w0==='você'?'Você':w0, b0=String(a.body||'').trim(), b=(a.kind==='status'&&typeof actStatusBody==='function')?actStatusBody(b0):b0; // começo de frase; status cru ('review') vira rótulo
   switch(a.kind){
     case 'created': return { text:who+' criou o cartão', src:'time' };
     case 'assigned': return { text:b?who+' atribuiu pra '+nm(b):who+' atribuiu o responsável', src:'time' };
@@ -21,7 +21,7 @@ function tcActText(a, nm){
     case 'edited': return { text:who+' editou o cartão'+(b?' — '+b.slice(0,100):''), src:'time' };
     case 'comment': return { text:who+' comentou'+(b?': '+b.slice(0,140):''), src:'time' };
     case 'status': return / no painel$/.test(b)?{ text:b.replace(/ no painel$/,'')+' no painel (pelo Starfork)', src:'painel' }:{ text:b?who+' — ficou “'+b+'”':who+' mudou a situação', src:'time' };
-    default: return { text:who+' registrou um evento', src:'time' };
+    default: return { text:who+' '+(typeof actShort==='function'?actShort(a.kind):'atualizou o cartão'), src:'time' }; // fonte única (00-util): nunca o código cru
   }
 }
 // o = { act:[task_activity], local:{ createdAt, finishedAt, status }, me, sync:{ code, label, at }, nm }
