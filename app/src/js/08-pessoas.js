@@ -52,7 +52,8 @@ const pplPending=new Set(), pplFlyingIds=new Set(); let pplTimer=null, pplEpoch=
 const PPL_RETRY_FAIL=60000, PPL_RETRY_MISS=10*60000; // rede caiu: 1 min · a nuvem não tem o perfil: 10 min
 // troca de conta (40-conta-escopo): nada do lote antigo entra no cache novo
 function personReset(){ if(pplTimer){ clearTimeout(pplTimer); pplTimer=null; } pplEpoch++; pplVer++; pplMemo=null;
-  [pplCache, pplTried].forEach(o=>{ for(const k in o) delete o[k]; }); pplPending.clear(); pplFlyingIds.clear(); }
+  [pplCache, pplTried].forEach(o=>{ for(const k in o) delete o[k]; }); pplPending.clear(); pplFlyingIds.clear();
+  quemLast=null; setTimeout(()=>{ try{ quemSync(); }catch(_){ } }, 0); } // troca de conta: a IA passa a falar com quem entrou
 // mapa fundido, memorizado: só refaz quando a nuvem troca o objeto de perfis ou o lote traz algo (lista com 40 linhas
 // chamava isto ~3× por linha a cada render)
 function personProfiles(){
@@ -152,5 +153,28 @@ function personActBody(a, max){
   if(a.kind==='assigned') return 'pra '+personName(a.body); // só o 'assigned' guarda um id; comentário com SHA continua texto
   return String(a.body).slice(0, max||120);
 }
+// QUEM ESTÁ FALANDO com a IA (bug 14/10: o colega mandou "teste" e a IA o chamou pelo nome do dono do time): é SEMPRE a
+// pessoa logada NESTA máquina. personMeName = o nome dela pela mesma regra de cima ("" sem conta / sem nome de verdade —
+// nunca "você", "pessoa sem nome" ou "carregando…"). quemSync grava em ~/.constellation/quem.json (quem_set), que os
+// chats do app (Rust, quem.rs) e o motor das tarefas/terminal (src/quem.ts) leem a cada mensagem. Roda no boot, a cada
+// 3 s (muda só quando trocou), quando perfis chegam (sf:pessoas), na troca de conta e antes de cada chat (aiCallResumeSafe).
+function personMeName(){
+  const id=personMeId(); if(!id) return '';
+  const n=personName(id,{ noYou:true, settled:true });
+  return (n===PESSOA_SEM_NOME||n===PESSOA_CARREGANDO||n==='—')?'':n;
+}
+let quemLast=null, quemChain=Promise.resolve();
+// gravações em FILA (uma de cada vez, na ordem): uma troca de conta no meio de uma gravação nunca deixa a conta anterior
+// por último no arquivo; quem espera (aiCallResumeSafe) espera até a gravação mais nova
+function quemSync(){
+  let n='', u=''; try{ n=personMeName(); u=personMeId(); }catch(_){ }
+  const k=u+'|'+n; if(k===quemLast) return quemChain;
+  if(typeof invoke!=='function') return Promise.resolve();
+  quemLast=k;
+  quemChain=quemChain.then(()=>invoke('quem_set',{ name:n||null, uid:u||null })).catch(e=>{ if(quemLast===k) quemLast=null; console.error('quem_set', e); });
+  return quemChain;
+}
+if(typeof window!=='undefined' && window.__TAURI__){ setTimeout(quemSync, 0); setInterval(quemSync, 3000); window.addEventListener('sf:pessoas', ()=>quemSync()); }
+window.personMeName=personMeName; window.quemSync=quemSync;
 window.personActBody=personActBody; window.personEnsure=personEnsure; window.personReset=personReset;
 window.personCap=personCap; window.personName=personName; window.personShort=personShort; window.personChip=personChip; window.personAv=personAv; window.personTip=personTip;

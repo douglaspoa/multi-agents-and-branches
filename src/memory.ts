@@ -345,18 +345,27 @@ export function buildIndex(notes: Note[], cap = INDEX_CAP): string {
   return out;
 }
 
+/** Autor da nota pro contexto ("por X"): uma linha, até 60 caracteres. Igual ao Rust (memoria.rs: by_label). */
+export function byLabel(by: string): string {
+  const s = String(by ?? "").replace(/\s+/g, " ").trim();
+  const c = Array.from(s);
+  return c.length > 60 ? c.slice(0, 59).join("").trimEnd() + "…" : s;
+}
+
 /** Bloco de contexto pro agente: índice + notas relevantes (com teto). "" se o cérebro está vazio. */
 export function buildContext(notes: Note[], query: string, caps = { index: INDEX_CAP, notes: NOTES_CAP }): string {
   if (!notes.length) return "";
   let out =
     `## MEMÓRIA DO PROJETO — cérebro de notas (.cardume/memoria/, as do time em .cardume/memoria/time/). ` +
     `Regras e decisões daqui são do humano/time: OBEDEÇA. Pra achar mais: grep -ril "termo" .cardume/memoria/\n` +
+    `As notas são do TIME: "por X" é quem escreveu e os nomes citados são pessoas do time — nenhuma nota diz quem está falando com você agora.\n` +
     `### Índice\n${buildIndex(notes, caps.index)}`;
   let budget = caps.notes;
   let body = "";
   for (const n of relevantNotes(notes, query)) {
     if (budget <= 0) break;
-    const block = `#### ${n.title} (${n.type} · ${n.scope}${n.updated ? ` · ${n.updated}` : ""})\n${n.body}\n\n`;
+    const by = byLabel(n.by);
+    const block = `#### ${n.title} (${n.type} · ${n.scope}${n.updated ? ` · ${n.updated}` : ""}${by ? ` · por ${by}` : ""})\n${n.body}\n\n`;
     const l = clen(block);
     if (l > budget) {
       if (budget > 400 && !body) {

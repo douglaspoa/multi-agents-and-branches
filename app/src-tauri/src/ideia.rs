@@ -118,7 +118,7 @@ pub fn ideia_ask(id: String, persona_sys: String, prompt: String, model: Option<
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let mut sys = format!("{}\n\nResponda em português do Brasil, sem ferramentas: você não tem acesso à internet nem a arquivos nesta fala. Não invente números nem fatos de mercado — quando não souber, diga que é preciso pesquisar.", persona_sys.trim());
     if json.unwrap_or(false) { sys.push_str("\n\nFORMATO: responda SOMENTE com o bloco ```json pedido — nada de texto fora dele."); }
-    let sys = mesa::cap_sys(sys);
+    let sys = crate::quem::with_speaker(&mesa::cap_sys(sys)); // quem pergunta = a pessoa logada (depois do corte: nunca some)
     let eng = ai_once::chat_engine()?;
     if eng != ai_once::AiEngine::Claude { return mesa::ask_other_as("ideia", eng, &id, &sys, &prompt, &dir); }
     let model = model.filter(|m| !m.trim().is_empty());
@@ -362,6 +362,7 @@ pub(crate) fn url_in(line: &str) -> Option<String> {
 pub fn ideia_research(app: AppHandle, id: String, sys: String, prompt: String, model: Option<String>, budget_usd: Option<f64>, session_id: Option<String>, fix: Option<bool>) -> Result<serde_json::Value, String> {
     if ideia_path(Path::new("."), &id).is_err() { return Err("id de ideia inválido".into()); }
     let key = format!("{id}-r");
+    let sys = crate::quem::with_speaker(&sys); // quem fala é a pessoa logada nesta máquina (nunca um nome fixo)
     let fix = fix.unwrap_or(false);
     let eng = ai_once::chat_engine()?;
     let model = model.filter(|m| !m.trim().is_empty());

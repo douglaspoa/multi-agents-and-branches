@@ -1,4 +1,5 @@
 ## MEMÓRIA DO PROJETO — cérebro de notas (.cardume/memoria/, as do time em .cardume/memoria/time/). Regras e decisões daqui são do humano/time: OBEDEÇA. Pra achar mais: grep -ril "termo" .cardume/memoria/
+As notas são do TIME: "por X" é quem escreveu e os nomes citados são pessoas do time — nenhuma nota diz quem está falando com você agora.
 ### Índice
 - [[usar-pnpm]] · regra · Usar pnpm, nunca npm — Neste repo o lockfile é do pnpm. Rodar `pnpm i` / `pnpm test`. Ver [[ferramentas]] e [[ci]].
 - [[nunca-commitar-main]] · regra · time · Git: nunca commitar na main — Sempre abrir branch e PR; a main é protegida.
@@ -6,16 +7,16 @@
 - [[checkout-gateway]] · gotcha · Gateway de pagamento dá timeout no sandbox — O sandbox do gateway corta em 30s: use o mock `PAY_MOCK=1` nos testes do checkout. Relacionado: [[decisao-um-p
 - … mais 2 nota(s): grep -ril "termo" .cardume/memoria/
 ### Notas relevantes pra agora
-#### Usar pnpm, nunca npm (regra · local · 2026-09-20)
+#### Usar pnpm, nunca npm (regra · local · 2026-09-20 · por Douglas)
 Neste repo o lockfile é do pnpm. Rodar `pnpm i` / `pnpm test`. Ver [[ferramentas]] e [[ci]].
 
-#### Git: nunca commitar na main (regra · time · 2026-09-10)
+#### Git: nunca commitar na main (regra · time · 2026-09-10 · por Bruno)
 * Sempre abrir branch e PR; a main é protegida.
 
-#### Gateway de pagamento dá timeout no sandbox (gotcha · local · 2026-09-28)
+#### Gateway de pagamento dá timeout no sandbox (gotcha · local · 2026-09-28 · por agente · fim da tarefa "Checkout único" (checkout-unico))
 O sandbox do gateway corta em 30s: use o mock `PAY_MOCK=1` nos testes do checkout. Relacionado: [[decisao-um-passo]] e [[usar-pnpm]].
 
-#### Checkout em um passo só (decisão · time · 2026-09-27)
+#### Checkout em um passo só (decisão · time · 2026-09-27 · por Ana)
 Decidido com o time: sem etapa de revisão no checkout. Ver [[checkout-gateway]].
 
 
