@@ -29,6 +29,7 @@ import { ClaudeEngine, claudeEnv, mapTool, resolveClaude, adjustRuleOf } from ".
 import { ADVISOR_OFF_ENV, advisorArgs, advisorEnvBlocker, advisorEnvNote, advisorForRun, claudeCliVersion, taskHasEvent } from "./advisor.ts";
 import { buildPrompt as codexPrompt, loadLlmEnv } from "./engine/codex.ts";
 import { DSH_FAST_MODEL, DSH_KEY_MSG, dshKey, dshModelFor, isDshLabel } from "./engine/dsh.ts";
+import { readSpeaker, speakerLine } from "./quem.ts";
 import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
 import { resolveToolCached, toolPath } from "./engine/bin-resolve.ts";
 import { protectArgs, protectEnabled } from "./engine/protect.ts";
@@ -730,7 +731,9 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   // integrada: modo conversa (nada de kickoff "execute a tarefa", nada de status mudando)
   const merged = task.status === "merged";
   const mergedNote = merged ? mergedRule(lastPr(spec)) : "";
-  const rules = shellInstructions() + (merged ? `\n${mergedNote}` : "");
+  // QUEM FALA (src/quem.ts) vai junto nas instruções que viram arquivo (AGENTS.md/GEMINI.md/AGENTS.starfork.md): reescritas
+  // a CADA abertura com a pessoa logada AGORA — quem assumiu a tarefa (#142) nunca herda o nome de quem a criou
+  const rules = shellInstructions() + "\n" + speakerLine(readSpeaker()) + (merged ? `\n${mergedNote}` : "");
   // .cardume/term/AGENTS.starfork.md: as instruções do terminal SEMPRE num arquivo nosso (fora do git) — a IA que
   // aceita arquivo de instruções aponta pra ele; AGENTS.md/GEMINI.md da raiz só se forem nossos (nunca o rastreado)
   const ownRules = join(termDir(task.worktree), "AGENTS.starfork.md");

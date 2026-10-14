@@ -674,10 +674,17 @@ pub fn build_index(notes: &[Note], cap: usize) -> String {
     out
 }
 
+/// Autor da nota pro contexto ("por X"): uma linha, até 60 caracteres. Igual ao TS (memory.ts: byLabel).
+pub fn by_label(by: &str) -> String {
+    let s = by.split_whitespace().collect::<Vec<_>>().join(" ");
+    let c: Vec<char> = s.chars().collect();
+    if c.len() > 60 { format!("{}…", c[..59].iter().collect::<String>().trim_end()) } else { s }
+}
+
 pub fn build_context(notes: &[Note], query: &str, index_cap: usize, notes_cap: usize) -> String {
     if notes.is_empty() { return String::new(); }
     let mut out = format!(
-        "## MEMÓRIA DO PROJETO — cérebro de notas (.cardume/memoria/, as do time em .cardume/memoria/time/). Regras e decisões daqui são do humano/time: OBEDEÇA. Pra achar mais: grep -ril \"termo\" .cardume/memoria/\n### Índice\n{}",
+        "## MEMÓRIA DO PROJETO — cérebro de notas (.cardume/memoria/, as do time em .cardume/memoria/time/). Regras e decisões daqui são do humano/time: OBEDEÇA. Pra achar mais: grep -ril \"termo\" .cardume/memoria/\nAs notas são do TIME: \"por X\" é quem escreveu e os nomes citados são pessoas do time — nenhuma nota diz quem está falando com você agora.\n### Índice\n{}",
         build_index(notes, index_cap)
     );
     let mut budget = notes_cap as i64;
@@ -685,9 +692,11 @@ pub fn build_context(notes: &[Note], query: &str, index_cap: usize, notes_cap: u
     for i in relevant(notes, query) {
         if budget <= 0 { break; }
         let n = &notes[i];
+        let by = by_label(&n.by);
         let block = format!(
-            "#### {} ({} · {}{})\n{}\n\n",
-            n.title, n.kind, n.scope, if n.updated.is_empty() { String::new() } else { format!(" · {}", n.updated) }, n.text
+            "#### {} ({} · {}{}{})\n{}\n\n",
+            n.title, n.kind, n.scope, if n.updated.is_empty() { String::new() } else { format!(" · {}", n.updated) },
+            if by.is_empty() { String::new() } else { format!(" · por {by}") }, n.text
         );
         let l = clen(&block) as i64;
         if l > budget {
@@ -714,10 +723,12 @@ pub fn brain_context(repo: &Path, query: &str) -> String {
     build_context(&notes, query, INDEX_CAP, NOTES_CAP)
 }
 
-/// Anexa a memória ao system prompt de um chat.
+/// Contexto de um chat: o system prompt + QUEM ESTÁ FALANDO (a pessoa logada nesta máquina — quem.rs; vem ANTES das
+/// notas, que citam outras pessoas do time) + a memória do projeto. Todo chat do app passa por aqui.
 pub fn with_memory(sys: &str, repo: &Path, query: &str) -> String {
+    let sys = crate::quem::with_speaker(sys);
     let mem = brain_context(repo, query);
-    if mem.is_empty() { sys.to_string() } else { format!("{sys}\n\n{mem}") }
+    if mem.is_empty() { sys } else { format!("{sys}\n{mem}") }
 }
 
 // ---------------------------------------------------------------------------
@@ -994,7 +1005,7 @@ mod tests {
         assert_eq!(slugify("Usar pnpm, nunca npm!"), "usar-pnpm-nunca-npm");
         assert!(slugify("日本語").starts_with("nota-"));
         assert_eq!(bump("x-18446744073709551615"), "x-18446744073709551615-2");
-        let s = serialize_note("Usar pnpm, nunca npm", "regra", &["ferramentas".into()], "2026-09-28", "Douglas", "pessoa", "corpo");
+        let s = serialize_note("Usar pnpm, nunca npm", "regra", &["ferramentas".into()], "2026-09-28", "Ana", "pessoa", "corpo");
         let back = parse_note(&s, "x", "local", 0);
         assert_eq!(back.title, "Usar pnpm, nunca npm");
         assert_eq!(back.kind, "regra");

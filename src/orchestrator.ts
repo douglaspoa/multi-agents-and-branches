@@ -15,7 +15,7 @@ import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, m
 import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MAX_CHARS, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
-import { homedir, userInfo } from "node:os";
+import { homedir } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
 import { ClaudeEngine, adjustRuleOf } from "./engine/claude.ts";
 import { aiOnce, engineOf, readAiPrefs, type AiTier } from "./ai-once.ts";
@@ -34,6 +34,7 @@ import { ASK_STYLE } from "./ask-style.ts";
 import { attachProofs, proofKind, replaceReport, type AttachResult } from "./pr-provas.ts";
 import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, extraStageAgents, extraStagePrompt, finishExtraStage, newExtraStage, resolveExtraAgent, runningExtra, upsertExtraStage, type ExtraAgent, type ExtraStage } from "./revisao-alteracao.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
+import { readSpeaker, speakerLine, speakerTag } from "./quem.ts";
 
 /** Catálogo do projeto sem estourar (config ilegível → só os padrões). */
 function loadConfigSafe(repo: string) { try { return loadConfig(repo).agents; } catch { return []; } }
@@ -421,7 +422,8 @@ export class Orchestrator {
   }
 
   projectMemory(spec?: TaskSpec, extra = ""): string {
-    let out = "";
+    // QUEM FALA vem antes da memória: as notas citam outras pessoas do time ("por X") e não podem virar "o usuário é X"
+    let out = speakerLine(this.humanName()) + "\n";
     try {
       const q = spec ? [spec.title, spec.objective, ...(spec.requirements ?? []), ...(spec.scope?.owns ?? []), extra].join(" ") : extra;
       const ctx = this.brain().context(q);
@@ -577,20 +579,11 @@ export class Orchestrator {
     } catch { /* histórico é best-effort */ }
   }
 
-  /** Nome de quem fala com os agentes nesta máquina (rastro das notas). */
+  /** Nome da pessoa logada nesta máquina (src/quem.ts — a ÚNICA fonte; "" = sem conta). Antes caía no git user.name /
+   *  usuário do sistema: chute de nome que podia não ser de quem estava falando. Rastro das notas e filtro da retro. */
   private humanName(): string {
-    if (this._human) return this._human;
-    let n = (process.env.CARDUME_USER_NAME || "").trim();
-    if (!n) {
-      try {
-        n = execFileSync("git", ["-C", this.ws.repo, "config", "user.name"], { encoding: "utf8", timeout: 3000 }).trim();
-      } catch { /* sem git config */ }
-    }
-    if (!n) { try { n = userInfo().username; } catch { /* sem usuário */ } }
-    this._human = n || "você";
-    return this._human;
+    return readSpeaker();
   }
-  private _human = "";
 
   /** Títulos das notas existentes (pra o destilador ligar e não duplicar). */
   private brainCatalog(): string {
@@ -640,10 +633,11 @@ export class Orchestrator {
         `Se a mensagem contém uma REGRA/PREFERÊNCIA/DECISÃO DURADOURA de trabalho (vale pra tarefas futuras — ex.: como testar, ferramenta a usar, convenção de git/PR, decisão de produto), ` +
         `responda SÓ um JSON {"title":"título curto e geral","type":"regra|decisão|gotcha|contexto|glossário|pessoa","tags":["tema"],"body":"1-3 frases em português, imperativas e gerais (sem citar a tarefa), com [[slug]] pras notas existentes relacionadas e/ou [[tema]] pro assunto (ex.: [[ferramentas]])"}. ` +
         `Se já existe nota sobre o MESMO assunto, use exatamente o título dela. NUNCA inclua segredos, chaves, senhas ou valores de .env. ` +
+        `NUNCA grave quem é "o usuário" nem como chamá-lo (a memória é do time: cada pessoa que conversa é outra); se a regra fala de uma pessoa, cite-a pelo nome em 3ª pessoa. ` +
         `Se for só um pedido pontual desta tarefa, responda exatamente: SKIP`;
       const out = await this.aux(prompt, undefined, undefined, undefined, taskId);
       if (!out || /^skip\b/i.test(out.split("\n").pop()?.trim() ?? "")) return;
-      const who = this.humanName();
+      const who = this.humanName() || "pessoa sem conta logada";
       const note = this.noteFromJson(extractJson(out), `destilador · correção de ${who}${taskTitle ? ` no chat da tarefa "${taskTitle.slice(0, 60)}"` : ""}`);
       if (note && this.brain().write(note)?.action === "secret") this.noteSecretDropped(taskId, "uma correção do chat");
     } catch {
@@ -671,7 +665,7 @@ export class Orchestrator {
       // Eventos do sistema ("requisito adicionado: …", "instrução enviada: …") NÃO contam.
       const me = this.humanName();
       const chat = all
-        .filter((e) => e.type === "note" && (e.agent === "Você" || e.agent === me) && /^Você:\s*/.test(String(e.text)))
+        .filter((e) => e.type === "note" && (e.agent === "Você" || (!!me && e.agent === me)) && /^Você:\s*/.test(String(e.text)))
         .map((e) => ({ at: Number(e.ts) || 0, text: String(e.text).replace(/^Você:\s*/, "") }));
       const instr = this.store.instructionsFor(taskId).filter((i) => !AGENT_INSTRUCTION.test(i.text)).map((i) => ({ at: i.created_at, text: i.text }));
       const seen = new Set<string>();
@@ -1814,6 +1808,7 @@ export class Orchestrator {
       this.prepEpic(spec, worktree);
       const engine = this.engineFor(role.engine, role.model, spec.autonomy.approval);
       const instruction =
+        `${speakerTag(this.humanName())}\n` +
         `O humano enviou instruções adicionais no meio da execução — talvez tenha lembrado de algo. ` +
         `Incorpore-as agora, continuando de onde parou:\n${open.map((i) => `- ${i.text}`).join("\n")}`;
       try {
@@ -2070,8 +2065,8 @@ export class Orchestrator {
       const chatRule = noAskTool(role.engine) ? Orchestrator.CHAT_RULE_TEXT : Orchestrator.CHAT_RULE_ASK;
       const base = { cwd: task.worktree, spec, systemContext: ctx, role: role.role, agentName: role.name, dbFile: this.ws.dbFile, askTimeoutMin: 20, skillsRule: this.skillsContext(role), onAttempt: (a: ToolAttempt) => { loopTrack(this.store, taskId, a); } };
       const input = sid
-        ? { ...base, resume: { sessionId: sid, instruction: message + chatRule } }
-        : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero): ${message}${this.historyDigest(taskId)}${chatRule}` };
+        ? { ...base, resume: { sessionId: sid, instruction: `${speakerTag(this.humanName())}\n${message}${chatRule}` } }
+        : { ...base, promptOverride: `Você é ${role.name} (papel: ${role.role}) nesta tarefa, que JÁ FOI implementada nesta worktree. Atenda ao pedido do humano (não recomece do zero) — ${speakerTag(this.humanName())}\n${message}${this.historyDigest(taskId)}${chatRule}` };
       let deathText = "";
       for await (const ev of engine.run(input)) {
         if (ev.type === "session") { this.store.setSession(taskId, ev.text); continue; }

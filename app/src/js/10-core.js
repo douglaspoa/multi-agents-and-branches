@@ -100,6 +100,8 @@ function aiHistoryPrompt(prompt, history, lost, extra){
     :'[CONTEXTO — histórico desta conversa até aqui; CONTINUE de onde parou, sem recomeçar nem repetir o que já foi dito.]\n')+hist+(ex?(hist?'\n\n':'')+ex:'')+'\n[/CONTEXTO]\n\n'+prompt;
 }
 async function aiCallResumeSafe(fn, sid, prompt, history, extra){
+  // quem fala com a IA = a pessoa logada AGORA (08-pessoas: quemSync → ~/.constellation/quem.json) — antes da 1ª mensagem
+  try{ if(typeof quemSync==='function') await quemSync(); }catch(_){ }
   // sem sessão pra retomar (gateway, sid apagado, sid vazio devolvido) e já houve conversa → o histórico vai junto
   const talked=(history||[]).some(m=>m&&(m.text||'')&&/^(you|user)$/.test(m.who||m.role||''));
   if((sid && /^gateway:/.test(String(sid))) || (talked && (!sid || aiEngineIsGateway()))) return await fn(aiHistoryPrompt(prompt, history, false, extra), null);

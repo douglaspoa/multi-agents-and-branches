@@ -1,0 +1,32 @@
+[
+ {
+  "in": "Pedro Alves",
+  "name": "Pedro Alves",
+  "line": "## Quem está falando com você\nVocê está conversando com Pedro Alves — a pessoa logada no Starfork nesta máquina. As mensagens desta conversa são de Pedro Alves: trate por esse nome (ou por \"você\").\nOutros nomes que aparecerem (memória do projeto, convenções e aprendizados do time, histórico, TASK.yaml, HANDOFF, EPIC.md, cartões e issues) são de OUTRAS pessoas do time — quem escreveu ou foi citado —, nunca de quem está falando com você agora.\n"
+ },
+ {
+  "in": "",
+  "name": "",
+  "line": "## Quem está falando com você\nA pessoa nesta máquina não está com conta logada no Starfork: você não sabe o nome dela — trate por \"você\" e NÃO chute um nome (nem pelo git, pelo sistema, pela memória ou pelo histórico).\nOutros nomes que aparecerem (memória do projeto, convenções e aprendizados do time, histórico, TASK.yaml, HANDOFF, EPIC.md, cartões e issues) são de OUTRAS pessoas do time — quem escreveu ou foi citado —, nunca de quem está falando com você agora.\n"
+ },
+ {
+  "in": "  Ana\n`Souza`  ",
+  "name": "Ana Souza",
+  "line": "## Quem está falando com você\nVocê está conversando com Ana Souza — a pessoa logada no Starfork nesta máquina. As mensagens desta conversa são de Ana Souza: trate por esse nome (ou por \"você\").\nOutros nomes que aparecerem (memória do projeto, convenções e aprendizados do time, histórico, TASK.yaml, HANDOFF, EPIC.md, cartões e issues) são de OUTRAS pessoas do time — quem escreveu ou foi citado —, nunca de quem está falando com você agora.\n"
+ },
+ {
+  "in": "pessoa sem nome",
+  "name": "",
+  "line": "## Quem está falando com você\nA pessoa nesta máquina não está com conta logada no Starfork: você não sabe o nome dela — trate por \"você\" e NÃO chute um nome (nem pelo git, pelo sistema, pela memória ou pelo histórico).\nOutros nomes que aparecerem (memória do projeto, convenções e aprendizados do time, histórico, TASK.yaml, HANDOFF, EPIC.md, cartões e issues) são de OUTRAS pessoas do time — quem escreveu ou foi citado —, nunca de quem está falando com você agora.\n"
+ },
+ {
+  "in": "você",
+  "name": "",
+  "line": "## Quem está falando com você\nA pessoa nesta máquina não está com conta logada no Starfork: você não sabe o nome dela — trate por \"você\" e NÃO chute um nome (nem pelo git, pelo sistema, pela memória ou pelo histórico).\nOutros nomes que aparecerem (memória do projeto, convenções e aprendizados do time, histórico, TASK.yaml, HANDOFF, EPIC.md, cartões e issues) são de OUTRAS pessoas do time — quem escreveu ou foi citado —, nunca de quem está falando com você agora.\n"
+ },
+ {
+  "in": "Zé xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "name": "Zé xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "line": "## Quem está falando com você\nVocê está conversando com Zé xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx — a pessoa logada no Starfork nesta máquina. As mensagens desta conversa são de Zé xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx: trate por esse nome (ou por \"você\").\nOutros nomes que aparecerem (memória do projeto, convenções e aprendizados do time, histórico, TASK.yaml, HANDOFF, EPIC.md, cartões e issues) são de OUTRAS pessoas do time — quem escreveu ou foi citado —, nunca de quem está falando com você agora.\n"
+ }
+]

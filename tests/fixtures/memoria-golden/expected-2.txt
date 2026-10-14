@@ -1,9 +1,10 @@
 ## MEMÓRIA DO PROJETO — cérebro de notas (.cardume/memoria/, as do time em .cardume/memoria/time/). Regras e decisões daqui são do humano/time: OBEDEÇA. Pra achar mais: grep -ril "termo" .cardume/memoria/
+As notas são do TIME: "por X" é quem escreveu e os nomes citados são pessoas do time — nenhuma nota diz quem está falando com você agora.
 ### Índice
 - [[ferramentas]] · contexto · Ferramentas — Ferramentas do projeto
 - [[relatorios]] · contexto · Relatórios mensais — Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de
 ### Notas relevantes pra agora
-#### Relatórios mensais (contexto · local · 2026-09-01)
-Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico long…
+#### Relatórios mensais (contexto · local · 2026-09-01 · por Ana)
+Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Histórico longo do módulo de relatórios. Hist…
 
 

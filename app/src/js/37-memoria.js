@@ -288,8 +288,8 @@ function memSeenKey(){ return 'memSeen:'+(MEM.repo||state.repo||''); }
 function memSeen(){ try{ return JSON.parse(lsGet(memSeenKey())||'{}')||{}; }catch(_){ return {}; } }
 function memIsNew(n){ return n.origem==='agente' && (memSeen()[n.scope+':'+n.slug]||0) < n.mtimeMs; }
 function memMarkSeen(n){ if(!n) return; const s=memSeen(); s[n.scope+':'+n.slug]=n.mtimeMs; lsSet(memSeenKey(), JSON.stringify(s)); }
-function memWho(){
-  try{ const p=cloudData&&cloudData.profileByUser&&cloudData.profileByUser[cloudUserId()]; if(p&&(p.name||p.email)) return personName(cloudUserId(),{ noYou:true, settled:true }); }catch(_){ } // nunca o e-mail cru
+function memWho(){ // quem escreveu a nota = a pessoa logada (fonte única: personMeName, 08-pessoas)
+  try{ const n=typeof personMeName==='function'?personMeName():''; if(n) return n; }catch(_){ }
   return 'você (nesta máquina)';
 }
 function memSelNote(){ return MEM.sel ? MEM.notes.find(n=>n.scope===MEM.sel.scope && n.slug===MEM.sel.slug)||null : null; }
