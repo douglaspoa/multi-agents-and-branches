@@ -389,8 +389,11 @@ window.addEventListener("unhandledrejection", e=>{ e.preventDefault(); });
 // painel da tela dividida (58-canvas): só a demanda dele — sem notificações, projetos nem a tela inicial
 if(typeof SF_PANE!=='undefined' && SF_PANE) document.addEventListener('DOMContentLoaded', ()=>{ if(window.sfPaneBoot) window.sfPaneBoot(); });
 else {
-initNotifs();
-refresh().then(loadProjects).then(restoreMainView).then(()=>{ if(window.cvRestoreSplit) window.cvRestoreSplit(); }).catch(e=>console.error("boot:", e));
+// o boot espera TODOS os <script> do index.html: daqui (33) até o 99 ainda faltam dezenas de arquivos, e o 1º
+// refresh() roda render/budgetWatch, que chamam funções definidas depois (kbCentralNow no 72, capCheck no 60) —
+// com o IPC respondendo rápido, a continuação do await rodava entre um script e outro: ReferenceError no console.
+const sfBoot=()=>{ initNotifs(); refresh().then(loadProjects).then(restoreMainView).then(()=>{ if(window.cvRestoreSplit) window.cvRestoreSplit(); }).catch(e=>console.error("boot:", e)); };
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', sfBoot, { once:true }); else sfBoot();
 }
 // poll blindado: uma volta que falhe não derruba o ciclo
 // um refresh por vez (o tick de 1s empilhava vários em paralelo), mas a trava NUNCA fica presa: se um refresh

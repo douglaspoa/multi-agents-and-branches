@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
-const T = new Function(cut(read('js/72-corrente-tarefa.js'), '// @puro-tcorrente-inicio', '// @puro-tcorrente-fim') + '\nreturn { tcActText, tcTimeline, tcReqs, tcPainelText, tcTimelineHtmlOf };')();
+const T = new Function(cut(read('js/00-util.js'), '// @puro-atividade-inicio', '// @puro-atividade-fim') + cut(read('js/72-corrente-tarefa.js'), '// @puro-tcorrente-inicio', '// @puro-tcorrente-fim') + '\nreturn { tcActText, tcTimeline, tcReqs, tcPainelText, tcTimelineHtmlOf };')();
 const NM = { eu: 'você', a: 'Ana Souza', b: 'Bruno Lima' };
 const nm = (u) => NM[u] || 'pessoa sem nome';
 const at = (h) => new Date(Date.UTC(2026, 9, 9, h)).toISOString();
@@ -54,7 +54,9 @@ test('textos de status, comentário e provas; o que não se conhece não vira in
   assert.equal(t({ kind: 'comment', user_id: 'a', body: 'olhei' }).text, 'Ana Souza comentou: olhei');
   assert.equal(t({ kind: 'delivered', user_id: 'b', body: '3 prints' }).text, 'Bruno Lima publicou provas');
   assert.equal(t({ kind: 'assigned', user_id: 'a', body: '' }).text, 'Ana Souza atribuiu o responsável');
-  assert.equal(t({ kind: 'merged', user_id: 'a' }).text, 'Ana Souza registrou um evento');
+  assert.equal(t({ kind: 'merged', user_id: 'a' }).text, 'Ana Souza integrou o PR', 'texto da fonte única (ACT_KIND_PT)');
+  assert.equal(t({ kind: 'pr_opened', user_id: 'eu', body: 'PR #42' }).text, 'Você abriu o PR', 'nunca "você pr_opened"');
+  assert.equal(t({ kind: 'algo_novo_da_nuvem', user_id: 'a' }).text, 'Ana Souza atualizou o cartão', 'desconhecido não vira código cru');
 });
 
 test('"no painel": confirma só o que o Starfork pôs E o painel ainda mostra; falha diz o motivo', () => {

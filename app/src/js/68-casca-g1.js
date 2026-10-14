@@ -210,7 +210,15 @@ function projSubNorm(s){ return PROJ_SECS.some(x=>x[0]===s)?s:'conversa'; }
 let projSub=projSubNorm(lsGet('projSub'));
 let projRepoShown=null;
 function projCounts(){ const live=(typeof projLiveTasks==='function')?projLiveTasks((state.tasks||[])):(state.tasks||[]); const fc=flowCounts(live); // L11: régua única (lateral = Projetos = Projeto)
-  return { vivas:live.length, aguardando:aguardandoVoceCount(live), prontas:prontasRevisarCount(live), fc }; }
+  // as etapas vêm TODAS do flowCounts (a mesma conta da Central/Projetos): PR aberto é etapa própria (D14) e aparece —
+  // antes só "0 prontas pra revisar" com um PR esperando revisão no projeto (harness 14/10)
+  return { vivas:live.length, aguardando:fc.aguardando, prontas:fc.prontas, praberto:fc.praberto||0, fc }; }
+// resumo do cabeçalho da página Projeto: mesmas etapas e palavras da Central (centralSumHtml) e de Projetos (projCountsHtml)
+function projSumHtml(c){
+  const bits=[`${c.vivas} em aberto`, `<b>${c.aguardando}</b> aguardando você`, `<b>${c.prontas}</b> ${c.prontas===1?'pronta':'prontas'} pra revisar`];
+  if(c.praberto) bits.push(`<b>${c.praberto}</b> ${c.praberto===1?'PR aberto':'PRs abertos'}`);
+  return bits.join(' · ');
+}
 function projPageOpen(tab){
   if(tab && tab.sub){ projSub=projSubNorm(tab.sub); tab.sub=null; lsSet('projSub', projSub); }
   projPageRender();
@@ -224,10 +232,10 @@ function projPageRender(){
   { const t=tabsOfKind('projeto')[0]; if(t){ const tt=name?('Projeto · '+name).slice(0,28):'Projeto'; if(t.title!==tt){ t.title=tt; renderTabs(); } } }
   if(!repo){ head.innerHTML=pageHead({ title:'Projeto', scope:'projeto' }); head.__html=''; nav.innerHTML=''; nav.__html=''; return; }
   const c=projCounts();
-  const hh=pageHead({ title:'Projeto · '+name, scope:'projeto', sum:`${c.vivas} em aberto · <b>${c.aguardando}</b> aguardando você · <b>${c.prontas}</b> ${c.prontas===1?'pronta':'prontas'} pra revisar`, more:{ id:'projPageMore', title:'Mostrar no Finder · ver na Central' } });
+  const hh=pageHead({ title:'Projeto · '+name, scope:'projeto', sum:projSumHtml(c), more:{ id:'projPageMore', title:'Mostrar no Finder · ver na Central' } });
   const learnN=+(window.memLearnN||0);
   const nh=`<div class="sn-h">Este projeto</div>`+PROJ_SECS.map(([k,l,ic])=>`<button role="tab" class="${k===projSub?'on':''}" aria-selected="${k===projSub}" tabindex="${k===projSub?0:-1}" data-projsub="${k}"><span class="g1ic" aria-hidden="true">${IC[ic]||''}</span>${esc(l)}${k==='memoria'&&learnN?`<b title="${learnN} aprendizado(s) pra revisar">${learnN}</b>`:''}</button>`).join('')
-    +`<div class="sn-card"><b>${c.vivas} em aberto</b><span><i style="background:var(--st-ask)"></i>${c.aguardando} aguardando você</span><span><i style="background:var(--st-review)"></i>${c.prontas} ${c.prontas===1?'pronta':'prontas'} pra revisar</span><button class="lnk" id="projSeeCentral">Ver na Central</button><code>${esc(repo.replace(/^\/Users\/[^/]+/,'~'))}</code></div>`;
+    +`<div class="sn-card"><b>${c.vivas} em aberto</b><span><i style="background:var(--st-ask)"></i>${c.aguardando} aguardando você</span><span><i style="background:var(--st-review)"></i>${c.prontas} ${c.prontas===1?'pronta':'prontas'} pra revisar</span>${c.praberto?`<span><i style="background:${stColor('pr-open')}"></i>${c.praberto} ${c.praberto===1?'PR aberto':'PRs abertos'}</span>`:''}<button class="lnk" id="projSeeCentral">Ver na Central</button><code>${esc(repo.replace(/^\/Users\/[^/]+/,'~'))}</code></div>`;
   if(head.__html===hh && nav.__html===nh) return; // nada mudou: mantém o DOM (foco e handlers)
   head.__html=hh; head.innerHTML=hh; nav.__html=nh; nav.innerHTML=nh;
   // projGo é async e refaz o nav: o foco vai pra aba nova DEPOIS (antes ia pro body e a 2ª seta não fazia nada)

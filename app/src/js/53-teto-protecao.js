@@ -43,6 +43,7 @@ const IS_WIN=/win/i.test((navigator.userAgentData&&navigator.userAgentData.platf
 // e "continuar" sobe o teto. O custo entra no banco no FIM de cada turno de agente, então a
 // checagem acontece entre turnos (não no meio de um).
 function budgetWatch(){
+  if(typeof capCheck!=='function') return; // capCheck mora no 60-ciclo, que carrega depois deste: tick que chegue antes não quebra
   const tasks=(state&&state.tasks)||[];
   for(const t of tasks){
     if(budgetBusy.has(t.id)) continue;

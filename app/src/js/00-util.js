@@ -212,6 +212,38 @@ window.toast=toast;
 // @puro-toast-inicio
 function toastUrgent(kind){ return kind==='err' || kind==='warn'; }
 // @puro-toast-fim
+// @puro-atividade-inicio (testado em app/tests/atividade-texto.test.mjs)
+// ATIVIDADE DO TIME (task_activity.kind) → texto em pt-BR. FONTE ÚNICA: toda tela que mostra "fulano <fez> <cartão>"
+// passa por aqui (Time, cartão, Entregas, linha do tempo). Código cru (snake_case, inglês) NUNCA chega na tela: kind
+// desconhecido (nuvem mais nova, outro cliente) vira "atualizou". v = verbo com objeto ("Ana publicou provas em X");
+// s = curto, sem objeto ("Ana entregou · há 2 min").
+const ACT_KIND_PT={
+  created:   { v:'criou',              s:'criou o cartão' },
+  edited:    { v:'editou',             s:'editou o cartão' },
+  claimed:   { v:'assumiu',            s:'assumiu' },
+  released:  { v:'devolveu',           s:'devolveu' },
+  assigned:  { v:'atribuiu',           s:'atribuiu' },
+  started:   { v:'iniciou',            s:'iniciou' },
+  delivered: { v:'publicou provas em', s:'entregou' },
+  comment:   { v:'comentou em',        s:'comentou' },
+  status:    { v:'mudou a situação de', s:'mudou a situação' },
+  pr_opened: { v:'abriu o PR de',      s:'abriu o PR' },
+  pr_merged: { v:'integrou',           s:'integrou o PR' },
+  pr_closed: { v:'fechou o PR de',     s:'fechou o PR' },
+  review:    { v:'revisou',            s:'revisou' },
+};
+const ACT_KIND_ALIAS={ pr:'pr_opened', pr_open:'pr_opened', opened_pr:'pr_opened', merged:'pr_merged', commented:'comment', assign:'assigned', claim:'claimed', release:'released', start:'started', create:'created', edit:'edited', deliver:'delivered', reviewed:'review' };
+const ACT_KIND_FALLBACK={ v:'atualizou', s:'atualizou o cartão' };
+function actKindMeta(kind){ const k=String(kind==null?'':kind).trim().toLowerCase().replace(/[\s-]+/g,'_'); return ACT_KIND_PT[k]||ACT_KIND_PT[ACT_KIND_ALIAS[k]]||ACT_KIND_FALLBACK; }
+function actVerb(kind){ return actKindMeta(kind).v; }
+function actShort(kind){ return actKindMeta(kind).s; }
+// body de kind='status': o app grava o rótulo pt-BR (CT_ST_PT), mas outro cliente/versão pode gravar o código ('review',
+// 'pr-open'): código de status conhecido vira o rótulo do STATUS_META; texto livre ("FND-103 → … no painel") passa igual
+function actStatusBody(body){ const b=String(body==null?'':body).trim(); const k=b.toLowerCase().replace(/_/g,'-');
+  const meta=(typeof STATUS_META!=='undefined')?STATUS_META:null;
+  if(meta && /^[a-z-]+$/.test(k) && meta[k]) return meta[k].pt;
+  if(k==='in-progress') return 'em andamento'; return b; }
+// @puro-atividade-fim
 function a11yAnnounce(msg, urgent){
   const mk=(id, role)=>{ let r=$id(id); if(!r){ r=document.createElement('div'); r.id=id; r.className='a11y-live'; r.setAttribute('role', role); r.setAttribute('aria-live', role==='alert'?'assertive':'polite'); document.body.appendChild(r); } return r; };
   const st=mk('a11yLiveStatus','status'), al=mk('a11yLiveAlert','alert');

@@ -151,6 +151,7 @@ function personChip(ref, o){
 function personActBody(a, max){
   if(!a || !a.body) return '';
   if(a.kind==='assigned') return 'pra '+personName(a.body); // só o 'assigned' guarda um id; comentário com SHA continua texto
+  if(a.kind==='status' && typeof actStatusBody==='function') return actStatusBody(a.body).slice(0, max||120); // 'review' cru → "pronta pra revisar"
   return String(a.body).slice(0, max||120);
 }
 // QUEM ESTÁ FALANDO com a IA (bug 14/10: o colega mandou "teste" e a IA o chamou pelo nome do dono do time): é SEMPRE a

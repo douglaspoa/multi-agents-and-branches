@@ -282,7 +282,7 @@ function entItemHtml(t){
   if(rq) ent.push(`<span class="en-chip en-rq${rq.ok===rq.tot?' ok':''}" title="requisitos provados">${icEm(IC.check)} ${rq.ok} de ${rq.tot} requisitos</span>`);
   const a=(teamActivity||[]).find(x=>x.task_id===t.id);
   // o verbo do feed sem o complemento ("mudou o status de" → "mudou o status"): a linha já é a tarefa
-  const atv=a?`<span class="en-agov">${esc(personShort(a.user_id))} ${esc(String(tsK(a.kind)).replace(/ (de|em)$/,''))}</span><span>${esc(agoTx(a.at))}</span>`:`<span>${esc(agoTx(t.updated_at))}</span>`;
+  const atv=a?`<span class="en-agov">${esc(personShort(a.user_id))} ${esc(actShort(a.kind))}</span><span>${esc(agoTx(a.at))}</span>`:`<span>${esc(agoTx(t.updated_at))}</span>`;
   return `<div class="en-item${trav?' trav':''}${done?' done':''}" role="listitem">
     <div class="en-main"><button type="button" class="en-title" data-entct="${escA(t.id)}" title="abrir a tarefa">${esc(t.title||'tarefa')}</button>
       ${trav?(()=>{ const why=entTravaTx(t)||label; return `<div class="en-why" style="color:${stColor('error')}" title="${escA(why)}">${icEm(IC.warn)} <span class="en-tx"><b>Travada:</b> ${esc(why)}</span></div>`; })():''}</div>
