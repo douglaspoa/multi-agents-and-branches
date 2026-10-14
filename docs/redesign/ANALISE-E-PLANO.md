@@ -2,6 +2,7 @@
 
 > Proposta para a landing (starfork.com.br) e para o app (área logada).
 > Pesquisa feita em 14/10/2026. Nada aqui foi implementado ainda: é para a gente decidir junto.
+> Índice e pesquisa completa (com todos os links): [README.md](README.md). Plano de marketing detalhado: [07-plano-marketing.md](07-plano-marketing.md).
 
 ## Resumo em 30 segundos
 
@@ -41,11 +42,23 @@ O que faz parecer amador, e **por quê**:
 | Todas as seções no mesmo ritmo (título → texto → print) ×7 | A página fica monótona e "template de SaaS de IA". |
 | Fundo de pontinhos estáticos | Efeito genérico, não conta nada sobre o produto. |
 
-### Referência: kelvinbiffi.com
+### Benchmark: como os concorrentes abrem a página
 
-![Hero de kelvinbiffi.com](img/kelvin-hero.webp)
+Hero de cada um, capturado em 1440px no dia 14/10/2026. Detalhes em [02-concorrentes.md](02-concorrentes.md).
 
-O que torna essa página premium, e que dá para trazer:
+| | |
+|---|---|
+| **Conductor**: céu claro, UI real com diff e "Ready to merge" ![Conductor](img/concorrentes/conductor.webp) | **Superset**: escuro, título centrado, terminal real com abas por agente ![Superset](img/concorrentes/superset.webp) |
+| **Orca**: "Backed by YC", "Download for Windows" como CTA principal, UI real ![Orca](img/concorrentes/orca.webp) | **Nimbalyst**: workspace real com plano, status e chat ![Nimbalyst](img/concorrentes/nimbalyst.webp) |
+| **Devin**: claro, sessão real terminando em PR + gravação do teste ![Devin](img/concorrentes/devin.webp) | **Warp**: estética de terminal, grid "factory" ao vivo (queued/working/waiting/shipped) ![Warp](img/concorrentes/warp.webp) |
+| **Factory**: minimalista, enterprise, "Contact sales" ![Factory](img/concorrentes/factory.webp) | **Cursor**: fundo de pintura, app real com agentes "ready for review" ![Cursor](img/concorrentes/cursor.webp) |
+
+**O padrão:** 7 de 8 mostram **a interface real do produto trabalhando** logo no hero. Nenhum usa ilustração ou diagrama.
+Metade usa **tema claro** e todos têm **um único CTA principal**, quase sempre "Download".
+
+### Referência de acabamento visual: kelvinbiffi.com
+
+O que torna essa página premium, e que dá para trazer (detalhes técnicos em [01-diagnostico-sites.md](01-diagnostico-sites.md)):
 
 - **Campo de partículas 3D (three.js) que muda de forma por seção** (esfera → grade → anel → onda → hélice) e reage ao mouse. Dá continuidade e "vida" sem atrapalhar a leitura.
 - **Tipografia editorial**: sans grande + **serifa itálica de acento** (Instrument Serif) em uma palavra-chave ("*trust.*").
@@ -237,6 +250,8 @@ e [Rodrigo Tadewald](https://www.tiktok.com/@rodrigotadewald/video/7695805193274
 | Entrega pública compartilhável + rodapé "Entregue com Starfork" no PR | Loop de crescimento orgânico | Link público com opt-in por entrega |
 
 ## 6. Marketing e FOMO
+
+> Versão resumida. O plano completo, com posicionamento, ICP, preço, canais e plano de 90 dias, está em [07-plano-marketing.md](07-plano-marketing.md).
 
 A regra que vale para tudo abaixo é que **a urgência tem que ser real**: número vindo do banco, limite que existe de verdade
 e prazo que acaba de verdade. Contador falso e escassez inventada são o jeito mais rápido de parecer
