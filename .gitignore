@@ -12,3 +12,4 @@ mobile/ios/build*/
 mobile/ios/**/xcuserdata/
 .claude/worktrees/
 **/target-e2e/
+.mcp.json
