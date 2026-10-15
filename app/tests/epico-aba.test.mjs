@@ -163,8 +163,8 @@ test('fim: todas integradas → verificação final → entregar (⌘↵) → en
 });
 
 test('relatório curto do épico (texto puro, pronto pra colar)', () => {
-  const t = A.epaRelatorioTx({ nome: 'Checkout novo', req: 'Carla Dias', apr: 'Douglas', quando: '15/10 17:42', itens: [{ code: 'LOJA-12', title: 'Cupom', who: 'Ana', pr: '41' }, { code: '', title: 'Doc', who: '', pr: '' }], dw: [{ id: 'D1', text: 'Pix', evidence: 'e2e pix' }] });
-  assert.match(t, /^Épico entregue: Checkout novo · 15\/10 17:42\nPedido por Carla Dias · aprovado por Douglas · 2 tarefas, 1 PR integrado na main\./);
+  const t = A.epaRelatorioTx({ nome: 'Checkout novo', req: 'Carla Dias', apr: 'Bruno Lima', quando: '15/10 17:42', itens: [{ code: 'LOJA-12', title: 'Cupom', who: 'Ana', pr: '41' }, { code: '', title: 'Doc', who: '', pr: '' }], dw: [{ id: 'D1', text: 'Pix', evidence: 'e2e pix' }] });
+  assert.match(t, /^Épico entregue: Checkout novo · 15\/10 17:42\nPedido por Carla Dias · aprovado por Bruno Lima · 2 tarefas, 1 PR integrado na main\./);
   assert.match(t, /• D1: Pix — prova: e2e pix/);
   assert.match(t, /• LOJA-12 · Cupom — Ana \(PR #41\)/);
 });
