@@ -352,6 +352,20 @@ export function byLabel(by: string): string {
   return c.length > 60 ? c.slice(0, 59).join("").trimEnd() + "…" : s;
 }
 
+/** Quais notas entraram INTEIRAS no bloco de contexto (cabeçalhos "#### título (tipo · escopo · data · por X)") — vai pra
+ * tarefa como spec.memNotes ("Feito com" da Entrega e "foi pro agente" da Conversa). Máximo 12. */
+export function notesInContext(ctx: string): { title: string; by: string; scope: string }[] {
+  const out: { title: string; by: string; scope: string }[] = [];
+  const at = ctx.indexOf("### Notas relevantes pra agora");
+  if (at < 0) return out;
+  for (const m of ctx.slice(at).matchAll(/^#### (.+?) \((?:[^·()]+) · (time|local)(?: · [^·()]*?)?(?: · por ([^()]+?))?\)$/gm)) {
+    if (out.some((x) => x.title === m[1])) continue;
+    out.push({ title: m[1].trim(), scope: m[2], by: (m[3] ?? "").trim() });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
 /** Bloco de contexto pro agente: índice + notas relevantes (com teto). "" se o cérebro está vazio. */
 export function buildContext(notes: Note[], query: string, caps = { index: INDEX_CAP, notes: NOTES_CAP }): string {
   if (!notes.length) return "";

@@ -380,6 +380,7 @@ async function fwLiveUpdate(){
   if(typeof loopLivePaint==='function') loopLivePaint(t); // aviso do detector de loop: entra/sai sem esperar um renderWorkspace
   // faixa do terminal VIVO (teto pausou, plano pronto, revisor entrou/saiu) muda sem mexer na assinatura — repinta só se mudou
   { const ts=typeof TERM!=='undefined'&&TERM[t.id]; if(ts && ts.alive && ts.mode==='live' && typeof termSetAlive==='function') termSetAlive(t.id, true); }
+  if(typeof teLive==='function') teLive(t); // 75: estado das etapas na lateral (só pinta se mudou)
   if(sig===fwLiveSig) return; // nada mudou → não mexe no DOM (digitação fica leve)
   fwLiveSig=sig;
   // o agente anunciou/trocou o preview DEPOIS de a aba abrir: o cabeçalho (fwReviewBar) só era montado
@@ -772,6 +773,7 @@ function fwHeadDock(){
   else if(home && head.parentNode!==home) home.insertBefore(head, home.firstChild);
   if(was!==want){ head.classList.toggle('docked', want); head.classList.remove('tight','narrow'); FW_HEAD.mode='tabs'; FW_HEAD.tightNeed=0; fwOrqChipsPlace(); const t=fwTaskObj(); if(t) fwModesPaint(t); } // a medida do outro lugar não vale aqui
   if(want || was) fwHeadWatch();
+  if(typeof teSync==='function') teSync(); // 75: com a tarefa sozinha na tela, a lateral vira as etapas dela
 }
 function renderWorkspace(){
   const t=fwTaskObj(); if(!t){ closeWorkspace(); return; }
@@ -915,6 +917,7 @@ function renderWorkspace(){
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
   else if(fwMode==='previa'){ fwRenderPrevia(t, main); } // 57-navegador: só repinta o que mudou (o iframe não é recriado pelo tick)
   else if(fwMode==='revisao'){ if(typeof rvRender==='function' && rvViewOf(t.id)!=='diff') rvRender(t, main); else fwRenderDiff(t, main); } // 63-revisao-pr: por requisito; "ver diff completo" = o diff de antes
+  else if(fwMode==='codigo' && typeof cxOn==='function' && cxOn()){ cxRender(t, main); } // 76: Código explicado (modo etapas)
   else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:var(--fs-sm)">código</span></div><div class="empty">${fwFilesLoading?skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' }):fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
   else {
     const loadingFile = fwFileLoading===(t.id+'|'+fwPath);
@@ -945,7 +948,7 @@ function renderWorkspace(){
       ${bar}`;
   }
   if(!keepEditor){ main.dataset.mk=mk; fwPutScroll(main, mainMem); }
-  if(keepEditor||fwMode==='pr'||fwMode==='revisao'||fwMode==='entrega'||fwMode==='previa'){ /* wiring próprio nas funções de página (ou editor intacto) */ }
+  if(keepEditor||fwMode==='pr'||fwMode==='revisao'||fwMode==='entrega'||fwMode==='previa'||(fwMode==='codigo'&&typeof cxOn==='function'&&cxOn())){ /* wiring próprio nas funções de página (ou editor intacto) */ }
   else if(fwEditing){
     const ta=$id('fwText'), gut=$id('fwGutter');
     if(ta){ ta.value=fwContent; const sg=()=>{ const n=ta.value.split('\n').length||1; let s=''; for(let i=1;i<=n;i++) s+=i+'\n'; gut.textContent=s; }; sg(); ta.addEventListener('input',sg); ta.addEventListener('scroll',()=>gut.scrollTop=ta.scrollTop); ta.addEventListener('keydown',e=>{ if(e.key==='Tab'){ e.preventDefault(); const s=ta.selectionStart; ta.value=ta.value.slice(0,s)+'  '+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=s+2; sg(); } }); try{ ta.setSelectionRange(0,0); }catch(_){ } ta.focus({preventScroll:true}); requestAnimationFrame(()=>{ ta.scrollTop=0; ta.scrollLeft=0; gut.scrollTop=0; }); } // abre no TOPO: o caret ia pro fim e o focus rolava o texto todo
@@ -1053,6 +1056,7 @@ function renderWorkspace(){
   }
   // abrir/recolher a árvore (« no cabeçalho dela, » na coluna ao lado)
   document.querySelectorAll('#fwOverlay [data-fwtree]').forEach(b=>b.onclick=()=>fwToggleTree());
+  if(typeof teAfterRender==='function') teAfterRender(t); // 75: lateral das etapas + cabeçalho da etapa
 }
 // ---- Revisão: diff de verdade por arquivo (redesign p12) ----
 let fwRevOpen=false; // explicação da revisão expandida

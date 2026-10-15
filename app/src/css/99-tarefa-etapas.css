@@ -1,0 +1,257 @@
+/* Starfork — 99-tarefa-etapas: dentro de uma tarefa a lateral vira as ETAPAS (75-tarefa-etapas.js) e cada etapa é
+   UMA superfície (Conversa = o terminal sozinho; Código explicado; Revisão; Prévia; Entrega). Só tokens (sem cor literal). */
+
+/* ---- lateral da tarefa: 176 px (o terminal mantém ≥ 100 colunas a 1000 px). Recolhida (⌘B) o inline 0px vence ---- */
+:root.te-on{--rail-w:172px}
+.sidebar .sbtask{display:none}
+html.te-on .sidebar>*:not(.sbhead):not(#sbTask){display:none!important}
+html.te-on .sidebar .sbtask{display:flex;flex:1;min-height:0;flex-direction:column}
+html.te-on .sidebar .sbhead .brand{font-size:var(--fs-base)}
+.te-rail{display:flex;flex-direction:column;flex:1;min-height:0;padding:2px 8px 8px;gap:2px}
+.te-top{display:flex;flex-direction:column;gap:1px;padding-bottom:6px}
+.te-back{display:flex;align-items:center;gap:7px;width:100%;min-height:30px;padding:5px 8px;border:0;border-radius:var(--r-sm);background:none;color:var(--text);font:inherit;font-size:var(--fs-sm);text-align:left;cursor:pointer}
+.te-back:hover{background:var(--wash)}
+.te-back span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.te-back svg,.te-ic svg,.te-fb svg,.te-code svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.4;flex:none}
+.te-cnt{margin-left:auto;min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--warn);color:var(--bg);font-size:var(--fs-xs);font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.te-head{padding:8px 6px 10px;border-top:1px solid var(--border);border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:5px;align-items:flex-start}
+.te-code{display:inline-flex;align-items:center;gap:4px;max-width:100%;padding:2px 7px;border:1px solid var(--border-strong);border-radius:var(--r-xs);background:none;color:var(--text);font-size:var(--fs-xs);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.te-code[aria-expanded="true"]{background:var(--accent-soft);border-color:var(--accent-line)}
+.te-code:hover{background:var(--wash)}
+.te-title{font-weight:700;font-size:var(--fs-md);line-height:1.3;color:var(--text);display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.te-who{display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);color:var(--muted);min-width:0;max-width:100%}
+.te-who .pchip{min-width:0}
+.te-steps{display:flex;flex-direction:column;gap:2px;padding:8px 0}
+.te-step{display:grid;grid-template-columns:20px 1fr auto;column-gap:6px;row-gap:1px;align-items:start;width:100%;padding:7px 8px;border:0;border-radius:var(--r-sm);background:none;color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.te-step:hover{background:var(--wash)}
+.te-step.on{background:var(--wash-2)}
+.te-step .te-ic{grid-row:1;grid-column:1;display:flex;padding-top:2px;color:var(--muted)}
+.te-step.on .te-ic{color:var(--accent)}
+.te-step .te-l{grid-row:1;grid-column:2;font-weight:600;font-size:var(--fs-base);line-height:1.3}
+.te-step .te-k{grid-row:1;grid-column:3;font-size:var(--fs-xs);color:var(--muted);padding-top:1px}
+.te-step .te-s{grid-row:2;grid-column:2/4;font-size:var(--fs-xs);color:var(--muted);line-height:1.35;overflow-wrap:anywhere}
+.te-grp{padding:10px 8px 4px;font-size:var(--fs-xs);font-weight:700;color:var(--muted);letter-spacing:.04em;text-transform:uppercase;border-top:1px solid var(--border)}
+.te-opens{display:flex;flex-direction:column;gap:1px;flex:1;min-height:0;overflow:auto}
+.te-sp{flex:1}
+.te-open{display:flex;align-items:flex-start;gap:7px;width:100%;padding:6px 8px;border:0;border-radius:var(--r-sm);background:none;color:var(--text);font:inherit;text-align:left;cursor:pointer}
+.te-open:hover{background:var(--wash)}
+.te-dot{width:7px;height:7px;margin-top:5px;border-radius:99px;background:var(--c);flex:none}
+.te-otx{display:flex;flex-direction:column;min-width:0}
+.te-oc{font-size:var(--fs-xs);color:var(--muted)}
+.te-ot{font-size:var(--fs-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.te-foot{display:flex;align-items:center;gap:4px;padding-top:8px;border-top:1px solid var(--border)}
+.te-fb{white-space:nowrap;display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:4px 8px;border:0;border-radius:var(--r-sm);background:none;color:var(--text);font:inherit;font-size:var(--fs-sm);cursor:pointer}
+.te-fb:hover{background:var(--wash)}
+.te-kq{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;border:1px solid var(--border-strong);border-radius:4px;font-size:var(--fs-xs);color:var(--muted)}
+.te-rail button:focus-visible{outline:none;box-shadow:var(--ring)}
+
+/* ---- cabeçalho da etapa (no lugar da barra de modos): título · o que é · "foi pro agente" ---- */
+.tehead{display:flex;align-items:center;gap:12px;padding:12px 18px 10px;border-bottom:1px solid var(--border);background:var(--bg);min-width:0;flex-wrap:wrap;row-gap:6px}
+.tehead[hidden]{display:none}
+.te-ht{display:flex;align-items:baseline;gap:10px;min-width:0}
+.te-h1{margin:0;font-size:var(--fs-lg);font-weight:700;white-space:nowrap}
+.te-hsub{font-size:var(--fs-sm);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.te-hsp{flex:1}
+.te-ran{display:flex;align-items:center;gap:6px;min-width:0;flex-wrap:wrap}
+.te-ranl{font-size:var(--fs-xs);color:var(--muted)}
+.te-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font:inherit;font-size:var(--fs-xs);cursor:pointer;white-space:nowrap}
+.te-chip svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.4}
+.te-chip:hover{background:var(--surface-2)}
+.te-chip:focus-visible,.te-seg button:focus-visible{outline:none;box-shadow:var(--ring)}
+.te-seg{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface)}
+.te-seg button{padding:4px 10px;border:0;border-radius:6px;background:none;color:var(--muted);font:inherit;font-size:var(--fs-sm);cursor:pointer;white-space:nowrap}
+.te-seg button[aria-pressed="true"]{background:var(--surface-3);color:var(--text);font-weight:600;box-shadow:var(--shadow-sm)}
+
+/* ---- o que sai da tela no modo etapas: a barra de modos (a lateral é a navegação), a faixa de etapas do ciclo
+   (decisão "precisa de você", teto e loop continuam) e a corrente (abre pelo código da tarefa na lateral) ---- */
+html.te-on #fwModes{display:none!important}
+html.te-on #fwCiclo .cicstrip{display:none}
+html.te-on #fwChain:not(.te-chain-open){display:none!important}
+
+/* ---- uma superfície por vez ---- */
+html.te-on .fwcols,html.te-on .fwcols.notree{grid-template-columns:minmax(0,1fr)!important}
+html.te-on .fwcols .fwtree{display:none!important}
+html.te-on .fwcols:not(.m-conversa) .fwchat{display:none!important}
+html.te-on .fwcols.m-conversa .fwmain{display:none!important}
+html.te-on .fwcols.m-conversa .fwchat{display:flex;border-left:0}
+/* Conversa: o terminal sozinho — o painel "Requisitos e provas" vira a etapa Revisão (⌘3) */
+html.te-on .fwcols.m-conversa .tlside{display:none!important}
+
+html.te-on .fwcols:not(.m-conversa) .fwmain{border-left:0}
+/* terminal largo: ≥ 100 colunas a 1000 px (Martian Mono 12,5 px ≈ 8,12 px/coluna) — respiro menor e barra de rolagem fina */
+html.te-on .fwcols.m-conversa .fwtermbox{padding-left:4px;padding-right:2px}
+html.te-on .fwcols.m-conversa .fwtermbox .xterm-viewport::-webkit-scrollbar{width:5px}
+html.te-on .fwcols.m-conversa .fwtermbox .xterm-viewport::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:99px}
+html.te-on .fwcols.m-conversa .fwtermbox .xterm-viewport::-webkit-scrollbar-track{background:transparent}
+/* faixa do ciclo sem nada além das etapas (que somem aqui): não ocupa altura */
+html.te-on #fwCiclo:not(:has(> :not(.cicstrip))){display:none!important}
+/* árvore saiu: o botão "» Arquivos" de dentro das páginas não tem pra onde abrir */
+html.te-on .fwmain .fwtreepill,html.te-on .fwchat .fwtreepill{display:none!important}
+
+/* ===== Código explicado (76-codigo-explicado.js) ===== */
+.cx{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--bg)}
+.cx-files{display:flex;align-items:center;gap:10px;padding:12px 18px 10px;flex:none;min-width:0;flex-wrap:wrap;row-gap:8px}
+.cx-chips{display:flex;gap:6px;flex-wrap:wrap;flex:1;min-width:0}
+.cx-fchip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font-family:var(--mono);font-size:var(--fs-xs);cursor:pointer;white-space:nowrap}
+.cx-fchip[aria-pressed="true"]{background:var(--surface-3);border-color:var(--border-strong);box-shadow:var(--shadow-sm)}
+.cx-fchip:hover{background:var(--surface-2)}
+.cx-fn{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cx-a{color:var(--ok)}.cx-d{color:var(--crit)}
+.cx-w{width:7px;height:7px;border-radius:99px;background:var(--warn)}
+.cx-tc{display:inline-flex;align-items:center;gap:3px;color:var(--info)}
+.cx-tc svg,.cx-hmark svg,.cx-th svg,.cx-sent svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.4;flex:none}
+.cx-seen{display:inline-flex;color:var(--ok)}.cx-seen svg{width:12px;height:12px}
+.cx-scroll{flex:1;min-height:0;overflow:auto;padding:0 18px 18px;display:flex;flex-direction:column;gap:12px}
+.cx-scroll>*{flex:none}
+.cx-fsum{display:flex;gap:14px;align-items:flex-start;padding:12px 14px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface)}
+.cx-fsb{flex:1;min-width:0}
+.cx-fst{font-weight:700;font-size:var(--fs-base);margin-bottom:3px}
+.cx-fsx{font-size:var(--fs-base);color:var(--text-2);line-height:1.5;max-width:78ch}
+.cx-fsa{display:flex;gap:6px;flex:none}
+.cx-hw{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--surface)}
+.cx-hunk{display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,300px)}
+.cx-hunk.out{box-shadow:inset 3px 0 0 var(--warn)}
+.cx-diff{min-width:0;background:var(--term-bg);color:var(--term-fg);font-family:var(--mono);font-size:var(--fs-sm);overflow-x:auto;padding:6px 0}
+.cx-hh{display:flex;align-items:center;gap:8px;padding:2px 10px 6px;font-family:var(--ui);font-size:var(--fs-xs);color:var(--term-dim)}
+.cx-hh .sp{flex:1}
+.cx-ctx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.cx-askh{font-size:var(--fs-xs);color:var(--term-dim)}
+.cx-hw:hover .cx-askh,.cx-askh:focus-visible{color:var(--term-live)}
+.cx-hmark{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--term-line);border-radius:99px;background:var(--term-bg-2);color:var(--term-fg);font:inherit;font-size:var(--fs-xs);cursor:pointer}
+.cx-ln{display:grid;grid-template-columns:44px 18px minmax(0,1fr);align-items:baseline;min-height:20px;line-height:20px}
+.cx-ln.add{background:color-mix(in srgb, var(--ansi-green) 12%, transparent)}
+.cx-ln.del{background:color-mix(in srgb, var(--ansi-red) 13%, transparent)}
+.cx-ln.cx-on{background:color-mix(in srgb, var(--ansi-blue) 24%, transparent)}
+.cx-n{justify-self:end;padding:0 8px 0 0;border:0;background:none;color:var(--term-faint);font:inherit;cursor:pointer;text-align:right;min-width:40px}
+.cx-n:hover{color:var(--term-fg)}
+.cx-n.del{cursor:default}
+.cx-ln.cx-on .cx-n{color:var(--term-fg)}
+.cx-s{color:var(--term-dim)}
+.cx-ln.add .cx-s{color:var(--ansi-green)}.cx-ln.del .cx-s{color:var(--ansi-red)}
+.cx-t{white-space:pre;padding-right:12px}
+.cx-why{padding:12px 14px;border-left:1px solid var(--border);display:flex;flex-direction:column;gap:6px;font-size:var(--fs-sm);min-width:0}
+.cx-wh{display:flex;align-items:flex-start;gap:8px;font-size:var(--fs-sm)}
+.cx-req{flex:none;padding:1px 6px;border-radius:5px;background:var(--accent-soft);border:1px solid var(--accent-line);font-family:var(--mono);font-size:var(--fs-xs);font-weight:700}
+.cx-req.out{background:color-mix(in srgb, var(--warn) 14%, transparent);border-color:color-mix(in srgb, var(--warn) 40%, transparent)}
+.cx-why p{margin:0;line-height:1.5;color:var(--text);overflow-wrap:anywhere}
+.cx-why .cx-none{color:var(--muted)}
+.cx-why .btn{align-self:flex-start}
+.cx-cov,.cx-when{font-size:var(--fs-xs);color:var(--muted);overflow-wrap:anywhere}
+.cx-cov .mono{color:var(--text-2)}
+.cx-src{font-size:var(--fs-xs);color:var(--muted)}
+.cx-src.inf{font-style:italic}
+.cx-comp{border-top:1px solid var(--accent-line);padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--surface-2)}
+.cx-ch{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs)}
+.cx-ch .sp{flex:1}
+.cx-ref{color:var(--info)}
+.cx-x{border:0;background:none;color:var(--muted);cursor:pointer;display:inline-flex;padding:2px}
+.cx-x svg{width:12px;height:12px}
+.cx-ta{width:100%;resize:vertical;min-height:52px}
+.cx-ca{display:flex;gap:6px;flex-wrap:wrap}
+.cx-thread{border-top:1px solid var(--accent-line);padding:10px 14px 12px;display:flex;flex-direction:column;gap:10px;background:var(--surface-2)}
+.cx-th{display:flex;align-items:center;gap:7px;font-size:var(--fs-sm);flex-wrap:wrap}
+.cx-th .sp{flex:1}
+.cx-th .mono{color:var(--info);font-weight:500}
+.cx-msg{display:flex;gap:10px;align-items:flex-start;padding-top:8px;border-top:1px solid var(--border)}
+.cx-msg:first-of-type{border-top:0}
+.cx-msg p{margin:2px 0 0;line-height:1.5}
+.cx-mh{display:flex;align-items:center;gap:8px;font-size:var(--fs-xs);flex-wrap:wrap}
+.cx-mb{font-size:var(--fs-base);line-height:1.55;margin-top:2px;overflow-wrap:anywhere}
+.cx-av{flex:none;width:22px;height:22px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center;background:var(--accent-soft);border:1px solid var(--accent-line);font-size:var(--fs-xs);font-weight:700}
+.cx-me{flex:none}
+.cx-tag{padding:1px 6px;border-radius:5px;background:var(--wash-2);font-size:var(--fs-xs)}
+.cx-dim{color:var(--muted);font-size:var(--fs-xs)}
+.cx-msg.typing p{font-style:italic}
+.cx-sent{display:flex;align-items:flex-start;gap:6px;font-size:var(--fs-xs);color:var(--text-2);overflow-wrap:anywhere}
+.cx-sent svg{margin-top:2px;color:var(--ok)}
+.cx-acts,.cx-alt{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cx-reply,.cx-alt .in{flex:1;min-width:160px}
+.cx-hint{font-size:var(--fs-xs);color:var(--muted)}
+.cx-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:48px 18px;text-align:center}
+.cx-et{font-weight:700;font-size:var(--fs-md)}
+.cx button:focus-visible,.cx .in:focus-visible{outline:none;box-shadow:var(--ring)}
+.cx .cx-n:focus-visible{box-shadow:var(--ring-inset)}
+/* janela estreita: o porquê vai pra baixo do trecho */
+@container (max-width:760px){ .cx-hunk{grid-template-columns:minmax(0,1fr)} .cx-why{border-left:0;border-top:1px solid var(--border)} }
+.fwmain:has(> .cx){container-type:inline-size}
+
+/* ===== Entrega › Feito com ===== */
+.te-feito{margin-top:6px}
+.te-fcs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.te-fc{padding:12px 14px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface)}
+.te-fch{font-size:var(--fs-sm);color:var(--muted);margin-bottom:8px}
+.te-fc ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px}
+.te-fc li{display:flex;align-items:flex-start;gap:7px;font-size:var(--fs-base);min-width:0;overflow-wrap:anywhere}
+.te-fc li svg{width:13px;height:13px;margin-top:3px;flex:none;fill:none;stroke:currentColor;stroke-width:1.4;color:var(--muted)}
+.te-dim{color:var(--muted);font-size:var(--fs-sm)}
+.te-fc .lnk{margin-top:8px}
+@media (max-width:1100px){ .te-fcs{grid-template-columns:minmax(0,1fr)} }
+
+/* ===== Prévia com Mira (77-previa-mira.js) ===== */
+html.te-on #fwDev{display:none!important} /* o aparelho mora DENTRO da Prévia no modo etapas */
+.mr{display:flex;flex-direction:column;height:100%;min-height:0;background:var(--bg)}
+.mr-tools{display:flex;align-items:center;gap:10px;padding:12px 18px;flex:none;flex-wrap:wrap;row-gap:8px;min-width:0}
+.mr-tools .sp{flex:1}
+.mr-st{font-size:var(--fs-xs);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.mr-mira{display:inline-flex;align-items:center;gap:6px}
+.mr-mira svg,.mr-panel h3 svg,.mr-send svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.4;flex:none}
+.mr-mira.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.mr-mira .kbd{margin-left:2px}
+.mr-stage{flex:1;min-height:0;display:flex;gap:16px;padding:0 18px 18px;min-width:0;background-image:radial-gradient(var(--wash-2) 1px, transparent 1px);background-size:18px 18px}
+.mr-dev{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;margin:12px auto 0;border-radius:var(--r);overflow:hidden;background:var(--web-bg);box-shadow:var(--shadow);border:1px solid var(--border)}
+.mr-bar{display:flex;align-items:center;gap:10px;padding:7px 12px;background:var(--surface-2);border-bottom:1px solid var(--border);flex:none}
+.mr-dots{display:inline-flex;gap:5px}.mr-dots i{width:9px;height:9px;border-radius:99px;background:var(--border-strong)}
+.mr-url{font-size:var(--fs-xs);color:var(--muted);padding:3px 10px;border-radius:6px;background:var(--surface);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mr-scr{flex:1;min-height:0;position:relative;display:flex;flex-direction:column}
+.mr-app{flex:1;min-height:0;display:flex;flex-direction:column}
+.mr-app .apppane,.mr-app .nvhost,.mr-app .nvwrap{flex:1;min-height:0;height:100%}
+.mr .nvframewrap{width:100%!important}
+/* barra da prévia antiga dentro da moldura: no navegador fica só a navegação (o resto está na barra da etapa) */
+.mr .nvbar .nvvp,.mr .nvbar [data-nv="pick"],.mr .nvbar [data-nv="ext"]{display:none}
+.mr .nvpanel{display:none!important}
+.mr-dev.mr-web>.mr-bar{display:none}
+/* aparelho: moldura de iPhone (notch) e de Android (câmera furada); a página na largura do celular */
+.mr-dev.mr-ios,.mr-dev.mr-and{flex:none;width:calc(var(--mr-w) + 24px);max-height:min(760px, 100%);padding:12px;background:var(--device-2);border:2px solid var(--device-edge);box-shadow:var(--shadow);position:relative}
+.mr-dev.mr-ios{--mr-w:390px;border-radius:46px}
+.mr-dev.mr-and{--mr-w:412px;border-radius:30px}
+.mr-dev.mr-ios>.mr-bar,.mr-dev.mr-and>.mr-bar{display:none}
+.mr-dev.mr-ios .mr-scr,.mr-dev.mr-and .mr-scr{border-radius:34px;overflow:hidden;background:var(--web-bg)}
+.mr-dev.mr-and .mr-scr{border-radius:20px}
+.mr-dev.mr-ios::before{content:"";position:absolute;top:12px;left:50%;transform:translateX(-50%);width:120px;height:26px;border-radius:0 0 16px 16px;background:var(--device-2);z-index:2}
+.mr-dev.mr-and::before{content:"";position:absolute;top:22px;left:50%;transform:translateX(-50%);width:12px;height:12px;border-radius:99px;background:var(--device-2);z-index:2}
+.mr-dev.mr-ios .nvbar,.mr-dev.mr-and .nvbar{display:none}
+.mr-dev.mr-native{width:auto;max-width:100%;padding:0;background:none;border:0;box-shadow:none;border-radius:0}
+.mr-dev.mr-native::before{display:none}
+.mr-dev.mr-native .mr-scr{background:none;border-radius:0;overflow:visible}
+.mr-dev.mr-native .mr-app>aside{position:relative;width:auto;height:100%}
+.mr[data-kind="cmp"] .mr-dev{display:none}
+.mr-side{flex:none;display:flex;min-height:0}
+.mr-side:empty{display:none}
+.mr-panel{width:270px;margin-top:12px;align-self:flex-start;max-height:calc(100% - 12px);overflow:auto;padding:14px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);display:flex;flex-direction:column;gap:10px}
+.mr-panel h3{margin:0;display:flex;align-items:center;gap:7px;font-size:var(--fs-md)}
+.mr-help{margin:0;font-size:var(--fs-sm);color:var(--muted);line-height:1.5}
+.mr-pin{display:flex;flex-direction:column;gap:6px}
+.mr-crop{display:flex;align-items:center;gap:8px;padding:6px;border:1px solid var(--accent-line);border-radius:var(--r-sm);background:var(--accent-soft);min-width:0}
+.mr-n{flex:none;width:20px;height:20px;border-radius:99px;background:var(--accent);color:var(--on-accent);font-size:var(--fs-xs);font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+.mr-th{flex:none;width:64px;height:38px;border-radius:5px;overflow:hidden;background:var(--web-bg);display:flex;align-items:center;justify-content:center}
+.mr-th img{max-width:100%;max-height:100%;object-fit:contain}
+.mr-thst{font-size:var(--fs-xs);color:var(--muted)}
+.mr-cl{font-size:var(--fs-xs);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mr-sel{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:var(--fs-xs);color:var(--muted);min-width:0}
+.mr-sel .mono{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.mr-in{width:100%;resize:vertical;min-height:48px}
+.mr-send{width:100%;justify-content:center;display:inline-flex;align-items:center;gap:6px}
+.mr-foot{font-size:var(--fs-xs);color:var(--muted)}
+.mr-cmp{flex:1;min-width:0;display:flex;gap:16px;padding-top:12px;min-height:0}
+.mr-cmp figure{flex:1;min-width:0;margin:0;display:flex;flex-direction:column;gap:6px;min-height:0}
+.mr-cmp img{flex:1;min-height:0;width:100%;object-fit:contain;object-position:top;border-radius:var(--r);border:1px solid var(--border);background:var(--web-bg)}
+.mr-cmpapp{flex:1;min-height:0;border-radius:var(--r);overflow:hidden;border:1px solid var(--border);display:flex;flex-direction:column}
+.mr-cmp figcaption{font-size:var(--fs-xs);color:var(--muted)}
+.mr button:focus-visible,.mr .in:focus-visible{outline:none;box-shadow:var(--ring)}
+@media (max-width:1100px){ .mr-panel{width:230px} }
+/* os requisitos por cima do app saem da Prévia no modo etapas (eles moram na Revisão, ⌘3) — a Mira precisa do app limpo */
+.mr .cvreqov{display:none!important}
+.mr[data-dev="ios"] .mr-cmp,.mr[data-dev="and"] .mr-cmp{justify-content:center}
+.mr[data-dev="ios"] .mr-cmp figure{flex:none;width:390px;max-width:calc(50% - 8px)}
+.mr[data-dev="and"] .mr-cmp figure{flex:none;width:412px;max-width:calc(50% - 8px)}
+.mr[data-dev="ios"] .mr-cmpapp .nvbar,.mr[data-dev="and"] .mr-cmpapp .nvbar{display:none}

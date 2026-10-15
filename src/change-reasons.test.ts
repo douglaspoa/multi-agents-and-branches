@@ -109,3 +109,12 @@ test("register_change_reason grava na worktree (pasta .starfork, fora da lista d
     assert.ok(saved.every((x: { ts: number }) => x.ts > 0), "ts preenchido pelo Starfork");
   } finally { orch.close(); }
 });
+
+test("notesInContext: as notas que entraram inteiras no contexto (pro \"Feito com\" da Entrega)", async () => {
+  const { buildContext, notesInContext } = await import("./memory.ts");
+  const mk = (slug: string, title: string, type: string, by: string, scope = "time") => ({ slug, title, type, tags: [], updated: "2026-10-10", by, origem: "pessoa", atualizadaPor: "", extra: {}, body: "corpo de " + title, links: [], scope, mtimeMs: 1 });
+  const ctx = buildContext([mk("centavos", "Centavos inteiros na API", "regra", "Bruno"), mk("verde", "Verde do botão de pagar", "decisão", "Elisa", "local"), mk("x", "Nada a ver com isso", "contexto", "Ana")] as never, "botão de pagar centavos");
+  const used = notesInContext(ctx);
+  assert.deepEqual(used.slice(0, 2), [{ title: "Centavos inteiros na API", scope: "time", by: "Bruno" }, { title: "Verde do botão de pagar", scope: "local", by: "Elisa" }]);
+  assert.deepEqual(notesInContext("sem notas"), []);
+});

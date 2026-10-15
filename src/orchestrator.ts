@@ -12,7 +12,7 @@ import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { prepEpicTurn } from "./epic-context.ts";
 import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, mobileTurnRelease, realDeps, UI_FILE_RE, type MobileDeps } from "./mobile.ts";
-import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
+import { Brain, extractJson, harvestWorktree, notesInContext, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MAX_CHARS, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
 import { homedir } from "node:os";
@@ -428,6 +428,8 @@ export class Orchestrator {
       const q = spec ? [spec.title, spec.objective, ...(spec.requirements ?? []), ...(spec.scope?.owns ?? []), extra].join(" ") : extra;
       const ctx = this.brain().context(q);
       if (ctx) out += ctx.trimEnd() + "\n\n";
+      // as notas que foram pro agente ficam com a tarefa (Entrega › "Feito com"; Conversa › "foi pro agente")
+      if (ctx && spec?.id) { const used = notesInContext(ctx); if (used.length && this.store.getTask(spec.id)) this.store.patchSpec(spec.id, { memNotes: used }); }
     } catch { /* memória nunca derruba o turno */ }
     try {
       const rb = readFileSync(join(this.ws.dir, "RUNBOOK.md"), "utf8").trim();

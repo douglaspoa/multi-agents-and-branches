@@ -83,7 +83,9 @@ export const PICKER_JS = String.raw`(function(){
     var t = targetOf(e); if (!t) return; hoverEl = t; ensureRoot();
     place(hov, t); hov.style.display = '';
     var r = t.getBoundingClientRect(), c = t.classList && t.classList[0] ? '.'+t.classList[0] : '';
-    hov.firstChild.textContent = t.tagName.toLowerCase()+c+'  '+Math.round(r.width)+'×'+Math.round(r.height);
+    // rótulo da Mira: seletor curto · 'texto' (o que a pessoa reconhece na tela; tamanho no tooltip do app não ajuda)
+    var tx = String(t.innerText || t.textContent || '').replace(/\s+/g,' ').trim(); if (tx.length > 28) tx = tx.slice(0,27)+'…';
+    hov.firstChild.textContent = t.tagName.toLowerCase()+c+(tx ? " · '"+tx+"'" : '  '+Math.round(r.width)+'×'+Math.round(r.height));
     hov.firstChild.style.bottom = r.top < 22 ? 'auto' : '100%'; hov.firstChild.style.top = r.top < 22 ? '100%' : 'auto';
   }
   function swallow(e){ if (!picking) return; e.preventDefault(); e.stopPropagation(); if (e.stopImmediatePropagation) e.stopImmediatePropagation(); }
