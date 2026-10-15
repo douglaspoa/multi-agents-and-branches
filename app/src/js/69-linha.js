@@ -80,6 +80,7 @@ function lnTaskAtiva(t){ return !!t && !lnTaskOk(t) && t.status!=='cancelled' &&
 function epEntregue(ep, tasks){
   if(!ep) return false;
   if(ep.status==='done') return true;
+  if((ep.spec||{}).flow) return !!(ep.spec||{}).delivery; // fluxo novo do épico (81): entregue = alguém apertou "Entregar o épico"
   const ts=Array.isArray(tasks)?tasks:[];
   const dw=Array.isArray((ep.spec||{}).doneWhen)?ep.spec.doneWhen.filter(Boolean):[]; // mesma lista do linhaModelo
   if(dw.length) return dw.every(d=>d.checkedBy) && !ts.some(lnTaskAtiva);

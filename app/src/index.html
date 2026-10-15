@@ -53,6 +53,8 @@
 <link rel="stylesheet" href="css/99-padroes.css">
 <link rel="stylesheet" href="css/99-casca-semana.css">
 <link rel="stylesheet" href="css/99-tarefa-etapas.css">
+<link rel="stylesheet" href="css/99-aprovar.css">
+<link rel="stylesheet" href="css/99-epico-aba.css">
 </head>
 <body>
 <div class="app">
@@ -76,6 +78,7 @@
       <div class="sbgrp" id="sbGrpTrab">Trabalho</div>
       <nav class="sbnav2" aria-labelledby="sbGrpTrab">
         <button class="btn sbitem" id="meuBtn" data-sbgo="meu" title="Meu trabalho — o que precisa de mim, minha semana e o que mandei pro time"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><path d="M2.6 7.4 8 2.9l5.4 4.5V13a.6.6 0 0 1-.6.6H9.6V10H6.4v3.6H3.2a.6.6 0 0 1-.6-.6z" stroke-linejoin="round"/></svg><span class="sbl">Meu trabalho</span><span class="sbcnt" id="meuCnt" hidden></span></button>
+        <button class="btn sbitem" id="aprovarBtn" data-sbgo="aprovar" title="Para aprovar — o que terminou com as provas: ver, aprovar ou pedir alteração sem abrir a tarefa"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><path d="M8 1.9l4.7 1.8v3.6c0 3.1-2.1 5.5-4.7 6.8-2.6-1.3-4.7-3.7-4.7-6.8V3.7z" stroke-linejoin="round"/><path d="m5.8 8 1.6 1.6L10.4 6.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="sbl">Para aprovar</span><span class="sbcnt q ap" id="aprovarCnt" hidden></span></button>
         <button class="btn sbitem" id="semanaBtn" data-sbgo="semana" title="Semana do time — quem está com o quê por dia, sem dono, travados; distribuir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><rect x="2.5" y="3.4" width="11" height="10.1" rx="1.4"/><path d="M2.5 6.6h11M5.4 2v2.6M10.6 2v2.6" stroke-linecap="round"/></svg><span class="sbl">Semana do time</span></button>
         <button class="btn sbitem" id="entregasBtn" data-sbgo="entregas" title="Entregas — o que foi entregue, por dia, com prova; relatório"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><path d="M2.6 5 8 2.4 13.4 5v6L8 13.6 2.6 11z" stroke-linejoin="round"/><path d="M2.6 5 8 7.6 13.4 5M8 7.6v6" stroke-linejoin="round"/></svg><span class="sbl">Entregas</span></button>
         <button class="btn sbitem" id="issuesBtn" title="Issues — os pedidos que chegam do painel conectado do time (Jira, Linear, GitHub…)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><circle cx="8" cy="8" r="5.4"/><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/></svg><span class="sbl">Issues</span><span class="sbcnt q" id="issuesCnt" hidden></span></button>
@@ -719,6 +722,8 @@
 <div class="overlay fwoverlay pgov" id="semanaOverlay" style="display:none"><div class="pgpage sempage" id="semanaPage"></div></div>
 <div class="overlay fwoverlay pgov" id="entregasOverlay" style="display:none"><div class="pgpage sempage" id="entregasPage"></div></div>
 <div class="overlay fwoverlay pgov" id="mapaOverlay" style="display:none"><div class="pgpage sempage" id="mapaPage"></div></div>
+<!-- 80-aprovar: a fila "Para aprovar" (lista + painel de provas) — aba, nunca modal -->
+<div class="overlay fwoverlay pgov" id="aprovarOverlay" style="display:none"><div class="pgpage sempage" id="aprovarPage"></div></div>
 
 <div class="overlay" id="ctOverlay" style="display:none">
   <div class="modal" style="width:min(680px,100%)">
@@ -824,6 +829,8 @@
 <script src="js/77-tarefa-etapas.js"></script>
 <script src="js/78-codigo-explicado.js"></script>
 <script src="js/79-previa-mira.js"></script>
+<script src="js/80-aprovar.js"></script>
+<script src="js/81-epico-aba.js"></script>
 <script src="js/99-e2e.js"></script>
 </body>
 </html>

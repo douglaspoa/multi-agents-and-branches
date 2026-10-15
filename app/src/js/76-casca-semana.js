@@ -319,7 +319,8 @@ async function semPassar(x, uid, how){
     toast((uid===me?'Você assumiu':'Passada para '+personName(uid,{ noYou:true }))+' — “'+String(ct.title||'').slice(0,50)+'”'+(how==='arrastada'?' (arrastada)':'')+'. '+(uid===me?'Nada roda até você iniciar.':'A pessoa recebe o aviso.'),'ok');
   }catch(e){ showErr(e, 'Não deu pra passar a tarefa'); }
 }
-function semDepoisDeMudar(){ semItensMemo={ k:null, v:[] }; try{ teamTasks=null; teamPaintSig=''; lastSig=''; }catch(_){ } semFetchAt=0; semBuscaTime(true); if(typeof refresh==='function') refresh().catch(()=>{}); semRepintar(); }
+function semDepoisDeMudar(){ semItensMemo={ k:null, v:[] }; try{ teamTasks=null; teamPaintSig=''; lastSig=''; }catch(_){ } semFetchAt=0; semBuscaTime(true); if(typeof refresh==='function') refresh().catch(()=>{}); semRepintar();
+  try{ window.dispatchEvent(new CustomEvent('sf:responsavel-mudou')); }catch(_){ } } // a aba do épico (81) relê quem faz
 // devolver PEDE MOTIVO (mesa): o motivo vai pro histórico do cartão e quem pegar depois lê
 function semDevolver(anchor, x){
   if(!x || !x.card) return;
@@ -381,6 +382,8 @@ function meuEventos(){
     if(x.done) continue;
     const mine=x.who===me || (!x.card);
     if(mine && x.st==='plan-review') out.push({ ms:x.mod, av:'ia', s:`O plano de ${tt(x.titulo)} espera sua aprovação.`, m:meta(x, x.mod), a:[{ l:'Ver o plano', pri:true, act:()=>semAbrir(x) }] });
+    // 80-aprovar: terminou com as provas (ou o revisor pediu mudança) → Aprovar direto na frase e "Ver provas" abre o painel aqui
+    else if(mine && x.local && typeof apMeuEvento==='function' && typeof apAprovavel==='function' && apAprovavel(x.local)) out.push(apMeuEvento(x, meta(x, x.mod)));
     else if(mine && x.bucket==='prontas' && x.local){ const r=(x.local.requirements||[]).length; const ok=(typeof reqProvadas==='function')?reqProvadas(x.local):null;
       out.push({ ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${r?(ok!=null?` com ${ok} de ${r} requisitos provados`:` (${r} requisitos)`):''}.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
     else if(mine && x.bucket==='praberto' && x.local){ const pr=semPrNum(x.local);
@@ -404,7 +407,8 @@ let meuEvAtual=[];
 function meuHtml(){
   const me=semMe(), its=semItens(), ev=meuEventos(); meuEvAtual=ev;
   const proj=(typeof state!=='undefined'&&state.repo)?pathBase(state.repo):'';
-  const evH=ev.length?ev.map((e,i)=>`<div class="mev"><span class="mev-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="mev-tx"><div class="mev-s">${e.s}</div>${e.m?`<div class="mev-m">${esc(e.m)}</div>`:''}</div><div class="mev-a">${e.a.map((a,j)=>a.menu?`<button type="button" class="btn sm quiet" data-meva="${i}:${j}" aria-haspopup="menu">${esc(a.l)} ${semIc('chev')}</button>`:`<button type="button" class="btn sm${a.pri?' primary':''}" data-meva="${i}:${j}">${esc(a.l)}</button>`).join('')}</div></div>`).join('')
+  const apSel=typeof apMeuSel==='function'?apMeuSel():'';
+  const evH=ev.length?ev.map((e,i)=>`<div class="mev${e.tid&&e.tid===apSel?' sel':''}"${e.tid?` data-aptid="${escA(e.tid)}"`:''}><span class="mev-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="mev-tx"><div class="mev-s">${e.s}</div>${e.m?`<div class="mev-m">${esc(e.m)}</div>`:''}</div><div class="mev-a">${e.a.map((a,j)=>a.menu?`<button type="button" class="btn sm quiet" data-meva="${i}:${j}" aria-haspopup="menu">${esc(a.l)} ${semIc('chev')}</button>`:`<button type="button" class="btn sm${a.pri?' primary':''}" data-meva="${i}:${j}">${esc(a.l)}</button>`).join('')}</div></div>${e.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(e.tid):''}`).join('')
     :`<div class="mev-vazio">${semIc('check')} Nada esperando por você agora.</div>`;
   // Minha semana: hoje (o que está comigo e não está em "Precisa de mim"), entregue ontem, e a minha fila
   const t0=semDia0(Date.now()), ontem=t0-86400000;
@@ -419,7 +423,7 @@ function meuHtml(){
   const sentH=sent.length?sent.map(x=>`<div class="mmd" role="button" tabindex="0" data-semopen="${escA(x.id)}">${personAv(x.who,{ decor:true })}<span class="mmd-t">${esc(mdTitle(x.titulo))}</span><span></span><span class="mmd-s" style="color:${x.trav?'var(--st-err)':stColor(x.st)}">${esc(personName(x.who,{ noYou:true }))} · ${esc(x.trav?'travada':stLabel(x.st))}</span></div>`).join('')
     :`<div class="mws-nada">${semTemTime()?'Nada que você mandou está aberto.':'Entre num time pra mandar demandas pra outras pessoas.'}</div>`;
   return `<div class="sempg">${semHead('Meu trabalho', semHojeTx()+(proj?' · '+proj:''))}
-    <div class="semsec-h"><h2>Precisa de mim</h2><span class="n">${ev.length} · sai daqui quando você age</span></div>
+    <div class="semsec-h"><h2>Precisa de mim</h2><span class="n">${ev.length} · sai daqui quando você age${ev.some(e=>e.tid)?' · J/K troca, Espaço mostra as provas, A aprova, P pede alteração':''}</span></div>
     <section class="mevs" aria-label="Precisa de mim">${evH}</section>
     <div class="mw2"><section class="mws" aria-label="Minha semana"><div class="semsec-h"><h2>Minha semana</h2></div>
       ${dia('Hoje', SEM_DIAS_LONGO[new Date(t0).getDay()]+', '+new Date(t0).getDate(), hoje)}${dia('Ontem', SEM_DIAS_LONGO[dOnt.getDay()]+', '+dOnt.getDate(), ont)}${dia('Na fila', 'próximas', fila)}</section>
@@ -537,7 +541,7 @@ function entHtml2(){
     const obj=String((x.local&&x.local.objective)||((x.card&&x.card.spec)||{}).objective||'').replace(/\s+/g,' ').trim();
     return `<button type="button" class="semdc" data-semopen="${escA(x.id)}"><span class="m">${personAv(x.who,{ decor:true })}<span>${esc(quem(x))}</span><span>·</span><span class="tnum">${hh}</span></span><span class="t">${esc(mdTitle(x.titulo))}</span>${obj?`<span class="s">${esc(obj.slice(0,140))}</span>`:''}<span class="m">${pr?`<span class="semcode">PR #${esc(pr)}</span>`:'<span class="semcode">sem PR</span>'}${q?`<span class="semstamp${q.ok!=null&&q.ok<q.tot?' no':''}">${semIc('check')}${q.ok!=null?q.ok+'/'+q.tot:q.tot+' req.'}</span>`:''}${x.code?`<span class="semcode">${esc(x.code)}</span>`:''}</span></button>`; };
   const cal=dias.length?`<div class="semcal">${dias.map(ms=>{ const k=semKeyDia(ms), L=byDia[k]||[], d=new Date(ms); const nome=SEM_DIAS_LONGO[d.getDay()];
-    return `<section class="semcalc${k===hoje?' today':''}" aria-label="${escA(nome)}"><div class="ch"><b>${esc(nome.charAt(0).toUpperCase()+nome.slice(1))}</b><span class="dim">${k===hoje?'hoje':d.getDate()+' '+SEM_MESES[d.getMonth()].slice(0,3)} · ${L.length}</span></div>${L.map(card).join('')||'<div class="mws-nada">Nada entregue.</div>'}</section>`; }).join('')}</div>`
+    return `<section class="semcalc${k===hoje?' today':''}" aria-label="${escA(nome)}"><div class="ch"><b>${esc(nome.charAt(0).toUpperCase()+nome.slice(1))}</b><span class="dim">${k===hoje?'hoje':d.getDate()+' '+SEM_MESES[d.getMonth()].slice(0,3)} · ${L.length}</span></div>${(()=>{ const ep=typeof epEntregaDiaHtml==='function'?epEntregaDiaHtml(k):''; return ep+(L.map(card).join('')||(ep?'':'<div class="mws-nada">Nada entregue.</div>')); })()}</section>`; }).join('')}</div>`
     :emptyHtml({ icon:'box', title:'Nenhuma entrega neste período', help:'Quando um PR é integrado, a entrega aparece aqui no dia, com quem fez e as provas.' });
   const sub=`${E.length} ${E.length===1?'entrega':'entregas'}, ${ppl} ${ppl===1?'pessoa':'pessoas'}${proj?' · '+proj:''}`;
   return `<div class="sempg wide">${semHead('Entregas', sub, sw)}${strip}${rel}${cal}</div>`;

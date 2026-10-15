@@ -1,0 +1,115 @@
+/* Starfork — 99-aprovar (80-aprovar.js): o PAINEL DE PROVAS (um componente: fila, Central, Meu trabalho e Revisão ⌘3) e a
+   fila "Para aprovar". Tokens do app (10-base). Mock aprovado em 15/10 (starfork-epico-fluxo.html). */
+
+/* ===================== lateral ===================== */
+.sbcnt.ap{background:color-mix(in srgb,var(--info) 22%,transparent);color:var(--text)}
+
+/* ===================== painel de provas ===================== */
+.apv{border-radius:14px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);min-width:0;font-size:var(--fs-base);color:var(--text)}
+.apv .apic{width:14px;height:14px;flex:none}
+.apv-pad{padding:14px 16px;margin:0}
+.apv-h{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.apv-tt{flex:1;min-width:200px}
+.apv-t{font:650 17px/1.25 var(--ui);letter-spacing:-.015em}
+.apv-m{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin-top:5px;font-size:var(--fs-sm);color:var(--muted)}
+.apv-m .apv-code{font-size:var(--fs-xs);color:var(--text-2)}
+.apv-m .apv-ep{color:var(--purple)}
+.apv-m .pchip{font-size:var(--fs-sm)}
+.apv-pr{font-size:var(--fs-sm);color:var(--accent)}
+.apv-b{display:grid;gap:14px;padding:14px 16px}
+.apv-sent{font-size:14.5px;line-height:1.5;max-width:82ch}
+.apv-lb{display:block;font-size:var(--fs-xs);color:var(--muted);margin-bottom:2px}
+.apv-gates{display:flex;flex-wrap:wrap;gap:6px}
+.apv-gate{display:inline-flex;align-items:center;gap:6px;min-height:26px;padding:0 9px;border-radius:8px;font-size:var(--fs-sm);background:var(--bg);box-shadow:inset 0 0 0 1px var(--border)}
+.apv-gate.ok .apic{color:var(--ok)}
+.apv-gate.bad{color:var(--crit);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--crit) 45%,transparent)}
+.apv-gate.run{color:var(--warn)}
+.apv-g2{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:14px;align-items:start}
+.apv-col{display:grid;gap:12px;align-content:start;min-width:0}
+@media (max-width:1180px){ .apv-full .apv-g2,.apv-task .apv-g2{grid-template-columns:minmax(0,1fr)} }
+@media (max-width:1060px){ .apv-compact .apv-g2{grid-template-columns:minmax(0,1fr)} }
+.apv-blk{border-radius:12px;background:var(--bg);box-shadow:inset 0 0 0 1px var(--border);padding:12px;min-width:0}
+.apv-blk h4{display:flex;align-items:center;gap:8px;margin:0 0 8px;font:600 var(--fs-xs) var(--ui);letter-spacing:.04em;color:var(--muted)}
+.apv-dim{color:var(--muted);font-size:var(--fs-sm);margin:0}
+.apv-rq{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:8px;align-items:start;padding:7px 0;border-top:1px solid var(--border)}
+.apv-rq:first-of-type{border-top:0;padding-top:2px}
+.apv-rid{font-size:var(--fs-xs);font-weight:600;color:var(--muted);padding-top:2px}
+.apv-rt{min-width:0;overflow-wrap:anywhere}
+.apv-evd{display:block;font-size:var(--fs-xs);color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.apv-stamp{display:inline-flex;align-items:center;gap:4px;font:700 var(--fs-xs)/1.5 var(--ui);letter-spacing:.07em;color:var(--ok);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--ok) 55%,transparent);padding:0 6px;border-radius:5px;white-space:nowrap}
+.apv-stamp .apic{width:11px;height:11px}
+.apv-stamp.no{color:var(--crit);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--crit) 50%,transparent)}
+.apv-shots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.apv-shot{position:relative;display:block;padding:0;border:0;border-radius:8px;overflow:hidden;aspect-ratio:16/10;background:var(--surface-2);cursor:zoom-in;box-shadow:inset 0 0 0 1px var(--border)}
+.apv-compact .apv-shot{aspect-ratio:16/9}
+.apv-shot img{width:100%;height:100%;object-fit:cover;display:block}
+.apv-shotph{position:absolute;inset:0;background:var(--surface-2)}
+.apv-cap{position:absolute;left:0;right:0;bottom:0;padding:3px 7px;font-size:var(--fs-xs);text-align:left;color:var(--text);background:color-mix(in srgb,var(--bg) 86%,transparent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.apv-shot:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
+.apv-nyx{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start}
+.apv-av{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:var(--surface-2);box-shadow:inset 0 0 0 1px var(--border);font:700 var(--fs-xs) var(--ui);color:var(--text-2)}
+.apv-vd{font-weight:650}
+.apv-vd.ok{color:var(--ok)} .apv-vd.bad{color:var(--crit)} .apv-vd.wn{color:var(--warn)}
+.apv-nyx ul{margin:6px 0 0;padding-left:18px;color:var(--text-2)}
+.apv-nyx li{margin:3px 0}
+.apv-codep{margin:0;color:var(--text-2)}
+.apv-after{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:10px;font-size:var(--fs-base);color:var(--text-2);background:color-mix(in srgb,var(--ok) 12%,transparent)}
+.apv-after .apic{color:var(--ok);margin-top:2px}
+.apv-after.w{background:color-mix(in srgb,var(--warn) 13%,transparent)} .apv-after.w .apic{color:var(--warn)}
+.apv-after.r{background:color-mix(in srgb,var(--crit) 12%,transparent)} .apv-after.r .apic{color:var(--crit)}
+.apv-after b{color:var(--text)}
+/* rodapé: a barra de ações fica SEMPRE visível (sticky no rolar da página — a 1000×700 também) */
+.apv-acts,.apv-pend,.apv-ask{border-top:1px solid var(--border);border-radius:0 0 14px 14px}
+.apv-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 16px;background:var(--surface-2);position:sticky;bottom:0;z-index:2}
+.apv-sp{flex:1}
+.apv-acts .btn[disabled]{opacity:.5;cursor:not-allowed}
+.apkbd{display:inline-block;margin-left:4px;font:500 var(--fs-xs) var(--mono);opacity:.75}
+.apv-pend{display:flex;gap:10px;align-items:center;padding:12px 16px;background:color-mix(in srgb,var(--accent) 12%,var(--surface-2));position:sticky;bottom:0;z-index:2}
+.apv-pend.ok .apic{color:var(--ok)}
+.apv-ring{width:18px;height:18px;border-radius:50%;border:2px solid color-mix(in srgb,var(--accent) 40%,transparent);border-top-color:var(--accent);animation:apSpin 1s linear infinite;flex:none}
+@keyframes apSpin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){ .apv-ring{animation:none} }
+.apv-ask{display:grid;gap:8px;padding:12px 16px;background:var(--bg);position:sticky;bottom:0;z-index:2}
+.apv-askl{font-weight:600;font-size:var(--fs-base)}
+.apv-askl .apv-dim{font-weight:400}
+.apv-ta{width:100%;min-height:58px;resize:vertical;box-sizing:border-box;background:var(--surface);color:var(--text);border:1px solid var(--border-strong);border-radius:10px;padding:9px 10px;font:var(--fs-base)/1.5 var(--ui)}
+.apv-ta:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
+.apv-sugs{display:flex;flex-wrap:wrap;gap:6px}
+.apv-sugs button{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--fs-xs) var(--ui);padding:3px 9px;border-radius:999px;border:0;background:transparent;color:var(--text-2);box-shadow:inset 0 0 0 1px var(--border-strong);cursor:pointer}
+.apv-sugs button:hover{background:var(--surface-2)}
+.apv-sugs button:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
+.apv-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+/* compacto (Central e Meu trabalho) */
+.apv-compact .apv-h{padding:12px 14px}
+.apv-compact .apv-t{font-size:15px}
+.apv-compact .apv-b{gap:10px;padding:12px 14px}
+.apv-compact .apv-acts{bottom:0} /* dentro da linha da Central e do Meu trabalho também fica à vista */
+
+/* ===================== a fila "Para aprovar" ===================== */
+.apq{display:grid;grid-template-columns:260px minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:1100px){ .apq{grid-template-columns:210px minmax(0,1fr)} }
+.apq-l{position:sticky;top:0;display:flex;flex-direction:column;gap:6px;min-width:0}
+.apq-list{display:flex;flex-direction:column;gap:6px}
+.apq-i{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 8px;align-items:start;width:100%;text-align:left;padding:10px 12px;border:0;border-radius:12px;background:var(--bg);color:var(--text);box-shadow:inset 0 0 0 1px var(--border);cursor:pointer;font:inherit}
+.apq-i:hover{background:var(--surface)}
+.apq-i[aria-selected="true"]{background:var(--surface-2);box-shadow:inset 0 0 0 1.5px var(--info)}
+.apq-i:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
+.apq-t{font-weight:600;font-size:var(--fs-base);line-height:1.3;min-width:0;overflow-wrap:anywhere}
+.apq-m{grid-column:1/3;display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;font-size:var(--fs-xs);color:var(--muted)}
+.apq-s.info{color:var(--info)} .apq-s.bad{color:var(--crit)} .apq-s.wn{color:var(--warn)} .apq-s.ok{color:var(--ok)}
+.apq-hint{display:flex;flex-wrap:wrap;gap:6px 10px;padding:8px 2px;font-size:var(--fs-xs);color:var(--muted)}
+.apq-hint .apkbd{margin:0 3px 0 0;padding:0 4px;border-radius:4px;box-shadow:inset 0 0 0 1px var(--border-strong);opacity:1}
+.apq-r{min-width:0}
+.apq-vazio{padding:28px;border-radius:14px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--border);max-width:640px}
+.apq-vazio b{font-size:var(--fs-lg)}
+.apq-vazio p{color:var(--text-2);margin:6px 0 0}
+
+/* ===================== Central: a linha aberta é o painel ===================== */
+.ctexp-ap > td{padding:0 10px 12px 18px}
+.ctexp-apb{max-width:none}
+/* ===================== Meu trabalho: "Ver provas" abre o painel embaixo da frase ===================== */
+.mev.sel{box-shadow:inset 0 0 0 1.5px var(--info)}
+.mevx{margin:-2px 0 6px 28px}
+/* ===================== Revisão ⌘3: o painel + o caminho pra revisão por requisito ===================== */
+.apv-task{padding:16px clamp(12px,2vw,24px) 28px;max-width:1240px;margin:0 auto;box-sizing:border-box;min-width:0}
+.apv-more{margin:10px 2px 0;font-size:var(--fs-sm);color:var(--muted)}

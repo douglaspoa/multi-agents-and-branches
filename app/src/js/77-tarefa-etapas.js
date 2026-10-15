@@ -236,11 +236,17 @@ async function teGo(k){
 }
 
 // ---------------------------------------------------------------- Revisão (⌘3): requisitos e o PR numa superfície só
-/** Alternador no cabeçalho da Revisão: "Por requisito" (63-revisao-pr) · "Pull request" (21) quando a tarefa tem PR. */
+/** Alternador no cabeçalho da Revisão: "Provas" (80-aprovar: o mesmo painel da fila "Para aprovar") · "Por requisito"
+ *  (63-revisao-pr) · "Pull request" (21) quando a tarefa tem PR. */
 function teRevTabsHtml(t){
-  if(!t || !t.prUrl) return '';
-  const pr=fwMode==='pr';
-  return `<div class="te-seg" role="group" aria-label="O que revisar"><button type="button" data-te="rev" data-v="revisao" aria-pressed="${!pr}">Por requisito</button><button type="button" data-te="rev" data-v="pr" aria-pressed="${pr}">Pull request${typeof fwPrNum==='function'&&fwPrNum(t)?' #'+esc(fwPrNum(t)):''}</button></div>`;
+  if(!t) return '';
+  const pr=fwMode==='pr', vw=(!pr && typeof rvViewOf==='function')?rvViewOf(t.id):'req';
+  const provas=typeof apRenderTask==='function';
+  if(!t.prUrl && !provas) return '';
+  return `<div class="te-seg" role="group" aria-label="O que revisar">`+
+    (provas?`<button type="button" data-te="rev" data-v="provas" aria-pressed="${!pr && vw==='provas'}">Provas</button>`:'')+
+    `<button type="button" data-te="rev" data-v="revisao" aria-pressed="${!pr && vw!=='provas'}">Por requisito</button>`+
+    (t.prUrl?`<button type="button" data-te="rev" data-v="pr" aria-pressed="${pr}">Pull request${typeof fwPrNum==='function'&&fwPrNum(t)?' #'+esc(fwPrNum(t)):''}</button>`:'')+`</div>`;
 }
 // ---------------------------------------------------------------- Entrega (⌘5): "Feito com"
 /** Agentes (com versão e o que fez), skills (com versão) e as notas de memória que entraram — só o que a tarefa registrou. */
@@ -274,7 +280,9 @@ document.addEventListener('click', (e)=>{
   if(k==='chain'){ e.preventDefault(); TE.chain=!TE.chain; teSync(); const t=fwTaskObj(); if(t){ TE.railSig=''; teRailPaint(t, true); } if(TE.chain){ const c=$id('fwChain'); if(c && c.hidden) toast('esta tarefa não veio de issue nem de épico','info'); } return; }
   if(k==='nova'){ e.preventDefault(); openTab('nova'); return; }
   if(k==='onde'){ e.preventDefault(); if(typeof window.openOndeFica==='function') window.openOndeFica(); else openTab('kbd'); return; }
-  if(k==='rev'){ e.preventDefault(); if(typeof fwSetMode==='function') fwSetMode(b.dataset.v==='pr'?'pr':'revisao').then(()=>teSync()); return; }
+  if(k==='rev'){ e.preventDefault(); const v=b.dataset.v, t=fwTaskObj();
+    if(t && v!=='pr' && typeof rvViewM!=='undefined') rvViewM[t.id]=v==='provas'?'provas':'req'; // Provas (80) × Por requisito (63)
+    if(typeof fwSetMode==='function') fwSetMode(v==='pr'?'pr':'revisao').then(()=>{ teSync(); TE.headSig=''; if(t) teHeadPaint(t); if(typeof renderWorkspace==='function') renderWorkspace(); }); return; }
   if(k==='ranskills'){ e.preventDefault(); const t=fwTaskObj(); if(t && typeof tiSheetOpen==='function') tiSheetOpen(t.id, 'skill', b); return; }
   if(k==='ranagents'){ e.preventDefault(); openTab('agents'); return; }
   if(k==='rannotes'){ e.preventDefault(); openTab('memoria'); return; }

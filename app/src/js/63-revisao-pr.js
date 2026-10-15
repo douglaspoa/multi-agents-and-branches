@@ -146,7 +146,8 @@ const rvViewM={}; // taskId → 'req' | 'diff' (o "ver diff completo" mantém o 
 const rvSt={};    // taskId → { acc:{ reqNorm:{at,sig,noProof?} }, out:{ hunkKey:'keep'|'undo' } } | null (carregando)
 const rvUi={};    // taskId → { ask:'r1'|'', draft:'', loose:false, noProof:'' }
 const rvLoading={}; // taskId → nº de diffs em voo
-function rvViewOf(taskId){ return rvViewM[taskId]==='diff'?'diff':'req'; }
+// 'provas' (padrão desde 15/10) = o painel de provas do 80-aprovar, o mesmo da fila; 'req' = por requisito; 'diff' = o diff de antes
+function rvViewOf(taskId){ const v=rvViewM[taskId]; return v==='diff'?'diff':v==='req'||typeof apRenderTask!=='function'?'req':'provas'; }
 function rvUiOf(id){ return rvUi[id]||(rvUi[id]={ ask:'', draft:'', loose:false }); }
 function rvRerender(taskId){ if(typeof fwTask!=='undefined' && fwTask===taskId && (fwMode==='revisao'||fwMode==='pr') && typeof renderWorkspace==='function') renderWorkspace(); }
 function rvStEnsure(taskId){

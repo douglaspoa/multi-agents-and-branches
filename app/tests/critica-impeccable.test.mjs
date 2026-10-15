@@ -58,7 +58,7 @@ test('portão de prova vale em TODA porta de aprovação (cabeçalho, card da Ce
   assert.match(en, /<button class="btn" id="vfAskProof"/); assert.match(en, /<button class="btn" id="vfApprove"/);
   assert.ok(!/class="btn primary" id="vf(Approve|AskProof)"/.test(en), 'um verde por tela');
   // motivo registrado como o override das checagens + vai no PR
-  const ovr = cut(pr, 'async function proofOverride(t){', '\n}\n');
+  const ovr = cut(pr, 'async function proofOverride(t, motivo){', '\n}\n');
   assert.match(ovr, /askText\('Aprovar sem prova'/); assert.match(ovr, /lsSet\('proofOv:'\+t\.id/); assert.match(ovr, /invoke\('checks_override_log'/);
   assert.match(pr, /## Provas\\nAtenção: aprovado sem prova de/);
   // pedir a prova = mesma via do composer (na fila se ele estiver trabalhando)

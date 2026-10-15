@@ -168,7 +168,7 @@ function flowVisible(tasks){
   return tasks.filter(t=>
     flowScopeOk(t) &&
     // chips de status = as MESMAS seções da lista (flowBucket); em Concluídas não há chips, então não filtra
-    (flowScope==='done'||flowStatus==='all'||flowBucket(t)===flowStatus) &&
+    (flowScope==='done'||flowStatus==='all'||(flowStatus==='aprovar'?(typeof apAprovavel==='function'&&apAprovavel(t)):flowBucket(t)===flowStatus)) && // 'aprovar' = a fila do 80-aprovar
     flowOtherFiltersOk(t)
   );
 }
@@ -194,10 +194,11 @@ function renderFlowFilters(){
   const byPeriod=srcAll.filter(t=>flowScopeOk(t)&&flowOtherFiltersOk(t)); // C1: os chips contam o que a lista mostraria (só o status muda)
   const epqN=(typeof epQueueCount==='function')?epQueueCount():0;
   const fcP=flowCounts(byPeriod); // a MESMA contagem do cabeçalho/barra de status/Kanban
-  const count=g=> g==='all'?byPeriod.length:g==='epicos'?epqN:(fcP[g]||0);
+  const count=g=> g==='all'?byPeriod.length:g==='epicos'?epqN:g==='aprovar'?(typeof apAprovavel==='function'?byPeriod.filter(apAprovavel).length:0):(fcP[g]||0);
   // chips = as seções da Central (mesmo nome, mesma cor) + a fila dos épicos quando existe
-  if(flowStatus!=='all' && !FLOW_EXEC_KEYS.includes(flowStatus) && flowStatus!=='epicos') flowStatus='all'; // valor antigo (draft/active/…) salvo
-  const ST=[['all','Todas',null]].concat(FLOW_SECS.filter(([k])=>FLOW_EXEC_KEYS.includes(k)).map(([k,label])=>[k,label,FLOW_SEC_COLOR[k]||null]))
+  if(flowStatus!=='all' && !FLOW_EXEC_KEYS.includes(flowStatus) && flowStatus!=='epicos' && flowStatus!=='aprovar') flowStatus='all'; // valor antigo (draft/active/…) salvo
+  // "Para aprovar · N" (80-aprovar, mock do épico 15/10): logo depois de Todas — a mesma fila da lateral
+  const ST=[['all','Todas',null],['aprovar','Para aprovar','var(--info)']].concat(FLOW_SECS.filter(([k])=>FLOW_EXEC_KEYS.includes(k)).map(([k,label])=>[k,label,FLOW_SEC_COLOR[k]||null]))
     .concat([['epicos','Na fila dos épicos','var(--accent)']])
     .filter(([k])=>k==='all'||k===flowStatus||count(k)>0);
   let stChips=ST.map(([k,label,col])=>`<button class="fchip${flowStatus===k?' on':''}" data-st="${k}"${FLOW_SEC_TIP[k]?` title="${escA(FLOW_SEC_TIP[k])}"`:''}>${col?`<span class="dot" style="background:${col}"></span>`:''}${label}<span class="n">${count(k)}</span></button>`).join('');
@@ -259,7 +260,7 @@ function renderFlowFilters(){
   // tipo/épico/status podem ter vindo de outra sessão): sempre mostra "filtros ativos · limpar"
   const PE_PT=Object.fromEntries(PE);
   const act=[];
-  if(flowScope!=='done' && flowStatus!=='all') act.push(flowStatus==='epicos'?'fila dos épicos':((FLOW_SECS.find(([k])=>k===flowStatus)||[])[1]||flowStatus));
+  if(flowScope!=='done' && flowStatus!=='all') act.push(flowStatus==='epicos'?'fila dos épicos':flowStatus==='aprovar'?'para aprovar':((FLOW_SECS.find(([k])=>k===flowStatus)||[])[1]||flowStatus));
   if(flowPeriod!=='all') act.push(PE_PT[flowPeriod]||flowPeriod);
   if(flowAgent!=='all') act.push('agente '+flowAgent);
   if(flowType!=='all') act.push(TYPE_PT[flowType]||flowType);
@@ -427,6 +428,7 @@ const FLOW_SEC_TIP={
   andamento:'Em andamento: agentes trabalhando agora — você não precisa fazer nada.',
   prontas:'Prontas pra revisar: o agente terminou — confira e abra o PR (ou conclua).',
   praberto:'PR aberto: esperando revisão/merge no GitHub.',
+  aprovar:'Para aprovar: terminaram com as provas — Espaço abre as provas na linha, A aprova (integra na main com 4 s pra desfazer), P pede alteração.',
   rascunho:'Rascunhos: ainda não começaram — ▶ inicia.',
   fila:'Na fila: cartões do time no backlog (ou pedidos) que ainda não começaram — assuma pra trazer pra cá.',
   hoje:'Concluídas hoje: mergeadas ou concluídas por você.',
