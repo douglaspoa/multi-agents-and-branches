@@ -44,6 +44,11 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 [profile.dev]
 incremental = true
 
+# SQLite (C, bundled) otimizado mesmo no dev/test: em -O0 as consultas ficam ~2x mais lentas e os testes
+# de desempenho (ex.: agent_stats < 150 ms) estouravam o teto com a suíte inteira em paralelo.
+[profile.dev.package.libsqlite3-sys]
+opt-level = 3
+
 [features]
 # build de TESTE isolada (e2e do app): liga os comandos e2e_script/e2e_report — no app de verdade eles só recusam
 e2e = []

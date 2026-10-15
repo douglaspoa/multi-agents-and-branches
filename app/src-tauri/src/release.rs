@@ -233,7 +233,13 @@ pub fn upload(url: &str, anon: &str, token: &str, pkg: &Package, notes: Option<S
         "notes": notes.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "Melhorias e correções.".into()),
         "publishedAt": crate::chrono_iso_now(),
     });
-    let tmp = std::env::temp_dir().join(format!("starfork-latest-{}.json", std::process::id()));
+    // Nome único por chamada (pid + contador + relógio): com só o pid, duas publicações no mesmo
+    // processo (ou os testes em paralelo) dividiam o arquivo — uma apagava o da outra antes do curl
+    // ler, e o curl saía sem HTTP ("latest.json falhou (HTTP )").
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let tmp = std::env::temp_dir().join(format!("starfork-latest-{}-{}-{nanos}.json", std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
     std::fs::write(&tmp, meta.to_string()).map_err(|e| e.to_string())?;
     let code2 = curl_post(&obj("latest.json"), anon, token, "application/json", &tmp, 60);
     let _ = std::fs::remove_file(&tmp);
