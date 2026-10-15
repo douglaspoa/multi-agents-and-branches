@@ -381,6 +381,8 @@ function meuEventos(){
     if(x.done) continue;
     const mine=x.who===me || (!x.card);
     if(mine && x.st==='plan-review') out.push({ ms:x.mod, av:'ia', s:`O plano de ${tt(x.titulo)} espera sua aprovação.`, m:meta(x, x.mod), a:[{ l:'Ver o plano', pri:true, act:()=>semAbrir(x) }] });
+    // 80-aprovar: terminou com as provas (ou o revisor pediu mudança) → Aprovar direto na frase e "Ver provas" abre o painel aqui
+    else if(mine && x.local && typeof apMeuEvento==='function' && typeof apAprovavel==='function' && apAprovavel(x.local)) out.push(apMeuEvento(x, meta(x, x.mod)));
     else if(mine && x.bucket==='prontas' && x.local){ const r=(x.local.requirements||[]).length; const ok=(typeof reqProvadas==='function')?reqProvadas(x.local):null;
       out.push({ ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${r?(ok!=null?` com ${ok} de ${r} requisitos provados`:` (${r} requisitos)`):''}.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
     else if(mine && x.bucket==='praberto' && x.local){ const pr=semPrNum(x.local);
@@ -404,7 +406,8 @@ let meuEvAtual=[];
 function meuHtml(){
   const me=semMe(), its=semItens(), ev=meuEventos(); meuEvAtual=ev;
   const proj=(typeof state!=='undefined'&&state.repo)?pathBase(state.repo):'';
-  const evH=ev.length?ev.map((e,i)=>`<div class="mev"><span class="mev-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="mev-tx"><div class="mev-s">${e.s}</div>${e.m?`<div class="mev-m">${esc(e.m)}</div>`:''}</div><div class="mev-a">${e.a.map((a,j)=>a.menu?`<button type="button" class="btn sm quiet" data-meva="${i}:${j}" aria-haspopup="menu">${esc(a.l)} ${semIc('chev')}</button>`:`<button type="button" class="btn sm${a.pri?' primary':''}" data-meva="${i}:${j}">${esc(a.l)}</button>`).join('')}</div></div>`).join('')
+  const apSel=typeof apMeuSel==='function'?apMeuSel():'';
+  const evH=ev.length?ev.map((e,i)=>`<div class="mev${e.tid&&e.tid===apSel?' sel':''}"${e.tid?` data-aptid="${escA(e.tid)}"`:''}><span class="mev-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="mev-tx"><div class="mev-s">${e.s}</div>${e.m?`<div class="mev-m">${esc(e.m)}</div>`:''}</div><div class="mev-a">${e.a.map((a,j)=>a.menu?`<button type="button" class="btn sm quiet" data-meva="${i}:${j}" aria-haspopup="menu">${esc(a.l)} ${semIc('chev')}</button>`:`<button type="button" class="btn sm${a.pri?' primary':''}" data-meva="${i}:${j}">${esc(a.l)}</button>`).join('')}</div></div>${e.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(e.tid):''}`).join('')
     :`<div class="mev-vazio">${semIc('check')} Nada esperando por você agora.</div>`;
   // Minha semana: hoje (o que está comigo e não está em "Precisa de mim"), entregue ontem, e a minha fila
   const t0=semDia0(Date.now()), ontem=t0-86400000;
@@ -419,7 +422,7 @@ function meuHtml(){
   const sentH=sent.length?sent.map(x=>`<div class="mmd" role="button" tabindex="0" data-semopen="${escA(x.id)}">${personAv(x.who,{ decor:true })}<span class="mmd-t">${esc(mdTitle(x.titulo))}</span><span></span><span class="mmd-s" style="color:${x.trav?'var(--st-err)':stColor(x.st)}">${esc(personName(x.who,{ noYou:true }))} · ${esc(x.trav?'travada':stLabel(x.st))}</span></div>`).join('')
     :`<div class="mws-nada">${semTemTime()?'Nada que você mandou está aberto.':'Entre num time pra mandar demandas pra outras pessoas.'}</div>`;
   return `<div class="sempg">${semHead('Meu trabalho', semHojeTx()+(proj?' · '+proj:''))}
-    <div class="semsec-h"><h2>Precisa de mim</h2><span class="n">${ev.length} · sai daqui quando você age</span></div>
+    <div class="semsec-h"><h2>Precisa de mim</h2><span class="n">${ev.length} · sai daqui quando você age${ev.some(e=>e.tid)?' · J/K troca, Espaço mostra as provas, A aprova, P pede alteração':''}</span></div>
     <section class="mevs" aria-label="Precisa de mim">${evH}</section>
     <div class="mw2"><section class="mws" aria-label="Minha semana"><div class="semsec-h"><h2>Minha semana</h2></div>
       ${dia('Hoje', SEM_DIAS_LONGO[new Date(t0).getDay()]+', '+new Date(t0).getDate(), hoje)}${dia('Ontem', SEM_DIAS_LONGO[dOnt.getDay()]+', '+dOnt.getDate(), ont)}${dia('Na fila', 'próximas', fila)}</section>

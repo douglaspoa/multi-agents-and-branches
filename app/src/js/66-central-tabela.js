@@ -52,6 +52,7 @@ function ctAction(r){
   if(r.status==='conflict') return { label:'Resolver', act:'open', primary:true };
   if(['error','aborted'].includes(r.status)) return { label:'Ver o que houve', act:'open', primary:true };
   if(r.status==='needs-you') return { label:'Decidir', act:'open', primary:true };
+  if(r.aprovar) return { label:'Ver provas', act:'toggle', primary:true }; // 80-aprovar: a linha abre o painel de provas (A aprova, P pede alteração)
   if(r.bucket==='praberto' && r.prUrl) return { label:'Ver PR', act:'pr', primary:false };
   if(r.bucket==='prontas') return { label:'Revisar', act:'open', primary:true };
   return { label:'Abrir', act:'open', primary:false };
@@ -75,6 +76,7 @@ function ctActBtn(r, a, cls){
   const c=`btn sm${a.primary?' primary':''}${cls?' '+cls:''}`;
   if(a.act==='play') return `<button type="button" class="${c}" data-rowplay="${escA(r.id)}">${esc(a.label)}</button>`;
   if(a.act==='pr') return `<button type="button" class="${c}" data-lk="${escA(r.prUrl)}" title="abrir o PR no GitHub">${esc(a.label)}</button>`;
+  if(a.act==='toggle') return `<button type="button" class="${c}" data-cttog="${escA(r.id)}" title="as provas na própria linha (Espaço) — A aprova, P pede alteração">${esc(a.label)}</button>`;
   return `<button type="button" class="${c}" data-dcopen="${escA(r.id)}">${esc(a.label)}</button>`;
 }
 function ctTheadHtml(sort){
@@ -108,6 +110,8 @@ function ctMoreBtn(r){
   return `<button type="button" class="btn sm ghost ctmore" data-tmenu="${escA(r.id)}" aria-haspopup="menu" aria-label="mais ações" title="mais ações — concluir, mudar status">${ic}</button>`;
 }
 function ctExpHtml(r){
+  // pronta pra aprovar: a linha aberta É o painel de provas (80-aprovar, o mesmo da fila) — Aprovar/Pedir alteração ali mesmo
+  if(r.aprovar && typeof proofPanel==='function') return `<tr class="ctexp ctexp-ap" data-ctexp="${escA(r.id)}"><td colspan="${CT_COLS.length+1}"><div class="ctexp-apb">${proofPanel(r.id, 'compact')}</div></td></tr>`;
   const acts=[`<button type="button" class="btn sm primary" data-dcopen="${escA(r.id)}">Abrir tarefa <span class="kbd" aria-hidden="true">↵</span></button>`];
   if(r.pr) acts.push(`<button type="button" class="btn sm" data-lk="${escA(r.prUrl)}">Revisar PR #${esc(r.pr)}</button>`);
   const miss=r.nreq-r.ok;
@@ -164,6 +168,7 @@ function ctRow(t){
     ia:t.orchestration?'Orquestrador':ia, stages:stages.map(s=>({ label:s.label, state:s.state, word:s.word })), pos:sum?sum.pos:0, n:stages.length, label:sum?sum.label:'', now:sum?sum.now:'',
     nreq, ok, ad, loaded, cross, gateSt:g.st, canAskProof:!cross && ['review','delivered'].includes(t.status) && g.st==='unproven' && !t.prUrl,
     pr:(typeof prNumOf==='function')?prNumOf(t):'', prUrl:t.prUrl||'', status:t.status, blocked:t.flag==='blocked', asking,
+    aprovar:!cross && typeof apAprovavel==='function' && apAprovavel(t), // 80-aprovar: entra no filtro "Para aprovar" e abre o painel de provas
     needsYou:asking || CT_NEEDS_ST.has(t.status) || !!(typeof taskLoop==='function' && taskLoop(t)), // a barra de "precisa de você" — rascunho e "Revisar" não ganham
     budget:(typeof budgetNoticeHtml==='function' && !cross)?budgetNoticeHtml(t):'',
     bucket:b, st, stLabel:stShort(st), stColor:stColor(st), rank:(typeof railRank==='function')?(6-railRank(st)):0, ts, ago:(typeof agoShort==='function')?agoShort(ts):'' };
@@ -188,7 +193,7 @@ function ctWire(el, src){
     const tr=table.querySelector(`tr[data-ctrow="${CSS.escape(id)}"]`), r=CT.rows.get(id); if(!tr || !r) return;
     const op=!CT.open.has(id); if(op) CT.open.add(id); else CT.open.delete(id);
     const nx=tr.nextElementSibling; if(nx && nx.classList.contains('ctexp')) nx.remove();
-    if(op){ tr.insertAdjacentHTML('afterend', ctExpHtml(r)); const ex=tr.nextElementSibling; if(ex && typeof budgetNoticeWire==='function') budgetNoticeWire(ex); if(ex && ex.classList.contains('ctexp') && typeof mvExpand==='function' && mvUser()) mvExpand(ex.querySelector('.ctexpb')); } // F3: a linha abre crescendo
+    if(op){ tr.insertAdjacentHTML('afterend', ctExpHtml(r)); const ex=tr.nextElementSibling; if(ex && typeof budgetNoticeWire==='function') budgetNoticeWire(ex); if(ex && r.aprovar && typeof apRefresh==='function') apRefresh(); if(ex && ex.classList.contains('ctexp') && typeof mvExpand==='function' && mvUser()) mvExpand(ex.querySelector('.ctexpb')); } // F3: a linha abre crescendo
     tr.classList.toggle('open', op);
     const ch=tr.querySelector('[data-cttog]'); if(ch){ ch.setAttribute('aria-expanded', String(op)); ch.textContent=op?'▾':'▸'; }
     ctSyncLast();
@@ -224,7 +229,10 @@ function ctWire(el, src){
   table.onkeydown=(e)=>{ const tr=e.target.closest('tr[data-ctrow]'); if(!tr || e.target!==tr) return;
     if(e.key==='Enter'){ e.preventDefault(); open(tr.dataset.ctrow); }
     else if(e.key===' '){ e.preventDefault(); toggle(tr.dataset.ctrow); }
-    else if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); const all=[...table.querySelectorAll('tr[data-ctrow]')]; const n=all[all.indexOf(tr)+(e.key==='ArrowDown'?1:-1)]; if(n) n.focus(); }
+    else if(e.key==='ArrowDown'||e.key==='ArrowUp'||((e.key==='j'||e.key==='k') && !e.metaKey && !e.ctrlKey && !e.altKey)){ e.preventDefault(); const all=[...table.querySelectorAll('tr[data-ctrow]')]; const n=all[all.indexOf(tr)+((e.key==='ArrowDown'||e.key==='j')?1:-1)]; if(n) n.focus(); }
+    // 80-aprovar: A aprova e P pede alteração na linha selecionada (só na linha pronta pra aprovar; nunca dentro de campo)
+    else if((e.key==='a'||e.key==='A') && !e.metaKey && !e.ctrlKey && !e.altKey && (CT.rows.get(tr.dataset.ctrow)||{}).aprovar && typeof aprovarTarefa==='function'){ e.preventDefault(); aprovarTarefa(tr.dataset.ctrow); }
+    else if((e.key==='p'||e.key==='P') && !e.metaKey && !e.ctrlKey && !e.altKey && (CT.rows.get(tr.dataset.ctrow)||{}).aprovar && typeof apPedirAbrir==='function'){ e.preventDefault(); if(!CT.open.has(tr.dataset.ctrow)) toggle(tr.dataset.ctrow); apPedirAbrir(tr.dataset.ctrow); }
     else if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){ e.preventDefault(); openTaskMenu(tr.dataset.ctrow, tr); } };
   table.oncontextmenu=(e)=>{ const tr=e.target.closest('tr[data-ctrow]'); if(!tr) return; e.preventDefault(); openTaskMenu(tr.dataset.ctrow, e.target); };
 }

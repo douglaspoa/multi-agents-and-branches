@@ -916,6 +916,7 @@ function renderWorkspace(){
   else if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
   else if(fwMode==='previa'){ if(typeof mrOn==='function' && mrOn()) mrRender(t, main); else fwRenderPrevia(t, main); } // 77: Prévia com Mira no modo etapas // 57-navegador: só repinta o que mudou (o iframe não é recriado pelo tick)
+  else if(fwMode==='revisao' && typeof rvViewOf==='function' && rvViewOf(t.id)==='provas') apRenderTask(t, main); // 80-aprovar: o painel de provas (o mesmo da fila)
   else if(fwMode==='revisao'){ if(typeof rvRender==='function' && rvViewOf(t.id)!=='diff') rvRender(t, main); else fwRenderDiff(t, main); } // 63-revisao-pr: por requisito; "ver diff completo" = o diff de antes
   else if(fwMode==='codigo' && typeof cxOn==='function' && cxOn()){ cxRender(t, main); } // 76: Código explicado (modo etapas)
   else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:var(--fs-sm)">código</span></div><div class="empty">${fwFilesLoading?skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' }):fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
