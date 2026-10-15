@@ -1,0 +1,148 @@
+// APROVAR numa ação + painel de provas + fila "Para aprovar" (80-aprovar, mock do épico aprovado em 15/10).
+// `node --test app/tests/aprovar.test.mjs`
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
+const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const JS = read('js/80-aprovar.js'), RV = read('js/63-revisao-pr.js'), HTML = read('index.html'), CSS = read('css/99-aprovar.css');
+const P = new Function('esc', 'escA', cut(RV, '// @revpr-puro-inicio', '// @revpr-puro-fim') + cut(JS, '// @ap-puro-inicio', '// @ap-puro-fim')
+  + '\nreturn { rvGatesOf, apMotivoOk, apDecide, apChips, apAoAprovar, apFrase, apPode, apOndaDepois, apSugestoes, apNav, AP_UNDO_MS };')(esc, esc);
+
+// portões como a aba PR monta (rvGatesOf), com o que muda em cada caso
+const gates = (o = {}) => P.rvGatesOf({
+  proof: { st: o.proof || 'proven', n: 4, missing: o.missing || 0 },
+  acc: { n: 4, done: o.acc ?? 0 },
+  rev: { has: true, rounds: o.rounds || [{ round: 1, verdict: 'aprova', items: [] }], override: !!o.override },
+  pr: o.pr === false ? {} : { checksTotal: o.checks ?? 3, checksFail: o.fail || 0, checksPending: 0, mergeable: o.merge || 'MERGEABLE', base: 'main' },
+});
+
+test('aprovar: tudo verde → ok (o aceite não bloqueia: aprovar ACEITA os requisitos)', () => {
+  const d = P.apDecide(gates({ acc: 0 }));
+  assert.equal(d.kind, 'ok'); assert.deepEqual(d.precisa, []);
+});
+test('aprovar: conflito nunca passa, nem com motivo', () => {
+  const d = P.apDecide(gates({ merge: 'CONFLICTING' }), { motivo: 'sei o que estou fazendo aqui' });
+  assert.equal(d.kind, 'conflito');
+});
+test('aprovar: revisor pediu mudança → só com motivo (≥ 3 palavras); com motivo passa e diz o que vai pro registro', () => {
+  const G = gates({ rounds: [{ round: 1, verdict: 'muda', items: ['a'] }, { round: 2, verdict: 'muda', items: ['x', 'y'] }] });
+  assert.equal(P.apDecide(G).kind, 'motivo');
+  assert.equal(P.apDecide(G, { motivo: 'ok' }).kind, 'motivo', 'uma palavra não explica');
+  const d = P.apDecide(G, { motivo: 'os centavos viram a LOJA-35' });
+  assert.equal(d.kind, 'ok'); assert.deepEqual(d.precisa, ['revisor']);
+});
+test('aprovar: requisito sem prova também pede motivo (o mesmo "aprovar sem prova…")', () => {
+  const d = P.apDecide(gates({ proof: 'unproven', missing: 1 }));
+  assert.equal(d.kind, 'motivo'); assert.deepEqual(d.precisa, ['prova']);
+});
+test('aprovar: checagens do GitHub falhando ou revisão que não rodou bloqueiam com o porquê', () => {
+  const a = P.apDecide(gates({ fail: 1 }));
+  assert.equal(a.kind, 'bloqueado'); assert.match(a.why, /checagens passarem/);
+  const b = P.apDecide(gates({ rounds: [] }));
+  assert.equal(b.kind, 'bloqueado'); assert.match(b.why, /revisão/);
+  const c = P.apDecide(gates({ proof: 'loading' }));
+  assert.equal(c.kind, 'bloqueado', 'provas ainda carregando não deixam aprovar');
+});
+test('aprovar: sem PR aberto ainda (o conflito sai dos portões) → aprovar abre o PR', () => {
+  const G = gates({ pr: false }).filter((g) => g.id !== 'conflito');
+  assert.equal(P.apDecide(G).kind, 'ok');
+});
+test('motivo: régua de 3 palavras com letra/número', () => {
+  assert.equal(P.apMotivoOk(''), false); assert.equal(P.apMotivoOk('não sei'), false);
+  assert.equal(P.apMotivoOk('vira tarefa separada'), true); assert.equal(P.apMotivoOk('- - - -'), false);
+});
+test('selos: sem o aceite, sem "não se aplica"; revisor com nome; conflito em português', () => {
+  const c = P.apChips(gates({}), 'Nyx');
+  assert.deepEqual(c.map((x) => x.tx), ['4/4 com prova', 'Nyx: aprovou', 'checagens: 3 de 3 passaram', 'sem conflito']);
+  assert.ok(c.every((x) => x.st === 'ok'));
+  const r = P.apChips(gates({ merge: 'CONFLICTING', rounds: [{ round: 2, verdict: 'muda', items: ['x'] }], checks: 0 }), 'Nyx');
+  assert.deepEqual(r.map((x) => x.st + ':' + x.tx), ['ok:4/4 com prova', 'bad:Nyx: pediu mudança', 'bad:conflito com a main']);
+});
+test('"Ao aprovar": sem épico, com outras na onda (com nome), fechando a onda, última → verificação final', () => {
+  assert.equal(P.apAoAprovar({ pr: 46 }).h, 'Integra o PR #46 na main. Não faz parte de épico.');
+  assert.match(P.apAoAprovar({}).h, /^Abre o PR e integra na main/);
+  const w = P.apAoAprovar({ pr: 48, epico: { onda: 1, mesmaOnda: [{ code: 'LOJA-21', quem: 'Carla', st: 'rodando' }], proxima: [], ultima: false } });
+  assert.equal(w.c, 'w'); assert.match(w.h, /A onda 2 ainda espera <b>LOJA-21<\/b> \(Carla, rodando\)/);
+  const f = P.apAoAprovar({ pr: 48, epico: { onda: 1, mesmaOnda: [], proxima: [{ code: 'LOJA-9', quem: 'Ana' }, { code: 'LOJA-15', quem: 'Bruno' }], ultima: false } });
+  assert.match(f.h, /fecha a onda 1: <b>a onda 2 começa sozinha<\/b> \(LOJA-9 com Ana, LOJA-15 com Bruno\)/);
+  const m = P.apAoAprovar({ pr: 48, epico: { onda: 1, mesmaOnda: [], proxima: [], ultima: false, auto: false } });
+  assert.match(m.h, /fica liberada pra você começar/);
+  const u = P.apAoAprovar({ pr: 60, epico: { onda: 3, mesmaOnda: [], proxima: [], ultima: true } });
+  assert.match(u.h, /última tarefa: a <b>verificação final<\/b>/);
+  const x = P.apAoAprovar({ pr: 1, epico: { onda: 1, mesmaOnda: [{ code: '<b>', quem: 'A&B' }], proxima: [] } });
+  assert.ok(!x.h.includes('<b><b>') && x.h.includes('&lt;b&gt;') && x.h.includes('A&amp;B'), 'escapa nomes e códigos');
+});
+test('frase do que mudou: o que o agente fez → a última fala → o pedido; corta em ~220', () => {
+  assert.equal(P.apFrase({ dids: ['aviso com a data do cupom vencido.', 'desconto sobre o total com frete'] }), 'Aviso com a data do cupom vencido; desconto sobre o total com frete.');
+  assert.equal(P.apFrase({ dids: ['', null], msg: 'Corrigi o frete. Depois rodei os testes.' }), 'Corrigi o frete.');
+  assert.equal(P.apFrase({ objetivo: 'Parcelar no cartão' }), 'Parcelar no cartão');
+  assert.ok(P.apFrase({ dids: ['x '.repeat(300)] }).length <= 220);
+});
+test('quem aprova: quem pediu ou o líder; sem time, você', () => {
+  assert.deepEqual(P.apPode({ temTime: false, me: 'eu' }), { pode: true, quem: '' });
+  assert.deepEqual(P.apPode({ temTime: true, me: 'eu', pediu: 'eu' }), { pode: true, quem: '' });
+  assert.deepEqual(P.apPode({ temTime: true, me: 'eu', pediu: 'carla', lider: true }), { pode: true, quem: 'carla' });
+  assert.deepEqual(P.apPode({ temTime: true, me: 'eu', pediu: 'carla' }), { pode: false, quem: 'carla' });
+});
+test('onda depois de integrar: fecha só com TODAS integradas; última = épico inteiro integrado; cancelada fica fora', () => {
+  const it = [{ id: 'a', wave: 1, b: 'pr' }, { id: 'b', wave: 1, b: 'ok' }, { id: 'c', wave: 2, b: 'queue' }, { id: 'x', wave: 1, b: 'off' }];
+  assert.deepEqual(P.apOndaDepois(it, 1, 'a'), { fechou: true, ultima: false });
+  assert.deepEqual(P.apOndaDepois([{ id: 'a', wave: 1, b: 'pr' }, { id: 'b', wave: 1, b: 'rev' }], 1, 'a'), { fechou: false, ultima: false }, 'concluir sem integrar não fecha');
+  assert.deepEqual(P.apOndaDepois([{ id: 'a', wave: 2, b: 'pr' }, { id: 'b', wave: 1, b: 'ok' }], 2, 'a'), { fechou: true, ultima: true });
+});
+test('sugestões do pedir alteração vêm do revisor; J/K não dão a volta; desfazer = 4 s', () => {
+  assert.deepEqual(P.apSugestoes([{ verdict: 'muda', items: ['a', 'b'] }]), ['a', 'b']);
+  assert.equal(P.apSugestoes([]).length, 3);
+  assert.equal(P.apNav(3, 2, 1), 2); assert.equal(P.apNav(3, 0, -1), 0); assert.equal(P.apNav(3, 1, 1), 2); assert.equal(P.apNav(0, 0, 1), 0);
+  assert.equal(P.AP_UNDO_MS, 4000);
+});
+
+// ---- ligações (sem DOM): o que as outras frentes e telas usam
+test('API exportada pra aba do épico: proofPanel, aprovarTarefa, pedirAlteracao + eventos da onda', () => {
+  for (const k of ['window.proofPanel=proofPanel', 'window.aprovarTarefa=aprovarTarefa', 'window.pedirAlteracao=pedirAlteracao']) assert.ok(JS.includes(k), k);
+  assert.match(JS, /new CustomEvent\('sf:epico-onda-fechada', \{ detail:\{ epicId:eid, wave:w \} \}\)/);
+  assert.match(JS, /new CustomEvent\('sf:epico-ultima-integrada', \{ detail:\{ epicId:eid \} \}\)/);
+  assert.match(JS, /function proofPanel\(taskId, mode\)\{\n  mode=\['full','compact','task'\]/);
+});
+test('não duplica regra: portões do rvGatesOf, PR pelo approveGate, merge pelo mergePrRun, motivo no checks_override_log', () => {
+  assert.match(JS, /rvGatesOf\(\{/); assert.match(JS, /await approveGate\(t\)/); assert.match(JS, /mergePrRun\(id\)/);
+  assert.match(JS, /checks_override_log/); assert.match(JS, /proofOverride\(t, motivo\)/); assert.match(JS, /rqChangeText\(/); assert.match(JS, /fwSendText\(taskId, msg\)/);
+  const PR = read('js/21-pull-request.js');
+  assert.match(PR, /async function mergePrRun\(taskId\)\{ await invoke\('merge_pr',\{ taskId, method:'squash' \}\)/);
+  assert.match(PR, /try\{ await mergePrRun\(taskId\); toast\('PR mergeado','ok'\)/, 'o merge com confirmação usa o mesmo caminho');
+  assert.match(PR, /async function proofOverride\(t, motivo\)/);
+});
+test('4 s com Desfazer antes do merge; Z desfaz; teclas de uma letra não roubam campo nem terminal', () => {
+  assert.match(JS, /setTimeout\(\(\)=>apIntegrar\(t\.id\), AP_UNDO_MS\)/);
+  assert.match(JS, /k==='z' && AP\.pending/);
+  assert.match(JS, /INPUT\|TEXTAREA\|SELECT/); assert.match(JS, /\.xterm/);
+});
+test('lateral, aba e página: "Para aprovar" em TRABALHO, com contador; aba (nunca modal); CSS ligado', () => {
+  assert.match(HTML, /id="aprovarBtn"[^>]*>[\s\S]*?<span class="sbl">Para aprovar<\/span><span class="sbcnt q ap" id="aprovarCnt" hidden><\/span><\/button>/);
+  assert.ok(HTML.indexOf('id="meuBtn"') < HTML.indexOf('id="aprovarBtn"') && HTML.indexOf('id="aprovarBtn"') < HTML.indexOf('id="semanaBtn"'), 'entre Meu trabalho e Semana');
+  assert.match(HTML, /<div class="overlay fwoverlay pgov" id="aprovarOverlay" style="display:none"><div class="pgpage sempage" id="aprovarPage"><\/div><\/div>/);
+  assert.match(HTML, /<script src="js\/80-aprovar\.js"><\/script>/); assert.match(HTML, /css\/99-aprovar\.css/);
+  assert.match(JS, /VIEW_META\.aprovar=/); assert.match(JS, /VIEW_OVERLAY\.aprovar='aprovarOverlay'/);
+  assert.match(CSS, /\.apv-acts\{[^}]*position:sticky;bottom:0/, 'Aprovar sempre visível no rodapé do painel');
+});
+test('Central: filtro "Para aprovar", a linha aberta é o painel compacto, A/P/J/K na linha', () => {
+  const ct = read('js/66-central-tabela.js'), fl = read('js/22-quadro-fluxo.js');
+  assert.match(fl, /\['aprovar','Para aprovar','var\(--info\)'\]/); assert.match(fl, /flowStatus==='aprovar'\?\(typeof apAprovavel==='function'&&apAprovavel\(t\)\)/);
+  assert.match(ct, /if\(r\.aprovar && typeof proofPanel==='function'\) return `<tr class="ctexp ctexp-ap"/);
+  assert.match(ct, /proofPanel\(r\.id, 'compact'\)/); assert.match(ct, /aprovarTarefa\(tr\.dataset\.ctrow\)/); assert.match(ct, /e\.key==='j'\|\|e\.key==='k'/);
+});
+test('Meu trabalho e Revisão ⌘3 usam o mesmo painel (compact / task) — a revisão por requisito continua a um clique', () => {
+  const sem = read('js/76-casca-semana.js'), ws = read('js/20-workspace-tarefa.js'), te = read('js/77-tarefa-etapas.js');
+  assert.match(sem, /apMeuEvento\(x, meta\(x, x\.mod\)\)/); assert.match(sem, /apMeuExpHtml\(e\.tid\)/);
+  assert.match(JS, /l:'Aprovar', pri:true/); assert.match(JS, /'Esconder provas':'Ver provas'/);
+  assert.match(ws, /rvViewOf\(t\.id\)==='provas'\) apRenderTask\(t, main\)/);
+  assert.match(te, /data-v="provas"/); assert.match(te, />Por requisito</);
+  assert.match(RV, /function rvViewOf\(taskId\)\{ const v=rvViewM\[taskId\]; return v==='diff'\?'diff':v==='req'\|\|typeof apRenderTask!=='function'\?'req':'provas'; \}/);
+});
+test('status num lugar só: os estados do painel moram no STATUS_META', () => {
+  const u = read('js/00-util.js');
+  for (const k of ["'para-aprovar':", 'integrando:', "'mudanca-pedida':"]) assert.ok(u.includes(k), k);
+  assert.match(JS, /stBadge\(v\.st\)/);
+});

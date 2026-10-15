@@ -109,7 +109,7 @@ test('L6: erro do medidor em duas linhas que quebram — "tentar de novo" sempre
 test('Semana (14/10): lateral em 3 grupos — Trabalho (+ Abertas) e Padrões do time no miolo que rola; Conta fixa embaixo; Fábrica e Time saíram', () => {
   const mid = cut(html, '<div class="sbscroll" id="sbMid">', '<div class="sbfoot">');
   const ids = (h) => [...h.matchAll(/<button class="btn sbitem[^"]*" id="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(ids(cut(mid, 'id="sbGrpTrab"', 'id="sbAbertasH"')), ['meuBtn', 'semanaBtn', 'entregasBtn', 'issuesBtn']);
+  assert.deepEqual(ids(cut(mid, 'id="sbGrpTrab"', 'id="sbAbertasH"')), ['meuBtn', 'aprovarBtn', 'semanaBtn', 'entregasBtn', 'issuesBtn']);
   assert.match(mid, /<div class="sbsubgrp" id="sbAbertasH">Abertas<\/div>\s*<div id="rail"/, 'Abertas = a lista de demandas, entre os grupos');
   assert.deepEqual(ids(cut(mid, 'id="sbPadTgl"', '</nav>')), ['projetosBtn', 'agentesBtn', 'skillsNavBtn', 'memoriaBtn']);
   assert.match(mid, /<button class="sbgrp sbgrpbtn" id="sbPadTgl" aria-expanded="true" aria-controls="sbPad">Padrões do time/, 'Padrões do time recolhível');
