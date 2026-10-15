@@ -95,6 +95,19 @@ html.te-on .fwmain .fwtreepill,html.te-on .fwchat .fwtreepill{display:none!impor
 .cx-fchip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font-family:var(--mono);font-size:var(--fs-xs);cursor:pointer;white-space:nowrap}
 .cx-fchip[aria-pressed="true"]{background:var(--surface-3);border-color:var(--border-strong);box-shadow:var(--shadow-sm)}
 .cx-fchip:hover{background:var(--surface-2)}
+/* muitos arquivos: no máximo 2 linhas de chips; o resto vai pra "Todos os arquivos" (lista com rolagem própria) */
+.cx-chips{max-height:72px;overflow:hidden}
+.cx-fchip .cx-fn{overflow:hidden;text-overflow:ellipsis;max-width:220px}
+.cx-allbtn{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border:1px dashed var(--border-strong);border-radius:var(--r-sm);background:transparent;color:var(--text);font-size:var(--fs-xs);cursor:pointer;white-space:nowrap}
+.cx-allbtn:hover{background:var(--surface-2)}
+.cx-all{flex:none;margin:0 18px 10px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);display:flex;flex-direction:column;min-height:0;max-height:min(46vh,420px)}
+.cx-aq{margin:10px;flex:none}
+.cx-alist{overflow:auto;min-height:0;padding:0 6px 8px}
+.cx-ag{position:sticky;top:0;background:var(--surface);padding:8px 6px 4px;font-size:var(--fs-xs);color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;display:flex;gap:8px;align-items:center}
+.cx-arow{display:flex;width:100%;align-items:center;gap:8px;padding:5px 8px;border:0;border-radius:var(--r-sm);background:transparent;color:var(--text);font-family:var(--mono);font-size:var(--fs-xs);text-align:left;cursor:pointer}
+.cx-arow[hidden]{display:none}
+.cx-arow:hover,.cx-arow[aria-pressed="true"]{background:var(--surface-2)}
+.cx-ap{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
 .cx-fn{overflow:hidden;text-overflow:ellipsis;min-width:0}
 .cx-a{color:var(--ok)}.cx-d{color:var(--crit)}
 .cx-w{width:7px;height:7px;border-radius:99px;background:var(--warn)}
