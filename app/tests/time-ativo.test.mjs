@@ -169,7 +169,7 @@ test('Mandar pro time / épico: o time de destino quando há mais de um (padrão
 });
 
 test('index carrega o módulo e o CSS', () => {
-  assert.match(IDX, /<script src="js\/74-time-ativo\.js"><\/script>\n<script src="js\/99-e2e\.js">/);
+  assert.match(IDX, /<script src="js\/74-time-ativo\.js"><\/script>\n(<script src="js\/7\d-[\w-]+\.js"><\/script>\n)*<script src="js\/99-e2e\.js">/);
   assert.match(IDX, /css\/99-time-ativo\.css/);
 });
 
