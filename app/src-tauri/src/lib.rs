@@ -3822,9 +3822,13 @@ fn new_task(
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
                 let base = id.clone();
                 let mut n = 1;
+                // ocupado = tarefa com esse id OU pasta de trabalho com esse nome (sobra de tarefa apagada/outro épico):
+                // a tarefa nova nunca reaproveita a worktree de outra (a branch livre o motor escolhe — git.freeBranch)
+                let wt_dir = repo.join(".cardume").join("worktrees");
                 while conn
                     .query_row("SELECT 1 FROM task WHERE id=?1", params![id], |_| Ok(()))
                     .is_ok()
+                    || wt_dir.join(&id).exists()
                 {
                     n += 1;
                     // o CLI re-slugifica o id e TRUNCA em 48 — o sufixo precisa
