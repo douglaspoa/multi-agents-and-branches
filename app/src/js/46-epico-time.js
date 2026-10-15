@@ -49,6 +49,25 @@ window.taskOriginHtml=taskOriginHtml;
 function epEffSt(t){ if(!t) return ''; return ('team_id' in t && typeof tsSt==='function') ? tsSt(t) : taskSt(t); }
 function epDelivered(t){ const st=epEffSt(t); return ['merged','done','closed'].includes(st); }
 function epInReview(t){ return ['review','delivered','pr-open'].includes(epEffSt(t)); }
+// @ep-ondas-inicio (puro: testado em app/tests/epico-ondas.test.mjs)
+// ONDAS (15/10): a regra ÚNICA de "pré-requisito concluído" pra liberar a tarefa seguinte = o CÓDIGO dele está na base
+// de onde a seguinte nasce (a main fresca do origin). Integrada (merged/done) conta. "Concluir · sai da fila" só conta
+// SEM PR aberto (tarefa sem código pra integrar — pesquisa, doc, abandonada). Concluída com o PR ainda aberto NÃO conta:
+// antes contava, e a onda seguinte nascia da main SEM o código dela. Escolha segura: ESPERAR o PR ser integrado (nunca
+// empilhar na branch da outra — se o PR muda na revisão, a de cima fica com código velho e o merge vira conflito).
+// t = cartão da nuvem (pr_url) ou tarefa local (prUrl).
+function epPrOpen(t){ if(!t) return false; const pr=('team_id' in t)?t.pr_url:t.prUrl; return !!pr && !['merged','done'].includes(t.status); }
+function epDepOk(t){ if(!t) return false; if(['merged','done'].includes(t.status)) return true; return t.flag==='closed' && !epPrOpen(t); }
+// "esperando LOJA-1 · Título terminar" — o que segura a tarefa, com o porquê (PR aberto = falta integrar)
+// list: [{ title, code, b }] (b = epqBucket). esc injetado (a mesma função da app)
+function epWaitTx(list, esc){
+  const L=(list||[]).filter(Boolean); if(!L.length) return '';
+  const nm=x=>{ const t0=String(x.title||'tarefa'), t=t0.length>40?t0.slice(0,39)+'…':t0, c=String(x.code||'').trim(); return (c && !t.includes(c)?c+' · ':'')+t; };
+  const why={ pr:'PR aberto · falta integrar', rev:'pronta pra revisar · falta integrar', run:'rodando', ask:'aguardando a pessoa', bad:'com erro ou conflito', queue:'ainda não começou' };
+  const parts=L.slice(0,3).map(x=>'<b>'+esc(nm(x))+'</b>'+(why[x.b]?' ('+why[x.b]+')':''));
+  return 'esperando '+parts.join(', ')+(L.length>3?' e mais '+(L.length-3):'')+(L.length===1?' terminar':' terminarem');
+}
+// @ep-ondas-fim
 // @atrap-epico-inicio (testado em app/tests/atrap-fabrica.test.mjs)
 // "pronto quando" digitado numa linha: itens separados por ";" (ou quebra de linha) → [{ id:'D1', text }] (no máximo 8)
 function epDoneWhenParse(txt){
@@ -142,7 +161,8 @@ function epicPageRender(){
   const curWave=waves.find(w=>byWave[w].some(t=>!isDone(t)&&!isRev(t)))||0; // 1ª onda que ainda tem trabalho
   // pré-requisito ainda aberto = irmã do épico citada em spec.after que não foi concluída/mergeada
   const sib={}; tasks.forEach(t=>{ sib[t.id]=t; });
-  const depsOpen=t=>((t.spec||{}).after||[]).filter(a=>sib[a]&&!isDone(sib[a]));
+  // ondas 15/10: a regra do portão (epDepOk) — concluída com PR aberto ainda segura a seguinte
+  const depsOpen=t=>((t.spec||{}).after||[]).filter(a=>sib[a]&&!epDepOk(sib[a]));
   // R3-C2: UMA ação primária na lista inteira = a próxima recomendada (revisar libera a onda seguinte; depois a
   // 1ª tarefa pronta pra começar; depois olhar o problema). O resto é secundário, e "iniciar mesmo assim" é ghost.
   const ordered=waves.flatMap(w=>byWave[w]);
@@ -160,10 +180,10 @@ function epicPageRender(){
     // A4: "na espera de X" = esperando OUTRA tarefa (nunca "aguardando", que é reservado pra quando depende de você)
     const wl=(!left.length && t.status==='backlog' && ctArmed(t) && !(s.after||[]).length) || (t._local && t.status==='draft' && epAutoLocalHas(t._local)) ? epWaveLeft(ep.id, Math.max(1, parseInt(s.wave,10)||1)) : 0;
     const armedNow=(t._local && t.status==='draft' && epAutoLocalHas(t._local)) || (t.status==='backlog' && ctArmed(t));
-    const stTx = est==='closed' ? stLabel('closed')
-      : wl ? 'na espera da etapa anterior · começa sozinha'
+    const stTx = est==='closed' ? stLabel('closed')+(epPrOpen(t)?' · PR aberto, falta integrar (a etapa seguinte espera)':'')
+      : wl ? (epWaitTx(epWaveWho(ep.id, Math.max(1, parseInt(s.wave,10)||1)), esc)||'na espera da etapa anterior')+' · começa sozinha'
       : (armedNow && !left.length) ? 'na espera de vaga · começa sozinha'
-      : left.length ? 'na espera de '+left.map(a=>'<b>'+esc(String(sib[a].title||'tarefa').slice(0,40))+'</b>').join(', ')+(ctWaiting(t)?' · começa sozinha':'')
+      : left.length ? epWaitTx(left.map(a=>({ title:sib[a].title, code:(sib[a].spec||{}).issueCode, b:epqBucket(epEffSt(sib[a]), sib[a].flag, epPrOpen(sib[a])) })), esc)+(ctWaiting(t)?' · começa sozinha':'')
       : esc(stLabel(est));
     // M8: a próxima ação de cada linha, direto aqui
     const act = (t._local && t.status==='draft') ? `<button class="btn sm${pri(t)}" data-eplocgo="${escA(t._local)}" title="iniciar agora nesta máquina">${IC.play} iniciar</button>`
@@ -181,7 +201,7 @@ function epicPageRender(){
   // R5-2: "x/y entregues · z em revisão" — a onda atual ainda avança com revisão (comportamento mantido),
   // mas o número só conta entregue de verdade (antes "1/3" numa onda sem nada mergeado contradizia o 0/7)
   const waveHead=w=>{ const l=byWave[w], ok=l.filter(isDone).length, rvN=l.filter(isRev).length;
-    return `<div class="ep-wave${w===curWave?' cur':''}" title="${escA(EP_WAVE_TIP)}">Etapa ${w} · ${ok} de ${l.length} entregues${rvN?' · '+rvN+' em revisão':''}${ok===l.length?' ✓':w===curWave?' · atual':''}</div>`; };
+    return `<div class="ep-wave${w===curWave?' cur':''}" title="${escA(EP_WAVE_TIP)}">Etapa ${w} · ${ok} de ${l.length} entregues${rvN?' · '+rvN+' em revisão':''}${ok===l.length&&l.every(epDepOk)?' ✓':w===curWave?' · atual':''}</div>`; };
   const tasksHtml = tasks.length
     ? waves.map(w=>`${waveHead(w)}${byWave[w].map(taskRow).join('')}`).join('')
     : c.err ? errorHtml(c.err, 'epTasksRetry', 'Não consegui carregar as tarefas do épico')
@@ -400,7 +420,8 @@ let epAutoBusy=false, epAutoIdle=false; const epAutoWarned=new Set();
 let epQueue={ rows:[], stOf:{}, flagOf:{}, titleOf:{}, epicOf:{}, projOf:{}, progOf:{}, sibsOf:{}, here:'', localIds:[], at:0 };
 // pronta = mergeada/concluída OU FINALIZADA (flag closed): finalizar é o "terminei" do usuário — antes só merged/done
 // contava e a onda seguinte nunca começava depois de você finalizar a anterior (24/09)
-function epDepDone(a){ const q=epQueue; return EP_AUTO_READY.has(q.stOf[a]) || q.flagOf[a]==='closed'; }
+// ondas 15/10: "concluir" com PR ainda aberto NÃO libera (o código não está na main) — regra única epDepOk
+function epDepDone(a){ const q=epQueue; return EP_AUTO_READY.has(q.stOf[a]) || (q.flagOf[a]==='closed' && !(q.prOf||{})[a]); }
 function epDepsLeft(ct){ const q=epQueue; return ((ct.spec||{}).after||[]).filter(a=>(a in q.stOf) && !epDepDone(a)); }
 async function epicAutoStartTick(){
   epAutoLocalTick(); // rascunhos locais armados pelo "Iniciar épico" (não dependem da nuvem)
@@ -421,7 +442,7 @@ async function epicAutoStartTick(){
     // as 4 consultas seguintes só dependem da fila → em paralelo (antes: em série, até 6 idas e voltas)
     let sibsOk=new Set(); // épicos cujas irmãs foram lidas neste tick (epWaveLeft não decide no escuro)
     const [deps, eps, sibs, projs]=await Promise.all([
-      dep.length?sbGet('tasks?select=id,title,status,flag,local_id,pr_url,team_id&id=in.('+dep.join(',')+')').then(x=>x||[]):[],
+      dep.length?sbGet('tasks?select=id,title,status,flag,local_id,pr_url,team_id,issue_code:spec->>issueCode&id=in.('+dep.join(',')+')').then(x=>x||[]):[],
       nameIds.length?sbGet('epics?select=id,name&id=in.('+nameIds.join(',')+')').then(x=>x||[]):[],
       sibIds.length?sbGet('tasks?select=*&epic_id=in.('+sibIds.join(',')+')&order=created_at.asc').then(x=>{ sibsOk=new Set(sibIds); return x||[]; }).catch(()=>[]):[],
       pids.length?sbGet('projects?select=id,name,repo_remote&id=in.('+pids.join(',')+')').then(x=>x||[]):[],
@@ -436,6 +457,7 @@ async function epicAutoStartTick(){
     const changed=sig!==epQueue.sig;
     epQueue={ rows, here, hereIds, localIds, sig, at:Date.now(), progOf, sibsOf, sibsOk,
       stOf:Object.fromEntries(deps.map(d=>[d.id,d.status])), effOf:Object.fromEntries(deps.map(d=>[d.id,epEffSt(d)])), flagOf:Object.fromEntries(deps.map(d=>[d.id,d.flag||null])), titleOf:Object.fromEntries(deps.map(d=>[d.id,d.title])),
+      prOf:Object.fromEntries(deps.map(d=>[d.id,epPrOpen(d)])), codeOf:Object.fromEntries(deps.map(d=>[d.id,d.issue_code||''])),
       epicOf:Object.fromEntries(eps.map(e=>[e.id,e.name])), projOf:Object.fromEntries(projs.map(p=>[p.id,p])) };
     if(changed) lastSig=''; // o refresh (com a trava de clique) redesenha — nunca renderFlow direto daqui
     // pré-requisito apagado do backlog não trava a fila; cancelado/abortado trava (alguém decide)
@@ -510,9 +532,10 @@ function epqRowHtml(ct, showProj, me, isAdmin, primary){
   const q=epQueue, left=epDepsLeft(ct), auto=ctWaiting(ct), pj=q.projOf[ct.project_id]||{};
   const wl=(!left.length && ctArmed(ct) && !((ct.spec||{}).after||[]).length)?epWaveLeft(ct.epic_id, epqWave(ct)):0; // armado pelo "Iniciar épico": espera a onda anterior
   // A4: esperando OUTRA tarefa = "na espera de" (o "Aguardando você" da Central é só pro que depende de você)
+  // ondas 15/10: diz QUEM segura e por quê ("esperando LOJA-1 · Catálogo (PR aberto · falta integrar) terminar")
   const st=left.length
-    ? `na espera de ${left.map(a=>`<b>${esc(String(q.titleOf[a]||'tarefa').slice(0,40))}</b> (${esc(stLabel((q.effOf||{})[a]||q.stOf[a]))})`).join(', ')}${auto?' · começa sozinha quando elas forem concluídas':''}`
-    : wl ? `na espera da onda ${epqWave(ct)-1} · começa sozinha quando ela for entregue`
+    ? epWaitTx(left.map(a=>({ title:q.titleOf[a], code:(q.codeOf||{})[a], b:epqBucket((q.effOf||{})[a]||q.stOf[a], q.flagOf[a], (q.prOf||{})[a]) })), esc)+(auto?' · começa sozinha quando for integrado':'')
+    : wl ? (epWaitTx(epWaveWho(ct.epic_id, epqWave(ct)), esc)||`na espera da onda ${epqWave(ct)-1}`)+' · começa sozinha quando for integrado'
     : (ctArmed(ct)?'pronta — começando assim que houver vaga…':'pronta pra começar');
   const stk=(left.length||wl)?'waiting':'backlog';
   const go=(left.length||wl)
@@ -529,7 +552,8 @@ const EPQ_BUCKETS=[ // ordem da frase do cabeçalho
   ['run','rodando'], ['ask','aguardando você'], ['rev','prontas pra revisar'], ['pr','com PR aberto'], ['bad','com erro ou conflito'], ['queue','na fila'],
 ];
 function epqBucket(st, flag, pr){
-  if(flag==='closed'||['merged','done','closed'].includes(st)) return 'ok';
+  if(['merged','done'].includes(st)) return 'ok';
+  if(flag==='closed'||st==='closed') return (pr && st!=='cancelled' && st!=='aborted')?'pr':'ok'; // concluída com PR aberto: o código ainda não está na main (epDepOk)
   if(st==='aborted'||st==='cancelled') return 'off';
   if(st==='error'||st==='conflict') return 'bad';
   if(pr) return 'pr';
@@ -548,11 +572,11 @@ function epqEpicTasks(eid){
     if(lt) seen.add(lt.id);
     const st=lt?taskSt(lt):ct.status, flag=lt?lt.flag:ct.flag; // R5-1: status efetivo (pergunta aberta = aguardando você)
     const pr=lt?!!(lt.prUrl&&lt.status!=='merged'):!!(ct.pr_url&&!['merged','done','closed'].includes(ct.status));
-    out.push({ title:(typeof mdTitle==='function'?mdTitle(ct.title||(lt&&lt.title)||''):(ct.title||(lt&&lt.title)))||'tarefa', st, flag, b:epqBucket(st, flag, pr), wave:epqWave(ct), local:lt?lt.id:null, cloud:ct.id, who:ct.assignee||null });
+    out.push({ title:(typeof mdTitle==='function'?mdTitle(ct.title||(lt&&lt.title)||''):(ct.title||(lt&&lt.title)))||'tarefa', st, flag, b:epqBucket(st, flag, pr), wave:epqWave(ct), local:lt?lt.id:null, cloud:ct.id, who:ct.assignee||null, code:(ct.spec||{}).issueCode||(lt&&lt.issueCode)||'' });
   });
   locals.forEach(t=>{ if(seen.has(t.id)) return; // tarefa local ainda não espelhada na nuvem
     const pr=!!(t.prUrl&&t.status!=='merged');
-    out.push({ title:(typeof mdTitle==='function'?mdTitle(t.title||''):t.title)||'tarefa', st:taskSt(t), flag:t.flag, b:epqBucket(taskSt(t), t.flag, pr), wave:Math.max(1, parseInt(t.epic.wave,10)||1), local:t.id, cloud:null }); });
+    out.push({ title:(typeof mdTitle==='function'?mdTitle(t.title||''):t.title)||'tarefa', st:taskSt(t), flag:t.flag, b:epqBucket(taskSt(t), t.flag, pr), wave:Math.max(1, parseInt(t.epic.wave,10)||1), local:t.id, cloud:null, code:t.issueCode||'' }); });
   return out.filter(x=>x.b!=='off').sort((a,b)=>a.wave-b.wave);
 }
 function epqSummaryHtml(eid, qn){
@@ -738,7 +762,11 @@ function epStartPlan(items){
   const open=L.filter(x=>x.b!=='ok');
   const wave=open.length?Math.min(...open.map(w)):0; // onda atual = a 1ª que ainda tem algo não entregue
   const cand=L.filter(x=>x.startable), mine=cand.filter(x=>x.mine);
-  const now=mine.filter(x=>w(x)===wave), wait=mine.filter(x=>w(x)>wave), armed=mine.filter(x=>x.armed);
+  // ondas 15/10: pré-requisito (`after`) do PRÓPRIO épico ainda não concluído segura a tarefa mesmo na onda atual —
+  // antes o "Iniciar épico" olhava só o número da onda e começava junto quem dependia de outra (sem o código dela)
+  const held=new Set(); L.forEach(x=>{ if(x.b!=='ok'){ held.add(x.id); if(x.cloud) held.add(x.cloud); } });
+  const depWait=x=>(x.after||[]).some(a=>a!==x.id && a!==x.cloud && held.has(a));
+  const now=mine.filter(x=>w(x)===wave && !depWait(x)), wait=mine.filter(x=>w(x)>wave || (w(x)===wave && depWait(x))), armed=mine.filter(x=>x.armed);
   const waves=[...new Set(wait.map(w))].sort((a,b)=>a-b);
   // "Iniciar" enquanto houver algo NÃO armado (tarefa nova no épico, início que falhou); "Pausar" quando há algo armado
   const unarmed=now.concat(wait).filter(x=>!x.armed);
@@ -753,13 +781,13 @@ function epJoinItems(cloud, locals, d){
   const byLocal={}; (locals||[]).forEach(t=>{ byLocal[t.id]=t; });
   const out=[], seen=new Set(), wv=v=>Math.max(1, parseInt(v,10)||1);
   const fromLocal=(t, ct)=>{ seen.add(t.id); const st=d.st(t), b=d.bucket(st, t.flag, !!(t.prUrl&&t.status!=='merged'));
-    return { id:t.id, kind:'local', title:(typeof mdTitle==='function'?mdTitle(t.title||''):t.title)||'tarefa', wave:wv((t.epic||{}).wave||(ct&&d.cardWave(ct))), b,
+    return { id:t.id, kind:'local', cloud:ct?ct.id:null, after:((ct&&(ct.spec||{}).after)||(t.epic||{}).after||[]), title:(typeof mdTitle==='function'?mdTitle(t.title||''):t.title)||'tarefa', wave:wv((t.epic||{}).wave||(ct&&d.cardWave(ct))), b,
       startable:t.status==='draft' && b!=='ok' && !d.started(t), mine:true, armed:!!(d.armedLoc||{})[t.id], t }; };
   (cloud||[]).forEach(ct=>{
     const lid=(ct.local_id&&byLocal[ct.local_id])?ct.local_id:(d.c2l||{})[ct.id], lt=lid&&byLocal[lid];
     if(lt){ if(!seen.has(lt.id)) out.push(fromLocal(lt, ct)); return; }
     const b=d.bucket(ct.status, ct.flag, !!(ct.pr_url&&!['merged','done','closed'].includes(ct.status)));
-    out.push({ id:ct.id, kind:'cloud', title:(typeof mdTitle==='function'?mdTitle(ct.title||''):ct.title)||'tarefa', wave:d.cardWave(ct), b,
+    out.push({ id:ct.id, kind:'cloud', cloud:ct.id, after:(ct.spec||{}).after||[], title:(typeof mdTitle==='function'?mdTitle(ct.title||''):ct.title)||'tarefa', wave:d.cardWave(ct), b,
       startable:ct.status==='backlog' && b!=='ok', mine:!!d.mine(ct, d.me), armed:!!((ct.spec||{}).autoStart), ct });
   });
   (locals||[]).forEach(t=>{ if(!seen.has(t.id)) out.push(fromLocal(t)); });
@@ -901,6 +929,11 @@ function epWaveLeft(eid, wave){
   if(cloudEpicId(eid) && SB.sess() && !(epQueue.sibsOk&&epQueue.sibsOk.has(eid))) return 1;
   return epWaveOpen(epqEpicTasks(eid), wave);
 }
+// QUEM segura a onda (itens do epqEpicTasks): as tarefas de ondas anteriores ainda não concluídas — pro "esperando X terminar"
+function epWaveWho(eid, wave){ return eid?epqEpicTasks(eid).filter(x=>x.wave<wave && x.b!=='ok' && x.b!=='off'):[]; }
+// pré-requisitos (`after`: ids da nuvem ou locais) do épico ainda não concluídos — o rascunho local armado também espera por eles
+function epAfterOpen(eid, after){ const A=(after||[]).map(String); if(!eid||!A.length) return [];
+  return epqEpicTasks(eid).filter(x=>(A.includes(String(x.cloud)) || A.includes(String(x.local))) && x.b!=='ok' && x.b!=='off'); }
 // rascunho local armado começa sozinho quando a onda anterior é entregue e há vaga de agente (só no projeto aberto)
 let epAutoLocalBusy=false;
 async function epAutoLocalTick(){
@@ -918,6 +951,7 @@ async function epAutoLocalTick(){
       if(t.status!=='draft'){ drop(id); continue; } // já começou (na mão) ou mudou: sai da espera
       const w=Math.max(1, parseInt((t.epic||{}).wave,10)||1);
       if(epWaveLeft(t.epic&&t.epic.epicId, w)) continue;
+      if(epAfterOpen(t.epic&&t.epic.epicId, (t.epic||{}).after).length) continue; // ondas 15/10: pré-requisito ainda sem integrar
       if(epLiveCount()>=slotMax) break; // sem vaga: tenta no próximo tick
       drop(id); // sai da lista ANTES de iniciar: nunca dois inícios
       if(!await startTask(id)) continue; // falhou: o startTask já avisou (e não fica tentando pra sempre)
