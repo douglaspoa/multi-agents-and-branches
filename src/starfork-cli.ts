@@ -196,6 +196,12 @@ export async function starforkCli(argv: string[], io: Io = stdio): Promise<numbe
       try { args = JSON.parse(one(a, "json") ?? text); } catch { io.err("starfork mapa: passe o JSON do map_requirement em --json '{\"req\":\"…\",\"code\":[{\"file\":\"…\",\"lines\":\"1-9\"}]}'"); return 1; }
       return tool(io, "map_requirement", args);
     }
+    case "porque":
+    case "porquê": {
+      let args: Record<string, unknown>;
+      try { args = JSON.parse(one(a, "json") ?? text); } catch { io.err("starfork porque: passe o JSON do register_change_reason em --json '{\"file\":\"src/a.ts\",\"range\":\"14-15\",\"requirement\":\"R3\",\"reason\":\"…\",\"covered_by\":\"…\"}'"); return 1; }
+      return tool(io, "register_change_reason", args);
+    }
     case "epico":
     case "épico": {
       const [op = "", ...pos] = a.pos;

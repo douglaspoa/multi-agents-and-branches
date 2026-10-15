@@ -12,7 +12,7 @@
 // epDelivered/diaItensDe/diaStampsLoad (46/72), pessoa = personName/personAv (08), responsável = tsClaimOnly/cloudAssign/
 // tmCanAssignNow (42/43), dados do time = teamFetch/teamTasks/teamActivity (42). Sem polling novo: pinta no render()
 // que já existe, só a aba visível, com guarda de HTML (não reescreve o DOM quando nada mudou).
-// Dentro de uma tarefa a lateral continua como está: sideTaskMode(task) é o ponto de extensão (a lateral de etapas é
+// Dentro de uma tarefa a lateral vira as etapas: quem desenha é 77-tarefa-etapas.js (sideTaskMode); a lateral de etapas é
 // outra frente).
 
 // ---------- ícones (traço de linha 16px, o mesmo do IC) ----------
@@ -656,13 +656,13 @@ if(typeof g1NavSync==='function'){ g1NavSync=function(){
   const t=(typeof tabById==='function')?tabById(activeTab):null, on=semNavDe(t);
   if(semPopEl && !(semPopEl.__anchor && semPopEl.__anchor.isConnected && semPopEl.__anchor.offsetParent)) semPopClose(); // trocou de aba: o menu não fica solto
   document.querySelectorAll('#sidebar .sbnav2 .sbitem').forEach(b=>{ const v=b.id===on; if(b.classList.contains('on')!==v) b.classList.toggle('on', v); if(v) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current'); });
-  try{ sideTaskMode(t && t.kind==='task' ? ((state.tasks||[]).find(x=>x.id===t.taskId)||null) : null); }catch(e){ console.error('sideTaskMode', e); }
 }; }
 // PONTO DE EXTENSÃO (outra frente): quando a aba ativa é uma tarefa, a lateral pode virar as etapas da tarefa
 // (Conversa ⌘1 · Código ⌘2 · Revisão ⌘3 · Prévia ⌘4 · Entrega ⌘5). task = a tarefa local da aba ativa, ou null fora de uma
 // tarefa. Hoje não muda nada: a lateral continua a mesma dentro e fora da tarefa.
-function sideTaskMode(task){ return task; }
-window.sideTaskMode=sideTaskMode;
+// a lateral de etapas mora em 77-tarefa-etapas.js (sideTaskMode/sideTaskActive); daqui saem só as portas que ela chama
+window.openMeuTrabalho=function(){ openTab('meu'); };
+window.openOndeFica=function(){ openTab('mapa'); };
 let semSideSig='';
 function semSideSync(){
   const nm=(typeof state!=='undefined'&&state.repo)?pathBase(state.repo):'sem projeto';

@@ -523,6 +523,7 @@ function fwRenderEntrega(t, main){
         <div class="seclbl2"${nonCode?'':' style="margin-top:16px"'}>${nonCode?'Arquivos entregues':'Documentos'} <span style="flex:1"></span><button class="btn sm${(typeof fwPrimaryAction==='function'&&fwPrimaryAction(t))?'':' primary'}" id="enGen" title="a IA escreve o relatório desta entrega — o que foi feito, por quê, como e o que foi validado">${IC.ai} gerar relatório da entrega</button></div>
         <div id="enGenOut"></div>${docsHtml}</section>
     </div>
+    ${typeof teFeitoComHtml==='function'?teFeitoComHtml(t):''}
     ${nonCode?'':pvSec}
     ${typeof tcLocalTimelineSec==='function'?tcLocalTimelineSec(t):''}
     <section class="en-sec" style="margin-top:6px"><div class="seclbl2">Etapas</div><div class="en-tl">${timeline}</div>${!nonCode&&c.length?`<div class="en-commits">${c.slice(0,8).map(x=>`<button class="fcommit" data-hash="${escA(x.hash||'')}"><span class="mono">${esc(String(x.hash||'').slice(0,7))}</span> ${esc(x.subject||'')}</button>`).join('')}</div>`:''}</section>

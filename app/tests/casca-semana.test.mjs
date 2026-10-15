@@ -74,7 +74,9 @@ test('telas registradas como ABA (nunca modal) e a lateral liga cada item; Agent
   assert.match(JS, /if\(typeof VIEW_META!=='undefined' && VIEW_META\[kind\] && !rota\) return openTab\(kind\);/);
   assert.match(JS, /case 'agentes': return semAbreKind\('agentes', \(\)=>openTab\('agents'\)\);/);
   assert.match(JS, /\['meuBtn','meu'\],\['semanaBtn','semana'\],\['entregasBtn','entregas'\]/);
-  assert.match(JS, /function sideTaskMode\(task\)\{ return task; \}/, 'ponto de extensão da lateral dentro da tarefa');
+  assert.ok(!/function sideTaskMode/.test(JS), 'a lateral de etapas é do 77-tarefa-etapas (a casca não a sobrescreve)');
+  assert.match(JS, /window\.openMeuTrabalho=function\(\)\{ openTab\('meu'\); \};/);
+  assert.match(JS, /window\.openOndeFica=function\(\)\{ openTab\('mapa'\); \};/);
   assert.match(JS, /openShortcuts=function\(\)\{ openTab\('mapa'\); \}/, 'a tecla ? abre o mapa');
   assert.ok(!/window\.confirm|confirm\(/.test(JS.replace(/askYes/g, '')), 'confirmação = askYes');
   assert.ok(!/setInterval/.test(JS), 'sem polling novo');
