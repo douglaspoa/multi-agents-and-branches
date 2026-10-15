@@ -172,6 +172,8 @@ test('relatório curto do épico (texto puro, pronto pra colar)', () => {
 test('ganchos: aba no 46, verificação final, entregar, Entregas, Central › Épicos e a carga', () => {
   assert.match(ep46, /if\(typeof epAbaRender==='function' && epAbaRender\(main, ep, c, tasks, locOnly\)\) return;/);
   assert.match(aba, /window\.addEventListener\('sf:epico-ultima-integrada', epFinalOnEvent\);/);
+  assert.match(aba, /window\.apEpicoCfg=function\(eid\)\{ const f=epFlowFor\(eid\); return \{ auto:f\.auto, strict:f\.strict, plan:f\.plan \}; \};/, 'contrato com a frente "aprovar" (#167)');
+  assert.match(aba, /addEventListener\('sf:epico-onda-fechada'/);
   assert.match(aba, /tickLoop\('epFinal'/);
   assert.match(aba, /autoPr:'no'/, 'a verificação final não abre PR');
   assert.match(aba, /epicDoneWhen:dw\.map/, 'o revisor marca com check_done_when (precisa do "pronto quando" no TASK)');

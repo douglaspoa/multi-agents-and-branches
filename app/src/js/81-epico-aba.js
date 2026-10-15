@@ -470,6 +470,10 @@ document.addEventListener('keydown', e=>{
     if(typeof window.aprovarTarefa==='function') window.aprovarTarefa(x.local||x.cloud||x.id); else epaAct('aprovar'); return; }
   if(e.key==='Enter' && !(tg&&tg.closest&&tg.closest('button,[role="button"],a'))){ e.preventDefault(); const x=q[Math.min(EPA.sel, q.length-1)]; epaOpen(x.id, 'revisao'); }
 });
+// as 3 chaves do épico pra frente "aprovar" (80: toast "a onda N começa sozinha / está liberada")
+window.apEpicoCfg=function(eid){ const f=epFlowFor(eid); return { auto:f.auto, strict:f.strict, plan:f.plan }; };
+// a onda fechou (80 integrou a última dela): a próxima começa já (sem esperar o tick de 20 s) e a aba relê
+window.addEventListener('sf:epico-onda-fechada', e=>{ const d=(e&&e.detail)||{}; if(typeof epicAutoStartTick==='function') epicAutoStartTick(); if(epTab && (!d.epicId || epTab.id===d.epicId)) epaReload(epTab.id); });
 // a pessoa da tarefa mudou pelo menu (76: semMenu) → a aba relê
 window.addEventListener('sf:responsavel-mudou', ()=>{ if(epTab) epaReload(epTab.id); });
 
