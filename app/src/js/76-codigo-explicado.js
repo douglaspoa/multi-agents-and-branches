@@ -298,7 +298,7 @@ async function cxAct(k, b, e){
     cxRepaint(t.id); setTimeout(()=>{ const q=$id('cxQ'); if(q) q.focus({ preventScroll:true }); }, 0); return; }
   if(k==='hsel'){ CX.sel={ task:t.id, file:ds.f, hk:ds.hk, a:+ds.a, b:+ds.b }; cxRepaint(t.id); setTimeout(()=>{ const q=$id('cxQ'); if(q){ q.focus({ preventScroll:true }); q.scrollIntoView({ block:'nearest' }); } }, 0); return; }
   if(k==='clear'){ CX.sel=null; cxRepaint(t.id); return; }
-  if(k==='goth'){ const el=$id('cxth-'+ds.i); if(el) el.scrollIntoView({ block:'center', behavior:'smooth' }); return; }
+  if(k==='goth'){ const el=$id('cxth-'+ds.i); if(el) el.scrollIntoView(typeof scrollOpts==='function'?scrollOpts('center'):{ block:'center' }); return; }
   if(k==='why'){ const ref=cxRef(ds.f, +ds.a, +ds.b); if(await cxSend(t, cxPtyText('why', ref))){ cxThreadPush(t, { file:ds.f, hk:ds.hk, a:+ds.a, b:+ds.b, ref }, { who:'voce', q:'Por que este trecho mudou?', ref, at:Date.now(), queued:cxBusy(t) }); } return; }
   if(k==='ask'||k==='paste'||k==='altsel'){
     const s=CX.sel; if(!s || s.task!==t.id){ toast('selecione as linhas primeiro (clique no número da linha)','info'); return; }

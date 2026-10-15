@@ -915,7 +915,7 @@ function renderWorkspace(){
   if(keepEditor){ /* editor aberto: fica como está (texto, cursor, rolagem) */ }
   else if(fwMode==='entrega'){ fwRenderEntrega(t, main); }
   else if(fwMode==='pr'){ fwRenderPrPage(t, main); }
-  else if(fwMode==='previa'){ fwRenderPrevia(t, main); } // 57-navegador: só repinta o que mudou (o iframe não é recriado pelo tick)
+  else if(fwMode==='previa'){ if(typeof mrOn==='function' && mrOn()) mrRender(t, main); else fwRenderPrevia(t, main); } // 77: Prévia com Mira no modo etapas // 57-navegador: só repinta o que mudou (o iframe não é recriado pelo tick)
   else if(fwMode==='revisao'){ if(typeof rvRender==='function' && rvViewOf(t.id)!=='diff') rvRender(t, main); else fwRenderDiff(t, main); } // 63-revisao-pr: por requisito; "ver diff completo" = o diff de antes
   else if(fwMode==='codigo' && typeof cxOn==='function' && cxOn()){ cxRender(t, main); } // 76: Código explicado (modo etapas)
   else if(!fwPath){ main.innerHTML=`<div class="fwmhead">${fwTreeOpenBtn()}<span class="dim" style="font-size:var(--fs-sm)">código</span></div><div class="empty">${fwFilesLoading?skeletonHtml('lista',{ n:5, compact:true, inline:true, label:'carregando os arquivos' }):fwFiles.length?(fwTreeHidden()?'abra os arquivos (» Arquivos, ou ⌘B) e escolha um':'selecione um arquivo à esquerda'):'nenhum arquivo alterado ainda'}</div>`; }
@@ -1519,6 +1519,7 @@ document.addEventListener('keydown', async e=>{ if(e.key==='Escape' && fwVisible
 // global de recolher a barra lateral agir junto)
 document.addEventListener('keydown', e=>{
   if(!(e.metaKey||e.ctrlKey) || e.shiftKey || e.altKey || String(e.key).toLowerCase()!=='b' || !fwVisible()) return;
+  if(typeof TE!=='undefined' && TE.on) return; // modo etapas (75): não há árvore — ⌘B recolhe a lateral, como fora da tarefa
   e.preventDefault(); e.stopPropagation(); fwToggleTree();
 }, true);
 // sem escolha salva, a árvore acompanha a largura da janela (recolhe abaixo de ~1100px)

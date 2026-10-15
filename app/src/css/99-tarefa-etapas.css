@@ -1,7 +1,7 @@
 /* Starfork — 99-tarefa-etapas: dentro de uma tarefa a lateral vira as ETAPAS (75-tarefa-etapas.js) e cada etapa é
    UMA superfície (Conversa = o terminal sozinho; Código explicado; Revisão; Prévia; Entrega). Só tokens (sem cor literal). */
 
-/* ---- lateral da tarefa: 176 px (o terminal mantém ≥ 100 colunas a 1000 px). Recolhida (⌘B) o inline 0px vence ---- */
+/* ---- lateral da tarefa: 172 px (o terminal mantém ≥ 100 colunas a 1000 px). Recolhida (⌘B) o inline 0px vence ---- */
 :root.te-on{--rail-w:172px}
 .sidebar .sbtask{display:none}
 html.te-on .sidebar>*:not(.sbhead):not(#sbTask){display:none!important}
@@ -43,7 +43,7 @@ html.te-on .sidebar .sbhead .brand{font-size:var(--fs-base)}
 .te-fb{white-space:nowrap;display:inline-flex;align-items:center;gap:5px;min-height:30px;padding:4px 8px;border:0;border-radius:var(--r-sm);background:none;color:var(--text);font:inherit;font-size:var(--fs-sm);cursor:pointer}
 .te-fb:hover{background:var(--wash)}
 .te-kq{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;border:1px solid var(--border-strong);border-radius:4px;font-size:var(--fs-xs);color:var(--muted)}
-.te-rail button:focus-visible{outline:none;box-shadow:var(--ring)}
+.te-rail button:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
 
 /* ---- cabeçalho da etapa (no lugar da barra de modos): título · o que é · "foi pro agente" ---- */
 .tehead{display:flex;align-items:center;gap:12px;padding:12px 18px 10px;border-bottom:1px solid var(--border);background:var(--bg);min-width:0;flex-wrap:wrap;row-gap:6px}
@@ -57,7 +57,7 @@ html.te-on .sidebar .sbhead .brand{font-size:var(--fs-base)}
 .te-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);color:var(--text);font:inherit;font-size:var(--fs-xs);cursor:pointer;white-space:nowrap}
 .te-chip svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.4}
 .te-chip:hover{background:var(--surface-2)}
-.te-chip:focus-visible,.te-seg button:focus-visible{outline:none;box-shadow:var(--ring)}
+.te-chip:focus-visible,.te-seg button:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
 .te-seg{display:inline-flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface)}
 .te-seg button{padding:4px 10px;border:0;border-radius:6px;background:none;color:var(--muted);font:inherit;font-size:var(--fs-sm);cursor:pointer;white-space:nowrap}
 .te-seg button[aria-pressed="true"]{background:var(--surface-3);color:var(--text);font-weight:600;box-shadow:var(--shadow-sm)}
@@ -116,7 +116,8 @@ html.te-on .fwmain .fwtreepill,html.te-on .fwchat .fwtreepill{display:none!impor
 .cx-hh .sp{flex:1}
 .cx-ctx{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .cx-askh{font-size:var(--fs-xs);color:var(--term-dim)}
-.cx-hw:hover .cx-askh,.cx-askh:focus-visible{color:var(--term-live)}
+.cx-hw:hover .cx-askh{color:var(--term-live)}
+.cx-askh:focus-visible{color:var(--term-live);outline:2px solid transparent;box-shadow:var(--ring)}
 .cx-hmark{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--term-line);border-radius:99px;background:var(--term-bg-2);color:var(--term-fg);font:inherit;font-size:var(--fs-xs);cursor:pointer}
 .cx-ln{display:grid;grid-template-columns:44px 18px minmax(0,1fr);align-items:baseline;min-height:20px;line-height:20px}
 .cx-ln.add{background:color-mix(in srgb, var(--ansi-green) 12%, transparent)}
@@ -169,8 +170,8 @@ html.te-on .fwmain .fwtreepill,html.te-on .fwchat .fwtreepill{display:none!impor
 .cx-hint{font-size:var(--fs-xs);color:var(--muted)}
 .cx-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:48px 18px;text-align:center}
 .cx-et{font-weight:700;font-size:var(--fs-md)}
-.cx button:focus-visible,.cx .in:focus-visible{outline:none;box-shadow:var(--ring)}
-.cx .cx-n:focus-visible{box-shadow:var(--ring-inset)}
+.cx button:focus-visible,.cx .in:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.cx .cx-n:focus-visible{outline:2px solid transparent;box-shadow:var(--ring-inset)}
 /* janela estreita: o porquê vai pra baixo do trecho */
 @container (max-width:760px){ .cx-hunk{grid-template-columns:minmax(0,1fr)} .cx-why{border-left:0;border-top:1px solid var(--border)} }
 .fwmain:has(> .cx){container-type:inline-size}
@@ -247,7 +248,7 @@ html.te-on #fwDev{display:none!important} /* o aparelho mora DENTRO da Prévia n
 .mr-cmp img{flex:1;min-height:0;width:100%;object-fit:contain;object-position:top;border-radius:var(--r);border:1px solid var(--border);background:var(--web-bg)}
 .mr-cmpapp{flex:1;min-height:0;border-radius:var(--r);overflow:hidden;border:1px solid var(--border);display:flex;flex-direction:column}
 .mr-cmp figcaption{font-size:var(--fs-xs);color:var(--muted)}
-.mr button:focus-visible,.mr .in:focus-visible{outline:none;box-shadow:var(--ring)}
+.mr button:focus-visible,.mr .in:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
 @media (max-width:1100px){ .mr-panel{width:230px} }
 /* os requisitos por cima do app saem da Prévia no modo etapas (eles moram na Revisão, ⌘3) — a Mira precisa do app limpo */
 .mr .cvreqov{display:none!important}
@@ -255,3 +256,5 @@ html.te-on #fwDev{display:none!important} /* o aparelho mora DENTRO da Prévia n
 .mr[data-dev="ios"] .mr-cmp figure{flex:none;width:390px;max-width:calc(50% - 8px)}
 .mr[data-dev="and"] .mr-cmp figure{flex:none;width:412px;max-width:calc(50% - 8px)}
 .mr[data-dev="ios"] .mr-cmpapp .nvbar,.mr[data-dev="and"] .mr-cmpapp .nvbar{display:none}
+.cx-hh>span:first-child,.cx-hmark,.cx-askh{white-space:nowrap;flex:none}
+.cx-hh .cx-ctx{flex:0 1 auto}

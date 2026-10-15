@@ -173,7 +173,7 @@ function nvRender(taskId, el, opts){
   nvPaint(taskId);
 }
 // modo Prévia da aba da tarefa (compat: o workspace antigo chamava com o #fwMain)
-function fwRenderPrevia(t, main){ if(typeof mrOn==='function' && mrOn() && typeof mrRender==='function'){ mrRender(t, main); return; } /* 77: Prévia com Mira (modo etapas) */ if(typeof appRender==='function') appRender(t.id, main); else nvRender(t.id, main); if(typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(t.id); }
+function fwRenderPrevia(t, main){ if(typeof appRender==='function') appRender(t.id, main); else nvRender(t.id, main); if(typeof cvReqOverlayPaint==='function') cvReqOverlayPaint(t.id); }
 function nvEmptyHtml(){ return '<div class="nvempty"><b>Nenhum site aberto</b><span>Digite um endereço acima (ex.: <code>localhost:5173</code>) — ou peça pro agente subir o site da tarefa e ele aparece aqui sozinho.</span></div>'; }
 function nvWire(taskId){
   const st=nvSt(taskId), root=st.root; if(!root) return;
