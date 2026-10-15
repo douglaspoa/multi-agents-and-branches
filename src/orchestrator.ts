@@ -282,8 +282,13 @@ export class Orchestrator {
       spec.roles = [{ role: "builder", name: spec.agent, engine: spec.engine, model: spec.model }];
     }
 
-    const branch = branchName(spec);
     const worktree = this.ws.worktreePath(spec.id);
+    // CADA TAREFA TEM PASTA E BRANCH PRÓPRIAS: nunca reaproveita as de outra tarefa/épico. Pasta que já existe = de
+    // outra tarefa (ou sobra dela) → recusa; branch que já existe aqui ou no origin → sufixo -2, -3… (git.freeBranch)
+    if (this.store.getTask(spec.id)) throw new Error(`já existe uma tarefa com o id ${spec.id} neste projeto`);
+    if (existsSync(worktree)) throw new Error(`a pasta de trabalho ${spec.id} já existe (de outra tarefa) — nada foi criado; tente de novo com outro título`);
+    const wanted = branchName(spec);
+    const branch = await this.git.freeBranch(wanted);
     // Novas tarefas nascem da main (default do repo), não da branch em check-out
     // — a não ser que uma base explícita seja passada em spec.base.
     const base = spec.base && spec.base.trim() ? spec.base.trim() : await this.git.defaultBase();
@@ -331,6 +336,7 @@ export class Orchestrator {
 
     this.store.createTask(spec, branch, worktree, base);
     this.store.addEvent(spec.id, spec.agent, "status", `worktree criada em ${branch}`, true);
+    if (branch !== wanted) this.store.addEvent(spec.id, "Sistema", "note", `a branch ${wanted} já existia (de outra tarefa ou épico) — esta tarefa usa ${branch}, nova e só dela`, true);
 
     this.bus.policy = spec.autonomy.busPolicy ?? "first-claim-wins";
     for (const path of spec.scope.owns) {
@@ -2498,7 +2504,7 @@ export class Orchestrator {
     const cur = this.store.getTask(taskId)?.branch ?? task.branch;
     if (cur.includes(code)) return;
     const type = spec.branchType && spec.branchType !== "agent" ? spec.branchType : "feat";
-    const newBranch = `${type}/${code}-${spec.id}`;
+    const newBranch = await this.git.freeBranch(`${type}/${code}-${spec.id}`); // nunca a branch de outra tarefa
     try {
       await this.git.renameBranch(task.worktree, newBranch);
       this.store.setBranch(taskId, newBranch);

@@ -133,6 +133,29 @@ export class GitService {
     return base;
   }
 
+  /**
+   * Nome de branch LIVRE pra uma tarefa nova: o pedido, ou `-2`, `-3`… quando ele já existe aqui (local), no
+   * origin já buscado ou no origin de verdade (ls-remote). Antes só o id da tarefa no banco local era conferido:
+   * um título repetido entre épicos ("Tela de login"), uma tarefa apagada daqui ou a mesma tarefa de outra pessoa
+   * do time reaproveitavam `feat/<slug>` — a tarefa nova herdava a branch/o PR (às vezes MERGEADO) do épico anterior,
+   * o app a marcava como integrada e a onda seguinte começava sem o código.
+   */
+  async freeBranch(name: string): Promise<string> {
+    // origin: UMA ida só (o nome e os sufixos); sem remoto/offline vale o que já foi buscado (refs/remotes/origin)
+    const remote = new Set<string>();
+    try {
+      const { stdout } = await run("git", ["-C", this.repo, "ls-remote", "--heads", "origin", name, `${name}-*`], { env: netEnv(), timeout: 15000 });
+      for (const l of stdout.split("\n")) { const m = l.match(/\srefs\/heads\/(.+)$/); if (m) remote.add(m[1].trim()); }
+    } catch { /* sem remoto/offline */ }
+    const taken = async (b: string) => remote.has(b) || (await this.refExists(`refs/heads/${b}`)) || (await this.refExists(`refs/remotes/origin/${b}`));
+    if (!(await taken(name))) return name;
+    for (let n = 2; n < 100; n++) {
+      const cand = `${name}-${n}`;
+      if (!(await taken(cand))) return cand;
+    }
+    return `${name}-${Date.now().toString(36)}`;
+  }
+
   async worktreeAdd(path: string, branch: string, base: string): Promise<void> {
     await run("git", ["-C", this.repo, "worktree", "add", "-b", branch, path, base]);
   }
