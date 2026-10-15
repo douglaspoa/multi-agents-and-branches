@@ -66,7 +66,8 @@ test('falha do gh mantém a lista que já estava', async () => {
 });
 
 test('a tela usa o carregador: relê ao abrir e manda a conta junto do dono', () => {
-  assert.match(src, /projNewOpen=!projNewOpen;[^\n]*ghOwnersReload\(\)/);
+  // Semana (14/10): "Repositório novo, vazio" é uma das 4 portas de Projetos › Adicionar repo — abre o formulário e relê os donos
+  assert.match(src, /if\(k==='novo'\)\{ projAddOpen=false; projNewOpen=true;[^\n]*ghOwnersReload\(\)/);
   assert.match(src, /invoke\('create_project',\{[^}]*owner, account \}/);
   assert.match(src, /<optgroup/);
   const amb = readFileSync(new URL('../src/js/11-ambiente-updater.js', import.meta.url), 'utf8');
