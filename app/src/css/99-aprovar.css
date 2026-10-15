@@ -83,7 +83,7 @@
 .apv-compact .apv-h{padding:12px 14px}
 .apv-compact .apv-t{font-size:15px}
 .apv-compact .apv-b{gap:10px;padding:12px 14px}
-.apv-compact .apv-acts{position:static}
+.apv-compact .apv-acts{bottom:0} /* dentro da linha da Central e do Meu trabalho também fica à vista */
 
 /* ===================== a fila "Para aprovar" ===================== */
 .apq{display:grid;grid-template-columns:260px minmax(0,1fr);gap:18px;align-items:start}
