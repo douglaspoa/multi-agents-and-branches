@@ -179,6 +179,15 @@ if(typeof viewOpen==='function' && !viewOpen.__pad){ const vo=viewOpen; viewOpen
     return r; }; viewOpen.__pad=true; }
 // botões antigos (menu "mais", atalhos) que abriam os modais
 for(const [id, k] of [['skillsBtn','skills'],['agentsBtn','agentes'],['memBtn','memoria']]){ const b=typeof $id==='function'?$id(id):null; if(b) b.onclick=()=>openTab(k); }
+// fechar a aba Agentes com o editor avançado sujo pergunta antes (mesmo "descartar?" do cancelar do editor)
+if(typeof closeTab==='function' && !closeTab.__pad){ const c0=closeTab; closeTab=function(id){
+    const t=(typeof tabById==='function')?tabById(id):null;
+    if(t && t.kind==='agentes' && PADA.adv && typeof agDirty==='function' && agDirty()){
+      askYes('Descartar as mudanças nos agentes e equipes?\n\nNada foi salvo ainda.').then(ok=>{ if(!ok) return; if(typeof agBase!=='undefined') agBase=''; PADA.adv=false; padOldPark('agOverlay'); c0(id); });
+      return; }
+    if(t && t.kind==='agentes'){ PADA.adv=false; padOldPark('agOverlay'); }
+    if(t && t.kind==='memoria'){ PADM.adv=false; padOldPark('memOverlay'); }
+    return c0.apply(this, arguments); }; closeTab.__pad=true; }
 function padShow(kind){ const ov=PAD_OV[kind]; if(typeof ovShow==='function') ovShow(ov); }
 function padTabOn(kind){ const t=(typeof tabById==='function')?tabById(activeTab):null; return !!(t && t.kind===kind); }
 // teclado comum das páginas: setas numa lista de botões (role="listbox"/grupo de chips), "/" foca a busca
@@ -186,6 +195,10 @@ function padArrows(root, sel){
   const bs=[...root.querySelectorAll(sel)];
   bs.forEach((b,i)=>b.addEventListener('keydown', e=>{ const d={ ArrowDown:1, ArrowUp:-1, ArrowRight:1, ArrowLeft:-1 }[e.key]; if(!d) return; e.preventDefault(); const n=bs[(i+d+bs.length)%bs.length]; if(n){ n.focus(); if(n.dataset.padauto) n.click(); } }));
 }
+// a tela COMPLETA antiga (editor do catálogo de agentes e equipes; notas ligadas + grafo da memória) continua existindo:
+// vira um "Avançado" DENTRO da aba nova — o overlay é movido pra cá (como a página Projeto fazia) e volta pro body ao sair
+function padOldPark(id){ const o=$id(id); if(o && o.closest && o.closest('.pad-page')){ o.classList.remove('astab','inproj'); o.style.display='none'; document.body.appendChild(o); } }
+function padOldMount(hostId, id, open){ const host=$id(hostId), o=$id(id); if(!host || !o) return; if(o.parentElement!==host) host.appendChild(o); o.classList.add('astab','inproj'); o.style.display='block'; try{ if(open) open(); }catch(e){ console.error('padOldMount', e); } o.style.display='block'; }
 function padSwitchKeys(root){ root.querySelectorAll('[role="switch"]').forEach(s=>s.addEventListener('keydown', e=>{ if(e.key===' '||e.key==='Enter'){ e.preventDefault(); s.click(); } })); }
 
 // =====================================================================================================================
@@ -379,7 +392,8 @@ async function padAgOpen(tab){
 window.padAgOpen=padAgOpen;
 function padAgHeadHtml(a){
   if(a) return '';
-  return pageHead({ title:'Agentes', sub:'Quem faz o trabalho em cada etapa. Cada um tem um papel, um modelo de IA e versões.' });
+  return pageHead({ title:'Agentes', sub:'Quem faz o trabalho em cada etapa. Cada um tem um papel, um modelo de IA e versões.',
+    right:`<button class="btn quiet" id="padAgAdv" title="criar e remover agentes, montar equipes, catálogo do time">Criar e editar equipes</button>` });
 }
 function padAgById(){ return Object.fromEntries(((PADA.cfg&&PADA.cfg.agents)||[]).map(a=>[a.id,a])); }
 function padAgVer(id){ const c=PADA.cards[id]; return c&&c.versions&&c.versions.current!=null?+c.versions.current:null; }
@@ -410,6 +424,12 @@ function padAgReadyTeams(){
 }
 function padAgRender(){
   const pg=$id('padAgPage'); if(!pg) return;
+  padOldPark('agOverlay');
+  if(PADA.adv){
+    pg.innerHTML=`<div class="pgbody pad-body"><button class="pad-back" id="padAgAdvBack">${padIc('back')}Agentes</button><p class="pad-d">Criar e remover agentes, nome, cor e papel, montar equipes e o catálogo do time. Salvar cria uma versão nova de cada agente alterado.</p><div id="padAgAdvHost" class="pad-advhost"></div></div>`;
+    padOldMount('padAgAdvHost', 'agOverlay', PADA.advFresh?()=>{ PADA.advFresh=false; if(window.openAgents) window.openAgents(); }:null);
+    bindClick('padAgAdvBack', async()=>{ if(typeof agDirty==='function' && agDirty() && !await askYes('Descartar as mudanças nos agentes e equipes?\n\nNada foi salvo ainda.')) return; if(typeof agBase!=='undefined') agBase=''; PADA.adv=false; padOldPark('agOverlay'); padAgOpen(); });
+    return; }
   if(PADA.sel && padAgById()[PADA.sel]) return padAgDetailRender(pg);
   PADA.sel=null;
   const agents=(PADA.cfg&&PADA.cfg.agents)||[];
@@ -426,6 +446,7 @@ function padAgRender(){
     <div class="pad-sech"><h2>Equipes prontas</h2><span>quem entra em cada tipo de demanda</span></div>
     <div class="pad-teams">${teams.map(t=>`<div class="pad-panel pad-team"><h2>${padE(t.name)}</h2><p class="pad-d">${padE(t.kind)} · ${padE(t.names.join(' → ')||'faltam agentes')} · ${t.cost?padE(fmt(t.cost.usd))+' em média':'ainda sem custo medido'}</p></div>`).join('')}</div></div>`;
   pg.querySelectorAll('[data-padag]').forEach(b=>b.onclick=()=>padAgOpenOne(b.dataset.padag, b.dataset.padagtab||'papel'));
+  bindClick('padAgAdv', ()=>{ PADA.adv=true; PADA.advFresh=true; padAgRender(); });
   padArrows(pg.querySelector('.pad-agcards')||pg, '.pad-agc');
 }
 function padAgOpenOne(id, tab){
@@ -593,7 +614,7 @@ window.padMemOpen=padMemOpen;
 function padMemHead(){
   const nm=state.repo?padBase(state.repo):'';
   return pageHead({ title:nm?'Memória de '+nm:'Memória', sub:'O que a IA sabe deste projeto: decisões, regras, cuidados e pessoas. Cada nota tem autor e data.',
-    right:state.repo?`<button class="btn" id="padMemNew">${padIc('plus')}Nova nota</button>`:'' });
+    right:state.repo?`<button class="btn" id="padMemNew">${padIc('plus')}Nova nota</button>`:'', more:state.repo?{ id:'padMemMore', title:'Mais: notas ligadas e grafo · Obsidian · onde salvar as notas novas' }:null });
 }
 function padTypeTone(t){ return { regra:'g', 'decisão':'b', gotcha:'r', pessoa:'a' }[t]||''; }
 function padUsedText(key){
@@ -636,6 +657,12 @@ function padMemEditorHtml(n){
 }
 function padMemRender(){
   const pg=$id('padMemPage'); if(!pg) return;
+  padOldPark('memOverlay');
+  if(PADM.adv && state.repo){
+    pg.innerHTML=`<div class="pgbody pad-body"><button class="pad-back" id="padMemAdvBack">${padIc('back')}Memória</button><div id="padMemAdvHost" class="pad-advhost"></div></div>`;
+    padOldMount('padMemAdvHost', 'memOverlay', ()=>{ if(typeof MEM!=='undefined') MEM.view='lista'; if(window.openMemoria) window.openMemoria(); });
+    bindClick('padMemAdvBack', ()=>{ PADM.adv=false; padOldPark('memOverlay'); padMemOpen(); });
+    return; }
   if(!state.repo){ pg.innerHTML=padMemHead()+`<div class="pgbody pad-body">${typeof emptyHtml==='function'?emptyHtml({ icon:'folder', title:'A memória é de um projeto.', help:'Abra um projeto pra ver o que a IA sabe dele.', action:{ id:'padMemProj', label:'Abrir ou criar projeto' } }):''}</div>`; bindClick('padMemProj', ()=>openTab('projetos')); return; }
   const f=PADM.f||'time';
   const L=f==='rev'?[]:padMemFilter(PADM.notes, PADM.arch, f, PADM.q);
@@ -662,6 +689,7 @@ function padMemRender(){
 }
 function padMemFind(key){ return [...PADM.notes, ...PADM.arch].find(n=>n.scope+':'+n.slug===key)||null; }
 function padMemWire(pg){
+  { const mb=$id('padMemMore'); if(mb) mb.onclick=()=>padMemMoreMenu(mb); }
   bindClick('padMemNew', ()=>{ PADM.f=PADM.f==='rev'||PADM.f==='arq'?(PADM.hasTeam?'time':'eu'):PADM.f; PADM.edit={ key:null, title:'', body:'', type:'regra', scope:PADM.mode==='time'&&PADM.hasTeam?'time':'local' }; PADM.nova=true; padMemRender(); const t=$id('padMemT'); if(t) t.focus(); });
   pg.querySelectorAll('[data-padmemf]').forEach(b=>b.onclick=()=>{ PADM.f=b.dataset.padmemf; PADM.edit=null; PADM.nova=null; padMemRender(); const n=$id('padMemPage').querySelector(`[data-padmemf="${PADM.f}"]`); if(n) n.focus(); });
   padArrows(pg.querySelector('.pad-memtools .pad-fchips')||pg, '[data-padmemf]');
@@ -681,6 +709,19 @@ function padMemWire(pg){
     const host=$id('padMemAgHost'); const det=host&&host.closest('details');
     if(det) det.addEventListener('toggle', ()=>{ if(det.open && typeof agMemHostRender==='function') agMemHostRender(host); }, { once:true });
   }
+}
+function padMemMoreMenu(anchor){
+  const repo=PADM.repo, mode=PADM.mode;
+  const setMode=async(m)=>{ if(typeof memSetMode==='function'){ await memSetMode(m, repo); } await padMemLoad(); padMemRender(); };
+  const items=[
+    { label:'Notas ligadas e grafo', hint:'a visão completa: [[links]], grafo, mover e apagar', act:()=>{ PADM.adv=true; padMemRender(); } },
+    { label:'Abrir no Obsidian', hint:'a pasta .cardume/memoria vira um cofre', act:async()=>{ try{ const how=await invoke('memory_open_obsidian',{ repo }); if(how==='pasta') toast('Abri a pasta da memória. No Obsidian: "Abrir pasta como cofre" → escolha .cardume/memoria.','warn'); }catch(e){ showErr(e, 'Não consegui abrir no Obsidian'); } } },
+    { sep:true },
+    ...[['time','Notas novas vão pro time','sincroniza com todos'],['local','Notas novas ficam neste computador','os agentes ainda leem as do time'],['so-local','Só local','os agentes ignoram as notas do time']]
+      .filter(([m])=>m!=='time' || PADM.hasTeam).map(([m,l,h])=>({ label:l, ic:mode===m?'check':undefined, hint:h, act:()=>setMode(m) })),
+  ];
+  if(PADM.hasTeam && typeof memTeamSync==='function') items.push({ sep:true }, { label:'Sincronizar com o time agora', act:async()=>{ await memTeamSync(); await padMemLoad(); padMemRender(); toast('Memória do time sincronizada.','ok'); } });
+  if(typeof g1Menu==='function') g1Menu(anchor, items);
 }
 async function padMemStartEdit(key){
   const n=padMemFind(key); if(!n) return;
