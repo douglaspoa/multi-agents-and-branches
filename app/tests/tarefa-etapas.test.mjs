@@ -11,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const TE = new Function('esc', 'escA', cut(read('js/77-tarefa-etapas.js'), '// @te-puro-inicio', '// @te-puro-fim') +
   '\nreturn { TE_STEPS, TE_RAIL_W, teStepOfMode, teStepsOf, teStepKey, teStepMeta, teRanWith, teRailHtml };')(esc, esc);
 const CX = new Function('esc', 'escA', cut(read('js/78-codigo-explicado.js'), '// @cx-puro-inicio', '// @cx-puro-fim') +
-  '\nreturn { cxRange, cxHunkSpan, cxRef, cxWhyOf, cxTurnAt, cxFileSummary, cxAnswerOf, cxPtyText, CX_SRC_LABEL };')(esc, esc);
+  '\nreturn { cxRange, cxHunkSpan, cxRef, cxWhyOf, cxTurnAt, cxFileSummary, cxAnswerOf, cxPtyText, CX_SRC_LABEL, cxIsBin, cxOrderFiles, cxChipFiles, CX_CHIPS_MAX };')(esc, esc);
 const MR = new Function('esc', 'escA', cut(read('js/79-previa-mira.js'), '// @mr-puro-inicio', '// @mr-puro-fim') +
   '\nreturn { MR_DEVS, mrSelShort, mrRequestText, mrChangedOf, mrKeyToggles };')(esc, esc);
 
@@ -142,4 +142,19 @@ test('ordem de carga: 75 → 76 → 77 depois de tudo que eles usam; CSS da etap
   const i75 = h.indexOf('js/77-tarefa-etapas.js'), i76 = h.indexOf('js/78-codigo-explicado.js'), i77 = h.indexOf('js/79-previa-mira.js');
   assert.ok(i75 > h.indexOf('js/72-corrente-tarefa.js') && i76 > i75 && i77 > i76 && i77 < h.indexOf('js/99-e2e.js'));
   assert.ok(h.indexOf('css/99-tarefa-etapas.css') > h.indexOf('css/95-terminal.css'));
+});
+
+test('Código explicado com centenas de assets: código primeiro, binário fora dos chips (bug 15/10)', () => {
+  const imgs = Array.from({ length: 240 }, (_, i) => ({ path: `public/assets/sprite_${i}.png`, add: 0, del: 0 }));
+  const files = [...imgs.slice(0, 120), { path: 'public/assets/CREDITS.TXT', add: 101, del: 0 },
+    { path: 'src/combate/golpe.ts', add: 40, del: 6 }, { path: 'pack.zip', add: 0, del: 0 }, ...imgs.slice(120)];
+  const ord = CX.cxOrderFiles(files);
+  assert.equal(ord[0].path, 'src/combate/golpe.ts', 'código antes de texto solto');
+  assert.equal(ord[1].path, 'public/assets/CREDITS.TXT');
+  assert.ok(ord.slice(2).every(f => CX.cxIsBin(f)), 'binários no fim');
+  const chips = CX.cxChipFiles(ord, ord[0].path);
+  assert.equal(chips.length, 2, 'só código/texto vira chip');
+  assert.ok(CX.cxChipFiles(ord, 'pack.zip').some(f => f.path === 'pack.zip'), 'o aberto sempre aparece');
+  const many = Array.from({ length: 30 }, (_, i) => ({ path: `src/m${i}.ts`, add: i + 1, del: 0 }));
+  assert.equal(CX.cxChipFiles(CX.cxOrderFiles(many), null).length, CX.CX_CHIPS_MAX);
 });

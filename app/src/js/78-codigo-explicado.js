@@ -93,12 +93,32 @@ function cxPtyText(kind, ref, txt){
   if(kind==='paste') return ref+' '+(q?q+' ':'');
   return q?ref+' '+q:'';
 }
+// Muitos arquivos (ex.: 245 imagens de um pacote de assets): só os de código/texto viram chip; o resto fica em
+// "Todos os arquivos", e binário nunca abre sozinho nem pede diff.
+const CX_BIN_RE=/\.(png|jpe?g|gif|webp|bmp|ico|icns|svgz|tiff?|psd|xcf|ase|aseprite|zip|gz|tgz|bz2|xz|7z|rar|jar|mp3|wav|ogg|flac|m4a|mp4|mov|webm|avi|ttf|otf|woff2?|eot|pdf|bin|exe|dll|so|dylib|wasm|glb|gltf|fbx|blend|obj)$/i;
+function cxIsBin(f){ const p=String((f&&f.path)||''); return CX_BIN_RE.test(p) || (!!f && !f.add && !f.del && !!f.binary); }
+// código de verdade antes de texto solto (CREDITS.TXT, LICENSE, README de pacote de assets)
+const CX_CODE_RE=/\.(m?[jt]sx?|c[jt]s|vue|svelte|astro|py|rb|go|rs|java|kt|kts|swift|m|mm|c|cc|cpp|h|hpp|cs|php|scala|ex|exs|dart|lua|sql|css|scss|sass|less|html?|json|ya?ml|toml|gd|gdshader|sh)$/i;
+/** Código/texto primeiro (mais mudado no topo), binários no fim — estável dentro de cada grupo. */
+function cxOrderFiles(files){
+  const a=[], b=[];
+  (files||[]).forEach((f,i)=>{ (cxIsBin(f)?b:a).push({ f, i, c:CX_CODE_RE.test(String(f.path||''))?0:1 }); });
+  a.sort((x,y)=>(x.c-y.c)||(((y.f.add||0)+(y.f.del||0))-((x.f.add||0)+(x.f.del||0)))||(x.i-y.i));
+  return a.map(x=>x.f).concat(b.map(x=>x.f));
+}
+const CX_CHIPS_MAX=8;
+/** Quais arquivos viram chip: até CX_CHIPS_MAX de código/texto, e o aberto sempre aparece. */
+function cxChipFiles(files, openPath){
+  const txt=files.filter(f=>!cxIsBin(f)).slice(0, CX_CHIPS_MAX);
+  if(openPath && !txt.some(f=>f.path===openPath)){ const o=files.find(f=>f.path===openPath); if(o) txt.push(o); }
+  return txt;
+}
 // @cx-puro-fim
 
 // ---------------------------------------------------------------- estado e dados
-const CX={ data:{}, reasons:{}, hist:{}, commits:{}, threads:{}, thLoaded:{}, file:{}, filt:{}, seen:{}, sel:null, selTxt:'', alt:null, altTxt:'', reply:{}, sig:'', loadingAt:{} };
+const CX={ allOpen:{}, binOpen:{}, allQ:'', data:{}, reasons:{}, hist:{}, commits:{}, threads:{}, thLoaded:{}, file:{}, filt:{}, seen:{}, sel:null, selTxt:'', alt:null, altTxt:'', reply:{}, sig:'', loadingAt:{} };
 function cxOn(){ return typeof TE!=='undefined' && TE.on; }
-function cxCodeFiles(){ return (typeof fwFiles!=='undefined'?fwFiles:[]).filter(f=>f && !f.doc && f.source!=='doc'); }
+function cxCodeFiles(){ return cxOrderFiles((typeof fwFiles!=='undefined'?fwFiles:[]).filter(f=>f && !f.doc && f.source!=='doc')); }
 function cxThreads(taskId){ return CX.threads[taskId]||(CX.threads[taskId]=[]); }
 /** Contagens pra lateral (75): trechos conhecidos e conversas abertas. */
 function cxCounts(taskId){
@@ -109,7 +129,7 @@ function cxCounts(taskId){
 function cxTurnCount(taskId){ const h=CX.hist[taskId]; return h&&h.items?h.items.filter(x=>x.k==='you').length:0; }
 // diff de cada arquivo (mesma chave de cache do Código antigo: muda quando +/− do arquivo muda)
 function cxDiffs(t){
-  const files=cxCodeFiles().slice(0, 40);
+  const files=cxCodeFiles().filter(f=>!cxIsBin(f)).slice(0, 40);
   const d=CX.data[t.id]||(CX.data[t.id]={ files:{} });
   let pending=0;
   for(const f of files){
@@ -205,6 +225,16 @@ function cxThreadHtml(t, th, idx){
   return `<section class="cx-thread" id="cxth-${idx}" aria-label="Conversa sobre ${escA(th.ref)}"><div class="cx-th">${TE_IC.term}<b>Conversa sobre <span class="mono">${esc(String(th.ref).replace(/^@/,''))}</span></b><span class="cx-dim">· também está na Conversa da tarefa</span><span class="sp"></span><button type="button" class="btn ghost sm" data-cx="conv">Ver no terminal</button></div>`+
     msgs+(waiting?`<div class="cx-msg ia typing"><span class="cx-av" aria-hidden="true">${esc(ag.charAt(0))}</span><p class="cx-dim">${esc(ag)} está respondendo no terminal…</p></div>`:'')+acts+`</section>`;
 }
+/** "Todos os arquivos": busca + lista com rolagem própria; binários agrupados no fim (recolhidos se forem muitos). */
+function cxAllListHtml(t, files, openPath){
+  const q=String(CX.allQ||'').trim().toLowerCase();
+  const row=x=>`<button type="button" class="cx-arow" data-cx="file" data-f="${escA(x.path)}" aria-pressed="${x.path===openPath}" data-q="${escA(x.path.toLowerCase())}"${q&&!x.path.toLowerCase().includes(q)?' hidden':''}><span class="cx-ap">${esc(x.path)}</span><span class="cx-a">+${x.add||0}</span><span class="cx-d">−${x.del||0}</span></button>`;
+  const txt=files.filter(x=>!cxIsBin(x)), bin=files.filter(cxIsBin);
+  const binOpen=!!CX.binOpen[t.id] || bin.length<=12 || !!q;
+  return `<div class="cx-all" role="region" aria-label="Todos os arquivos alterados"><input class="inp cx-aq" id="cxAllQ" type="search" placeholder="Filtrar ${files.length} arquivos…" aria-label="Filtrar arquivos" autocomplete="off" spellcheck="false" value="${escA(CX.allQ||'')}">`+
+    `<div class="cx-alist">${txt.length?`<div class="cx-ag">Código e texto · ${txt.length}</div>${txt.map(row).join('')}`:''}`+
+    (bin.length?`<div class="cx-ag">Imagens e binários · ${bin.length}${bin.length>12?` <button type="button" class="lnk" data-cx="bin">${binOpen?'esconder':'mostrar'}</button>`:''}</div>${binOpen?bin.map(row).join(''):''}`:'')+`</div></div>`;
+}
 /** A superfície inteira (chamada pelo renderWorkspace no modo etapas). Só troca o DOM quando o conteúdo mudou. */
 function cxRender(t, main){
   cxDiffs(t); cxLoadAux(t, false);
@@ -229,7 +259,8 @@ function cxRender(t, main){
     for(const x of files){ const xd=d.files[x.path]; if(!xd||!xd.hunks) continue;
       whyAll[x.path]=xd.hunks.map(h=>{ const span=cxHunkSpan(h); return { span, w:cxWhyOf({ file:x.path, span, reasons, reqs, hist, commits:CX.commits[t.id]||[], prBody:pr&&pr.body }) }; });
       if(hasMap) nOut+=whyAll[x.path].filter(y=>!y.w.req).length; }
-    const chips=files.map(x=>{ const n=threads.filter(th=>th.file===x.path).length; const out=hasMap && (whyAll[x.path]||[]).some(y=>!y.w.req);
+    const chipFiles=cxChipFiles(files, f.path), nBin=files.filter(cxIsBin).length;
+    const chips=chipFiles.map(x=>{ const n=threads.filter(th=>th.file===x.path).length; const out=hasMap && (whyAll[x.path]||[]).some(y=>!y.w.req);
       return `<button type="button" class="cx-fchip" data-cx="file" data-f="${escA(x.path)}" aria-pressed="${x.path===f.path}" title="${escA(x.path)}">${CX.seen[t.id+'|'+x.path]?`<span class="cx-seen" aria-label="visto">${IC.check||'✓'}</span>`:''}<span class="cx-fn">${esc(x.path.split('/').pop())}</span><span class="cx-a">+${x.add||0}</span><span class="cx-d">−${x.del||0}</span>${out?'<span class="cx-w" title="tem trecho fora dos requisitos"></span>':''}${n?`<span class="cx-tc" title="${n} ${n===1?'conversa':'conversas'} neste arquivo">${TE_IC.term}${n}</span>`:''}</button>`; }).join('');
     const seg=hasMap?`<div class="te-seg cx-filt" role="group" aria-label="Filtrar trechos"><button type="button" data-cx="filt" data-v="todos" aria-pressed="${filt==='todos'}">Todos os trechos</button><button type="button" data-cx="filt" data-v="fora" aria-pressed="${filt==='fora'}">Fora dos requisitos · ${nOut}</button></div>`:'';
     const wl=whyAll[f.path]||[];
@@ -239,7 +270,8 @@ function cxRender(t, main){
     const seenK=t.id+'|'+f.path;
     const fsum=`<div class="cx-fsum"><div class="cx-fsb"><div class="cx-fst">O que mudou neste arquivo e por quê</div><div class="cx-fsx">${sumTx}</div></div><div class="cx-fsa">${!sum&&!(ai&&ai.md)&&ai!==null?`<button type="button" class="btn sm" data-cx="aiwhy" title="a IA lê o diff deste arquivo e explica (usa créditos)">explicar com IA</button>`:''}<button type="button" class="btn sm" data-cx="seen">${CX.seen[seenK]?(IC.check||'✓')+' Visto':'Marcar como visto'}</button></div></div>`;
     let hunks='';
-    if(fd.loading && !fd.hunks) hunks=typeof skeletonHtml==='function'?skeletonHtml('tabela',{ n:6, cols:2, inline:true, label:'carregando as mudanças' }):'<div class="cx-dim">carregando…</div>';
+    if(cxIsBin(f)) hunks=`<div class="cx-empty"><div class="cx-et">Arquivo binário</div><div class="cx-dim">${esc(f.path)} · sem diff de texto pra explicar trecho a trecho.</div></div>`;
+    else if(fd.loading && !fd.hunks) hunks=typeof skeletonHtml==='function'?skeletonHtml('tabela',{ n:6, cols:2, inline:true, label:'carregando as mudanças' }):'<div class="cx-dim">carregando…</div>';
     else if(fd.err) hunks=`<div class="cx-empty"><div class="cx-et">não consegui gerar o diff deste arquivo</div><div class="cx-dim" title="${escA(fd.err.slice(0,400))}">${esc(typeof errShort==='function'?errShort(fd.err):fd.err)}</div></div>`;
     else if(fd.hunks && !fd.hunks.length) hunks='<div class="cx-empty"><div class="cx-dim">sem diferenças neste arquivo em relação à base</div></div>';
     else if(fd.hunks){
@@ -256,7 +288,10 @@ function cxRender(t, main){
       });
       if(!hunks) hunks='<div class="cx-empty"><div class="cx-dim">Nenhum trecho fora dos requisitos neste arquivo.</div></div>';
     }
-    html=`<div class="cx" data-cx-task="${escA(t.id)}"><div class="cx-files"><div class="cx-chips">${chips}</div>${seg}</div>`+
+    const allOpen=!!CX.allOpen[t.id], rest=files.length-chipFiles.length;
+    const allBtn=files.length>chipFiles.length||allOpen?`<button type="button" class="cx-allbtn" data-cx="all" aria-expanded="${allOpen}">${allOpen?'Fechar a lista':'Todos os arquivos · '+files.length}${rest>0&&!allOpen?`<span class="cx-dim"> (+${rest}${nBin?(rest===nBin?' '+(nBin===1?'binário':'binários'):', '+nBin+' '+(nBin===1?'binário':'binários')):''})</span>`:''}</button>`:'';
+    const allList=allOpen?cxAllListHtml(t, files, f.path):'';
+    html=`<div class="cx" data-cx-task="${escA(t.id)}"><div class="cx-files"><div class="cx-chips">${chips}${allBtn}</div>${seg}</div>${allList}`+
       `<div class="cx-scroll" id="cxScroll">${fsum}${hunks}<div class="cx-hint">Clique no número da linha para selecionar, ⇧ clique para estender. "Perguntar sobre isso" abre uma conversa presa ao trecho; a mesma conversa aparece no terminal.</div></div></div>`;
   }
   if(main.__cxHtml===html && main.querySelector('.cx,.cx-empty')) return;
@@ -271,7 +306,7 @@ function cxRender(t, main){
 function cxWire(t, main){
   if(main.__cxWired===t.id) return; main.__cxWired=t.id;
   main.addEventListener('click', (e)=>cxClick(e, main));
-  main.addEventListener('input', (e)=>{ const el=e.target; if(el.id==='cxQ') CX.selTxt=el.value; else if(el.id==='cxAlt') CX.altTxt=el.value; else if(el.classList && el.classList.contains('cx-reply')) CX.reply[el.dataset.th]=el.value; });
+  main.addEventListener('input', (e)=>{ const el=e.target; if(el.id==='cxAllQ'){ CX.allQ=el.value; const q=el.value.trim().toLowerCase(); if(q && main.querySelector('[data-cx="bin"]') && !CX.binOpen[cxTask()&&cxTask().id]){ cxRepaint((cxTask()||{}).id); return; } main.querySelectorAll('.cx-arow').forEach(r=>{ r.hidden=!!q && !r.dataset.q.includes(q); }); return; } if(el.id==='cxQ') CX.selTxt=el.value; else if(el.id==='cxAlt') CX.altTxt=el.value; else if(el.classList && el.classList.contains('cx-reply')) CX.reply[el.dataset.th]=el.value; });
   main.addEventListener('keydown', (e)=>{
     const el=e.target;
     if(el.id==='cxQ' && e.key==='Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey){ e.preventDefault(); cxAct('ask'); }
@@ -288,8 +323,10 @@ function cxClick(e, main){
 async function cxAct(k, b, e){
   const t=cxTask(); if(!t) return;
   const ds=(b&&b.dataset)||{};
-  if(k==='file'){ CX.file[t.id]=ds.f; CX.sel=null; const s=$id('cxScroll'); if(s) s.scrollTop=0; cxRepaint(t.id); return; }
+  if(k==='file'){ CX.file[t.id]=ds.f; CX.sel=null; CX.allOpen[t.id]=false; const s=$id('cxScroll'); if(s) s.scrollTop=0; cxRepaint(t.id); return; }
   if(k==='filt'){ CX.filt[t.id]=ds.v; cxRepaint(t.id); return; }
+  if(k==='all'){ CX.allOpen[t.id]=!CX.allOpen[t.id]; cxRepaint(t.id); if(CX.allOpen[t.id]) setTimeout(()=>{ const q=$id('cxAllQ'); if(q) q.focus({ preventScroll:true }); }, 0); return; }
+  if(k==='bin'){ CX.binOpen[t.id]=!CX.binOpen[t.id]; cxRepaint(t.id); return; }
   if(k==='seen'){ const kk=t.id+'|'+CX.file[t.id]; CX.seen[kk]=!CX.seen[kk]; cxRepaint(t.id); return; }
   if(k==='aiwhy'){ if(typeof fwAskWhy==='function'){ fwAskWhy(t.id, CX.file[t.id]); } return; }
   if(k==='conv'){ if(typeof teGo==='function') teGo('conversa'); return; }
