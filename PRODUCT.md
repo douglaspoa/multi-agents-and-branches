@@ -33,18 +33,29 @@ There is nothing else to open. Underneath it sits the verification layer (plan �
 ## Operating Context
 
 The app is used all day next to Slack and the browser on a 13–16" Mac, often with the window split. A typical day:
-- create a demand ("Nova demanda");
-- watch agents work (Central board, sidebar per project);
-- open a task: Entrega, Código, Conversa, Revisão, Prévia and PR modes, with the chat on the right;
+- open the app on **Meu trabalho** ("Precisa de mim": one sentence and one action per item; my week; what I sent to the team);
+- create a demand ("Nova demanda", ⌘N) and choose who does it;
+- follow the team on **Semana do time** (people × days, "Sem dono" on top, Passar/Atribuir, drag between people);
+- open a task in its own tab: the real terminal of the AI (PTY) is the core, with Entrega, Código, Conversa, Revisão, Prévia and PR modes;
 - split the top-level tab bar into up to 3 panes (demands, Navegador, Simulador, Documento);
-- review and merge.
+- review, merge and show what shipped in **Entregas**.
 
-Team cloud board, usage meter, and autopilot runs.
+## Navigation (sidebar "Semana", approved 14/10)
+
+The sidebar has 3 named groups. Only the middle scrolls; the footer is always visible, even at 1000×700.
+- **Top:** current project selector (switch, all projects, add repo) and **Nova demanda ⌘N**.
+- **TRABALHO:** Meu trabalho · Semana do time · Entregas · Issues (from whatever panel the team connected: Jira, Linear, GitHub…, labeled "Issues" plus the panel name). Under it, **Abertas**: the live demands.
+- **PADRÕES DO TIME** (collapsible, each item with a subtitle): Projetos · Agentes · Skills · Memória.
+- **CONTA** (fixed at the bottom): Pessoas · Ajustes (⌘,) · **Onde fica cada coisa** (key ?), the map of the app with step-by-step guides ("passo N de M" strip that highlights the next click).
+- Fábrica and Ideia left the sidebar: "Começar um app do zero" is in Projetos › Adicionar repo (next to open folder, clone from GitHub and new empty repo); "Ainda é uma ideia: conversar antes de planejar" is an option of Nova demanda.
+- The Central and the Time page still exist as tabs; Semana do time is the everyday door.
+- Inside a task the sidebar stays the same for now; `sideTaskMode(task)` (76-casca-semana.js) is the extension point for the task-steps sidebar.
 
 ## Capabilities and Constraints
 
 - **Tabs, not modals:** new flows open as tabs (top-level tab bar). Floating modals are disliked.
 - **Task screen:** keep the existing task mode menu (Entrega | Código | Conversa | Revisão | Prévia | PR). In narrow panes it collapses into a dropdown. The canvas lives at the top tab bar, not inside the task.
+- **The terminal is the core:** each task has a real PTY terminal running the AI (any engine). It keeps at least 100 columns at 1000 px inside the task, and app shortcuts never steal keys while the focus is in the terminal.
 - **Performance is a hard constraint:**
   - the app previously hit 100–200% CPU;
   - only visible panes run;
@@ -52,11 +63,12 @@ Team cloud board, usage meter, and autopilot runs.
   - idle CPU stays low;
   - no polling loops.
 - **Panel vetoes:**
-  - no free shell/terminal;
+  - the terminal belongs to a task (no loose shell window outside a task);
   - logs only behind "ver detalhes";
   - no empty pane without guidance in Portuguese;
   - no recursive split.
 - **UI language:** Brazilian Portuguese.
+- **Nothing mouse-only:** every flow has a keyboard path and visible focus (Passar ▾ numbered 1–n, Triagem with R/1–9/S, ? opens the map).
 
 ## Brand Commitments
 

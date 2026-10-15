@@ -51,6 +51,7 @@
 <link rel="stylesheet" href="css/99-entregas-dia.css">
 <link rel="stylesheet" href="css/99-time-ativo.css">
 <link rel="stylesheet" href="css/99-padroes.css">
+<link rel="stylesheet" href="css/99-casca-semana.css">
 </head>
 <body>
 <div class="app">
@@ -61,31 +62,52 @@
       <div class="brand" data-tauri-drag-region><span class="logo" aria-hidden="true"><svg class="sf-mark" viewBox="0 0 16 16" aria-hidden="true"><g class="sf-g" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path class="sf-star" pathLength="1" fill="currentColor" stroke-width=".5" d="M6.2 1 7.4 4 10.4 5.2 7.4 6.4 6.2 9.4 5 6.4 2 5.2 5 4Z"/><path class="sf-b1" pathLength="1" d="M6.2 8.3v5.4"/><path class="sf-b2" pathLength="1" d="M6.2 11.9c0-2.6 2.2-3.5 5.2-4.3"/><circle class="sf-n1" cx="6.2" cy="13.8" r="1.35" fill="currentColor" stroke="none"/><circle class="sf-n2" cx="12.4" cy="7.3" r="1.5" fill="currentColor" stroke="none"/></g></svg></span>Starfork</div>
     </div>
     <div class="sbnew">
-      <button class="btn primary sbbig" id="newTaskBtn"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova demanda</button>
+      <!-- Semana (14/10): seletor do projeto atual no topo — trocar, ver todos ou adicionar repo (76-casca-semana) -->
+      <button class="sbprojsw" id="sbProjSw" aria-haspopup="menu" aria-expanded="false" title="Projeto atual — trocar, ver todos ou adicionar um repo"><span class="pdot" id="sbProjDot" aria-hidden="true"></span><span class="sbpn" id="sbProjNm">sem projeto</span><svg class="sbchev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 6.5l3.5 3.5 3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="btn primary sbbig" id="newTaskBtn" title="Nova demanda (⌘N)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/></svg>Nova demanda<span class="kbd">⌘N</span></button>
       <input id="repoInput" class="repoinput" placeholder="…ou cole o caminho de uma pasta" spellcheck="false" style="display:none">
       <button class="btn" id="connectBtn" style="display:none">abrir</button>
       <div class="conn" id="conn" style="display:none"><span class="d"></span><span id="connTxt">sem repo</span></div>
     </div>
-    <div class="sbscroll">
-      <div id="rail"></div>
+    <!-- Semana (14/10, mesa-semana-app §1): a lateral tem 3 grupos com nome. Só o MIOLO rola (TRABALHO, Abertas e PADRÕES
+         DO TIME); CONTA fica fixa embaixo, sempre visível a 1000×700. Quem liga os botões: 76-casca-semana.js -->
+    <div class="sbscroll" id="sbMid">
+      <div class="sbgrp" id="sbGrpTrab">Trabalho</div>
+      <nav class="sbnav2" aria-labelledby="sbGrpTrab">
+        <button class="btn sbitem" id="meuBtn" data-sbgo="meu" title="Meu trabalho — o que precisa de mim, minha semana e o que mandei pro time"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><path d="M2.6 7.4 8 2.9l5.4 4.5V13a.6.6 0 0 1-.6.6H9.6V10H6.4v3.6H3.2a.6.6 0 0 1-.6-.6z" stroke-linejoin="round"/></svg><span class="sbl">Meu trabalho</span><span class="sbcnt" id="meuCnt" hidden></span></button>
+        <button class="btn sbitem" id="semanaBtn" data-sbgo="semana" title="Semana do time — quem está com o quê por dia, sem dono, travados; distribuir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><rect x="2.5" y="3.4" width="11" height="10.1" rx="1.4"/><path d="M2.5 6.6h11M5.4 2v2.6M10.6 2v2.6" stroke-linecap="round"/></svg><span class="sbl">Semana do time</span></button>
+        <button class="btn sbitem" id="entregasBtn" data-sbgo="entregas" title="Entregas — o que foi entregue, por dia, com prova; relatório"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><path d="M2.6 5 8 2.4 13.4 5v6L8 13.6 2.6 11z" stroke-linejoin="round"/><path d="M2.6 5 8 7.6 13.4 5M8 7.6v6" stroke-linejoin="round"/></svg><span class="sbl">Entregas</span></button>
+        <button class="btn sbitem" id="issuesBtn" title="Issues — os pedidos que chegam do painel conectado do time (Jira, Linear, GitHub…)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><circle cx="8" cy="8" r="5.4"/><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/></svg><span class="sbl">Issues</span><span class="sbcnt q" id="issuesCnt" hidden></span></button>
+      </nav>
+      <div class="sbsubgrp" id="sbAbertasH">Abertas</div>
+      <div id="rail" aria-labelledby="sbAbertasH"></div>
+      <button class="sbgrp sbgrpbtn" id="sbPadTgl" aria-expanded="true" aria-controls="sbPad">Padrões do time<svg class="sbchev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 6.5l3.5 3.5 3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <nav class="sbnav2" id="sbPad" aria-label="Padrões do time">
+        <button class="btn sbitem two" id="projetosBtn" title="Projetos — cada repositório: regras, provas no PR, issues, como o app sobe"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg><span class="sbl"><span class="sbt">Projetos</span><span class="sbsub">repos, regras e prévia</span></span></button>
+        <button class="btn sbitem two" id="agentesBtn" title="Agentes — quem faz o trabalho: papel, modelo, versões"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><rect x="3" y="5" width="10" height="7.6" rx="2"/><path d="M8 2.6V5M6 8.4h.05M10 8.4h.05" stroke-linecap="round"/></svg><span class="sbl"><span class="sbt">Agentes</span><span class="sbsub">quem faz o trabalho</span></span></button>
+        <button class="btn sbitem two" id="skillsNavBtn" title="Skills — habilidades extras: catálogo, onde estão ligadas, como usar"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><path d="M3 13 10.4 5.6M9.2 4.4l2.4 2.4" stroke-linecap="round"/><path d="M12.4 1.9v1.8M13.3 2.8h-1.8M4.6 2.6v1.4M5.3 3.3H3.9M13.4 8.6v1.4M14.1 9.3h-1.4" stroke-linecap="round"/></svg><span class="sbl"><span class="sbt">Skills</span><span class="sbsub">habilidades extras</span></span></button>
+        <button class="btn sbitem two" id="memoriaBtn" title="Memória — o que a IA sabe do projeto: notas com autor"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><path d="M4 2.6h7.6c.4 0 .8.3.8.8v10H4.8a1.2 1.2 0 0 1-1.2-1.2V3.4c0-.5.3-.8.4-.8z" stroke-linejoin="round"/><path d="M3.6 12.2c0-.7.5-1.2 1.2-1.2h7.6M6.4 5.4h3.6" stroke-linecap="round"/></svg><span class="sbl"><span class="sbt">Memória</span><span class="sbsub">o que a IA sabe</span></span><span class="sbcnt q" id="memCnt" hidden></span></button>
+      </nav>
     </div>
-    <!-- redesenho F1: as DEMANDAS vêm primeiro (lista acima); a navegação fica embaixo dela, como no protótipo aprovado -->
-    <!-- F4 (G1, mesa D1): 4 lugares — Projetos · Issues · Fábrica · Time (só com organização). "Mais" e "Chat do projeto"
-         saíram (Chat → Projeto › Conversa, ⌘J); o rodapé é medidor + avatar (menu: 68-casca-g1.js) -->
-    <div class="sbnav2" role="navigation" aria-label="Lugares">
-      <button class="btn sbitem sbproj" id="projetosBtn" title="Projetos — todos os repositórios (trocar, adicionar, remover)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 4.4c0-.4.3-.7.7-.7h3l1.3 1.5h6.3c.4 0 .7.3.7.7v6.4c0 .4-.3.7-.7.7H2.7c-.4 0-.7-.3-.7-.7z" stroke-linejoin="round"/></svg>Projetos</button>
-      <button class="btn sbitem" id="issuesBtn" title="Issues — o painel de issues do time: conexão, projetos e quadro (kanban)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="5.4"/><path d="M8 5.2v3.4M8 10.6v.05" stroke-linecap="round"/></svg>Issues</button>
-      <button class="btn sbitem" id="fabricaBtn" title="Fábrica — montar apps e funcionalidades com a IA, do pedido ao app pronto"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2.5 13.5V7.2l3.2 2V7.2l3.2 2V4.5h2.2v9z" stroke-linejoin="round"/><path d="M2 13.5h12" stroke-linecap="round"/></svg>Fábrica</button>
-      <button class="btn sbitem" id="timeBtn" hidden title="Time — visão geral, quadro, PRs pra revisar, pessoas e atividade"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9"/></svg>Time</button>
-    </div>
-    <!-- medidor do plano (28-medidor-plano): uso de cada IA configurada; minimizável -->
-    <div class="planmeter" id="planMeter" role="group" aria-label="Uso do plano"></div>
-    <div class="sbme">
-      <button class="sbmebtn" id="meBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="meMenu"><span class="meav" id="meAv" aria-hidden="true">?</span><span class="metx"><b id="meName">Entrar</b><small id="meSub"></small></span><svg class="mechev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 9.8 8 6.3l3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    <div class="sbfoot">
+      <div class="sbgrp" id="sbGrpConta">Conta</div>
+      <nav class="sbnav2" aria-labelledby="sbGrpConta">
+        <button class="btn sbitem" id="pessoasBtn" title="Pessoas — convidar, papéis e convites pendentes"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><circle cx="6" cy="6" r="2.3"/><path d="M2.4 12.6c0-2 1.7-3.1 3.6-3.1s3.6 1.1 3.6 3.1"/><path d="M10.6 4.1a2.15 2.15 0 0 1 0 4.05M11.2 9.6c1.6.15 2.7 1.15 2.7 2.9" stroke-linecap="round"/></svg><span class="sbl">Pessoas</span></button>
+        <button class="btn sbitem" id="ajustesBtn" title="Ajustes (⌘,)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/></svg><span class="sbl">Ajustes</span><span class="helpk">⌘,</span></button>
+        <button class="btn sbitem" id="mapaBtn" data-sbgo="mapa" title="Onde fica cada coisa (?) — o mapa do app e guias passo a passo"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2 13.6 13.6" stroke-linecap="round"/></svg><span class="sbl">Onde fica cada coisa</span><span class="helpk">?</span></button>
+      </nav>
+      <!-- medidor do plano (28-medidor-plano): uso de cada IA configurada; minimizável -->
+      <div class="planmeter" id="planMeter" role="group" aria-label="Uso do plano"></div>
+      <div class="sbme">
+        <button class="sbmebtn" id="meBtn" aria-haspopup="menu" aria-expanded="false" aria-controls="meMenu"><span class="meav" id="meAv" aria-hidden="true">?</span><span class="metx"><b id="meName">Entrar</b><small id="meSub"></small></span><svg class="mechev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 9.8 8 6.3l3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
     </div>
     <!-- compatibilidade: os botões antigos do "Mais" seguem no DOM (outros arquivos ligam handlers e selos neles),
          sempre escondidos — o menu do avatar e a página Projeto chamam as mesmas funções -->
     <div class="sbcompat" id="sbCompat" hidden aria-hidden="true">
+      <!-- Semana: Fábrica e Time saíram da lateral (Fábrica → Projetos › Adicionar repo; Time → Semana do time) -->
+      <button class="btn sbitem" id="fabricaBtn" tabindex="-1">Fábrica</button>
+      <button class="btn sbitem" id="timeBtn" hidden tabindex="-1">Time</button>
       <button class="btn sbitem" id="pcBtn" title="Conversar sobre o projeto — dúvidas, arquitetura, ideias (⌘J)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M13.5 7.6c0 2.8-2.5 5-5.5 5-.7 0-1.4-.1-2-.35L2.8 13l.85-2.5A4.7 4.7 0 0 1 2.5 7.6c0-2.8 2.5-5 5.5-5s5.5 2.2 5.5 5z" stroke-linejoin="round"/></svg>Chat do projeto</button>
     <div class="sbnav">
       <button class="btn sbitem" id="cloudBtn" title="Conta e time — login, organização e convites"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M4.6 11.8a2.6 2.6 0 0 1 .3-5.18 3.4 3.4 0 0 1 6.6.7 2.3 2.3 0 0 1-.4 4.55z" stroke-linejoin="round"/></svg><span id="cloudBtnTx">Entrar</span></button>
@@ -115,6 +137,8 @@
     <button class="btn" id="updBtn" style="display:none;background:color-mix(in srgb,var(--accent) 18%,var(--surface));border-color:var(--accent);color:var(--accent);font-weight:700" title="versão nova disponível — clique pra atualizar e reabrir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" style="width:12px;height:12px;vertical-align:-1.5px;margin-right:5px"><path d="M8 10.6V3.2m0 0L5.3 5.9M8 3.2l2.7 2.7"/><path d="M3.4 12.6h9.2"/></svg>atualizar</button>
   </div>
 
+  <!-- guia passo a passo de "Onde fica cada coisa" (76-casca-semana): faixa ANTES das abas — empurra o conteúdo, não cobre -->
+  <div class="semguia" id="semGuia" role="status" aria-live="polite" hidden></div>
   <div class="tabbar" id="tabBar" style="display:none"></div>
 
 
@@ -689,6 +713,11 @@
 <div class="overlay fwoverlay pgov" id="timeOverlay" style="display:none"><div class="pgpage" id="timePage"></div></div>
 <div class="overlay fwoverlay pgov" id="projOverlay" style="display:none"><div class="pgpage" id="projPage"><div id="projHead"></div><div class="pgsplit"><nav class="subnav" id="projNav" role="tablist" aria-label="Seções do projeto" aria-orientation="vertical"></nav><div class="pgbody" id="projHost"></div></div></div></div>
 <div class="overlay fwoverlay pgov" id="atalhosOverlay" style="display:none"><div class="pgpage" id="atalhosPage"></div></div>
+<!-- Semana (76-casca-semana): Meu trabalho · Semana do time · Entregas · Onde fica cada coisa — abas, nunca modal -->
+<div class="overlay fwoverlay pgov" id="meuOverlay" style="display:none"><div class="pgpage sempage" id="meuPage"></div></div>
+<div class="overlay fwoverlay pgov" id="semanaOverlay" style="display:none"><div class="pgpage sempage" id="semanaPage"></div></div>
+<div class="overlay fwoverlay pgov" id="entregasOverlay" style="display:none"><div class="pgpage sempage" id="entregasPage"></div></div>
+<div class="overlay fwoverlay pgov" id="mapaOverlay" style="display:none"><div class="pgpage sempage" id="mapaPage"></div></div>
 
 <div class="overlay" id="ctOverlay" style="display:none">
   <div class="modal" style="width:min(680px,100%)">
@@ -790,6 +819,7 @@
 <script src="js/72-gestao-time.js"></script>
 <script src="js/74-time-ativo.js"></script>
 <script src="js/75-padroes.js"></script>
+<script src="js/76-casca-semana.js"></script>
 <script src="js/99-e2e.js"></script>
 </body>
 </html>
