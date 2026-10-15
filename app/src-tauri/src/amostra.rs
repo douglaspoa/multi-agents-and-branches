@@ -29,6 +29,15 @@ pub fn samples_of(repo: &Path, agent_id: &str) -> Vec<Value> {
     out
 }
 
+/// `--model`/`--engine` do rascunho (só o que veio preenchido e com cara de nome de modelo — nada de flag injetada).
+pub fn draft_args(model: Option<&str>, engine: Option<&str>) -> Vec<String> {
+    let ok = |s: &str| !s.is_empty() && s.len() <= 80 && !s.starts_with('-') && s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.:/[]".contains(c));
+    let mut v = vec![];
+    if let Some(m) = model.map(str::trim).filter(|m| ok(m)) { v.push("--model".to_string()); v.push(m.to_string()); }
+    if let Some(e) = engine.map(str::trim).filter(|e| ok(e)) { v.push("--engine".to_string()); v.push(e.to_string()); }
+    v
+}
+
 /// A última linha JSON da saída do motor (o resto é log).
 pub fn last_json(stdout: &str) -> Option<Value> {
     stdout.lines().rev().map(str::trim).filter(|l| l.starts_with('{')).find_map(|l| serde_json::from_str::<Value>(l).ok())
@@ -41,7 +50,8 @@ pub fn agent_samples(state: State<AppState>, repo: Option<String>, agent_id: Str
 }
 
 #[tauri::command(async)]
-pub fn agent_sample_review(state: State<AppState>, repo: Option<String>, task_id: String, agent_id: String, cap_usd: f64) -> Result<Value, String> {
+#[allow(clippy::too_many_arguments)]
+pub fn agent_sample_review(state: State<AppState>, repo: Option<String>, task_id: String, agent_id: String, cap_usd: f64, model: Option<String>, engine: Option<String>) -> Result<Value, String> {
     let repo = repo_or(&state, repo)?;
     if !(cap_usd.is_finite() && cap_usd > 0.0) { return Err("a amostra precisa de um teto".into()); }
     let key = repo.display().to_string();
@@ -62,6 +72,8 @@ pub fn agent_sample_review(state: State<AppState>, repo: Option<String>, task_id
             "--agent".to_string(), agent_id.clone(), "--cap".to_string(), format!("{cap_usd}"),
             "--repo".to_string(), repo.display().to_string(), "--json".to_string(),
         ])
+        // rascunho (Padrões do time › Agentes): testa o modelo/motor trocado antes de virar versão
+        .args(draft_args(model.as_deref(), engine.as_deref()))
         .current_dir(&repo)
         .stdin(Stdio::null())
         .stdout(Stdio::from(std::fs::File::create(&fo).map_err(|e| e.to_string())?))
@@ -108,6 +120,15 @@ mod tests {
         let l = samples_of(&repo, "nyx");
         assert_eq!(l.iter().map(|x| x["at"].as_i64().unwrap()).collect::<Vec<_>>(), vec![3, 1]);
         let _ = std::fs::remove_dir_all(&repo);
+    }
+
+    #[test]
+    fn rascunho_vira_flags_so_com_nome_limpo() {
+        assert_eq!(draft_args(Some("claude-opus-5"), None), vec!["--model", "claude-opus-5"]);
+        assert_eq!(draft_args(Some(" sonnet "), Some("codex")), vec!["--model", "sonnet", "--engine", "codex"]);
+        assert!(draft_args(Some("--json"), Some("")).is_empty());
+        assert!(draft_args(Some("a b"), Some("x;rm")).is_empty());
+        assert!(draft_args(None, None).is_empty());
     }
 
     #[test]

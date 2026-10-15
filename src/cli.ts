@@ -268,7 +268,7 @@ async function cmdNew(repo: string, a: Args) {
   orch.close();
 }
 
-/** F5 · P15: `cardume sample-review <taskId> --agent <id> --cap <usd> [--json]` — só a revisão, numa cópia descartável. */
+/** F5 · P15: `cardume sample-review <taskId> --agent <id> --cap <usd> [--model m] [--engine e] [--json]` — só a revisão, numa cópia descartável. */
 async function cmdSampleReview(repo: string, taskId: string | undefined, a: Args) {
   const json = a.flags.json === "true";
   const fail = (msg: string) => { if (json) console.log(JSON.stringify({ error: msg })); else console.error(c.red("✕ " + msg)); process.exit(1); };
@@ -277,7 +277,9 @@ async function cmdSampleReview(repo: string, taskId: string | undefined, a: Args
   if (!(cap > 0)) return fail("a amostra precisa de um teto (--cap)");
   const orch = new Orchestrator(repo);
   try {
-    const r = await orch.sampleReview(taskId, a.flags.agent, cap);
+    // Padrões do time › Agentes: "Testar numa amostra" de um RASCUNHO (modelo/motor trocado ainda não salvo)
+    const over = a.flags.model || a.flags.engine ? { model: a.flags.model || undefined, engine: a.flags.engine || undefined } : undefined;
+    const r = await orch.sampleReview(taskId, a.flags.agent, cap, over);
     console.log(json ? JSON.stringify(r) : `${r.title}: antes ${r.old.kind ?? "sem veredito"} · agora ${r.now.kind} (US$ ${r.usd.toFixed(2)})`);
   } catch (e) {
     orch.close();

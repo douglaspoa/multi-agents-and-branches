@@ -6,9 +6,9 @@
 //     linguagem natural (naturalCommand) pros motores sem slash command (Codex);
 //   o bloco curto de instruções que vai no system prompt (INTEGRADO_RULE).
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { evidenceExists, type Orchestrator } from "./orchestrator.ts";
 import { parseSkillMd, skillsDir } from "./learn.ts";
 import { norm } from "./req-map.ts";
@@ -201,6 +201,31 @@ export function readSkill(name: string, repo: string, worktree: string | undefin
   } catch (e) {
     return { ok: false, error: `não consegui ler a skill ${s.name}: ${(e as Error).message}` };
   }
+}
+
+/**
+ * `/nome` no terminal (decisão do dono): o Claude Code só acha skill em <worktree>/.claude/skills e nas pessoais. As skills
+ * do PROJETO que não estão no git (criadas aqui, ainda não commitadas) não existem na worktree — o link resolve. As pessoais
+ * o Claude Code já acha sozinho. Nunca mexe numa pasta de mesmo nome que já esteja lá (é do repo). Devolve os caminhos
+ * relativos criados (pra ficarem fora do commit, via .git/info/exclude).
+ */
+export function linkProjectSkills(repo: string, worktree: string): string[] {
+  const made: string[] = [];
+  if (!repo || !worktree || repo === worktree) return made;
+  const src = skillsDir(repo), dst = skillsDir(worktree);
+  let names: string[] = [];
+  try { names = readdirSync(src).sort(); } catch { return made; }
+  for (const n of names) {
+    if (!SKILL_NAME.test(n) || !existsSync(join(src, n, "SKILL.md"))) continue;
+    const to = join(dst, n);
+    try { lstatSync(to); continue; } catch { /* não existe: liga */ }
+    try {
+      mkdirSync(dst, { recursive: true });
+      symlinkSync(relative(dst, join(src, n)), to, "dir");
+      made.push(`.claude/skills/${n}`);
+    } catch { /* sem link (Windows sem permissão): o /starfork-skill nome continua valendo */ }
+  }
+  return made;
 }
 
 // ======================= create_task =======================

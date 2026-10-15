@@ -14,6 +14,7 @@ mod amostra;
 mod curador;
 mod ambiente;
 mod orfaos;
+mod padroes;
 mod device;
 mod ai_once;
 mod bin_resolve;
@@ -10653,6 +10654,14 @@ pub fn run() {
             curador::curator_save,
             curador::curator_archive,
             curador::curator_restore,
+            padroes::skills_catalog,
+            padroes::skill_set_on,
+            padroes::memory_archive,
+            padroes::memory_unarchive,
+            padroes::memory_archived,
+            padroes::memory_snapshot,
+            padroes::memory_history,
+            padroes::memory_usage,
             learn::agent_forget,
             device::device_cli,
             ambiente::env_detect,

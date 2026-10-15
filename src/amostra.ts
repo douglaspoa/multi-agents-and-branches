@@ -10,6 +10,8 @@ export interface SampleVerdict { v: number | null; kind: "aprova" | "muda" | "il
 export interface SampleResult {
   at: number; agentId: string; agentName: string; taskId: string; title: string;
   old: SampleVerdict; now: SampleVerdict; usd: number; capUsd: number; stopped: boolean;
+  /** amostra de um RASCUNHO (modelo/motor trocado, ainda sem versão salva) — Padrões do time › Agentes */
+  draft?: { model: string; engine: string };
 }
 export const SAMPLES_KEEP = 20;
 
