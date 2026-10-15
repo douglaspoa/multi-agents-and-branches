@@ -85,8 +85,8 @@ test('cartão da nuvem: armado sem `after` também começa sozinho; "na espera d
   assert.equal(CW.ctWaiting(c({ autoStart: true, after: ['x'] })), true, 'regra antiga intacta');
   assert.equal(CW.ctArmed(c({ autoStart: true }, 'running')), false);
   assert.equal(CW.ctArmed(c({ wave: 2 })), false);
-  // o tick: armado sem after espera a onda anterior inteira; com after vale só o after
-  assert.match(ep, /const due=t=>ctArmed\(t\) && !epStartBusy\.has\(t\.epic_id\) && !epDepsLeft\(t\)\.length && \(\(\(t\.spec\|\|\{\}\)\.after\|\|\[\]\)\.length \|\| !epWaveLeft\(t\.epic_id, epqWave\(t\)\)\);/);
+  // o tick: o portão do fluxo do épico (15/10) — onda inteira por padrão; desligado, com after vale só o after (#166)
+  assert.match(ep, /const due=t=>ctArmed\(t\) && !epStartBusy\.has\(t\.epic_id\) && !epDepsLeft\(t\)\.length && epGateOk\(t\.epic_id, epqWave\(t\), \(t\.spec\|\|\{\}\)\.after\);/);
   assert.match(ep, /const ready=rows\.filter\(t=>due\(t\) && ctAutoMine\(t, me\)\);/, 'só cartão no MEU nome (mesa 09/10, T5)');
   assert.match(ep, /if\(cloudEpicId\(eid\) && SB\.sess\(\) && !\(epQueue\.sibsOk&&epQueue\.sibsOk\.has\(eid\)\)\) return 1;/, 'irmãs da nuvem não lidas: espera, nunca começa antes');
   assert.match(ep, /async function epicAutoStartTick\(\)\{\n  epAutoLocalTick\(\);/, 'rascunho local armado roda mesmo sem nuvem');
