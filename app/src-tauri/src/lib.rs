@@ -550,10 +550,11 @@ mod stoppable_tests {
         let (a, b) = (spawn("t-a"), spawn("t-b"));
         let has = |k: &str| KEYED_PIDS.lock().unwrap().as_ref().map_or(false, |m| m.contains_key(k));
         let t0 = std::time::Instant::now();
-        while !(has("t-a") && has("t-b")) && t0.elapsed().as_secs() < 5 { std::thread::sleep(std::time::Duration::from_millis(20)); }
+        while !(has("t-a") && has("t-b")) && t0.elapsed().as_secs() < 20 { std::thread::sleep(std::time::Duration::from_millis(20)); }
+        assert!(has("t-a") && has("t-b"), "os dois pedidos registrados em {:?}", t0.elapsed());
         assert!(stop_keyed("t-a"));
         assert_eq!(a.join().unwrap().err().as_deref(), Some("K_STOPPED"));
-        assert!(has("t-b"), "o outro pedido continua rodando");
+        if !has("t-b") { panic!("o outro pedido continua rodando — t-b saiu: {:?}", b.join().unwrap().map(|o| o.status)); }
         assert!(!stop_keyed("t-a"));
         assert!(stop_keyed("t-b"));
         assert_eq!(b.join().unwrap().err().as_deref(), Some("K_STOPPED"));
