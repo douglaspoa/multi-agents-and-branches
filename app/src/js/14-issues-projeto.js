@@ -651,7 +651,7 @@ const trkSw=(id,on,label,sub)=>`<div class="trk-row"><label class="sw"><input ty
 // F4 (G1, mesa telas 15/16): padrão de página — abas Quadro · Nova issue · Conexão. O assistente de 3 etapas deixou de
 // dividir espaço com o trabalho do dia; "Projetos e regras" entra na Conexão (com o endereço base das issues, que saiu
 // de Configurações) e a Nova issue é aba interna (a conversa + rascunhos de antes, sem abrir outra aba).
-let trkLayout=lsGet('trkLayout')==='colunas'?'colunas':'lista';
+let trkLayout=['colunas','triagem'].includes(lsGet('trkLayout'))?lsGet('trkLayout'):'lista'; // Semana (14/10): + Triagem, uma por vez
 function trkViewNorm(v){ return v==='rules'?'conn':(['board','nova','conn'].includes(v)?v:'board'); }
 function issRender(){
   if(typeof ndInjectFonts==='function') ndInjectFonts();
@@ -920,6 +920,7 @@ function trkBoardHtml(){
     : !first && !trkIssues.length && !trkErr ? emptyHtml({ icon:'search', title:'Nenhuma issue no painel', help:'Os projetos escolhidos não têm issues — ou o conector não trouxe nenhuma. '+(c.ops.create?'Crie a primeira por aqui.':'Confira os projetos e as regras em Conexão.'), action:{ id:'trkEmptyAct', label:c.ops.create?'+ nova issue':'atualizar' } })
     // o detalhe aberto (e o comentário sendo digitado) continua ao lado do vazio; emptyHtml escapa título e ajuda
     : filteredOut ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${(!q&&trkFilter==='all')?emptyHtml({ icon:'search', title:'Nenhuma issue mudou — '+periodLabel(per).toLowerCase(), help:'O painel tem '+trkIssues.length+' issues, mas nenhuma (nem a tarefa ligada a ela) mudou neste período.', action:per.key==='30d'||per.key==='custom'?null:{ id:'trkPer30', label:'ver últimos 30 dias', primary:false } }):emptyHtml(Object.assign({ icon:'search', action:{ id:'trkClearFilter', label:'mostrar todas', primary:false } }, trkEmptyFilterText(trkQ, trkFilter)))}</div>${trkSel?trkDetailHtml():''}</div>`
+    : trkLayout==='triagem' ? trkTriHtml(rows)
     : trkLayout==='lista' ? `<div class="trk-boardwrap"><div style="flex:1;min-width:0">${trkListHtml(rows)}</div>${trkSel?trkDetailHtml():''}</div>`
     : `<div class="trk-boardwrap"><div class="kb-host">${colsHtml}</div>${trkSel?trkDetailHtml():''}</div>`;
   return `${trkSecretsHint()}<div class="trk-tools">
@@ -928,7 +929,7 @@ function trkBoardHtml(){
       ${periodPickerHtml('issues', per)}
       <span class="trk-tacts"><span class="trk-rs">${trkBusy==='load'?'atualizando…':trkIssuesAt?'fonte: '+esc(trk.name||'painel')+' · sincronizado '+(trkAgo(new Date(trkIssuesAt).toISOString())==='agora'?'agora':'há '+trkAgo(new Date(trkIssuesAt).toISOString())):''}</span>
       <button class="btn trk-refresh" id="trkRefresh" title="atualizar agora" aria-label="atualizar as issues agora"${trkBusy==='load'?' disabled':''}>${IC.refresh}</button>
-      <span class="seg2 trklay" role="group" aria-label="Visualização"><button class="${trkLayout==='lista'?'on':''}" data-trklay="lista" aria-pressed="${trkLayout==='lista'}">Lista</button><button class="${trkLayout==='colunas'?'on':''}" data-trklay="colunas" aria-pressed="${trkLayout==='colunas'}">Colunas</button></span></span></div>
+      <span class="seg2 trklay" role="group" aria-label="Visualização"><button class="${trkLayout==='lista'?'on':''}" data-trklay="lista" aria-pressed="${trkLayout==='lista'}">Lista</button><button class="${trkLayout==='colunas'?'on':''}" data-trklay="colunas" aria-pressed="${trkLayout==='colunas'}">Colunas</button><button class="${trkLayout==='triagem'?'on':''}" data-trklay="triagem" aria-pressed="${trkLayout==='triagem'}" title="uma issue sem tarefa por vez — R roda agora, 1–9 manda pra pessoa, S deixa sem dono, → pula">Triagem</button></span></span></div>
     ${trkErr&&!first?`<div class="imhint" style="border-left:2px solid var(--crit)">${esc(trkErr)}</div>`:(trkBgErr?`<div class="imhint" style="border-left:2px solid var(--warn)">${esc(trkBgErr)}</div>`:'')}
     ${area}`;
 }
@@ -958,6 +959,43 @@ function trkSyncSeloHtml(code, full){
   return full?`<div class="trk-selo-box" role="status"><b>Não atualizei o painel.</b> ${esc(why)} <button class="btn sm" data-trksync="1">tentar de novo</button></div>`
     :`<button class="trk-selo" data-trksync="1" title="${escA(why+' — clique pra tentar de novo')}">não atualizei o painel · tentar de novo</button>`;
 }
+// ---- Semana (14/10): "mandar para" com rostos (1 clique abre a demanda já com a pessoa) e Triagem, uma por vez ----
+// quem aparece: o time ativo menos você (você = "criar tarefa", que roda aqui), na ordem do nome — teclas 1–9 na triagem
+function trkToPeople(){ const me=(typeof cloudUserId==='function'&&cloudUserId())||''; const ms=(typeof tmTeamMembers==='function'?tmTeamMembers():[]).map(m=>m&&m.user_id).filter(u=>u&&u!==me);
+  return [...new Set(ms)].sort((a,b)=>personName(a,{ noYou:true }).localeCompare(personName(b,{ noYou:true }),'pt-BR')).slice(0,9); }
+function trkToHtml(code){ return `<span class="trkto"><span class="lab">mandar para</span>${trkToPeople().map(u=>`<button type="button" data-trkto="${escA(u)}" data-code="${escA(code)}" title="${escA('Mandar '+code+' para '+personName(u,{ noYou:true }))}" aria-label="${escA('Mandar '+code+' para '+personName(u,{ noYou:true }))}">${personAv(u,{ decor:true })}</button>`).join('')}</span>`; }
+// abre a demanda preenchida com a issue, já em "Mandar pro time" e com a pessoa escolhida (uid '' = sem dono)
+async function trkMandarPara(i, uid){ await trkIssueToTask(i, 'team'); try{ if(typeof ntWho!=='undefined'){ ntWho=uid||''; if(typeof ntWhoPaint==='function') ntWhoPaint(); } }catch(_){ } }
+let trkTriSkip=new Set();
+function trkTriFila(rows){ return (rows||[]).filter(r=>!r.linked); }
+function trkTriAtual(){ const f=trkTriFila(trkRowsNow()); return f.find(r=>!trkTriSkip.has(r.i.code))||null; }
+function trkTriHtml(rows){
+  const fila=trkTriFila(rows), cur=fila.find(r=>!trkTriSkip.has(r.i.code))||null, ppl=trkToPeople(), team=!!(typeof SB!=='undefined'&&SB.sess()&&typeof cloudTeamId==='function'&&cloudTeamId());
+  const st=id=>{ const x=trkStatus(id); return x?(x.label||x.id):String(id||''); };
+  const card=cur?`<div class="trktri-c"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${chainHtml({ issue:{ code:cur.i.code, url:cur.i.url||'' } })}<span class="trk-pst">${esc(st(cur.i.status))}</span><span class="dim" style="font-size:var(--fs-xs)">${esc(trk.name||'painel')} · ${esc(modAgoTx(cur.mod))}</span></div>
+      <div class="t">${esc(cur.i.title)}</div>${cur.i.description?`<p>${esc(String(cur.i.description).slice(0,600))}</p>`:''}
+      <div class="trktri-k"><button type="button" class="btn primary" data-trktri="run">Rodar agora<span class="kbd">R</span></button>${team?ppl.map((u,n)=>`<button type="button" class="btn" data-trktri="to:${escA(u)}">${personAv(u,{ decor:true })}${esc(personShort(u,{ noYou:true }))}<span class="kbd">${n+1}</span></button>`).join('')+`<button type="button" class="btn quiet" data-trktri="to:">Sem dono<span class="kbd">S</span></button>`:''}<button type="button" class="btn quiet" data-trktri="pular">Pular<span class="kbd">→</span></button></div></div>`
+    :`<div class="trktri-c"><div class="t">Triagem zerada.</div><p>Toda issue deste período já tem tarefa${trkTriSkip.size?' (ou foi pulada)':''}.</p>${trkTriSkip.size?`<button type="button" class="btn sm" data-trktri="volta">Ver as puladas de novo</button>`:''}</div>`;
+  const q=`<aside class="trktri-q" aria-label="Fila da triagem"><div class="semsec-h"><h2>Fila</h2><span class="n">${fila.length}</span></div>${fila.slice(0,30).map(r=>`<div class="r${cur&&r.i.code===cur.i.code?' cur':''}"><span class="semcode">${esc(r.i.code)}</span><span class="trk-lt">${esc(r.i.title)}</span><span class="st">${cur&&r.i.code===cur.i.code?'agora':trkTriSkip.has(r.i.code)?'pulada':'esperando'}</span></div>`).join('')}</aside>`;
+  return `<div class="trktri">${card}${q}</div>`;
+}
+function trkTriAct(a){
+  const r=trkTriAtual(); if(a==='volta'){ trkTriSkip=new Set(); issRender(); return; } if(!r) return;
+  if(a==='pular'){ trkTriSkip.add(r.i.code); issRender(); return; }
+  if(a==='run'){ trkIssueToTask(r.i, 'run'); return; }
+  if(a.startsWith('to:')) trkMandarPara(r.i, a.slice(3));
+}
+// teclas da triagem (com a aba Issues na tela e o foco fora de campo/terminal): R · 1–9 · S · →
+document.addEventListener('keydown', e=>{
+  if(trkLayout!=='triagem' || trkView!=='board' || e.metaKey||e.ctrlKey||e.altKey) return;
+  const t=(typeof tabById==='function')?tabById(activeTab):null; if(!t || t.kind!=='issues') return;
+  if(/^(INPUT|TEXTAREA|SELECT)$/.test((e.target&&e.target.tagName)||'') || (e.target&&e.target.closest&&e.target.closest('.xterm,[contenteditable="true"]'))) return;
+  const k=e.key, ppl=trkToPeople();
+  if(k==='r'||k==='R'){ e.preventDefault(); trkTriAct('run'); }
+  else if(k==='s'||k==='S'){ e.preventDefault(); trkTriAct('to:'); }
+  else if(k==='ArrowRight'){ e.preventDefault(); trkTriAct('pular'); }
+  else if(/^[1-9]$/.test(k) && ppl[+k-1]){ e.preventDefault(); trkTriAct('to:'+ppl[+k-1]); }
+});
 function trkListHtml(rows){
   const sort=sortGet('issues'), team=!!(typeof SB!=='undefined'&&SB.sess()&&typeof cloudTeamId==='function'&&cloudTeamId());
   const st=id=>{ const x=trkStatus(id); return x?(x.label||x.id):String(id||'—'); }, un=trkUnseen();
@@ -966,11 +1004,11 @@ function trkListHtml(rows){
     const i=r.i, x=r.local||r.card, ep=trkRowEpic(r), stk=r.linked?trkRowSt(r):'';
     const proofs=r.card?(trkProofs.m[r.card.id]||0):0, c=r.linked?chainOfNow(x):null;
     const epHtml=ep?(ep.id?chainHtml({ epic:{ id:ep.id, name:ep.name } }):`<span class="trk-epb" title="filha do épico ${escA(ep.code)} no painel">◆ ${esc(ep.code)}</span>`):'<span class="dim">—</span>';
-    const taskHtml=r.linked?chainHtml({ task:{ title:x.title||'tarefa', localId:r.local?r.local.id:'', cloudId:r.card?r.card.id:'' } })+(r.more?`<small class="dim"> +${r.more}</small>`:''):'<span class="trk-none">nenhuma ligada</span>';
+    const taskHtml=r.linked?chainHtml({ task:{ title:x.title||'tarefa', localId:r.local?r.local.id:'', cloudId:r.card?r.card.id:'' } })+(r.more?`<small class="dim"> +${r.more}</small>`:''):(team&&trkToPeople().length?trkToHtml(i.code):'<span class="trk-none">nenhuma ligada</span>');
     const stHtml=r.linked?`<span class="chn-st" style="--stc:${stColor(stk)}">${esc(stLabel(stk))}</span>`:'<span class="chn-st" style="--stc:var(--muted)">sem tarefa</span>';
     const prHtml=(c&&c.pr?chainHtml({ pr:c.pr }):'')+(proofs?chainHtml({ proofs, task:{ localId:r.local?r.local.id:'', cloudId:r.card.id } }):'')||'<span class="dim">—</span>';
     const act=r.linked?`<button class="btn sm" data-trkact="open" data-code="${escA(i.code)}">abrir tarefa</button>`
-      :`<button class="btn sm primary" data-trkact="create" data-code="${escA(i.code)}" title="abre a Nova demanda preenchida com a issue — roda nesta máquina">criar tarefa</button>${team?`<button class="btn sm" data-trkact="team" data-code="${escA(i.code)}" title="vira cartão no quadro do time, com responsável — ninguém começa a rodar">mandar pro time</button>`:''}`;
+      :`<button class="btn sm primary" data-trkact="create" data-code="${escA(i.code)}" title="abre a Nova demanda preenchida com a issue — roda nesta máquina">criar tarefa</button>${team&&!trkToPeople().length?`<button class="btn sm" data-trkact="team" data-code="${escA(i.code)}" title="vira cartão no quadro do time, com responsável — ninguém começa a rodar">mandar pro time</button>`:''}`;
     return `<tr class="trk-lr${trkSel===i.code?' sel':''}" data-trkcode="${escA(i.code)}" tabindex="0" aria-label="${escA(i.code+' — '+i.title)}">
       <td class="c-code"><div class="trk-iss">${chainHtml({ issue:{ code:i.code, url:i.url||'' } })}<span class="trk-pst" title="status no painel">${esc(st(i.status))}</span>${un[i.code]?'<span class="trk-new">mudou</span>':''}</div><span class="trk-lt">${esc(i.title)}</span>${trkSyncSeloHtml(i.code)}</td>
       <td class="c-epic">${epHtml}</td><td class="c-task">${taskHtml}</td><td class="c-who">${trkWhoCell(r)}</td><td class="c-st">${stHtml}</td><td class="c-pr"><span class="chain">${prHtml}</span></td>
@@ -1401,6 +1439,8 @@ function trkBoardWire(body){
     const a=b.dataset.trkact;
     if(a==='open'){ const r=trkRowsNow().find(x=>x.i.code===i.code); if(r&&r.local) openWorkspace(r.local.id); else if(r&&r.card&&typeof openCloudTaskPage==='function') openCloudTaskPage(r.card); }
     else trkIssueToTask(i, a==='team'?'team':'run'); });
+  body.querySelectorAll('[data-trkto]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const i=trkIssues.find(x=>x.code===b.dataset.code); if(i) trkMandarPara(i, b.dataset.trkto); });
+  body.querySelectorAll('[data-trktri]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); trkTriAct(b.dataset.trktri); });
   on('trkRefresh', trkReload); on('trkMoreDone', ()=>{ trkMoreDone=true; issRender(); });
   body.querySelectorAll('[data-trklay]').forEach(b=>b.onclick=()=>{ trkLayout=b.dataset.trklay; lsSet('trkLayout', trkLayout); issRender(); });
   on('trkNewBtn', trkNIOpen); on('trkRetry', trkReload);

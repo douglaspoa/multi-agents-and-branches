@@ -181,7 +181,7 @@ function projetosRender(ov){
   const all=(ov||[]).map(p=>({ p, fc:projCountsOf(p) }));
   const tot=all.reduce((a,x)=>({ ag:a.ag+x.fc.aguardando, pr:a.pr+x.fc.prontas, pa:a.pa+(x.fc.praberto||0) }), { ag:0, pr:0, pa:0 });
   const head=pageHead({ title:'Projetos', scope:'computador', sum:`${n} ${n===1?'projeto':'projetos'} · <b>${tot.ag}</b> aguardando você · <b>${tot.pr}</b> ${tot.pr===1?'pronta':'prontas'} pra revisar${tot.pa?` · <b>${tot.pa}</b> ${tot.pa===1?'PR aberto':'PRs abertos'}`:''}`,
-    primary:{ id:'projNewBtn', label:'Novo projeto', icon:'plus' }, more:{ id:'projMoreBtn', title:'Abrir pasta que já tenho · começar pela Fábrica' } });
+    primary:{ id:'projNewBtn', label:'Adicionar repo', icon:'plus', attrs:{ 'aria-expanded':String(!!projAddOpen) } }, more:{ id:'projMoreBtn', title:'Abrir pasta que já tenho · começar um app do zero' } });
   const mac=(typeof osKind!=='function'||osKind()==='mac');
   const cards=all.map(({p, fc})=>{
     const cur=p.path===state.repo;
@@ -195,14 +195,17 @@ function projetosRender(ov){
       <div class="pc2acts"><button class="btn sm primary" data-pjpage="${escA(p.path)}">Abrir projeto</button><button class="btn sm" data-pjopen="${escA(p.path)}">Ver na Central</button></div>
     </div>`;
   }).join('');
+  if(window.projAddOpen){ projAddOpen=true; window.projAddOpen=false; } // seletor de projeto da lateral › Adicionar repo (75)
   const list=n ? `<div class="projgrid2">${cards}</div>`
-    : projNewOpen ? '' : emptyHtml({ icon:'folder', title:'Nenhum projeto ainda', help:'Crie um projeto novo ou abra uma pasta que já existe nesta máquina.', action:{ id:'projEmptyNew', label:'Novo projeto' } });
-  body.innerHTML=`<div class="appscreen">${head}${projNewOpen?projNewHtml():''}${list}</div>`;
+    : (projNewOpen||projAddOpen) ? '' : emptyHtml({ icon:'folder', title:'Nenhum projeto ainda', help:'Abra uma pasta que já existe nesta máquina, clone do GitHub ou comece um app do zero.', action:{ id:'projEmptyNew', label:'Adicionar repo' } });
+  body.innerHTML=`<div class="appscreen">${head}${projAddOpen&&!projNewOpen?projAddHtml():''}${projNewOpen?projNewHtml():''}${list}</div>`;
   { const b=body.querySelector('#projEmptyNew'); if(b) b.onclick=()=>{ const nb=body.querySelector('#projNewBtn'); if(nb) nb.click(); }; }
   { const b=body.querySelector('#projMoreBtn'); if(b) b.onclick=()=>{ if(typeof g1Menu==='function') g1Menu(b, [
       { label:'Abrir pasta que já tenho', hint:'⌘O', act:()=>{ if(window.pickFolder) window.pickFolder(); } },
-      { label:'Começar pela Fábrica', hint:'app novo', act:()=>{ if(typeof g1NovoProjeto==='function') g1NovoProjeto(); } } ]); }; }
-  { const b=body.querySelector('#projNewBtn'); if(b) b.onclick=()=>{ projNewOpen=!projNewOpen; projetosRender(ov); if(projNewOpen){ projNewWire(ov); ghOwnersReload(); const i=$id('pnName'); if(i) i.focus(); } }; } // toda abertura relê os donos (o cache aparece na hora)
+      { label:'Começar um app do zero', hint:'pesquisa + mesa', act:()=>{ if(typeof g1NovoProjeto==='function') g1NovoProjeto(); } } ]); }; }
+  // Semana (14/10): "Adicionar repo" abre as 4 portas — abrir pasta · clonar do GitHub · repositório novo · app do zero (era a Fábrica)
+  { const b=body.querySelector('#projNewBtn'); if(b) b.onclick=()=>{ if(projNewOpen){ projNewOpen=false; projAddOpen=false; } else projAddOpen=!projAddOpen; projetosRender(ov); const f=body.querySelector('[data-addrepo]'); if(projAddOpen && f) f.focus(); }; }
+  projAddWire(body, ov);
   if(projNewOpen) projNewWire(ov);
   // L14: a troca que falha avisa (switchProject) e PARA — antes abria a Central/página do projeto anterior
   body.querySelectorAll('[data-pjopen]').forEach(b=>b.onclick=async()=>{ const p=b.dataset.pjopen; if(p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(_){ return; } } projFilter=p; lsSet('projFilter',p); if(window.openTab) window.openTab('flow'); });
@@ -226,6 +229,30 @@ function projetosRender(ov){
       { label:mac?'Mostrar no Finder':'Abrir a pasta', act:()=>invoke('reveal_project',{path:p}).catch(e=>showErr(e, 'Não deu pra abrir a pasta')) },
       ...(body.querySelector(`[data-pjmore="${CSS.escape(p)}"]`).closest('.pc2name').dataset.pjlocal==='1'?[{ label:'Publicar no GitHub', hint:'cria o repositório e envia', act:()=>pub(p, null) }]:[]),
       { label:'Remover da lista…', hint:'não apaga arquivos', danger:true, act:()=>rm(p) } ]); });
+}
+// ---- Projetos › Adicionar repo: as 4 portas (Semana, 14/10). A Fábrica saiu da lateral e virou "Começar um app do zero" ----
+let projAddOpen=false, projCloneBusy=false;
+function projAddHtml(){
+  return `<div class="addrepo" role="group" aria-label="Adicionar um projeto">
+    <div class="ar"><b>Abrir pasta que já tenho</b><p>Um repositório git (ou uma pasta) neste computador.</p><div class="row"><button type="button" class="btn sm" data-addrepo="pasta">Escolher pasta</button></div></div>
+    <div class="ar"><b>Clonar do GitHub</b><p>Cole o endereço do repositório. A cópia fica em Documentos › Starfork.</p><div class="row"><input class="in" id="projCloneUrl" placeholder="github.com/time/repo" spellcheck="false" aria-label="Endereço do repositório"><button type="button" class="btn sm" data-addrepo="clonar"${projCloneBusy?' disabled':''}>${projCloneBusy?'clonando…':'Clonar'}</button></div></div>
+    <div class="ar"><b>Repositório novo, vazio</b><p>Cria a pasta com git e, se quiser, o repositório no GitHub.</p><div class="row"><button type="button" class="btn sm" data-addrepo="novo">Criar</button></div></div>
+    <div class="ar"><b>Começar um app do zero</b><p>A IA pesquisa e a mesa decide o MVP antes do primeiro commit (era a Fábrica).</p><div class="row"><button type="button" class="btn sm" data-addrepo="zero">Começar</button></div></div>
+  </div>`;
+}
+function projAddWire(body, ov){
+  body.querySelectorAll('[data-addrepo]').forEach(b=>b.onclick=async()=>{
+    const k=b.dataset.addrepo;
+    if(k==='pasta'){ if(window.pickFolder) window.pickFolder(); return; }
+    if(k==='zero'){ if(typeof g1NovoProjeto==='function') g1NovoProjeto(); return; }
+    if(k==='novo'){ projAddOpen=false; projNewOpen=true; projetosRender(ov); projNewWire(ov); ghOwnersReload(); const i=$id('pnName'); if(i) i.focus(); return; }
+    if(k==='clonar'){ const inp=$id('projCloneUrl'), url=(inp&&inp.value||'').trim(); if(!url){ if(inp) inp.focus(); toast('Cole o endereço do repositório (ex.: github.com/time/repo).','warn'); return; }
+      projCloneBusy=true; b.disabled=true; b.textContent='clonando…';
+      try{ await invoke('clone_project',{ url }); projAddOpen=false; selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches(); await refresh(); if(window.loadProjects) await window.loadProjects(); toast('Repositório clonado e aberto.','ok'); }
+      catch(e){ showErr(e, 'Não consegui clonar o repositório'); }
+      finally{ projCloneBusy=false; openProjetos(); } }
+  });
+  const ci=$id('projCloneUrl'); if(ci) ci.onkeydown=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); const c=body.querySelector('[data-addrepo="clonar"]'); if(c) c.click(); } };
 }
 // ---- donos do GitHub de TODAS as contas logadas (gh_owners) ----
 // @puro-ghdonos-inicio

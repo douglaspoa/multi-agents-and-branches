@@ -6,9 +6,9 @@
 //     linguagem natural (naturalCommand) pros motores sem slash command (Codex);
 //   o bloco curto de instruções que vai no system prompt (INTEGRADO_RULE).
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { evidenceExists, type Orchestrator } from "./orchestrator.ts";
 import { parseSkillMd, skillsDir } from "./learn.ts";
 import { norm } from "./req-map.ts";
@@ -203,6 +203,31 @@ export function readSkill(name: string, repo: string, worktree: string | undefin
   }
 }
 
+/**
+ * `/nome` no terminal (decisão do dono): o Claude Code só acha skill em <worktree>/.claude/skills e nas pessoais. As skills
+ * do PROJETO que não estão no git (criadas aqui, ainda não commitadas) não existem na worktree — o link resolve. As pessoais
+ * o Claude Code já acha sozinho. Nunca mexe numa pasta de mesmo nome que já esteja lá (é do repo). Devolve os caminhos
+ * relativos criados (pra ficarem fora do commit, via .git/info/exclude).
+ */
+export function linkProjectSkills(repo: string, worktree: string): string[] {
+  const made: string[] = [];
+  if (!repo || !worktree || repo === worktree) return made;
+  const src = skillsDir(repo), dst = skillsDir(worktree);
+  let names: string[] = [];
+  try { names = readdirSync(src).sort(); } catch { return made; }
+  for (const n of names) {
+    if (!SKILL_NAME.test(n) || !existsSync(join(src, n, "SKILL.md"))) continue;
+    const to = join(dst, n);
+    try { lstatSync(to); continue; } catch { /* não existe: liga */ }
+    try {
+      mkdirSync(dst, { recursive: true });
+      symlinkSync(relative(dst, join(src, n)), to, "dir");
+      made.push(`.claude/skills/${n}`);
+    } catch { /* sem link (Windows sem permissão): o /starfork-skill nome continua valendo */ }
+  }
+  return made;
+}
+
 // ======================= create_task =======================
 export interface ChildInput { title: string; objective?: string; requirements?: string[]; deliverables?: string[]; same_epic?: boolean }
 const strList = (v: unknown): string[] | undefined => (Array.isArray(v) ? v.map((x) => String(x ?? "").trim()).filter(Boolean) : undefined);
@@ -367,6 +392,7 @@ export const INTEGRADO_RULE =
   `tarefa nova ou quebrar esta → create_task; skills → list_skills e use_skill; ` +
   `agrupar tarefas num épico → create_epic (épico novo) ou link_tasks_to_epic (épico existente; list_epics mostra os do time) — vincula tarefas JÁ existentes, NUNCA recrie uma tarefa pra trocar o épico; tirar do épico → unlink_tasks_from_epic.\n` +
   `- Arquivos que o humano anexa chegam como caminhos @.cardume/refs/<arquivo> — leia-os antes de responder.\n` +
+  `- Toda edição de código que você mantiver → register_change_reason (file, range no arquivo novo, requirement R<n> ou null, reason em 1–2 frases, covered_by), no mesmo turno; sem saber o porquê, desfaça o trecho. Pergunta sobre um trecho (@arquivo:linhas) → responda citando arquivo:linha e o requisito.\n` +
   `- Perguntar ao humano (AskUserQuestion, ask_human ou \`starfork perguntar\`):${ASK_STYLE}\n`;
 export const INTEGRADO_CLAUDE_CMDS = `- Comandos deste projeto: ${STARFORK_COMMANDS.map((c) => "/" + c.name).join(", ")}.\n`;
 
@@ -390,6 +416,7 @@ export const SHELL_COMMANDS: { cmd: string; tool: string; desc: string }[] = [
   { cmd: "starfork entregavel \"<item>\"", tool: "add_deliverable", desc: "registra um entregável novo" },
   { cmd: "starfork perguntar \"<pergunta curta?>\" [--contexto \"tópico\"]… [--opcao \"Rótulo — descrição\"]…", tool: "ask_human", desc: "pergunta ao humano pelo app (espera a resposta): 1 frase com '?', contexto em 3–5 tópicos, opções com rótulo curto + descrição" },
   { cmd: "starfork mapa --json '{\"req\":…,\"code\":[…]}'", tool: "map_requirement", desc: "liga um requisito aos trechos de código/testes" },
+  { cmd: "starfork porque --json '{\"file\":…,\"range\":\"14-15\",\"requirement\":\"R3\",\"reason\":…,\"covered_by\":…}'", tool: "register_change_reason", desc: "registra POR QUE um trecho mudou (toda edição que você mantiver) — aparece ao lado do trecho no Código explicado" },
 ];
 export const SECTION_BEGIN = "<!-- starfork:inicio -->";
 export const SECTION_END = "<!-- starfork:fim -->";
@@ -403,6 +430,7 @@ export function shellInstructions(): string {
     `- Pra falar com o Starfork use as ferramentas do MCP "cardume" (se a sua IA tiver) OU estes comandos no shell (mesmo efeito):\n` +
     SHELL_COMMANDS.map((c) => `  - \`${c.cmd}\` — ${c.desc} (= ${c.tool})`).join("\n") + "\n" +
     `- Perguntar ao humano:${ASK_STYLE}\n` +
+    `- Toda edição de código que você mantiver: registre o porquê com \`starfork porque --json …\` (file, range no arquivo novo, requirement R<n> ou null, reason em 1–2 frases, covered_by) — sem saber o porquê, desfaça o trecho.\n` +
     `- Termine TODA resposta chamando \`starfork sugerir\` (ou a tool suggest_replies) com 2–4 próximas perguntas/ações curtas — inclusive quando só respondeu uma pergunta.\n` +
     `- Quando terminar: \`starfork status\`; se não faltar prova, \`starfork etapa review --nota "o que foi provado"\`. PR só quando o humano pedir.\n`;
 }

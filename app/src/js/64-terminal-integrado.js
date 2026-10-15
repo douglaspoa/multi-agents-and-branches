@@ -82,7 +82,8 @@ function tiCmdText(engineKind, cmd, arg){
   if(cmd==='revisao') return slash?'/starfork-revisao':TI_NL['revisao:'];
   if(cmd==='tarefa-quebrar') return slash?'/starfork-tarefa quebrar':TI_NL['tarefa-quebrar:'];
   if(cmd==='tarefa-nova'){ const t=tiTitleClean(a); if(!t) return ''; return slash?`/starfork-tarefa nova "${t}"`:`Starfork: crie uma tarefa nova de ajuste chamada "${t}", no mesmo épico desta, com o contexto desta conversa — rode \`starfork tarefa "${t}" --objetivo "<objetivo>"\`.`; }
-  if(cmd==='skill'){ if(!/^[\w.:-]{1,80}$/.test(a)) return ''; return slash?'/starfork-skill '+a:`Starfork: rode a skill "${a}" do projeto nesta tarefa — leia com \`starfork skill ${a}\`, siga as instruções e registre o resultado com \`starfork entregavel "<item>"\`.`; }
+  // skill: /nome direto (decisão do dono, Padrões do time) — o termPrep liga as do projeto na worktree; /starfork-skill nome segue como apelido
+  if(cmd==='skill'){ if(!/^[\w.:-]{1,80}$/.test(a)) return ''; return slash?'/'+a+' ':`Starfork: rode a skill "${a}" do projeto nesta tarefa — leia com \`starfork skill ${a}\`, siga as instruções e registre o resultado com \`starfork entregavel "<item>"\`.`; }
   return '';
 }
 // ---- IA que roda no terminal (o PTY é um shell; `starfork ia <nome>` liga uma IA nele) ----
@@ -513,7 +514,12 @@ async function tiSheetSend(){
   const txt=tiSheetText(s.def, s.st, tiEngine(t));
   if(!txt){ const o=s.def.opts[s.st.sel]; if(o && o.input){ s.last='title'; tiSheetFocus(); toast('escreva o título da tarefa nova', 'info'); } return; }
   const taskId=s.taskId; tiSheetClose(false);
-  await tiSend(taskId, txt);
+  // skill no Claude Code: cola "/nome " no prompt SEM Enter (a pessoa completa o pedido) — com o terminal vivo
+  const o=s.def.opts[s.st.sel], st=TERM[taskId];
+  if(o && o.cmd==='skill' && TI_SLASH.has(String(tiEngine(t)||'claude')) && st && st.alive){
+    try{ await invoke('term_write', { taskId, data:txt }); tlFocusTerm(taskId); return; }catch(_){ /* sem PTY vivo: manda como pedido */ }
+  }
+  await tiSend(taskId, txt.trim());
 }
 function tiSheetWire(el){
   el.addEventListener('click', (e)=>{

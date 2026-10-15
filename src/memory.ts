@@ -352,6 +352,20 @@ export function byLabel(by: string): string {
   return c.length > 60 ? c.slice(0, 59).join("").trimEnd() + "…" : s;
 }
 
+/** Quais notas entraram INTEIRAS no bloco de contexto (cabeçalhos "#### título (tipo · escopo · data · por X)") — vai pra
+ * tarefa como spec.memNotes ("Feito com" da Entrega e "foi pro agente" da Conversa). Máximo 12. */
+export function notesInContext(ctx: string): { title: string; by: string; scope: string }[] {
+  const out: { title: string; by: string; scope: string }[] = [];
+  const at = ctx.indexOf("### Notas relevantes pra agora");
+  if (at < 0) return out;
+  for (const m of ctx.slice(at).matchAll(/^#### (.+?) \((?:[^·()]+) · (time|local)(?: · [^·()]*?)?(?: · por ([^()]+?))?\)$/gm)) {
+    if (out.some((x) => x.title === m[1])) continue;
+    out.push({ title: m[1].trim(), scope: m[2], by: (m[3] ?? "").trim() });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
 /** Bloco de contexto pro agente: índice + notas relevantes (com teto). "" se o cérebro está vazio. */
 export function buildContext(notes: Note[], query: string, caps = { index: INDEX_CAP, notes: NOTES_CAP }): string {
   if (!notes.length) return "";
@@ -379,6 +393,41 @@ export function buildContext(notes: Note[], query: string, caps = { index: INDEX
   }
   if (body) out += `### Notas relevantes pra agora\n${body}`;
   return out + "\n";
+}
+
+/**
+ * Quais notas entraram INTEIRAS (ou cortadas) no bloco "Notas relevantes" — o mesmo laço de orçamento do buildContext.
+ * É o "usada em LOJA-12" da Memória (Padrões do time): só conta o que o agente leu de verdade, não o índice.
+ */
+export function usedNotes(notes: Note[], query: string, cap = NOTES_CAP): Note[] {
+  const out: Note[] = [];
+  let budget = cap;
+  for (const n of relevantNotes(notes, query)) {
+    if (budget <= 0) break;
+    const by = byLabel(n.by);
+    const l = clen(`#### ${n.title} (${n.type} · ${n.scope}${n.updated ? ` · ${n.updated}` : ""}${by ? ` · por ${by}` : ""})\n${n.body}\n\n`);
+    if (l > budget) {
+      if (budget > 400 && !out.length) { out.push(n); budget = 0; }
+      continue;
+    }
+    out.push(n);
+    budget -= l;
+  }
+  return out;
+}
+
+/** Arquivo do uso das notas por tarefa (começa com "_": nem a lista de notas nem o agente leem como nota). */
+export const USE_FILE = "_uso.json";
+export const USE_KEEP = 12; // tarefas lembradas por nota (as mais recentes)
+/** Uso novo junto do antigo (puro): { "escopo:slug": [{ task, at }] }, sem repetir tarefa, mais recentes primeiro. */
+export function mergeUse(cur: Record<string, { task: string; at: number }[]>, taskId: string, notes: Pick<Note, "scope" | "slug">[], at: number): Record<string, { task: string; at: number }[]> {
+  const out: Record<string, { task: string; at: number }[]> = {};
+  for (const [k, v] of Object.entries(cur && typeof cur === "object" ? cur : {})) if (Array.isArray(v)) out[k] = v.filter((x) => x && typeof x.task === "string");
+  for (const n of notes) {
+    const k = `${n.scope}:${n.slug}`;
+    out[k] = [{ task: taskId, at }, ...(out[k] ?? []).filter((x) => x.task !== taskId)].slice(0, USE_KEEP);
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -434,12 +483,26 @@ export class Brain {
     return [...this.readDir("local"), ...(includeTeam ? this.readDir("time") : [])];
   }
 
-  context(query: string): string {
+  context(query: string, taskId?: string): string {
     try {
-      return buildContext(this.list(), query);
+      const list = this.list();
+      if (taskId) this.recordUse(taskId, usedNotes(list, query));
+      return buildContext(list, query);
     } catch {
       return ""; // falha de memória nunca derruba o turno
     }
+  }
+
+  /** Grava em _uso.json quais notas a tarefa recebeu (melhor-esforço: falhar nunca derruba o turno). */
+  recordUse(taskId: string, notes: Pick<Note, "scope" | "slug">[]): void {
+    if (!notes.length || /^amostra-/.test(taskId)) return; // amostra (teste do revisor) não é tarefa
+    try {
+      const f = join(this.root, USE_FILE);
+      let cur: Record<string, { task: string; at: number }[]> = {};
+      try { cur = JSON.parse(readFileSync(f, "utf8")); } catch { /* primeira vez */ }
+      mkdirSync(this.root, { recursive: true });
+      writeFileSync(f, JSON.stringify(mergeUse(cur, taskId, notes, Date.now())), "utf8");
+    } catch { /* uso é extra */ }
   }
 
   private findDuplicate(input: NoteInput, notes: Note[]): Note | undefined {

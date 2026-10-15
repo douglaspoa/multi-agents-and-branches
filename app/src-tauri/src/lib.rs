@@ -14,6 +14,7 @@ mod amostra;
 mod curador;
 mod ambiente;
 mod orfaos;
+mod padroes;
 mod device;
 mod ai_once;
 mod bin_resolve;
@@ -2460,6 +2461,58 @@ fn quick_project_target(name: String) -> Result<String, String> {
     if slug.is_empty() { return Err("dê um nome ao projeto".into()); }
     let dir = starfork_projects_dir();
     Ok(dir.join(unique_child(&dir, &slug)).display().to_string())
+}
+
+/// Endereço de clone → (url pro git, nome da pasta). Aceita https://…, git@host:dono/repo(.git) e o atalho
+/// "github.com/dono/repo" (vira https). Recusa o resto (nada de file://, ext:: ou caminho local).
+fn clone_url_norm(raw: &str) -> Result<(String, String), String> {
+    let s = raw.trim().trim_end_matches('/');
+    if s.is_empty() { return Err("cole o endereço do repositório".into()); }
+    let url = if s.starts_with("https://") || s.starts_with("http://") || s.starts_with("git@") {
+        s.to_string()
+    } else if s.contains('/') && !s.contains(' ') && !s.starts_with('/') && !s.starts_with('.') && !s.contains("::") {
+        format!("https://{s}")
+    } else {
+        return Err("endereço inválido — use algo como github.com/time/repo".into());
+    };
+    let last = url.rsplit(|c| c == '/' || c == ':').next().unwrap_or("").trim_end_matches(".git");
+    let slug = project_slug(last);
+    if slug.is_empty() { return Err("não achei o nome do repositório no endereço".into()); }
+    Ok((url, slug))
+}
+
+/// Projetos › Adicionar repo › "Clonar do GitHub": clona em ~/Documents/Starfork/<repo> (sufixo -2… se já existir)
+/// e abre como projeto ativo. A autenticação é a do git deste computador (credential helper / gh).
+#[tauri::command(async)]
+fn clone_project(state: State<AppState>, url: String) -> Result<String, String> {
+    if !git_available() { return Err(GIT_MISSING_MSG.into()); }
+    let (url, slug) = clone_url_norm(&url)?;
+    let dir = starfork_projects_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("não consegui criar a pasta {}: {e}", dir.display()))?;
+    let dest = dir.join(unique_child(&dir, &slug));
+    let mut c = Command::new("git");
+    c.args(["clone", "--", &url]).arg(&dest).env("GIT_TERMINAL_PROMPT", "0");
+    let out = output_timeout(c, 600)?;
+    if !out.status.success() {
+        let _ = std::fs::remove_dir_all(&dest);
+        return Err(format!("git clone falhou: {}", String::from_utf8_lossy(&out.stderr).chars().take(240).collect::<String>()));
+    }
+    open_project_at(&state, &dest.display().to_string())
+}
+
+#[cfg(test)]
+mod clone_url_tests {
+    use super::clone_url_norm;
+    #[test]
+    fn normaliza_enderecos() {
+        assert_eq!(clone_url_norm("github.com/exemplo/loja-web").unwrap(), ("https://github.com/exemplo/loja-web".into(), "loja-web".into()));
+        assert_eq!(clone_url_norm("https://github.com/exemplo/Loja.Web.git/").unwrap().1, "loja.web");
+        assert_eq!(clone_url_norm("git@github.com:exemplo/api.git").unwrap(), ("git@github.com:exemplo/api.git".into(), "api".into()));
+        assert!(clone_url_norm("").is_err());
+        assert!(clone_url_norm("/tmp/x").is_err());
+        assert!(clone_url_norm("ext::sh -c x").is_err());
+        assert!(clone_url_norm("loja").is_err());
+    }
 }
 
 /// "Começar sem portões": cria ~/Documents/Starfork/<nome> (com sufixo -2… se já existir),
@@ -10653,6 +10706,14 @@ pub fn run() {
             curador::curator_save,
             curador::curator_archive,
             curador::curator_restore,
+            padroes::skills_catalog,
+            padroes::skill_set_on,
+            padroes::memory_archive,
+            padroes::memory_unarchive,
+            padroes::memory_archived,
+            padroes::memory_snapshot,
+            padroes::memory_history,
+            padroes::memory_usage,
             learn::agent_forget,
             device::device_cli,
             ambiente::env_detect,
@@ -10792,6 +10853,7 @@ pub fn run() {
             create_project,
             quick_project_target,
             quick_create_project,
+            clone_project,
             autopilot::autopilot_start,
             autopilot::autopilot_status,
             autopilot::autopilot_stop,

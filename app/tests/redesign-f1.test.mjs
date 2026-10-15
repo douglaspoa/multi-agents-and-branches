@@ -162,7 +162,8 @@ test('lateral: "Demandas · N em aberto", selo do projeto com cor E inicial, nav
   assert.equal(RL.railHeadHtml(4), '<div class="rhead"><span>Demandas</span><span class="n">4 em aberto</span></div>');
   assert.match(RL.railHeadHtml(1), /1 em aberto/);
   assert.match(gr, /html=railHeadHtml\(cAll\.vivas\)\+html;/);
-  assert.ok(html.indexOf('<div class="sbscroll">') < html.indexOf('<div class="sbnav2"') && html.indexOf('<div class="sbnav2"') < html.indexOf('id="planMeter"'));
+  // Semana (14/10): a lista de demandas virou "Abertas" dentro do miolo, entre Trabalho e Padrões do time; o medidor fica no rodapé fixo
+  assert.ok(html.indexOf('id="sbGrpTrab"') < html.indexOf('<div id="rail"') && html.indexOf('<div id="rail"') < html.indexOf('id="sbPadTgl"') && html.indexOf('id="sbPadTgl"') < html.indexOf('id="planMeter"'));
   assert.match(read('js/28-medidor-plano.js'), /function pmIsMin\(\)\{ return lsGet\(PM_MIN_KEY\)!=='0'; \}/);
 });
 

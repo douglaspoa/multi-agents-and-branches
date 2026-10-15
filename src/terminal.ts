@@ -30,7 +30,7 @@ import { ADVISOR_OFF_ENV, advisorArgs, advisorEnvBlocker, advisorEnvNote, adviso
 import { buildPrompt as codexPrompt, loadLlmEnv } from "./engine/codex.ts";
 import { DSH_FAST_MODEL, DSH_KEY_MSG, dshKey, dshModelFor, isDshLabel } from "./engine/dsh.ts";
 import { readSpeaker, speakerLine } from "./quem.ts";
-import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
+import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, linkProjectSkills, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
 import { resolveToolCached, toolPath } from "./engine/bin-resolve.ts";
 import { protectArgs, protectEnabled } from "./engine/protect.ts";
 import { engineKind, Orchestrator, deliverPrompt, readCostCapSetting } from "./orchestrator.ts";
@@ -748,6 +748,8 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
     writeClaudeSettings(task.worktree, base, taskId, repo);
     // /starfork-* do terminal integrado (só os nossos; arquivo de mesmo nome da pessoa fica) — fora do commit
     try { const c = writeStarforkCommands(task.worktree); excludeFromGit(task.worktree, c.written); } catch { /* sem comandos: as tools seguem */ }
+    // skills do projeto fora do git viram /nome na worktree (link); /starfork-skill nome segue como apelido
+    try { excludeFromGit(task.worktree, linkProjectSkills(repo, task.worktree)); } catch { /* sem link: o /starfork-skill resolve */ }
     if (sid) args.push("--resume", sid);
     // as regras do Starfork vão no SYSTEM PROMPT (reenviado a cada abertura, inclusive no --resume): a conversa
     // no terminal começa limpa, com um pedido curto — e não com 10 KB de regra na 1ª mensagem

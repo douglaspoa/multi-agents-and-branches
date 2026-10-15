@@ -12,7 +12,7 @@ import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { prepEpicTurn } from "./epic-context.ts";
 import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, mobileTurnRelease, realDeps, UI_FILE_RE, type MobileDeps } from "./mobile.ts";
-import { Brain, extractJson, harvestWorktree, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
+import { Brain, extractJson, harvestWorktree, notesInContext, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MAX_CHARS, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
 import { homedir } from "node:os";
@@ -426,8 +426,10 @@ export class Orchestrator {
     let out = speakerLine(this.humanName()) + "\n";
     try {
       const q = spec ? [spec.title, spec.objective, ...(spec.requirements ?? []), ...(spec.scope?.owns ?? []), extra].join(" ") : extra;
-      const ctx = this.brain().context(q);
+      const ctx = this.brain().context(q, spec?.id); // grava quais notas a tarefa leu ("usada em" na Memória)
       if (ctx) out += ctx.trimEnd() + "\n\n";
+      // as notas que foram pro agente ficam com a tarefa (Entrega › "Feito com"; Conversa › "foi pro agente")
+      if (ctx && spec?.id) { const used = notesInContext(ctx); if (used.length && this.store.getTask(spec.id)) this.store.patchSpec(spec.id, { memNotes: used }); }
     } catch { /* memória nunca derruba o turno */ }
     try {
       const rb = readFileSync(join(this.ws.dir, "RUNBOOK.md"), "utf8").trim();
@@ -2246,12 +2248,15 @@ export class Orchestrator {
    * o motor roda com um banco próprio da amostra (sem evento, sem `cost`, sem prova); o gasto vai pro livro de uso.
    * Para se passar do teto. O resultado (veredito de antes × de agora) fica em .cardume/aprendizado/amostras.json.
    */
-  async sampleReview(taskId: string, agentId: string, capUsd: number): Promise<SampleResult> {
+  async sampleReview(taskId: string, agentId: string, capUsd: number, over?: { model?: string; engine?: string }): Promise<SampleResult> {
     const t = this.store.getTask(taskId);
     if (!t) throw new Error("essa tarefa não existe mais neste projeto");
     if (!(capUsd > 0)) throw new Error("a amostra precisa de um teto");
-    const agent = loadConfig(this.ws.repo).agents.find((a) => a.id === agentId);
-    if (!agent) throw new Error("esse agente não está no catálogo do projeto");
+    const saved = loadConfig(this.ws.repo).agents.find((a) => a.id === agentId);
+    if (!saved) throw new Error("esse agente não está no catálogo do projeto");
+    // rascunho (Padrões do time › Agentes): o MESMO agente com outro modelo/motor, ainda sem versão nova
+    const draft = !!(over && ((over.model && over.model !== saved.model) || (over.engine && over.engine !== saved.engine)));
+    const agent = draft ? { ...saved, model: over?.model || saved.model, engine: over?.engine || saved.engine } : saved;
     if (agent.role !== "reviewer") throw new Error("por enquanto a amostra é só pro revisor");
     const spec0 = JSON.parse(t.spec_json) as TaskSpec;
     const old = oldVerdict(spec0, this.store.eventsForTask(taskId), agentId);
@@ -2303,7 +2308,8 @@ export class Orchestrator {
     const v = stopped && !text.trim() ? { kind: "ilegivel" as const, items: [] } : parseVerdict(text);
     const res: SampleResult = {
       at: Date.now(), agentId, agentName: agent.name, taskId, title: t.title,
-      old, now: { v: agentVersion(this.ws.dir, agentId), kind: v.kind, items: v.items }, usd: Math.round(usd * 10000) / 10000, capUsd, stopped,
+      old, now: { v: agentVersion(this.ws.dir, agentId) + (draft ? 1 : 0), kind: v.kind, items: v.items }, usd: Math.round(usd * 10000) / 10000, capUsd, stopped,
+      ...(draft ? { draft: { model: agent.model ?? "", engine: agent.engine ?? "" } } : {}),
     };
     saveSample(this.ws.dir, res);
     return res;

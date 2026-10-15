@@ -106,19 +106,27 @@ test('L6: erro do medidor em duas linhas que quebram — "tentar de novo" sempre
   assert.ok(!/\.pm-err[^{]*\{[^}]*white-space:nowrap/.test(css), 'nada de nowrap no erro');
 });
 
-test('L7b → F4 (D1): Projetos · Issues · Fábrica · Time (só com org) à vista; "Mais" e "Chat do projeto" saíram; rodapé = medidor + avatar', () => {
-  assert.ok(html.indexOf('<div class="sbscroll">') < html.indexOf('<div class="sbnav2"'), 'demandas primeiro, navegação depois');
-  const nav = cut(html, '<div class="sbnav2"', '<div class="planmeter"');
-  const visible = [...nav.matchAll(/<button class="btn sbitem[^"]*" id="(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(visible, ['projetosBtn', 'issuesBtn', 'fabricaBtn', 'timeBtn']);
-  assert.match(nav, /id="timeBtn" hidden/, 'Time começa escondido (aparece com organização)');
-  assert.ok(!/class="btn sbitem/.test(cut(html, '<div class="sbnew">', '<div class="sbscroll">')), 'em cima só a Nova demanda');
-  assert.match(read('js/26-sidebar-projetos.js'), /typeof fabOpen==='function' \? fabOpen\(\) : toast\('Fábrica chegando'\)/);
-  // rodapé: medidor + avatar (menu); os botões antigos do "Mais" ficam num container SEMPRE escondido (handlers e selos intactos)
-  assert.match(html, /<div class="planmeter" id="planMeter"[^>]*><\/div>\s*<div class="sbme">\s*<button class="sbmebtn" id="meBtn" aria-haspopup="menu" aria-expanded="false"/);
+test('Semana (14/10): lateral em 3 grupos — Trabalho (+ Abertas) e Padrões do time no miolo que rola; Conta fixa embaixo; Fábrica e Time saíram', () => {
+  const mid = cut(html, '<div class="sbscroll" id="sbMid">', '<div class="sbfoot">');
+  const ids = (h) => [...h.matchAll(/<button class="btn sbitem[^"]*" id="(\w+)"/g)].map((m) => m[1]);
+  assert.deepEqual(ids(cut(mid, 'id="sbGrpTrab"', 'id="sbAbertasH"')), ['meuBtn', 'semanaBtn', 'entregasBtn', 'issuesBtn']);
+  assert.match(mid, /<div class="sbsubgrp" id="sbAbertasH">Abertas<\/div>\s*<div id="rail"/, 'Abertas = a lista de demandas, entre os grupos');
+  assert.deepEqual(ids(cut(mid, 'id="sbPadTgl"', '</nav>')), ['projetosBtn', 'agentesBtn', 'skillsNavBtn', 'memoriaBtn']);
+  assert.match(mid, /<button class="sbgrp sbgrpbtn" id="sbPadTgl" aria-expanded="true" aria-controls="sbPad">Padrões do time/, 'Padrões do time recolhível');
+  const foot = cut(html, '<div class="sbfoot">', '<div class="sbcompat"');
+  assert.deepEqual(ids(foot), ['pessoasBtn', 'ajustesBtn', 'mapaBtn']);
+  assert.match(foot, /<div class="planmeter" id="planMeter"[^>]*><\/div>\s*<div class="sbme">\s*<button class="sbmebtn" id="meBtn" aria-haspopup="menu" aria-expanded="false"/);
+  // topo: seletor do projeto + Nova demanda ⌘N
+  assert.match(cut(html, '<div class="sbnew">', '<div class="sbscroll"'), /id="sbProjSw"[\s\S]*id="newTaskBtn"[\s\S]*⌘N/);
+  // só o miolo rola: o rodapé é flex:none fora do .sbscroll
+  const sc = read('css/99-casca-semana.css');
+  assert.match(sc, /#sidebar \.sbscroll\{flex:1 1 auto;min-height:0;overflow:auto/);
+  assert.match(sc, /\.sbfoot\{flex:none;/);
+  // Fábrica e Time saíram da lateral (os ids continuam, escondidos, porque outros arquivos ligam handlers neles)
   const compat = cut(html, '<div class="sbcompat" id="sbCompat" hidden aria-hidden="true">', '</aside>');
-  for (const id of ['pcBtn', 'cloudBtn', 'moreBtn', 'skillsBtn', 'agentsBtn', 'dailyBtn', 'prefsBtn', 'memBtn', 'cfgBtn', 'envBtn', 'pubRelBtn']) assert.match(compat, new RegExp('id="' + id + '"'), id);
+  for (const id of ['fabricaBtn', 'timeBtn', 'pcBtn', 'cloudBtn', 'moreBtn', 'skillsBtn', 'agentsBtn', 'dailyBtn', 'prefsBtn', 'memBtn', 'cfgBtn', 'envBtn', 'pubRelBtn']) assert.match(compat, new RegExp('id="' + id + '"'), id);
   assert.equal((html.match(/id="skillsBtn"/g) || []).length, 1);
+  assert.match(read('js/26-sidebar-projetos.js'), /typeof fabOpen==='function' \? fabOpen\(\) : toast\('Fábrica chegando'\)/);
   assert.match(read('css/99-paginas.css'), /\.sbcompat,\.sbcompat\[hidden\]\{display:none!important\}/);
 });
 

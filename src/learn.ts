@@ -469,7 +469,7 @@ function atomicWrite(file: string, content: string): void {
 // P9: o que cada PAPEL recebe no prompt — skill/nota com dono vai SÓ pro papel dono
 // ---------------------------------------------------------------------------
 
-export interface SkillEntry { name: string; description?: string; agente?: string }
+export interface SkillEntry { name: string; description?: string; agente?: string; quando?: string }
 export interface OwnedSkill { name: string; description: string; body: string }
 
 /** Lista do skills.json que vale pra um papel: as do projeto (sem dono). As do dono vêm inteiras em `roleLearningContext`. */
@@ -487,6 +487,15 @@ const SKILL_RULE =
   `\n\n## SKILLS ATIVADAS PRA ESTE PROJETO — o humano LIGOU estas skills; CONSULTE-AS EM TODA TAREFA\n` +
   `Regra fixa deste projeto: ANTES de começar QUALQUER tarefa — e de novo a cada nova rodada/pedido — releia a lista abaixo e, se a descrição de alguma bater com o que você vai fazer, INVOQUE-A (tool Skill, ou \`/nome\`) ANTES de resolver do seu jeito. Elas carregam o processo/estilo que o time espera; resolver "na mão" ignorando uma skill que se aplica é ERRO. Só siga sem skill quando NENHUMA da lista se aplicar de verdade:\n`;
 
+/** "Sempre em tarefas de UI/código/todas" (Padrões do time › Skills): a skill vira obrigatória naquele tipo de tarefa. */
+export function quandoRule(q: unknown): string {
+  const k = String(q ?? "").trim().toLowerCase();
+  if (k === "todas") return " — PADRÃO DO PROJETO: use SEMPRE, em toda tarefa.";
+  if (k === "ui") return " — PADRÃO DO PROJETO: use SEMPRE em tarefa que mexe em interface (telas, componentes, estilos).";
+  if (k === "codigo" || k === "código") return " — PADRÃO DO PROJETO: use SEMPRE em tarefa de código.";
+  return "";
+}
+
 /**
  * Bloco de skills + aprendizados de UM papel (puro — testado em src/agentes-f3.test.ts). Mesmo texto pra Claude,
  * Codex, DeepSeek e terminal (todos recebem o systemContext/skillsRule montado aqui).
@@ -499,7 +508,7 @@ export function roleLearningContext(o: { skills: SkillEntry[]; owned: OwnedSkill
   let out = "";
   if (list.length) {
     out += SKILL_RULE;
-    for (const s of list) out += `- **${s.name}**: ${String(s.description || "").replace(/\s+/g, " ").slice(0, 320)}\n`;
+    for (const s of list) out += `- **${s.name}**: ${String(s.description || "").replace(/\s+/g, " ").slice(0, 320)}${quandoRule(s.quando)}\n`;
   }
   const notes = (o.notes ?? []).filter((n) => n && !n.forgottenAt);
   const owned = o.owned ?? [];

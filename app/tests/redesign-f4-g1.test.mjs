@@ -206,7 +206,7 @@ test('Issues: abas Quadro · Nova issue · Conexão; endereço base das issues n
   assert.match(i, /function trkNIOpen\(\)\{ trkView='nova'; trkSel=null; if\(window\.openTab\) window\.openTab\('issues',\{ sub:'nova' \}\); \}/);
   assert.match(i, /id="trkIssueBase" value="\$\{escA\(lsGet\('issueBase'\)\|\|''\)\}"/);
   assert.match(i, /function trkListHtml\(rows\)\{/);
-  assert.match(i, /let trkLayout=lsGet\('trkLayout'\)==='colunas'\?'colunas':'lista';/);
+  assert.match(i, /let trkLayout=\['colunas','triagem'\]\.includes\(lsGet\('trkLayout'\)\)\?lsGet\('trkLayout'\):'lista';/); // Semana: + Triagem
 });
 test('Memória é a dona única de aprendizados, curador e "o que cada agente lembra" (D16); ficha = Histórico · Desempenho · Editar', () => {
   const m = read('js/37-memoria.js'), a = read('js/61-meu-time.js');

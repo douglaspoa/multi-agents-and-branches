@@ -186,7 +186,7 @@ function plEmptyHtml(){
     ${typeof ndPadroesHtml==='function'&&typeof ntPolicy!=='undefined'?ndPadroesHtml(ntPolicy, 'plStd', !!ND_STD_OPEN.plStd):''}
     <div class="g2k">Exemplos <span>— clique pra começar com um deles</span></div>
     <div class="ndexs">${ex.map((e,i)=>`<button type="button" class="ndex" data-ndex="${escA(e.text)}" title="preenche a caixa abaixo — você edita e envia"><span class="ndex-k">${ND_EX_IC[e.k]||''}${esc(ndTypeName(e.k))}</span><span class="ndex-t">${esc(e.title)}</span></button>`).join('')}</div>
-    <p class="g2help">App novo do zero, ideia pra validar ou mesa de opiniões? Isso mora na <button type="button" class="lnk" data-plfab>Fábrica</button> — não aqui.</p>
+    <div class="plideia"><button type="button" class="ndchip" data-plideia aria-pressed="false" title="abre a conversa com a mesa e a pesquisa (o que era a Ideia) levando o que você já escreveu">${typeof semIc==='function'?semIc('spark'):''}Ainda é uma ideia: conversar antes de planejar</button><span class="dim">App do zero? <button type="button" class="lnk" data-plfab>Projetos › Adicionar repo</button></span></div>
   </div>`;
 }
 // cabeçalho no padrão de página: título = título da demanda; "em <projeto> ▾" (a demanda cai onde você escolher); modos
@@ -205,7 +205,10 @@ function plWireEmpty(th){
   // o texto do exemplo vai no próprio botão (data-ndex): o que você clica é o que entra na caixa
   th.querySelectorAll('[data-ndex]').forEach(b=>b.onclick=()=>{ const i=$id('plInput'); if(!i) return;
     i.value=b.dataset.ndex; i.dispatchEvent(new Event('input')); i.focus(); try{ i.setSelectionRange(i.value.length, i.value.length); }catch(_){} });
-  th.querySelectorAll('[data-plfab]').forEach(b=>b.onclick=()=>{ if(window.fabOpen) window.fabOpen('nova'); });
+  // Semana (14/10): a Ideia saiu da lateral e virou opção daqui — leva o texto da caixa pra conversa com a mesa (59-ideia);
+  // app do zero mora em Projetos › Adicionar repo (a Fábrica saiu da lateral)
+  th.querySelectorAll('[data-plideia]').forEach(b=>b.onclick=()=>{ const i=$id('plInput'); const tx=(i&&i.value)||''; if(typeof ideiaNew==='function') ideiaNew(tx); else if(window.openTab) window.openTab('ideia'); });
+  th.querySelectorAll('[data-plfab]').forEach(b=>b.onclick=()=>{ window.projAddOpen=true; if(window.openTab) window.openTab('projetos'); });
 }
 // controles pequenos dentro do composer: "Tipo: Automático ▾" + o modo (Conversar · Formulário · Dividir)
 function plTypeLabel(){ return plFields.kind ? ndTypeName(plFields.kind) : 'Automático'; }
