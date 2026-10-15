@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import type { ApprovalMode } from "../types.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { ADVISOR_OFF_ENV, advisorArgs, advisorCostOf, advisorEnvBlocker, advisorEnvNote, advisorEventOf, advisorForRun, ADVISOR_NAME, claudeCliVersion, taskHasEvent, type Advisor } from "../advisor.ts";
+import { reasonRule } from "../change-reasons.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
 import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
 import { mobileRule } from "../mobile.ts";
@@ -267,6 +268,8 @@ export class ClaudeEngine implements AgentEngine {
       reqs.length && input.role !== "planner"
         ? ` Ao FINAL do seu trabalho, escreva/atualize ".cardume/artifacts/requirements.json": um array JSON onde CADA requirement do TASK.yaml vira {"req": "<TEXTO EXATO do requisito, copiado do TASK.yaml>", "status": "done"|"blocked"|"deferred", "evidence": ["<arquivos em .cardume/artifacts/ que COMPROVAM — print e/ou teste>"], "note": "<explicação curta>", "did": "<o que você fez por este requisito, 1-2 frases>", "code": [{"file": "<caminho no repo>", "lines": "<início-fim no arquivo NOVO, ex.: 12-30>"}], "tests": [{"name": "<arquivo › caso de teste>", "status": "pass"|"fail"|"missing"}]}. "code" = os trechos que você mudou POR ESTE requisito (a Revisão do app mostra só eles por requisito; o que não estiver em nenhum aparece como "fora dos requisitos"); "tests" = os testes que cobrem o requisito ("missing" quando falta teste). Pode registrar did/code/tests de cada requisito também com mcp__cardume__map_requirement (grava no mesmo arquivo). Requirement sem evidência real não é "done". Se algum ficar "blocked", pergunte ao humano ANTES de finalizar. Use "deferred" SOMENTE quando o HUMANO decidir (via ask_human) adiar/dispensar aquele requisito — registre a decisão dele na note; "deferred" não trava as próximas fases, "blocked" trava.`
         : "";
+    // CÓDIGO EXPLICADO: o porquê de cada trecho (tool register_change_reason) — quem escreve código registra
+    const reasonRuleTx = input.role !== "planner" && input.spec.kind !== "review" ? reasonRule(false) : "";
     // Regras INEGOCIÁVEIS (valem pra todos os papéis, em qualquer modo de autonomia):
     // o pior desfecho possível é entregar sem os requisitos ou "decidir não fazer".
     const integrityRule =
@@ -299,7 +302,7 @@ export class ClaudeEngine implements AgentEngine {
     const baseline =
       `${adjustRule}Leia .cardume/TASK.yaml e execute a tarefa. ${roleInstr}${refRule}${envRule}${knowledgeRule}${specGapRule}${scratchRule}${previewRule}${planRule}${prRule}` +
       ` Você tem as tools mcp__cardume__ask_human (pergunte ao humano em caso de dúvida e aguarde) e` +
-      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${ASK_STYLE}${editRule}${askRule}${artifactRule}${reqProofRule}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}${mobRule}`;
+      ` mcp__cardume__claim (reivindique um caminho antes de editar fora do seu escopo).${ASK_STYLE}${editRule}${askRule}${artifactRule}${reqProofRule}${reasonRuleTx}${integrityRule}${groundRule}${doneRule}${parallelRule}${browserRule}${mobRule}`;
     // Modo "resume": continua a sessão existente com uma instrução nova do humano.
     // promptOverride: turno fresco com um pedido específico (ex.: gerar entregável).
     // groundRule/parallelRule valem pra TODO turno (pipeline, chat/resume e

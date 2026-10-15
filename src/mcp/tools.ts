@@ -94,6 +94,22 @@ export const TOOLS = [
     },
   },
   {
+    name: "register_change_reason",
+    description:
+      "Registre POR QUE um trecho de código mudou — chame logo depois de cada edição que você mantiver, no mesmo turno. O Starfork mostra o motivo ao lado do trecho no \"Código explicado\" (o humano revisa o diff com o porquê de cada hunk) e a linha `starfork · porquê registrado · arquivo:linhas → R3` aparece no terminal. Chame de novo com a mesma faixa pra corrigir o motivo. Se não souber dizer por que um trecho mudou, desfaça o trecho.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        file: { type: "string", description: "caminho relativo ao repo (ex.: src/carrinho/total.ts)" },
+        range: { type: "string", description: "faixa de linhas no arquivo NOVO, ex.: '14-15' ou '22'" },
+        requirement: { type: ["string", "null"], description: "o requisito do TASK.yaml que o trecho atende: 'R3' (nº do requisito) ou o texto dele; null se o trecho está fora dos requisitos" },
+        reason: { type: "string", description: "o porquê em 1–2 frases em pt-BR (o que quebrava, qual regra pediu) — nada de 'melhoria'/'ajuste'" },
+        covered_by: { type: "string", description: "teste ou prova que cobre o trecho (ex.: 'tests/carrinho.test.ts › aplica cupom no total com frete'); vazio se não há" },
+      },
+      required: ["file", "range", "requirement", "reason"],
+    },
+  },
+  {
     name: "set_issue",
     description:
       "Registre o LINK da issue desta demanda no tracker do projeto. Use quando o projeto tem 'criar issue ao abrir demanda' ligado E o TASK.yaml ainda NÃO traz issueUrl: crie a issue seguindo as INSTRUÇÕES DE ISSUE do projeto (título/corpo a partir do TASK.yaml) e chame esta tool com a URL resultante. O link fica na tarefa e é compartilhado com o time. Se o TASK.yaml já trouxer issueUrl, NÃO crie outra nem chame esta tool.",
@@ -431,6 +447,27 @@ export async function callTool(ctx: ToolCtx, name: string, args: any): Promise<T
       return { text: `mapa registrado: ${entry.code?.length ?? 0} trecho(s), ${entry.tests?.length ?? 0} teste(s) para "${req.slice(0, 80)}".` };
     } catch (e) {
       return { text: `falha registrando o mapa: ${(e as Error).message}`, isError: true };
+    }
+  }
+
+  if (name === "register_change_reason") {
+    const task = store.getTask(TASK);
+    if (!task) return { text: "tarefa não encontrada", isError: true };
+    try {
+      const { cleanReason, mergeReason, reasonLine, REASONS_REL } = await import("../change-reasons.ts");
+      const known = (() => { try { return ((JSON.parse(task.spec_json) as TaskSpec).requirements ?? []).map(String); } catch { return []; } })();
+      const r = cleanReason(args, known, Date.now());
+      if (!r.ok) return { text: r.error, isError: true };
+      const { readFile, writeFile, mkdir } = await import("node:fs/promises");
+      const { join, dirname: dn } = await import("node:path");
+      const file = join(task.worktree, REASONS_REL);
+      let cur: unknown = [];
+      try { const raw = await readFile(file, "utf8"); if (raw.trim()) cur = JSON.parse(raw); } catch { /* ainda não existe (ou ilegível: recomeça — é só o porquê, não a prova) */ }
+      await mkdir(dn(file), { recursive: true });
+      await writeFile(file, JSON.stringify(mergeReason(cur, r.entry), null, 2), "utf8");
+      return { text: reasonLine(r.entry) };
+    } catch (e) {
+      return { text: `falha registrando o porquê: ${(e as Error).message}`, isError: true };
     }
   }
 
