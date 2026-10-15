@@ -244,7 +244,8 @@ test('contrato JS ↔ Rust dos comandos novos (nome dos parâmetros e registro)'
   assert.match(lib, /org_policy: Option<serde_json::Value>,\n\) -> Result<String, String>/);
   assert.match(lib, /if let Some\(p\) = org_policy\.as_ref\(\)\.filter\(\|p\| p\.is_object\(\)\)/);
   assert.match(ap, /org_policy: Option<serde_json::Value>\) -> Result<serde_json::Value, String>/);
-  assert.match(am, /pub fn agent_sample_review\(state: State<AppState>, repo: Option<String>, task_id: String, agent_id: String, cap_usd: f64\)/);
+  // model/engine opcionais: o rascunho de versão (Padrões do time › Agentes) testa outro modelo antes de salvar
+  assert.match(am, /pub fn agent_sample_review\(state: State<AppState>, repo: Option<String>, task_id: String, agent_id: String, cap_usd: f64, model: Option<String>, engine: Option<String>\)/);
   assert.match(am, /pub fn agent_samples\(state: State<AppState>, repo: Option<String>, agent_id: String\)/);
   assert.match(lr, /pub fn learn_import\(state: State<AppState>, repo: Option<String>, item: serde_json::Value\)/);
   assert.match(lr, /pub fn learn_check_text\(text: String\)/);

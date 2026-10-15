@@ -38,7 +38,7 @@ test('comando: /starfork-… no Claude Code e no DeepSeek; frase em pt-BR no Cod
   assert.equal(TI.tiCmdText('deepseek', 'pr', 'rascunho'), '/starfork-pr rascunho');
   assert.equal(TI.tiCmdText('claude', 'revisao'), '/starfork-revisao');
   assert.equal(TI.tiCmdText('claude', 'tarefa-quebrar'), '/starfork-tarefa quebrar');
-  assert.equal(TI.tiCmdText('claude', 'skill', 'design-review'), '/starfork-skill design-review');
+  assert.equal(TI.tiCmdText('claude', 'skill', 'design-review'), '/design-review '); // /nome direto (Padrões do time)
   assert.equal(TI.tiCmdText('claude', 'tarefa-nova', '  Ajuste: "Em breve"\ncom peso  '), '/starfork-tarefa nova "Ajuste: Em breve com peso"', 'título sem aspas nem quebra');
   const nl = TI.tiCmdText('codex', 'etapa', 'provar');
   assert.match(nl, /^Starfork: avance esta tarefa para Provar/); assert.match(nl, /`starfork status`/); assert.match(nl, /`starfork etapa review`/);
@@ -86,7 +86,7 @@ test('skills: as do projeto primeiro, depois os atalhos do Starfork (mandam o pr
   const quick = [{ id: 'testes', label: 'testes', desc: 'rodar a suíte', prompt: () => 'Rode os testes REAIS' }];
   const d = TI.tiSheetDef('skill', { skills, quick });
   assert.deepEqual(d.opts.map((o) => o.title), ['alfa', 'zeta', '/testes', 'off-1']);
-  assert.equal(TI.tiSheetText(d, { sel: 0 }, 'claude'), '/starfork-skill alfa');
+  assert.equal(TI.tiSheetText(d, { sel: 0 }, 'claude'), '/alfa ');
   assert.equal(TI.tiSheetText(d, { sel: 2 }, 'claude'), 'Rode os testes REAIS', 'atalho manda o prompt em qualquer motor');
   assert.match(TI.tiSheetHtml(d, { sel: 3 }, 'claude'), /desligada no projeto/);
   assert.deepEqual(TI.tiSheetVisible(d, { q: 'visual' }).map((x) => x.o.title), ['alfa']);
