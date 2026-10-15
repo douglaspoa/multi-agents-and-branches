@@ -317,9 +317,10 @@ async function proofAsk(t, btn){
   return ok;
 }
 // "aprovar sem prova…": exige motivo (vai na descrição do PR e fica registrado — mesmo log do override das checagens)
-async function proofOverride(t){
+// motivo: já escrito em outra tela (o "Aprovar mesmo assim…" do painel de provas, 80-aprovar) — não pergunta de novo
+async function proofOverride(t, motivo){
   const g=proofGate(t); if(g.st!=='unproven') return g.st!=='loading';
-  const reason=await askText('Aprovar sem prova', `por que aprovar com ${nPl(g.missing.length,'requisito')} sem prova? (vai na descrição do PR e fica registrado)`, '');
+  const reason=String(motivo||'').trim() || await askText('Aprovar sem prova', `por que aprovar com ${nPl(g.missing.length,'requisito')} sem prova? (vai na descrição do PR e fica registrado)`, '');
   if(!reason) return false;
   const f=chkFpC[t.id]; const fp=(f&&f.fp&&f.fp.fingerprint)||'';
   lsSet('proofOv:'+t.id, JSON.stringify({ sig:proofSigOf(g.missing), reason, at:Date.now(), missing:g.missing.map(r=>r.text) }));
@@ -518,9 +519,12 @@ async function mergePr(taskId){
   const why=(typeof prvMergeWhy==='function' && t) ? prvMergeWhy(t, prCache[taskId]) : prMergeBlock(prCache[taskId]);
   if(prCache[taskId] && why){ toast('Não dá pra integrar agora. '+capFirst(why),'warn'); return false; }
   if(!await askYes('Integrar o PR na base pelo GitHub (squash + apaga a branch remota)?')) return false;
-  try{ await invoke('merge_pr',{ taskId, method:'squash' }); prCache[taskId]=undefined; lastSig=''; await refresh(); toast('PR mergeado','ok'); return true; }
+  try{ await mergePrRun(taskId); toast('PR mergeado','ok'); return true; }
   catch(e){ showErr(e, 'Merge do PR falhou'); return false; }
 }
+// o merge em si (squash + apaga a branch remota) — o mergePr acima (com a confirmação) e o "Aprovar" do painel de provas
+// (80-aprovar: a confirmação é a janela de 4 s com Desfazer, depois de conferir os mesmos portões) passam por aqui
+async function mergePrRun(taskId){ await invoke('merge_pr',{ taskId, method:'squash' }); prCache[taskId]=undefined; lastSig=''; await refresh(); return true; }
 const ROLE_PT = { planner:"planejamento", builder:"construção", reviewer:"revisão" };
 
 let __selPersisted='';

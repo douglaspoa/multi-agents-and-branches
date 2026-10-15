@@ -169,6 +169,10 @@ const STATUS_META={
   aborted:      { pt:'interrompida',      short:'interrompida', c:'var(--muted)',     ic:'stX' },
   cancelled:    { pt:'cancelada',         short:'cancelada',c:'var(--muted)',     ic:'stX' },
   waiting:      { pt:'na espera',         short:'espera',   c:'var(--muted)',     ic:'stQueue' },
+  // aprovar (80-aprovar, 15/10): estados DERIVADOS do painel de provas — a fila, a Central e o Meu trabalho leem daqui
+  'para-aprovar':  { pt:'pronta pra aprovar', short:'pra aprovar', c:'var(--info)',  ic:'stReview' },
+  integrando:      { pt:'integrando',          short:'integrando',  c:'var(--accent)', ic:'stRun' },
+  'mudanca-pedida':{ pt:'revisor pediu mudança', short:'mudança pedida', c:'var(--crit)', ic:'stErr' },
 };
 function stMeta(st){ return STATUS_META[st]||{ pt:String(st||'—'), c:'var(--muted)', ic:'stQueue' }; }
 function stLabel(st){ return stMeta(st).pt; }
