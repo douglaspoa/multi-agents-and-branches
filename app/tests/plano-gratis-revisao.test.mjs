@@ -25,3 +25,18 @@ test('7 · userRepoSync: a trava repoSyncBusy roda (estava engolida pelo coment�
   // a varredura do atrap-fabrica agora pega atribuição solta no fim do comentário
   assert.match(readFileSync(new URL('./atrap-fabrica.test.mjs', import.meta.url), 'utf8'), /\(true\|false\|null\|\\d\+\|'\[\^'\]\*'\|\\\[\\\]\|\\\{\\\}\);\\s\*\$/);
 });
+
+test('2 · sair/sessão caída zera billingOn e billingKnown (Enterprise que entra depois não cai no local)', () => {
+  const nuvem = read('js/40-nuvem-conta.js');
+  for (const fn of ['function sbLogout(){', 'function sbSessionEnded(reason){'])
+    assert.match(cut(nuvem, fn, '\n}'), /billingOn=false; billingKnown=false;/, fn);
+  // efeito: com billingOn=false, billingActive() é true → logado = nuvem até o billingSync decidir
+  const ba = new Function('let billingOn=true, myBilling=null;' + cut(read('js/41-assinatura-chaves.js'), 'function billingActive(){', '\n') + ' const a=!!billingActive(); billingOn=false; return [a, !!billingActive()];')();
+  assert.deepEqual(ba, [false, true]);
+});
+
+test('8 · epicAutoStart é tick com parte local (rascunhos do "Iniciar épico" rodam no Grátis)', () => {
+  const ep = read('js/46-epico-time.js');
+  assert.match(ep, /tickLoop\('epicAutoStart', epicAutoStartTick, \(\)=>epAutoIdle\?60000:20000, 3000, \{ local:true \}\);/);
+  assert.match(cut(ep, 'async function epicAutoStartTick(){', '\n  epAutoBusy=true;'), /epAutoLocalTick\(\);[\s\S]*!cloudScopeOk\(\)\) return;/, 'a parte de nuvem continua guardada');
+});

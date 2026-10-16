@@ -62,7 +62,7 @@ test('sf:espaco-mudou: dispara só quando o espaço muda (a 1ª leitura do boot 
   s = null; X.ctx.espacoSync(); assert.equal(X.events[1].espaco, 'local', 'saiu');
 });
 
-test('migração do localStorage no 1º login: base:- → base:<uid> só pra destino vazio, sem cursores da nuvem, idempotente', () => {
+test('migração do localStorage no login: base:- → base:<uid> só pra destino vazio, consome o do Grátis, sem cursores da nuvem, idempotente', () => {
   const store = { 'ca:tab:-': 'minhas', 'per:central:-': '7d', 'kb:central:-': '{"x":1}', 'ca:f:-': 'a', 'ca:f:u1': 'já-tinha',
     'sb:tmap:-': '{}', 'sb:team:-': 't', 'ep:mirrored:-': '[]', 'ep:ownWarn:-': '1', 'onboarded': '1', 'x:-:y': 'z' };
   const has = (k) => k in store;
@@ -71,16 +71,21 @@ test('migração do localStorage no 1º login: base:- → base:<uid> só pra des
   assert.ok(plan.every(([f, t]) => t === f.slice(0, -2) + ':u1'));
   assert.deepEqual(E.espacoMigPlan(Object.keys(store), '', has), [], 'sem conta: nada');
   assert.deepEqual(E.espacoMigPlan(Object.keys(store), '-', has), []);
-  // runtime: copia, marca a conta e não repete (nem sobrescreve o que a pessoa mudou depois)
+  // runtime: copia pra vazio, APAGA o do Grátis (2ª conta não herda) e não repete
   const X = loadEspaco({ store });
   assert.equal(X.ctx.espacoMigrar('u1'), 3);
   assert.equal(store['ca:tab:u1'], 'minhas'); assert.equal(store['ca:f:u1'], 'já-tinha', 'destino com valor fica');
-  assert.equal(store['ca:tab:-'], 'minhas', 'o original do Grátis fica (sair da conta volta pra ele)');
-  assert.equal(store['sf:migLocal:u1'], '1');
+  for (const k of ['ca:tab:-', 'per:central:-', 'kb:central:-', 'ca:f:-']) assert.equal(k in store, false, k + ' consumido');
+  assert.equal(store['sb:tmap:-'], '{}', 'cursores da nuvem não são tocados');
+  assert.equal(store['x:-:y'], 'z');
   store['ca:tab:u1'] = 'do-time';
   assert.equal(X.ctx.espacoMigrar('u1'), 0, 'idempotente');
   assert.equal(store['ca:tab:u1'], 'do-time');
-  assert.equal(X.ctx.espacoMigrar('u2'), 4, 'outra conta neste computador também recebe o do Grátis (inclusive o ca:f que a u1 já tinha)');
+  assert.equal(X.ctx.espacoMigrar('u2'), 0, 'a 2ª conta neste computador não herda o que foi pra 1ª');
+  assert.equal('ca:tab:u2' in store, false);
+  // o que a pessoa fizer no Grátis depois de sair vai pra próxima conta que entrar
+  store['ca:tab:-'] = 'depois';
+  assert.equal(X.ctx.espacoMigrar('u2'), 1); assert.equal(store['ca:tab:u2'], 'depois'); assert.equal('ca:tab:-' in store, false);
 });
 
 test('updater: canal pela sessão; sem sessão = GitHub Releases público; latest.json torto/404 = silêncio', () => {

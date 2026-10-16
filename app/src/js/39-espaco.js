@@ -21,6 +21,8 @@ function espacoMigPlan(keys, uid, has){
   }
   return out;
 }
+// as chaves `base:-` que a migração consome (copiadas ou não, porque o destino já tinha valor)
+function espacoMigFonte(keys){ return (keys||[]).filter(k=>typeof k==='string' && k.endsWith(':-') && k.length>2 && !ESPACO_MIG_NAO.test(k.slice(0,-2))); }
 // canal de atualização: com sessão, o bucket privado do Supabase (URL assinada, como sempre); sem sessão, o canal
 // PÚBLICO — os downloads da landing no GitHub Releases (mesmo latest.json: buildMs, version, file, size, notes, publishedAt).
 const UPD_PUB_BASE='https://github.com/douglaspoa/multi-agents-and-branches/releases/latest/download/';
@@ -50,16 +52,18 @@ function espacoSync(){
   if(was===null) return; // 1ª leitura do boot: nada mudou ainda
   try{ window.dispatchEvent(new CustomEvent('sf:espaco-mudou', { detail:{ espaco:now, antes:was } })); }catch(_){ }
 }
-// 1º login neste computador: o que a pessoa fez no Grátis não some (idempotente: marca por conta + só copia pra vazio)
+// login neste computador: o que a pessoa fez no Grátis não some. Idempotente pela fonte: o `base:-` é consumido (copiado
+// pra vazio e apagado), então rodar de novo não faz nada — e uma 2ª conta não herda o que já foi pra 1ª. Sem marca por
+// conta: o que a pessoa fizer no Grátis depois de sair vai pra próxima conta que entrar (e só pra ela).
 function espacoMigrar(uid){
   if(!uid) return 0;
-  const flag='sf:migLocal:'+uid;
-  try{ if(localStorage.getItem(flag)==='1') return 0; }catch(_){ return 0; }
   let n=0;
   try{
     const keys=Object.keys(localStorage);
+    // copia pra conta (destino vazio) e APAGA o do Grátis: uma 2ª conta neste computador não herda as preferências da 1ª.
+    // Destino já preenchido: o do Grátis também sai (a conta já tinha o dela). Rodar de novo não acha mais nada — idempotente.
     for(const [from,to] of espacoMigPlan(keys, uid, k=>localStorage.getItem(k)!==null)){ localStorage.setItem(to, localStorage.getItem(from)); n++; }
-    localStorage.setItem(flag,'1');
+    for(const k of espacoMigFonte(keys)) localStorage.removeItem(k);
   }catch(_){ }
   return n;
 }

@@ -123,6 +123,7 @@ function sbRefresh(){
 // sessão caiu (refresh_token inválido): limpa o que é da conta e mostra o login com o aviso — nada de erro cru
 function sbSessionEnded(reason){
   lsSet('sb:ended', reason||'expired');
+  try{ if(typeof billingOn!=='undefined'){ billingOn=false; billingKnown=false; } }catch(_){ } // idem ao sair (sbLogout)
   cloudData=null; cloudAutoInvTried=false; cloudJustJoined='';
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
   try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // quem entrar depois não usa as chaves de quem caiu
@@ -133,6 +134,9 @@ function sbSessionEnded(reason){
 function sbLogout(){
   const s=SB.sess();
   SB.setSess(null); lsSet('sb:ended','');
+  // a cobrança lida é da conta que saiu: quem entrar depois (ex.: um Enterprise) não pode herdar um billingOn=true sem
+  // assinatura e cair no espaço local até o próximo billingSync
+  try{ if(typeof billingOn!=='undefined'){ billingOn=false; billingKnown=false; } }catch(_){ }
   cloudData=null; cloudAutoInvTried=false; cloudJustJoined=''; cloudMsg='';
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
   try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // chaves da conta não ficam pro próximo (bloqueador 02)
