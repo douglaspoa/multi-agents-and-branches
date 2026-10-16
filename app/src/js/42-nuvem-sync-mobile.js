@@ -25,9 +25,12 @@ function tmapSet(localId, cloudId){ const m={ ...tmap() }; m[localId]=cloudId; l
 // concorrentes → posts e pushes duplicados). Aqui a próxima volta só é agendada quando a atual termina;
 // com a janela escondida o ritmo cai (×3, mín. 15s) — o celular continua atendido, só mais devagar.
 // `ms` pode ser função (ritmo adaptativo). Volta presa > 2 min libera a trava (rede morta não congela o laço).
+// Grátis (F1): no espaço local (isLocalSpace) os ticks da NUVEM não rodam — o laço segue agendado e volta sozinho quando o
+// espaço vira nuvem. Tick com parte local (opts.local) roda sempre e guarda só a parte de nuvem por dentro.
 const TICKS={};
-function tickLoop(name, fn, ms, firstMs){
-  const L=TICKS[name]={ busy:false, timer:0 };
+function tickLoop(name, fn, ms, firstMs, opts){
+  const L=TICKS[name]={ busy:false, timer:0, local:!!(opts&&opts.local) };
+  const fn0=fn; fn=()=>{ if(!L.local && typeof isLocalSpace==='function' && isLocalSpace()) return; return fn0(); };
   const per=()=>{ const v=typeof ms==='function'?ms():ms; return document.hidden?Math.max(v*3,15000):v; };
   L.run=async()=>{
     if(L.busy) return; L.busy=true; clearTimeout(L.timer);
@@ -770,14 +773,14 @@ function tsTeamName(id){ return ((((cloudData&&cloudData.teams)||[]).find(x=>x.i
 // o MESMO alcance da Central (71: "Do time"/"Org toda") — trocar aqui troca lá (a Central em "Minhas" fica como está)
 function tsSetScope(s){ tmScope=s==='org'?'org':'team'; lsSet('tmScope',tmScope); teamTasks=null; teamPaintSig=''; if(typeof caFromTeamScope==='function') caFromTeamScope(tmScope); if(typeof renderTeamBoard==='function') renderTeamBoard(); }
 // presença: marca "estou online" a cada 60s (profiles.last_seen_at)
-setInterval(()=>{ if(SB.sess()) sbFetch('/rest/v1/profiles?user_id=eq.'+cloudUserId(), { method:'PATCH', body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(()=>{}); }, 60000);
+setInterval(()=>{ if(SB.sess() && cloudAllowed()) sbFetch('/rest/v1/profiles?user_id=eq.'+cloudUserId(), { method:'PATCH', body: JSON.stringify({ last_seen_at: new Date().toISOString() }) }).catch(()=>{}); }, 60000);
 // versão: o build deste app (mtime do executável = buildMs do release) + sistema, pra /admin ver quem está
 // desatualizado. PATCH SEPARADO da presença: banco sem a migration 0029 não pode derrubar o "online".
 // Manda no boot, depois de logar e a cada 30 min (o build só muda quando o app é atualizado e reaberto).
 let appVerSent='';
 async function appVersionPing(){
   try{
-    if(!SB.sess()) return;
+    if(!SB.sess() || !cloudAllowed()) return; // Grátis (F1): espaço local não publica nada na nuvem
     const ms=Number(await invoke('build_info'))||0; if(!ms) return;
     const os=(typeof osKind==='function')?osKind():'';
     const key=cloudUserId()+'|'+ms+'|'+os; if(key===appVerSent) return;

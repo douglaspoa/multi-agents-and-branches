@@ -154,7 +154,7 @@ function ppPcItems(list, kindOf){
   return out.sort((a,b)=>(a.kind==='req'?0:1)-(b.kind==='req'?0:1));
 }
 // abre sozinho no boot só se a pessoa ainda está na Central (não troca a aba que ela abriu)
-function ppAutoOk(activeTab){ return !activeTab || activeTab==='flow'; }
+function ppAutoOk(activeTab){ return !activeTab || activeTab==='flow' || activeTab==='meu'; } // 'meu' = a casa da Semana (76), que abre sozinha no boot
 // criar organização: os dois nomes são obrigatórios (antes criava "Minha organização"/"Time 1" calado)
 function ajOrgFormErr(org, team){
   if(!String(org||'').trim()) return { field:'sbOrgName', msg:'Dê um nome pra organização (ex.: o nome da empresa).' };
@@ -363,14 +363,16 @@ function ajTermLoad(){
       const host=$id('ajContent'); if(host){ host.querySelectorAll('[data-ajterm] [data-envfix]').forEach(b=>b.onclick=()=>{ if(typeof envCopy==='function') envCopy(b); }); host.querySelectorAll('[data-ajtermre]').forEach(b=>b.onclick=()=>{ ajTermBins=null; ajTermLoad(); }); } });
 }
 function ajRenderMotores(host){
-  const logged=typeof SB!=='undefined' && !!SB.sess();
+  // Grátis (F1): no espaço local as chaves vão pro llm.env deste computador — "adicionar" aparece com ou sem conta
+  const local=typeof isLocalSpace==='function' && isLocalSpace();
+  const logged=local || (typeof SB!=='undefined' && !!SB.sess());
   const binOf=id=>Array.isArray(ajTermBins)?(ajTermBins.find(x=>x.id===id)||{ id, installed:false }):null;
   const extra=AJ_TERM_ENGINES.map(e=>ajTermCardHtml(e, binOf(e.id))).join('');
   const sec=ajSecretsRows();
-  const other=`<article class="ajeng" id="ajOtherKeys"><header><span class="ajmb">OK</span><div class="ajnm"><b>Outras chaves da conta</b><small>chaves extras que seguem a sua conta (ex.: a do LLM da sua empresa)</small></div></header>
+  const other=`<article class="ajeng" id="ajOtherKeys"><header><span class="ajmb">OK</span><div class="ajnm"><b>${local?'Outras chaves':'Outras chaves da conta'}</b><small>${local?'chaves extras guardadas só neste computador (ex.: a do LLM da sua empresa)':'chaves extras que seguem a sua conta (ex.: a do LLM da sua empresa)'}</small></div></header>
       <div class="ajkeys">${!logged?'<p class="dim">Entre na sua conta pra guardar chaves — elas ficam no cofre da conta e valem em qualquer computador.</p>':(sec.length?sec.map(r=>`<div class="ajkey"><span class="mono">${esc(r.name)}</span><span class="dim mono">••••${esc(String(r.value).slice(-4))}</span><span class="sp"></span><button type="button" class="btn sm" data-ajkedit="${escA(r.name)}">trocar</button><button type="button" class="btn sm" data-ajkdel="${escA(r.name)}">remover</button></div>`).join(''):'<p class="dim">nenhuma chave extra ainda</p>')}</div>
-      ${logged?'<footer><button type="button" class="btn sm" id="ajKeyAdd">adicionar chave</button><span class="dim">nome em MAIÚSCULAS_COM_TRAÇO</span></footer>':''}</article>`;
-  host.innerHTML=ajSecHead('motores', 'Qual IA roda as demandas novas. Este é o <b>único lugar das chaves</b>: cada chave fica salva na sua conta e vale em qualquer computador. O que é instalado (Claude Code, Codex…) é deste computador.')
+      ${logged?`<footer><button type="button" class="btn sm" id="ajKeyAdd">adicionar chave</button><span class="dim">nome em MAIÚSCULAS_COM_TRAÇO${local?' · Guardada só neste computador':''}</span></footer>`:''}</article>`;
+  host.innerHTML=ajSecHead('motores', local?'Qual IA roda as demandas novas. Este é o <b>único lugar das chaves</b>: no Grátis cada chave fica guardada só neste computador. O que é instalado (Claude Code, Codex…) também é deste computador.':'Qual IA roda as demandas novas. Este é o <b>único lugar das chaves</b>: cada chave fica salva na sua conta e vale em qualquer computador. O que é instalado (Claude Code, Codex…) é deste computador.')
     +`<div class="ajdefl"><b>Padrão das demandas novas</b><span id="ajDefHost">${ajDefaultPill()}</span><span class="dim">vale na Nova demanda, no Formulário, no terminal, na Conversa, na Fábrica, em Agentes e no Aprendizado</span></div>`
     +`<div id="suaIaCfg" class="ajia"></div><div class="ajeng-grid">${extra}${other}</div>`
     ;
@@ -380,14 +382,15 @@ function ajRenderMotores(host){
   if(ajTermBins===null) ajTermLoad();
   host.querySelectorAll('[data-envfix]').forEach(b=>b.onclick=()=>{ if(typeof envCopy==='function') envCopy(b); });
   host.querySelectorAll('[data-ajkedit]').forEach(b=>b.onclick=async()=>{ const v=await sheetAsk({ anchor:b, title:'Trocar '+b.dataset.ajkedit, text:'A chave atual continua valendo até você salvar a nova.', field:{ type:'password', placeholder:'cole a chave nova' }, ok:'salvar nova chave' }); if(!v) return; try{ await secretSet(b.dataset.ajkedit, v); ajSaved(); ajSectionPaint(); }catch(e){ showErr(e,'Não consegui salvar a chave'); } });
-  host.querySelectorAll('[data-ajkdel]').forEach(b=>b.onclick=async()=>{ if(!await sheetAsk({ anchor:b, title:'Remover '+b.dataset.ajkdel+'?', text:'Sai da sua conta e deste computador.', ok:'remover', danger:true })) return; try{ await secretDel(b.dataset.ajkdel); ajSaved('removida ✓'); ajSectionPaint(); }catch(e){ showErr(e,'Não consegui remover a chave'); } });
+  host.querySelectorAll('[data-ajkdel]').forEach(b=>b.onclick=async()=>{ if(!await sheetAsk({ anchor:b, title:'Remover '+b.dataset.ajkdel+'?', text:local?'Sai deste computador.':'Sai da sua conta e deste computador.', ok:'remover', danger:true })) return; try{ await secretDel(b.dataset.ajkdel); ajSaved('removida ✓'); ajSectionPaint(); }catch(e){ showErr(e,'Não consegui remover a chave'); } });
   bindClick('ajKeyAdd', async()=>{ const b=$id('ajKeyAdd');
     const n=await sheetAsk({ anchor:b, title:'Adicionar chave', text:'O nome é como os motores procuram a chave (ex.: LGCX_API_KEY).', field:{ placeholder:'NOME_DA_CHAVE' }, ok:'continuar' }); if(!n) return;
     const name=String(n).trim().toUpperCase().replace(/[^A-Z0-9_]/g,'_');
     if(!/^[A-Z][A-Z0-9_]{2,63}$/.test(name)){ toast('Nome inválido — use MAIÚSCULAS_COM_TRAÇO (ex.: MINHA_API_KEY).','warn'); return; }
     const v=await sheetAsk({ anchor:b, title:'Valor de '+name, field:{ type:'password', placeholder:'cole a chave' }, ok:'salvar' }); if(!v) return;
     try{ await secretSet(name, v); ajSaved(); ajSectionPaint(); }catch(e){ showErr(e,'Não consegui salvar a chave'); } });
-  if(logged && !AJ.secTried && typeof secretsCache!=='undefined' && secretsCache===null && typeof secretsSync==='function'){ AJ.secTried=true; secretsSync().then(()=>{ if(AJ.sec==='motores' && secretsCache!==null) ajSectionPaint(); }).catch(()=>{}); }
+  if(local && !AJ.secTried && typeof secretsCache!=='undefined' && secretsCache===null && typeof secretsLocalLoad==='function'){ AJ.secTried=true; secretsLocalLoad().then(()=>{ if(AJ.sec==='motores') ajSectionPaint(); }).catch(()=>{}); }
+  else if(logged && !AJ.secTried && typeof secretsCache!=='undefined' && secretsCache===null && typeof secretsSync==='function'){ AJ.secTried=true; secretsSync().then(()=>{ if(AJ.sec==='motores' && secretsCache!==null) ajSectionPaint(); }).catch(()=>{}); }
 }
 // a pílula: com o seletor único do G2 (iaPick) quando ele existe; sem ele, um menu simples dos motores prontos
 function ajPickWire(host, isDefault){
@@ -570,7 +573,7 @@ function ajStateHtml(kind, o){
   o=o||{};
   const S={
     semserv:['warn','Falta configurar o servidor da conta','Sem servidor de contas este computador não entra na conta. Configure em Sistema › Servidor da conta.','configurar o servidor','ajGoSrv'],
-    semconta:['perfil','Entre na sua conta','Organização, times, convites, chaves e assinatura seguem a sua conta. Os ajustes deste computador continuam valendo sem conta.','entrar ou criar conta','ajSignIn'],
+    semconta:['perfil','Entre na sua conta','A conta é opcional: organização, times, convites e assinatura seguem ela. Sem conta você usa o Grátis — tudo deste computador continua valendo, inclusive as chaves de IA.','entrar ou criar conta','ajSignIn'],
     semorg:['org','Você ainda não está numa organização','Crie uma organização com o primeiro time, ou entre num time com o convite que recebeu.','criar organização','ajGoTimes'],
     semperm:['warn','Só quem administra vê isto','Peça pra um admin da organização'+(o.who?' ('+o.who+')':'')+' fazer isso, ou te dar a permissão.','',''],
   }[kind];
@@ -583,6 +586,12 @@ function ajStateWire(){
 }
 // garante cloudData (carrega uma vez); falha vira erro padrão com "tentar de novo"
 async function ajCloudReady(host, id, lead){
+  // Grátis (F1): convidar é o primeiro uso de nuvem — no espaço local mostra o motivo, o preço e a alternativa grátis.
+  // Sem conta, times/organização/regras também (com "já tem conta? entrar": com a cobrança desligada, entrar já liga a nuvem).
+  if(typeof isLocalSpace==='function' && isLocalSpace() && typeof upgradeCtaHtml==='function'
+     && (id==='convites' || (!(typeof SB!=='undefined' && SB.sess()) && ['org','times','regras'].includes(id)))){
+    host.innerHTML=ajSecHead(id, lead)+upgradeCtaHtml(id==='convites'?'convite':id==='regras'?'empresa':'time'); upgradeCtaWire(host); return null;
+  }
   if(typeof SB!=='undefined' && !SB.configured()){ host.innerHTML=ajSecHead(id, lead)+ajStateHtml('semserv'); ajStateWire(); return null; }
   if(typeof SB==='undefined' || !SB.sess()){ host.innerHTML=ajSecHead(id, lead)+ajStateHtml('semconta'); ajStateWire(); return null; }
   if(!cloudData){
@@ -613,7 +622,7 @@ async function ajRenderPerfil(host){
   { const i=$id('ajName'); if(i) i.onchange=async()=>{ const v=i.value.trim(); const e=$id('ajNameErr'); if(e) e.hidden=true;
       try{ await sbFetch('/rest/v1/profiles?user_id=eq.'+ajMe(), { method:'PATCH', body:JSON.stringify({ name:v||null }) }); if(prof) prof.name=v; try{ cloudBtnSync(); }catch(_){ } ajSaved(); }
       catch(err){ if(e){ e.textContent=cloudErrMsg(err,'Não salvou o nome'); e.hidden=false; } } }; }
-  bindClick('ajPass', ()=>auShow('newpass', { backTo:()=>ajustesOpen('perfil') }));
+  bindClick('ajPass', ()=>auShow('newpass', { backTo:()=>ajustesOpen('perfil'), recovering:false }));
   bindClick('ajLogout', async()=>{ const b=$id('ajLogout'); if(!await sheetAsk({ anchor:b, title:'Sair da conta neste computador?', text:'As tarefas que estão rodando continuam. Pra ver o time de novo, entre outra vez.', ok:'sair', danger:true })) return; sbLogout(); ajSectionPaint(); });
 }
 async function ajRenderOrg(host){
@@ -653,7 +662,7 @@ async function ajRenderTimes(host){
     bindClick('sbAccept', ()=>ajAcceptInvite($id('sbAccept'), $id('sbInvTok').value.trim(), $id('sbInvTokErr'), $id('sbInvTok')));
     return;
   }
-  const me=ajMe(), teamId=cloudTeamId(), isAdmin=d.meRole==='owner'||d.meRole==='admin';
+  const me=ajMe(), teamId=lsGet('sb:team')||'', isAdmin=d.meRole==='owner'||d.meRole==='admin'; // cru: no Grátis logado cloudTeamId() é ''
   const myLead=d.teams.filter(t=>(d.teamMembers[t.id]||[]).some(m=>m.user_id===me&&m.role==='lead'));
   const canManage=t=>isAdmin||myLead.some(x=>x.id===t.id);
   const teamHtml=d.teams.map(t=>{
@@ -759,9 +768,10 @@ async function ajRenderAssinatura(host){
   const canPortal=!!(b && !b.org && b.user_id===ajMe() && b.stripe_customer_id);
   host.innerHTML=ajSecHead('assinatura','')
     +`<div class="ajplan"><div class="l"><b>${esc(L.name)}</b> ${L.unknown?'':L.free?'<span class="ajst ok">livre</span>':L.active?'<span class="ajst ok">ativo</span>':'<span class="ajst warn">inativo</span>'}<p>${esc(L.sub)}${L.org&&d.org?' · '+esc(d.org.name):''}</p></div>
-      <div class="r">${canPortal?'<button type="button" class="btn sm" id="sbBillPortal">gerenciar no portal de pagamento</button>':''}${L.org?'<button type="button" class="btn sm" id="ajSupport">falar com o suporte</button>':''}${L.unknown?'<button type="button" class="btn sm" id="ajBillRetry">tentar de novo</button>':''}${!L.active&&!L.free&&!L.unknown?'<button type="button" class="btn primary sm" id="sbBillGo">ver planos</button>':''}</div></div>`;
+      <div class="r"><button type="button" class="btn sm" id="ajPlanos">comparar os planos</button>${canPortal?'<button type="button" class="btn sm" id="sbBillPortal">gerenciar no portal de pagamento</button>':''}${L.org?'<button type="button" class="btn sm" id="ajSupport">falar com o suporte</button>':''}${L.unknown?'<button type="button" class="btn sm" id="ajBillRetry">tentar de novo</button>':''}${!L.active&&!L.free&&!L.unknown?'<button type="button" class="btn primary sm" id="sbBillGo">ver planos</button>':''}</div></div>`;
   bindClick('sbBillPortal', ()=>payPortal($id('sbBillPortal')));
   bindClick('ajBillRetry', async()=>{ try{ await billingSync(); }catch(_){ } ajSectionPaint(); });
+  bindClick('ajPlanos', ()=>{ if(typeof planosOpen==='function') planosOpen(); });
   bindClick('sbBillGo', ()=>{ if(typeof auShow==='function') auShow('plans', { backTo:()=>ajustesOpen('assinatura') }); });
   bindClick('ajSupport', ()=>{ if(typeof openExternal==='function') openExternal('mailto:suporte@starfork.com.br?subject=Assinatura%20Starfork'); });
 }
@@ -792,7 +802,7 @@ function ppCtx(){
   const S=(typeof envChecks!=='undefined'&&envChecks&&typeof envSummary==='function')?envSummary(ppPcList(envChecks)):null;
   const d=typeof aiDefaults==='function'?aiDefaults():{ eng:'claude' };
   const ia=Array.isArray(typeof suaIaList!=='undefined'?suaIaList:null) && typeof suaIaOf==='function' && !!(suaIaOf(d.eng)||{}).ready;
-  const inOrg=typeof cloudData!=='undefined' && !!(cloudData&&cloudData.org);
+  const inOrg=typeof cloudData!=='undefined' && !!(cloudData&&cloudData.org) && !(typeof isLocalSpace==='function' && isLocalSpace()); // Grátis: sem passo de convite
   const invited=inOrg && (((cloudData.invites||[]).length>0) || (cloudData.orgMembers||[]).length>1);
   return { envOk:S?S.reqBad===0:null, iaReady:ia, hasRepo:!!(typeof state!=='undefined'&&state.repo), tasks:(typeof state!=='undefined'&&state.tasks||[]).length, invited, inOrg };
 }
@@ -820,14 +830,22 @@ function ppRender(){
     :`<header class="pghead"><h1 class="pgh-title">Primeiros passos</h1></header>`;
   const stepHtml=(s,i)=>{ const open=PP.open===s.id;
     return `<article class="ppst${s.done?' done':''}${open?' open':''}" data-ppst="${s.id}"><button type="button" class="pph" aria-expanded="${open}" data-pptog="${s.id}"><span class="ppn">${s.done?ajIcon('ok'):i+1}</span><span class="l"><b>${esc(s.t)}${s.opt?' <span class="ajtag">opcional</span>':''}</b><small>${esc(ppStepSub(s,c))}</small></span><span class="ppchev" aria-hidden="true">▾</span></button>${open?`<div class="ppb" id="ppB-${s.id}"></div>`:''}</article>`; };
-  body.innerHTML=head+`<div class="ppgrid"><div class="ppsteps">${P.steps.map(stepHtml).join('')}</div>
-    <aside class="ppside"><section class="ajcard"><h3 class="ajh3">O que é o Starfork</h3><p>Agentes de IA trabalham nas suas demandas, cada uma numa cópia isolada do projeto.</p><p>Cada requisito precisa de uma prova real (print, vídeo, teste) antes de entregar.</p><p>O time vê o andamento e o custo na nuvem. A conversa com a IA fica neste computador.</p></section>
+  body.innerHTML=head+ppWelcomeHtml()+`<div class="ppgrid"><div class="ppsteps">${P.steps.map(stepHtml).join('')}</div>
+    <aside class="ppside"><section class="ajcard"><h3 class="ajh3">O que é o Starfork</h3><p>Agentes de IA trabalham nas suas demandas, cada uma numa cópia isolada do projeto.</p><p>Cada requisito precisa de uma prova real (print, vídeo, teste) antes de entregar.</p><p>${(typeof isLocalSpace==='function'&&isLocalSpace())?'No Grátis tudo fica neste computador: demandas, provas, memória e chaves.':'O time vê o andamento e o custo na nuvem. A conversa com a IA fica neste computador.'}</p></section>
       <section class="ajcard"><h3 class="ajh3">Conhecer o app</h3>${PP_TOUR.map(([id,t,d],i)=>`<div class="pptour"><div class="l"><b>${esc(t)}</b><small>${esc(d)}</small></div>${id?`<button type="button" class="btn sm" data-ppshow="${i}">mostrar</button>`:'<kbd>⌘K</kbd>'}</div>`).join('')}</section></aside></div>`;
+  bindClick('ppGratis', ()=>{ lsSet('sf:inicio','gratis'); ppRender(); });
+  bindClick('ppEntrar', ()=>{ if(typeof contaEntrar==='function') contaEntrar({ backTo:()=>primeirosPassosOpen() }); }); // desistiu de entrar: as boas-vindas continuam (com sessão elas somem sozinhas)
   body.querySelectorAll('[data-pptog]').forEach(b=>b.onclick=()=>{ PP.open=PP.open===b.dataset.pptog?'':b.dataset.pptog; ppRender(); });
   body.querySelectorAll('[data-ppshow]').forEach(b=>b.onclick=()=>ppShow(PP_TOUR[+b.dataset.ppshow]));
   bindClick('ppNext', ()=>{ PP.open=P.next; ppRender(); const el=document.querySelector('[data-ppst="'+P.next+'"]'); if(el&&el.scrollIntoView) el.scrollIntoView(scrollOpts('nearest')); });
   bindClick('ppMore', async()=>{ const b=$id('ppMore'); const v=await sheetAsk({ anchor:b, title:'Primeiros passos', choices:[{ value:'hide', label:'dispensar', hint:'some do caminho; volta em Ajustes › Sistema' }], ok:'ok' }); if(v==='hide'){ lsSet('pp:dismissed','1'); if(typeof closeTabOfKind==='function') closeTabOfKind('primeiros'); } });
   if(PP.open) ppStepBody(PP.open, c);
+}
+// boas-vindas da 1ª abertura (não bloqueia nada: é o topo da aba Primeiros passos). Some quando a pessoa escolhe.
+function ppWelcomeHtml(){
+  if(lsGet('sf:inicio') || (typeof SB!=='undefined' && SB.sess())) return '';
+  return `<section class="ppwelcome" aria-label="Boas-vindas"><div class="l"><h2>Bem-vindo ao Starfork</h2><p>Agentes de IA fazem as suas demandas, cada uma numa cópia separada do projeto — com prova antes de entregar. No Grátis tudo roda no seu computador, sem conta e sem limite.</p></div>
+    <div class="acts"><button type="button" class="btn primary" id="ppGratis">Começar no Grátis (tudo no seu computador)</button><button type="button" class="btn" id="ppEntrar">Entrar na conta</button></div></section>`;
 }
 function ppStepSub(s, c){
   if(s.id==='pc'){ if(c.envOk===null) return 'verificando o computador…'; const S=envSummary(ppPcList(envChecks)); return s.done?(S.optBad?S.okN+' de '+S.tot+' ok · '+S.optBad+(S.optBad===1?' opcional faltando':' opcionais faltando'):'tudo certo'):S.reqBad+(S.reqBad===1?' pendência — veja abaixo':' pendências — veja abaixo'); }
@@ -872,9 +890,9 @@ function ppShow(item){
   setTimeout(()=>document.addEventListener('click', off, true), 50); setTimeout(off, 4000);
 }
 // 1º uso: abre a aba UMA vez (com sessão e sem a tela de entrada por cima) — substitui o tour modal e as coach marks
+// Grátis (F1): abre SEM conta também — na 1ª abertura vem com as boas-vindas (Começar no Grátis · Entrar na conta)
 function ppMaybeStart(){
   if(lsGet('onboarded') || lsGet('pp:dismissed')) return;
-  if(typeof SB==='undefined' || !SB.sess()) return;
   if(typeof auOpen==='function' && auOpen()) return;
   primeirosPassosOpen();
 }

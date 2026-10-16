@@ -963,7 +963,7 @@ function trkSyncSeloHtml(code, full){
 // quem aparece: o time ativo menos você (você = "criar tarefa", que roda aqui), na ordem do nome — teclas 1–9 na triagem
 function trkToPeople(){ const me=(typeof cloudUserId==='function'&&cloudUserId())||''; const ms=(typeof tmTeamMembers==='function'?tmTeamMembers():[]).map(m=>m&&m.user_id).filter(u=>u&&u!==me);
   return [...new Set(ms)].sort((a,b)=>personName(a,{ noYou:true }).localeCompare(personName(b,{ noYou:true }),'pt-BR')).slice(0,9); }
-function trkToHtml(code){ return `<span class="trkto"><span class="lab">mandar para</span>${trkToPeople().map(u=>`<button type="button" data-trkto="${escA(u)}" data-code="${escA(code)}" title="${escA('Mandar '+code+' para '+personName(u,{ noYou:true }))}" aria-label="${escA('Mandar '+code+' para '+personName(u,{ noYou:true }))}">${personAv(u,{ decor:true })}</button>`).join('')}</span>`; }
+function trkToHtml(code){ if((typeof isLocalSpace==='function'&&isLocalSpace())) return ''; return `<span class="trkto"><span class="lab">mandar para</span>${trkToPeople().map(u=>`<button type="button" data-trkto="${escA(u)}" data-code="${escA(code)}" title="${escA('Mandar '+code+' para '+personName(u,{ noYou:true }))}" aria-label="${escA('Mandar '+code+' para '+personName(u,{ noYou:true }))}">${personAv(u,{ decor:true })}</button>`).join('')}</span>`; }
 // abre a demanda preenchida com a issue, já em "Mandar pro time" e com a pessoa escolhida (uid '' = sem dono)
 async function trkMandarPara(i, uid){ await trkIssueToTask(i, 'team'); try{ if(typeof ntWho!=='undefined'){ ntWho=uid||''; if(typeof ntWhoPaint==='function') ntWhoPaint(); } }catch(_){ } }
 let trkTriSkip=new Set();

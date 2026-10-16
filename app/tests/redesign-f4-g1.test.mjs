@@ -135,12 +135,12 @@ test('avatar: nome, iniciais e "Organização · Time"; sem org o menu oferece c
   const i = AV.meInfoOf(sess, data, 't1');
   assert.equal(i.name, 'Douglas Sobreira'); assert.equal(i.ini, 'DS'); assert.equal(i.sub, 'Logcomex · Time Foundations');
   const keys = (x, o) => AV.meMenuItemsOf(x, o).map((it) => it.k);
-  assert.deepEqual(keys(i), ['conta', 'ajustes', 'uso', 'atalhos', 'primeiros', 'tema', 'sair']);
+  assert.deepEqual(keys(i), ['conta', 'ajustes', 'uso', 'planos', 'atalhos', 'primeiros', 'tema', 'sair']);
   const solo = AV.meInfoOf(sess, { org: null }, null);
   assert.equal(solo.sub, 'sem organização'); assert.equal(solo.org, null);
-  assert.deepEqual(keys(solo), ['conta', 'times', 'ajustes', 'uso', 'atalhos', 'primeiros', 'tema', 'sair']);
+  assert.deepEqual(keys(solo), ['conta', 'times', 'ajustes', 'uso', 'planos', 'atalhos', 'primeiros', 'tema', 'sair']);
   const anon = AV.meInfoOf(null);
-  assert.equal(anon.name, 'Entrar'); assert.deepEqual(keys(anon), ['entrar', 'ajustes', 'uso', 'atalhos', 'primeiros', 'tema']);
+  assert.equal(anon.name, 'Entrar'); assert.deepEqual(keys(anon), ['entrar', 'ajustes', 'uso', 'planos', 'atalhos', 'primeiros', 'tema']);
   assert.ok(keys(i, { pubRel: true }).includes('pubrel'), 'publicar release só pra dev/admin');
   assert.equal(AV.meMenuItemsOf(i).find((x) => x.k === 'ajustes').hint, '⌘,');
   assert.equal(AV.meMenuItemsOf(i).find((x) => x.k === 'atalhos').hint, '?');

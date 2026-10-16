@@ -496,7 +496,7 @@ async function epicAutoStartTick(){
   }catch(e){ tickErr('epicAutoStart', e); }
   finally{ epAutoBusy=false; }
 }
-tickLoop('epicAutoStart', epicAutoStartTick, ()=>epAutoIdle?60000:20000, 3000); // 42: sem sobreposição; 60s sem épico nenhum
+tickLoop('epicAutoStart', epicAutoStartTick, ()=>epAutoIdle?60000:20000, 3000, { local:true }); // 42: sem sobreposição; 60s sem épico nenhum. local: os rascunhos do "Iniciar épico" rodam no Grátis (a parte de nuvem se guarda pelo cloudScopeOk)
 // seção do quadro de Tarefas (22-quadro-fluxo: renderFlow) — só na aba de execução, do projeto aberto
 // tipo do cartão da nuvem (mesmas chaves do filtro de tipo da Central: 22 taskType)
 function epqType(ct){

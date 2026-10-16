@@ -413,7 +413,7 @@ async function aeTick(){
     if(aeSeenEv>=0) evs.filter(x=>+x.id>aeSeenEv).slice(-3).forEach(x=>{ const t=(state.tasks||[]).find(y=>y.id===(x.taskId||x.task_id));
       toast(String(x.text||'').replace(AE_ID_RE,'').replace(AE_PROP_RE,'').slice(0,160), 'info', t?{ label:'abrir', fn:()=>openTaskById(t.id) }:undefined); });
     aeSeenEv=Math.max(aeSeenEv, maxId);
-    if(!SB.sess() || !cloudTeamId()) return; // sem sessão: a fila espera (nada se perde)
+    if(!SB.sess() || !cloudTeamId() || (typeof isLocalSpace==='function' && isLocalSpace())) return; // sem sessão/espaço local: a fila espera (nada se perde)
     const pend=await invokeQuiet('agent_edits_pending').catch(()=>[]);
     const waiting={};
     for(const e of (pend||[])){ // mais antigas primeiro (ordem do arquivo); em espera/backoff não travam as outras
@@ -437,7 +437,7 @@ async function aeTick(){
     Object.keys(aeWaiting).forEach(k=>{ if(!waiting[k]) delete aeWaiting[k]; }); Object.assign(aeWaiting, waiting);
   }finally{ aeBusy=false; }
 }
-tickLoop('agentEdits', aeTick, 10000, 4000);
+tickLoop('agentEdits', aeTick, 10000, 4000, { local:true }); // o toast das edições é local; a parte da nuvem se guarda sozinha
 
 // ---- CONTEXTO VIVO DO ÉPICO pro motor (.cardume/epic-context/<epicId>.json, src/epic-context.ts) ----
 // O motor não fala com a nuvem e as irmãs quase sempre só existem lá: o app grava, pra cada épico que tem tarefa

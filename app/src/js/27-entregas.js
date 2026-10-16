@@ -447,7 +447,7 @@ function enLiveHtml(t){
   }
   const tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
   return `<section class="en-live${st==='checando'?' chk':''}" data-pv="${st}"><span class="en-live-dot"></span><div class="en-live-t"><b>Ver funcionando</b><span class="dim">${r.byApp?'o app subiu o servidor de novo':'o agente deixou o app rodando'} — teste antes de aprovar · ${host}${r.byApp?' · <button class="linkbtn" id="enLiveStop">parar</button>':''}</span></div><span style="flex:1"></span>
-    <button class="btn sm" id="enLiveMob" title="${tun?'o celular já tem acesso — clique pra fechar':'abre este site no seu celular (túnel criptografado)'}">${IC.phone} ${tun?'fechar no celular':'no celular'}</button>
+    ${(typeof isLocalSpace==='function'&&isLocalSpace())&&!tun?'':`<button class="btn sm" id="enLiveMob" title="${tun?'o celular já tem acesso — clique pra fechar':'abre este site no seu celular (túnel criptografado)'}">${IC.phone} ${tun?'fechar no celular':'no celular'}</button>`}
     <button class="btn primary" id="enLiveOpen">${IC.globe} abrir o app</button></section>`;
 }
 function enWireLive(t){

@@ -88,9 +88,11 @@ test('chave colada vai pro cofre da conta com o NOME certo por motor e o estado 
   setList(P, [ST.claude, ST.codexLogin, ST.dsKey, ST.gwNo]);
   const saved = [];
   P.ctx.secretSet = async (n, v) => { saved.push([n, v]); };
+  // Grátis (F1): sem conta a chave também salva (o secretSet grava no llm.env deste computador) — nunca exige login
   P.ctx.SB = { sess: () => null };
-  await assert.rejects(() => P.ctx.suaIaSaveKey('deepseek', 'sk-ds'), /Entre na sua conta/);
+  assert.equal(P.ctx.suaIaKeysLocal(), true, 'sem sessão = chave só neste computador');
   P.ctx.SB = { sess: () => ({ user: {} }) };
+  assert.equal(P.ctx.suaIaKeysLocal(), false);
   assert.equal(await P.ctx.suaIaSaveKey('deepseek', '  sk-ds  '), true);
   assert.deepEqual(saved, [['DEEPSEEK_API_KEY', 'sk-ds']]);
   assert.ok(P.calls.some((c) => c[0] === 'ai_engines_status'), 'verifica de novo depois de salvar');

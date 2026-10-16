@@ -95,12 +95,12 @@ function suaIaKeyHtml(s, hk){
   if(!s.keyName) return '';
   const what=s.id==='codex'?'chave da OpenAI':s.id==='deepseek'?'chave da DeepSeek':'chave';
   const busy=suaIaUi.busy[s.id]==='key'?' disabled':'';
-  if(s.keySaved && !suaIaUi.editKey[s.id]) return `<div class="suaia-key"><span class="suaia-ok">${esc(what)} salva ✓</span><span style="flex:1"></span><button type="button" class="btn sm" data-sa="keyedit" data-id="${s.id}"${busy}>trocar</button><button type="button" class="btn sm" data-sa="keydel" data-id="${s.id}"${busy}>remover</button></div>`;
+  if(s.keySaved && !suaIaUi.editKey[s.id]) return `<div class="suaia-key"><span class="suaia-ok">${esc(what)} salva ✓</span>${suaIaKeysLocal()?'<span class="dim suaia-onde">guardada só neste computador</span>':''}<span style="flex:1"></span><button type="button" class="btn sm" data-sa="keyedit" data-id="${s.id}"${busy}>trocar</button><button type="button" class="btn sm" data-sa="keydel" data-id="${s.id}"${busy}>remover</button></div>`;
   // Codex pronto pelo login do ChatGPT (sem chave salva): a chave é só alternativa — não mostra o campo, só um link
   if(s.id==='codex' && s.ready && !s.keySaved && !suaIaUi.editKey[s.id]) return `<div class="suaia-key"><button type="button" class="linkbtn dim" data-sa="keyedit" data-id="${s.id}"${busy}>usar uma chave da OpenAI em vez do login do ChatGPT</button></div>`;
   const lead=s.id==='codex'&&!s.ready?'sem plano do ChatGPT? cole uma chave da OpenAI (opcional):':s.id==='codex'?'chave da OpenAI (opcional — o login do ChatGPT já basta):':'cole a chave da DeepSeek:';
   const fid=`suaIaKey-${hk}-${s.id}`; // único por container (o tour e as Configurações podem estar abertos juntos)
-  return `<div class="suaia-key"><label class="dim suaia-lbl" for="${fid}">${esc(lead)}</label><input class="in mono" type="password" id="${fid}" data-sakey="${s.id}" autocomplete="off" spellcheck="false" placeholder="${s.id==='deepseek'?'chave de platform.deepseek.com':'sk-…'}"${busy}><button type="button" class="btn sm" data-sa="keysave" data-id="${s.id}"${busy}>${suaIaUi.busy[s.id]==='key'?'salvando…':'salvar'}</button>${s.keySaved?`<button type="button" class="btn sm" data-sa="keycancel" data-id="${s.id}">cancelar</button>`:''}</div>`;
+  return `<div class="suaia-key"><label class="dim suaia-lbl" for="${fid}">${esc(lead)}</label><input class="in mono" type="password" id="${fid}" data-sakey="${s.id}" autocomplete="off" spellcheck="false" placeholder="${s.id==='deepseek'?'chave de platform.deepseek.com':'sk-…'}"${busy}><button type="button" class="btn sm" data-sa="keysave" data-id="${s.id}"${busy}>${suaIaUi.busy[s.id]==='key'?'salvando…':'salvar'}</button>${s.keySaved?`<button type="button" class="btn sm" data-sa="keycancel" data-id="${s.id}">cancelar</button>`:''}${suaIaKeysLocal()?'<span class="dim suaia-onde">Guardada só neste computador</span>':''}</div>`;
 }
 // Claude: interruptor da % real do plano no medidor (barra de status do Claude Code). Só mexe no settings.json do
 // Claude com este clique; a instalação/remoção é do CLI (src/claude-statusline.ts) via claude_statusline_set.
@@ -209,18 +209,21 @@ function suaIaRefresh(){
 async function suaIaSaveKey(id, value){
   const s=suaIaOf(id); const v=String(value||'').trim();
   if(!s || !s.keyName || !v) return false;
-  if(typeof SB==='undefined' || !SB.sess()) throw new Error('Entre na sua conta pra salvar a chave — ela fica no cofre da conta e vale em todos os seus computadores.');
+  // Grátis (F1): sem nuvem a chave vai direto pro llm.env deste computador (secretSet decide o caminho) — nunca exige conta
+  const local=suaIaKeysLocal();
   await secretSet(s.keyName, v);
   await suaIaLoad(true);
   // o secretSet engole falha do sync nuvem → llm.env: só é "salva" se ESTE computador já enxerga a chave
   const s2=suaIaOf(id);
-  if(!s2 || !s2.keySaved) throw new Error('A chave foi salva na conta mas não chegou neste computador — verifique o login e tente de novo.');
+  if(!s2 || !s2.keySaved) throw new Error(local?'Não consegui gravar a chave neste computador — tente de novo.':'A chave foi salva na conta mas não chegou neste computador — verifique o login e tente de novo.');
   suaIaUi.editKey[id]=false;
   return true;
 }
+// a chave mora só neste computador (espaço local do Grátis) ou no cofre da conta?
+function suaIaKeysLocal(){ if(typeof isLocalSpace==='function') return isLocalSpace(); return typeof SB==='undefined' || !SB.sess(); }
 async function suaIaRemoveKey(id){
   const s=suaIaOf(id); if(!s || !s.keyName) return false;
-  if(!await askYes('Remover a chave do '+suaIaName(s)+' da sua conta (e deste computador)?')) return false;
+  if(!await askYes(suaIaKeysLocal()?'Remover a chave do '+suaIaName(s)+' deste computador?':'Remover a chave do '+suaIaName(s)+' da sua conta (e deste computador)?')) return false;
   await secretDel(s.keyName);
   await suaIaLoad(true);
   return true;

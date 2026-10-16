@@ -96,6 +96,7 @@ function meMenuItemsOf(info, o){
   else it.push({ k:'conta', label:'Conta e time', hint:'perfil, organização', ic:'team' });
   if(info.signed && !info.org) it.push({ k:'times', label:'Criar ou entrar num time', ic:'plus' });
   it.push({ k:'ajustes', label:'Ajustes', hint:'⌘,', ic:'gear' }, { k:'uso', label:'Uso', hint:o.usoHint||'quanto cada parte gasta', ic:'chart' },
+    { k:'planos', label:'Planos', hint:'Grátis, Pro e Empresa', ic:'cloud' },
     { k:'atalhos', label:'Atalhos', hint:'?', ic:'kbd' }, { k:'primeiros', label:'Primeiros passos', ic:'flag' });
   if(o.pubRel) it.push({ k:'pubrel', label:'Publicar release', hint:'só dev/admin', ic:'push' });
   it.push({ k:'tema' });
@@ -122,7 +123,7 @@ function meMenuOpen(){
   const i=meInfo();
   const pr=$id('pubRelBtn');
   const acts={ entrar:()=>{ if(typeof auShow==='function') auShow(lsGet('sb:email')?'login':'signup'); },
-    conta:()=>g1Ajustes('conta'), times:()=>g1Ajustes('times'), ajustes:()=>g1Ajustes(), uso:()=>openTab('uso'), atalhos:()=>openTab('atalhos'),
+    conta:()=>g1Ajustes('conta'), times:()=>g1Ajustes('times'), ajustes:()=>g1Ajustes(), uso:()=>openTab('uso'), planos:()=>openTab('planos'), atalhos:()=>openTab('atalhos'),
     primeiros:g1PrimeirosPassos, pubrel:()=>{ if(pr) pr.click(); } };
   const head={ html:`<div class="g1mehead"><span class="meav lg" aria-hidden="true">${esc(i.ini)}</span><div><b>${esc(i.name)}</b><span>${esc(i.org?'Organização '+i.org.name+((typeof cloudData!=='undefined'&&cloudData&&cloudData.meRole==='owner')?' · dono':''):(i.signed?'Conta pessoal · sem organização':'sem sessão'))}</span>${i.team?`<span>Time ${esc(i.team.name)}</span>`:''}</div></div>` };
   const items=[head, { sep:true }];

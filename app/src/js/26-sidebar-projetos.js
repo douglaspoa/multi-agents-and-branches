@@ -89,7 +89,7 @@ async function mobilePreview(taskId, url, silent){
     // o túnel é da ORIGEM — devolve o caminho/subpágina anunciados na URL pública
     try{ const u=new URL(url); pub=pub.replace(/\/$/,'')+u.pathname+u.search; }catch(_){ }
     const cid=tmap()[taskId];
-    if(cid && SB.sess()){
+    if(cid && SB.sess() && !(typeof isLocalSpace==='function'&&isLocalSpace())){
       try{
         const cur=(await sbGet('tasks?select=spec&id=eq.'+cid))[0]||{};
         await sbFetch('/rest/v1/tasks?id=eq.'+cid, { method:'PATCH', body: JSON.stringify({ spec: { ...(cur.spec||{}), previewUrl: pub, tunnelWanted: null } }) });

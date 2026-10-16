@@ -123,17 +123,24 @@ async function checkUpdate(manual){
 async function updCheckOnce(manual){
   updLast.at=Date.now(); updLast.dev=false;
   try{
-    if(!SB.sess()){ updLast.ok=false; updLast.msg='sem sessão — entre na conta pra receber atualizações'; return updLast; }
     if(await invoke('is_dev_install')){ updLast.ok=true; updLast.dev=true; updLast.msg='instalação de desenvolvimento — não se auto-atualiza (use scripts/deploy-local.sh)'; return updLast; }
     // E8 (bug #16): o canal só publica o .app do Mac (zip + ditto) — no Windows/Linux o "atualizar" falhava
     // com "No such file or directory". Lá o botão não aparece e a tela diz onde baixar.
     if(osKind()!=='mac'){ updInfo=null; { const b=$id('updBtn'); if(b) b.style.display='none'; } updLast.ok=true; updLast.msg='atualização automática só no Mac por enquanto — baixe a versão nova em starfork.com.br'; return updLast; }
+    // Grátis (F1): sem sessão, o canal PÚBLICO (GitHub Releases, pelo Rust — o 302 do github.com não tem CORS). Sem versão
+    // publicada (404) ou sem rede: em silêncio — nada de "entre na conta".
+    const canal=(typeof updCanal==='function')?updCanal(!!SB.sess()):{ tipo:'conta' };
+    let j=null;
+    if(canal.tipo==='publico'){
+      j=updPubParse(await invoke('update_manifest_public').catch(()=>''));
+      if(!j){ updInfo=null; { const b=$id('updBtn'); if(b) b.style.display='none'; } updLast.ok=true; updLast.msg='sem versão nova no canal público agora'; return updLast; }
+    }
     // sbFetch renova o token expirado sozinho (a checagem do boot caía no 401 e ficava muda por 6h)
-    const j=await sbFetch('/storage/v1/object/releases/latest.json', { headers:{ 'Cache-Control':'no-store' } });
+    else j=await sbFetch('/storage/v1/object/releases/latest.json', { headers:{ 'Cache-Control':'no-store' } });
     const mine=Number(await invoke('build_info'))||0;
     updLast.mine=mine;
     if(j && j.buildMs && mine && j.buildMs > mine + 60000){
-      updInfo=j;
+      updInfo=j; updInfo.canal=canal.tipo;
       const b=$id('updBtn');
       if(b){ b.style.display=''; b.innerHTML=ic('upload')+'atualizar'+(j.version?(' · '+esc(j.version)):''); }
       updLast.ok=true; updLast.msg='versão nova disponível'+(j.version?' · '+j.version:'');
@@ -165,6 +172,15 @@ async function applyUpdate(btn, confirmed){
   const say=t=>{ if(onScreen) btn.textContent=t; else toast('Atualização: '+t,'info'); };
   if(onScreen) btn.disabled=true; say('baixando…');
   try{
+    // canal público (Grátis, sem conta): o Rust baixa o zip da URL FIXA, confere o tamanho com o manifesto, a assinatura
+    // (codesign --verify --deep --strict) e o MESMO time do app em execução. Falhou qualquer coisa: aborta em silêncio
+    // (fica no log) e o botão volta — nada é trocado.
+    if(updInfo.canal==='publico'){
+      say('instalando…');
+      const trocou=await invoke('apply_update_public',{ size:Number(updInfo.size)||0 });
+      if(!trocou){ updInfo=null; { const b=$id('updBtn'); if(b) b.style.display='none'; } if(onScreen){ btn.disabled=false; btn.innerHTML=ic('upload')+'atualizar'; } return; }
+      say('reabrindo…'); return;
+    }
     const sig=await sbFetch('/storage/v1/object/sign/releases/'+(updInfo.file||'Starfork-portable.zip'), { method:'POST', body: JSON.stringify({ expiresIn: 600 }) });
     say('instalando…');
     await invoke('apply_update',{ url: SB.url()+'/storage/v1'+(sig.signedURL||sig.signedUrl) });

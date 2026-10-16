@@ -90,7 +90,7 @@ window.addEventListener('online', ()=>presencePing(true));
 // fechando o app: avisa "offline" na hora (melhor esforço — keepalive sobrevive ao unload)
 window.addEventListener('beforeunload', ()=>{
   try{
-    const s=SB.sess(); if(!s || Date.now()<presOffUntil) return;
+    const s=SB.sess(); if(!s || Date.now()<presOffUntil || (typeof cloudAllowed==='function' && !cloudAllowed())) return;
     fetch(SB.url()+'/rest/v1/desktop_presence?user_id=eq.'+cloudUserId()+'&device_id=eq.'+encodeURIComponent(presenceDeviceId(lsGet, lsSet)), {
       method:'PATCH', keepalive:true, headers:{ 'apikey':SB.key(), 'Authorization':'Bearer '+s.access_token, 'Content-Type':'application/json' },
       body:JSON.stringify({ online:false, last_seen_at:new Date().toISOString() }) }).catch(()=>{});
