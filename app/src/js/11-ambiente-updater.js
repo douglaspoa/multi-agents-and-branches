@@ -172,12 +172,18 @@ async function applyUpdate(btn, confirmed){
   const say=t=>{ if(onScreen) btn.textContent=t; else toast('Atualização: '+t,'info'); };
   if(onScreen) btn.disabled=true; say('baixando…');
   try{
-    // canal público (Grátis, sem conta): o zip dos downloads da landing — o curl do apply_update segue o redirect do GitHub
-    let url='';
-    if(updInfo.canal==='publico') url=updCanal(false).zip;
-    else { const sig=await sbFetch('/storage/v1/object/sign/releases/'+(updInfo.file||'Starfork-portable.zip'), { method:'POST', body: JSON.stringify({ expiresIn: 600 }) }); url=SB.url()+'/storage/v1'+(sig.signedURL||sig.signedUrl); }
+    // canal público (Grátis, sem conta): o Rust baixa o zip da URL FIXA, confere o tamanho com o manifesto, a assinatura
+    // (codesign --verify --deep --strict) e o MESMO time do app em execução. Falhou qualquer coisa: aborta em silêncio
+    // (fica no log) e o botão volta — nada é trocado.
+    if(updInfo.canal==='publico'){
+      say('instalando…');
+      const trocou=await invoke('apply_update_public',{ size:Number(updInfo.size)||0 });
+      if(!trocou){ updInfo=null; { const b=$id('updBtn'); if(b) b.style.display='none'; } if(onScreen){ btn.disabled=false; btn.innerHTML=ic('upload')+'atualizar'; } return; }
+      say('reabrindo…'); return;
+    }
+    const sig=await sbFetch('/storage/v1/object/sign/releases/'+(updInfo.file||'Starfork-portable.zip'), { method:'POST', body: JSON.stringify({ expiresIn: 600 }) });
     say('instalando…');
-    await invoke('apply_update',{ url });
+    await invoke('apply_update',{ url: SB.url()+'/storage/v1'+(sig.signedURL||sig.signedUrl) });
     say('reabrindo…');
   }catch(e){ showErr(e, 'Atualização falhou (dá pra baixar a versão nova manualmente em starfork.com.br)'); if(onScreen){ btn.disabled=false; btn.innerHTML=ic('upload')+'atualizar'; } }
 }

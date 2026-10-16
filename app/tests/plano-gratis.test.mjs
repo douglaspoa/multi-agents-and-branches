@@ -105,7 +105,7 @@ test('updater: canal pela sessão; sem sessão = GitHub Releases público; lates
   assert.match(cut(rs, 'fn update_manifest_public() -> String {', '\n}'), /"-fsSL"/);
   assert.match(rs, /apply_update,\n\s+update_manifest_public,/, 'registrado no invoke_handler');
   assert.match(upd, /invoke\('update_manifest_public'\)/);
-  assert.match(upd, /if\(updInfo\.canal==='publico'\) url=updCanal\(false\)\.zip;/);
+  assert.match(upd, /invoke\('apply_update_public',\{ size:Number\(updInfo\.size\)\|\|0 \}\)/, 'zip público: comando Rust sem URL do front');
   assert.doesNotMatch(upd, /entre na conta pra receber atualizações/);
 });
 

@@ -125,3 +125,24 @@ test('11 · adopt-local: uma pergunta por conta — syncs concorrentes não empi
   await D.ctx.secretsSync();
   assert.equal(D.asks.length, 0);
 });
+
+test('6 · updater público: comando Rust sem URL, --max-time, tamanho do manifesto, codesign e o mesmo time do app em execução', () => {
+  const rs = readFileSync(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const pub = cut(rs, 'fn apply_update_public(size: u64) -> Result<bool, String> {', '\n}\n');
+  assert.doesNotMatch(cut(rs, '#[tauri::command(async)]\nfn apply_update_public', '{'), /url/i, 'nenhum parâmetro de URL');
+  assert.match(rs, /const UPD_PUB_ZIP: &str = "https:\/\/github\.com\/douglaspoa\/multi-agents-and-branches\/releases\/latest\/download\/Starfork-portable\.zip";/);
+  assert.match(pub, /update_download\(&tmp, UPD_PUB_ZIP\)/);
+  assert.match(cut(rs, 'fn update_download(', '\n}\n'), /"--max-time", "900"/, 'download com teto (vale pro apply_update com sessão também)');
+  assert.ok(pub.indexOf('update_pub_size(zip_len, size)') < pub.indexOf('update_extract('), 'confere o tamanho antes de descompactar');
+  assert.match(pub, /\["--verify", "--deep", "--strict"\]/);
+  assert.match(pub, /codesign_team\(&new_app\), codesign_team\(&cur_app\)/, 'time lido do bundle em execução, nunca fixo');
+  assert.doesNotMatch(pub, /TeamIdentifier=|"[A-Z0-9]{10}"/, 'nenhum time fixo no código');
+  assert.ok(pub.indexOf('update_pub_check(') < pub.indexOf('update_swap_relaunch('), 'só troca o app depois das checagens');
+  assert.match(pub, /web_log\(format!\("\[atualização pública\] abortada: \{why\}"\)\);[\s\S]*Ok\(false\)/, 'falhou: silêncio + log');
+  // apply_update (com sessão) só ganhou o --max-time: mesmo fluxo de download → extrair → trocar
+  assert.match(cut(rs, 'fn apply_update(url: String) -> Result<(), String> {', '\n}\n'), /update_download\(&tmp, &url\)\?;\n    let new_app = update_extract\(&tmp, &zip\)\?;\n    update_swap_relaunch\(&tmp, &new_app\)/);
+  assert.match(rs, /update_manifest_public,\n\s+apply_update_public,/);
+  const upd = read('js/11-ambiente-updater.js');
+  assert.match(upd, /const trocou=await invoke\('apply_update_public'/);
+  assert.match(upd, /if\(!trocou\)\{ updInfo=null;[^\n]*return; \}/, 'abortou: o botão volta sem toast de erro');
+});
