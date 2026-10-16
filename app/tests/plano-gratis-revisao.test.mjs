@@ -17,3 +17,11 @@ test('1 · nova senha da recuperação: não herda o "voltar" do entrar, salva �
   assert.match(cut(onb, "bindClick('auBack',", '\n'), /if\(au\.step==='newpass' && au\.recovering\)\{ au\.recovering=false; sbLogout\(\); \}/);
   assert.match(read('js/67-ajustes.js'), /auShow\('newpass', \{ backTo:\(\)=>ajustesOpen\('perfil'\), recovering:false \}\)/);
 });
+
+test('7 · userRepoSync: a trava repoSyncBusy roda (estava engolida pelo comentário da guarda do Grátis)', () => {
+  const fn = cut(read('js/41-assinatura-chaves.js'), 'async function userRepoSync(){', '\n  try{');
+  assert.match(fn, /\n  repoSyncBusy=true;$/, 'a trava fica na própria linha');
+  assert.doesNotMatch(fn, /\/\/[^\n]*repoSyncBusy=true/);
+  // a varredura do atrap-fabrica agora pega atribuição solta no fim do comentário
+  assert.match(readFileSync(new URL('./atrap-fabrica.test.mjs', import.meta.url), 'utf8'), /\(true\|false\|null\|\\d\+\|'\[\^'\]\*'\|\\\[\\\]\|\\\{\\\}\);\\s\*\$/);
+});

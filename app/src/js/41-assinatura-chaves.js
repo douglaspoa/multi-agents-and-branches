@@ -291,7 +291,8 @@ setInterval(secretsSync, 30*60*1000);
 let repoSyncBusy=false;
 async function userRepoSync(){
   if(!SB.sess()||repoSyncBusy) return;
-  if(typeof cloudAllowed==='function' && !cloudAllowed()) return; // Grátis (F1): memória do projeto fica só no disco repoSyncBusy=true;
+  if(typeof cloudAllowed==='function' && !cloudAllowed()) return; // Grátis (F1): memória do projeto fica só no disco
+  repoSyncBusy=true;
   try{
     const info=state.repo?await invoke('repo_docs').catch(()=>null):null; // sem projeto aberto: nada a sincronizar (antes: erro 'repo não definido' no painel a cada 10min)
     if(!info||!info.repo) return;
