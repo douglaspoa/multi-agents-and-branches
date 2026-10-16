@@ -12,7 +12,7 @@ import { notify } from "./util/notify.ts";
 import { taskToYaml } from "./util/yaml.ts";
 import { prepEpicTurn } from "./epic-context.ts";
 import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, mobileTurnRelease, realDeps, UI_FILE_RE, type MobileDeps } from "./mobile.ts";
-import { Brain, extractJson, harvestWorktree, notesInContext, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
+import { Brain, extractJson, harvestWorktree, mergeMemNotes, notesInContext, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
 import { execFileSync } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MAX_CHARS, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
 import { homedir } from "node:os";
@@ -435,7 +435,12 @@ export class Orchestrator {
       const ctx = this.brain().context(q, spec?.id); // grava quais notas a tarefa leu ("usada em" na Memória)
       if (ctx) out += ctx.trimEnd() + "\n\n";
       // as notas que foram pro agente ficam com a tarefa (Entrega › "Feito com"; Conversa › "foi pro agente")
-      if (ctx && spec?.id) { const used = notesInContext(ctx); if (used.length && this.store.getTask(spec.id)) this.store.patchSpec(spec.id, { memNotes: used }); }
+      // Vale nos DOIS caminhos (headless e terminal integrado — terminalContext, que o aiLaunch/termPrep usa): junta com as
+      // que já estavam (turnos e aberturas anteriores), as de agora primeiro, até 12
+      if (ctx && spec?.id) {
+        const used = notesInContext(ctx), row = used.length ? this.store.getTask(spec.id) : undefined;
+        if (row) { let before = spec.memNotes; try { before = (JSON.parse(row.spec_json) as TaskSpec).memNotes ?? before; } catch { /* spec ilegível */ } this.store.patchSpec(spec.id, { memNotes: mergeMemNotes(used, before) }); }
+      }
     } catch { /* memória nunca derruba o turno */ }
     try {
       const rb = readFileSync(join(this.ws.dir, "RUNBOOK.md"), "utf8").trim();
@@ -2601,7 +2606,7 @@ export class Orchestrator {
   // fim de cada papel acontece aqui, disparado pelo hook Stop (fim do turno) — mesma régua de entrega.
 
   /** Papel, contexto (barramento, memória, skills, épico) e a spec — o mesmo que um papel do pipeline recebe. */
-  terminalContext(taskId: string, o: { role?: "reviewer"; round?: number } = {}): { task: TaskRow; spec: TaskSpec; role: AgentRole; ctx: string } {
+  terminalContext(taskId: string, o: { role?: "reviewer"; round?: number; message?: string } = {}): { task: TaskRow; spec: TaskSpec; role: AgentRole; ctx: string } {
     const task = this.store.getTask(taskId);
     if (!task) throw new Error(`tarefa ${taskId} não encontrada`);
     const spec = JSON.parse(task.spec_json) as TaskSpec;
@@ -2616,7 +2621,8 @@ export class Orchestrator {
     const persona = role.persona ? `## Seu perfil (${role.name} · ${role.role})\n${role.persona}\n\n` : "";
     const lens = FLOW_BY_KIND[taskKindOf(spec)].find((x) => x.role === "reviewer")?.lens ?? "codigo";
     const reviewCtx = o.role === "reviewer" && role.role === "reviewer" ? verdictInstructions(lens, o.round ?? 1) : "";
-    const ctx = persona + this.projectMemory(spec) + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec) + this.epicContext(spec) + reviewCtx;
+    // a mensagem que abre o terminal entra na busca da memória (= o headless com a mensagem do chat, projectMemory(spec, message))
+    const ctx = persona + this.projectMemory(spec, o.message ?? "") + this.bus.buildContext(spec) + this.selfServe() + this.skillsContext(role) + this.issueContext(spec) + this.epicContext(spec) + reviewCtx;
     return { task, spec, role, ctx };
   }
 

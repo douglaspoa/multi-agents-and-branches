@@ -167,6 +167,16 @@
 .semgrid .pc .n{font-weight:650;font-size:var(--fs-base)}
 .semgrid .pc .l{font-size:var(--fs-xs);color:var(--muted)}
 .semgrid .rowsd{background:color-mix(in srgb,var(--warn) 4%,transparent)}
+/* épico entregue (spec.delivery): linha própria e bloco roxo — distinto das tarefas */
+.semgrid .rowep{background:color-mix(in srgb,var(--purple) 5%,transparent)}
+.semgrid .rowep .semepi{width:18px;height:18px;color:var(--purple);flex:none;margin:0 3px}
+.semtb.semep{border:0;font:inherit;color:inherit;width:100%;background:color-mix(in srgb,var(--purple) 12%,var(--bg));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--purple) 45%,transparent),inset 3px 0 0 var(--purple)}
+.semtb.semep:hover{box-shadow:inset 0 0 0 1px var(--purple),inset 3px 0 0 var(--purple)}
+.semtb.semep:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
+.semtb.semep .dot{background:var(--purple)}
+.semtb.semep .semcode{color:var(--purple);font-weight:650}
+.semnum.ep{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--purple) 55%,transparent)}
+.semnum.ep .semi{color:var(--purple)}
 .semred{color:var(--st-err)}
 .semover{background:color-mix(in srgb,var(--accent) 12%,transparent)!important;box-shadow:inset 0 0 0 1.5px var(--accent)}
 .semnum{display:inline-flex;align-items:center;justify-content:center;gap:3px;height:24px;min-width:34px;padding:0 6px;border:0;border-radius:7px;background:none;font:500 11.5px var(--code,var(--mono));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--st-done) 45%,transparent);color:var(--text-2);cursor:pointer}

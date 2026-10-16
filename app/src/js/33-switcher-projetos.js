@@ -363,7 +363,10 @@ async function saveConfig(){
   wfEnsureIds(cfgEdit.workflows); cfgEdit.workflows.forEach(w=>{ if(!w.steps) w.steps=[]; });
   const btn=$id("agSave"); btn.disabled=true; btn.textContent="salvando…";
   try{
+    let antes=null; try{ antes=agBase?JSON.parse(agBase):null; }catch(_){ }
     await invoke("save_config",{config:cfgEdit}); state.config=JSON.parse(JSON.stringify(cfgEdit)); lastSig='';
+    // agente tirado do catálogo ou de uma equipe = padrão do time desligado: a Semana avisa (75: padAgAvisosOff)
+    if(antes && typeof padAgAvisosOff==='function'){ const L=padAgAvisosOff(antes, cfgEdit); if(L.length) padAvisoDesligado(L.length===1?Object.assign({ abrir:'agentes' }, L[0]):{ padrao:L.slice(0,2).map(x=>x.padrao).join(', ')+(L.length>2?' e mais '+(L.length-2):''), onde:'Agentes', abrir:'agentes' }); }
     // na ficha: fica nela (a versão nova aparece no cabeçalho); na grade: fecha a aba como antes
     if(AGF.id){ agBase=JSON.stringify(cfgEdit); await agFichaLoad(); agSaveHint(); toast('Salvo — cada agente alterado ganhou uma versão nova','ok'); }
     else { agBase=JSON.stringify(cfgEdit); agSaveHint(); toast('Agentes e equipes salvos','ok'); } // F4: salvar NUNCA fecha a aba

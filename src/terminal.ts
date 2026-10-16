@@ -666,7 +666,8 @@ export function aiLaunch(orch: Orchestrator, taskId: string, ai: TermAi, opts: {
   // troca de PAPEL no terminal (revisor automático): o revisor entra com a persona, a lente e a regra do VEREDITO.md
   const reviewer = opts.papel === "revisor";
   const round = Math.max(1, Number(opts.round) || 1);
-  const { task, spec, role, ctx } = orch.terminalContext(taskId, reviewer ? { role: "reviewer", round } : {});
+  // terminalContext → projectMemory: as notas que entram no system prompt do terminal ficam em spec.memNotes ("Feito com")
+  const { task, spec, role, ctx } = orch.terminalContext(taskId, reviewer ? { role: "reviewer", round, message: opts.message } : { message: opts.message });
   const model = String(opts.model ?? (reviewer ? (aiOfEngine(role.engine) === ai ? role.model ?? "" : "") : termModelOf(spec, role, ai))).trim();
   // DeepSeek: a chave é conferida ANTES de mexer em qualquer coisa (erro claro em vez de um `claude` sem login)
   const dsEnv = ai === "deepseek" ? deepseekClaudeEnv(model || undefined, dshKey()) : null;

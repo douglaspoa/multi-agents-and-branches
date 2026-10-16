@@ -366,6 +366,18 @@ export function notesInContext(ctx: string): { title: string; by: string; scope:
   return out;
 }
 
+/** Junta as notas de AGORA com as que a tarefa já tinha registrado (turnos/aberturas anteriores, headless ou terminal):
+ * as de agora primeiro, sem repetir título, máximo 12 — "Memória usada" é o que a tarefa leu ao longo da vida dela. */
+export function mergeMemNotes(now: { title: string; by: string; scope: string }[], before?: { title: string; by: string; scope: string }[] | null): { title: string; by: string; scope: string }[] {
+  const out: { title: string; by: string; scope: string }[] = [];
+  for (const n of [...(now ?? []), ...(Array.isArray(before) ? before : [])]) {
+    if (!n || !n.title || out.some((x) => x.title === n.title)) continue;
+    out.push({ title: n.title, by: n.by ?? "", scope: n.scope ?? "" });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
 /** Bloco de contexto pro agente: índice + notas relevantes (com teto). "" se o cérebro está vazio. */
 export function buildContext(notes: Note[], query: string, caps = { index: INDEX_CAP, notes: NOTES_CAP }): string {
   if (!notes.length) return "";
