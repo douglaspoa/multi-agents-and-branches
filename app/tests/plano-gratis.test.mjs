@@ -202,8 +202,9 @@ test('nuvem calada no espaço local: tickLoop, cloudScopeOk, cloudTeamId e os ti
 
 test('chaves do Grátis só sobem pro cofre se a pessoa disser sim; se não, ficam só neste computador (inclusive depois de sair)', () => {
   const s = cut(chaves, 'async function secretsSync', '\n}');
-  const ask = s.indexOf('askYes('), post = s.indexOf("sbFetch('/rest/v1/user_secrets");
+  const ask = s.indexOf('secretsAskAdopt('), post = s.indexOf("sbFetch('/rest/v1/user_secrets");
   assert.ok(ask > 0 && post > ask, 'pergunta antes do POST de segredo');
+  assert.match(cut(chaves, 'async function secretsAskAdopt', '\n}'), /await askYes\(/, 'a pergunta é um askYes (com flag de voo)');
   assert.match(s, /if\(!ok\)\{ keepLocal=/, 'recusou: guarda os nomes pra manter local');
   assert.match(s, /keepLocal\.includes\(n\) && !inCloud\.has\(n\)/, 'reescrever o arquivo preserva as mantidas');
   const f = cut(chaves, 'async function secretsForget', '\n}');

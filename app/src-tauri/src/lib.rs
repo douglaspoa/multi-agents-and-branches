@@ -5891,6 +5891,41 @@ fn write_llm_env(content: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Plano Grátis: chaves do computador que uma conta SUBSTITUIU ao entrar (mesmo nome no cofre). Ficam guardadas à parte,
+/// no arquivo irmão (600), e voltam pro llm.env quando a pessoa sai da conta. Nunca em localStorage. Vazio = apaga.
+fn llm_env_stash_path() -> PathBuf {
+    llm_env_path().with_file_name("llm-gratis.env")
+}
+#[tauri::command(async)]
+fn read_llm_env_stash() -> Result<String, String> {
+    Ok(std::fs::read_to_string(llm_env_stash_path()).unwrap_or_default())
+}
+#[tauri::command(async)]
+fn write_llm_env_stash(content: String) -> Result<(), String> {
+    let p = llm_env_stash_path();
+    if content.trim().is_empty() {
+        let _ = std::fs::remove_file(&p);
+        return Ok(());
+    }
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, content).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod llm_env_stash_tests {
+    #[test]
+    fn irmao_do_llm_env() {
+        let p = super::llm_env_stash_path();
+        assert_eq!(p.parent(), super::llm_env_path().parent());
+        assert_eq!(p.file_name().and_then(|n| n.to_str()), Some("llm-gratis.env"));
+    }
+}
+
 /// ROUTE AI: testa a conexão com o gateway alternativo (OpenAI-compatible) usando
 /// a config do cofre. Prova chave + endpoint + modelo respondendo de verdade, sem
 /// depender do shim (que vive no processo do motor). Não expõe a chave.
@@ -10840,6 +10875,8 @@ pub fn run() {
             read_llm_env,
             codex_models,
             write_llm_env,
+            read_llm_env_stash,
+            write_llm_env_stash,
             route_ai_ping,
             list_skills,
             set_active_skills,

@@ -120,6 +120,13 @@ function secretsLocalPairs(txt, have){
   const h=new Set(have||[]);
   return String(txt||'').split('\n').map(l=>l.trim()).filter(l=>/^[A-Z][A-Z0-9_]{2,63}=/.test(l) && !h.has(l.slice(0,l.indexOf('='))));
 }
+// chaves do computador que o cofre vai SUBSTITUIR (mesmo nome, valor diferente): guardadas à parte antes do espelho
+function secretsConflicts(txt, rows){
+  const v={}; (rows||[]).forEach(r=>{ v[r.name]=String(r.value); });
+  return secretsLocalPairs(txt, []).filter(l=>{ const i=l.indexOf('='), n=l.slice(0,i); return n in v && v[n]!==l.slice(i+1); });
+}
+// junta linhas NOME=valor (a última de cada nome vale) — o arquivo guardado à parte acumula sem duplicar
+function secretsMergeLines(a, b){ const m=new Map(); [...(a||[]), ...(b||[])].forEach(l=>m.set(l.slice(0,l.indexOf('=')), l)); return [...m.values()]; }
 // @puro-chaves-dono-fim
 const SECRETS_BOOT_EMAIL=lsGet('sb:email')||''; // quem tinha entrado por último ANTES deste boot (o login de agora sobrescreve sb:email)
 async function secretsSync(){
@@ -136,11 +143,18 @@ async function secretsSync(){
       // adopt: primeira vez, adota o llm.env local existente (migração sem clique) · adopt-local: as chaves do Grátis que
       // a conta ainda não tem — PERGUNTA antes de mandar segredo pra nuvem; um POST só (tudo ou nada)
       const local=await invoke('read_llm_env').catch(()=>'');
-      let pairs=secretsLocalPairs(local, plan==='adopt-local'?rows.map(r=>r.name):[]);
-      if(plan==='adopt-local' && pairs.length){
-        const names=pairs.map(l=>l.slice(0,l.indexOf('=')));
-        const ok=await askYes(`Você guardou ${names.length===1?'1 chave':names.length+' chaves'} de IA neste computador no Grátis (${names.join(', ')}). Levar pro cofre da sua conta, pra valer nos outros computadores? Se não, elas continuam só aqui.`, 'Chaves de IA');
-        if(!ok){ keepLocal=[...new Set(keepLocal.concat(names))]; lsSet('sf:keysKeepLocal:'+uid, JSON.stringify(keepLocal)); pairs=[]; }
+      let pairs=secretsLocalPairs(local, plan==='adopt-local'?rows.map(r=>r.name).concat(keepLocal):[]);
+      if(plan==='adopt-local'){
+        // mesmo nome no cofre: o valor deste computador vai pro arquivo à parte (600, Rust) e volta quando sair da conta
+        const conf=secretsConflicts(local, rows);
+        if(conf.length){ const old=secretsLocalPairs(await invoke('read_llm_env_stash').catch(()=>''), []); await invoke('write_llm_env_stash',{ content: secretsMergeLines(old, conf).join('\n')+'\n' }); }
+        const confNames=conf.map(l=>l.slice(0,l.indexOf('=')));
+        if(pairs.length){
+          const names=pairs.map(l=>l.slice(0,l.indexOf('=')));
+          const ok=await secretsAskAdopt(uid, names, confNames);
+          if(ok===null) return; // outra pergunta em voo: este sync não escreve nada (não apaga a chave que espera resposta)
+          if(!ok){ keepLocal=[...new Set(keepLocal.concat(names))]; lsSet('sf:keysKeepLocal:'+uid, JSON.stringify(keepLocal)); pairs=[]; }
+        } else if(confNames.length){ try{ toast('A sua conta já tem '+confNames.join(', ')+': vale a da conta enquanto estiver logado. A deste computador ficou guardada e volta quando você sair.','info'); }catch(_){ } }
       }
       if(pairs.length){
         await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
@@ -161,17 +175,33 @@ async function secretsSync(){
     lsSet('sb:llmEnvOwner', uid);
   }catch(_){ }
 }
+// UMA pergunta por conta por sessão do app (revisão 11): várias secretsSync concorrentes não empilham askYes.
+// Em voo → null (quem chamou não escreve nada); já respondida → reusa a resposta sem perguntar.
+const secretsAsk={ voo:{}, resp:{} };
+async function secretsAskAdopt(uid, names, confNames){
+  if(secretsAsk.voo[uid]) return null;
+  if(uid in secretsAsk.resp) return secretsAsk.resp[uid];
+  secretsAsk.voo[uid]=true;
+  try{
+    const conf=(confNames||[]).length?` A sua conta já tem ${confNames.join(', ')}: a deste computador será substituída enquanto você estiver logado (fica guardada aqui e volta quando sair).`:'';
+    const ok=!!await askYes(`Você guardou ${names.length===1?'1 chave':names.length+' chaves'} de IA neste computador no Grátis (${names.join(', ')}). Levar pro cofre da sua conta, pra valer nos outros computadores? Se não, elas continuam só aqui.${conf}`, 'Chaves de IA');
+    secretsAsk.resp[uid]=ok; return ok;
+  }finally{ delete secretsAsk.voo[uid]; }
+}
 // sair da conta / sessão caiu (sbLogout, sbSessionEnded): as chaves desta conta saem DESTE computador (o cofre na
 // nuvem fica intacto) — quem entrar depois começa sem chave e nada da conta anterior é adotado.
 async function secretsForget(){
   secretsCache=null;
   // chaves do Grátis (dono '-', guardadas sem conta) são deste computador, não de uma conta: sair não as apaga
   if(lsGet('sb:llmEnvOwner')==='-'){ try{ await secretsAvailRefresh(); }catch(_){ } return; }
-  // as do Grátis que a pessoa escolheu manter só aqui (não subiram pro cofre) voltam a ser do computador (dono '-')
+  // voltam a ser do computador (dono '-'): as do Grátis que a pessoa escolheu manter só aqui (não subiram pro cofre) e as
+  // que o cofre tinha substituído por terem o mesmo nome (arquivo à parte, llm-gratis.env)
   let keep=[]; try{ keep=JSON.parse(lsGet('sf:keysKeepLocal:'+lsGet('sb:llmEnvOwner'))||'[]'); }catch(_){ keep=[]; }
-  let mine=[];
+  let mine=[], stash=[];
   if(keep.length){ try{ mine=secretsLocalPairs(await invoke('read_llm_env').catch(()=>''), []).filter(l=>keep.includes(l.slice(0,l.indexOf('=')))); }catch(_){ mine=[]; } }
-  if(mine.length){ try{ await invoke('write_llm_env',{ content: mine.join('\n')+'\n' }); lsSet('sb:llmEnvOwner','-'); }catch(_){ } }
+  try{ stash=secretsLocalPairs(await invoke('read_llm_env_stash').catch(()=>''), []); }catch(_){ stash=[]; }
+  const back=secretsMergeLines(mine, stash);
+  if(back.length){ try{ await invoke('write_llm_env',{ content: back.join('\n')+'\n' }); lsSet('sb:llmEnvOwner','-'); await invoke('write_llm_env_stash',{ content:'' }); }catch(_){ } }
   else{ try{ await invoke('write_llm_env',{ content:'' }); lsSet('sb:llmEnvOwner',''); }catch(_){ } }
   try{ await secretsAvailRefresh(); }catch(_){ }
 }
@@ -191,8 +221,9 @@ async function secretsLocalWrite(name, value){
   const cur=(await secretsLocalFile()).split('\n').filter(l=>l.trim() && !l.startsWith(name+'='));
   if(value!=null) cur.push(name+'='+value);
   await invoke('write_llm_env',{ content: cur.length?cur.join('\n')+'\n':'' });
-  const me=(typeof cloudUserId==='function'&&cloudUserId())||'';
-  if(lsGet('sb:llmEnvOwner')!==me || !me) lsSet('sb:llmEnvOwner','-'); // arquivo espelho desta conta continua dela; o resto é do Grátis
+  // gravou no espaço local = arquivo do Grátis (dono '-'), mesmo que antes fosse espelho de uma conta: ao voltar a ter nuvem
+  // cai no adopt-local (com pergunta) em vez de o 'mirror' apagar a chave nova (revisão 3)
+  lsSet('sb:llmEnvOwner','-');
   await secretsLocalLoad();
 }
 function secretsAreLocal(){ return typeof isLocalSpace==='function' && isLocalSpace(); }
@@ -203,7 +234,13 @@ async function secretSet(name, value){
   await secretsSync();
   await secretsAvailRefresh();
 }
+// "remover" uma chave mantida só neste computador: sai da lista sf:keysKeepLocal ANTES do sync (senão ela voltava)
+function secretsKeepLocalDrop(name){
+  const k='sf:keysKeepLocal:'+((typeof cloudUserId==='function'&&cloudUserId())||'');
+  try{ const L=JSON.parse(lsGet(k)||'[]'); if(L.includes(name)) lsSet(k, JSON.stringify(L.filter(n=>n!==name))); }catch(_){ }
+}
 async function secretDel(name){
+  secretsKeepLocalDrop(name);
   if(secretsAreLocal()){ await secretsLocalWrite(name, null); await secretsAvailRefresh(); return; }
   await sbFetch('/rest/v1/user_secrets?user_id=eq.'+cloudUserId()+'&name=eq.'+encodeURIComponent(name), { method:'DELETE' });
   try{ lsSet('sb:llmEnvOwner', cloudUserId()); }catch(_){ } // o arquivo local agora é espelho desta conta: a chave removida não volta pela "adoção" (bloqueador 01)
