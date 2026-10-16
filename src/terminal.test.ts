@@ -448,3 +448,34 @@ test("integrada nunca sai de integrada: hooks (prompt/Stop), fim de turno (sem c
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("terminal integrado: as notas de memória que entram no system prompt ficam em spec.memNotes (Feito com), somando aberturas", async () => {
+  const { root, repo } = repoFixture();
+  const prev = process.env.CARDUME_NOTIFY;
+  process.env.CARDUME_NOTIFY = "0";
+  const orch = new Orchestrator(repo);
+  try {
+    orch.brain().write({ title: "Cupom vale sobre o total com frete", type: "regra", body: "No carrinho, o cupom de desconto vale sobre o total com frete.", by: "Ana", origem: "pessoa" });
+    orch.brain().write({ title: "Parcelas arredondam pra cima", type: "decisão", body: "Parcelamento no checkout: a última parcela absorve os centavos.", by: "Bruno", origem: "pessoa" });
+    await orch.createTask(spec("tm", { title: "carrinho com cupom", objective: "aplicar cupom de desconto no carrinho", termMode: "terminal" }));
+    // a abertura do terminal (aiLaunch/termPrep) monta o contexto por aqui
+    const a = orch.terminalContext("tm");
+    assert.match(a.ctx, /Cupom vale sobre o total com frete/);
+    let mem = (JSON.parse(orch.store.getTask("tm")!.spec_json) as TaskSpec).memNotes ?? [];
+    assert.deepEqual(mem.map((n) => n.title), ["Cupom vale sobre o total com frete"]);
+    assert.equal(mem[0].by, "Ana");
+    // a mensagem que abre o terminal entra na busca: nota nova soma, a anterior fica
+    orch.terminalContext("tm", { message: "agora o parcelamento no checkout" });
+    mem = (JSON.parse(orch.store.getTask("tm")!.spec_json) as TaskSpec).memNotes ?? [];
+    assert.ok(mem.some((n) => n.title === "Parcelas arredondam pra cima"), JSON.stringify(mem));
+    assert.ok(mem.some((n) => n.title === "Cupom vale sobre o total com frete"), "a nota da 1ª abertura continua");
+    assert.equal(new Set(mem.map((n) => n.title)).size, mem.length, "sem repetir");
+    // o aiLaunch passa a mensagem pro terminalContext (as notas dela vão pro prompt E pro registro)
+    const src = readFileSync(new URL("./terminal.ts", import.meta.url), "utf8");
+    assert.match(src, /orch\.terminalContext\(taskId, reviewer \? \{ role: "reviewer", round, message: opts\.message \} : \{ message: opts\.message \}\)/);
+  } finally {
+    orch.close();
+    if (prev === undefined) delete process.env.CARDUME_NOTIFY; else process.env.CARDUME_NOTIFY = prev;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
