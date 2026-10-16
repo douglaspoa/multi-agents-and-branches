@@ -573,7 +573,7 @@ function ajStateHtml(kind, o){
   o=o||{};
   const S={
     semserv:['warn','Falta configurar o servidor da conta','Sem servidor de contas este computador não entra na conta. Configure em Sistema › Servidor da conta.','configurar o servidor','ajGoSrv'],
-    semconta:['perfil','Entre na sua conta','Organização, times, convites, chaves e assinatura seguem a sua conta. Os ajustes deste computador continuam valendo sem conta.','entrar ou criar conta','ajSignIn'],
+    semconta:['perfil','Entre na sua conta','A conta é opcional: organização, times, convites e assinatura seguem ela. Sem conta você usa o Grátis — tudo deste computador continua valendo, inclusive as chaves de IA.','entrar ou criar conta','ajSignIn'],
     semorg:['org','Você ainda não está numa organização','Crie uma organização com o primeiro time, ou entre num time com o convite que recebeu.','criar organização','ajGoTimes'],
     semperm:['warn','Só quem administra vê isto','Peça pra um admin da organização'+(o.who?' ('+o.who+')':'')+' fazer isso, ou te dar a permissão.','',''],
   }[kind];
