@@ -100,6 +100,17 @@ function semRelatorioTx(o){
   const par=(o.parados||[]).length?['Parado: '+o.parados.join(' · ')+'.']:[];
   return [head, ...lin, ...par].join('\n');
 }
+// épicos ENTREGUES nos dias da grade (spec.delivery gravado pelo "Entregar o épico" de 81-epico-aba): um bloco de épico
+// no dia da entrega, com quem aprovou. eps = teamEpics; dias = semDiasDaSemana → [{ id, nome, key, at, by, tarefas, prs }]
+function semEpicosEntregues(eps, dias){
+  const keys=new Set((dias||[]).map(d=>d.key));
+  return (eps||[]).filter(e=>e&&e.spec&&e.spec.delivery&&e.spec.delivery.at).map(e=>{ const d=e.spec.delivery, at=Date.parse(d.at);
+    return { id:e.id, nome:String(e.name||'Épico'), key:Number.isFinite(at)?semKeyDia(at):'', at, by:d.by||'', tarefas:+d.tasks||0, prs:+d.prs||0 }; })
+    .filter(x=>x.key && keys.has(x.key)).sort((a,b)=>b.at-a.at);
+}
+// aviso "padrão do time desligado" (sf:padrao-desligado): vale 7 dias; o mais novo ganha. → o aviso ou null
+const SEM_PADRAO_MS=7*86400000;
+function semPadraoVale(av, now){ if(!av||!av.padrao) return null; const at=+av.at||0; return at && (now||Date.now())-at<SEM_PADRAO_MS ? av : null; }
 // o mapa "Onde fica cada coisa": grupos da lateral → [ícone, nome, o que tem, destino]
 const MAPA_GRUPOS=[
   ['Trabalho','O dia a dia: pedir, acompanhar, entregar',[
@@ -437,10 +448,16 @@ function semHead(title, sub, right){ return `<header class="semhead"><div><h1>${
 
 // ---------- Semana do time ----------
 let semModo=lsGet('sem:modo')==='dist'?'dist':'grade', semAberto='', semSelQ='';
-// aviso de padrão do time desligado: ainda não há fonte no app — quem desligar (Skills/Agentes, outra frente) dispara
+// aviso de padrão do time desligado: quem desliga (Skills › "Onde está ligada", "sempre…" → "só quando pedir", agente
+// tirado do catálogo ou de uma equipe — padAvisoDesligado em 75-padroes) dispara
 // window.dispatchEvent(new CustomEvent('sf:padrao-desligado', { detail:{ quem, padrao, onde, at, abrir? } }))
+// Fica guardado por 7 dias NESTA máquina (sem:padraoOff). Os outros membros ainda NÃO veem: não há canal de evento do time
+// sem migration (task_activity exige uma tarefa) — ver o PR das pendências da Semana.
 let semPadraoOff=null;
-window.addEventListener('sf:padrao-desligado', e=>{ semPadraoOff=(e&&e.detail)||null; semRepintar(); });
+try{ semPadraoOff=semPadraoVale(JSON.parse(lsGet('sem:padraoOff')||'null')); }catch(_){ semPadraoOff=null; }
+window.addEventListener('sf:padrao-desligado', e=>{ const d=(e&&e.detail)||null; semPadraoOff=d?Object.assign({ at:Date.now() }, d):null;
+  try{ lsSet('sem:padraoOff', JSON.stringify(semPadraoOff)); }catch(_){ } semRepintar(); });
+window.addEventListener('sf:epico-entregue', ()=>semRepintar());
 function semParados(its){ return its.filter(x=>x.trav && !x.done); }
 function semanaHtml(){
   const its=semItens(), dias=semDiasDaSemana(Date.now()), hoje=dias.find(d=>d.kind==='today')||dias[0];
@@ -449,6 +466,7 @@ function semanaHtml(){
   const proj=(typeof state!=='undefined'&&state.repo)?pathBase(state.repo):'';
   const sw=`<div class="semsw" role="group" aria-label="Modo da Semana"><button type="button" aria-pressed="${semModo==='grade'}" data-semmodo="grade">Semana</button><button type="button" aria-pressed="${semModo==='dist'}" data-semmodo="dist">Distribuir</button></div>`;
   const par=semParados(its);
+  if(semPadraoOff && !semPadraoVale(semPadraoOff)) semPadraoOff=null; // passou de 7 dias
   const strips=`<div class="semstrips${semPadraoOff?'':' one'}"><div class="semstrip red" role="status">${semIc('alert')}<span><b>Parado agora:</b> ${par.length?par.map(x=>`<button type="button" class="lnk" data-semopen="${escA(x.id)}">${esc(personName(x.who,{ noYou:false }))} em ${esc(x.code||mdTitle(x.titulo).slice(0,32))}</button>`).join(' · '):'ninguém'}</span></div>`
     +(semPadraoOff?`<div class="semstrip amb" role="status">${semIc('shield')}<span><b>${esc(semPadraoOff.quem||'Alguém')} desligou ${esc(semPadraoOff.padrao||'um padrão')}</b> (padrão do time)${semPadraoOff.onde?' em '+esc(semPadraoOff.onde):''}</span><span class="grow"></span><button type="button" class="btn sm quiet" data-sempad="1">Ver</button></div>`:'')+`</div>`;
   const semTime=!semTemTime()?`<div class="semnote">${semIc('people')}<span>Você está vendo só as suas demandas. <b>Entre num time</b> pra ver a semana de todo mundo, passar e assumir.</span><button type="button" class="btn sm" data-semtime="1">Entrar num time</button></div>`:'';
@@ -474,6 +492,15 @@ function semanaHtml(){
     rows+=`<div class="c0 pc rowsd" data-semdrop="">${`<span class="tsav semnone" aria-hidden="true">?</span>`}<span><span class="n">Sem dono</span><br><span class="l">${semDono.length} esperando</span></span></div>`
       +dias.map(d=>`<div class="rowsd${d.kind==='today'?' today':''}" data-semdrop="">${d.kind==='today'?semDono.map(x=>semBloco(x)).join(''):''}</div>`).join('');
   }
+  // épicos entregues nesta semana: uma linha própria, o bloco no dia da entrega com quem aprovou
+  const eps=semEpicosEntregues((typeof teamEpics!=='undefined'&&teamEpics)||[], dias);
+  if(eps.length){
+    rows+=`<div class="c0 pc rowep">${semIc('box','semepi')}<span class="pcx"><span class="n">Épicos</span><br><span class="l">${eps.length} ${eps.length===1?'entregue':'entregues'}</span></span></div>`
+      +dias.map(d=>{ const L=eps.filter(x=>x.key===d.key);
+        const inner=!L.length?'':(d.kind==='today'||d.key===aberto)?L.map(semBlocoEpico).join('')
+          :`<button type="button" class="semnum ep" data-semdia="${d.key}" title="${escA('Épico entregue: '+L.map(x=>x.nome).join(' · '))}">${semIc('box')}${L.length}</button>`;
+        return `<div class="rowep${d.kind==='today'?' today':''}">${inner}</div>`; }).join('');
+  }
   for(const uid of (pessoas.length?pessoas:[me||'eu'])){
     const L=its.filter(x=>x.who===uid && (x.card?!!x.card.assignee:true));
     const ab=L.filter(x=>!x.done), tv=ab.some(x=>x.trav);
@@ -495,6 +522,13 @@ function semBloco(x){
   const dot=x.done?'var(--st-done)':x.trav?'var(--st-err)':sd?'var(--warn)':stColor(x.st);
   const mn=x.done?'':`<button type="button" class="sem-mn" data-semmenu="${escA(x.id)}" aria-haspopup="menu" aria-expanded="false" aria-label="${escA((sd?'Atribuir ':'Passar ')+(x.code||x.titulo))}">${sd?'Atribuir':'Passar'} ${semIc('chev')}</button>`;
   return `<div class="semtb${cls}" role="button" tabindex="0" ${x.card&&!x.done?'draggable="true" ':''}data-semdrag="${escA(x.id)}" data-semopen="${escA(x.id)}" title="${escA(x.titulo)}"><span class="dot" style="background:${dot}"></span><span class="t">${x.code?`<span class="semcode">${esc(x.code)}</span> `:''}${esc(mdTitle(x.titulo))}</span>${mn}${r?`<span class="r">${esc(r)}</span>`:''}</div>`;
+}
+// o bloco do épico entregue (distinto das tarefas: faixa roxa, "ÉPICO ENTREGUE", quem aprovou) — abre a aba do épico
+function semBlocoEpico(x){
+  const apr=x.by?personName(x.by,{ noYou:true }):'';
+  const hh=new Date(x.at).toLocaleTimeString('pt-BR',{ hour:'2-digit', minute:'2-digit' });
+  const r=[apr?'aprovado por '+apr:'entregue', hh, x.tarefas?x.tarefas+' '+(x.tarefas===1?'tarefa':'tarefas'):''].filter(Boolean).join(' · ');
+  return `<button type="button" class="semtb semep" data-semep="${escA(x.id)}" title="${escA('Épico entregue: '+x.nome+(apr?' · aprovado por '+apr:''))}"><span class="dot" aria-hidden="true"></span><span class="t"><span class="semcode">ÉPICO</span> ${esc(x.nome)}</span><span class="r">${esc(r)}</span></button>`;
 }
 function semDistHtml(its, pessoas){
   const semDono=its.filter(x=>x.card && !x.card.assignee && !x.done).sort((a,b)=>b.mod-a.mod);
@@ -698,6 +732,7 @@ function semWire(pg, k){
   pg.querySelectorAll('[data-semsel]').forEach(el=>{ el.onclick=(e)=>{ if(e.target.closest('button')) return; semSelQ=semSelQ===el.dataset.semsel?'':el.dataset.semsel; semRepintar(); const n=pg.querySelector(`[data-semsel="${CSS.escape(el.dataset.semsel)}"]`); if(n) n.focus(); };
     el.onkeydown=(e)=>{ if(e.target===el && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); el.click(); } }; });
   pg.querySelectorAll('[data-semtime]').forEach(b=>b.onclick=()=>semIr('pessoas'));
+  pg.querySelectorAll('[data-semep]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.semep); });
   pg.querySelectorAll('[data-sempad]').forEach(b=>b.onclick=()=>{ const a=semPadraoOff&&semPadraoOff.abrir; semIr(a||'skills'); });
   pg.querySelectorAll('[data-sement]').forEach(b=>b.onclick=()=>{ semEntPer=b.dataset.sement; lsSet('sem:entper', semEntPer); semEntregasCarimbos(); semRepintar(); });
   pg.querySelectorAll('[data-semrel]').forEach(b=>b.onclick=()=>{ semRelOn=!semRelOn; semRepintar(); });
