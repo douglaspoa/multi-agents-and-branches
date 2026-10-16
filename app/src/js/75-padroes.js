@@ -122,6 +122,27 @@ function padObjectiveWithSkills(objective, names){
   const l=(names||[]).filter(Boolean); if(!l.length) return objective||'';
   return String(objective||'').replace(/\n*Skills pedidas: [^\n]*$/,'')+'\n\nSkills pedidas: '+l.map(n=>'/'+n).join(', ')+' — use cada uma nesta tarefa (tool Skill ou /nome).';
 }
+// AVISO "padrão do time desligado" (a faixa âmbar da Semana, 76: sf:padrao-desligado). Skill: desligar onde estava
+// ligada, ou tirar do "sempre…" pra "só quando pedir". was = { on, quando } antes. → { padrao, onde } ou null
+function padSkAvisoOff(name, repo, was, on, quando){
+  const w=was||{}; const sk=padSkTitle(name), pj=padBase(repo);
+  if(w.on && !on) return { padrao:'a skill '+sk, onde:pj };
+  if(w.quando && on && !quando) return { padrao:'o "'+padQuandoLabel(w.quando)+'" da skill '+sk+' (agora só quando pedir)', onde:pj };
+  return null;
+}
+// Agentes: o que SAIU do catálogo ou de uma equipe entre o salvo antes e o novo. → [{ padrao, onde }]
+function padAgAvisosOff(antes, depois){
+  const A=antes||{}, D=depois||{}, out=[];
+  const nm=id=>{ const a=(A.agents||[]).find(x=>x&&x.id===id); return (a&&a.name)||id; };
+  const ids=new Set((D.agents||[]).map(a=>a&&a.id));
+  for(const a of (A.agents||[])) if(a && a.id && !ids.has(a.id)) out.push({ padrao:'o agente '+(a.name||a.id), onde:'Agentes' });
+  for(const w of (A.workflows||[])){ if(!w) continue;
+    const w2=(D.workflows||[]).find(x=>x && (w.id?x.id===w.id:x.name===w.name));
+    if(!w2){ out.push({ padrao:'a equipe '+(w.name||'sem nome'), onde:'Agentes' }); continue; }
+    for(const sid of new Set(w.steps||[])) if(ids.has(sid) && !(w2.steps||[]).includes(sid)) out.push({ padrao:nm(sid)+' da equipe '+(w.name||'sem nome'), onde:'Agentes' });
+  }
+  return out;
+}
 // @padroes-puro-fim
 
 // ---------------------------------------------------------------- ícones (traço de 16px, como o IC)
@@ -286,6 +307,11 @@ function padSkWire(pg, s, repo){
   bindClick('padSkPad', ()=>{ const cur=((s.on||{})[repo]||{}).quando; if(cur){ padSkSet(s, repo, true, ''); return; } padSkSet(s, repo, true, 'UI'); });
   padSkAddWire(pg);
 }
+// avisa a Semana (76) que um padrão do time foi desligado — quem = a pessoa logada (nome, nunca id)
+function padAvisoDesligado(o){
+  try{ window.dispatchEvent(new CustomEvent('sf:padrao-desligado', { detail:Object.assign({ quem:padMe(), at:Date.now() }, o||{}) })); }catch(_){ }
+}
+window.padAvisoDesligado=padAvisoDesligado; window.padAgAvisosOff=padAgAvisosOff;
 async function padSkSet(s, repo, on, quando){
   if(PADS.busy) return; PADS.busy=true;
   const was=((s.on||{})[repo]||{});
@@ -293,6 +319,7 @@ async function padSkSet(s, repo, on, quando){
     const r=await invoke('skill_set_on', { repo, name:s.name, description:s.description||'', on, quando:quando||null, by:padMe() });
     s.on=s.on||{}; if(on) s.on[repo]={ on:true, quando:(r&&r.quando)||'' }; else delete s.on[repo];
     const nm=padSkTitle(s.name), pj=padBase(repo);
+    { const av=padSkAvisoOff(s.name, repo, was, on, (r&&r.quando)||quando||''); if(av) padAvisoDesligado(Object.assign({ abrir:'skills' }, av)); }
     if(!on) toast(nm+' desligada em '+pj+(was.quando?' · era padrão: quem usa o projeto fica sem ela':'')+'.','ok');
     else if(quando) toast(nm+' entra sozinha em '+pj+': '+padQuandoLabel(quando)+'.','ok');
     else toast(nm+(was.on?' agora só quando pedir em ':' ligada em ')+pj+'.','ok');
