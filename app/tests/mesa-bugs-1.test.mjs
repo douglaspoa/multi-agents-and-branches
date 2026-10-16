@@ -36,9 +36,16 @@ test('#4 Time: "entregues" = regra única epDelivered (pronta pra revisar não c
   assert.match(times, /const d=mine\.filter\(epDelivered\)\.length/);
   assert.match(times, /<div class="l">entregues<\/div>/);
   // a regra em si: review/delivered/PR aberto não contam
-  const epDelivered = new Function('tsSt', 'taskSt', line(read('js/46-epico-time.js'), 'function epEffSt') + '\n' + line(read('js/46-epico-time.js'), 'function epDelivered') + '\nreturn epDelivered;')((t) => t.status, (t) => t.status);
+  const ep = read('js/46-epico-time.js');
+  const epDelivered = new Function('tsSt', 'taskSt', line(ep, 'function epEffSt') + '\n' + line(ep, 'function epDelivered') + '\n' + line(ep, 'function epPrOpen') + '\nreturn epDelivered;')((t) => t.status, (t) => t.status);
   const cards = ['merged', 'done', 'review', 'delivered', 'running'].map((status) => ({ team_id: 'x', status }));
   assert.equal(cards.filter(epDelivered).length, 2);
+  // 16/10 (= epDepOk das ondas, #166): concluída SEM PR aberto conta; concluída com o PR ainda aberto NÃO
+  // (taskSt devolve 'closed' pra flag closed fora de merged/done — aqui o stub devolve o status direto)
+  assert.equal(epDelivered({ team_id: 'x', status: 'closed', pr_url: '' }), true, 'concluir · sai da fila sem PR');
+  assert.equal(epDelivered({ team_id: 'x', status: 'closed', pr_url: 'https://github.com/exemplo/loja/pull/9' }), false, 'PR aberto ainda não está na main');
+  assert.equal(epDelivered({ status: 'closed', prUrl: 'https://github.com/exemplo/loja/pull/9' }), false, 'tarefa local com PR aberto');
+  assert.equal(epDelivered({ status: 'closed', prUrl: null }), true);
 });
 
 test('#5/#6/#14/#15 Linha: meses fixos no topo, frase da saúde no title, sem "mostrar entregues (0)", ano dos meses não corta', () => {

@@ -43,11 +43,13 @@ function taskOriginHtml(t){
   return w?`<span class="dc-who" title="${escA('cartão do time — '+w)}">${esc(w)}</span>`:'';
 }
 window.taskOriginHtml=taskOriginHtml;
-// R5-2: A regra ÚNICA de "entregue" no progresso de épico (página, cabeçalho da fila, KPI, Time):
-// mergeada/concluída/finalizada. Pronta pra revisar e PR aberto ainda NÃO contam (aparecem como "em revisão").
+// R5-2: A regra ÚNICA de "entregue" no progresso de épico (página, cabeçalho da fila, KPI, Time, Linha, Central):
+// integrada (merged/done) ou concluída SEM PR aberto. Pronta pra revisar e PR aberto ainda NÃO contam (aparecem como
+// "em revisão"). 16/10: "concluir · sai da fila" com o PR ainda aberto contava como entregue — agora segue o epDepOk
+// das ondas (#166): o código só está entregue quando está na main.
 // Aceita cartão da nuvem (tem team_id → status efetivo via tsSt, que usa a tarefa local se houver) ou tarefa local.
 function epEffSt(t){ if(!t) return ''; return ('team_id' in t && typeof tsSt==='function') ? tsSt(t) : taskSt(t); }
-function epDelivered(t){ const st=epEffSt(t); return ['merged','done','closed'].includes(st); }
+function epDelivered(t){ const st=epEffSt(t); if(['merged','done'].includes(st)) return true; return st==='closed' && !epPrOpen(t); }
 function epInReview(t){ return ['review','delivered','pr-open'].includes(epEffSt(t)); }
 // @ep-ondas-inicio (puro: testado em app/tests/epico-ondas.test.mjs)
 // ONDAS (15/10): a regra ÚNICA de "pré-requisito concluído" pra liberar a tarefa seguinte = o CÓDIGO dele está na base
