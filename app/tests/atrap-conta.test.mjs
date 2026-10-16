@@ -163,7 +163,7 @@ test('12: convite gravado sem linha de volta não quebra o botão nem mostra ing
 
 // ---------------------------------------------------------------- 13 · Primeiros passos por cima
 test('13: Primeiros passos só abre sozinho no boot se a pessoa ainda está na Central', () => {
-  assert.equal(P.ppAutoOk('flow'), true); assert.equal(P.ppAutoOk(''), true);
+  assert.equal(P.ppAutoOk('flow'), true); assert.equal(P.ppAutoOk(''), true); assert.equal(P.ppAutoOk('meu'), true, 'Meu trabalho é a casa (abre sozinho no boot)');
   assert.equal(P.ppAutoOk('cfg'), false); assert.equal(P.ppAutoOk('t:123'), false);
   assert.match(aj, /setTimeout\(\(\)=>\{ if\(ppAutoOk\(typeof activeTab!=='undefined'\?activeTab:''\)\) ppMaybeStart\(\); \}, 3800\);/);
   assert.doesNotMatch(aj, /setTimeout\(ppMaybeStart, 3800\)/);

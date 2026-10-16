@@ -38,7 +38,7 @@ function upgradeCtaHtml(feature, o){
   o=o||{}; const u=upgradeInfo(feature), sess=typeof SB!=='undefined' && !!SB.sess();
   const alt=u.altBtn?`<button type="button" class="btn sm" data-upalt="${escA(u.altBtn[0])}">${esc(u.altBtn[1])}</button>`:'';
   // cobrança desligada: entrar numa conta já liga a nuvem do time (quem é do time Enterprise numa máquina nova)
-  const entrar=sess?'':`<button type="button" class="linkbtn" data-upentrar>já tem conta? entrar</button>`;
+  const entrar=sess?'':`<button type="button" class="upcta-entrar" data-upentrar>já tem conta? entrar</button>`;
   return `<section class="upcta${o.compact?' compact':''}" data-upcta="${escA(feature)}" role="note"><div class="upcta-t"><b>${esc(u.t)}</b><p>${esc(u.p)}</p>${u.alt?`<p class="upcta-alt">${esc(u.alt)}</p>`:''}</div>`
     +`<div class="upcta-acts"><button type="button" class="btn primary sm" data-upgo>ver os planos</button>${alt}${entrar}</div></section>`;
 }
@@ -87,7 +87,7 @@ function planosHtml(){
       <div class="pln-preco"><span class="pln-v">${esc(p.preco)}</span><span class="pln-per">${esc(p.per)}</span></div>
       <p class="pln-lead">${esc(p.lead)}</p><ul>${p.itens.map(i=>`<li>${esc(i)}</li>`).join('')}</ul><div class="pln-cta">${btn}</div></article>`;
   };
-  return `<div class="pgbody"><div class="pln-page">${head}<p class="pln-espaco" role="status">${esc(planosEspacoTxt())}</p>
+  return `${head}<div class="pgbody"><div class="pln-page"><p class="pln-espaco" role="status">${esc(planosEspacoTxt())}</p>
     ${planosMsg?`<div class="pln-msg" role="status">${planosMsg}</div>`:''}
     <div class="pln-grid">${PLANOS.map(card).join('')}</div><p class="pln-rodape">${esc(PLANOS_RODAPE)}</p></div></div>`;
 }
@@ -112,4 +112,10 @@ if(typeof viewOpen==='function' && !viewOpen.__pln){ const vo=viewOpen; viewOpen
     if(kind==='planos'){ planosPaint(); if(typeof ovShow==='function') ovShow('planosOverlay'); return; }
     return vo.apply(this, arguments); }; viewOpen.__pln=true; }
 // o espaço mudou (entrou, saiu, assinou): a aba aberta se redesenha
-window.addEventListener('sf:espaco-mudou', ()=>{ planosMsg=''; const o=$id('planosOverlay'); if(o && o.style.display!=='none') planosPaint(); });
+window.addEventListener('sf:espaco-mudou', ()=>{
+  planosMsg=''; const o=$id('planosOverlay'); if(o && o.style.display!=='none') planosPaint();
+  // as superfícies de nuvem abertas se redesenham (CTA ↔ conteúdo do time) — sem esperar o próximo clique
+  try{ if(typeof teamPaintSig!=='undefined') teamPaintSig=''; if(typeof renderTeamBoard==='function') renderTeamBoard(); }catch(_){ }
+  try{ if(typeof activeTab!=='undefined' && activeTab==='cfg' && typeof ajSectionPaint==='function') ajSectionPaint(); }catch(_){ }
+  try{ if(typeof secretsCache!=='undefined') secretsCache=null; }catch(_){ } // as chaves passam a vir do outro lugar (llm.env × cofre)
+});

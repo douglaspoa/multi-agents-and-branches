@@ -154,7 +154,7 @@ function ppPcItems(list, kindOf){
   return out.sort((a,b)=>(a.kind==='req'?0:1)-(b.kind==='req'?0:1));
 }
 // abre sozinho no boot só se a pessoa ainda está na Central (não troca a aba que ela abriu)
-function ppAutoOk(activeTab){ return !activeTab || activeTab==='flow'; }
+function ppAutoOk(activeTab){ return !activeTab || activeTab==='flow' || activeTab==='meu'; } // 'meu' = a casa da Semana (76), que abre sozinha no boot
 // criar organização: os dois nomes são obrigatórios (antes criava "Minha organização"/"Time 1" calado)
 function ajOrgFormErr(org, team){
   if(!String(org||'').trim()) return { field:'sbOrgName', msg:'Dê um nome pra organização (ex.: o nome da empresa).' };
@@ -834,7 +834,7 @@ function ppRender(){
     <aside class="ppside"><section class="ajcard"><h3 class="ajh3">O que é o Starfork</h3><p>Agentes de IA trabalham nas suas demandas, cada uma numa cópia isolada do projeto.</p><p>Cada requisito precisa de uma prova real (print, vídeo, teste) antes de entregar.</p><p>${(typeof isLocalSpace==='function'&&isLocalSpace())?'No Grátis tudo fica neste computador: demandas, provas, memória e chaves.':'O time vê o andamento e o custo na nuvem. A conversa com a IA fica neste computador.'}</p></section>
       <section class="ajcard"><h3 class="ajh3">Conhecer o app</h3>${PP_TOUR.map(([id,t,d],i)=>`<div class="pptour"><div class="l"><b>${esc(t)}</b><small>${esc(d)}</small></div>${id?`<button type="button" class="btn sm" data-ppshow="${i}">mostrar</button>`:'<kbd>⌘K</kbd>'}</div>`).join('')}</section></aside></div>`;
   bindClick('ppGratis', ()=>{ lsSet('sf:inicio','gratis'); ppRender(); });
-  bindClick('ppEntrar', ()=>{ lsSet('sf:inicio','conta'); if(typeof contaEntrar==='function') contaEntrar({ backTo:()=>primeirosPassosOpen() }); ppRender(); });
+  bindClick('ppEntrar', ()=>{ if(typeof contaEntrar==='function') contaEntrar({ backTo:()=>primeirosPassosOpen() }); }); // desistiu de entrar: as boas-vindas continuam (com sessão elas somem sozinhas)
   body.querySelectorAll('[data-pptog]').forEach(b=>b.onclick=()=>{ PP.open=PP.open===b.dataset.pptog?'':b.dataset.pptog; ppRender(); });
   body.querySelectorAll('[data-ppshow]').forEach(b=>b.onclick=()=>ppShow(PP_TOUR[+b.dataset.ppshow]));
   bindClick('ppNext', ()=>{ PP.open=P.next; ppRender(); const el=document.querySelector('[data-ppst="'+P.next+'"]'); if(el&&el.scrollIntoView) el.scrollIntoView(scrollOpts('nearest')); });

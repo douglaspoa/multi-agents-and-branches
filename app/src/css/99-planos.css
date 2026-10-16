@@ -2,8 +2,8 @@
    Só tokens do tema (10-base). */
 
 /* ===================== aba Planos ===================== */
-.pln-page{width:100%;max-width:1120px;margin:0 auto;box-sizing:border-box;min-width:0}
-.pln-espaco{margin:12px 0 0;font-size:var(--fs-base);color:var(--text-2)}
+.pln-page{width:100%;max-width:1120px;box-sizing:border-box;min-width:0}
+.pln-espaco{margin:0;font-size:var(--fs-base);color:var(--text-2)}
 .pln-msg{margin:12px 0 0;padding:10px 12px;border-radius:10px;background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent-line);font-size:var(--fs-sm);color:var(--text)}
 .pln-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:18px;align-items:stretch}
 @media (max-width:1040px){ .pln-grid{grid-template-columns:minmax(0,1fr)} }
@@ -16,24 +16,26 @@
 .pln-v{font:700 26px/1.1 var(--ui);letter-spacing:-.02em;color:var(--text)}
 .pln-per{font-size:var(--fs-sm);color:var(--muted)}
 .pln-lead{margin:0;font-size:var(--fs-sm);color:var(--text-2)}
-.pln-card ul{margin:0;padding:0 0 0 18px;display:grid;gap:5px;font-size:var(--fs-sm);color:var(--text);flex:1}
+.pln-card ul{margin:0;padding:0 0 0 18px;display:grid;gap:5px;align-content:start;font-size:var(--fs-sm);color:var(--text);flex:1}
 .pln-cta{margin-top:4px}
 .pln-cta .btn{width:100%;justify-content:center}
 .pln-cta-t{margin:0;font-size:var(--fs-sm);color:var(--muted)}
 .pln-rodape{margin:16px 0 0;font-size:var(--fs-sm);color:var(--muted);text-align:center}
 
 /* ===================== bloco de upgrade (primeiro uso de nuvem) ===================== */
-.upcta{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;padding:14px 16px;border-radius:12px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--accent-line);max-width:760px;margin:14px 0}
+.upcta{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;padding:14px 16px;border-radius:12px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--accent-line);max-width:760px;margin:14px 0;text-align:left;box-sizing:border-box;width:100%}
 .upcta-t{flex:1;min-width:240px}
 .upcta-t b{display:block;font:650 var(--fs-md) var(--ui);color:var(--text)}
 .upcta-t p{margin:4px 0 0;font-size:var(--fs-sm);color:var(--text-2)}
 .upcta-t .upcta-alt{color:var(--muted)}
 .upcta-acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .upcta.compact{padding:10px 12px;margin:8px 0}
+.upcta .upcta-entrar{background:none;border:0;padding:0;font:inherit;font-size:var(--fs-sm);color:var(--muted);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+.upcta .upcta-entrar:hover{color:var(--text)}
 
 /* ===================== Sua IA / Primeiros passos no Grátis ===================== */
 .suaia-onde{font-size:var(--fs-xs)}
-.ppwelcome{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:16px 18px;margin:0 0 16px;border-radius:14px;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--accent-line)}
+.ppwelcome{display:flex;gap:16px;align-items:center;flex-wrap:wrap;padding:16px 18px;margin:20px 24px 0;max-width:1132px;box-sizing:border-box;border-radius:14px;background:var(--surface);box-shadow:inset 0 0 0 1.5px var(--accent-line)}
 .ppwelcome .l{flex:1;min-width:260px}
 .ppwelcome h2{margin:0;font:650 var(--fs-lg) var(--ui);color:var(--text)}
 .ppwelcome p{margin:4px 0 0;font-size:var(--fs-sm);color:var(--text-2)}
