@@ -194,3 +194,13 @@ test('nuvem calada no espaço local: tickLoop, cloudScopeOk, cloudTeamId e os ti
   assert.ok(html.indexOf('js/39-espaco.js') < html.indexOf('js/40-nuvem-conta.js'));
   assert.ok(html.indexOf('js/82-planos.js') > html.indexOf('js/81-epico-aba.js') && html.indexOf('js/82-planos.js') < html.indexOf('js/99-e2e.js'));
 });
+
+test('chaves do Grátis só sobem pro cofre se a pessoa disser sim; se não, ficam só neste computador (inclusive depois de sair)', () => {
+  const s = cut(chaves, 'async function secretsSync', '\n}');
+  const ask = s.indexOf('askYes('), post = s.indexOf("sbFetch('/rest/v1/user_secrets");
+  assert.ok(ask > 0 && post > ask, 'pergunta antes do POST de segredo');
+  assert.match(s, /if\(!ok\)\{ keepLocal=/, 'recusou: guarda os nomes pra manter local');
+  assert.match(s, /keepLocal\.includes\(n\) && !inCloud\.has\(n\)/, 'reescrever o arquivo preserva as mantidas');
+  const f = cut(chaves, 'async function secretsForget', '\n}');
+  assert.match(f, /lsSet\('sb:llmEnvOwner','-'\)/, 'ao sair, as mantidas voltam a ser do computador');
+});

@@ -334,7 +334,7 @@
 
 /* ==== redesenho F1: Central em TABELA (66-central-tabela) — ordenável, percurso de etapas, ação por linha, linha que abre.
    Densa e estática (nada de split-flap: veto da mesa); cores = tokens de status do 10-base. ==== */
-.ctwrap{container-type:inline-size;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);overflow:hidden;margin-bottom:14px}
+.ctwrap{container-type:inline-size;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface);overflow:hidden;overflow:clip;margin-bottom:14px} /* clip (não hidden): hidden vira contêiner de rolagem e o rodapé sticky do painel de provas (80) grudava nele, abaixo da dobra a 1000×700 */
 .cttable{width:100%;border-collapse:collapse;table-layout:auto;font-size:var(--fs-sm)}
 .cttable td.ct-title{max-width:0} /* o título corta com … e a tabela nunca passa da largura */
 .cttable th{text-align:left;font-weight:600;font-size:var(--fs-xs);color:var(--muted);background:var(--surface-2);border-bottom:1px solid var(--border);padding:0;white-space:nowrap}

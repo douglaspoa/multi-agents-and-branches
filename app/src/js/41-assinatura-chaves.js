@@ -130,11 +130,18 @@ async function secretsSync(){
     const plan=secretsLocalPlan(lsGet('sb:llmEnvOwner'), uid, SECRETS_BOOT_EMAIL, sess && sess.user && sess.user.email);
     if(plan==='clear'){ await invoke('write_llm_env',{ content:'' }); lsSet('sb:llmEnvOwner',''); }
     let rows=await sbGet('user_secrets?select=name,value&order=name');
+    let keepLocal=[]; // chaves do Grátis que a pessoa NÃO quis levar pro cofre: continuam só no llm.env deste computador
+    try{ keepLocal=JSON.parse(lsGet('sf:keysKeepLocal:'+uid)||'[]'); }catch(_){ keepLocal=[]; }
     if(plan==='adopt-local' || (!rows.length && plan==='adopt')){
       // adopt: primeira vez, adota o llm.env local existente (migração sem clique) · adopt-local: as chaves do Grátis que
-      // a conta ainda não tem — um POST só nos dois casos (tudo ou nada)
+      // a conta ainda não tem — PERGUNTA antes de mandar segredo pra nuvem; um POST só (tudo ou nada)
       const local=await invoke('read_llm_env').catch(()=>'');
-      const pairs=secretsLocalPairs(local, plan==='adopt-local'?rows.map(r=>r.name):[]);
+      let pairs=secretsLocalPairs(local, plan==='adopt-local'?rows.map(r=>r.name):[]);
+      if(plan==='adopt-local' && pairs.length){
+        const names=pairs.map(l=>l.slice(0,l.indexOf('=')));
+        const ok=await askYes(`Você guardou ${names.length===1?'1 chave':names.length+' chaves'} de IA neste computador no Grátis (${names.join(', ')}). Levar pro cofre da sua conta, pra valer nos outros computadores? Se não, elas continuam só aqui.`, 'Chaves de IA');
+        if(!ok){ keepLocal=[...new Set(keepLocal.concat(names))]; lsSet('sf:keysKeepLocal:'+uid, JSON.stringify(keepLocal)); pairs=[]; }
+      }
       if(pairs.length){
         await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
           body: JSON.stringify(pairs.map(l=>{ const i=l.indexOf('='); return { user_id:uid, name:l.slice(0,i), value:l.slice(i+1) }; })) });
@@ -143,8 +150,14 @@ async function secretsSync(){
     }
     if(!SB.sess() || cloudUserId()!==uid) return; // saiu/trocou de conta no meio: não escreve o cofre de uma no arquivo da outra
     secretsCache=rows;
-    // nuvem → arquivo local (600) que os motores leem
-    await invoke('write_llm_env',{ content: rows.map(r=>r.name+'='+r.value).join('\n')+(rows.length?'\n':'') });
+    // nuvem → arquivo local (600) que os motores leem; as que a pessoa quis manter só aqui são preservadas do arquivo atual
+    let lines=rows.map(r=>r.name+'='+r.value);
+    if(keepLocal.length){
+      const cur=await invoke('read_llm_env').catch(()=>'');
+      const inCloud=new Set(rows.map(r=>r.name));
+      lines=lines.concat(secretsLocalPairs(cur, []).filter(l=>{ const n=l.slice(0,l.indexOf('=')); return keepLocal.includes(n) && !inCloud.has(n); }));
+    }
+    await invoke('write_llm_env',{ content: lines.join('\n')+(lines.length?'\n':'') });
     lsSet('sb:llmEnvOwner', uid);
   }catch(_){ }
 }
@@ -154,7 +167,12 @@ async function secretsForget(){
   secretsCache=null;
   // chaves do Grátis (dono '-', guardadas sem conta) são deste computador, não de uma conta: sair não as apaga
   if(lsGet('sb:llmEnvOwner')==='-'){ try{ await secretsAvailRefresh(); }catch(_){ } return; }
-  try{ await invoke('write_llm_env',{ content:'' }); lsSet('sb:llmEnvOwner',''); }catch(_){ }
+  // as do Grátis que a pessoa escolheu manter só aqui (não subiram pro cofre) voltam a ser do computador (dono '-')
+  let keep=[]; try{ keep=JSON.parse(lsGet('sf:keysKeepLocal:'+lsGet('sb:llmEnvOwner'))||'[]'); }catch(_){ keep=[]; }
+  let mine=[];
+  if(keep.length){ try{ mine=secretsLocalPairs(await invoke('read_llm_env').catch(()=>''), []).filter(l=>keep.includes(l.slice(0,l.indexOf('=')))); }catch(_){ mine=[]; } }
+  if(mine.length){ try{ await invoke('write_llm_env',{ content: mine.join('\n')+'\n' }); lsSet('sb:llmEnvOwner','-'); }catch(_){ } }
+  else{ try{ await invoke('write_llm_env',{ content:'' }); lsSet('sb:llmEnvOwner',''); }catch(_){ } }
   try{ await secretsAvailRefresh(); }catch(_){ }
 }
 // chave nova/removida (ex.: DEEPSEEK_API_KEY) vale JÁ no seletor/Ambiente: zera o cache de 30s da disponibilidade
