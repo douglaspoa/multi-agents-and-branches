@@ -555,7 +555,7 @@ function fwMoreItems(t){
   if(t.kind!=='review' && ['review','delivered','merged','error','aborted','conflict'].includes(t.status))
     it.push({ k:'linkfix', label:'abrir correção linkada', hint:'algo quebrou? nova tarefa ligada a esta' });
   { const cid=(typeof tmap==='function')?tmap()[t.id]:null, ac=(typeof artifactsCache!=='undefined')?artifactsCache[t.id]:null;
-    if(cid && typeof SB!=='undefined' && SB.sess() && ac && (ac.list||[]).length && typeof cloudPublishProofs==='function')
+    if(cid && typeof SB!=='undefined' && SB.sess() && !(typeof isLocalSpace==='function'&&isLocalSpace()) && ac && (ac.list||[]).length && typeof cloudPublishProofs==='function')
       it.push({ k:'pubproofs', label:`publicar provas no time · ${ac.list.length}`, hint:'envia os artefatos pro card do time' }); }
   (t.status!=='draft'&&Array.isArray(t.refs)?t.refs:[]).slice(0,6).forEach((r,i)=>{ const n=String(r).split('/').pop();
     it.push({ k:'ref:'+i, label:`ver referência · ${n}`, hint:'anexo da tarefa' }); });
@@ -604,6 +604,7 @@ async function fwMoreDo(t, k, anchor){
   else if(k==='prcopy') copyLink(t.prUrl);
   else if(k==='propen') prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
   else if(k==='pv' && pv) invoke('open_url',{ url:pv }).catch(e=>showErr(e, 'Não consegui abrir o preview'));
+  else if(k==='pvmob' && pv && (typeof isLocalSpace==='function'&&isLocalSpace()) && typeof upgradeToast==='function') upgradeToast('celular'); // Grátis (F1): o link só chega ao celular pela nuvem
   else if(k==='pvmob' && pv){ toast('criando o túnel pro celular…'); const pub=await mobilePreview(t.id, pv); if(pub && typeof tunnelUp!=='undefined') tunnelUp[t.id]=pub; renderWorkspace(); }
   else if(k==='pvoff') await fwTunnelOff(t);
   else if(k==='push') await fwPushTask();
@@ -611,7 +612,7 @@ async function fwMoreDo(t, k, anchor){
   else if(k==='dev') dvToggle();
   else if(k==='pause') await pauseTask(t.id);
   else if(k==='fromdz') await openFromDesign(t);
-  else if(k==='breakdown') await openBreakdown(t);
+  else if(k==='breakdown'){ if((typeof isLocalSpace==='function'&&isLocalSpace()) && typeof upgradeToast==='function') upgradeToast('epico'); else await openBreakdown(t); }
   else if(k==='linkfix') await openLinkedFix(t);
   else if(k==='pubproofs') await cloudPublishProofs(t, null);
   else if(k.startsWith('ref:')){ const r=(t.refs||[])[+k.slice(4)]; if(r) await openRef(t.id, String(r).split('/').pop()); }

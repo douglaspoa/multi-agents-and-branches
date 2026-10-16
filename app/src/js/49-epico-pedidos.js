@@ -8,6 +8,7 @@
 //  - vincular: epic_id do cartão (cartão que ainda não existe — ex.: rascunho — é publicado já no épico), contexto
 //    do épico pro motor e o epicId da spec LOCAL pelo CLI (`epic apply-link`) — a tarefa NÃO é recriada nem reiniciada;
 //  - mantém .cardume/epic-requests/epics.json (épicos do time) pro `cardume epic list`.
+const ER_GRATIS='o épico no quadro do time é do Pro — este Starfork está no Grátis (tudo neste computador). No Grátis, divida o trabalho em etapas locais (Dividir, na Nova demanda). Nada foi criado nem alterado.';
 const ER_NO_LOGIN='o Starfork não está logado na nuvem — o épico é do TIME. Entre na sua conta (botão Conta, no rodapé da barra lateral), escolha um time e peça de novo. Nada foi criado nem alterado.';
 const ER_NO_TEAM='o Starfork está logado, mas sem time escolhido — o épico é do TIME. Escolha um time no botão Conta (rodapé da barra lateral) e peça de novo. Nada foi criado nem alterado.';
 const erFold=s=>String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim().toLowerCase();
@@ -199,6 +200,7 @@ async function erWriteContext(epicId, proj){
 
 async function erApplyOne(r){
   const bad=erValidate(r); if(bad) return erRefused(r, bad);
+  if(typeof isLocalSpace==='function' && isLocalSpace()) return erRefused(r, ER_GRATIS); // Grátis (F1): o épico do time é nuvem
   if(!SB.sess()) return erRefused(r, ER_NO_LOGIN);
   if(!cloudTeamId()) return erRefused(r, ER_NO_TEAM);
   let ep=null;
@@ -266,7 +268,7 @@ async function erTick(){
   if(erBusy || (typeof SF_PANE!=='undefined'&&SF_PANE) || !state.repo) return;
   erBusy=true;
   try{
-    const logged=!!(SB.sess()&&cloudTeamId());
+    const logged=!!(SB.sess()&&cloudTeamId()); // cloudTeamId() é '' no espaço local (Grátis): os pedidos seguem pelo caminho local
     if(logged && (typeof cloudScopeOk!=='function'||cloudScopeOk())) await erPublishEpicsList(false);
     const pend=await invokeQuiet('epic_requests_pending').catch(()=>[]);
     if(!Array.isArray(pend)||!pend.length) return;
@@ -300,4 +302,4 @@ function erAfter(r, res){
   if(t && late && (t.busy || (typeof ACTIVE_ST!=='undefined'&&ACTIVE_ST.has(t.status))))
     invokeQuiet('add_instruction',{ taskId:t.id, text:'Seu pedido de épico ('+r.id+') foi '+(res.ok?'EXECUTADO':'RECUSADO')+' pelo app: '+res.message+(res.epicId?' (épico '+res.epicId+')':'')+(res.ok?'':' Não repita igual; se for essencial, pergunte ao humano.') }).catch(()=>{});
 }
-tickLoop('epicRequests', erTick, 3000, 2000);
+tickLoop('epicRequests', erTick, 3000, 2000, { local:true }); // pedidos do terminal rodam no Grátis também

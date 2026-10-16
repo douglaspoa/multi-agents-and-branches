@@ -678,6 +678,7 @@ async function memCloudTombstone(repo, slug){
   }catch(e){ console.warn('memCloudTombstone', e); }
 }
 async function memTeamSync(){
+  if(typeof cloudAllowed==='function' && !cloudAllowed()) return false; // Grátis (F1): memória fica no disco do projeto
   if(memSyncBusy) return false; memSyncBusy=true; memLastSyncErr='';
   const repo=state.repo; // o sync inteiro é PRESO a este projeto
   let changed=false, aborted=false, secrets=0;

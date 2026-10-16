@@ -8,11 +8,16 @@ let billingPlans=[], myBilling=null, billingOn=false, payYear=false, payPollT=nu
 function fmtBRL(c){ return 'R$ '+(c/100).toFixed(2).replace('.',','); }
 function billingActive(){ return !billingOn || (myBilling && (myBilling.org || ['trialing','active'].includes(myBilling.status))); }
 async function billingSync(){
+  try{ await billingSyncRun(); } finally { if(typeof espacoSync==='function') espacoSync(); } // Grátis (F1): login/sair/plano mudam o espaço
+}
+async function billingSyncRun(){
   if(!SB.sess()){ billingOn=false; billingKnown=false; payHide(); return; }
   try{
-    billingPlans=await sbGet('billing_plans?select=*&active=eq.true');
-    billingOn=billingPlans.length>0; billingKnown=true;
-    if(!billingOn){ payHide(); return; }
+    const plans=await sbGet('billing_plans?select=*&active=eq.true');
+    billingPlans=plans; billingKnown=true;
+    if(!plans.length){ billingOn=false; payHide(); return; }
+    // cobrança ligada: decide a assinatura ANTES de ligar o billingOn — sem isso o espaço piscava pro local
+    // (billingActive() false com myBilling ainda vazio) no meio do sync de quem é Enterprise.
     // licença ENTERPRISE da org cobre TODOS os membros. Pergunta ao banco DIRETO (a RLS devolve só as
     // orgs de que sou membro) em vez de depender do cloudData: antes, com a conta ainda carregando (ou
     // falhando), o sync saía sem decidir, myBilling ficava vazio e o login mandava o membro enterprise
@@ -23,11 +28,12 @@ async function billingSync(){
     // Antes só 'enterprise' contava — o Beto (org 'team', liberada até 01/11 pelo admin) caía na tela de planos (30/09).
     const now=new Date();
     const grant=(orgs||[]).find(o=>o && ((o.paid_until && new Date(o.paid_until)>now) || (o.plan==='enterprise' && !o.paid_until)));
-    if(grant){ myBilling={ plan:grant.plan||'enterprise', status:'active', org:true }; payHide(); return; }
+    if(grant){ myBilling={ plan:grant.plan||'enterprise', status:'active', org:true }; billingOn=true; payHide(); return; }
     const rows=await sbGet('billing?select=*');
     const mine=rows.find(r=>r.user_id===cloudUserId());
-    const team=rows.find(r=>r.plan==='team' && ['trialing','active'].includes(r.status) && r.team_id===cloudTeamId());
+    const team=rows.find(r=>r.plan==='team' && ['trialing','active'].includes(r.status) && r.team_id===(lsGet('sb:team')||''));
     myBilling=(mine && ['trialing','active'].includes(mine.status)) ? mine : (team || mine || null);
+    billingOn=true;
     if(billingActive()){ payHide(); } else payShow();
   }catch(_){ /* erro de rede NUNCA tranca o app */ payHide(); }
 }
@@ -62,13 +68,13 @@ $id('payLogout').onclick=()=>{ sbLogout(); payHide(); }; // um caminho só pra s
 async function payCheckout(plan,btn){
   const iv=payYear?'year':'month';
   const p=billingPlans.find(x=>x.plan===plan&&x.interval===iv); if(!p) return;
-  if(plan==='team'&&!cloudTeamId()){ toast('Pra assinar o plano Time, entre ou crie um time primeiro (Ajustes › Times e pessoas).','warn'); return; }
+  if(plan==='team'&&!(lsGet('sb:team')||'')){ toast('Pra assinar o plano Time, entre ou crie um time primeiro (Ajustes › Times e pessoas).','warn'); return; }
   const btnTx=btn?btn.textContent:''; // volta o rótulo que o botão tinha ("Começar N dias grátis")
   if(btn){ btn.disabled=true; btn.textContent='abrindo…'; }
   try{
     const r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST',
       headers:{ 'Content-Type':'application/json', 'apikey':SB.key(), 'Authorization':'Bearer '+SB.sess().access_token },
-      body: JSON.stringify({ planId:p.id, teamId: plan==='team'?cloudTeamId():null }) });
+      body: JSON.stringify({ planId:p.id, teamId: plan==='team'?(lsGet('sb:team')||null):null }) });
     const j=await r.json();
     if(!j.url) throw new Error(j.error||('HTTP '+r.status));
     try{ await invoke('open_url',{ url:j.url }); }catch(_){ window.open(j.url); }
@@ -101,24 +107,34 @@ let secretsCache=null;
 //  'adopt'  — arquivo sem dono (versão antiga) e o último e-mail que entrou nesta máquina (no boot) é o desta sessão:
 //             migração sem clique;
 //  'clear'  — arquivo de OUTRA conta, ou sem dono e de outra pessoa: limpa antes de qualquer uso, nada sobe pro cofre.
+//  'adopt-local' — arquivo do GRÁTIS (dono '-', chaves guardadas sem conta neste computador): a pessoa que entrou é quem
+//             usa este computador — as chaves que a conta ainda não tem sobem pro cofre (as da conta valem por cima).
 function secretsLocalPlan(owner, uid, bootEmail, sessEmail){
+  if(owner==='-') return 'adopt-local';
   if(owner) return owner===uid ? 'mirror' : 'clear';
   const a=String(bootEmail||'').trim().toLowerCase(), b=String(sessEmail||'').trim().toLowerCase();
   return a && a===b ? 'adopt' : 'clear';
+}
+// quais linhas `NOME=valor` do llm.env local sobem pro cofre (adopt-local: só os nomes que o cofre ainda não tem)
+function secretsLocalPairs(txt, have){
+  const h=new Set(have||[]);
+  return String(txt||'').split('\n').map(l=>l.trim()).filter(l=>/^[A-Z][A-Z0-9_]{2,63}=/.test(l) && !h.has(l.slice(0,l.indexOf('='))));
 }
 // @puro-chaves-dono-fim
 const SECRETS_BOOT_EMAIL=lsGet('sb:email')||''; // quem tinha entrado por último ANTES deste boot (o login de agora sobrescreve sb:email)
 async function secretsSync(){
   if(!SB.sess()) return;
+  if(typeof cloudAllowed==='function' && !cloudAllowed()) return; // Grátis (F1): espaço local — as chaves ficam só no llm.env
   try{
     const uid=cloudUserId(), sess=SB.sess();
     const plan=secretsLocalPlan(lsGet('sb:llmEnvOwner'), uid, SECRETS_BOOT_EMAIL, sess && sess.user && sess.user.email);
     if(plan==='clear'){ await invoke('write_llm_env',{ content:'' }); lsSet('sb:llmEnvOwner',''); }
     let rows=await sbGet('user_secrets?select=name,value&order=name');
-    if(!rows.length && plan==='adopt'){
-      // primeira vez: adota o llm.env local existente (migração sem clique) — um POST só (tudo ou nada)
+    if(plan==='adopt-local' || (!rows.length && plan==='adopt')){
+      // adopt: primeira vez, adota o llm.env local existente (migração sem clique) · adopt-local: as chaves do Grátis que
+      // a conta ainda não tem — um POST só nos dois casos (tudo ou nada)
       const local=await invoke('read_llm_env').catch(()=>'');
-      const pairs=String(local||'').split('\n').map(l=>l.trim()).filter(l=>/^[A-Z][A-Z0-9_]{2,63}=/.test(l));
+      const pairs=secretsLocalPairs(local, plan==='adopt-local'?rows.map(r=>r.name):[]);
       if(pairs.length){
         await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
           body: JSON.stringify(pairs.map(l=>{ const i=l.indexOf('='); return { user_id:uid, name:l.slice(0,i), value:l.slice(i+1) }; })) });
@@ -136,19 +152,41 @@ async function secretsSync(){
 // nuvem fica intacto) — quem entrar depois começa sem chave e nada da conta anterior é adotado.
 async function secretsForget(){
   secretsCache=null;
+  // chaves do Grátis (dono '-', guardadas sem conta) são deste computador, não de uma conta: sair não as apaga
+  if(lsGet('sb:llmEnvOwner')==='-'){ try{ await secretsAvailRefresh(); }catch(_){ } return; }
   try{ await invoke('write_llm_env',{ content:'' }); lsSet('sb:llmEnvOwner',''); }catch(_){ }
   try{ await secretsAvailRefresh(); }catch(_){ }
 }
 // chave nova/removida (ex.: DEEPSEEK_API_KEY) vale JÁ no seletor/Ambiente: zera o cache de 30s da disponibilidade
 // (o Rust também esquece as prontas/saldo do medidor do plano — e o medidor relê na hora)
 function secretsAvailRefresh(){ if(typeof suaIaAt!=='undefined') suaIaAt=0; /* painel Sua IA relê na próxima vez */ try{ return Promise.resolve(invoke('ai_avail_refresh')).catch(()=>{}).then(()=>{ if(typeof planMeterReset==='function') planMeterReset(); }); }catch(_){ return Promise.resolve(); } }
+// ---- Grátis (F1): espaço local grava e apaga DIRETO no llm.env deste computador (nada sobe) ----
+// o arquivo é de outra conta (sobrou de quem saiu sem limpar)? limpa antes — nunca herda chave de outra conta (PR #130)
+async function secretsLocalFile(){
+  const owner=lsGet('sb:llmEnvOwner')||'', me=(typeof cloudUserId==='function'&&cloudUserId())||'';
+  if(owner && owner!=='-' && owner!==me){ await invoke('write_llm_env',{ content:'' }); lsSet('sb:llmEnvOwner',''); return ''; }
+  return String(await invoke('read_llm_env').catch(()=>'')||'');
+}
+function secretsLocalRows(txt){ return String(txt||'').split('\n').map(l=>l.trim()).filter(l=>/^[A-Z][A-Z0-9_]{2,63}=/.test(l)).map(l=>{ const i=l.indexOf('='); return { name:l.slice(0,i), value:l.slice(i+1) }; }); }
+async function secretsLocalLoad(){ secretsCache=secretsLocalRows(await secretsLocalFile()); return secretsCache; }
+async function secretsLocalWrite(name, value){
+  const cur=(await secretsLocalFile()).split('\n').filter(l=>l.trim() && !l.startsWith(name+'='));
+  if(value!=null) cur.push(name+'='+value);
+  await invoke('write_llm_env',{ content: cur.length?cur.join('\n')+'\n':'' });
+  const me=(typeof cloudUserId==='function'&&cloudUserId())||'';
+  if(lsGet('sb:llmEnvOwner')!==me || !me) lsSet('sb:llmEnvOwner','-'); // arquivo espelho desta conta continua dela; o resto é do Grátis
+  await secretsLocalLoad();
+}
+function secretsAreLocal(){ return typeof isLocalSpace==='function' && isLocalSpace(); }
 async function secretSet(name, value){
+  if(secretsAreLocal()){ await secretsLocalWrite(name, value); await secretsAvailRefresh(); return; }
   await sbFetch('/rest/v1/user_secrets?on_conflict=user_id,name',{ method:'POST', headers:{ 'Prefer':'resolution=merge-duplicates' },
     body: JSON.stringify({ user_id:cloudUserId(), name, value }) });
   await secretsSync();
   await secretsAvailRefresh();
 }
 async function secretDel(name){
+  if(secretsAreLocal()){ await secretsLocalWrite(name, null); await secretsAvailRefresh(); return; }
   await sbFetch('/rest/v1/user_secrets?user_id=eq.'+cloudUserId()+'&name=eq.'+encodeURIComponent(name), { method:'DELETE' });
   try{ lsSet('sb:llmEnvOwner', cloudUserId()); }catch(_){ } // o arquivo local agora é espelho desta conta: a chave removida não volta pela "adoção" (bloqueador 01)
   await secretsSync();
@@ -164,7 +202,8 @@ function raGet(n){ const r=(secretsCache||[]).find(x=>x.name===n); return r?Stri
 // a chave que o gateway usa: ALT_AI_KEY, ou a antiga LGCX_API_KEY quando só ela existe
 function raKeyName(){ return raGet('ALT_AI_KEY')?'ALT_AI_KEY':raGet('LGCX_API_KEY')?'LGCX_API_KEY':''; }
 function routeAiCfgHtml(){
-  const logged=!!SB.sess();
+  const local=typeof secretsAreLocal==='function' && secretsAreLocal();
+  const logged=!!SB.sess() || local; // Grátis: a chave fica no llm.env deste computador
   const key=raGet('ALT_AI_KEY')||raGet('LGCX_API_KEY'); const hasKey=!!key;
   const always=raGet('ALT_AI_ALWAYS')==='1', fallback=raGet('ALT_AI_FALLBACK')==='1';
   const baseUrl=raGet('ALT_AI_BASE_URL')||'https://llm.logcomex.ai/v1';
@@ -178,7 +217,7 @@ function routeAiCfgHtml(){
       <div class="rarow"><span class="ralbl">Chave</span>${hasKey
         ? `<span class="raok">✓ configurada</span><span class="dim mono">••••${esc(key.slice(-4))}</span><span style="flex:1"></span><button class="btn sm" id="raKeyEdit">trocar</button><button class="btn sm" id="raKeyDel">remover</button>`
         : `<input class="in mono" id="raKey" type="password" placeholder="cole a chave do gateway" style="flex:1" aria-label="chave do gateway"><button class="btn sm" id="raKeySave">salvar</button>`}</div>
-      <p class="dim rakept">salva na sua conta, vale em qualquer computador</p>
+      <p class="dim rakept">${local?'Guardada só neste computador':'salva na sua conta, vale em qualquer computador'}</p>
       <div class="rarow"><label class="ralbl" for="raBase">Endereço</label><input class="in mono" id="raBase" value="${escA(baseUrl)}" placeholder="https://.../v1"${hasKey?'':' disabled'}></div>
       <div class="rarow"><label class="ralbl" for="raLabel">Nome no app</label><input class="in" id="raLabel" value="${escA(label)}" placeholder="ex.: IA da empresa"${hasKey?'':' disabled'}></div>
       <div class="rarow"><label class="ralbl" for="raModel">Modelo</label><select class="sel" id="raModel"${hasKey?'':' disabled'}>${RA_MODELS.map(m=>`<option value="${escA(m[0])}"${m[0]===model?' selected':''}>${esc(m[1])}</option>`).join('')}${known?'':`<option value="${escA(model)}" selected>${esc(model)} (outro modelo)</option>`}</select></div>
@@ -194,11 +233,12 @@ window.routeAiMount=function(){
   const h=$id('raHost'); if(!h) return;
   h.innerHTML=routeAiCfgHtml(); wireRouteAiCfg(h);
   // se as chaves ainda não sincronizaram, puxa e re-renderiza só este bloco
-  if(SB.sess() && secretsCache===null){ secretsSync().then(()=>{ const h2=$id('raHost'); if(h2){ h2.innerHTML=routeAiCfgHtml(); wireRouteAiCfg(h2); } }).catch(()=>{}); }
+  if(secretsAreLocal() && secretsCache===null){ secretsLocalLoad().then(()=>{ const h2=$id('raHost'); if(h2){ h2.innerHTML=routeAiCfgHtml(); wireRouteAiCfg(h2); } }).catch(()=>{}); }
+  else if(SB.sess() && secretsCache===null){ secretsSync().then(()=>{ const h2=$id('raHost'); if(h2){ h2.innerHTML=routeAiCfgHtml(); wireRouteAiCfg(h2); } }).catch(()=>{}); }
 };
 function wireRouteAiCfg(root){
   { const si=root.querySelector('#raSignIn'); if(si) si.onclick=()=>{ if(typeof auShow==='function') auShow(lsGet('sb:email')?'login':'signup'); }; }
-  if(!SB.sess()) return;
+  if(!SB.sess() && !secretsAreLocal()) return;
   const $=id=>root.querySelector('#'+id);
   // gravou/removeu → o painel Sua IA relê o estado (o cartão do gateway sai de "falta configurar")
   const relSuaIa=r=>{ if(typeof suaIaLoad==='function') suaIaLoad(true).catch(()=>{}); return r; };
@@ -232,7 +272,8 @@ setInterval(secretsSync, 30*60*1000);
 // ========== dados do usuário: repo + memória (.cardume) seguem a conta ==========
 let repoSyncBusy=false;
 async function userRepoSync(){
-  if(!SB.sess()||repoSyncBusy) return; repoSyncBusy=true;
+  if(!SB.sess()||repoSyncBusy) return;
+  if(typeof cloudAllowed==='function' && !cloudAllowed()) return; // Grátis (F1): memória do projeto fica só no disco repoSyncBusy=true;
   try{
     const info=state.repo?await invoke('repo_docs').catch(()=>null):null; // sem projeto aberto: nada a sincronizar (antes: erro 'repo não definido' no painel a cada 10min)
     if(!info||!info.repo) return;
@@ -264,4 +305,4 @@ setTimeout(userRepoSync, 15000);
 setInterval(userRepoSync, 10*60*1000);
 bindClick('cloudBtn', ()=>{ if(typeof ajustesOpen==='function') ajustesOpen('perfil'); else openCloud(); });
 // boot: sincroniza o rótulo do botão (e renova o token se já havia sessão)
-if(SB.configured() && SB.sess()){ sbRefresh().then(()=>cloudLoad()).then(cloudBtnSync).catch(()=>cloudBtnSync()); } else cloudBtnSync();
+if(SB.configured() && SB.sess()){ sbRefresh().then(()=>(typeof cloudAllowed!=='function'||cloudAllowed())?cloudLoad():null).then(cloudBtnSync).catch(()=>cloudBtnSync()); } else cloudBtnSync();

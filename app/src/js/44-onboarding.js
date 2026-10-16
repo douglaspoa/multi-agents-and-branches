@@ -19,6 +19,8 @@ function auShow(step, opts){
   if(typeof SF_PANE!=='undefined' && SF_PANE) return; // painel: conta/cobrança/onboarding são da janela principal
   au.msg=''; au.msgKind=''; au.msgRef=''; au.acts=null; au.err={}; au.focus=''; au.busy=false;
   Object.assign(au, opts||{}); if(step) au.step=step;
+  // Grátis (F1): a tela de conta só abre por vontade própria e SEMPRE dá pra fechar ("voltar" → o app segue local)
+  if(!SB.sess() && !au.backTo && ['login','signup','confirm','newpass'].includes(au.step)) au.backTo=()=>{};
   const o=auEl(); if(!o) return; const R=$id('auRight'); if(R) R.dataset.step=''; // tela nova: não herda o que foi digitado noutra
   o.style.display='flex'; auInert(true, document.body, o); auTrapWire(o); auRender();
 }
@@ -45,7 +47,8 @@ function auTrapNext(list, cur, back){
   if(!back && i===list.length-1) return list[0];
   return null; // meio da lista: o navegador segue normal
 }
-// abrir abas/planejador por trás da tela de entrada SEM sessão não pode (atalho, Enter, chamada solta)
+// abrir abas/planejador por trás da tela de entrada SEM sessão não pode (atalho, Enter, chamada solta). Grátis (F1): a tela
+// só está aberta quando a pessoa pediu pra entrar — e ela fecha no "voltar"; fechada, nada bloqueia.
 function auBlocksApp(open, hasSess){ return !!open && !hasSess; }
 // @puro-au-foco-fim
 function auTrapWire(o){
@@ -157,12 +160,25 @@ async function auAfterSession(o){
   try{ if(typeof appVersionPing==='function') appVersionPing(); }catch(_){ } // /admin vê a versão logo após o login
   try{ await billingSync(); }catch(_){ }
   try{ if(typeof secretsSync==='function') secretsSync().then(secretsAvailRefresh).catch(()=>{}); }catch(_){ } // chaves da conta valem já (não espera o ciclo de 30 min)
-  if(typeof billingOn!=='undefined' && billingOn && !billingActive()){ auPlanFromSite(); auShow('plans'); return; }
+  // Grátis (F1): sem plano a conta fica no Grátis (tudo local) — os planos só abrem se a pessoa pediu (Assinar o Pro) ou
+  // escolheu um plano no site ao criar a conta. Nunca à força.
+  const want=au.wantPlans || (o.fresh && auSiteWantsPlan()); au.wantPlans=false;
+  if(typeof billingOn!=='undefined' && billingOn && !billingActive()){
+    if(want){ auPlanFromSite(); auShow('plans'); return; }
+    gratisAvisoConta();
+  } else if(want && typeof billingOn!=='undefined' && !billingOn && typeof planosAssinar==='function'){ auHide(); planosAssinar(); return; }
   if(!o.fresh){ const j=(typeof cloudJoinedMsg==='function')?cloudJoinedMsg():''; auHide(); if(j){ try{ toast(j,'ok'); }catch(_){ } } return; }
   auShow('ready');
 }
 // conta criada pelo site (starfork.com.br/comecar): o plano e o ciclo escolhidos lá vêm no user_metadata —
 // a tela de planos já abre neles (a pessoa só confirma e vai pro teste grátis).
+function auSiteWantsPlan(){ try{ const m=(SB.sess()&&SB.sess().user&&SB.sess().user.user_metadata)||{}; return m.plano_desejado==='individual'||m.plano_desejado==='team'; }catch(_){ return false; } }
+// aviso DISCRETO (uma vez por sessão do app) de que a conta logada está no Grátis — nunca uma tela por cima
+let gratisAvisado=false;
+function gratisAvisoConta(){
+  if(gratisAvisado) return; gratisAvisado=true;
+  try{ toast('Sua conta está no Grátis: tudo roda no seu computador. A nuvem do time é do Pro.', 'info', { label:'ver os planos', fn:()=>{ if(typeof planosOpen==='function') planosOpen(); } }); }catch(_){ }
+}
 function auPlanFromSite(){
   try{
     const m=(SB.sess()&&SB.sess().user&&SB.sess().user.user_metadata)||{};
@@ -521,13 +537,13 @@ function auCheckoutErr(status, body, e){
 async function auCheckout(){
   if(au.busy) return; // 2 cliques = 2 sessões de checkout
   const p=auPlanRow(au.plan.key, au.plan.interval); if(!p){ au.msg='Esse plano não está disponível agora — volte e escolha de novo.'; auRender(); return; }
-  if(au.plan.key==='team' && !cloudTeamId()){ au.msg='Pra assinar o plano Time, crie ou entre num time primeiro (Ajustes › Times e pessoas).'; auRender(); return; }
+  if(au.plan.key==='team' && !(lsGet('sb:team')||'')){ au.msg='Pra assinar o plano Time, crie ou entre num time primeiro (Ajustes › Times e pessoas).'; auRender(); return; }
   const sess=SB.sess(); if(!sess||!sess.access_token){ au.msg=T('auth.err.session_expired'); auRender(); return; }
   au.busy=true; au.msg=''; auRender();
   let r=null, j=null;
   try{
     r=await fetch(SB.url()+'/functions/v1/stripe-checkout',{ method:'POST', headers:{ 'Content-Type':'application/json', 'apikey':SB.key(), 'Authorization':'Bearer '+sess.access_token },
-      body: JSON.stringify({ planId:p.id, teamId: au.plan.key==='team'?cloudTeamId():null, seats: (au.plan.key==='team'&&p.per_seat)?au.plan.seats:1 }) });
+      body: JSON.stringify({ planId:p.id, teamId: au.plan.key==='team'?(lsGet('sb:team')||null):null, seats: (au.plan.key==='team'&&p.per_seat)?au.plan.seats:1 }) });
     j=await r.json().catch(()=>null);
   }catch(e){ // só é "sem conexão" quando o fetch diz isso; o resto (AbortError, bug) cai no genérico
     const net=/failed to fetch|load failed|networkerror/i.test(String((e&&e.message)||e||''));
@@ -543,18 +559,20 @@ async function auCheckout(){
   _auTimer=setInterval(async()=>{ if(au.step!=='pay'||!auOpen()){ clearInterval(_auTimer); _auTimer=null; return; } try{ await billingSync(); }catch(_){ } if(billingActive()){ clearInterval(_auTimer); _auTimer=null; auShow('ready',{ paid:true }); } }, 5000);
 }
 // ---- gates: substituem o cadeado do cloudOverlay e o payOverlay antigo ----
+// Grátis (F1): o login é OPCIONAL. Sem sessão o app abre no espaço local; a tela de entrada só aparece quando a pessoa
+// pede (lateral, Ajustes, CTAs). Sessão que caiu sozinha vira AVISO e o app segue local — nunca tranca.
 loginGateSync=function(){
   if(typeof SF_PANE!=='undefined' && SF_PANE) return; // painel da tela dividida: o login é da janela principal
   const ov=$id('cloudOverlay'); if(ov){ ov.dataset.lock=''; ov.style.zIndex=''; const x=$id('cloudClose'); if(x) x.style.display=''; if(ov.style.display==='flex'&&!SB.sess()) ov.style.display='none'; }
   if(!SB.sess()){
-    if(!auOpen()||!['login','signup','confirm','newpass'].includes(au.step)){
-      // sessão caiu sozinha (refresh_token inválido): aviso amigável em vez de erro cru
-      const ended=lsGet('sb:ended')==='expired'; if(ended) lsSet('sb:ended','');
-      auShow(lsGet('sb:email')?'login':'signup', Object.assign({ fromGate:true, email:lsGet('sb:email')||au.email }, ended?{ msg:T('auth.expired'), msgKind:'info' }:{}));
+    if(lsGet('sb:ended')==='expired'){
+      lsSet('sb:ended','');
+      try{ toast('Sua sessão expirou. O app segue no Grátis, neste computador — entre de novo pra voltar à nuvem do time.', 'info', { label:'entrar', fn:()=>auShow('login',{ email:lsGet('sb:email')||au.email, msg:T('auth.expired'), msgKind:'info' }) }); }catch(_){ }
     }
   }
   else if(auOpen() && ['login','signup'].includes(au.step)) auHide();
 };
-payShow=function(){ if(!auOpen()||!['plans','pay'].includes(au.step)) auShow('plans'); };
+// cobrança ligada e conta sem plano: fica no Grátis com um aviso discreto (antes abria os planos à força)
+payShow=function(){ gratisAvisoConta(); };
 payHide=function(){ if(auOpen() && ['plans','pay'].includes(au.step) && !au.waiting) auHide(); };
 setTimeout(()=>loginGateSync(), 3200);

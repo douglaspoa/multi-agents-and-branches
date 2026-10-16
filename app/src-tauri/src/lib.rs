@@ -6776,6 +6776,20 @@ fn update_dest(cur_app: &std::path::Path, new_app: &std::path::Path) -> PathBuf 
     cur_app.to_path_buf()
 }
 
+/// Plano Grátis (F1): canal PÚBLICO de atualização, pra quem está sem conta — o latest.json dos downloads da landing no
+/// GitHub Releases (mesmo formato do bucket privado). Pelo Rust porque o github.com responde 302 sem CORS (o fetch do
+/// WebView não segue). URL FIXA (nada vindo do front). 404/sem rede/qualquer falha → "" (o front fica em silêncio).
+const UPD_PUB_MANIFEST: &str = "https://github.com/douglaspoa/multi-agents-and-branches/releases/latest/download/latest.json";
+#[tauri::command(async)]
+fn update_manifest_public() -> String {
+    let mut c = Command::new("curl");
+    c.args(["-fsSL", "--max-time", "15", "--max-filesize", "65536", UPD_PUB_MANIFEST]);
+    match output_timeout(c, 20) {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+        _ => String::new(),
+    }
+}
+
 /// Auto-update estilo Claude: baixa o zip (URL assinada), troca o .app em
 /// disco e relança. curl/ditto não aplicam quarantine → abre sem Gatekeeper.
 #[tauri::command(async)]
@@ -10915,6 +10929,7 @@ pub fn run() {
             project_chat,
             is_dev_install,
             apply_update,
+            update_manifest_public,
             notify_native,
             notif_status,
             notif_open_settings,

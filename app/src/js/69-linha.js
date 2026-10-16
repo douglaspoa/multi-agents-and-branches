@@ -237,6 +237,11 @@ window.linhaTimeHtml=linhaTimeHtml;
 let lnProjRepo=null, lnProjIds=null, lnProjSig='', lnProjErr=null, lnProjTry=0, lnProjShown=null;
 function linhaProjMount(){
   const host=$id('projLinhaHost'); if(!host) return;
+  if((typeof isLocalSpace==='function'&&isLocalSpace()) && typeof upgradeCtaHtml==='function'){ // Grátis (F1): a Linha é do quadro do time (nuvem)
+    const h=emptyHtml({ icon:'cloud', title:'A Linha é do time', help:'O que este projeto está entregando e quando, junto com o time.' })+upgradeCtaHtml('time');
+    if(lnProjSig!==h){ lnProjSig=h; host.innerHTML=h; upgradeCtaWire(host); }
+    return;
+  }
   if(!(typeof SB!=='undefined'&&SB.sess()) || !(typeof cloudTeamId==='function'&&cloudTeamId())){
     const h=emptyHtml({ icon:'cloud', title:'A Linha é do time', help:'Entre na sua conta e num time pra ver o que este projeto está entregando e quando.', action:{ id:'lnGoConta', label:'Abrir Conta e time' } });
     if(lnProjSig!==h){ lnProjSig=h; host.innerHTML=h; bindClick('lnGoConta', ()=>{ if(typeof g1Ajustes==='function') g1Ajustes('conta'); else openTab('conta'); }); }

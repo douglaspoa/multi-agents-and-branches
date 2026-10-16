@@ -315,6 +315,7 @@ function renderWf(){
   el.querySelectorAll("[data-wshare]").forEach(b=>b.onclick=async()=>{
     const w=cfgEdit.workflows[+b.dataset.wshare]; if(!w) return;
     const orgId=cloudData&&cloudData.org&&cloudData.org.id;
+    if((typeof isLocalSpace==='function'&&isLocalSpace()) && typeof upgradeToast==='function'){ upgradeToast('time'); return; } // Grátis (F1): o catálogo do time é nuvem
     if(!SB.sess()||!orgId){ toast('Entre na sua conta e numa organização primeiro (Conta e time, no rodapé da barra lateral).','warn'); return; }
     // F5 · P14/P17: a equipe passa pela política da organização antes de ir pro catálogo do time
     { const byId0=Object.fromEntries(cfgEdit.agents.map(a=>[a.id,a])); const bad=typeof orgTeamShareBlock==='function'?orgTeamShareBlock(agTeamRoles(w.steps||[], byId0, false)):'';
