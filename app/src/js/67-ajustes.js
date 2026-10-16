@@ -622,7 +622,7 @@ async function ajRenderPerfil(host){
   { const i=$id('ajName'); if(i) i.onchange=async()=>{ const v=i.value.trim(); const e=$id('ajNameErr'); if(e) e.hidden=true;
       try{ await sbFetch('/rest/v1/profiles?user_id=eq.'+ajMe(), { method:'PATCH', body:JSON.stringify({ name:v||null }) }); if(prof) prof.name=v; try{ cloudBtnSync(); }catch(_){ } ajSaved(); }
       catch(err){ if(e){ e.textContent=cloudErrMsg(err,'Não salvou o nome'); e.hidden=false; } } }; }
-  bindClick('ajPass', ()=>auShow('newpass', { backTo:()=>ajustesOpen('perfil') }));
+  bindClick('ajPass', ()=>auShow('newpass', { backTo:()=>ajustesOpen('perfil'), recovering:false }));
   bindClick('ajLogout', async()=>{ const b=$id('ajLogout'); if(!await sheetAsk({ anchor:b, title:'Sair da conta neste computador?', text:'As tarefas que estão rodando continuam. Pra ver o time de novo, entre outra vez.', ok:'sair', danger:true })) return; sbLogout(); ajSectionPaint(); });
 }
 async function ajRenderOrg(host){

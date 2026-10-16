@@ -220,7 +220,8 @@ function auRender(){
 // ligações comuns: sair/voltar, links externos, ações de erro, mostrar senha, Caps Lock, foco
 function auBindCommon(R, fresh){
   bindClick('auLogout', ()=>{ sbLogout(); auShow('login'); });
-  bindClick('auBack', ()=>{ const b=au.backTo; au.backTo=null; auHide(); if(typeof b==='function') b(); });
+  // "voltar" na nova senha da recuperação: a sessão do código não fica aberta nesta máquina
+  bindClick('auBack', ()=>{ const b=au.backTo; au.backTo=null; if(au.step==='newpass' && au.recovering){ au.recovering=false; sbLogout(); } auHide(); if(typeof b==='function') b(); });
   R.querySelectorAll('[data-ext]').forEach(a=>a.onclick=()=>openExternal(a.dataset.ext));
   R.querySelectorAll('[data-auact]').forEach(a=>a.onclick=()=>{ const f=(au.acts||[])[+a.dataset.auact]; if(f) f[1](); });
   const ACT={ toLogin:()=>auShow('login',{ email:au.email }), changeEmail:()=>auShow(au.confirmType==='signup'?'signup':'login',{ email:au.email }) };
@@ -324,7 +325,7 @@ function auRenderConfirm(R, topbar, dis){
     au.err={}; au.busy=true; auRender();
     try{ const j=await sbAuth('verify',{ type:ct==='magiclink'?'magiclink':ct, email:au.email, token:t });
       if(!j.access_token){ au.busy=false; au.msg=T('auth.confirm.no_session'); au.acts=[[T('auth.act.login'),()=>auShow('login',{ email:au.email })]]; auRender(); return; }
-      SB.setSess(j); if(ct==='recovery'){ auShow('newpass'); return; } await auAfterSession({ fresh:ct==='signup' }); }
+      SB.setSess(j); if(ct==='recovery'){ auShow('newpass',{ backTo:null, recovering:true }); return; } await auAfterSession({ fresh:ct==='signup' }); }
     catch(e){ auFail(e); } };
   const fillFrom=(i,d)=>{ [...d].slice(0,6-i).forEach((c,k)=>{ inputs[i+k].value=c; }); const nx=inputs.find(x=>!x.value)||inputs[5]; nx.focus(); };
   inputs.forEach((inp,i)=>{
@@ -380,8 +381,9 @@ function auRenderNewpass(R, topbar, dis){
     au.busy=true; auRender();
     try{ await sbAuthUpdate({ password:a }); au.msg='';
       try{ toast(T('auth.newpass.done'),'ok'); }catch(_){ }
-      if(au.backTo){ const b2=au.backTo; au.backTo=null; auHide(); if(typeof b2==='function') b2(); return; }
-      await auAfterSession(); }
+      // recuperação de senha (sessão do código): sempre segue o pós-login — o "voltar" herdado não vale aqui
+      if(au.backTo && !au.recovering){ const b2=au.backTo; au.backTo=null; auHide(); if(typeof b2==='function') b2(); return; }
+      au.recovering=false; au.backTo=null; await auAfterSession(); }
     catch(e){ if(!SB.sess()){ au.busy=false; auRender(); return; } auFail(e); } };
   $id('auForm').onsubmit=go;
   // voltar sem salvar: a sessão do código de recuperação não fica aberta nesta máquina
