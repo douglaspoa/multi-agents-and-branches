@@ -271,7 +271,8 @@ async function fwOpenInner(taskId, path){
   await pFiles;
   if(fwTask!==taskId) return; // trocou de tarefa/aba enquanto carregava: esta resposta já não vale
   if(fwPath && !fwFiles.some(f=>f.path===fwPath)) fwFiles.unshift({ path:fwPath, add:0, del:0, doc:true });
-  if(!fwPath && fwFiles.length) fwPath=fwFiles[0].path;
+  // arquivo inicial: o código mais mudado (78 cxDefaultFile) — nunca um .tsx gerado de 15 mil linhas ou lixo __MACOSX
+  if(!fwPath && fwFiles.length) fwPath=(typeof cxDefaultFile==='function' && cxDefaultFile(fwFiles))||fwFiles[0].path;
   await Promise.all([fwLoadFile(), pEvs]);
   if(fwTask!==taskId) return;
   renderWorkspace();
@@ -1062,7 +1063,7 @@ function renderWorkspace(){
 // ---- Revisão: diff de verdade por arquivo (redesign p12) ----
 let fwRevOpen=false; // explicação da revisão expandida
 function fwRenderDiff(t, main){
-  if(!fwPath && fwFiles.length) fwPath=fwFiles.filter(f=>!f.doc)[0]?.path||fwFiles[0].path;
+  if(!fwPath && fwFiles.length) fwPath=(typeof cxDefaultFile==='function' && cxDefaultFile(fwFiles.filter(f=>!f.doc)))||fwFiles.filter(f=>!f.doc)[0]?.path||fwFiles[0].path;
   const key=fwPath?fwDiffKey(t, fwPath):'';
   const rev=reviewOf(t.id);
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};

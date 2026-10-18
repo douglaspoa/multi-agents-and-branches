@@ -1,7 +1,7 @@
 // Starfork — 78-codigo-explicado
 // ===== CÓDIGO EXPLICADO (⌘2) — o diff POR TRECHO com o porquê de cada um (redesenho "Semana", 14/10 —
 // _bmad-output/redesenho-foco/codigo-explicado.md e mesa-semana-app.md §7) =====
-// Cada arquivo alterado vira um chip; cada hunk do diff aparece ao lado do PORQUÊ dele, nesta ordem de fonte:
+// Os arquivos alterados ficam numa lista à esquerda (agrupada; gerados e assets recolhidos); cada hunk do diff aparece ao lado do PORQUÊ dele, nesta ordem de fonte:
 //   1. o que o agente registrou (tool register_change_reason → .cardume/artifacts/.starfork/change-reasons.json);
 //   2. o "o que fiz" do mapa requisito → trechos (map_requirement, requirements.json) quando o trecho é de um requisito;
 //   3. inferido da conversa: o texto do assistente logo antes do Edit/Write daquele arquivo (transcript — term_history);
@@ -93,30 +93,65 @@ function cxPtyText(kind, ref, txt){
   if(kind==='paste') return ref+' '+(q?q+' ':'');
   return q?ref+' '+q:'';
 }
-// Muitos arquivos (ex.: 245 imagens de um pacote de assets): só os de código/texto viram chip; o resto fica em
-// "Todos os arquivos", e binário nunca abre sozinho nem pede diff.
+// Muitos arquivos (ex.: 245 de um pacote de assets de jogo): a lista à esquerda agrupa em Código / Testes / Config e
+// outros / Gerados, assets e binários (este recolhido). Binário, gerado e lixo nunca abrem sozinhos nem pedem diff.
 const CX_BIN_RE=/\.(png|jpe?g|gif|webp|bmp|ico|icns|svgz|tiff?|psd|xcf|ase|aseprite|zip|gz|tgz|bz2|xz|7z|rar|jar|mp3|wav|ogg|flac|m4a|mp4|mov|webm|avi|ttf|otf|woff2?|eot|pdf|bin|exe|dll|so|dylib|wasm|glb|gltf|fbx|blend|obj)$/i;
 function cxIsBin(f){ const p=String((f&&f.path)||''); return CX_BIN_RE.test(p) || (!!f && !f.add && !f.del && !!f.binary); }
-// código de verdade antes de texto solto (CREDITS.TXT, LICENSE, README de pacote de assets)
-const CX_CODE_RE=/\.(m?[jt]sx?|c[jt]s|vue|svelte|astro|py|rb|go|rs|java|kt|kts|swift|m|mm|c|cc|cpp|h|hpp|cs|php|scala|ex|exs|dart|lua|sql|css|scss|sass|less|html?|json|ya?ml|toml|gd|gdshader|sh)$/i;
-/** Código/texto primeiro (mais mudado no topo), binários no fim — estável dentro de cada grupo. */
-function cxOrderFiles(files){
-  const a=[], b=[];
-  (files||[]).forEach((f,i)=>{ (cxIsBin(f)?b:a).push({ f, i, c:CX_CODE_RE.test(String(f.path||''))?0:1 }); });
-  a.sort((x,y)=>(x.c-y.c)||(((y.f.add||0)+(y.f.del||0))-((x.f.add||0)+(x.f.del||0)))||(x.i-y.i));
-  return a.map(x=>x.f).concat(b.map(x=>x.f));
+// linguagem de programação (o que vira "Código"); json/yaml/toml/md/txt ficam em Config e outros
+const CX_CODE_RE=/\.(m?[jt]sx?|c[jt]s|vue|svelte|astro|py|rb|go|rs|java|kt|kts|swift|m|mm|c|cc|cpp|h|hpp|cs|php|scala|ex|exs|dart|lua|sql|css|scss|sass|less|html?|gd|gdshader|sh)$/i;
+const CX_HUGE=3000; // texto com mais linhas adicionadas que isso = quase certamente gerado (mapa exportado, bundle, dump)
+const CX_JUNK_RE=/(^|\/)(__MACOSX\/|\._[^/]*$|\.DS_Store$|Thumbs\.db$|desktop\.ini$)/;
+const CX_GEN_RE=/(^|\/)(node_modules|dist|build|vendor|_tmp|tmp|\.next|\.nuxt|coverage|target)\/|(^|\/)(public|static)\/(.*\/)?assets\/|\.min\.(js|css)$|\.map$|(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|bun\.lockb?|composer\.lock|Gemfile\.lock|poetry\.lock)$/;
+const CX_TEST_RE=/(^|\/)(tests?|__tests__|spec|e2e)\/|\.(test|spec)\.[^/]+$|_test\.(go|py|rb|exs?)$|(^|\/)test_[^/]+\.py$/i;
+const CX_CONF_RE=/(^|\/)(\.[^/]+|[^/]*\.config\.[^/]+|Dockerfile[^/]*|Makefile)$/i;
+/** O que é o arquivo: 'junk' (lixo de zip/SO) | 'gen' (gerado, assets, binário, enorme) | 'test' | 'code' | 'other' */
+function cxKind(f){
+  const p=String((f&&f.path)||'').replace(/^\.\//,'');
+  if(CX_JUNK_RE.test(p)) return 'junk';
+  if(cxIsBin(f) || CX_GEN_RE.test(p) || (+(f&&f.add)||0)>CX_HUGE) return 'gen';
+  if(CX_TEST_RE.test(p)) return 'test';
+  if(CX_CODE_RE.test(p) && !CX_CONF_RE.test(p)) return 'code';
+  return 'other';
 }
-const CX_CHIPS_MAX=8;
-/** Quais arquivos viram chip: até CX_CHIPS_MAX de código/texto, e o aberto sempre aparece. */
-function cxChipFiles(files, openPath){
-  const txt=files.filter(f=>!cxIsBin(f)).slice(0, CX_CHIPS_MAX);
-  if(openPath && !txt.some(f=>f.path===openPath)){ const o=files.find(f=>f.path===openPath); if(o) txt.push(o); }
-  return txt;
+/** Texto grande demais pra pintar de cara (resumo + "mostrar mesmo assim"). */
+function cxIsHuge(f){ return !!f && !cxIsBin(f) && ((+f.add||0)+(+f.del||0))>CX_HUGE; }
+const CX_GROUPS=[{ k:'code', label:'Código' },{ k:'test', label:'Testes' },{ k:'other', label:'Config e outros' },{ k:'gen', label:'Gerados, assets e binários' }];
+const CX_KIND_RANK={ code:0, test:1, other:2, gen:3, junk:4 };
+const cxSize=f=>(+f.add||0)+(+f.del||0);
+/** Ordem da lista: Código → Testes → Config → Gerados (texto antes de binário) → lixo; mais mudado no topo, estável. */
+function cxOrderFiles(files){
+  return (files||[]).map((f,i)=>({ f, i, k:CX_KIND_RANK[cxKind(f)], b:cxIsBin(f)?1:0 }))
+    .sort((x,y)=>(x.k-y.k)||(x.b-y.b)||(cxSize(y.f)-cxSize(x.f))||(x.i-y.i)).map(x=>x.f);
+}
+/** Grupos da lista à esquerda (o lixo mora no fim de "Gerados"); só os grupos com arquivo. */
+function cxGroupFiles(files){
+  const ord=cxOrderFiles(files);
+  return CX_GROUPS.map(g=>({ k:g.k, label:g.label, files:ord.filter(f=>{ const k=cxKind(f); return k===g.k || (g.k==='gen' && k==='junk'); }) })).filter(g=>g.files.length);
+}
+/** O que abre por padrão: o código com mais mudança fora de "Gerados"; sem isso, o primeiro que não é lixo. */
+function cxDefaultFile(files){
+  const ord=cxOrderFiles(files);
+  const f=ord.find(x=>cxKind(x)!=='gen' && cxKind(x)!=='junk') || ord.find(x=>cxKind(x)!=='junk' && !cxIsBin(x) && !cxIsHuge(x)) || ord.find(x=>cxKind(x)!=='junk') || null;
+  return f?f.path:null;
+}
+/** "src/game/sprites.ts" → { dir:'src/game/', name:'sprites.ts' } */
+function cxSplitPath(p){ p=String(p||''); const i=p.lastIndexOf('/'); return { dir:i>=0?p.slice(0,i+1):'', name:i>=0?p.slice(i+1):p }; }
+/** Próximo/anterior numa lista de caminhos (J/K): para nas pontas. */
+function cxStep(paths, cur, d){ const L=paths||[]; if(!L.length) return null; const i=L.indexOf(cur); if(i<0) return L[d>0?0:L.length-1]; return L[Math.max(0, Math.min(L.length-1, i+d))]; }
+/** Tecla da navegação da etapa (sem modificador; nunca com foco em campo/terminal): 'next'|'prev'|'hnext'|'hprev'|'find'|'nav'|'' */
+function cxNavKey(e, inField, inNav){
+  if(!e || inField || e.metaKey || e.ctrlKey || e.altKey) return '';
+  const k=String(e.key||'');
+  if(k==='j'||k==='J') return 'next'; if(k==='k'||k==='K') return 'prev';
+  if(inNav && k==='ArrowDown') return 'next'; if(inNav && k==='ArrowUp') return 'prev';
+  if(k==='n'||k==='N') return 'hnext'; if(k==='p'||k==='P') return 'hprev';
+  if(k==='/') return 'find'; if(k==='a'||k==='A') return 'nav';
+  return '';
 }
 // @cx-puro-fim
 
 // ---------------------------------------------------------------- estado e dados
-const CX={ allOpen:{}, binOpen:{}, allQ:'', data:{}, reasons:{}, hist:{}, commits:{}, threads:{}, thLoaded:{}, file:{}, filt:{}, seen:{}, sel:null, selTxt:'', alt:null, altTxt:'', reply:{}, sig:'', loadingAt:{} };
+const CX={ navQ:{}, genOpen:{}, force:{}, data:{}, reasons:{}, hist:{}, commits:{}, threads:{}, thLoaded:{}, file:{}, filt:{}, seen:{}, sel:null, selTxt:'', alt:null, altTxt:'', reply:{}, sig:'', loadingAt:{} };
 function cxOn(){ return typeof TE!=='undefined' && TE.on; }
 function cxCodeFiles(){ return cxOrderFiles((typeof fwFiles!=='undefined'?fwFiles:[]).filter(f=>f && !f.doc && f.source!=='doc')); }
 function cxThreads(taskId){ return CX.threads[taskId]||(CX.threads[taskId]=[]); }
@@ -128,8 +163,10 @@ function cxCounts(taskId){
 }
 function cxTurnCount(taskId){ const h=CX.hist[taskId]; return h&&h.items?h.items.filter(x=>x.k==='you').length:0; }
 // diff de cada arquivo (mesma chave de cache do Código antigo: muda quando +/− do arquivo muda)
-function cxDiffs(t){
-  const files=cxCodeFiles().filter(f=>!cxIsBin(f)).slice(0, 40);
+function cxDiffs(t, openPath){
+  const all=cxCodeFiles(), files=all.filter(f=>{ const k=cxKind(f); return k!=='gen' && k!=='junk'; }).slice(0, 40);
+  const o=all.find(f=>f.path===openPath);
+  if(o && !files.includes(o) && cxKind(o)!=='junk' && !cxIsBin(o) && (!cxIsHuge(o) || CX.force[t.id+'|'+o.path])) files.push(o);
   const d=CX.data[t.id]||(CX.data[t.id]={ files:{} });
   let pending=0;
   for(const f of files){
@@ -225,20 +262,53 @@ function cxThreadHtml(t, th, idx){
   return `<section class="cx-thread" id="cxth-${idx}" aria-label="Conversa sobre ${escA(th.ref)}"><div class="cx-th">${TE_IC.term}<b>Conversa sobre <span class="mono">${esc(String(th.ref).replace(/^@/,''))}</span></b><span class="cx-dim">· também está na Conversa da tarefa</span><span class="sp"></span><button type="button" class="btn ghost sm" data-cx="conv">Ver no terminal</button></div>`+
     msgs+(waiting?`<div class="cx-msg ia typing"><span class="cx-av" aria-hidden="true">${esc(ag.charAt(0))}</span><p class="cx-dim">${esc(ag)} está respondendo no terminal…</p></div>`:'')+acts+`</section>`;
 }
-/** "Todos os arquivos": busca + lista com rolagem própria; binários agrupados no fim (recolhidos se forem muitos). */
-function cxAllListHtml(t, files, openPath){
-  const q=String(CX.allQ||'').trim().toLowerCase();
-  const row=x=>`<button type="button" class="cx-arow" data-cx="file" data-f="${escA(x.path)}" aria-pressed="${x.path===openPath}" data-q="${escA(x.path.toLowerCase())}"${q&&!x.path.toLowerCase().includes(q)?' hidden':''}><span class="cx-ap">${esc(x.path)}</span><span class="cx-a">+${x.add||0}</span><span class="cx-d">−${x.del||0}</span></button>`;
-  const txt=files.filter(x=>!cxIsBin(x)), bin=files.filter(cxIsBin);
-  const binOpen=!!CX.binOpen[t.id] || bin.length<=12 || !!q;
-  return `<div class="cx-all" role="region" aria-label="Todos os arquivos alterados"><input class="inp cx-aq" id="cxAllQ" type="search" placeholder="Filtrar ${files.length} arquivos…" aria-label="Filtrar arquivos" autocomplete="off" spellcheck="false" value="${escA(CX.allQ||'')}">`+
-    `<div class="cx-alist">${txt.length?`<div class="cx-ag">Código e texto · ${txt.length}</div>${txt.map(row).join('')}`:''}`+
-    (bin.length?`<div class="cx-ag">Imagens e binários · ${bin.length}${bin.length>12?` <button type="button" class="lnk" data-cx="bin">${binOpen?'esconder':'mostrar'}</button>`:''}</div>${binOpen?bin.map(row).join(''):''}`:'')+`</div></div>`;
+// Lista recolhida/aberta: lembrada por tarefa (e a última escolha vale pras tarefas sem escolha própria).
+function cxNavOff(taskId){ try{ const m=JSON.parse(localStorage.getItem('sf.cx.navOff')||'{}'); return taskId in m ? !!m[taskId] : !!m._last; }catch(_){ return false; } }
+function cxNavSet(taskId, off){ try{ const m=JSON.parse(localStorage.getItem('sf.cx.navOff')||'{}'); m[taskId]=off?1:0; m._last=off?1:0; const ks=Object.keys(m); if(ks.length>200) delete m[ks[0]]; localStorage.setItem('sf.cx.navOff', JSON.stringify(m)); }catch(_){ } }
+const CX_KIND_TAG={ junk:'lixo', gen:'gerado' };
+/** Lista de arquivos à esquerda: filtro (/), grupos, nome em destaque + pasta, +/−, marcadores. */
+function cxNavHtml(t, files, openPath, outOf, threads){
+  const q=String(CX.navQ[t.id]||'').trim().toLowerCase();
+  const genOpen=!!CX.genOpen[t.id] || (openPath && ['gen','junk'].includes(cxKind(files.find(f=>f.path===openPath)||{})));
+  const row=x=>{ const k=cxKind(x), sp=cxSplitPath(x.path), n=threads.filter(th=>th.file===x.path).length, bin=cxIsBin(x);
+    const tag=bin?'binário':cxIsHuge(x)?'enorme':(CX_KIND_TAG[k]||'');
+    const nums=bin?'':`<span class="cx-a">+${x.add||0}</span><span class="cx-d">−${x.del||0}</span>`;
+    return `<button type="button" class="cx-row${k==='junk'?' junk':''}" data-cx="file" data-f="${escA(x.path)}" data-q="${escA(x.path.toLowerCase())}" aria-current="${x.path===openPath?'true':'false'}" title="${escA(x.path)}"${q&&!x.path.toLowerCase().includes(q)?' hidden':''}>`+
+      `<span class="cx-r1"><span class="cx-rf">${esc(sp.name)}</span>${CX.seen[t.id+'|'+x.path]?`<span class="cx-seen" aria-label="visto" title="visto">${IC.check||'✓'}</span>`:''}${outOf[x.path]?'<span class="cx-w" title="tem trecho fora dos requisitos" aria-label="fora dos requisitos"></span>':''}${n?`<span class="cx-tc" title="${n} ${n===1?'conversa':'conversas'} neste arquivo">${TE_IC.term}${n}</span>`:''}<span class="sp"></span>${nums}</span>`+
+      `<span class="cx-r2"><span class="cx-rd"><bdi>${sp.dir?esc(sp.dir.replace(/\/$/,'')):'raiz'}</bdi></span>${tag?`<span class="cx-rk">${tag}</span>`:''}</span></button>`; };
+  const groups=cxGroupFiles(files).map(g=>{
+    const head=g.k==='gen'
+      ? `<button type="button" class="cx-gh cx-ghb" data-cx="gen" aria-expanded="${genOpen}"><span class="cx-gc" aria-hidden="true">${genOpen?(IC.cleft||'‹'):(IC.cright||'›')}</span>${esc(g.label)}<span class="cx-gn">${g.files.length}</span></button>`
+      : `<div class="cx-gh">${esc(g.label)}<span class="cx-gn">${g.files.length}</span></div>`;
+    const vis=!q || g.files.some(x=>x.path.toLowerCase().includes(q));
+    return `<div class="cx-g" data-g="${g.k}"${vis?'':' hidden'}>${head}<div class="cx-gb"${g.k==='gen'&&!genOpen?' hidden':''}>${g.files.map(row).join('')}</div></div>`; }).join('');
+  const none=q && !files.some(x=>x.path.toLowerCase().includes(q));
+  return `<nav class="cx-nav${q?' filtering':''}" aria-label="Arquivos alterados"><div class="cx-navh"><input class="in cx-nq" id="cxNavQ" type="search" placeholder="Filtrar ${files.length} ${files.length===1?'arquivo':'arquivos'}" aria-label="Filtrar arquivos (atalho /)" autocomplete="off" spellcheck="false" value="${escA(CX.navQ[t.id]||'')}"><span class="kbd cx-nk" aria-hidden="true">/</span>`+
+    `<button type="button" class="cx-ntog" data-cx="nav" aria-label="Recolher a lista de arquivos" title="Recolher a lista (A)">${IC.cleft||'‹'}</button></div>`+
+    `<div class="cx-nlist" id="cxNavList">${groups}<div class="cx-nnone cx-dim"${none?'':' hidden'}>Nenhum arquivo com “${esc(q)}”.</div></div>`+
+    `<div class="cx-nfoot cx-dim"><span class="kbd">J</span><span class="kbd">K</span> arquivo · <span class="kbd">N</span><span class="kbd">P</span> trecho</div></nav>`;
+}
+/** Filtro sem repintar (cada tecla): esconde linhas e grupos; filtrando, "Gerados" abre sozinho. */
+function cxNavFilter(main, taskId, v){
+  CX.navQ[taskId]=v; const q=String(v||'').trim().toLowerCase();
+  const nav=main.querySelector('.cx-nav'); if(!nav) return;
+  nav.classList.toggle('filtering', !!q);
+  let any=false;
+  nav.querySelectorAll('.cx-g').forEach(g=>{ let n=0; g.querySelectorAll('.cx-row').forEach(r=>{ const h=!!q && !r.dataset.q.includes(q); r.hidden=h; if(!h) n++; }); g.hidden=!n; if(n) any=true; });
+  const no=nav.querySelector('.cx-nnone'); if(no){ no.hidden=!q || any; no.textContent=q&&!any?'Nenhum arquivo com “'+v.trim()+'”.':''; }
+}
+/** Caminhos na ordem da lista que dá pra percorrer com J/K (respeita o filtro e o grupo recolhido). */
+function cxNavPaths(main){
+  const nav=main.querySelector('.cx-nav');
+  if(!nav){ const t=cxTask(), go=t&&CX.genOpen[t.id]; return cxOrderFiles(cxCodeFiles()).filter(f=>{ const k=cxKind(f); return k!=='junk' && (go || k!=='gen'); }).map(f=>f.path); }
+  const filtering=nav.classList.contains('filtering');
+  return [...nav.querySelectorAll('.cx-row')].filter(r=>!r.hidden && !r.closest('.cx-g[hidden]') && (filtering || !r.closest('.cx-gb[hidden]'))).map(r=>r.dataset.f);
 }
 /** A superfície inteira (chamada pelo renderWorkspace no modo etapas). Só troca o DOM quando o conteúdo mudou. */
 function cxRender(t, main){
-  cxDiffs(t); cxLoadAux(t, false);
   const files=cxCodeFiles();
+  const cur=files.some(f=>f.path===CX.file[t.id]) ? CX.file[t.id] : cxDefaultFile(files);
+  cxDiffs(t, cur); cxLoadAux(t, false);
   const d=CX.data[t.id]||{ files:{} };
   const rows=typeof reqRows==='function'?reqRows(t):[];
   const reqs=rows.map(r=>({ text:r.text, did:r.did, code:r.code||[], tests:r.tests||[] }));
@@ -249,28 +319,28 @@ function cxRender(t, main){
   if(!files.length){
     html=`<div class="cx-empty"><div class="cx-et">${(typeof fwFilesLoading!=='undefined'&&fwFilesLoading)?'Carregando os arquivos…':'Nenhum arquivo mudou ainda'}</div><div class="cx-dim">Quando a IA editar algo, cada trecho aparece aqui com o motivo da mudança.</div></div>`;
   } else {
-    const fi=Math.max(0, Math.min(files.findIndex(f=>f.path===CX.file[t.id]), files.length-1));
-    const f=files[fi>=0?fi:0]; CX.file[t.id]=f.path;
+    const f=files.find(x=>x.path===cur)||files[0]; CX.file[t.id]=f.path;
+    const kind=cxKind(f), fk=t.id+'|'+f.path, huge=cxIsHuge(f) && !CX.force[fk];
     const fd=d.files[f.path]||{};
     const filt=CX.filt[t.id]||'todos';
     const threads=cxThreads(t.id);
     // porquê de cada hunk de cada arquivo (conta "fora" e o resumo do arquivo)
-    const whyAll={}; let nOut=0;
+    const whyAll={}, outOf={}; let nOut=0;
     for(const x of files){ const xd=d.files[x.path]; if(!xd||!xd.hunks) continue;
       whyAll[x.path]=xd.hunks.map(h=>{ const span=cxHunkSpan(h); return { span, w:cxWhyOf({ file:x.path, span, reasons, reqs, hist, commits:CX.commits[t.id]||[], prBody:pr&&pr.body }) }; });
-      if(hasMap) nOut+=whyAll[x.path].filter(y=>!y.w.req).length; }
-    const chipFiles=cxChipFiles(files, f.path), nBin=files.filter(cxIsBin).length;
-    const chips=chipFiles.map(x=>{ const n=threads.filter(th=>th.file===x.path).length; const out=hasMap && (whyAll[x.path]||[]).some(y=>!y.w.req);
-      return `<button type="button" class="cx-fchip" data-cx="file" data-f="${escA(x.path)}" aria-pressed="${x.path===f.path}" title="${escA(x.path)}">${CX.seen[t.id+'|'+x.path]?`<span class="cx-seen" aria-label="visto">${IC.check||'✓'}</span>`:''}<span class="cx-fn">${esc(x.path.split('/').pop())}</span><span class="cx-a">+${x.add||0}</span><span class="cx-d">−${x.del||0}</span>${out?'<span class="cx-w" title="tem trecho fora dos requisitos"></span>':''}${n?`<span class="cx-tc" title="${n} ${n===1?'conversa':'conversas'} neste arquivo">${TE_IC.term}${n}</span>`:''}</button>`; }).join('');
+      if(hasMap){ const n=whyAll[x.path].filter(y=>!y.w.req).length; nOut+=n; if(n) outOf[x.path]=1; } }
     const seg=hasMap?`<div class="te-seg cx-filt" role="group" aria-label="Filtrar trechos"><button type="button" data-cx="filt" data-v="todos" aria-pressed="${filt==='todos'}">Todos os trechos</button><button type="button" data-cx="filt" data-v="fora" aria-pressed="${filt==='fora'}">Fora dos requisitos · ${nOut}</button></div>`:'';
     const wl=whyAll[f.path]||[];
     const sum=cxFileSummary(wl.map(y=>y.w));
-    const wk=t.id+'|'+f.path, ai=(typeof fwWhyCache!=='undefined')?fwWhyCache[wk]:undefined;
+    const ai=(typeof fwWhyCache!=='undefined')?fwWhyCache[fk]:undefined;
+    const quiet=kind==='junk' || cxIsBin(f) || huge;
     const sumTx=sum?esc(sum):(ai&&ai.md)?(typeof mdToHtml==='function'?mdToHtml(ai.md):esc(ai.md)):ai===null?'<span class="cx-dim">lendo o diff e escrevendo a explicação…</span>':'<span class="cx-dim">o agente ainda não registrou o porquê dos trechos deste arquivo.</span>';
-    const seenK=t.id+'|'+f.path;
-    const fsum=`<div class="cx-fsum"><div class="cx-fsb"><div class="cx-fst">O que mudou neste arquivo e por quê</div><div class="cx-fsx">${sumTx}</div></div><div class="cx-fsa">${!sum&&!(ai&&ai.md)&&ai!==null?`<button type="button" class="btn sm" data-cx="aiwhy" title="a IA lê o diff deste arquivo e explica (usa créditos)">explicar com IA</button>`:''}<button type="button" class="btn sm" data-cx="seen">${CX.seen[seenK]?(IC.check||'✓')+' Visto':'Marcar como visto'}</button></div></div>`;
+    const fsum=quiet?'':`<div class="cx-fsum"><div class="cx-fsb"><div class="cx-fst">O que mudou neste arquivo e por quê</div><div class="cx-fsx">${sumTx}</div></div><div class="cx-fsa">${!sum&&!(ai&&ai.md)&&ai!==null?`<button type="button" class="btn sm" data-cx="aiwhy" title="a IA lê o diff deste arquivo e explica (usa créditos)">explicar com IA</button>`:''}<button type="button" class="btn sm" data-cx="seen">${CX.seen[fk]?(IC.check||'✓')+' Visto':'Marcar como visto'}</button></div></div>`;
     let hunks='';
-    if(cxIsBin(f)) hunks=`<div class="cx-empty"><div class="cx-et">Arquivo binário</div><div class="cx-dim">${esc(f.path)} · sem diff de texto pra explicar trecho a trecho.</div></div>`;
+    const nLines=((+f.add||0)+(+f.del||0)).toLocaleString('pt-BR');
+    if(kind==='junk') hunks=`<div class="cx-empty"><div class="cx-et">Arquivo de sistema, nada pra revisar</div><div class="cx-dim">${esc(f.path)} · sobra de zip do macOS ou do sistema (__MACOSX, ._*, .DS_Store). Vale tirar do commit.</div></div>`;
+    else if(cxIsBin(f)) hunks=`<div class="cx-empty"><div class="cx-et">Arquivo binário</div><div class="cx-dim">${esc(f.path)} · sem diff de texto pra explicar trecho a trecho.</div></div>`;
+    else if(huge) hunks=`<div class="cx-empty cx-big"><div class="cx-et">Arquivo grande (${nLines} linhas), provavelmente gerado</div><div class="cx-dim mono">${esc(f.path)}</div><div class="cx-dim">Pintar tudo deixa a tela lenta. Se pedir, o diff mostra até ${CX_MAX_ROWS.toLocaleString('pt-BR')} linhas por trecho.</div><button type="button" class="btn sm" data-cx="force">Mostrar mesmo assim</button></div>`;
     else if(fd.loading && !fd.hunks) hunks=typeof skeletonHtml==='function'?skeletonHtml('tabela',{ n:6, cols:2, inline:true, label:'carregando as mudanças' }):'<div class="cx-dim">carregando…</div>';
     else if(fd.err) hunks=`<div class="cx-empty"><div class="cx-et">não consegui gerar o diff deste arquivo</div><div class="cx-dim" title="${escA(fd.err.slice(0,400))}">${esc(typeof errShort==='function'?errShort(fd.err):fd.err)}</div></div>`;
     else if(fd.hunks && !fd.hunks.length) hunks='<div class="cx-empty"><div class="cx-dim">sem diferenças neste arquivo em relação à base</div></div>';
@@ -283,32 +353,41 @@ function cxRender(t, main){
         const ths=threads.filter(th=>th.file===f.path && th.hk===hk);
         const mark=ths.length?`<button type="button" class="cx-hmark" data-cx="goth" data-i="${threads.indexOf(ths[0])}">${TE_IC.term}${ths.length} ${ths.length===1?'conversa':'conversas'}</button>`:'';
         const lbl=y.span.delOnly?'linha '+y.span.a+' · só remoções':y.span.a===y.span.b?'linha '+y.span.a:'linhas '+y.span.a+'–'+y.span.b;
-        hunks+=`<div class="cx-hw"><div class="cx-hunk${hasMap&&!y.w.req?' out':''}"><div class="cx-diff"><div class="cx-hh"><span>${esc(lbl)}</span>${h.ctx?`<span class="mono cx-dim cx-ctx">${esc(h.ctx)}</span>`:''}<span class="sp"></span>${mark}<button type="button" class="lnk cx-askh" data-cx="hsel" data-f="${escA(f.path)}" data-hk="${escA(hk)}" data-a="${y.span.a}" data-b="${y.span.b}">perguntar sobre este trecho</button></div>${cxRowsHtml(f.path, hk, h, sel)}</div>${cxWhyHtml(t, y.w, hist, f.path, hk, y.span)}</div>`+
+        const cut=h.rows.length>CX_MAX_ROWS?`<div class="cx-cut">mostrando ${CX_MAX_ROWS.toLocaleString('pt-BR')} de ${h.rows.length.toLocaleString('pt-BR')} linhas deste trecho</div>`:'';
+        hunks+=`<div class="cx-hw"><div class="cx-hunk${hasMap&&!y.w.req?' out':''}"><div class="cx-diff"><div class="cx-hh"><span>${esc(lbl)}</span>${h.ctx?`<span class="mono cx-dim cx-ctx">${esc(h.ctx)}</span>`:''}<span class="sp"></span>${mark}<button type="button" class="lnk cx-askh" data-cx="hsel" data-f="${escA(f.path)}" data-hk="${escA(hk)}" data-a="${y.span.a}" data-b="${y.span.b}">perguntar sobre este trecho</button></div>${cxRowsHtml(f.path, hk, h, sel)}${cut}</div>${cxWhyHtml(t, y.w, hist, f.path, hk, y.span)}</div>`+
           (sel?cxComposerHtml(cxRef(f.path, sel.a, sel.b)):'')+ths.map(th=>cxThreadHtml(t, th, threads.indexOf(th))).join('')+`</div>`;
       });
       if(!hunks) hunks='<div class="cx-empty"><div class="cx-dim">Nenhum trecho fora dos requisitos neste arquivo.</div></div>';
     }
-    const allOpen=!!CX.allOpen[t.id], rest=files.length-chipFiles.length;
-    const allBtn=files.length>chipFiles.length||allOpen?`<button type="button" class="cx-allbtn" data-cx="all" aria-expanded="${allOpen}">${allOpen?'Fechar a lista':'Todos os arquivos · '+files.length}${rest>0&&!allOpen?`<span class="cx-dim"> (+${rest}${nBin?(rest===nBin?' '+(nBin===1?'binário':'binários'):', '+nBin+' '+(nBin===1?'binário':'binários')):''})</span>`:''}</button>`:'';
-    const allList=allOpen?cxAllListHtml(t, files, f.path):'';
-    html=`<div class="cx" data-cx-task="${escA(t.id)}"><div class="cx-files"><div class="cx-chips">${chips}${allBtn}</div>${seg}</div>${allList}`+
-      `<div class="cx-scroll" id="cxScroll">${fsum}${hunks}<div class="cx-hint">Clique no número da linha para selecionar, ⇧ clique para estender. "Perguntar sobre isso" abre uma conversa presa ao trecho; a mesma conversa aparece no terminal.</div></div></div>`;
+    const off=cxNavOff(t.id), sp=cxSplitPath(f.path);
+    const nav=off?'':cxNavHtml(t, files, f.path, outOf, threads);
+    const open=off?`<button type="button" class="cx-ntog on" data-cx="nav" aria-label="Mostrar a lista de arquivos" title="Mostrar a lista (A)">${IC.cright||'›'}<span>Arquivos · ${files.length}</span></button>`:'';
+    const bar=`<div class="cx-bar">${open}<div class="cx-cur" title="${escA(f.path)}"><span class="cx-cd"><bdi>${esc(sp.dir)}</bdi></span><b class="cx-cn">${esc(sp.name)}</b>${cxIsBin(f)?'':`<span class="cx-a">+${f.add||0}</span><span class="cx-d">−${f.del||0}</span>`}</div>${seg}</div>`;
+    html=`<div class="cx${off?' nav-off':''}" data-cx-task="${escA(t.id)}">${nav}<div class="cx-body">${bar}`+
+      `<div class="cx-scroll" id="cxScroll">${fsum}${hunks}${quiet?'':'<div class="cx-hint">Clique no número da linha para selecionar, ⇧ clique para estender. "Perguntar sobre isso" abre uma conversa presa ao trecho; a mesma conversa aparece no terminal.</div>'}</div></div></div>`;
   }
   if(main.__cxHtml===html && main.querySelector('.cx,.cx-empty')) return;
-  // repintar sem perder o que a pessoa está escrevendo (compositor, pedido, resposta) nem a rolagem
-  const ae=document.activeElement, keep=ae && main.contains(ae) ? { id:ae.id, th:ae.dataset&&ae.dataset.th, cls:ae.className, s:ae.selectionStart, e:ae.selectionEnd } : null;
-  const sc=$id('cxScroll'), top=sc?sc.scrollTop:0;
+  // repintar sem perder o que a pessoa está escrevendo (compositor, pedido, resposta, filtro) nem a rolagem
+  const ae=document.activeElement, keep=ae && main.contains(ae) ? { id:ae.id, th:ae.dataset&&ae.dataset.th, f:ae.classList&&ae.classList.contains('cx-row')?ae.dataset.f:null, s:ae.selectionStart, e:ae.selectionEnd } : null;
+  const sc=$id('cxScroll'), top=sc?sc.scrollTop:0, nl=$id('cxNavList'), ntop=nl?nl.scrollTop:0;
   main.__cxHtml=html; main.innerHTML=html;
   const sc2=$id('cxScroll'); if(sc2) sc2.scrollTop=top;
-  if(keep){ const el=keep.id?$id(keep.id):(keep.th?main.querySelector(`.cx-reply[data-th="${CSS.escape(keep.th)}"]`):null); if(el){ el.focus({ preventScroll:true }); try{ if(keep.s!=null) el.setSelectionRange(keep.s, keep.e); }catch(_){ } } }
+  const nl2=$id('cxNavList'); if(nl2) nl2.scrollTop=ntop;
+  if(keep){ const el=keep.id?$id(keep.id):keep.th?main.querySelector(`.cx-reply[data-th="${CSS.escape(keep.th)}"]`):keep.f?main.querySelector(`.cx-row[data-f="${CSS.escape(keep.f)}"]`):null; if(el){ el.focus({ preventScroll:true }); try{ if(keep.s!=null) el.setSelectionRange(keep.s, keep.e); }catch(_){ } } }
   cxWire(t, main);
 }
 function cxWire(t, main){
   if(main.__cxWired===t.id) return; main.__cxWired=t.id;
   main.addEventListener('click', (e)=>cxClick(e, main));
-  main.addEventListener('input', (e)=>{ const el=e.target; if(el.id==='cxAllQ'){ CX.allQ=el.value; const q=el.value.trim().toLowerCase(); if(q && main.querySelector('[data-cx="bin"]') && !CX.binOpen[cxTask()&&cxTask().id]){ cxRepaint((cxTask()||{}).id); return; } main.querySelectorAll('.cx-arow').forEach(r=>{ r.hidden=!!q && !r.dataset.q.includes(q); }); return; } if(el.id==='cxQ') CX.selTxt=el.value; else if(el.id==='cxAlt') CX.altTxt=el.value; else if(el.classList && el.classList.contains('cx-reply')) CX.reply[el.dataset.th]=el.value; });
+  main.addEventListener('input', (e)=>{ const el=e.target; if(el.id==='cxNavQ'){ const tt=cxTask(); if(tt) cxNavFilter(main, tt.id, el.value); return; } if(el.id==='cxQ') CX.selTxt=el.value; else if(el.id==='cxAlt') CX.altTxt=el.value; else if(el.classList && el.classList.contains('cx-reply')) CX.reply[el.dataset.th]=el.value; });
   main.addEventListener('keydown', (e)=>{
     const el=e.target;
+    if(el.id==='cxNavQ'){ // filtro: Enter abre o primeiro, ↓ desce pra lista, Esc limpa (e depois sai)
+      const first=cxNavPaths(main)[0];
+      if(e.key==='Enter' && first){ e.preventDefault(); cxAct('file', { dataset:{ f:first } }); }
+      else if(e.key==='ArrowDown'){ e.preventDefault(); const r=first&&main.querySelector(`.cx-row[data-f="${CSS.escape(first)}"]`); if(r) r.focus(); }
+      else if(e.key==='Escape'){ e.preventDefault(); e.stopPropagation(); if(el.value){ el.value=''; const tt=cxTask(); if(tt) cxNavFilter(main, tt.id, ''); } else el.blur(); }
+      return; }
     if(el.id==='cxQ' && e.key==='Enter' && !e.shiftKey && !e.metaKey && !e.ctrlKey){ e.preventDefault(); cxAct('ask'); }
     else if(el.id==='cxAlt' && e.key==='Enter'){ e.preventDefault(); cxAct('altsend', el.closest('.cx-thread') && el.closest('.cx-thread').querySelector('[data-cx="altsend"]')); }
     else if(el.classList && el.classList.contains('cx-reply') && e.key==='Enter'){ e.preventDefault(); cxReply(el.dataset.th, el.value); }
@@ -323,10 +402,14 @@ function cxClick(e, main){
 async function cxAct(k, b, e){
   const t=cxTask(); if(!t) return;
   const ds=(b&&b.dataset)||{};
-  if(k==='file'){ CX.file[t.id]=ds.f; CX.sel=null; CX.allOpen[t.id]=false; const s=$id('cxScroll'); if(s) s.scrollTop=0; cxRepaint(t.id); return; }
+  if(k==='file'){ if(!ds.f) return; const nav=document.activeElement && document.activeElement.closest && document.activeElement.closest('.cx-nav');
+    CX.file[t.id]=ds.f; CX.sel=null; const s=$id('cxScroll'); if(s) s.scrollTop=0; cxRepaint(t.id);
+    const r=document.querySelector(`#fwMain .cx-row[data-f="${CSS.escape(ds.f)}"]`); if(r){ r.scrollIntoView({ block:'nearest' }); if(nav) r.focus({ preventScroll:true }); }
+    return; }
+  if(k==='nav'){ const off=!cxNavOff(t.id); cxNavSet(t.id, off); cxRepaint(t.id); setTimeout(()=>{ const el=off?document.querySelector('#fwMain .cx-bar [data-cx="nav"]'):$id('cxNavQ'); if(el) el.focus({ preventScroll:true }); }, 0); return; }
+  if(k==='gen'){ CX.genOpen[t.id]=!CX.genOpen[t.id]; cxRepaint(t.id); return; }
+  if(k==='force'){ CX.force[t.id+'|'+CX.file[t.id]]=1; cxRepaint(t.id); return; }
   if(k==='filt'){ CX.filt[t.id]=ds.v; cxRepaint(t.id); return; }
-  if(k==='all'){ CX.allOpen[t.id]=!CX.allOpen[t.id]; cxRepaint(t.id); if(CX.allOpen[t.id]) setTimeout(()=>{ const q=$id('cxAllQ'); if(q) q.focus({ preventScroll:true }); }, 0); return; }
-  if(k==='bin'){ CX.binOpen[t.id]=!CX.binOpen[t.id]; cxRepaint(t.id); return; }
   if(k==='seen'){ const kk=t.id+'|'+CX.file[t.id]; CX.seen[kk]=!CX.seen[kk]; cxRepaint(t.id); return; }
   if(k==='aiwhy'){ if(typeof fwAskWhy==='function'){ fwAskWhy(t.id, CX.file[t.id]); } return; }
   if(k==='conv'){ if(typeof teGo==='function') teGo('conversa'); return; }
@@ -409,3 +492,24 @@ window.addEventListener('keydown', (e)=>{
   e.preventDefault(); e.stopPropagation();
   cxAct(e.shiftKey?'altsel':'paste');
 }, true);
+// J/K (↑/↓ dentro da lista) troca de arquivo, N/P pula de trecho, / filtra, A recolhe a lista — nunca com o foco em campo ou
+// no terminal (lá as teclas são da pessoa/do shell).
+function cxHunkJump(d){
+  const sc=$id('cxScroll'); if(!sc) return; const top=sc.getBoundingClientRect().top;
+  const ys=[...sc.querySelectorAll('.cx-hw')].map(h=>h.getBoundingClientRect().top-top);
+  const y=d>0?ys.find(v=>v>8):ys.filter(v=>v<-8).pop();
+  if(y==null) return; sc.scrollTop=sc.scrollTop+y-6;
+}
+window.addEventListener('keydown', (e)=>{
+  const t=cxTask(); if(!t || e.defaultPrevented) return;
+  const main=$id('fwMain'); if(!main || !main.querySelector('.cx') || !main.offsetParent) return;
+  const el=e.target||{};
+  const inField=!!(el.closest && el.closest('input,textarea,select,[contenteditable=""],[contenteditable="true"],.xterm,[role="dialog"],[role="menu"]')) || el.isContentEditable===true;
+  const k=cxNavKey(e, inField, !!(el.closest && el.closest('.cx-nav')));
+  if(!k) return;
+  e.preventDefault();
+  if(k==='next'||k==='prev'){ const p=cxStep(cxNavPaths(main), CX.file[t.id], k==='next'?1:-1); if(p && p!==CX.file[t.id]) cxAct('file', { dataset:{ f:p } }); return; }
+  if(k==='hnext'||k==='hprev'){ cxHunkJump(k==='hnext'?1:-1); return; }
+  if(k==='nav'){ cxAct('nav', null); return; }
+  if(k==='find'){ if(cxNavOff(t.id)){ cxNavSet(t.id, false); cxRepaint(t.id); } setTimeout(()=>{ const q=$id('cxNavQ'); if(q){ q.focus(); q.select(); } }, 0); }
+});
