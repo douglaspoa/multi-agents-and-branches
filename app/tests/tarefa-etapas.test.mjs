@@ -11,7 +11,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const TE = new Function('esc', 'escA', cut(read('js/77-tarefa-etapas.js'), '// @te-puro-inicio', '// @te-puro-fim') +
   '\nreturn { TE_STEPS, TE_RAIL_W, teStepOfMode, teStepsOf, teStepKey, teStepMeta, teRanWith, teRailHtml };')(esc, esc);
 const CX = new Function('esc', 'escA', cut(read('js/78-codigo-explicado.js'), '// @cx-puro-inicio', '// @cx-puro-fim') +
-  '\nreturn { cxRange, cxHunkSpan, cxRef, cxWhyOf, cxTurnAt, cxFileSummary, cxAnswerOf, cxPtyText, CX_SRC_LABEL, cxIsBin, cxOrderFiles, cxChipFiles, CX_CHIPS_MAX };')(esc, esc);
+  '\nreturn { cxRange, cxHunkSpan, cxRef, cxWhyOf, cxTurnAt, cxFileSummary, cxAnswerOf, cxPtyText, CX_SRC_LABEL, cxIsBin, cxOrderFiles, cxKind, cxIsHuge, cxGroupFiles, cxDefaultFile, cxSplitPath, cxStep, cxNavKey, CX_HUGE, CX_MAX_ROWS };')(esc, esc);
 const MR = new Function('esc', 'escA', cut(read('js/79-previa-mira.js'), '// @mr-puro-inicio', '// @mr-puro-fim') +
   '\nreturn { MR_DEVS, mrSelShort, mrRequestText, mrChangedOf, mrKeyToggles };')(esc, esc);
 
@@ -144,17 +144,77 @@ test('ordem de carga: 75 → 76 → 77 depois de tudo que eles usam; CSS da etap
   assert.ok(h.indexOf('css/99-tarefa-etapas.css') > h.indexOf('css/95-terminal.css'));
 });
 
-test('Código explicado com centenas de assets: código primeiro, binário fora dos chips (bug 15/10)', () => {
+test('Código explicado com centenas de assets: código primeiro, binário no fim (bug 15/10)', () => {
   const imgs = Array.from({ length: 240 }, (_, i) => ({ path: `public/assets/sprite_${i}.png`, add: 0, del: 0 }));
   const files = [...imgs.slice(0, 120), { path: 'public/assets/CREDITS.TXT', add: 101, del: 0 },
     { path: 'src/combate/golpe.ts', add: 40, del: 6 }, { path: 'pack.zip', add: 0, del: 0 }, ...imgs.slice(120)];
   const ord = CX.cxOrderFiles(files);
-  assert.equal(ord[0].path, 'src/combate/golpe.ts', 'código antes de texto solto');
-  assert.equal(ord[1].path, 'public/assets/CREDITS.TXT');
+  assert.equal(ord[0].path, 'src/combate/golpe.ts', 'código antes de tudo');
+  assert.equal(ord[1].path, 'public/assets/CREDITS.TXT', 'texto gerado antes dos binários');
   assert.ok(ord.slice(2).every(f => CX.cxIsBin(f)), 'binários no fim');
-  const chips = CX.cxChipFiles(ord, ord[0].path);
-  assert.equal(chips.length, 2, 'só código/texto vira chip');
-  assert.ok(CX.cxChipFiles(ord, 'pack.zip').some(f => f.path === 'pack.zip'), 'o aberto sempre aparece');
-  const many = Array.from({ length: 30 }, (_, i) => ({ path: `src/m${i}.ts`, add: i + 1, del: 0 }));
-  assert.equal(CX.cxChipFiles(CX.cxOrderFiles(many), null).length, CX.CX_CHIPS_MAX);
+  assert.equal(CX.cxDefaultFile(files), 'src/combate/golpe.ts');
+});
+
+test('classificação: lixo, gerados/assets, testes, config e código (print do dono, 18/10)', () => {
+  const k = (path, add = 10) => CX.cxKind({ path, add, del: 0 });
+  for (const p of ['__MACOSX/public/_tmp/assets/._terrain.png', 'src/._sprites.ts', '.DS_Store', 'src/game/.DS_Store']) assert.equal(k(p), 'junk', p);
+  for (const p of ['public/_tmp/assets/oga/terrain-map-v7.tsx', 'public/_tmp/assets/build-atlas.sh', 'node_modules/x/index.js', 'dist/app.js', 'build/out.js',
+    'vendor/lib.go', 'tmp/a.ts', 'public/assets/monstros/lobo.ts', 'static/img/assets/x.js', 'web/public/sfx/assets/a.json', 'app.min.js', 'app.js.map',
+    'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'app/src-tauri/Cargo.lock', 'img/logo.png']) assert.equal(k(p), 'gen', p);
+  assert.equal(k('src/mapa/gerado.ts', CX.CX_HUGE + 1), 'gen', 'texto enorme = provavelmente gerado');
+  for (const p of ['src/screens/cacada.test.ts', 'tests/carrinho.test.ts', 'app/__tests__/a.js', 'pkg/x_test.go', 'test_api.py', 'e2e/login.ts']) assert.equal(k(p), 'test', p);
+  for (const p of ['src/screens/cacada.ts', 'app/main.rs', 'lib/x.py', 'src/lib/arc.ts', 'src/ui/estilo.css']) assert.equal(k(p), 'code', p);
+  for (const p of ['package.json', 'vite.config.ts', '.eslintrc.js', 'README.md', 'Dockerfile', 'docs/guia.txt', '.github/workflows/ci.yml']) assert.equal(k(p), 'other', p);
+  assert.ok(CX.cxIsHuge({ path: 'a.tsx', add: 15693, del: 0 }) && !CX.cxIsHuge({ path: 'a.ts', add: 40, del: 2 }) && !CX.cxIsHuge({ path: 'a.png', add: 9999 }));
+  assert.ok(CX.CX_MAX_ROWS >= 1000);
+});
+
+test('lista de arquivos: grupos na ordem, lixo no fim dos gerados, abre o código mais mudado (cenário do print)', () => {
+  const files = [
+    { path: 'public/_tmp/assets/oga-lpc-terrains/lpc-terrains/terrain-map-v7.tsx', add: 15693, del: 0 },
+    { path: 'public/_tmp/assets/oga-lpc-terrains/build-atlas.sh', add: 48, del: 0 },
+    { path: '__MACOSX/public/_tmp/assets/._build-atlas.sh', add: 1, del: 0 },
+    { path: 'src/game/sprites.ts', add: 91, del: 12 }, { path: 'src/screens/cacada.ts', add: 184, del: 22 },
+    { path: 'src/screens/cacada.test.ts', add: 58, del: 0 }, { path: 'package.json', add: 3, del: 1 },
+    { path: 'package-lock.json', add: 2140, del: 310 }, { path: 'public/assets/monstros/lobo.png', add: 0, del: 0 },
+  ];
+  const g = CX.cxGroupFiles(files);
+  assert.deepEqual(g.map(x => x.k), ['code', 'test', 'other', 'gen']);
+  assert.deepEqual(g[0].files.map(f => f.path), ['src/screens/cacada.ts', 'src/game/sprites.ts']);
+  const gen = g[3].files.map(f => f.path);
+  assert.equal(gen[0], 'public/_tmp/assets/oga-lpc-terrains/lpc-terrains/terrain-map-v7.tsx');
+  assert.equal(gen[gen.length - 1], '__MACOSX/public/_tmp/assets/._build-atlas.sh', 'lixo no fim');
+  assert.ok(gen.indexOf('public/assets/monstros/lobo.png') > gen.indexOf('package-lock.json'), 'texto gerado antes de binário');
+  assert.equal(CX.cxDefaultFile(files), 'src/screens/cacada.ts', 'nunca abre o .tsx gerado de 15 mil linhas');
+  assert.equal(CX.cxDefaultFile([{ path: '__MACOSX/._a.png', add: 0, del: 0 }, { path: 'public/assets/a.json', add: 5, del: 0 }]), 'public/assets/a.json', 'lixo nunca abre');
+  assert.equal(CX.cxDefaultFile([{ path: '__MACOSX/._a', add: 1, del: 0 }]), null);
+  assert.equal(CX.cxGroupFiles([{ path: 'src/a.ts', add: 1, del: 0 }]).length, 1, 'com 3 arquivos não aparece grupo vazio');
+});
+
+test('navegação: pasta/nome, J/K para nas pontas, teclas nunca no campo nem no terminal', () => {
+  assert.deepEqual(CX.cxSplitPath('src/game/sprites.ts'), { dir: 'src/game/', name: 'sprites.ts' });
+  assert.deepEqual(CX.cxSplitPath('package.json'), { dir: '', name: 'package.json' });
+  const L = ['a', 'b', 'c'];
+  assert.equal(CX.cxStep(L, 'a', 1), 'b'); assert.equal(CX.cxStep(L, 'c', 1), 'c'); assert.equal(CX.cxStep(L, 'a', -1), 'a');
+  assert.equal(CX.cxStep(L, 'zzz', 1), 'a'); assert.equal(CX.cxStep([], 'a', 1), null);
+  const e = (key, o) => Object.assign({ key, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false }, o);
+  assert.equal(CX.cxNavKey(e('j'), false, false), 'next'); assert.equal(CX.cxNavKey(e('K'), false, false), 'prev');
+  assert.equal(CX.cxNavKey(e('ArrowDown'), false, true), 'next', '↓ dentro da lista');
+  assert.equal(CX.cxNavKey(e('ArrowDown'), false, false), '', '↓ fora da lista rola o diff');
+  assert.equal(CX.cxNavKey(e('n'), false, false), 'hnext'); assert.equal(CX.cxNavKey(e('p'), false, false), 'hprev');
+  assert.equal(CX.cxNavKey(e('/'), false, false), 'find'); assert.equal(CX.cxNavKey(e('a'), false, false), 'nav');
+  assert.equal(CX.cxNavKey(e('j'), true, false), '', 'em campo/terminal a tecla é da pessoa');
+  assert.equal(CX.cxNavKey(e('j', { metaKey: true }), false, false), '');
+  assert.equal(CX.cxNavKey(e('l', { metaKey: true }), false, false), '', '⌘L continua do compositor');
+});
+
+test('Código explicado: lista à esquerda (sem faixa de chips), filtro com /, gerado não pinta de cara, porquê em cima quando estreito', () => {
+  const js = read('js/78-codigo-explicado.js'), css = read('css/99-tarefa-etapas.css');
+  assert.ok(!/cx-fchip|cxChipFiles|cx-allbtn/.test(js), 'faixa de chips saiu');
+  assert.match(js, /id="cxNavQ"/); assert.match(js, /data-cx="force"/); assert.match(js, /Mostrar mesmo assim/);
+  assert.match(js, /sf\.cx\.navOff/, 'lembra a lista recolhida');
+  assert.match(css, /\.cx\{display:grid;grid-template-columns:var\(--cx-nav-w,220px\)/);
+  assert.match(css, /@container cxb \(max-width:839px\)\{[\s\S]*?\.cx-why\{order:-1/);
+  assert.match(css, /\.cx-t\{white-space:pre-wrap/, 'linha longa quebra, não corta');
+  assert.ok(!/\.cx-chips\{max-height/.test(css));
 });
