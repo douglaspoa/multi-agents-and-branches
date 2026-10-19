@@ -238,7 +238,9 @@ export interface TaskSpec {
   /** Revisão: agentes chamados como ETAPA EXTRA ("Chamar outro agente…") — o que cada um mudou vai pra Revisão e pro PR. */
   extraStages?: import("./revisao-alteracao.ts").ExtraStage[];
   /** F5 · P14: a política da organização (Empresa) que valia quando a tarefa nasceu — em frases, vai pro Relatório do PR. */
-  orgPolicy?: { rules: string[]; tetoMaxUsd?: number; portao?: boolean } | null;
+  orgPolicy?: { rules: string[]; tetoMaxUsd?: number; portao?: boolean; guard?: { secretsBlock?: boolean; codeHighBlock?: boolean } } | null;
+  /** Frente 2: o último resultado da guarda de segurança no diff (src/guard.ts) — a Revisão mostra os achados. */
+  guard?: import("./guard.ts").GuardResult | null;
 }
 
 /** Uma função descoberta no diff, para o review humano. */

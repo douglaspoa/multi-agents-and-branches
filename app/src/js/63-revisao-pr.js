@@ -513,3 +513,83 @@ async function prvFixAll(t, info, btn){
   if(ok){ toast('pedido enviado ao agente','ok'); fwMode='conversa'; fwRememberTab(); renderWorkspace(); }
   else if(btn && btn.isConnected){ btn.disabled=false; btn.innerHTML=IC.ai+' corrigir tudo com o agente'; }
 }
+
+// ---------------------------------------------------------------- GUARDA DE SEGURANÇA (Frente 2 · src/guard.ts)
+// Bloco "Guarda" no topo da aba Revisão (nas 3 vistas: provas, por requisito e diff): os achados do último portão
+// (segredo / código, severidade, arquivo:linha), "dispensar" com motivo (grava .cardume/guard-ignore.json na worktree,
+// versionado — o motor rastreia à força) e o selo "guarda desligada: motivo". Os dados vêm de t.spec.guard (o motor
+// grava a cada portão). O valor do segredo nunca chega aqui: só os 4 primeiros caracteres + ••••.
+// @guarda-puro-inicio (testado em app/tests/guarda.test.mjs)
+const GD_SEV={ alta:'alta', media:'média', baixa:'baixa' };
+// ≡ addIgnore (src/guard.ts): acrescenta ou atualiza pelo fingerprint
+function gdAddIgnore(list, entry){
+  const out=(Array.isArray(list)?list:[]).filter(x=>x && x.fingerprint!==entry.fingerprint);
+  out.push({ fingerprint:entry.fingerprint, motivo:String(entry.motivo||'').trim(), por:String(entry.por||'').trim()||'Você', em:entry.em||new Date().toISOString() });
+  return out;
+}
+// ≡ readIgnores (src/guard.ts): lista ou { list }; lixo → []
+function gdParseIgnores(text){
+  try{ const raw=JSON.parse(text||'[]'); const l=Array.isArray(raw)?raw:(raw&&Array.isArray(raw.list)?raw.list:[]); return l.filter(x=>x&&typeof x.fingerprint==='string'&&x.fingerprint.trim()); }catch(_){ return []; }
+}
+// o que a Revisão mostra: bloqueia primeiro, segredo antes de código
+function gdModel(g){
+  if(!g || typeof g!=='object') return { state:'none', findings:[], skipped:[], ignored:0 };
+  const findings=(Array.isArray(g.findings)?g.findings:[]).slice().sort((a,b)=>(b.blocks?1:0)-(a.blocks?1:0) || (a.kind==='segredo'?0:1)-(b.kind==='segredo'?0:1) || String(a.file).localeCompare(String(b.file)) || (a.line||0)-(b.line||0));
+  const skipped=Array.isArray(g.skipped)?g.skipped:[];
+  const state=findings.some(f=>f.blocks)?'block':findings.length?'warn':skipped.length?'off':'ok';
+  return { state, findings, skipped, ignored:+g.ignored||0 };
+}
+// tira um achado dispensado do resultado guardado (até o próximo portão recalcular)
+function gdWithout(g, fp){
+  const f=((g&&g.findings)||[]).find(x=>x.fingerprint===fp); if(!f) return g;
+  const tag=' em '+f.file+':'+f.line+' ';
+  return { ...g, findings:g.findings.filter(x=>x.fingerprint!==fp), reasons:(g.reasons||[]).filter(r=>!String(r).includes(tag)), ignored:(+g.ignored||0)+1 };
+}
+function gdHtml(g){
+  const m=gdModel(g); if(m.state==='none') return '';
+  const head={ block:'a entrega está bloqueada', warn:'achados pra você olhar (não bloqueiam)', off:'não varreu tudo', ok:'nada encontrado no diff' }[m.state];
+  const rows=m.findings.map(f=>{
+    const tone=f.blocks?'crit':f.severity==='alta'||f.severity==='media'?'warn':'info';
+    const what=f.kind==='segredo'?`segredo <code>${esc(f.masked||'••••')}</code>`:esc(f.message||f.rule);
+    return `<li class="gdi gd-${tone}"><span class="gdsev">${f.kind==='segredo'?'segredo':'código'} · ${esc(GD_SEV[f.severity]||f.severity)}${f.blocks?' · bloqueia':''}</span><span class="gdwhat">${what}<small class="dim"> ${esc(f.rule)}</small></span><code class="gdloc">${esc(f.file)}:${+f.line||0}</code><span class="gdact"><button type="button" class="lnk" data-gdfix="${escA(f.fingerprint)}">mandar pro agente</button><button type="button" class="lnk sec" data-gdign="${escA(f.fingerprint)}">dispensar</button></span></li>`;
+  }).join('');
+  const off=m.skipped.map(s=>`<span class="gdoff" role="status">${esc(/^guarda/.test(s)?s:'guarda desligada: '+s)}</span>`).join('');
+  return `<div class="gdh"><b>Guarda</b><span class="gdst gd-${m.state==='block'?'crit':m.state==='ok'?'ok':'warn'}">${esc(head)}</span>${m.ignored?`<small class="dim">${m.ignored} dispensado${m.ignored>1?'s':''}</small>`:''}${off}</div>${rows?`<ul class="gdl">${rows}</ul>`:''}`;
+}
+// @guarda-puro-fim
+function gdMount(t, main){
+  if(!main) return;
+  const html=gdHtml((t.spec||{}).guard);
+  let box=main.querySelector(':scope > .gd');
+  if(!html){ if(box) box.remove(); return; }
+  if(!box){ box=document.createElement('section'); box.className='gd'; box.setAttribute('aria-label','guarda de segurança'); main.prepend(box); box.__gdHtml=''; }
+  if(box.__gdHtml===html) return;
+  box.innerHTML=html; box.__gdHtml=html;
+  box.onclick=e=>gdClick(t.id, e);
+}
+async function gdClick(taskId, e){
+  const b=e.target.closest('button'); if(!b) return;
+  const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  const g=(t.spec||{}).guard; const fp=b.dataset.gdfix||b.dataset.gdign; const f=((g&&g.findings)||[]).find(x=>x.fingerprint===fp); if(!f) return;
+  if(b.dataset.gdfix){
+    const msg=f.kind==='segredo'
+      ? `A guarda de segurança achou um segredo no código em ${f.file}:${f.line} (${f.masked||'••••'}, ${f.rule}). Troque por variável de ambiente; nunca escreva o valor no código. Se a chave é real, avise que ela precisa ser trocada.`
+      : `A guarda de segurança apontou ${f.file}:${f.line} (${f.rule}, severidade ${GD_SEV[f.severity]||f.severity}): ${f.message}. Corrija o código (não basta esconder o aviso).`;
+    if(await fwSendText(t.id, msg)) toast('pedido enviado ao agente','ok');
+    return;
+  }
+  const motivo=await askText('Por que dispensar este achado? (fica registrado em .cardume/guard-ignore.json)', f.kind==='segredo'?'ex.: chave de exemplo da documentação, não é real':'ex.: a entrada já é validada antes');
+  if(!motivo || !String(motivo).trim()) return;
+  const path='.cardume/guard-ignore.json';
+  let list=[];
+  try{ const c=await invoke('read_file',{ taskId, path }); list=gdParseIgnores(c&&c.content); }catch(_){ list=[]; } // ainda não existe
+  const por=(typeof cloudUser==='function'&&cloudUser()&&cloudUser().name)||'Você';
+  list=gdAddIgnore(list, { fingerprint:fp, motivo:String(motivo).trim(), por });
+  try{ await invoke('write_file',{ taskId, path, content:JSON.stringify(list, null, 2)+'\n' }); }
+  catch(err){ showErr(err, 'Não consegui gravar o achado dispensado'); return; }
+  const next=gdWithout(g, fp);
+  t.spec={ ...(t.spec||{}), guard:next };
+  invoke('patch_task_spec',{ taskId, patch:{ guard:next } }).catch(err=>console.error('guarda: patch_task_spec', err));
+  toast('achado dispensado — o motivo vai junto na branch','ok');
+  const main=b.closest('.gd')&&b.closest('.gd').parentElement; if(main) gdMount(t, main);
+}
