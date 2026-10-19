@@ -30,6 +30,9 @@ test('selo: "Verificado: testes 84/86 · CI 3/4 · relato divergente" com o tom 
   assert.equal(c.verifSeal({ tests: { ran: false, skipped: 'a mudança só toca em docs/estilo (1 arquivo)', ok: true }, ci: null }).text, 'Verificado: testes pulados');
   assert.equal(c.verifSeal({ tests: { ran: true, timedOut: true, ok: false, runner: 'cargo test' }, ci: null }).tone, 'warn');
   assert.equal(c.verifSeal({ tests: { ran: true, ok: true, passed: null, failed: null }, ci: null }).text, 'Verificado: testes ok');
+  const bw = J(c.verifSeal({ tests: { passed: 84, failed: 2, ran: true, runner: 'npm test', ok: false, baseWarn: 'a main já tinha 2 testes falhando' }, ci: null, divergente: false }));
+  assert.equal(bw.text, 'Verificado: testes 84/86 · a main já tinha 2 testes falhando');
+  assert.equal(bw.tone, 'warn', 'falha que já vinha da main é aviso, não vermelho');
   assert.equal(c.verifSeal(null), null);
   assert.equal(c.verifSeal({ tests: null, ci: null, divergente: false }), null);
 });

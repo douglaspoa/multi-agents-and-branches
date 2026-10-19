@@ -35,7 +35,7 @@ import { attachProofs, proofKind, replaceReport, type AttachResult } from "./pr-
 import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, extraStageAgents, extraStagePrompt, finishExtraStage, newExtraStage, resolveExtraAgent, runningExtra, upsertExtraStage, type ExtraAgent, type ExtraStage } from "./revisao-alteracao.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 import { readSpeaker, speakerLine, speakerTag } from "./quem.ts";
-import { agentClaimFrom, claimFromReq, testGate, testTimeoutMs } from "./test-runner.ts";
+import { agentClaimFrom, baselineRun, claimFromReq, testGate, testTimeoutMs } from "./test-runner.ts";
 import { guardSummary, runGuard, type GuardResult } from "./guard.ts";
 
 /** Catálogo do projeto sem estourar (config ilegível → só os padrões). */
@@ -979,7 +979,12 @@ export class Orchestrator {
     const said = agentClaimFrom(this.store.eventsForTask(taskId));
     const prev = (this.freshSpec(taskId) ?? spec).verification ?? null;
     const timeoutMs = Math.min(opts.testTimeoutMs ?? Infinity, testTimeoutMs(this.ws.repo));
-    const g = await testGate({ worktree: task.worktree, wantsTests, changed: await this.changedFiles(task.worktree, task.base), claims: [claimFromReq(reqRaw), said?.claim ?? null], timeoutMs, sha, dirty, prev, ci: (this.freshSpec(taskId) ?? spec).ciGate?.ci ?? null });
+    const g = await testGate({ worktree: task.worktree, wantsTests, changed: await this.changedFiles(task.worktree, task.base), claims: [claimFromReq(reqRaw), said?.claim ?? null], timeoutMs, sha, dirty, prev, ci: (this.freshSpec(taskId) ?? spec).ciGate?.ci ?? null,
+      // falhou → a mesma suíte no merge-base: só falha NOVA reprova (a main já vermelha vira aviso no selo)
+      baseline: async () => {
+        const mb = (await run("git", ["-C", task.worktree, "merge-base", "HEAD", task.base])).stdout.trim();
+        return baselineRun({ repo: this.ws.repo, worktree: task.worktree, baseSha: mb, timeoutMs });
+      } });
     try { this.store.patchSpec(taskId, { verification: g.verification }); } catch { /* banco ocupado: o selo sai na próxima verificação */ }
     if (g.divergence) this.store.addEvent(taskId, "Sistema", "relato-divergente", g.divergence, false);
     if (g.note && g.run === null && g.verification.tests?.skipped) this.store.addEvent(taskId, "Sistema", "note", `verificação: ${g.note}`, true);

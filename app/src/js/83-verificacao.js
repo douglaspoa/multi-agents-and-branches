@@ -23,7 +23,9 @@ function verifSeal(v){
       const tot=t.passed!=null?t.passed+(t.failed||0):null;
       parts.push(tot!=null?`testes ${t.passed}/${tot}`:(t.ok?'testes ok':'testes falharam'));
       tips.push(`${t.runner||'suíte'} rodada pelo Starfork na cópia da tarefa`);
-      if(!t.ok) bump('bad');
+      // a main já falhava igual (suíte da base): aviso, não reprovação
+      if(!t.ok && t.baseWarn){ parts.push(t.baseWarn); bump('warn'); }
+      else if(!t.ok) bump('bad');
     }
   }
   const c=v.ci;

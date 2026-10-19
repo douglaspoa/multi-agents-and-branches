@@ -10,8 +10,11 @@
 //
 // Tudo que é regra é função pura (testes em src/test-runner.test.ts). O único efeito colateral é runTests.
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { run as runCmd, sleep } from "./util/run.ts";
 
 export type RunnerKind = "npm" | "pnpm" | "yarn" | "bun" | "pytest" | "cargo" | "go" | "swift";
 export interface Runner {
@@ -38,10 +41,14 @@ export interface TestRun {
   timedOut?: boolean;
   /** cauda da saída (pro motivo e pro agente) */
   tail?: string;
+  /** nomes dos testes que falharam (null = a saída não deixa ler) — compara com a suíte da base */
+  failedNames?: string[] | null;
+  /** a falha parece de AMBIENTE (comando/módulo ausente, sem banco), não do código */
+  envFail?: boolean;
 }
 /** O selo de verificação que fica no spec (spec.verification) e o app mostra no cartão e na Revisão. */
 export interface Verification {
-  tests: { passed: number | null; failed: number | null; ran: boolean; runner: string; ok: boolean; timedOut?: boolean; skipped?: string } | null;
+  tests: { passed: number | null; failed: number | null; ran: boolean; runner: string; ok: boolean; timedOut?: boolean; skipped?: string; baseWarn?: string } | null;
   ci: { total: number; fail: number; pending: number } | null;
   divergente: boolean;
   /** a frase do relato divergente (quando houver) */
@@ -282,7 +289,11 @@ export async function runTests(dir: string, o: { timeoutMs?: number; runner?: Ru
   const r = await spawnCapture(runner.cmd, runner.args, dir, timeoutMs);
   const counts = parseCounts(runner.kind, r.out);
   const tail = tailOf(r.out);
-  const base = { runner: runner.label, kind: runner.kind, counts, tail };
+  // nomes sem a pasta (a mesma suíte roda na worktree da tarefa e na da base — o caminho não pode diferenciar)
+  let dirs: string[] = [dir];
+  try { dirs = [...new Set([realpathSync(dir), dir])]; } catch { /* pasta sumiu */ }
+  const failedNames = parseFailedNames(runner.kind, r.out)?.map((n) => dirs.reduce((a, d) => a.split(d).join("<repo>"), n)) ?? null;
+  const base = { runner: runner.label, kind: runner.kind, counts, tail, failedNames, envFail: isEnvFailure(r.out) };
   if (r.timedOut) return { ...base, ran: true, passed: false, timedOut: true, detail: `${runner.label} estourou o tempo (${Math.round(timeoutMs / 1000)}s)` };
   if (r.spawnErr) return { ...base, ran: false, passed: true, detail: `${runner.label} não está instalado nesta máquina (${r.spawnErr})` };
   if (r.code === 0 && !(counts && counts.failed > 0)) return { ...base, ran: true, passed: true, detail: counts ? `${runner.label} passou (${fmtCounts(counts)})` : `${runner.label} passou` };
@@ -327,6 +338,113 @@ function spawnCapture(cmd: string, args: string[], cwd: string, timeoutMs: numbe
   });
 }
 
+/** Nomes dos testes que falharam, lidos da saída (TAP `not ok`, jest `●`, pytest `FAILED x::y`, cargo `... FAILED`,
+ * go `--- FAIL:`, XCTest `Test Case '…' failed`). null = nenhum nome legível. */
+export function parseFailedNames(kind: RunnerKind | string, output: string): string[] | null {
+  const out = String(output ?? "").replace(/\u001b\[[0-9;]*m/g, "");
+  const all = (re: RegExp) => [...out.matchAll(re)].map((m) => m[1].trim());
+  let names: string[];
+  if (kind === "cargo") names = all(/^test (\S+) \.\.\. FAILED/gm);
+  else if (kind === "go") names = all(/^\s*--- FAIL: (\S+)/gm);
+  else if (kind === "pytest") names = all(/^(?:FAILED|ERROR) (\S+)/gm);
+  else if (kind === "swift") names = [...all(/Test Case '([^']+)' failed/g), ...all(/✘ Test (\S+?)(?:\(\))? (?:recorded|failed)/g)];
+  else names = [
+    ...[...out.matchAll(/^\s*not ok \d+ - (.+?)\s*$/gm)].filter((m) => !/#\s*(SKIP|TODO)\b/i.test(m[1])).map((m) => m[1].trim()),
+    ...all(/^\s*● (.+?)\s*$/gm).filter((n) => !/^Test suite failed to run$/i.test(n)),
+  ];
+  const uniq = [...new Set(names.filter(Boolean))];
+  return uniq.length ? uniq : null;
+}
+
+/** A suíte caiu por AMBIENTE (comando/módulo ausente, banco fora do ar), não por um teste? */
+export function isEnvFailure(output: string): boolean {
+  return /command not found|: not found\b|\bENOENT\b|Cannot find (module|package)|ERR_MODULE_NOT_FOUND|ModuleNotFoundError|No module named|could not connect to (server|database)|ECONNREFUSED|database "?[\w-]+"? does not exist|no such table|linker `?cc`? not found|could not find `?Cargo\.toml/i.test(String(output ?? ""));
+}
+
+/**
+ * A falha da tarefa é NOVA em relação à base? `fresh:false` = a main já falhava igual → vira aviso no selo, não reprova.
+ * Compara os NOMES dos testes que falharam; sem nomes, a contagem (`real.failed > base.failed`); sem contagem, só a
+ * falha de ambiente igual dos dois lados vira aviso.
+ */
+export function compareWithBase(t: TestRun, b: TestRun | null): { fresh: boolean; novos?: string[]; warn?: string } {
+  if (!b || !b.ran || b.timedOut || b.passed) return { fresh: true };
+  const pl = (n: number) => `a main já tinha ${n} teste${n === 1 ? "" : "s"} falhando`;
+  if (t.failedNames && b.failedNames) {
+    const novos = t.failedNames.filter((n) => !b.failedNames!.includes(n));
+    return novos.length ? { fresh: true, novos } : { fresh: false, warn: pl(b.failedNames.length) };
+  }
+  if (t.counts && b.counts) return t.counts.failed > b.counts.failed ? { fresh: true } : { fresh: false, warn: pl(b.counts.failed) };
+  if (t.envFail && b.envFail) return { fresh: false, warn: "a suíte não roda neste ambiente (a main falha igual)" };
+  return { fresh: true };
+}
+
+/** Pastas de dependência que a tarefa ganhou por link (seedWorktreeEnv) — a worktree da base usa as MESMAS. */
+const DEP_DIRS = ["node_modules", ".venv", "venv", "frontend/node_modules", "backend/node_modules", "backend/.venv", "backend/venv"];
+const baseInflight = new Map<string, Promise<TestRun | null>>();
+/** Pasta do cache da suíte da base, por repositório (compartilhado entre as tarefas). */
+export function baselineDir(repo: string): string {
+  let id = repo;
+  try { id = realpathSync(repo); } catch { /* repo sumiu */ }
+  return join(homedir(), ".cardume", "baseline", createHash("sha1").update(id).digest("hex").slice(0, 16));
+}
+function readBaseCache(file: string): TestRun | null {
+  try { const j = JSON.parse(readFileSync(file, "utf8")); return j && j.run ? (j.run as TestRun) : null; } catch { return null; }
+}
+
+/**
+ * Roda a suíte no MERGE-BASE (worktree destacada e descartável, com as mesmas deps linkadas da tarefa). Preguiçoso:
+ * só é chamado quando a suíte da tarefa falha. Cache em ~/.cardume/baseline/<repo>/<sha>.json; um SHA roda uma vez
+ * só por vez (mesmo processo: a mesma promessa; outro processo: trava em arquivo).
+ */
+export async function baselineRun(o: { repo: string; worktree: string; baseSha: string; timeoutMs: number; run?: (dir: string, x: { timeoutMs: number }) => Promise<TestRun> }): Promise<TestRun | null> {
+  if (!/^[0-9a-f]{7,64}$/i.test(o.baseSha)) return null;
+  const dir = baselineDir(o.repo);
+  const file = join(dir, `${o.baseSha}.json`);
+  const going = baseInflight.get(file);
+  if (going) return going;
+  const p = (async (): Promise<TestRun | null> => {
+    const hit = readBaseCache(file);
+    if (hit) return hit;
+    mkdirSync(dir, { recursive: true });
+    const lock = `${file}.lock`;
+    const until = Date.now() + o.timeoutMs + 60_000;
+    for (;;) {
+      try { closeSync(openSync(lock, "wx")); break; } catch { /* outro processo rodando esta base */ }
+      try { if (Date.now() - statSync(lock).mtimeMs > o.timeoutMs + 120_000) { rmSync(lock, { force: true }); continue; } } catch { continue; }
+      const c = readBaseCache(file);
+      if (c) return c;
+      if (Date.now() > until) return null;
+      await sleep(500);
+    }
+    const tmp = mkdtempSync(join(tmpdir(), "starfork-base-"));
+    const wt = join(tmp, "wt");
+    try {
+      const again = readBaseCache(file);
+      if (again) return again;
+      await runCmd("git", ["-C", o.repo, "worktree", "add", "--detach", wt, o.baseSha], { timeout: 60_000 });
+      for (const d of DEP_DIRS) {
+        try { if (existsSync(join(o.worktree, d)) && !existsSync(join(wt, d))) symlinkSync(realpathSync(join(o.worktree, d)), join(wt, d)); } catch { /* sem a pasta */ }
+      }
+      const r = await (o.run ?? runTests)(wt, { timeoutMs: o.timeoutMs });
+      if (!r.timedOut) {
+        const keep = { ...r, failedNames: r.failedNames?.map((n) => n.split(wt).join("<repo>")) ?? r.failedNames, tail: (r.tail ?? "").slice(-4000) };
+        writeFileSync(file, JSON.stringify({ sha: o.baseSha, at: Date.now(), run: keep }));
+        return keep;
+      }
+      return r;
+    } catch {
+      return null; // não deu pra montar a base (sha sumiu, git ocupado): sem comparação, a regra de sempre vale
+    } finally {
+      await runCmd("git", ["-C", o.repo, "worktree", "remove", "--force", wt]).catch(() => undefined);
+      rmSync(tmp, { recursive: true, force: true });
+      await runCmd("git", ["-C", o.repo, "worktree", "prune"]).catch(() => undefined);
+      rmSync(lock, { force: true });
+    }
+  })().finally(() => baseInflight.delete(file));
+  baseInflight.set(file, p);
+  return p;
+}
+
 export interface GateInput {
   worktree: string;
   /** a tarefa PEDIU testes (autonomy.runTests / artefato tests): timeout reprova e docs-only não pula */
@@ -343,6 +461,8 @@ export interface GateInput {
   ci?: Verification["ci"];
   /** injetável nos testes */
   run?: (dir: string, o: { timeoutMs: number }) => Promise<TestRun>;
+  /** suíte da base (merge-base), chamada SÓ quando a da tarefa falha — sem ela, qualquer falha reprova */
+  baseline?: (r: TestRun) => Promise<TestRun | null>;
 }
 export interface GateResult {
   reasons: string[];
@@ -364,7 +484,7 @@ export async function testGate(g: GateInput): Promise<GateResult> {
   // mesma versão do código já verificada (fim de turno de conversa, sem commit novo): reaproveita o resultado
   const p = g.prev;
   if (p && p.tests && p.tests.ran && !p.tests.timedOut && g.sha && p.sha === g.sha && !g.dirty) {
-    if (!p.tests.ok) reasons.push(`os testes falharam: ${p.tests.runner}${p.tests.passed != null ? ` (${p.tests.passed}/${(p.tests.passed ?? 0) + (p.tests.failed ?? 0)} passaram)` : ""}`);
+    if (!p.tests.ok && !p.tests.baseWarn) reasons.push(`os testes falharam: ${p.tests.runner}${p.tests.passed != null ? ` (${p.tests.passed}/${(p.tests.passed ?? 0) + (p.tests.failed ?? 0)} passaram)` : ""}`);
     // a divergência é recalculada contra o relato ATUAL (o motivo antigo não se repete)
     const real = p.tests.passed != null && p.tests.failed != null ? { passed: p.tests.passed, failed: p.tests.failed } : null;
     let div: string | null = null;
@@ -379,12 +499,18 @@ export async function testGate(g: GateInput): Promise<GateResult> {
   if (r.ran && !r.timedOut) {
     for (const c of g.claims) { divergence = claimDivergence(c, r.counts ?? null); if (divergence) break; }
   }
+  let baseWarn: string | undefined;
   if (r.timedOut && !g.wantsTests) {
     // a tarefa não pediu testes: suíte lenta não trava a entrega — fica registrado no selo
-  } else if (r.ran && !r.passed) reasons.push(`os testes falharam: ${r.detail}`);
+  } else if (r.ran && !r.passed) {
+    // falhou: a main já falhava igual? (preguiçoso — a base só roda agora)
+    const cmp = !r.timedOut && g.baseline ? compareWithBase(r, await g.baseline(r).catch(() => null)) : { fresh: true } as ReturnType<typeof compareWithBase>;
+    if (cmp.fresh) reasons.push(`os testes falharam: ${r.detail}${cmp.novos?.length ? ` — falha nova em relação à main: ${cmp.novos.slice(0, 5).join(", ")}${cmp.novos.length > 5 ? "…" : ""}` : ""}`);
+    else baseWarn = cmp.warn;
+  }
   if (divergence) reasons.push(divergence);
   const tests = r.ran || r.timedOut
-    ? { passed: r.counts?.passed ?? null, failed: r.counts?.failed ?? null, ran: r.ran, runner: r.runner ?? "", ok: r.passed, ...(r.timedOut ? { timedOut: true } : {}) }
+    ? { passed: r.counts?.passed ?? null, failed: r.counts?.failed ?? null, ran: r.ran, runner: r.runner ?? "", ok: r.passed, ...(r.timedOut ? { timedOut: true } : {}), ...(baseWarn ? { baseWarn } : {}) }
     : r.runner ? { passed: null, failed: null, ran: false, runner: r.runner, ok: true, skipped: r.detail } : null;
   return {
     reasons, divergence, run: r,

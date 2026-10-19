@@ -5,10 +5,10 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agentClaimFrom, claimDivergence, claimFromReq, detectRunner, parseClaim, parseCounts, runTests, skipReason, testGate, testTimeoutMs, type TestRun } from "./test-runner.ts";
+import { agentClaimFrom, baselineDir, baselineRun, claimDivergence, claimFromReq, compareWithBase, detectRunner, isEnvFailure, parseClaim, parseCounts, parseFailedNames, runTests, skipReason, testGate, testTimeoutMs, type TestRun } from "./test-runner.ts";
 import { Orchestrator } from "./orchestrator.ts";
 import { tempHome } from "./testing/temp-home.ts";
 import type { TaskSpec } from "./types.ts";
@@ -282,4 +282,98 @@ test("portão: projeto sem suíte continua passando; a tarefa não pediu testes 
     const s = JSON.parse(orch.store.getTask("t2")!.spec_json) as TaskSpec;
     assert.deepEqual({ ...s.verification!.tests }, { passed: 1, failed: 0, ran: true, runner: "npm test", ok: true });
   } finally { orch.close(); }
+});
+
+// ---------------------------------------------------------------- baseline da base (revisão adversarial, item 4)
+
+test("parseFailedNames: TAP not ok (sem SKIP/TODO), jest ●, pytest FAILED, cargo FAILED, go --- FAIL; nada legível → null", () => {
+  assert.deepEqual(parseFailedNames("npm", "ok 1 - a\nnot ok 2 - soma vazia\n    not ok 1 - sub\nnot ok 3 - depois # TODO\n"), ["soma vazia", "sub"]);
+  assert.deepEqual(parseFailedNames("yarn", "  ● Lista › soma vazia\n\n  ● Test suite failed to run\n"), ["Lista › soma vazia"]);
+  assert.deepEqual(parseFailedNames("pytest", "FAILED tests/test_a.py::test_soma - assert 1 == 2\nERROR tests/test_b.py::test_db\n"), ["tests/test_a.py::test_soma", "tests/test_b.py::test_db"]);
+  assert.deepEqual(parseFailedNames("cargo", "test calc::soma ... ok\ntest calc::vazia ... FAILED\n"), ["calc::vazia"]);
+  assert.deepEqual(parseFailedNames("go", "--- FAIL: TestB (0.00s)\n    --- FAIL: TestB/sub (0.00s)\n"), ["TestB", "TestB/sub"]);
+  assert.equal(parseFailedNames("npm", "deu ruim"), null);
+});
+
+test("isEnvFailure: comando/módulo ausente e banco fora do ar são ambiente; assert não é", () => {
+  assert.ok(isEnvFailure("sh: vitest: command not found"));
+  assert.ok(isEnvFailure("Error: Cannot find module 'express'"));
+  assert.ok(isEnvFailure("ModuleNotFoundError: No module named 'django'"));
+  assert.ok(isEnvFailure("psql: could not connect to server: Connection refused"));
+  assert.ok(!isEnvFailure("AssertionError: 1 == 2"));
+});
+
+const TR = (o: Partial<TestRun>) => ({ ran: true, passed: false, detail: "x", ...o }) as TestRun;
+test("compareWithBase: falha nova pelos NOMES; sem nomes, pela contagem; ambiente igual dos dois lados = aviso", () => {
+  assert.deepEqual(compareWithBase(TR({ failedNames: ["a"] }), TR({ passed: true })), { fresh: true }, "main verde: toda falha é nova");
+  assert.deepEqual(compareWithBase(TR({ failedNames: ["a"] }), null), { fresh: true });
+  assert.deepEqual(compareWithBase(TR({ failedNames: ["a", "b"] }), TR({ failedNames: ["a"] })), { fresh: true, novos: ["b"] });
+  assert.deepEqual(compareWithBase(TR({ failedNames: ["a"] }), TR({ failedNames: ["a", "c"] })), { fresh: false, warn: "a main já tinha 2 testes falhando" });
+  assert.deepEqual(compareWithBase(TR({ counts: { passed: 8, failed: 2 } }), TR({ counts: { passed: 9, failed: 2 } })), { fresh: false, warn: "a main já tinha 2 testes falhando" });
+  assert.equal(compareWithBase(TR({ counts: { passed: 7, failed: 3 } }), TR({ counts: { passed: 9, failed: 2 } })).fresh, true);
+  assert.deepEqual(compareWithBase(TR({ envFail: true }), TR({ envFail: true })), { fresh: false, warn: "a suíte não roda neste ambiente (a main falha igual)" });
+  assert.equal(compareWithBase(TR({ envFail: true }), TR({ envFail: false })).fresh, true);
+});
+
+test("testGate com a base: main já falhava igual → aviso no selo, sem reprovar; falha nova → reprova citando o teste", async () => {
+  const run = async () => TR({ runner: "npm test", detail: "npm test: 8/10 passaram", counts: { passed: 8, failed: 2 }, failedNames: ["a", "b"] });
+  let baseCalls = 0;
+  const same = await testGate({ worktree: root, wantsTests: false, changed: ["x.ts"], claims: [], timeoutMs: 1000, run, baseline: async () => { baseCalls++; return TR({ failedNames: ["a", "b"] }); } });
+  assert.deepEqual(same.reasons, []);
+  assert.equal(same.verification.tests?.baseWarn, "a main já tinha 2 testes falhando");
+  assert.equal(baseCalls, 1);
+  const novo = await testGate({ worktree: root, wantsTests: false, changed: ["x.ts"], claims: [], timeoutMs: 1000, run, baseline: async () => TR({ failedNames: ["a"] }) });
+  assert.deepEqual(novo.reasons, ["os testes falharam: npm test: 8/10 passaram — falha nova em relação à main: b"]);
+  // passou: a base nem roda
+  await testGate({ worktree: root, wantsTests: false, changed: ["x.ts"], claims: [], timeoutMs: 1000, run: async () => TR({ passed: true }), baseline: async () => { baseCalls++; return null; } });
+  assert.equal(baseCalls, 1, "preguiçoso: suíte verde não roda a base");
+  // cache da mesma versão com aviso: continua sem reprovar
+  const again = await testGate({ worktree: root, wantsTests: false, changed: ["x.ts"], claims: [], timeoutMs: 1000, sha: "s1", prev: { ...same.verification, sha: "s1" }, run });
+  assert.deepEqual(again.reasons, []);
+});
+
+test("portão: suíte que JÁ falhava na main vira aviso (worktree da base, cache em ~/.cardume/baseline); teste novo quebrado reprova", async () => {
+  const repo = gitRepo("base-vermelha");
+  const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap" } }));
+  writeFileSync(join(repo, "velho.test.mjs"), `import { test } from "node:test";\nimport assert from "node:assert";\ntest("ok", () => {});\ntest("quebrado da main", () => { assert.equal(1, 2); });\n`);
+  g("add", "-A"); g("commit", "-q", "-m", "suite com falha antiga");
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("t3"));
+    const t = orch.store.getTask("t3")!;
+    mkdirSync(join(t.worktree, ".cardume", "artifacts"), { recursive: true });
+    writeFileSync(join(t.worktree, ".cardume", "artifacts", "ev.md"), "ok\n");
+    writeFileSync(join(t.worktree, ".cardume", "artifacts", "requirements.json"), JSON.stringify([{ req: "soma os itens", status: "done", evidence: ["ev.md"] }]));
+    writeFileSync(join(t.worktree, "soma.mjs"), "export const soma = (a, b) => a + b;\n");
+    const g1 = await orch.verifyProofs("t3", t, JSON.parse(t.spec_json));
+    assert.deepEqual(g1, { ok: true, reasons: [] }, "a falha já existia na main: não reprova");
+    const s = JSON.parse(orch.store.getTask("t3")!.spec_json) as TaskSpec;
+    assert.equal(s.verification!.tests!.baseWarn, "a main já tinha 1 teste falhando");
+    const cacheDir = baselineDir(repo);
+    assert.equal(readdirSync(cacheDir).filter((f) => f.endsWith(".json")).length, 1, "cache da base gravado");
+    assert.ok(!execFileSync("git", ["-C", repo, "worktree", "list"], { encoding: "utf8" }).includes("starfork-base-"), "worktree da base removida");
+    // cache compartilhado: a mesma base não roda de novo
+    const sha = readdirSync(cacheDir).find((f) => f.endsWith(".json"))!.replace(/\.json$/, "");
+    let calls = 0;
+    await baselineRun({ repo, worktree: t.worktree, baseSha: sha, timeoutMs: 5000, run: async () => { calls++; return TR({}); } });
+    assert.equal(calls, 0);
+    // teste NOVO quebrado: reprova citando ele
+    writeFileSync(join(t.worktree, "novo.test.mjs"), `import { test } from "node:test";\nimport assert from "node:assert";\ntest("quebrado novo", () => { assert.equal(1, 2); });\n`);
+    const g2 = await orch.verifyProofs("t3", orch.store.getTask("t3")!, JSON.parse(orch.store.getTask("t3")!.spec_json));
+    assert.equal(g2.ok, false);
+    assert.ok(g2.reasons.some((r) => /falha nova em relação à main: .*quebrado novo/.test(r)), g2.reasons.join(" · "));
+    assert.ok(!g2.reasons.some((r) => /quebrado da main/.test(r)));
+    assert.ok(existsSync(cacheDir));
+  } finally { orch.close(); }
+});
+
+test("baselineRun: duas chamadas ao mesmo tempo pro mesmo SHA rodam a base uma vez só", async () => {
+  const repo = gitRepo("base-concorrente");
+  const sha = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  let calls = 0;
+  const run = async () => { calls++; await new Promise((r) => setTimeout(r, 200)); return TR({ counts: { passed: 1, failed: 1 } }); };
+  const [a, b] = await Promise.all([baselineRun({ repo, worktree: repo, baseSha: sha, timeoutMs: 5000, run }), baselineRun({ repo, worktree: repo, baseSha: sha, timeoutMs: 5000, run })]);
+  assert.equal(calls, 1);
+  assert.deepEqual(a?.counts, b?.counts);
 });
