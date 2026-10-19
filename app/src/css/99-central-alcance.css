@@ -87,7 +87,7 @@
 .ca-st{display:inline-flex;align-items:center;gap:6px;font-weight:600;color:var(--text);max-width:100%}
 .ca-st span{overflow:hidden;text-overflow:ellipsis}
 .ca-st i{width:7px;height:7px;border-radius:var(--r-pill);background:var(--stc);flex:none}
-.ca-acts{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end}
+.ca-acts{display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;flex-wrap:wrap;row-gap:4px;max-width:100%}
 .ca-acts .btn[disabled]{opacity:.5;cursor:not-allowed}
 .ca-more svg{width:14px;height:14px}
 .ca-tbl .tslk{font-size:var(--fs-xs)}

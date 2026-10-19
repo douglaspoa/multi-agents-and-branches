@@ -330,6 +330,12 @@
 html:not(.os-mac) .app.railcol .top{padding-left:16px}
 html:not(.os-mac) .app.railcol .tabbar{padding-left:16px}
 html:not(.os-mac) #ntOverlay .mhead{padding-left:20px}
+/* telas de tela cheia SEM a lateral (entrada, onboarding passos 1–3, planos/pagamento): no macOS o cabeçalho .au-top
+   começa depois dos semáforos (a janela usa título sobreposto) — antes o rótulo "PLANOS" ficava embaixo deles. Com a
+   coluna da esquerda visível o topo dela já tem folga (.au-lin padding-top 56px); some em .full e abaixo de 900px. */
+html.os-mac .au-top{min-height:52px}
+html.os-mac .au-wrap.full .au-top{padding-left:86px}
+@media (max-width:900px){ html.os-mac .au-top{padding-left:86px} }
 
 /* barra de status "Agora": o detalhe (tarefas, custo em tokens, arquivos reservados) mora no tooltip */
 #busSummary{cursor:help;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

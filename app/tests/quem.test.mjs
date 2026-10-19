@@ -43,7 +43,7 @@ test('a tela grava quem está logado AGORA (nome do perfil); troca de conta e sa
 
 test('perfil ainda sem nome: parte do e-mail da PRÓPRIA conta; sem nada, vazio (nunca "você"/"pessoa sem nome")', () => {
   const c = pessoas({ uid: '0000aaaa-0000-4000-8000-0000000000ff', email: 'carla.dias@exemplo.dev' });
-  assert.equal(c.personMeName(), 'carla.dias');
+  assert.equal(c.personMeName(), 'Carla Dias'); // #148: nome de gente, nunca o handle
   c.me = { uid: '0000aaaa-0000-4000-8000-0000000000ff', email: '' };
   assert.equal(c.personMeName(), '');
 });

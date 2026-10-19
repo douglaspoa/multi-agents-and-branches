@@ -10,15 +10,15 @@ const read = (f) => readFileSync(new URL(f, dir), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const S = read('08-pessoas.js');
 const P = new Function(cut(S, '// @puro-pessoas-inicio', '// @puro-pessoas-fim')
-  + '\nreturn { personLabel, personFirst, personInitials, personLooksId, personEmailLocal, personBadText, PESSOA_SEM_NOME, PESSOA_CARREGANDO };')();
+  + '\nreturn { personLabel, personNomeDeHandle, personEhHandle, personFirst, personInitials, personLooksId, personEmailLocal, personBadText, PESSOA_SEM_NOME, PESSOA_CARREGANDO };')();
 const UUID = '0000aaaa-0000-4000-8000-00000000000b';
 
 test('ordem: você → nome → parte do e-mail → pessoa sem nome (nunca o id)', () => {
   assert.equal(P.personLabel({ name: 'Bruno Lima', email: 'bruno@exemplo.dev' }, { me: true }), 'você');
   assert.equal(P.personLabel({ name: 'Bruno Lima', email: 'bruno@exemplo.dev' }, { me: true, noYou: true }), 'Bruno Lima');
-  assert.equal(P.personLabel({ name: '', email: 'carla.dias@exemplo.dev' }), 'carla.dias');
+  assert.equal(P.personLabel({ name: '', email: 'carla.dias@exemplo.dev' }), 'Carla Dias', 'sem nome no perfil: o nome sai do e-mail, capitalizado (#148)');
   assert.equal(P.personLabel({ name: UUID, email: '' }), 'pessoa sem nome', 'nome que é um uuid não vale');
-  assert.equal(P.personLabel({ name: 'bruno@exemplo.dev' }), 'bruno', 'nome que é e-mail vira a parte antes do @');
+  assert.equal(P.personLabel({ name: 'bruno@exemplo.dev' }), 'Bruno', 'nome que é e-mail vira a parte antes do @');
   assert.equal(P.personLabel(null), 'pessoa sem nome');
   assert.equal(P.personLabel(null, { pending: true }), 'carregando…');
   assert.equal(P.personLabel(null, { hint: 'Diego Reis' }), 'Diego Reis', 'nome gravado em outro lugar (shared_by_name)');
@@ -82,12 +82,12 @@ test('eu = "você" (nas listas de escolha: "Ana Souza (você)"); e-mail só no t
   assert.equal(ctx.personName('eu-0000-4000-8000-000000000000'), 'você');
   assert.equal(ctx.personName('eu-0000-4000-8000-000000000000', { you: 'suffix' }), 'Ana Souza (você)');
   assert.equal(ctx.personName('ana@exemplo.dev'), 'você', 'por e-mail também');
-  assert.equal(ctx.personName(UUID), 'bruno.lima');
-  assert.equal(ctx.personName('fora@outra.dev'), 'fora', 'e-mail de quem não é do time: parte antes do @');
+  assert.equal(ctx.personName(UUID), 'Bruno Lima');
+  assert.equal(ctx.personName('fora@outra.dev'), 'Fora', 'e-mail de quem não é do time: parte antes do @');
   assert.equal(ctx.personName(''), '—');
   const chip = ctx.personChip(UUID), av = ctx.personAv('eu-0000-4000-8000-000000000000');
-  assert.match(chip, /bruno\.lima<\/span><\/span>$/);
-  assert.match(chip, /title="bruno\.lima · bruno\.lima@exemplo\.dev"/, 'e-mail completo só no tooltip');
+  assert.match(chip, /Bruno Lima<\/span><\/span>$/);
+  assert.match(chip, /title="Bruno Lima · bruno\.lima@exemplo\.dev"/, 'e-mail completo só no tooltip');
   assert.match(av, />AS<\/span>$/, 'meu avatar: minhas iniciais');
   assert.ok(!P.personBadText(chip.replace(/title="[^"]*"/g, '')) && !chip.includes(UUID));
 });
@@ -155,4 +155,17 @@ test('painel de Issues (trkPerson): e-mail → pessoa do time; código sem mapa 
   assert.equal(ctx.trkPerson('u-77').label, 'Bruno Lima', '"quem é?" grava o e-mail');
   assert.equal(ctx.trkPerson('u-88').label, 'Fulano Antigo', 'nome dado antes desta mudança continua');
   assert.equal(ctx.trkPerson('77a1b2c3-0d0e-4f00-9a00-00000000beef', 'bruno@exemplo.dev').label, 'Bruno Lima', 'o e-mail do painel vence o código');
+});
+
+test('#148: usuário/e-mail sem nome no perfil vira nome de gente — nunca o handle cru', () => {
+  assert.equal(P.personNomeDeHandle('ana.souza'), 'Ana Souza');
+  assert.equal(P.personNomeDeHandle('bruno_lima'), 'Bruno Lima');
+  assert.equal(P.personNomeDeHandle('diego-reis'), 'Diego Reis');
+  assert.equal(P.personNomeDeHandle('5511999998888'), '5511999998888', 'telefone fica como está');
+  assert.equal(P.personLabel({ name: 'ana.souza', email: 'ana.souza@exemplo.dev' }), 'Ana Souza', 'perfil com o handle no nome');
+  assert.equal(P.personLabel({ name: 'carla', email: '' }), 'Carla', 'login minúsculo vira nome');
+  assert.equal(P.personLabel({ name: 'Diego Reis', email: 'dr@exemplo.dev' }), 'Diego Reis', 'nome escrito pela pessoa fica intacto');
+  assert.equal(P.personLabel({ name: 'Ana de Souza' }), 'Ana de Souza');
+  assert.equal(P.personLabel(null, { email: 'bruno.lima@exemplo.dev' }), 'Bruno Lima');
+  assert.equal(P.personLabel(null, { hint: 'carla.dias@exemplo.dev' }), 'Carla Dias');
 });

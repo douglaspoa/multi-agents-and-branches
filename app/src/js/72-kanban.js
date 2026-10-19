@@ -121,7 +121,8 @@ function kbLocalTrav(t){
 function kbLocalVm(t){
   const me=(typeof cloudUserId==='function'&&cloudUserId())||'';
   const c=chainOfNow(t), ts=kbLocalTs(t), a=kbAgo(ts), th=kbLocalThumb(t), tr=kbLocalTrav(t);
-  const acts=t.status==='draft'?[{ act:'start', label:'Iniciar', primary:true, title:'iniciar o rascunho agora (ou arraste pra “Em andamento”)' }]:[];
+  const acts=t.status==='draft'?[{ act:'start', label:'Iniciar', primary:true, title:'iniciar o rascunho agora (ou arraste pra “Em andamento”)' }]
+    :(typeof conflitoDe==='function' && conflitoDe(t))?[{ act:'fixconf', label:'Resolver conflito', primary:true, title:'no terminal da tarefa: traz a base, resolve, roda os testes e faz push' }]:[];
   return { id:t.id, kind:'local', col:kbColOf(flowBucket(t)), ts, title:mdTitle(t.title||''), sel:typeof selected!=='undefined'&&selected===t.id,
     chain:chainHtml(c, { omit:['task','who','st'] }), who:me?kbWho(me):`<span class="pchip kb-agent" title="rodando nesta máquina"><span class="pnm">${esc(t.agent||'agente')}</span></span>`,
     reqs:kbLocalReqs(t), thumb:th.thumb, proofs:th.n, trav:tr?tr.tx:'', travTip:tr?tr.tip:'', ago:a.ago, agoTip:a.tip, drops:kbLocalDrops(t), acts, menu:true, ref:t };
@@ -145,8 +146,8 @@ function kbTeamVm(t, x){
   // motivo da trava: a fonte única do #149 (entTravaTx = entTravada + entMotivo com contexto)
   const travTx=typeof entTravaTx==='function'?entTravaTx(t):(entTravada(t, fn)?entMotivo(t, ctStLabel(t)):'');
   const c=chainOfNow(t);
-  const acts=typeof caAcoes==='function'?caAcoes(t, { me, canAssign, local:!!(typeof caLocalOf==='function'&&caLocalOf(t)), repo:typeof caRepo==='function'?caRepo(t):'here' }, fn):[];
-  const prim=acts.filter(z=>z.primary && ['claim','start','openproj'].includes(z.act)).slice(0,1); // só o passo do cartão; abrir = clicar
+  const acts=typeof caAcoes==='function'?caAcoes(t, typeof caCtx==='function'?caCtx(t):{ me, canAssign, local:!!(typeof caLocalOf==='function'&&caLocalOf(t)), repo:typeof caRepo==='function'?caRepo(t):'here' }, fn):[];
+  const prim=acts.filter(z=>z.primary && ['claim','start','openproj','fixconf','askfix'].includes(z.act)).slice(0,1); // só o passo do cartão; abrir = clicar
   return { id:t.id, kind:'cloud', col:kbColOf(bucket, Object.assign({ rascunho:'fila' }, x.colMap)), ts, title:mdTitle(t.title||''),
     chain:chainHtml(c, { omit:['task','who','st','proof'] }), who:kbWho(t.assignee), reqs:entReqs(t), thumb:th.thumb, proofs:th.n,
     trav:travTx, travTip:travTx?String(t.last_note||travTx):'', ago:a.ago, agoTip:a.tip,
@@ -157,7 +158,7 @@ function kbTeamVm(t, x){
 function kbTeamMenu(ct, anchor, after){
   menuClose($id('kbMenuPop'));
   const me=cloudUserId(), fn=ENT_FN, isAdmin=cloudData&&(cloudData.meRole==='owner'||cloudData.meRole==='admin');
-  const acts=caAcoes(ct, { me, canAssign:caCanAssign(ct.team_id), local:!!caLocalOf(ct), repo:caRepo(ct) }, fn);
+  const acts=caAcoes(ct, caCtx(ct), fn);
   const pop=document.createElement('div'); pop.id='kbMenuPop'; pop.className='kb-pop';
   const item=(label, f, danger)=>{ const b=document.createElement('button'); b.type='button'; b.textContent=label; if(danger) b.className='danger';
     b.onclick=async(e)=>{ e.stopPropagation(); menuClose(pop); try{ await f(); if(after) after(); }catch(err){ showErr(err, 'Não deu'); } }; pop.appendChild(b); };
@@ -290,7 +291,7 @@ function kbHandlers(vms, after){
     open(vm){ if(vm.kind==='local'){ const t=vm.ref; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } selected=t.id; render(); openOrEdit(t); }
       else caOpen(vm.ref); },
     menu(vm, anchor){ if(vm.kind==='local') openTaskMenu(vm.id, anchor); else { const l=caLocalOf(vm.ref); if(l) openTaskMenu(l.id, anchor); else kbTeamMenu(vm.ref, anchor, after); } },
-    act(vm, act, btn){ if(vm.kind==='local'){ if(act==='start') crossRun(vm.id, ()=>startTask(vm.id)); return; }
+    act(vm, act, btn){ if(vm.kind==='local'){ if(act==='start') crossRun(vm.id, ()=>startTask(vm.id)); else if(act==='fixconf') resolverConflito(vm.id, btn); return; }
       return Promise.resolve(caAct(act, vm.ref, btn)).then(()=>{ if(after) after(); }).catch(err=>showErr(err, 'Não deu')); },
     async drop(vm, col, act){
       if(vm.kind==='local'){ if(act==='start') return crossRun(vm.id, ()=>startTask(vm.id)); return; }

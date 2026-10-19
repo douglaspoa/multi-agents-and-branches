@@ -142,7 +142,7 @@ test('quem pode pôr OUTRA pessoa: líder do time ou owner/admin da org (membro 
 
 test('seletor de responsável: Livre + eu (+ o time, só pra quem pode), nome do perfil ou do e-mail', () => {
   assert.deepEqual(RESP.tmAssignOpts(MEM, PROF, 'bruno', false).map((o) => [o.id, o.label]), [['', 'Livre'], ['bruno', 'Bruno Lima']]);
-  assert.deepEqual(RESP.tmAssignOpts(MEM, PROF, 'ana', true).map((o) => [o.id, o.label]), [['', 'Livre'], ['ana', 'Ana Souza'], ['bruno', 'Bruno Lima'], ['caio', 'caio']]);
+  assert.deepEqual(RESP.tmAssignOpts(MEM, PROF, 'ana', true).map((o) => [o.id, o.label]), [['', 'Livre'], ['ana', 'Ana Souza'], ['bruno', 'Bruno Lima'], ['caio', 'Caio']]); // sem nome no perfil: o nome sai do e-mail, capitalizado (#148)
 });
 
 test('"Mandar pro time" é o padrão com time; a última escolha vale; sem time só roda', () => {
