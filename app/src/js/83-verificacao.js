@@ -10,6 +10,8 @@
 // @verif-puro-inicio (testado em app/tests/verificacao.test.mjs)
 const CI_MAX_VOLTAS=2;
 const CI_WATCH_ST=new Set(['review','pr-open']);
+const CI_SEM_PUSH_MS=3*60000; // devolvida há mais que isso, de volta à revisão sem commit novo = o agente não deu push
+const CI_POR_TICK=3;           // no máximo 3 tarefas por volta (cada pr_status leva segundos — as voltas não se sobrepõem)
 // o selo: { text, tone:'ok'|'bad'|'wait'|'warn', tip } ou null (nada verificado ainda)
 function verifSeal(v){
   if(!v) return null;
@@ -48,15 +50,21 @@ function verifOf(t){
 // a falha deste commit (sem headRefOid, os nomes das checagens) — cada falha é tratada UMA vez
 function ciFailKey(info){ return String((info&&info.headSha)||'') || ((info&&info.failingChecks)||[]).join(',') || 'ci'; }
 // o que fazer com o CI do PR desta tarefa agora: stop | wait | green | idle | return | ask
+// o = { overBudget, away (a tarefa saiu da revisão desde a última olhada), now }
 function ciGateDecide(t, info, o){
   o=o||{};
   if(!t || !info || !info.exists || info.state!=='OPEN') return { act:'stop' };
   const ci={ total:+info.checksTotal||0, fail:+info.checksFail||0, pending:+info.checksPending||0 };
-  if(!ci.total) return { act:'stop', ci:null };
+  // commit novo ainda sem checagem registrada: NÃO apaga o selo do CI anterior e confere de novo em 60 s
+  if(!ci.total) return { act:'wait', zero:true };
   if(!ci.fail) return ci.pending ? { act:'wait', ci } : { act:'green', ci };
   const g=((t.spec||{}).ciGate)||{}, key=ciFailKey(info);
-  if(g.lastSha===key) return { act:'idle', ci, key };
   if(!CI_WATCH_ST.has(t.status)) return { act:'wait', ci, key }; // o agente está mexendo: espera o turno acabar
+  if(g.lastSha===key){
+    // devolvida e de volta à revisão com a MESMA falha (o agente não deu push): vira pergunta, não fica parada pra sempre
+    const back=g.awaiting && (o.away || ((o.now||0)-(+g.at||0) > CI_SEM_PUSH_MS));
+    return back ? { act:'ask', ci, key, why:'sempush' } : { act:'idle', ci, key };
+  }
   if((+g.rounds||0)>=CI_MAX_VOLTAS) return { act:'ask', ci, key, why:'voltas' };
   if(o.overBudget) return { act:'ask', ci, key, why:'teto' };
   return { act:'return', ci, key, round:(+g.rounds||0)+1 };
@@ -77,6 +85,7 @@ function ciReturnText(names, log, round){
 }
 function ciAskText(names, why){
   const nm=(names||[]).length?(names||[]).join(', '):'uma checagem';
+  if(why==='sempush') return `O CI do PR continua vermelho (${nm}) e o agente voltou sem mandar commit novo · decida: mandar o agente corrigir de novo ou deixar como está`;
   return why==='teto'
     ? `O CI do PR falhou (${nm}), mas a tarefa está no teto de custo · decida: mandar o agente corrigir ou deixar como está`
     : `O CI do PR falhou de novo (${nm}) depois de ${CI_MAX_VOLTAS} voltas automáticas · decida: mandar o agente corrigir mais uma vez ou deixar como está`;
@@ -108,37 +117,40 @@ async function ciPatchGate(t, gate, extra){
 }
 async function ciReturn(t, info, d){
   const text=ciReturnText(info.failingChecks, await ciLogOf(info), d.round);
-  // grava ANTES de mandar: um tick concorrente (ou a janela voltando) não devolve a mesma falha duas vezes
-  await ciPatchGate(t, { rounds:d.round, lastSha:d.key, asked:false, at:Date.now(), ci:d.ci });
+  // devolve PRIMEIRO; a volta só conta (rounds/lastSha) se o rework_task deu certo — falhou, nada muda e o próximo tick tenta
   await invoke('rework_task',{ taskId:t.id, text });
+  await ciPatchGate(t, { rounds:d.round, lastSha:d.key, asked:false, awaiting:true, at:Date.now(), ci:d.ci });
   toast(`CI falhou — tarefa devolvida ao agente (volta ${d.round} de ${CI_MAX_VOLTAS})`,'warn');
   lastSig=''; refresh().catch(()=>{});
 }
 async function ciAsk(t, info, d){
   const text=ciAskText(info.failingChecks, d.why);
-  await ciPatchGate(t, { lastSha:d.key, asked:true, at:Date.now(), ci:d.ci }, { needsYou:{ kind:'ci', text, at:Date.now() } });
+  await ciPatchGate(t, { lastSha:d.key, asked:true, awaiting:false, at:Date.now(), ci:d.ci }, { needsYou:{ kind:'ci', text, at:Date.now() } });
   await invoke('mark_task_status',{ taskId:t.id, status:'needs-you' });
   if(typeof pushNotif==='function') pushNotif('CI falhou de novo — precisa de você', t.title||'', t.id);
   lastSig=''; refresh().catch(()=>{});
 }
 async function ciWatchTick(){
   const now=Date.now();
-  // tarefa fora da revisão (o agente corrigindo, ou parada pra você): guarda o status — a VOLTA pra revisão confere na hora
-  for(const t of (state.tasks||[])) if(ciMemo[t.id] && !CI_WATCH_ST.has(t.status)) ciMemo[t.id].st=t.status;
-  const list=(state.tasks||[]).filter(t=>ciWatchShould(t, ciMemo[t.id], now)).slice(0,6);
+  // tarefa fora da revisão (o agente corrigindo, ou parada pra você): guarda — a VOLTA pra revisão confere na hora
+  for(const t of (state.tasks||[])) if(ciMemo[t.id] && !CI_WATCH_ST.has(t.status)){ ciMemo[t.id].st=t.status; ciMemo[t.id].away=true; }
+  const list=(state.tasks||[]).filter(t=>ciWatchShould(t, ciMemo[t.id], now)).slice(0,CI_POR_TICK);
   for(const t of list){
     const info=await loadPr(t.id, true); // pr_status: o mesmo caminho (e cache) da aba PR — nada de outro `gh`
+    const memo=ciMemo[t.id]||{};
     if(info && info.error && !info.exists){ ciMemo[t.id]={ at:Date.now(), st:t.status, pending:false }; continue; }
-    const d=ciGateDecide(t, info, { overBudget:ciOverBudget(t) });
-    ciMemo[t.id]={ at:Date.now(), st:t.status, pending:d.act==='wait' };
+    const d=ciGateDecide(t, info, { overBudget:ciOverBudget(t), away:!!memo.away, now:Date.now() });
+    // 0 checagens no commit: confere em 60 s, mas desiste depois de 10 voltas (repo sem CI não vira poll eterno)
+    const zeros=d.zero ? (memo.zeros||0)+1 : 0;
+    ciMemo[t.id]={ at:Date.now(), st:t.status, pending:d.act==='wait' && (!d.zero || zeros<10), zeros };
     try{
       const g=((t.spec||{}).ciGate)||{};
-      if(d.ci!==undefined && JSON.stringify(g.ci||null)!==JSON.stringify(d.ci||null) && d.act!=='return' && d.act!=='ask') await ciPatchGate(t, { ci:d.ci });
+      if(d.ci && JSON.stringify(g.ci||null)!==JSON.stringify(d.ci) && d.act!=='return' && d.act!=='ask') await ciPatchGate(t, { ci:d.ci });
       if(d.act==='return') await ciReturn(t, info, d);
       else if(d.act==='ask') await ciAsk(t, info, d);
       // devolvida/parada: a próxima vez que a tarefa estiver em revisão (ajuste rápido, < 60 s) confere na hora
       if(d.act==='return' || d.act==='ask') ciMemo[t.id].st='devolvida';
-    }catch(e){ showErr(e, 'Não consegui tratar a falha do CI'); }
+    }catch(e){ ciMemo[t.id].pending=true; showErr(e, 'Não consegui tratar a falha do CI'); } // falhou: nada contou — tenta de novo em 60 s
   }
 }
 tickLoop('ciWatchTick', ciWatchTick, 60000, 20000, { local:true });

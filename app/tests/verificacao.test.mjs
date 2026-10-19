@@ -54,7 +54,7 @@ test('ciGateDecide: pendente espera; verde assenta; vermelho devolve até 2 volt
   assert.equal(c.ciGateDecide(T(null), I({})).act, 'green');
   assert.equal(c.ciGateDecide(T(null), I({ state: 'MERGED' })).act, 'stop');
   assert.equal(c.ciGateDecide(T(null), { exists: false }).act, 'stop');
-  assert.equal(c.ciGateDecide(T(null), I({ checksTotal: 0 })).act, 'stop', 'repo sem CI: nada a vigiar');
+  assert.deepEqual(J(c.ciGateDecide(T(null), I({ checksTotal: 0 }))), { act: 'wait', zero: true }, 'commit novo sem checagem ainda: espera, sem apagar o selo');
   const r1 = J(c.ciGateDecide(T(null), I({ checksFail: 1, failingChecks: ['test'] })));
   assert.deepEqual([r1.act, r1.round, r1.key], ['return', 1, 'a1']);
   assert.equal(c.ciGateDecide(T({ rounds: 1, lastSha: 'a1' }), I({ checksFail: 1 })).act, 'idle', 'a mesma falha não volta duas vezes');
@@ -64,6 +64,11 @@ test('ciGateDecide: pendente espera; verde assenta; vermelho devolve até 2 volt
   assert.equal(c.ciGateDecide(T(null, 'running'), I({ checksFail: 1 })).act, 'wait', 'o agente está mexendo: espera');
   assert.equal(c.ciGateDecide(T(null), I({ checksFail: 1 }), { overBudget: true }).why, 'teto');
   assert.equal(c.ciGateDecide(T(null), I({ checksFail: 1, headSha: '', failingChecks: ['lint'] })).key, 'lint', 'sem headRefOid: a chave são os nomes');
+  // devolvida e de volta à revisão com a MESMA falha (sem push): pergunta — com ou sem headSha
+  assert.equal(c.ciGateDecide(T({ rounds: 1, lastSha: 'lint', awaiting: true, at: 0 }), I({ checksFail: 1, headSha: '', failingChecks: ['lint'] }), { away: true, now: 1000 }).why, 'sempush');
+  assert.equal(c.ciGateDecide(T({ rounds: 1, lastSha: 'a1', awaiting: true, at: 0 }), I({ checksFail: 1 }), { away: false, now: 4 * 60000 }).why, 'sempush', 'ajuste rápido não visto fora da revisão: depois de 3 min também pergunta');
+  assert.equal(c.ciGateDecide(T({ rounds: 1, lastSha: 'a1', awaiting: true, at: 0 }), I({ checksFail: 1 }), { away: false, now: 1000 }).act, 'idle', 'acabou de devolver: o agente nem começou');
+  assert.match(c.ciAskText(['lint'], 'sempush'), /voltou sem mandar commit novo/);
 });
 
 test('ciWatchShould: só tarefa em revisão com PR; 60 s enquanto pendente; 10 min assentado; mudou de status → confere', () => {
@@ -93,6 +98,7 @@ test('ciReturnText: nome do check, a volta e as últimas linhas do log', () => {
 
 function harness(o = {}) {
   const calls = [];
+  const fail = { rework: false };
   const gh = { sha: 'a1', fail: [], pending: 0, runs: ['901'] }; // o "GitHub" que o pr_status (simulado) lê
   const task = { id: 't1', title: 'Soma', status: 'review', prUrl: 'https://github.com/o/r/pull/7', spec: {} };
   const invoke = async (cmd, args) => {
@@ -101,12 +107,12 @@ function harness(o = {}) {
     if (cmd === 'pr_ci_log') return Array.from({ length: 80 }, (_, i) => `log ${i + 1}`).slice(-60).join('\n');
     if (cmd === 'patch_task_spec') { task.spec = Object.assign({}, task.spec, args.patch); return null; }
     if (cmd === 'mark_task_status') { task.status = args.status; return null; }
-    if (cmd === 'rework_task') { task.status = 'running'; return null; }
+    if (cmd === 'rework_task') { if (fail.rework) throw new Error('motor ocupado'); task.status = 'running'; return null; }
     throw new Error('comando inesperado: ' + cmd);
   };
   const c = {
     console, state: { tasks: [task] }, lastSig: '', esc, escA: esc,
-    invoke, invokeQuiet: invoke, refresh: async () => {}, toast: () => {}, showErr: (e) => { throw e; }, pushNotif: () => calls.push(['notif']),
+    invoke, invokeQuiet: invoke, refresh: async () => {}, toast: () => {}, showErr: (e) => { calls.push(['err', String(e.message)]); }, pushNotif: () => calls.push(['notif']),
     stColor: () => 'var(--st-done)', tickLoop: () => {},
     budgetOf: () => o.cap || 0, taskCost: () => ({ usd: o.spent || 0 }),
     loadPr: async (id) => invoke('pr_status', { taskId: id }),
@@ -115,7 +121,7 @@ function harness(o = {}) {
   vm.createContext(c);
   vm.runInContext(src, c);
   const tick = async (advance = 61_000) => { c.__now += advance; await vm.runInContext('ciWatchTick()', c); };
-  return { c, gh, task, calls, tick, n: (cmd) => calls.filter((x) => x[0] === cmd).length };
+  return { c, gh, task, calls, tick, fail, n: (cmd) => calls.filter((x) => x[0] === cmd).length };
 }
 
 test('vigia: 2 voltas automáticas com o log; a 3ª falha vira "precisa de você" e não volta mais sozinha', async () => {
@@ -171,4 +177,50 @@ test('vigia: teto de custo estourado vira pergunta (não gasta sozinho); CI verd
   assert.deepEqual(J(g.task.spec.ciGate.ci), { total: 3, fail: 0, pending: 0 });
   await g.tick();
   assert.equal(g.n('pr_status'), 1, 'verde: não consulta de novo no minuto seguinte');
+});
+
+test('vigia: rework_task que falha NÃO conta a volta (nada gravado) e o próximo tick tenta de novo', async () => {
+  const h = harness();
+  h.gh.fail = ['test'];
+  h.fail.rework = true;
+  await h.tick();
+  assert.equal(h.n('err'), 1);
+  assert.equal(h.task.spec.ciGate, undefined, 'rounds/lastSha não gravados');
+  h.fail.rework = false;
+  await h.tick();
+  assert.equal(h.task.spec.ciGate.rounds, 1);
+  assert.equal(h.task.spec.ciGate.lastSha, 'a1');
+});
+
+test('vigia: o agente volta sem push (mesmo SHA vermelho) → pergunta; commit novo sem checagem mantém o selo e confere em 60 s', async () => {
+  const h = harness();
+  h.gh.fail = ['test'];
+  await h.tick();
+  assert.equal(h.n('rework_task'), 1);
+  await h.tick(); // rodando: fora da revisão
+  h.task.status = 'review'; // voltou, mas sem push: sha a1 continua vermelho
+  await h.tick();
+  assert.equal(h.n('rework_task'), 1);
+  assert.equal(h.task.status, 'needs-you');
+  assert.match(h.task.spec.needsYou.text, /sem mandar commit novo/);
+
+  const z = harness();
+  z.gh.fail = ['test'];
+  await z.tick(); // volta 1 grava o selo do CI (3 checagens, 1 falhando)
+  z.task.status = 'review'; z.gh.sha = 'b2'; z.gh.fail = [];
+  const statusOf = z.c.loadPr;
+  z.c.loadPr = async (id) => Object.assign(await statusOf(id), { checksTotal: 0, checksFail: 0, checksPending: 0 });
+  await z.tick();
+  assert.deepEqual(J(z.task.spec.ciGate.ci), { total: 3, fail: 1, pending: 0 }, 'o selo do CI anterior não sumiu');
+  const before = z.n('pr_status');
+  await z.tick(61_000);
+  assert.equal(z.n('pr_status'), before + 1, 'conferiu de novo em 60 s, não em 10 min');
+});
+
+test('vigia: no máximo 3 tarefas por volta', async () => {
+  const h = harness();
+  for (let i = 2; i <= 6; i++) h.c.state.tasks.push({ id: 't' + i, title: 'x', status: 'review', prUrl: 'u', spec: {} });
+  h.gh.pending = 1;
+  await h.tick();
+  assert.equal(h.n('pr_status'), 3);
 });
