@@ -180,7 +180,8 @@ test('trocar de time com a busca do time velho no meio: a resposta velha é desc
   const env = { team: 'A', calls: [], pend: [] };
   const box = {};
   const f = new Function('env', 'box', `
-    let teamTasks=null, teamFetchedAt=0, teamFetching=false, teamEpics=[], teamActivity=[], teamProj={}, teamProfiles={}, teamRepoRemote='', teamRepoIds=null, cloudData=null;
+    let teamTasks=null, teamFetchedAt=0, teamFetching=false, teamEpics=[], teamActivity=[], teamProj={}, teamProfiles={}, teamRepoRemote='', teamRepoIds=null, cloudData=null, teamEvents=[], teamEventsOff=false;
+    const teamEventsGet=async()=>null; // avisos do time (0033): fora deste teste
     const cloudTeamId=()=>env.team, tsScopeTeamIds=()=>[env.team], tsOrgScope=()=>false, taMineProj=()=>({});
     const sbGet=(q)=>{ env.calls.push(q); if(q.startsWith('tasks')){ const d={}; d.p=new Promise(r=>{ d.r=r; }); env.pend.push({ team:env.team, d }); return d.p; } return Promise.resolve([]); };
     const repoRemoteIds=async()=>({ remote:'r' }), localRemoteIdsList=async()=>[];

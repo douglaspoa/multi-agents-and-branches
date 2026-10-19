@@ -198,6 +198,12 @@ function cloudInvitePending(invites, mail, now){
   const m=String(mail||'').trim().toLowerCase();
   return (invites||[]).some(x=>x && String(x.email||'').toLowerCase()===m && !x.accepted_at && (!x.expires_at || new Date(x.expires_at).getTime()>now));
 }
+// a TABELA (ou a RPC) não existe nesta nuvem = migration ainda não aplicada pelo dono (aba Banco do /admin).
+// Quem lê um recurso novo usa isto pra cair no comportamento antigo SEM erro na tela e sem tentar de novo a cada tick.
+function cloudTabelaFalta(e){
+  const raw=String((e&&e.message)||e||'');
+  return /42P01|PGRST20[025]|could not find the (table|function|relation)|relation .* does not exist|schema cache|\berro 404\b/i.test(raw);
+}
 // @cloud-puro-fim
 const sbGet = (q)=>sbFetch('/rest/v1/'+q);
 const sbPost = (t,body)=>sbFetch('/rest/v1/'+t, { method:'POST', headers:{ 'Prefer':'return=representation' }, body: JSON.stringify(body) });
