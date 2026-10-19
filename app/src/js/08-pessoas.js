@@ -2,7 +2,7 @@
 // Antes cada tela resolvia gente do seu jeito: tmName devolvia o e-mail CRU ou "alguém do time" enquanto o perfil não
 // chegava; Ajustes e o planner cortavam o id (String(uid).slice(0,8)); o painel de Issues mostrava "id 1a2b"; as
 // preferências diziam "alguém". Agora TODA tela que mostra gente passa por aqui:
-//   personName(ref)   → "você" (eu) · nome do perfil · parte do e-mail antes do @ · "pessoa sem nome" — NUNCA o id
+//   personName(ref)   → "você" (eu) · nome do perfil · nome tirado do e-mail ("ana.souza@…" → "Ana Souza") · "pessoa sem nome" — NUNCA o id
 //   personShort(ref)  → o primeiro nome (listas apertadas); o fallback fica inteiro ("pessoa sem nome")
 //   personAv(ref,o)   → avatar (iniciais + cor estável por pessoa; o .tsav de sempre) — e-mail completo só no tooltip
 //   personChip(ref,o) → avatar + nome, o chip "com Fulano" igual em todo lugar
@@ -20,15 +20,23 @@ function personLooksId(s){
 }
 const PERSON_UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i; // só id INTEIRO vai pro lote
 function personEmailLocal(e){ e=String(e==null?'':e).trim(); const i=e.indexOf('@'); const l=i>0?e.slice(0,i):''; return personLooksId(l)?'':l; }
+// usuário/handle → nome de gente (#148: a coluna "Com" mostrava "ana.souza"): separa em . _ - e capitaliza cada parte
+// ("ana.souza" → "Ana Souza", "bruno_lima" → "Bruno Lima", "carla" → "Carla"). Número/telefone fica como está.
+function personNomeDeHandle(h){
+  const s=String(h==null?'':h).trim(); if(!s || /^\d+$/.test(s)) return s;
+  return s.split(/[._\-+]+/).filter(Boolean).map(w=>/^\d+$/.test(w)?w:w.charAt(0).toLocaleUpperCase('pt-BR')+w.slice(1)).join(' ');
+}
+// o "nome" do perfil é um handle cru (tudo minúsculo e sem espaço, ou com . _ -)? Nome escrito pela pessoa fica intacto.
+function personEhHandle(n){ const s=String(n||''); return !!s && !/\s/.test(s) && (/[._]/.test(s) || (s===s.toLowerCase() && /[a-z]/.test(s))); }
 // p = perfil {name,email} (ou null) · o = { me, pending, email, hint, noYou }
 //   me: é a pessoa logada → "você" (salvo noYou) · email: o que se sabe além do perfil · hint: nome gravado em outro lugar
 //   (ex.: shared_by_name) · pending: o lote ainda vai buscar → "carregando…"
 function personLabel(p, o){
   o=o||{};
   if(o.me && !o.noYou) return 'você';
-  const nm=String((p&&p.name)||'').trim(); if(nm && !personLooksId(nm) && !nm.includes('@')) return nm;
-  const ln=personEmailLocal((p&&p.email)||o.email||(nm.includes('@')?nm:'')); if(ln) return ln;
-  const h=String(o.hint||'').trim(); if(h && !personLooksId(h)) return h.includes('@')?(personEmailLocal(h)||PESSOA_SEM_NOME):h;
+  const nm=String((p&&p.name)||'').trim(); if(nm && !personLooksId(nm) && !nm.includes('@')) return personEhHandle(nm)?personNomeDeHandle(nm):nm;
+  const ln=personEmailLocal((p&&p.email)||o.email||(nm.includes('@')?nm:'')); if(ln) return personNomeDeHandle(ln);
+  const h=String(o.hint||'').trim(); if(h && !personLooksId(h)) return h.includes('@')?(personNomeDeHandle(personEmailLocal(h))||PESSOA_SEM_NOME):(personEhHandle(h)?personNomeDeHandle(h):h);
   return o.pending?PESSOA_CARREGANDO:PESSOA_SEM_NOME;
 }
 // primeiro nome; fallback ("pessoa sem nome", "carregando…") e "você" ficam inteiros
