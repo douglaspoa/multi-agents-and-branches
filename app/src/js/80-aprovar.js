@@ -6,6 +6,9 @@
 //     Desfazer (Z) → integra na main (squash) → avisa a onda: 'sf:epico-onda-fechada' {epicId, wave} e, na última,
 //     'sf:epico-ultima-integrada' {epicId} (a aba do épico, outra frente, escuta e solta a próxima onda / a verificação final)
 //   pedirAlteracao(taskId, texto) — manda pra Conversa da tarefa (o mesmo caminho do "Pedir alteração" do #147) e tira da fila
+//   resolverConflito(taskId) — "Resolver conflito" de TODA tela (Central, Meu time, quadro, épico, este painel, PR, menu ⋯):
+//     o pedido (conflitoPedido) vai pro terminal da tarefa pelo mesmo fwSendText; sessão encerrada → reabre o terminal
+//     antes; IA rodando → entra na fila. Cartão de colega: conflitoPedirA (comentário no cartão) · conflitoAssumir
 // Fontes únicas (nenhuma regra nova aqui): portões = rvGatesOf/rvMissingText (63) com proofGate e prCache/loadPr (21);
 // abrir o PR = approveGate (21, a porta única: verificação → push → PR); integrar = mergePrRun (21, gh pr merge --squash);
 // motivo = proofOverride(t, motivo) (21) + patch_task_spec reviewOverride + checks_override_log (o mesmo log do
@@ -89,6 +92,28 @@ function apSugestoes(rounds){
 }
 /** J/K: a nova seleção numa lista de n itens (sem dar a volta). */
 function apNav(n, sel, dir){ if(!(n>0)) return 0; return Math.max(0, Math.min(n-1, (sel|0)+(dir<0?-1:1))); }
+/**
+ * RESOLVER CONFLITO — o texto ÚNICO que vai pra IA (terminal da tarefa, "corrigir tudo" do PR, tarefa de quem assumiu).
+ * o = { base ('main'), branch (a da tarefa), pushTo (branch do PR, quando a worktree é outra: "Assumir e resolver") }
+ */
+function conflitoPedido(o){
+  o=o||{}; const base=String(o.base||'').replace(/^origin\//,'').trim()||'main', br=String(o.branch||'').trim(), to=String(o.pushTo||'').trim();
+  return ['RESOLVER CONFLITO COM A BASE: a branch'+(br?' '+br:'')+' conflita com a '+base+' e o PR não integra assim.',
+    (to?`0) Trabalhe em cima da branch do PR: git fetch origin ${to} e, se esta pasta não partiu dela, git reset --hard origin/${to}.\n`:'')+
+    `1) Atualize a branch com a base: git fetch origin ${base} e git merge origin/${base} (rebase só se a branch nunca foi publicada).`,
+    '2) Resolva cada conflito preservando a intenção dos dois lados — o que a base trouxe e o que esta tarefa fez; nunca descarte um lado inteiro.',
+    '3) Rode os testes do projeto e corrija o que quebrar.',
+    `4) Faça commit e push${to?' pra branch do PR: git push origin HEAD:'+to:''} — o PR atualiza sozinho.`,
+    'No fim, diga em uma linha quais arquivos tinham conflito e como ficou.'].join('\n');
+}
+/** O aviso depois de mandar. working = a IA estava no meio de um turno (o pedido entra na fila); reabriu = o terminal estava encerrado. */
+function conflitoAviso(o){
+  o=o||{}; const q=o.code?'da '+o.code:'da tarefa';
+  if(o.working) return `Na fila: a IA termina o que está fazendo e em seguida resolve o conflito ${q} no terminal.`;
+  return `${o.reabriu?'Reabri o terminal '+q+' e mandei':'Mandei pro terminal '+q} o pedido: trazer a base, resolver os conflitos, rodar os testes e fazer push.`;
+}
+/** O comentário que fica no cartão do colega (atividade do time) — com o nome de quem pediu, nunca id. */
+function conflitoComentario(base){ return 'Pediu pra resolver o conflito com a '+(String(base||'').replace(/^origin\//,'').trim()||'main')+': trazer a base pra branch, resolver mantendo os dois lados, rodar os testes e fazer push.'; }
 // @ap-puro-fim
 
 // ---------------------------------------------------------------- estado
@@ -298,7 +323,7 @@ function apFootHtml(v, mode){
   }
   if(!v.pode) return `<div class="apv-acts"><span class="apv-dim">aprova: <b>${esc(apWhoName(v.quem))}</b></span><button type="button" class="btn sm" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><span class="apv-sp"></span>${open}</div>`;
   const d=v.dec; let prim;
-  if(d.kind==='conflito') prim=`<button type="button" class="btn primary" data-ap="conflito" data-id="${id}">${apIc('spark')}Pedir à IA pra resolver o conflito</button><button type="button" class="btn" disabled aria-disabled="true" title="Resolva o conflito primeiro">${apIc('check')}Aprovar</button>`;
+  if(d.kind==='conflito') prim=`<button type="button" class="btn primary" data-ap="conflito" data-id="${id}">${apIc('spark')}Resolver conflito</button><button type="button" class="btn" disabled aria-disabled="true" title="Resolva o conflito primeiro">${apIc('check')}Aprovar</button>`;
   else if(d.kind==='motivo') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" data-ap="aprovar" data-id="${id}">Aprovar mesmo assim… ${apKbd('A')}</button>`;
   else if(d.kind==='bloqueado') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" disabled aria-disabled="true" title="${escA(d.why)}">${apIc('check')}Aprovar</button>`;
   else prim=`<button type="button" class="btn primary" data-ap="aprovar" data-id="${id}">${apIc('check')}Aprovar ${apKbd('A')}</button><button type="button" class="btn" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button>`;
@@ -492,6 +517,85 @@ async function pedirAlteracao(taskId, texto){
   apRefresh(); return true;
 }
 window.pedirAlteracao=pedirAlteracao;
+
+// ---------------------------------------------------------------- RESOLVER CONFLITO (fonte única)
+/** A tarefa DESTA máquina conflita com a base? status 'conflict' ou o PR que o GitHub diz CONFLICTING (prCache). */
+function conflitoDe(t){
+  if(!t) return false;
+  if(t.status==='conflict') return true;
+  if(t._cross) return false; // outro projeto: o prCache é deste
+  const pc=(typeof prCache!=='undefined' && prCache[t.id])||null;
+  return !!(pc && pc.exists && pc.mergeable==='CONFLICTING' && !['MERGED','CLOSED'].includes(String(pc.state||'').toUpperCase()));
+}
+/** A base do PR da tarefa (o que o GitHub disse; senão o que a tarefa pediu; senão main). */
+function conflitoBase(t){ const pc=(typeof prCache!=='undefined' && t && prCache[t.id])||null; return (pc&&pc.baseRefName)||(t&&(t.prBase||(t.spec&&t.spec.prBase)||t.base))||'main'; }
+/** Manda o pedido de resolver o conflito pro terminal da tarefa. Sessão encerrada → reabre o terminal (o mesmo de abrir a tarefa). */
+async function resolverConflito(taskId, btn){
+  const t=apTaskOf(taskId);
+  if(!t){ if(typeof crossRun==='function') return crossRun(taskId, ()=>resolverConflito(taskId)); toast('Essa tarefa não está nesta máquina.','warn'); return false; }
+  if(AP.busy[taskId]) return false;
+  const working=!!(t.busy || (typeof ACTIVE_ST!=='undefined' && ACTIVE_ST.has(t.status)) || t.status==='thinking');
+  const orig=btn?btn.innerHTML:''; if(btn){ btn.disabled=true; btn.textContent='mandando…'; }
+  apBusy(taskId, 'mandando o pedido de resolver o conflito…');
+  let ok=false, reabriu=false;
+  try{
+    // terminal da tarefa: abre a aba no Terminal e, se a sessão foi encerrada, retoma o PTY ANTES de escrever
+    if(typeof termViewOf==='function' && termViewOf(t) && typeof openWorkspace==='function'){
+      const same=typeof fwTask!=='undefined' && fwTask===taskId && $id('fwOverlay') && $id('fwOverlay').style.display!=='none';
+      if(!same) openWorkspace(taskId);
+      // a aba vai pro Terminal (⌘1): a pessoa VÊ o pedido chegando na IA
+      if(typeof fwMode!=='undefined' && fwMode!=='conversa'){ fwMode='conversa'; if(typeof fwRememberTab==='function') fwRememberTab(); if(typeof renderWorkspace==='function') renderWorkspace(); }
+      const st=typeof TERM!=='undefined'?TERM[taskId]:null;
+      if(!working && typeof termResume==='function' && !(st && st.alive)){ reabriu=true; try{ await termResume(taskId, { quiet:true, auto:true }); }catch(_){ } } // falhou: o talk_task retoma sozinho
+    }
+    ok=await fwSendText(taskId, conflitoPedido({ base:conflitoBase(t), branch:t.branch||'' }));
+  }finally{ delete AP.busy[taskId]; if(btn && btn.isConnected && !ok){ btn.disabled=false; btn.innerHTML=orig; } }
+  if(ok){
+    const card=apCard(t), who=card&&card.assignee, me=apMe();
+    if(card && who && who!==me && typeof sbPost==='function') sbPost('task_activity',{ task_id:card.id, user_id:me, kind:'comment', body:conflitoComentario(conflitoBase(t)) }).catch(()=>{});
+    toast(conflitoAviso({ working, reabriu, code:apCode(t) }), 'ok');
+  }
+  apRefresh(); try{ lastSig=''; if(typeof render==='function') render(); }catch(_){ }
+  return ok;
+}
+window.resolverConflito=resolverConflito; window.conflitoDe=conflitoDe; window.conflitoPedido=conflitoPedido;
+/** Cartão de COLEGA com conflito: pede pra ele resolver — comentário no cartão (a atividade do time é o aviso). */
+async function conflitoPedirA(ct, btn){
+  if(!ct || !ct.assignee) return false;
+  if(typeof personEnsure==='function') await personEnsure(ct.assignee);
+  const nome=typeof personName==='function'?personName(ct.assignee,{ noYou:true, settled:true }):'';
+  if(btn){ btn.disabled=true; btn.textContent='pedindo…'; }
+  try{
+    await sbPost('task_activity',{ task_id:ct.id, user_id:apMe(), kind:'comment', body:conflitoComentario((ct.spec||{}).prBase||(ct.spec||{}).base) });
+    if(typeof teamFetchedAt!=='undefined') teamFetchedAt=0;
+    toast(`Pedi a ${nome} pra resolver o conflito de “${String(ct.title||'').slice(0,50)}” — fica no cartão e ${nome} é avisado.`, 'ok');
+    return true;
+  }catch(e){ showErr(e, 'Não consegui pedir'); if(btn && btn.isConnected){ btn.disabled=false; btn.textContent=`Pedir a ${typeof personShort==='function'?personShort(ct.assignee,{ noYou:true }):nome} pra resolver`; } return false; }
+}
+/** Assumir e resolver: o cartão passa pra você (o colega é avisado) e uma tarefa NESTA máquina parte da branch do PR. */
+async function conflitoAssumir(ct, btn){
+  if(!ct || !ct.branch){ toast('Esse cartão não diz a branch do PR — peça pra quem está com ele resolver.','warn'); return false; }
+  if(typeof personEnsure==='function') await personEnsure(ct.assignee);
+  const nome=ct.assignee?personName(ct.assignee,{ noYou:true, settled:true }):'';
+  if(!await askYes((nome?nome+' é avisado e o cartão passa pra você. ':'')+'Uma tarefa nesta máquina parte da branch do PR, traz a base, resolve o conflito, roda os testes e faz push no mesmo PR.', 'Assumir e resolver “'+String(ct.title||'').slice(0,50)+'”?')) return false;
+  if(btn){ btn.disabled=true; btn.textContent='assumindo…'; }
+  try{
+    const me=apMe();
+    if(ct.assignee!==me){ await cloudAssign(ct.id, me); ct.assignee=me; }
+    sbPost('task_activity',{ task_id:ct.id, user_id:me, kind:'comment', body:'Assumiu pra resolver o conflito com a base.' }).catch(()=>{});
+    const base=(ct.spec||{}).prBase||'main';
+    const localId=await teamClaimStart(ct, null, { silent:true, payload:{ base:ct.branch, prBase:base, autoPr:'no', objective:conflitoPedido({ base, branch:ct.branch, pushTo:ct.branch }) } });
+    if(localId && typeof openWorkspace==='function') openWorkspace(String(localId));
+    toast(`Você assumiu “${String(ct.title||'').slice(0,50)}”: a IA resolve o conflito no terminal e faz push no mesmo PR.`, 'ok');
+    return true;
+  }catch(e){ showErr(e, 'Não deu pra assumir e resolver'); if(btn && btn.isConnected){ btn.disabled=false; btn.textContent='Assumir e resolver'; } return false; }
+}
+window.conflitoPedirA=conflitoPedirA; window.conflitoAssumir=conflitoAssumir;
+// [data-fixconf] em qualquer tela (Central, épico, entregas, quadro): o mesmo resolverConflito
+document.addEventListener('click', (e)=>{
+  const b=e.target.closest && e.target.closest('[data-fixconf]'); if(!b || b.disabled) return;
+  e.stopPropagation(); resolverConflito(b.dataset.fixconf, b);
+});
 function apPedirAbrir(id){
   const t=apTaskOf(id); if(!t || !apAprovavel(t)) return;
   const l=(typeof rvRounds==='function'?rvRounds(t):[]).slice(-1)[0];
@@ -629,7 +733,7 @@ document.addEventListener('click', (e)=>{
   if(k==='porreq'){ if(typeof rvViewM!=='undefined') rvViewM[id]='req'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace(); return; }
   if(k==='diff'){ if(typeof rvViewM!=='undefined') rvViewM[id]='diff'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace(); return; }
   if(k==='pr'){ const t=apTaskOf(id); if(t&&t.prUrl) openExternal(t.prUrl); return; }
-  if(k==='conflito'){ if(typeof fwResolveConflict==='function') fwResolveConflict(id, b).then(()=>apRefresh()); return; }
+  if(k==='conflito') return void resolverConflito(id, b);
   if(k==='shot'){ const t=apTaskOf(id); if(!t) return; const v=apVm(t); if(typeof lbOpen==='function') lbOpen(id, v.imgs, +b.dataset.i||0); return; }
 });
 // o campo do painel: o rascunho fica no estado (repintar não apaga); ⌘↵ manda, Esc fecha

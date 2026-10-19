@@ -399,13 +399,14 @@ function meuEventos(){
       out.push({ ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${r?(ok!=null?` com ${ok} de ${r} requisitos provados`:` (${r} requisitos)`):''}.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
     else if(mine && x.bucket==='praberto' && x.local){ const pr=semPrNum(x.local);
       out.push({ ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${pr?` e abriu o PR #${esc(pr)}`:''} — falta você revisar.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
-    else if(mine && x.trav && x.local) out.push({ ms:x.mod, av:'ia', s:`${tt(x.titulo)} parou: ${esc(x.motivo)}.`, m:meta(x, x.mod), a:[{ l:'Abrir', act:()=>semAbrir(x) }] });
+    else if(mine && x.trav && x.local) out.push({ ms:x.mod, av:'ia', s:`${tt(x.titulo)} parou: ${esc(x.motivo)}.`, m:meta(x, x.mod),
+      a:(typeof conflitoDe==='function' && conflitoDe(x.local))?[{ l:'Resolver conflito', pri:true, act:()=>resolverConflito(x.local.id) }, { l:'ver o que houve', act:()=>semAbrir(x) }]:[{ l:'Abrir', act:()=>semAbrir(x) }] });
     if(!x.card) continue;
     const c=x.card;
     if(c.assignee===me && c.created_by && c.created_by!==me && x.bucket==='fila')
       out.push({ ms:x.mod, av:c.created_by, s:`<b>${esc(personName(c.created_by,{ noYou:true }))}</b> te mandou ${tt(x.titulo)}. Nada roda até você iniciar.`, m:meta(x, x.mod), a:[{ l:'Abrir', pri:true, act:()=>semAbrir(x) }] });
     if(c.created_by===me && c.assignee && c.assignee!==me && x.trav)
-      out.push({ ms:x.mod, av:c.assignee, s:`<b>${esc(personName(c.assignee,{ noYou:true }))}</b> travou em ${tt(x.titulo)}: ${esc(x.motivo)}. Você criou essa demanda.`, m:meta(x, x.mod), a:[{ l:'Ajudar', act:()=>semAbrir(x) }] });
+      out.push({ ms:x.mod, av:c.assignee, s:`<b>${esc(personName(c.assignee,{ noYou:true }))}</b> travou em ${tt(x.titulo)}: ${esc(x.motivo)}. Você criou essa demanda.`, m:meta(x, x.mod), a:(typeof entConflito==='function' && entConflito(c) && typeof conflitoPedirA==='function')?[{ l:'Pedir a '+personShort(c.assignee,{ noYou:true })+' pra resolver', pri:true, act:()=>conflitoPedirA(c) }, { l:'ver o que houve', act:()=>semAbrir(x) }]:[{ l:'Ajudar', act:()=>semAbrir(x) }] });
     if(!c.assignee && x.bucket==='fila'){ const dv=semDevolvidaPor(c);
       if(dv && dv.by!==me) out.push({ ms:dv.at, av:dv.by, s:`<b>${esc(personName(dv.by,{ noYou:true }))}</b> devolveu ${tt(x.titulo)}${dv.why?`: “${esc(dv.why.slice(0,120))}”`:''}.`, m:meta(x, dv.at, 'está sem dono'),
         a:[{ l:'Assumir', act:()=>semPassar(x, me) }, { l:'Passar', menu:true, x }] }); }

@@ -70,7 +70,7 @@ function flowDemandCard(t){
   const nImg=arts.filter(a=>a.kind==='image'||a.kind==='video').length, nDoc=arts.filter(a=>/\.(md|txt|pdf|html?)$/i.test(a.name)).length;
   const readyPr=['review','delivered'].includes(t.status);
   const artOnly=['invest','design'].includes(ty)||entregaNonCode(t); // FT-6: entrega só de documentos também não abre PR
-  const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra">${IC.bolt} resolver conflito</button>`
+  const primary = t.status==='conflict' ? `<button class="btn primary sm" data-resolveconf="${escA(t.id)}" title="no terminal da tarefa: a IA traz a base, resolve os conflitos, roda os testes e faz push">${IC.bolt} Resolver conflito</button>`
     : t.status==='draft' ? `<button class="btn primary sm" data-rowplay="${escA(t.id)}">${IC.play} iniciar</button>`
     : asking.length ? `<button class="btn primary sm" data-dcopen="${escA(t.id)}">responder</button>`
     : (!done && !t.prUrl && readyPr) ? (artOnly?`<button class="btn primary sm" data-dcopen="${escA(t.id)}" title="confira a prévia dos arquivos e salve na sua pasta">${IC.ok} ver e salvar</button>`

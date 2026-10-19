@@ -135,7 +135,7 @@ function prvGateExit(g, first){
   if(g.id==='aceite') return `<button type="button" class="lnk" data-prvx="aceite">revisar ${esc(first?'R'+(first.i+1):'')}</button>`;
   if(g.id==='revisor') return g.st==='bad'?`<button type="button" class="lnk" data-prvx="revisor">ver o que ele pediu</button>`:'';
   if(g.id==='checks') return `<button type="button" class="lnk" data-prvx="checks">pedir correção ao agente</button>`;
-  if(g.id==='conflito') return `<button type="button" class="lnk" data-prvx="conflito">resolver com IA</button>`;
+  if(g.id==='conflito') return `<button type="button" class="lnk" data-prvx="conflito">Resolver conflito</button>`;
   return '';
 }
 // @revpr-puro-fim
@@ -504,7 +504,7 @@ async function prvFixAll(t, info, btn){
   const last=rvRounds(t).slice(-1)[0];
   if(gates.find(g=>g.id==='revisor'&&g.st==='bad') && last) parts.push(`O revisor pediu na rodada ${last.round}:\n${(last.items||[]).map(x=>'- '+x).join('\n')}`);
   if(gates.find(g=>g.id==='checks'&&g.st==='bad')) parts.push(prvChecksMsg(info));
-  if(gates.find(g=>g.id==='conflito'&&g.st==='bad')) parts.push(`A branch conflita com a ${info.baseRefName||'main'}: traga a base (git fetch + merge de origin/${info.baseRefName||'main'}), resolva os conflitos mantendo o que cada lado quis, rode os testes e faça commit + push.`);
+  if(gates.find(g=>g.id==='conflito'&&g.st==='bad')) parts.push(conflitoPedido({ base:info.baseRefName||'main', branch:t.branch||'' })); // o MESMO texto do "Resolver conflito" (80)
   const cms=prvOpenComments(t, info);
   if(cms.length) parts.push(`Comentários em aberto no PR #${info.number} (responda cada um no GitHub começando com "✔" e dizendo o que mudou):\n${cms.map(c=>`- ${c.who} (${c.where}): ${String(c.body||'').replace(/\s+/g,' ').slice(0,400)}`).join('\n')}`);
   if(!parts.length){ toast('nada aqui que o agente consiga corrigir sozinho — o que falta é com você','info'); return; }

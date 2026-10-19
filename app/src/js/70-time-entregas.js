@@ -173,6 +173,14 @@ function entTravaCtx(t){
   return { st:typeof tsSt==='function'?tsSt(t):t.status, flag:ENT_FN.flag(t), pergunta:pend.length?String(pend[0].prompt||'responder o agente'):'',
     needsYou:sp.needsYou||null, loop:(l && typeof taskLoop==='function')?taskLoop(l):null, pr:entPrTrava(entPrOf(t)), intent };
 }
+// o cartão está travado por CONFLITO COM A BASE? (status 'conflict' — da nuvem ou da tarefa daqui — ou o PR CONFLICTING)
+// — a MESMA régua do motivo "conflito com a base" (entMotivo); as telas trocam a ação pra "Resolver conflito" (80)
+function entConflito(t){
+  if(!t || ENT_FN.delivered(t) || entFora(t, ENT_FN)) return false;
+  const l=entLocal(t); if(l && typeof conflitoDe==='function' && conflitoDe(l)) return true;
+  const st=typeof tsSt==='function'?tsSt(t):t.status;
+  return st==='conflict' || !!((entPrTrava(entPrOf(t))||{}).conflito);
+}
 // o texto que TODA tela mostra pra um cartão travado ('' quando não está travado)
 function entTravaTx(t){ if(!entTravada(t, ENT_FN)) return ''; return entMotivo(t, stLabel(tsSt(t)), entTravaCtx(t)); }
 function entFiltros(){ return entFiltrosDe(lsGet('tmEntF'), { who:lsGet('tmDev')||'', epic:lsGet('tmEpic')||'' }); }

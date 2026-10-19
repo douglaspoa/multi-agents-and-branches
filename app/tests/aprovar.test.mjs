@@ -8,7 +8,7 @@ const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); as
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const JS = read('js/80-aprovar.js'), RV = read('js/63-revisao-pr.js'), HTML = read('index.html'), CSS = read('css/99-aprovar.css');
 const P = new Function('esc', 'escA', cut(RV, '// @revpr-puro-inicio', '// @revpr-puro-fim') + cut(JS, '// @ap-puro-inicio', '// @ap-puro-fim')
-  + '\nreturn { rvGatesOf, apMotivoOk, apDecide, apChips, apAoAprovar, apFrase, apPode, apOndaDepois, apSugestoes, apNav, AP_UNDO_MS };')(esc, esc);
+  + '\nreturn { rvGatesOf, apMotivoOk, apDecide, apChips, apAoAprovar, apFrase, apPode, apOndaDepois, apSugestoes, apNav, conflitoPedido, conflitoAviso, conflitoComentario, AP_UNDO_MS };')(esc, esc);
 
 // portões como a aba PR monta (rvGatesOf), com o que muda em cada caso
 const gates = (o = {}) => P.rvGatesOf({
@@ -145,4 +145,37 @@ test('status num lugar só: os estados do painel moram no STATUS_META', () => {
   const u = read('js/00-util.js');
   for (const k of ["'para-aprovar':", 'integrando:', "'mudanca-pedida':"]) assert.ok(u.includes(k), k);
   assert.match(JS, /stBadge\(v\.st\)/);
+});
+
+test('resolver conflito: UM texto pra IA — fetch + merge da base, manter os dois lados, testes, push', () => {
+  const m = P.conflitoPedido({ base: 'origin/main', branch: 'feat/carrinho' });
+  assert.match(m, /^RESOLVER CONFLITO COM A BASE: a branch feat\/carrinho conflita com a main/);
+  assert.match(m, /git fetch origin main e git merge origin\/main/);
+  assert.match(m, /preservando a intenção dos dois lados/);
+  assert.match(m, /Rode os testes/);
+  assert.match(m, /commit e push/);
+  assert.ok(!/git push origin HEAD:/.test(m), 'na própria worktree o push é o de sempre');
+  const outro = P.conflitoPedido({ base: 'develop', branch: 'feat/x', pushTo: 'feat/x' });
+  assert.match(outro, /git fetch origin feat\/x/); assert.match(outro, /git push origin HEAD:feat\/x/, 'assumir e resolver: push no MESMO PR');
+  assert.match(P.conflitoPedido({}), /conflita com a main/, 'sem base: main');
+  // a fonte é única: o "corrigir tudo" do PR (63) e o painel usam o mesmo conflitoPedido
+  assert.match(RV, /conflitoPedido\(\{ base:info\.baseRefName/);
+  assert.match(JS, /fwSendText\(taskId, conflitoPedido\(/);
+});
+test('resolver conflito: aviso diz "na fila" com a IA rodando e "reabri o terminal" com a sessão encerrada', () => {
+  assert.match(P.conflitoAviso({ working: true, code: 'LOJA-12' }), /^Na fila: .* resolve o conflito da LOJA-12 no terminal/);
+  assert.match(P.conflitoAviso({ reabriu: true, code: 'LOJA-12' }), /^Reabri o terminal da LOJA-12 e mandei/);
+  assert.match(P.conflitoAviso({}), /^Mandei pro terminal da tarefa/);
+  assert.match(P.conflitoComentario('origin/develop'), /^Pediu pra resolver o conflito com a develop/);
+});
+test('resolver conflito: todas as telas chamam resolverConflito (nada de resolve_conflict solto nem botão duplicado)', () => {
+  const dir = new URL('../src/js/', import.meta.url);
+  const files = ['20-workspace-tarefa.js', '21-pull-request.js', '22-quadro-fluxo.js', '27-entregas.js', '63-revisao-pr.js', '66-central-tabela.js', '71-central-alcance.js', '72-kanban.js', '76-casca-semana.js', '80-aprovar.js', '81-epico-aba.js'];
+  for (const f of files) {
+    const src = readFileSync(new URL(f, dir), 'utf8');
+    assert.ok(!/invoke\('resolve_conflict'/.test(src), f + ': o caminho velho (sem push, sem terminal) saiu');
+    assert.ok(!/Pedir à IA pra resolver/.test(src), f + ': rótulo único "Resolver conflito"');
+  }
+  assert.match(JS, /window\.resolverConflito=resolverConflito/);
+  assert.match(read('js/20-workspace-tarefa.js'), /await resolverConflito\(taskId, btn\)/);
 });

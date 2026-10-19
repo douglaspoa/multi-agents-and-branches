@@ -169,3 +169,20 @@ test('RLS (migrations): membro e líder que não é admin só leem o próprio ti
   for (const t of ['tasks', 'epics', 'projects', 'teams', 'team_members']) assert.match(all, new RegExp('create policy \\w+ on ' + t + ' for select using \\(can_see_team\\('), t);
   assert.ok(!/drop policy if exists tasks_select/.test(all), 'ninguém afrouxou o select de tasks depois da 0001');
 });
+
+test('conflito com a base: a ação principal vira "Resolver conflito" (aqui) ou "Pedir a <nome>" (colega); "ver o que houve" fica', () => {
+  const pr = T('conf', { assignee: 'eu', status: 'review', pr_url: 'https://github.com/exemplo/loja/pull/7', branch: 'feat/carrinho' });
+  const acts = (t, x) => C.caAcoes(t, { me: 'eu', canAssign: false, local: false, repo: 'here', conflito: true, ...x }, fn);
+  const aqui = acts(pr, { local: true });
+  assert.deepEqual(aqui.map((y) => y.act), ['fixconf', 'term']);
+  assert.equal(aqui[0].label, 'Resolver conflito'); assert.ok(aqui[0].primary);
+  assert.equal(aqui[1].label, 'ver o que houve');
+  const colega = { ...pr, assignee: 'ana' };
+  const pedir = acts(colega, { whoName: 'Ana' });
+  assert.deepEqual(pedir.map((y) => y.act), ['askfix', 'view'], 'sem poder assumir: só pedir + ver');
+  assert.equal(pedir[0].label, 'Pedir a Ana pra resolver'); assert.ok(pedir[0].primary);
+  assert.deepEqual(acts(colega, { whoName: 'Ana', canTake: true }).map((y) => y.label), ['Pedir a Ana pra resolver', 'Assumir e resolver', 'ver o que houve']);
+  assert.ok(!acts(colega, {}).some((y) => /[0-9a-f]{8}-|undefined/.test(y.label)), 'nunca id nem "undefined" no rótulo');
+  assert.deepEqual(C.caAcoes(colega, { me: 'eu', conflito: false }, fn).map((y) => y.act)[0], 'view', 'sem conflito: o de sempre');
+  assert.equal(acts({ ...pr, status: 'merged' }, { local: true })[0].act, 'entrega', 'entregue nunca pede pra resolver');
+});

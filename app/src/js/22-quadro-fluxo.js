@@ -648,6 +648,7 @@ function openTaskMenu(taskId, anchor){
   if(['review','delivered'].includes(t.status)) item('voltar pra em andamento · o agente continua', ()=>taskBackToRunning(taskId), false, IC.retry);
   if(t.flag!=='blocked') item('bloquear', ()=>invoke('set_task_flag',{taskId,flag:'blocked'}), false, stIcon('blocked'));
   else item('desbloquear', ()=>invoke('set_task_flag',{taskId,flag:null}), false, IC.unlock);
+  if(typeof conflitoDe==='function' && conflitoDe(t)) item('resolver conflito · no terminal da tarefa', ()=>resolverConflito(taskId), false, IC.bolt, { stay:true, title:'a IA traz a base, resolve mantendo os dois lados, roda os testes e faz push' });
   if(['error','aborted','conflict'].includes(t.status)){
     item('tentar seguir · continua de onde parou', ()=>invoke('talk_task',{taskId, message:'A execução anterior foi interrompida (timeout de inatividade/erro). CONTINUE de onde você parou: confira git status, git diff, .cardume/PLAN.md e os requisitos em .cardume/TASK.yaml, e finalize o que falta — não recomece do zero. Se for rodar algo demorado, vá reportando progresso pra não ser encerrado por inatividade.', asReq:false, agent:null}), false, IC.retry);
     item('refazer do zero · descarta o parcial', ()=>rerunTask(taskId), false, IC.reset); // E3: com a confirmação do rerunTask
@@ -899,7 +900,7 @@ function renderFlow(){
   el.querySelectorAll('[data-rowpr]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowpr; crossRun(id, ()=>approveGate(taskOfId(id))); });
   el.querySelectorAll('[data-rowproof]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rowproof; crossRun(id, ()=>proofAsk(taskOfId(id), b)); });
   el.querySelectorAll('[data-rownoproof]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.rownoproof; crossRun(id, ()=>approveNoProof(taskOfId(id))); });
-  el.querySelectorAll('[data-resolveconf]').forEach(b=>b.onclick=async(e)=>{ e.stopPropagation(); if(!await askYes('A IA vai mergear a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e mergeia. Continuar?')) return; b.disabled=true; b.textContent='resolvendo…'; try{ await invoke('resolve_conflict',{ taskId:b.dataset.resolveconf }); lastSig=''; await refresh(); }catch(err){ showErr(err, 'Falhou'); b.disabled=false; } });
+  el.querySelectorAll('[data-resolveconf]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); resolverConflito(b.dataset.resolveconf, b); }); // fonte única (80-aprovar): pedido no terminal da tarefa
   // "✓ concluir" grava a flag no banco do projeto DONO da tarefa (crossRun troca antes, se for de outro projeto)
   el.querySelectorAll('[data-arch]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.dataset.arch; crossRun(id, async()=>{ try{ await invoke('set_task_flag',{taskId:id,flag:'closed'}); lastSig=''; await refresh(); toast('concluída — saiu da fila','ok'); }catch(err){ showErr(err, 'Não deu pra concluir'); } }); });
   el.querySelectorAll('[data-pvrow]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); invoke('open_url',{ url:b.dataset.pvrow }).catch(()=>{}); });
