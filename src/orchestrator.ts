@@ -36,6 +36,7 @@ import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, e
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 import { readSpeaker, speakerLine, speakerTag } from "./quem.ts";
 import { agentClaimFrom, claimFromReq, testGate, testTimeoutMs } from "./test-runner.ts";
+import { guardSummary, runGuard, type GuardResult } from "./guard.ts";
 
 /** Catálogo do projeto sem estourar (config ilegível → só os padrões). */
 function loadConfigSafe(repo: string) { try { return loadConfig(repo).agents; } catch { return []; } }
@@ -906,6 +907,8 @@ export class Orchestrator {
    */
   async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec, opts: { runTests?: boolean; testTimeoutMs?: number } = {}): Promise<{ ok: boolean; reasons: string[] }> {
     const reasons: string[] = [];
+    // GUARDA DE SEGURANÇA (src/guard.ts): começa já, em paralelo com o resto; consulta sem efeito (runTests:false) não roda
+    const guard = opts.runTests === false ? null : this.changedFiles(task.worktree, task.base).then((files) => runGuard({ worktree: task.worktree, base: task.base, files, policy: spec.orgPolicy, onResult: (g) => this.recordGuard(taskId, g) }));
     const artDir = join(task.worktree, ".cardume", "artifacts");
     let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
     let found = false;
@@ -920,6 +923,7 @@ export class Orchestrator {
     if (!found || list.length === 0) {
       if ((spec.requirements ?? []).length) reasons.push("sem requirements.json comprovando os requisitos");
       if (opts.runTests !== false) reasons.push(...(await this.testGate(taskId, task, spec, opts)));
+      if (guard) reasons.push(...(await guard).reasons);
       return { ok: reasons.length === 0, reasons };
     }
     for (const r of list) {
@@ -939,7 +943,14 @@ export class Orchestrator {
     } catch { /* sem detecção/diff: fica só a regra geral */ }
     // runTests:false = consulta SEM efeito colateral (task_status no terminal): não roda a suíte (até 180s)
     if (opts.runTests !== false) reasons.push(...(await this.testGate(taskId, task, spec, opts)));
+    if (guard) reasons.push(...(await guard).reasons);
     return { ok: reasons.length === 0, reasons };
+  }
+
+  /** Resultado da guarda: a lista vai pra spec (a Revisão mostra) e uma linha de gente vira o evento `guarda`. */
+  private recordGuard(taskId: string, g: GuardResult): void {
+    try { this.store.patchSpec(taskId, { guard: g }); } catch { /* tarefa sumiu */ }
+    try { this.store.addEvent(taskId, "Sistema", "guarda", guardSummary(g), g.reasons.length === 0); } catch { /* sem store */ }
   }
 
   /** Arquivos mudados na branch (commits desde a base + o que está solto). Falhou → [] (regra leniente). */
