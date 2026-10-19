@@ -332,7 +332,8 @@ function epaWavesHtml(ep, R){
 function epaParadoHtml(R){
   const M=R.m, L=M.stuck; if(!L.length || M.phase==='plano') return '';
   const row=x=>{ let acts='';
-    if(x.st==='conflict' && x.local) acts=`<button type="button" class="btn sm" data-eparesolve="${escA(x.local)}">${epaIc('spark')}Pedir à IA pra resolver</button><button type="button" class="btn sm quiet" data-epaopen="${escA(x.id)}" data-step="codigo">Ver o conflito</button>`;
+    if(x.st==='conflict' && x.local) acts=`<button type="button" class="btn sm primary" data-fixconf="${escA(x.local)}" title="no terminal da tarefa: traz a base, resolve, roda os testes e faz push">${epaIc('spark')}Resolver conflito</button><button type="button" class="btn sm quiet" data-epaopen="${escA(x.id)}" data-step="codigo">Ver o conflito</button>`;
+    else if(x.st==='conflict' && x.ct && x.who && x.who!==epaMe()) acts=`<button type="button" class="btn sm primary" data-epaaskfix="${escA(x.id)}" title="fica no cartão e a pessoa é avisada">${epaIc('spark')}Pedir a ${esc(epaNome(x.who, true))} pra resolver</button><button type="button" class="btn sm quiet" data-epaopen="${escA(x.id)}" data-step="conversa">Ver o que houve</button>`;
     else if(x.st==='needs-you' && (x.nyKind==='rodadas'||x.nyKind==='veredito')) acts=`<button type="button" class="btn sm" data-epaopen="${escA(x.id)}" data-step="revisao">${epaIc('eye')}Ver provas</button>`;
     else if(x.k==='off') acts=x.cloud&&R.pode?`<button type="button" class="btn sm" data-epaunlink="${escA(x.id)}" title="a tarefa sai do épico e a próxima onda deixa de esperar por ela">Tirar do épico</button>`:'';
     else acts=`<button type="button" class="btn sm" data-epaopen="${escA(x.id)}" data-step="conversa">${epaIc('term')}${!x.local?'Abrir a tarefa':x.st==='asking'?'Responder no terminal':'Abrir no terminal'}</button>${x.ct&&R.pode?`<button type="button" class="btn sm quiet" data-epawho="${escA(x.id)}" aria-haspopup="menu">Passar ${epaIc('chev')}</button>`:''}`;
@@ -438,7 +439,7 @@ function epaWire(main, ep, R){
   main.querySelectorAll('[data-epafinal]').forEach(el=>{ el.onclick=()=>{ if(typeof openWorkspace==='function') openWorkspace(el.dataset.epafinal); }; el.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); el.onclick(); } }; });
   main.querySelectorAll('[data-epawho]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); epaWho(b, b.dataset.epawho); });
   main.querySelectorAll('[data-epaopen]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); epaOpen(b.dataset.epaopen, b.dataset.step); });
-  main.querySelectorAll('[data-eparesolve]').forEach(b=>b.onclick=()=>{ if(typeof fwResolveConflict==='function') fwResolveConflict(b.dataset.eparesolve, b); });
+  main.querySelectorAll('[data-epaaskfix]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const x=epaFind(b.dataset.epaaskfix); if(x&&x.ct&&typeof conflitoPedirA==='function') conflitoPedirA(x.ct, b); });
   main.querySelectorAll('[data-epaunlink]').forEach(b=>b.onclick=()=>epaUnlink(ep, b.dataset.epaunlink));
   main.querySelectorAll('[data-epasel]').forEach(b=>b.onclick=e=>{ if(e.target.closest('[data-epaopen]')) return; epaSelect(b.dataset.epasel); });
   main.querySelectorAll('[data-epacfg]').forEach(cb=>cb.onchange=async()=>{ cb.disabled=true; try{ await epaFlowSet(ep, { [cb.dataset.epacfg]:cb.checked }); if(typeof epicAutoStartTick==='function') epicAutoStartTick(); }catch(e){ showErr(e, 'Não consegui salvar'); cb.checked=!cb.checked; } finally{ cb.disabled=false; } });

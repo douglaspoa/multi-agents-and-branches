@@ -443,6 +443,7 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     // épico iniciando SOZINHO também roda no TERMINAL (terminal sempre vivo, 09/10): a pessoa abre e digita quando quiser
     // conselheiro: vale o padrão de QUEM RODA (nunca o do autor do cartão); épico iniciando sozinho nasce sem
     payload.advisor=opts.auto?'off':aiDefaults().advisor;
+    if(opts.payload) Object.assign(payload, opts.payload); // "Assumir e resolver" (80: conflitoAssumir) — parte da branch do PR, objetivo = o pedido do conflito
     if(ct.epic_id && typeof epFlowFor==='function' && epFlowFor(ct.epic_id).plan) payload.planApproval='review'; // chave do épico: "eu aprovo o plano de cada tarefa"
     if(ct.epic_id && window.epicAttachRef) await epicAttachRef(payload, ct.epic_id, ct); // EPIC.md compilado vai como referência
     const localId=await invoke('new_task', await trkBeforeNewTask(payload));

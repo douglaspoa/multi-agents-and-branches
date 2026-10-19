@@ -101,7 +101,7 @@ const acctReset=(f)=>{ try{ f(); }catch(_){ } };
 const acctClear=(o)=>{ if(!o) return; if(o instanceof Set || o instanceof Map) o.clear(); else for(const k in o) delete o[k]; };
 // tudo que está em memória e é da conta: some na troca (o próximo tick busca de novo, já com a conta nova)
 function acctResetCaches(){
-  acctReset(()=>{ teamTasks=null; teamProj={}; teamProfiles={}; teamFetchedAt=0; teamEpics=[]; teamActivity=[]; teamPaintSig=''; teamRepoRemote=''; teamRepoIds=null; });
+  acctReset(()=>{ teamTasks=null; teamProj={}; teamProfiles={}; teamFetchedAt=0; teamEpics=[]; teamActivity=[]; teamPaintSig=''; teamRepoRemote=''; teamRepoIds=null; teamEvents=[]; teamEventsOff=false; });
   acctReset(()=>{ teamNotifReady=false; tsLocalIdx={ src:null, m:{} }; });
   acctReset(()=>{ ctpTask=null; acctClear(ctpCache); });
   acctReset(()=>{ acctClear(epCache); epQueue={ rows:[], stOf:{}, flagOf:{}, titleOf:{}, epicOf:{}, projOf:{}, progOf:{}, sibsOf:{}, here:'', localIds:[], at:0 }; taskOriginIdx={ a:null, b:null, m:{} }; acctClear(epAutoWarned); });

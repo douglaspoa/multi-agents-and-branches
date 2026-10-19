@@ -67,10 +67,21 @@ function caMinhas(tasks, me, myTeams, fn, isLocal, inQueue){
   const livres=(tasks||[]).filter(t=>caLivre(t, fn) && myTeams.has(t.team_id) && !inQueue(t));
   return { comigo, livres };
 }
-// as ações da linha (mock): x = { me, canAssign, local, repo:'here'|'other'|'none' } → [{ act, label, primary?, title?, off? }]
+// as ações da linha (mock): x = { me, canAssign, local, repo:'here'|'other'|'none', conflito, whoName, canTake }
+// → [{ act, label, primary?, title?, off? }]. conflito = entConflito (70); whoName = personShort de quem está com ele
 function caAcoes(t, x, fn){
   const out=[], live=['running','thinking','plan-review','queued'].includes(t.status);
   if(fn.delivered(t)) return [{ act:'entrega', label:'ver entrega', title:'abrir o que foi entregue (PR ou a página da tarefa)' }];
+  // CONFLITO COM A BASE: a ação principal é resolver — aqui (terminal da tarefa) ou pedindo a quem está com ela
+  if(x.conflito){
+    const ver={ act:x.local?'term':'view', label:'ver o que houve', title:'abrir a tarefa e ver o conflito' };
+    if(x.local) return [{ act:'fixconf', label:'Resolver conflito', primary:true, title:'no terminal da tarefa: a IA traz a base pra branch, resolve os conflitos mantendo os dois lados, roda os testes e faz push' }, ver];
+    if(t.assignee && t.assignee!==x.me){
+      out.push({ act:'askfix', label:'Pedir a '+(x.whoName||'quem está com ela')+' pra resolver', primary:true, title:'fica no cartão (atividade do time) e a pessoa é avisada' });
+      if(x.canTake) out.push({ act:'takefix', label:'Assumir e resolver', title:'o cartão passa pra você e uma tarefa nesta máquina resolve o conflito no mesmo PR' });
+      out.push(ver); return out;
+    }
+  }
   if(caLivre(t, fn)){
     out.push({ act:'claim', label:'Assumir', primary:true, title:'pôr o seu nome no cartão — o time vê que é você; nada roda ainda' });
     if(x.canAssign) out.push({ act:'assign', label:'atribuir…', title:'escolher quem do time fica com o cartão' });
@@ -174,6 +185,12 @@ function caRepo(t){
   const here=((typeof localRemoteList!=='undefined'&&localRemoteList)||[]).concat(teamRepoIds?[teamRepoIds]:[]);
   return (typeof ctProjLocal==='function' && ctProjLocal(proj, here))?'other':'none';
 }
+// o contexto das ações (caAcoes) de um cartão — o MESMO na tabela, no quadro (72) e no menu ⋯
+function caCtx(t){
+  const local=caLocalOf(t), canAssign=caCanAssign(t.team_id), repo=caRepo(t);
+  return { me:caMe(), canAssign, local:!!local, repo, conflito:typeof entConflito==='function'?entConflito(t):false,
+    whoName:t.assignee&&typeof personShort==='function'?personShort(t.assignee,{ noYou:true }):'', canTake:canAssign && repo==='here' && !!t.branch };
+}
 function caLocalOf(t){ const l=typeof tsLocalOf==='function'?tsLocalOf(t):null; if(l) return l; const m=typeof tmap==='function'?tmap():{}; const id=Object.keys(m).find(k=>m[k]===t.id); return id?(state.tasks||[]).find(x=>x.id===id)||null:null; }
 function caInQueue(t){ return typeof epQueueMine==='function' && epQueueMine().some(r=>r.id===t.id); }
 
@@ -193,7 +210,7 @@ function caSt(t){
 }
 function caProjBadge(pid){ const p=teamProj[pid]||{}; const n=p.name||'projeto'; return `<span class="ca-proj"><i style="background:${projColor('cloud:'+(p.repo_remote||n))}" aria-hidden="true"></i>${esc(n)}</span>`; }
 function caBtns(t){
-  const acts=caAcoes(t, { me:caMe(), canAssign:caCanAssign(t.team_id), local:!!caLocalOf(t), repo:caRepo(t) }, CA_FN);
+  const acts=caAcoes(t, caCtx(t), CA_FN).filter(a=>a.act!=='takefix'); // "Assumir e resolver" mora no ⋯ (a linha fica com a ação + "ver o que houve")
   const b=acts.map(a=>`<button type="button" class="btn sm${a.primary?' primary':' ghost'}" data-caact="${a.act}" data-ct="${escA(t.id)}"${a.off?' disabled':''}${a.title?` title="${escA(a.title)}"`:''}>${esc(a.label)}</button>`).join('');
   return `<span class="ca-acts">${b}<button type="button" class="btn sm ghost ca-more" data-camenu="${escA(t.id)}" aria-haspopup="menu" aria-label="mais ações" title="mais ações">${(typeof IC!=='undefined'&&IC.more)||''}</button></span>`;
 }
@@ -443,6 +460,9 @@ async function caAct(act, ct, b){
     case 'start': await teamClaimStart(ct, b); return done();
     case 'openproj': if(typeof epOpenProjectOf==='function') await epOpenProjectOf(teamProj[ct.project_id]||{}); return;
     case 'review': case 'term': case 'view': return caOpen(ct);
+    case 'fixconf': { const l=caLocalOf(ct); if(l) await resolverConflito(l.id, b); return done(); }
+    case 'askfix': await conflitoPedirA(ct, b); return done();
+    case 'takefix': await conflitoAssumir(ct, b); return done();
     case 'entrega': if(ct.pr_url && /^https?:\/\//i.test(ct.pr_url)) openExternal(ct.pr_url); else openCloudTaskPage(ct); return;
     case 'retry': CA.err=null; CA.errAt=0; teamTasks=null; caRerender(); return;
     case 'issue': if(typeof trkCardRetry==='function'){ await trkCardRetry(ct, teamProj[ct.project_id]||{}, b); done(); } return;
@@ -453,7 +473,7 @@ document.addEventListener('click', e=>{
   const so=t.closest('[data-casort]'); if(so){ const k=String(so.dataset.casort), [sc, col]=k.split('|'), q=`[data-casort="${CSS.escape(k)}"]`, i=[...document.querySelectorAll(q)].indexOf(so);
     sortToggle(sc, col); caRerender(); const b=document.querySelectorAll(q)[Math.max(0, i)]; if(b) b.focus(); return; } // o foco fica no MESMO cabeçalho (teclado)
   const a=t.closest('[data-caact]'); if(a){ if(a.disabled) return; if(a.dataset.caact==='retry'){ caAct('retry'); return; } const ct=caTaskById(a.dataset.ct); if(ct) caAct(a.dataset.caact, ct, a).catch(err=>showErr(err, 'Não deu')); return; }
-  const m=t.closest('[data-camenu]'); if(m){ const ct=caTaskById(m.dataset.camenu); if(!ct) return; const l=caLocalOf(ct); if(l) openTaskMenu(l.id, m); else if(typeof epqMenu==='function') epqMenu(ct, m); return; }
+  const m=t.closest('[data-camenu]'); if(m){ const ct=caTaskById(m.dataset.camenu); if(!ct) return; const l=caLocalOf(ct); if(l) openTaskMenu(l.id, m); else if(typeof kbTeamMenu==='function') kbTeamMenu(ct, m, caRerender); else if(typeof epqMenu==='function') epqMenu(ct, m); return; } // ⋯ do cartão do time: as ações de caAcoes (Resolver/Pedir/Assumir…) — o da fila (epqMenu) só tinha abrir/remover
   const o=t.closest('[data-caopen]'); if(o){ const ct=caTaskById(o.dataset.caopen); if(ct) caOpen(ct); return; }
   const k=t.closest('[data-calk]'); if(k){ const u=k.dataset.calk||''; if(/^https?:\/\//i.test(u)) openExternal(u); return; }
   const g=t.closest('[data-catog]'); if(g){ const id=g.dataset.catog, op=g.getAttribute('aria-expanded')!=='true'; CA.open[id]=op; lsSet(userKey('ca:ep:'+id, caMe()), op?'1':'0'); caRerender(); return; }

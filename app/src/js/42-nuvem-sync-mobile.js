@@ -790,6 +790,32 @@ async function appVersionPing(){
 }
 setTimeout(appVersionPing, 8000);
 setInterval(()=>{ appVerSent=''; appVersionPing(); }, 30*60000);
+// ---- avisos do time (team_events, migration 0033) ----
+// Eventos do time que não são de uma tarefa (hoje: "padrão do time desligado", 75/76). Lidos junto com o teamFetch
+// (só o time ativo, últimos 7 dias); gravados sem travar a tela. Nuvem SEM a 0033 (404/42P01): teamEventsOff liga UMA
+// vez e ninguém mais pede a tabela nesta sessão — a Semana fica no aviso local (sem:padraoOff), sem erro na tela.
+let teamEvents=[], teamEventsOff=false;
+const TEAM_EVENTS_DIAS=7;
+function teamEventsQuery(teamId, now){
+  return 'team_events?select=id,team_id,user_id,kind,body,created_at&team_id=eq.'+encodeURIComponent(teamId)
+    +'&created_at=gte.'+new Date((now||Date.now())-TEAM_EVENTS_DIAS*86400000).toISOString()+'&order=created_at.desc&limit=20';
+}
+function teamEventsFalhou(e){ if(typeof cloudTabelaFalta==='function' && cloudTabelaFalta(e)) teamEventsOff=true; return null; }
+function teamEventsGet(teamId){
+  if(teamEventsOff || !teamId) return Promise.resolve(null);
+  return sbGet(teamEventsQuery(teamId)).catch(teamEventsFalhou);
+}
+// grava um aviso no time ATIVO; sem time/sessão/tabela não faz nada. Nunca lança (o aviso local já foi dado).
+async function teamEventPost(kind, body){
+  const tid=cloudTeamId();
+  if(teamEventsOff || !tid || !SB.sess()) return false;
+  try{
+    const r=await sbPost('team_events', { team_id:tid, kind, body:body||{} });
+    const row=Array.isArray(r)?r[0]:null;
+    if(row && cloudTeamId()===tid) teamEvents=[row, ...teamEvents.filter(x=>x.id!==row.id)];
+    return true;
+  }catch(e){ teamEventsFalhou(e); return false; }
+}
 let teamFetchP=null; // promise compartilhada: chamadas concorrentes esperam o MESMO fetch
 // a busca é DE UM alcance (time ativo + escopo): trocar de time no meio não reaproveita a busca do time velho —
 // espera ela terminar (a resposta velha é descartada) e busca o time novo (74-time-ativo)
@@ -808,15 +834,17 @@ async function teamFetchRun(){
     const ids=tsScopeTeamIds(); if(!ids.length) return;
     const same=()=>cloudTeamId()===teamId && tsScopeTeamIds().join(',')===ids.join(','); // trocou de time/escopo no meio: a resposta é do time velho (74)
     const inq='team_id=in.('+ids.map(i=>'"'+i+'"').join(',')+')';
-    const [tasks, projs, eps, acts]=await Promise.all([
+    const [tasks, projs, eps, acts, evs]=await Promise.all([
       sbGet('tasks?select=*&'+inq+'&order=updated_at.desc&limit='+(ids.length>1?600:200)),
       sbGet('projects?select=id,name,repo_remote&'+inq),
       sbGet('epics?select=id,name,status,team_id,spec,created_by,created_at,updated_at&'+inq+'&status=neq.archived&order=created_at').catch(()=>sbGet('epics?select=id,name,status,team_id&'+inq+'&status=neq.archived&order=created_at')).catch(()=>[]), // fallback: nuvem sem a 0025
       sbGet('task_activity?select=id,task_id,user_id,kind,body,at&order=id.desc&limit=60').catch(()=>[]),
+      teamEventsGet(teamId), // avisos do time (0033); null = sem a tabela ou falhou agora
     ]);
     if(!same()) return;
     const uids=new Set(); tasks.forEach(t=>{ uids.add(t.created_by); if(t.assignee) uids.add(t.assignee); });
     (acts||[]).forEach(a=>uids.add(a.user_id));
+    (evs||[]).forEach(a=>{ if(a&&a.user_id) uids.add(a.user_id); }); // o aviso mostra o NOME de quem desligou
     ids.forEach(tid=>((cloudData&&cloudData.teamMembers&&cloudData.teamMembers[tid])||[]).forEach(m=>uids.add(m.user_id)));
     if(tsOrgScope()) ((cloudData&&cloudData.orgMembers)||[]).forEach(m=>uids.add(m.user_id)); // membro da org sem time também aparece
     const profs=uids.size?await sbGet('profiles?select=user_id,name,email,last_seen_at&user_id=in.('+[...uids].map(u=>'"'+u+'"').join(',')+')'):null;
@@ -824,6 +852,7 @@ async function teamFetchRun(){
     await localRemoteIdsList().catch(()=>[]); // cartão de projeto que não existe nesta máquina ganha o aviso (tsCardHtml)
     if(!same()) return; // nada do time velho é gravado: tudo entra junto, depois do último await
     teamEpics=eps||[]; teamActivity=acts||[];
+    if(evs) teamEvents=evs; else if(teamEventsOff) teamEvents=[];
     teamProj=Object.assign({}, typeof taMineProj==='function'?taMineProj():{}); projs.forEach(p=>teamProj[p.id]=p); // + os projetos dos meus outros times (Minhas, 74)
     if(profs){ teamProfiles={}; profs.forEach(p=>teamProfiles[p.user_id]=p); }
     teamRepoRemote=rids.remote; teamRepoIds=rids;

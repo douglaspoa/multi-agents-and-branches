@@ -88,13 +88,9 @@ function fwChatSubText(t){
   if(t.status==='queued') return 'na fila — começa quando abrir uma vaga';
   return 'mesma sessão — ele lembra o que fez';
 }
-// "resolver conflito": o mesmo fluxo do botão do card (a IA mergeia a base e resolve na worktree)
+// "resolver conflito": a fonte única é o resolverConflito (80-aprovar) — o pedido vai pro terminal da tarefa
 async function fwResolveConflict(taskId, btn){
-  if(!await askYes('A IA vai juntar a base e resolver os conflitos nesta worktree (sem push). Você revisa o resultado e integra. Continuar?')) return;
-  const orig=btn?btn.innerHTML:'';
-  if(btn){ btn.disabled=true; btn.textContent='resolvendo…'; }
-  try{ await invoke('resolve_conflict',{ taskId }); prCache[taskId]=undefined; lastSig=''; await refresh(); }
-  catch(err){ showErr(err, 'Não consegui resolver o conflito'); if(btn){ btn.disabled=false; btn.innerHTML=orig; } } // o rótulo volta (ficava "resolvendo…" pra sempre)
+  if(typeof resolverConflito==='function') await resolverConflito(taskId, btn);
   renderWorkspace();
 }
 // pinta a seleção de linhas durante o arraste sem re-render completo (leve)
@@ -271,7 +267,8 @@ async function fwOpenInner(taskId, path){
   await pFiles;
   if(fwTask!==taskId) return; // trocou de tarefa/aba enquanto carregava: esta resposta já não vale
   if(fwPath && !fwFiles.some(f=>f.path===fwPath)) fwFiles.unshift({ path:fwPath, add:0, del:0, doc:true });
-  if(!fwPath && fwFiles.length) fwPath=fwFiles[0].path;
+  // arquivo inicial: o código mais mudado (78 cxDefaultFile) — nunca um .tsx gerado de 15 mil linhas ou lixo __MACOSX
+  if(!fwPath && fwFiles.length) fwPath=(typeof cxDefaultFile==='function' && cxDefaultFile(fwFiles))||fwFiles[0].path;
   await Promise.all([fwLoadFile(), pEvs]);
   if(fwTask!==taskId) return;
   renderWorkspace();
@@ -492,7 +489,7 @@ function fwPrimaryAction(t){
   if(pendingOf(t.id).length) return { id:'fwAnswer', html:`${IC.hand} responder`, title:'o agente fez uma pergunta — a resposta vai na conversa' };
   if(fwIsWorking(t) && t.status!=='queued') return { id:'fwStopTop', cls:'btn sm fwstopbtn trk-stop', html:`${IC.stop} parar`, title:'interrompe o turno atual do agente (dá pra mandar outra instrução depois)' };
   if(['error','aborted'].includes(t.status)) return { id:'fwRerun', html:`${IC.retry} rodar de novo`, title:'descarta o parcial na worktree e roda o time de novo (o plano é mantido)' };
-  if(t.status==='conflict') return { id:'fwResolve', html:`${IC.bolt} resolver conflito`, title:'a IA junta a base na branch e resolve os conflitos na worktree; você revisa e integra' };
+  if(t.status==='conflict') return { id:'fwResolve', html:`${IC.bolt} Resolver conflito`, title:'no terminal da tarefa: a IA traz a base pra branch, resolve os conflitos mantendo os dois lados, roda os testes e faz push' };
   if(t.status==='paused') return { id:'fwResume', html:`${IC.play} continuar`, title:'retoma a tarefa de onde parou' };
   if(t.status==='plan-review') return { id:'fwApprovePlan', html:`${IC.play} aprovar plano`, title:'o plano está pronto — aprovar deixa o time começar a construir' };
   // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
@@ -1063,7 +1060,7 @@ function renderWorkspace(){
 // ---- Revisão: diff de verdade por arquivo (redesign p12) ----
 let fwRevOpen=false; // explicação da revisão expandida
 function fwRenderDiff(t, main){
-  if(!fwPath && fwFiles.length) fwPath=fwFiles.filter(f=>!f.doc)[0]?.path||fwFiles[0].path;
+  if(!fwPath && fwFiles.length) fwPath=(typeof cxDefaultFile==='function' && cxDefaultFile(fwFiles.filter(f=>!f.doc)))||fwFiles.filter(f=>!f.doc)[0]?.path||fwFiles[0].path;
   const key=fwPath?fwDiffKey(t, fwPath):'';
   const rev=reviewOf(t.id);
   const f=fwFiles.find(x=>x.path===fwPath)||{add:0,del:0};

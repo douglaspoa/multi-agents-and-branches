@@ -49,7 +49,7 @@ function ctAction(r){
   if(r.status==='draft') return { label:'Iniciar', act:'play', primary:true };
   if(r.asking) return { label:'Responder', act:'open', primary:true };
   if(r.status==='plan-review') return { label:'Aprovar plano', act:'open', primary:true };
-  if(r.status==='conflict') return { label:'Resolver', act:'open', primary:true };
+  if(r.conflito || r.status==='conflict') return { label:'Resolver conflito', act:'fixconf', primary:true }; // 80: resolverConflito (terminal da tarefa)
   if(['error','aborted'].includes(r.status)) return { label:'Ver o que houve', act:'open', primary:true };
   if(r.status==='needs-you') return { label:'Decidir', act:'open', primary:true };
   if(r.aprovar) return { label:'Ver provas', act:'toggle', primary:true }; // 80-aprovar: a linha abre o painel de provas (A aprova, P pede alteração)
@@ -76,6 +76,7 @@ function ctActBtn(r, a, cls){
   const c=`btn sm${a.primary?' primary':''}${cls?' '+cls:''}`;
   if(a.act==='play') return `<button type="button" class="${c}" data-rowplay="${escA(r.id)}">${esc(a.label)}</button>`;
   if(a.act==='pr') return `<button type="button" class="${c}" data-lk="${escA(r.prUrl)}" title="abrir o PR no GitHub">${esc(a.label)}</button>`;
+  if(a.act==='fixconf') return `<button type="button" class="${c}" data-fixconf="${escA(r.id)}" title="no terminal da tarefa: a IA traz a base, resolve os conflitos, roda os testes e faz push">${esc(a.label)}</button><button type="button" class="btn sm ghost${cls?' '+cls:''}" data-dcopen="${escA(r.id)}" title="abrir a tarefa e ver o conflito">ver o que houve</button>`;
   if(a.act==='toggle') return `<button type="button" class="${c}" data-cttog="${escA(r.id)}" title="as provas na própria linha (Espaço) — A aprova, P pede alteração">${esc(a.label)}</button>`;
   return `<button type="button" class="${c}" data-dcopen="${escA(r.id)}">${esc(a.label)}</button>`;
 }
@@ -168,6 +169,7 @@ function ctRow(t){
     ia:t.orchestration?'Orquestrador':ia, stages:stages.map(s=>({ label:s.label, state:s.state, word:s.word })), pos:sum?sum.pos:0, n:stages.length, label:sum?sum.label:'', now:sum?sum.now:'',
     nreq, ok, ad, loaded, cross, gateSt:g.st, canAskProof:!cross && ['review','delivered'].includes(t.status) && g.st==='unproven' && !t.prUrl,
     pr:(typeof prNumOf==='function')?prNumOf(t):'', prUrl:t.prUrl||'', status:t.status, blocked:t.flag==='blocked', asking,
+    conflito:!cross && typeof conflitoDe==='function' && conflitoDe(t), // status 'conflict' ou PR CONFLICTING: "Resolver conflito"
     aprovar:!cross && typeof apAprovavel==='function' && apAprovavel(t), // 80-aprovar: entra no filtro "Para aprovar" e abre o painel de provas
     needsYou:asking || CT_NEEDS_ST.has(t.status) || !!(typeof taskLoop==='function' && taskLoop(t)), // a barra de "precisa de você" — rascunho e "Revisar" não ganham
     budget:(typeof budgetNoticeHtml==='function' && !cross)?budgetNoticeHtml(t):'',

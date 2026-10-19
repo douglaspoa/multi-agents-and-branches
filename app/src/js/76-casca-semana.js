@@ -111,6 +111,19 @@ function semEpicosEntregues(eps, dias){
 // aviso "padrão do time desligado" (sf:padrao-desligado): vale 7 dias; o mais novo ganha. → o aviso ou null
 const SEM_PADRAO_MS=7*86400000;
 function semPadraoVale(av, now){ if(!av||!av.padrao) return null; const at=+av.at||0; return at && (now||Date.now())-at<SEM_PADRAO_MS ? av : null; }
+// o mesmo aviso vindo do TIME (team_events, 0033): linhas de qualquer membro → o mais novo válido, com uid (o nome
+// sai de personName na hora de pintar; nunca o id). "abrir" só aceita destinos conhecidos (o corpo vem de outra pessoa).
+const SEM_PADRAO_ABRIR=['skills','agentes'];
+const semPadraoTx=(v, n)=>String(v==null?'':v).replace(/\s+/g,' ').trim().slice(0, n);
+function semPadraoCorpo(d){ d=d||{}; const o={ padrao:semPadraoTx(d.padrao, 160), onde:semPadraoTx(d.onde, 80) };
+  if(SEM_PADRAO_ABRIR.includes(d.abrir)) o.abrir=d.abrir; return o; }
+function semPadraoDoTime(rows, now){
+  const L=(rows||[]).filter(r=>r && r.kind==='padrao-desligado' && r.body && r.user_id).map(r=>{ const c=semPadraoCorpo(r.body);
+    return Object.assign(c, { uid:r.user_id, at:Date.parse(r.created_at)||0 }); }).filter(a=>semPadraoVale(a, now));
+  return L.sort((a,b)=>b.at-a.at)[0]||null;
+}
+// local (esta máquina) × time: o mais novo ganha
+function semPadraoMaisNovo(a, b, now){ const x=semPadraoVale(a, now), y=semPadraoVale(b, now); return !x?y:!y?x:(y.at>x.at?y:x); }
 // o mapa "Onde fica cada coisa": grupos da lateral → [ícone, nome, o que tem, destino]
 const MAPA_GRUPOS=[
   ['Trabalho','O dia a dia: pedir, acompanhar, entregar',[
@@ -399,13 +412,14 @@ function meuEventos(){
       out.push({ ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${r?(ok!=null?` com ${ok} de ${r} requisitos provados`:` (${r} requisitos)`):''}.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
     else if(mine && x.bucket==='praberto' && x.local){ const pr=semPrNum(x.local);
       out.push({ ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${pr?` e abriu o PR #${esc(pr)}`:''} — falta você revisar.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
-    else if(mine && x.trav && x.local) out.push({ ms:x.mod, av:'ia', s:`${tt(x.titulo)} parou: ${esc(x.motivo)}.`, m:meta(x, x.mod), a:[{ l:'Abrir', act:()=>semAbrir(x) }] });
+    else if(mine && x.trav && x.local) out.push({ ms:x.mod, av:'ia', s:`${tt(x.titulo)} parou: ${esc(x.motivo)}.`, m:meta(x, x.mod),
+      a:(typeof conflitoDe==='function' && conflitoDe(x.local))?[{ l:'Resolver conflito', pri:true, act:()=>resolverConflito(x.local.id) }, { l:'ver o que houve', act:()=>semAbrir(x) }]:[{ l:'Abrir', act:()=>semAbrir(x) }] });
     if(!x.card) continue;
     const c=x.card;
     if(c.assignee===me && c.created_by && c.created_by!==me && x.bucket==='fila')
       out.push({ ms:x.mod, av:c.created_by, s:`<b>${esc(personName(c.created_by,{ noYou:true }))}</b> te mandou ${tt(x.titulo)}. Nada roda até você iniciar.`, m:meta(x, x.mod), a:[{ l:'Abrir', pri:true, act:()=>semAbrir(x) }] });
     if(c.created_by===me && c.assignee && c.assignee!==me && x.trav)
-      out.push({ ms:x.mod, av:c.assignee, s:`<b>${esc(personName(c.assignee,{ noYou:true }))}</b> travou em ${tt(x.titulo)}: ${esc(x.motivo)}. Você criou essa demanda.`, m:meta(x, x.mod), a:[{ l:'Ajudar', act:()=>semAbrir(x) }] });
+      out.push({ ms:x.mod, av:c.assignee, s:`<b>${esc(personName(c.assignee,{ noYou:true }))}</b> travou em ${tt(x.titulo)}: ${esc(x.motivo)}. Você criou essa demanda.`, m:meta(x, x.mod), a:(typeof entConflito==='function' && entConflito(c) && typeof conflitoPedirA==='function')?[{ l:'Pedir a '+personShort(c.assignee,{ noYou:true })+' pra resolver', pri:true, act:()=>conflitoPedirA(c) }, { l:'ver o que houve', act:()=>semAbrir(x) }]:[{ l:'Ajudar', act:()=>semAbrir(x) }] });
     if(!c.assignee && x.bucket==='fila'){ const dv=semDevolvidaPor(c);
       if(dv && dv.by!==me) out.push({ ms:dv.at, av:dv.by, s:`<b>${esc(personName(dv.by,{ noYou:true }))}</b> devolveu ${tt(x.titulo)}${dv.why?`: “${esc(dv.why.slice(0,120))}”`:''}.`, m:meta(x, dv.at, 'está sem dono'),
         a:[{ l:'Assumir', act:()=>semPassar(x, me) }, { l:'Passar', menu:true, x }] }); }
@@ -451,12 +465,21 @@ let semModo=lsGet('sem:modo')==='dist'?'dist':'grade', semAberto='', semSelQ='';
 // aviso de padrão do time desligado: quem desliga (Skills › "Onde está ligada", "sempre…" → "só quando pedir", agente
 // tirado do catálogo ou de uma equipe — padAvisoDesligado em 75-padroes) dispara
 // window.dispatchEvent(new CustomEvent('sf:padrao-desligado', { detail:{ quem, padrao, onde, at, abrir? } }))
-// Fica guardado por 7 dias NESTA máquina (sem:padraoOff). Os outros membros ainda NÃO veem: não há canal de evento do time
-// sem migration (task_activity exige uma tarefa) — ver o PR das pendências da Semana.
-let semPadraoOff=null;
+// Fica guardado por 7 dias NESTA máquina (sem:padraoOff) e, com time ativo, vai pro time (team_events, 0033 — teamEventPost
+// em 42): a faixa de TODOS os membros mostra o mais novo de qualquer um. Nuvem sem a 0033 = só o aviso local, sem erro.
+let semPadraoOff=null, semPadraoAgora=null;
 try{ semPadraoOff=semPadraoVale(JSON.parse(lsGet('sem:padraoOff')||'null')); }catch(_){ semPadraoOff=null; }
 window.addEventListener('sf:padrao-desligado', e=>{ const d=(e&&e.detail)||null; semPadraoOff=d?Object.assign({ at:Date.now() }, d):null;
-  try{ lsSet('sem:padraoOff', JSON.stringify(semPadraoOff)); }catch(_){ } semRepintar(); });
+  try{ lsSet('sem:padraoOff', JSON.stringify(semPadraoOff)); }catch(_){ } semRepintar();
+  if(d && typeof teamEventPost==='function') teamEventPost('padrao-desligado', semPadraoCorpo(d)).then(ok=>{ if(ok) semRepintar(); }).catch(()=>{}); });
+// o aviso que a faixa mostra agora: o local ou o do time ativo (com o nome da pessoa)
+function semPadraoAtual(){
+  const tid=(typeof cloudTeamId==='function')?cloudTeamId():'';
+  const rows=tid?((typeof teamEvents!=='undefined'&&teamEvents)||[]).filter(r=>r&&r.team_id===tid):[];
+  const t=semPadraoDoTime(rows, Date.now());
+  const doTime=t?Object.assign({}, t, { quem:personCap(personName(t.uid, { noYou:false })) }):null;
+  return semPadraoMaisNovo(semPadraoOff, doTime, Date.now());
+}
 window.addEventListener('sf:epico-entregue', ()=>semRepintar());
 function semParados(its){ return its.filter(x=>x.trav && !x.done); }
 function semanaHtml(){
@@ -467,8 +490,9 @@ function semanaHtml(){
   const sw=`<div class="semsw" role="group" aria-label="Modo da Semana"><button type="button" aria-pressed="${semModo==='grade'}" data-semmodo="grade">Semana</button><button type="button" aria-pressed="${semModo==='dist'}" data-semmodo="dist">Distribuir</button></div>`;
   const par=semParados(its);
   if(semPadraoOff && !semPadraoVale(semPadraoOff)) semPadraoOff=null; // passou de 7 dias
-  const strips=`<div class="semstrips${semPadraoOff?'':' one'}"><div class="semstrip red" role="status">${semIc('alert')}<span><b>Parado agora:</b> ${par.length?par.map(x=>`<button type="button" class="lnk" data-semopen="${escA(x.id)}">${esc(personName(x.who,{ noYou:false }))} em ${esc(x.code||mdTitle(x.titulo).slice(0,32))}</button>`).join(' · '):'ninguém'}</span></div>`
-    +(semPadraoOff?`<div class="semstrip amb" role="status">${semIc('shield')}<span><b>${esc(semPadraoOff.quem||'Alguém')} desligou ${esc(semPadraoOff.padrao||'um padrão')}</b> (padrão do time)${semPadraoOff.onde?' em '+esc(semPadraoOff.onde):''}</span><span class="grow"></span><button type="button" class="btn sm quiet" data-sempad="1">Ver</button></div>`:'')+`</div>`;
+  const pad=semPadraoAgora=semPadraoAtual();
+  const strips=`<div class="semstrips${pad?'':' one'}"><div class="semstrip red" role="status">${semIc('alert')}<span><b>Parado agora:</b> ${par.length?par.map(x=>`<button type="button" class="lnk" data-semopen="${escA(x.id)}">${esc(personName(x.who,{ noYou:false }))} em ${esc(x.code||mdTitle(x.titulo).slice(0,32))}</button>`).join(' · '):'ninguém'}</span></div>`
+    +(pad?`<div class="semstrip amb" role="status">${semIc('shield')}<span><b>${esc(pad.quem||'Alguém')} desligou ${esc(pad.padrao||'um padrão')}</b> (padrão do time)${pad.onde?' em '+esc(pad.onde):''}</span><span class="grow"></span><button type="button" class="btn sm quiet" data-sempad="1">Ver</button></div>`:'')+`</div>`;
   const semTime=!semTemTime()?`<div class="semnote">${semIc('people')}<span>Você está vendo só as suas demandas. <b>Entre num time</b> pra ver a semana de todo mundo, passar e assumir.</span><button type="button" class="btn sm" data-semtime="1">Entrar num time</button></div>`:'';
   const head=semHead('Semana do time', [timeN, proj, semIntervaloTx(dias)].filter(Boolean).join(' · '), sw);
   if(semModo==='dist') return `<div class="sempg wide">${head}${strips}${semTime}${semDistHtml(its, pessoas)}</div>`;
@@ -733,7 +757,7 @@ function semWire(pg, k){
     el.onkeydown=(e)=>{ if(e.target===el && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); el.click(); } }; });
   pg.querySelectorAll('[data-semtime]').forEach(b=>b.onclick=()=>semIr('pessoas'));
   pg.querySelectorAll('[data-semep]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); if(typeof epOpenById==='function') epOpenById(b.dataset.semep); });
-  pg.querySelectorAll('[data-sempad]').forEach(b=>b.onclick=()=>{ const a=semPadraoOff&&semPadraoOff.abrir; semIr(a||'skills'); });
+  pg.querySelectorAll('[data-sempad]').forEach(b=>b.onclick=()=>{ const a=semPadraoAgora&&semPadraoAgora.abrir; semIr(SEM_PADRAO_ABRIR.includes(a)?a:'skills'); });
   pg.querySelectorAll('[data-sement]').forEach(b=>b.onclick=()=>{ semEntPer=b.dataset.sement; lsSet('sem:entper', semEntPer); semEntregasCarimbos(); semRepintar(); });
   pg.querySelectorAll('[data-semrel]').forEach(b=>b.onclick=()=>{ semRelOn=!semRelOn; semRepintar(); });
   pg.querySelectorAll('[data-semcopiar]').forEach(b=>b.onclick=async()=>{ const t=($id('semRelTx')||{}).textContent||''; try{ await navigator.clipboard.writeText(t); toast('Relatório copiado — é só colar.','ok'); }catch(_){ try{ await window.__TAURI__.clipboardManager.writeText(t); toast('Relatório copiado — é só colar.','ok'); }catch(e){ showErr(e, 'Não consegui copiar'); } } });

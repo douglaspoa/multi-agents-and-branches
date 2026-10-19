@@ -202,7 +202,7 @@ function auRender(){
   if(same) R.querySelectorAll('input[id]').forEach(i=>{ keep[i.id]=i.value; });
   const keepCode=same&&!au.clearCode?[...R.querySelectorAll('[data-ci]')].map(i=>i.value):null; au.clearCode=false; // código fica visível enquanto confirma; some só se estiver errado
   const dis=au.busy?' disabled':'';
-  const topbar=`<div class="au-top"><span class="au-topl mono">${esc(T('auth.top.'+s))}</span><span style="flex:1"></span>${SB.sess()&&s!=='ready'?`<button type="button" class="au-link" id="auLogout">${esc(T('auth.logout'))}</button>`:''}${au.backTo?`<button type="button" class="au-link" id="auBack">${esc(T('auth.back'))}</button>`:''}</div>`;
+  const topbar=`<div class="au-top" data-tauri-drag-region><span class="au-topl mono" data-tauri-drag-region>${esc(T('auth.top.'+s))}</span><span style="flex:1" data-tauri-drag-region></span>${SB.sess()&&s!=='ready'?`<button type="button" class="au-link" id="auLogout">${esc(T('auth.logout'))}</button>`:''}${au.backTo?`<button type="button" class="au-link" id="auBack">${esc(T('auth.back'))}</button>`:''}</div>`;
   let after=null;
   if(s==='signup') after=auRenderSignup(R, topbar, dis);
   else if(s==='login') after=auRenderLogin(R, topbar, dis);
