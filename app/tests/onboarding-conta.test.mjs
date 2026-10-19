@@ -180,3 +180,12 @@ test('emErrMsg: erro ao criar a pasta do projeto em pt-BR, texto cru só nos det
   const g = EM('weird thing happened'); assert.match(g.msg, /^Não deu pra criar a pasta/); assert.equal(g.raw, 'weird thing happened');
   const git = EM('O git não está instalado — rode xcode-select --install'); assert.equal(git.msg, 'O git não está instalado — rode xcode-select --install'); assert.equal(git.raw, '');
 });
+
+// telas de tela cheia sem a lateral (entrada, onboarding 1–3, planos): os semáforos do macOS não cobrem o cabeçalho
+test('planos/onboarding: cabeçalho .au-top livre dos semáforos no macOS, arrastável, e sem recuo fora do Mac', () => {
+  const css = readFileSync(new URL('../src/css/30-refino-macos.css', import.meta.url), 'utf8');
+  assert.match(css, /html\.os-mac \.au-wrap\.full \.au-top\{padding-left:86px\}/, 'planos/pagamento (tela cheia): recuo dos semáforos');
+  assert.match(css, /@media \(max-width:900px\)\{ html\.os-mac \.au-top\{padding-left:86px\} \}/, 'janela estreita (sem a coluna da esquerda) também');
+  assert.ok(!/html:not\(\.os-mac\)[^{]*\.au-top/.test(css) && !/^\.au-top\{[^}]*padding-left:8/m.test(css), 'Windows/Linux: sarjeta normal');
+  assert.match(read('44-onboarding.js'), /<div class="au-top" data-tauri-drag-region>/, 'a faixa do topo arrasta a janela');
+});
