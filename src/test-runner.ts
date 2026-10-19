@@ -165,11 +165,14 @@ function parseJsCounts(out: string): Counts | null {
   return null;
 }
 
-const TEST_WORD = /test|teste|su[ií]te|spec|pass|✓|✅/i;
+/** Palavra que faz um "N/M" ser relato de TESTE (com limite de palavra: "especificação", "Passo", "✓ requisitos" não contam). */
+const TEST_WORD = /\b(tests?|testes?|su[ií]tes?|passed|passing|failed|falharam|passaram)\b/i;
+/** Quantos caracteres antes/depois do número a palavra de teste pode estar. */
+const TEST_WORD_NEAR = 20;
 /**
  * O que o agente AFIRMOU sobre os testes, num texto livre (mensagem final, requirements.json). Lê, nesta ordem:
- * "84 passed, 2 failed" / "Tests: 84 passed, 2 failed" · "86/86" (com palavra de teste na linha) · "86 passed" /
- * "86 testes passando" · "ALL PASSED" / "todos os testes passaram". Nada disso → null (não acusa ninguém).
+ * "84 passed, 2 failed" / "Tests: 84 passed, 2 failed" · "86/86" (com palavra de teste a até 20 caracteres) ·
+ * "86 passed" / "86 testes passando" · "ALL PASSED" / "todos os testes passaram". Nada disso → null (não acusa ninguém).
  */
 export function parseClaim(text: string): Claim | null {
   const t = String(text ?? "");
@@ -179,11 +182,13 @@ export function parseClaim(text: string): Claim | null {
   if (pf) return { passed: num(pf[1]), total: num(pf[1]) + num(pf[2]) };
   const fp = t.match(/(?<![\w.])(\d+)\s*(?:tests?\s*|testes?\s*)?(?:failed|failing|falharam|falhando)\b[^\n\d]{0,12}(\d+)\s*(?:tests?\s*|testes?\s*)?(?:passed|passing|passaram|passando)/i);
   if (fp) return { passed: num(fp[2]), total: num(fp[1]) + num(fp[2]) };
-  // "86/86" ou "86 de 86" — só em linha que fala de teste (datas e "rodada 1/2" não contam)
+  // "86/86" ou "86 de 86" — só com palavra de teste PERTO (datas, "Passo 3/5", "✓ 4/6 requisitos" não contam)
   for (const line of t.split("\n")) {
-    if (!TEST_WORD.test(line)) continue;
-    const m = line.match(/(?<![\d/])(\d+)\s*(?:\/|de)\s*(\d+)(?![\d/])/);
-    if (m && num(m[2]) > 0 && num(m[1]) <= num(m[2])) return { passed: num(m[1]), total: num(m[2]) };
+    for (const m of line.matchAll(/(?<![\w/])(\d+)\s*(?:\/|de)\s*(\d+)(?![\d/])/g)) {
+      const at = m.index ?? 0;
+      const near = line.slice(Math.max(0, at - TEST_WORD_NEAR), at + m[0].length + TEST_WORD_NEAR);
+      if (TEST_WORD.test(near) && num(m[2]) > 0 && num(m[1]) <= num(m[2])) return { passed: num(m[1]), total: num(m[2]) };
+    }
   }
   // "86 passed" / "86 testes passando" / "# pass 86"
   const p = t.match(/(?<![\w.])(\d+)\s*(?:tests?|testes?)?\s*(?:passed|passing|pass\b|passaram|passando)/i) ?? t.match(/#\s*pass\s+(\d+)/i);
@@ -196,30 +201,30 @@ export function parseClaim(text: string): Claim | null {
 export const fmtCounts = (c: Counts) => `${c.passed}/${c.passed + c.failed}`;
 
 /**
- * O relato bate com o real? Devolve o motivo exato quando NÃO bate; null quando bate ou não dá pra comparar.
- * Real todo verde + relato sem falha = não acusa mesmo com número diferente (o agente rodou só um pedaço da suíte).
+ * O agente disse MAIS do que o real? Devolve o motivo exato; null quando não. Só acusa quando o relato é melhor que
+ * a execução: passaram mais do que de fato passaram, ou "tudo verde" com a suíte vermelha. Relato MENOR que o real
+ * (rodou só um pedaço, ou um número de antes da correção) não é mentira — não acusa.
  */
 export function claimDivergence(claim: Claim | null, real: Counts | null): string | null {
   if (!claim || !real) return null;
-  const realTotal = real.passed + real.failed;
   if (claim.allPassed) return real.failed > 0 ? `o agente relatou todos os testes passando, a execução real deu ${fmtCounts(real)}` : null;
   if (claim.passed == null) return null;
-  const total = claim.total ?? claim.passed;
+  const total = claim.total ?? claim.passed; // "86 passed" sem total = afirma 86/86
   const claimGreen = claim.passed === total;
-  if (real.failed === 0 && claimGreen) return null;
-  if (claim.passed === real.passed && total === realTotal) return null;
-  return `o agente relatou ${claim.passed}/${total}, a execução real deu ${fmtCounts(real)}`;
+  if (claim.passed > real.passed || (claimGreen && real.failed > 0)) return `o agente relatou ${claim.passed}/${total}, a execução real deu ${fmtCounts(real)}`;
+  return null;
 }
 
-/** O que o agente afirmou: a fala mais recente dele DESDE a última mensagem da pessoa que tiver número. */
+/** O que o agente afirmou: a ÚLTIMA fala final dele (evento `done`, o fim do turno) desde o último pedido da pessoa.
+ * Os `think` do meio do turno não contam — "84 passed" antes da correção não é o relato da entrega. */
 export function agentClaimFrom(events: Array<{ agent: string; type: string; text: string }>): { claim: Claim; text: string } | null {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
     const txt = String(e.text ?? "");
-    if (e.agent === "Você" || /^Você:\s*/.test(txt)) break; // pedido novo da pessoa: o relato velho não vale mais
-    if (e.agent === "Sistema" || !["done", "think", "note"].includes(e.type)) continue;
+    if (e.agent === "Você" || /^Você:\s*/.test(txt)) return null; // pedido novo da pessoa: o relato velho não vale mais
+    if (e.agent === "Sistema" || e.type !== "done") continue;
     const claim = parseClaim(txt);
-    if (claim) return { claim, text: txt };
+    return claim ? { claim, text: txt } : null;
   }
   return null;
 }
@@ -360,8 +365,14 @@ export async function testGate(g: GateInput): Promise<GateResult> {
   const p = g.prev;
   if (p && p.tests && p.tests.ran && !p.tests.timedOut && g.sha && p.sha === g.sha && !g.dirty) {
     if (!p.tests.ok) reasons.push(`os testes falharam: ${p.tests.runner}${p.tests.passed != null ? ` (${p.tests.passed}/${(p.tests.passed ?? 0) + (p.tests.failed ?? 0)} passaram)` : ""}`);
-    if (p.divergente && p.relato) reasons.push(p.relato);
-    return { reasons, divergence: null, run: null, note: "mesma versão já verificada — a suíte não rodou de novo", verification: { ...p, ci } };
+    // a divergência é recalculada contra o relato ATUAL (o motivo antigo não se repete)
+    const real = p.tests.passed != null && p.tests.failed != null ? { passed: p.tests.passed, failed: p.tests.failed } : null;
+    let div: string | null = null;
+    for (const c of g.claims) { div = claimDivergence(c, real); if (div) break; }
+    if (div) reasons.push(div);
+    const { relato: _old, ...rest } = p;
+    void _old;
+    return { reasons, divergence: div && div !== p.relato ? div : null, run: null, note: "mesma versão já verificada — a suíte não rodou de novo", verification: { ...rest, ci, divergente: !!div, ...(div ? { relato: div } : {}) } };
   }
   const r = await (g.run ?? runTests)(g.worktree, { timeoutMs: g.timeoutMs });
   let divergence: string | null = null;

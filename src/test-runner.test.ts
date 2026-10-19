@@ -100,15 +100,24 @@ test("parseClaim: '86/86', 'ALL PASSED', '86 passed', 'Tests: 84 passed, 2 faile
   assert.equal(parseClaim("Entrega em 19/10, rodada 1/2"), null, "data e rodada não são relato de teste");
   assert.equal(parseClaim("R2 passed na revisão"), null, "número colado em palavra (R2) não conta");
   assert.equal(parseClaim(""), null);
+  // revisão adversarial: N/M sem palavra de teste perto não é relato
+  assert.equal(parseClaim("Passo 3/5 concluído"), null);
+  assert.equal(parseClaim("A especificação 2/3 está pronta"), null);
+  assert.equal(parseClaim("✓ 4/6 requisitos feitos"), null);
+  assert.equal(parseClaim("Combinado pra 10/12"), null);
+  assert.equal(parseClaim("Passo 3/5: agora a parte longa da explicação, e os testes ficam pra depois"), null, "palavra de teste longe do número");
 });
 
-test("claimDivergence: número diferente do real reprova com a frase exata; real verde + relato verde não acusa", () => {
+test("claimDivergence: só acusa quando o agente diz MAIS do que o real (passou mais, ou tudo verde com suíte vermelha)", () => {
   assert.equal(claimDivergence({ passed: 86, total: 86 }, { passed: 84, failed: 2 }), "o agente relatou 86/86, a execução real deu 84/86");
   assert.equal(claimDivergence({ passed: 86, total: null }, { passed: 84, failed: 2 }), "o agente relatou 86/86, a execução real deu 84/86");
   assert.equal(claimDivergence({ passed: null, total: null, allPassed: true }, { passed: 84, failed: 2 }), "o agente relatou todos os testes passando, a execução real deu 84/86");
   assert.equal(claimDivergence({ passed: 84, total: 86 }, { passed: 84, failed: 2 }), null, "relatou a falha certinho: bate");
   assert.equal(claimDivergence({ passed: 5, total: 5 }, { passed: 86, failed: 0 }), null, "rodou só um pedaço, tudo verde: não acusa");
-  assert.equal(claimDivergence({ passed: 80, total: 86 }, { passed: 86, failed: 0 }), "o agente relatou 80/86, a execução real deu 86/86");
+  assert.equal(claimDivergence({ passed: 80, total: 86 }, { passed: 86, failed: 0 }), null, "relatou MENOS do que o real: não é mentira");
+  assert.equal(claimDivergence({ passed: 84, total: null }, { passed: 86, failed: 0 }), null, "'84 passed' de antes da correção, real 86/86: não acusa");
+  assert.equal(claimDivergence({ passed: 82, total: 86 }, { passed: 84, failed: 2 }), null, "relatou falha maior que a real: não acusa");
+  assert.equal(claimDivergence({ passed: 85, total: 86 }, { passed: 84, failed: 2 }), "o agente relatou 85/86, a execução real deu 84/86", "disse que passou mais do que passou");
   assert.equal(claimDivergence(null, { passed: 1, failed: 1 }), null, "sem relato legível: só mostra o real");
   assert.equal(claimDivergence({ passed: 3, total: 3 }, null), null, "sem contagem real legível: não acusa");
 });
@@ -123,6 +132,8 @@ test("agentClaimFrom: a fala mais recente do agente DESDE o último pedido da pe
   ];
   assert.deepEqual(agentClaimFrom(evs)?.claim, { passed: 86, total: 86 });
   assert.equal(agentClaimFrom(evs.slice(0, 2)), null, "relato de antes do pedido novo não vale");
+  assert.equal(agentClaimFrom(evs.slice(0, 3)), null, "think do meio do turno não é relato");
+  assert.equal(agentClaimFrom([...evs.slice(0, 4), { agent: "Íris", type: "done", text: "Pronto, tela feita." }]), null, "só a ÚLTIMA fala final conta (sem número = sem relato)");
   assert.deepEqual(claimFromReq({ list: [], tests: "86/86" }), { passed: 86, total: 86 });
   assert.deepEqual(claimFromReq({ tests: { passed: 84, failed: 2 } }), { passed: 84, total: 86 });
   assert.equal(claimFromReq([{ req: "x" }]), null);
@@ -172,8 +183,11 @@ test("testGate: docs-only pula (com motivo) a não ser que a tarefa peça testes
   assert.equal(first.verification.divergente, true);
   const again = await testGate({ worktree: root, wantsTests: false, changed: ["a.ts"], claims: [], timeoutMs: 1000, sha: "abc", prev: first.verification, run });
   assert.equal(calls, 2, "mesmo HEAD, sem mudança solta: reaproveita");
-  assert.equal(again.divergence, null, "não grava o evento de novo");
-  assert.deepEqual(again.reasons, ["os testes falharam: npm test (1/2 passaram)", "o agente relatou 2/2, a execução real deu 1/2"]);
+  assert.deepEqual(again.reasons, ["os testes falharam: npm test (1/2 passaram)"], "relato novo (sem número): o motivo antigo de divergência não se repete");
+  assert.equal(again.verification.divergente, false);
+  const same = await testGate({ worktree: root, wantsTests: false, changed: ["a.ts"], claims: [{ passed: 2, total: 2 }], timeoutMs: 1000, sha: "abc", prev: first.verification, run });
+  assert.equal(same.divergence, null, "mesma divergência: não grava o evento de novo");
+  assert.deepEqual(same.reasons, ["os testes falharam: npm test (1/2 passaram)", "o agente relatou 2/2, a execução real deu 1/2"], "recalculada contra o relato atual, sem duplicar");
   await testGate({ worktree: root, wantsTests: false, changed: ["a.ts"], claims: [], timeoutMs: 1000, sha: "abc", dirty: true, prev: first.verification, run });
   assert.equal(calls, 3, "mudança solta: roda de novo");
 });
