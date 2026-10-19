@@ -518,28 +518,20 @@ async function prvFixAll(t, info, btn){
 
 // ---------------------------------------------------------------- GUARDA DE SEGURANÇA (Frente 2 · src/guard.ts)
 // Bloco "Guarda" no topo da aba Revisão (nas 3 vistas: provas, por requisito e diff): os achados do último portão
-// (segredo / código, severidade, arquivo:linha), "dispensar" com motivo (grava .cardume/guard-ignore.json na worktree,
-// versionado — o motor rastreia à força) e o selo "guarda desligada: motivo". Os dados vêm de t.spec.guard (o motor
-// grava a cada portão). O valor do segredo nunca chega aqui: só os 4 primeiros caracteres + ••••.
+// (segredo / código, severidade, arquivo:linha), "dispensar" com motivo e o selo "guarda desligada: motivo". Os dados
+// vêm de t.spec.guard (o motor grava a cada portão). O valor do segredo nunca chega aqui: só 4 caracteres + ••••.
+// Dispensar = comando Tauri guard_dismiss: o RUST assina a entrada (HMAC com a chave local ~/.cardume/guard.key) e grava
+// em .cardume/guard-ignore.json — o agente escreve na worktree mas não alcança esse comando, então a dispensa dele não vale.
 // @guarda-puro-inicio (testado em app/tests/guarda.test.mjs)
 const GD_SEV={ alta:'alta', media:'média', baixa:'baixa' };
-// ≡ addIgnore (src/guard.ts): acrescenta ou atualiza pelo fingerprint
-function gdAddIgnore(list, entry){
-  const out=(Array.isArray(list)?list:[]).filter(x=>x && x.fingerprint!==entry.fingerprint);
-  out.push({ fingerprint:entry.fingerprint, motivo:String(entry.motivo||'').trim(), por:String(entry.por||'').trim()||'Você', em:entry.em||new Date().toISOString() });
-  return out;
-}
-// ≡ readIgnores (src/guard.ts): lista ou { list }; lixo → []
-function gdParseIgnores(text){
-  try{ const raw=JSON.parse(text||'[]'); const l=Array.isArray(raw)?raw:(raw&&Array.isArray(raw.list)?raw.list:[]); return l.filter(x=>x&&typeof x.fingerprint==='string'&&x.fingerprint.trim()); }catch(_){ return []; }
-}
-// o que a Revisão mostra: bloqueia primeiro, segredo antes de código
+// o que a Revisão mostra: bloqueia primeiro, segredo antes de código, aviso antigo por último
 function gdModel(g){
-  if(!g || typeof g!=='object') return { state:'none', findings:[], skipped:[], ignored:0 };
-  const findings=(Array.isArray(g.findings)?g.findings:[]).slice().sort((a,b)=>(b.blocks?1:0)-(a.blocks?1:0) || (a.kind==='segredo'?0:1)-(b.kind==='segredo'?0:1) || String(a.file).localeCompare(String(b.file)) || (a.line||0)-(b.line||0));
+  if(!g || typeof g!=='object') return { state:'none', findings:[], skipped:[], ignored:0, unsigned:0 };
+  const rank=f=>(f.blocks?0:2)+(f.old?4:0)+(f.kind==='segredo'?0:1);
+  const findings=(Array.isArray(g.findings)?g.findings:[]).slice().sort((a,b)=>rank(a)-rank(b) || String(a.file).localeCompare(String(b.file)) || (a.line||0)-(b.line||0));
   const skipped=Array.isArray(g.skipped)?g.skipped:[];
   const state=findings.some(f=>f.blocks)?'block':findings.length?'warn':skipped.length?'off':'ok';
-  return { state, findings, skipped, ignored:+g.ignored||0 };
+  return { state, findings, skipped, ignored:+g.ignored||0, unsigned:+g.unsigned||0 };
 }
 // tira um achado dispensado do resultado guardado (até o próximo portão recalcular)
 function gdWithout(g, fp){
@@ -551,12 +543,14 @@ function gdHtml(g){
   const m=gdModel(g); if(m.state==='none') return '';
   const head={ block:'a entrega está bloqueada', warn:'achados pra você olhar (não bloqueiam)', off:'não varreu tudo', ok:'nada encontrado no diff' }[m.state];
   const rows=m.findings.map(f=>{
-    const tone=f.blocks?'crit':f.severity==='alta'||f.severity==='media'?'warn':'info';
-    const what=f.kind==='segredo'?`segredo <code>${esc(f.masked||'••••')}</code>`:esc(f.message||f.rule);
-    return `<li class="gdi gd-${tone}"><span class="gdsev">${f.kind==='segredo'?'segredo':'código'} · ${esc(GD_SEV[f.severity]||f.severity)}${f.blocks?' · bloqueia':''}</span><span class="gdwhat">${what}<small class="dim"> ${esc(f.rule)}</small></span><code class="gdloc">${esc(f.file)}:${+f.line||0}</code><span class="gdact"><button type="button" class="lnk" data-gdfix="${escA(f.fingerprint)}">mandar pro agente</button><button type="button" class="lnk sec" data-gdign="${escA(f.fingerprint)}">dispensar</button></span></li>`;
+    const tone=f.blocks?'crit':f.old?'info':f.severity==='alta'||f.severity==='media'?'warn':'info';
+    const tag=f.old?(f.kind==='segredo'?'segredo antigo':'código antigo'):(f.kind==='segredo'?'segredo':'código')+' · '+(GD_SEV[f.severity]||f.severity)+(f.blocks?' · bloqueia':'');
+    const what=f.kind==='segredo'?`${f.old?'já estava na base · ':''}segredo <code>${esc(f.masked||'••••')}</code>`:esc(f.message||f.rule);
+    return `<li class="gdi gd-${tone}"><span class="gdsev">${esc(tag)}</span><span class="gdwhat">${what}<small class="dim"> ${esc(f.rule)}</small></span><code class="gdloc">${esc(f.file)}:${+f.line||0}</code><span class="gdact"><button type="button" class="lnk" data-gdfix="${escA(f.fingerprint)}">mandar pro agente</button><button type="button" class="lnk sec" data-gdign="${escA(f.fingerprint)}">dispensar</button></span></li>`;
   }).join('');
   const off=m.skipped.map(s=>`<span class="gdoff" role="status">${esc(/^guarda/.test(s)?s:'guarda desligada: '+s)}</span>`).join('');
-  return `<div class="gdh"><b>Guarda</b><span class="gdst gd-${m.state==='block'?'crit':m.state==='ok'?'ok':'warn'}">${esc(head)}</span>${m.ignored?`<small class="dim">${m.ignored} dispensado${m.ignored>1?'s':''}</small>`:''}${off}</div>${rows?`<ul class="gdl">${rows}</ul>`:''}`;
+  const uns=m.unsigned?`<span class="gdoff" role="status" title="entradas do .cardume/guard-ignore.json sem a assinatura deste app (o agente não consegue dispensar sozinho)">${m.unsigned} dispensa${m.unsigned>1?'s':''} sem assinatura do app ignorada${m.unsigned>1?'s':''}</span>`:'';
+  return `<div class="gdh"><b>Guarda</b><span class="gdst gd-${m.state==='block'?'crit':m.state==='ok'?'ok':'warn'}">${esc(head)}</span>${m.ignored?`<small class="dim">${m.ignored} dispensado${m.ignored>1?'s':''}</small>`:''}${uns}${off}</div>${rows?`<ul class="gdl">${rows}</ul>`:''}`;
 }
 // @guarda-puro-fim
 function gdMount(t, main){
@@ -582,12 +576,8 @@ async function gdClick(taskId, e){
   }
   const motivo=await askText('Por que dispensar este achado? (fica registrado em .cardume/guard-ignore.json)', f.kind==='segredo'?'ex.: chave de exemplo da documentação, não é real':'ex.: a entrada já é validada antes');
   if(!motivo || !String(motivo).trim()) return;
-  const path='.cardume/guard-ignore.json';
-  let list=[];
-  try{ const c=await invoke('read_file',{ taskId, path }); list=gdParseIgnores(c&&c.content); }catch(_){ list=[]; } // ainda não existe
   const por=(typeof cloudUser==='function'&&cloudUser()&&cloudUser().name)||'Você';
-  list=gdAddIgnore(list, { fingerprint:fp, motivo:String(motivo).trim(), por });
-  try{ await invoke('write_file',{ taskId, path, content:JSON.stringify(list, null, 2)+'\n' }); }
+  try{ await invoke('guard_dismiss',{ taskId, fingerprint:fp, motivo:String(motivo).trim(), por, em:new Date().toISOString() }); }
   catch(err){ showErr(err, 'Não consegui gravar o achado dispensado'); return; }
   const next=gdWithout(g, fp);
   t.spec={ ...(t.spec||{}), guard:next };

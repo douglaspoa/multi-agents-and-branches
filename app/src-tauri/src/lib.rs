@@ -22,6 +22,7 @@ mod autopilot;
 mod epic_context;
 mod epic_requests;
 mod gh_contas;
+mod guard_sign;
 mod learn;
 mod media_proto;
 mod navegador;
@@ -7457,6 +7458,30 @@ fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Resul
     Ok(clean)
 }
 
+/// Frente 2: "dispensar" um achado da guarda de segurança — grava a entrada ASSINADA (HMAC com a chave local
+/// ~/.cardume/guard.key, que só o app usa) no .cardume/guard-ignore.json da worktree e rastreia o arquivo à força
+/// (`.cardume/` está no exclude) pra ele ir junto na branch. Em revisão de PR de outra pessoa (kind "review") NÃO
+/// rastreia: a dispensa fica só local.
+#[tauri::command(async)]
+fn guard_dismiss(state: State<AppState>, task_id: String, fingerprint: String, motivo: String, por: String, em: String) -> Result<(), String> {
+    let (wt, _base) = task_wt_base(&state, &task_id)?;
+    if !wt.is_dir() {
+        return Err("a worktree desta tarefa não existe mais".into());
+    }
+    let rel = guard_sign::dismiss(&wt, std::path::Path::new(&home_dir_s()), &fingerprint, &motivo, &por, &em)?;
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let kind: String = open(&path)
+        .ok()
+        .and_then(|c| c.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("kind").and_then(|k| k.as_str()).map(|k| k.to_string()))
+        .unwrap_or_default();
+    if kind != "review" {
+        let _ = Command::new("git").arg("-C").arg(&wt).args(["add", "-f", rel]).output();
+    }
+    Ok(())
+}
+
 /// Salva o arquivo editado na worktree.
 #[tauri::command(async)]
 fn write_file(state: State<AppState>, task_id: String, path: String, content: String) -> Result<(), String> {
@@ -11134,6 +11159,7 @@ pub fn run() {
             task_files,
             read_file,
             write_file,
+            guard_dismiss,
             rename_branch,
             read_ref,
             list_branches,
