@@ -84,6 +84,7 @@ let acctBusy=null;            // sincronia da conta em voo (uma por vez)
 let acctReadyUid='';          // conta cujo escopo já foi aplicado nesta sessão do app
 // laços da nuvem só rodam com a conta da vez aplicada e o mapa dela migrado — nunca com o mapa de outra
 function cloudScopeOk(){
+  if(typeof isLocalSpace==='function' && isLocalSpace()) return false; // Grátis (F1): espaço local não fala com a nuvem
   const me=(typeof cloudUserId==='function')?cloudUserId():'';
   return !!me && acctReadyUid===me && lsGet(userKey('sb:tmapmig', me))==='1';
 }

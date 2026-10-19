@@ -537,7 +537,7 @@ function plPlanCardHtml(bare){
       <button type="button" class="ppadd" id="ppDwAdd"${dis}>+ checagem</button></div>
     <div class="pplist">${rows}</div>
     ${PLP().cut?`<div class="ppwarn">A IA propôs ${PLP().tasks.length+PLP().cut} etapas — aqui cabem as ${PL_PLAN_MAX} primeiras. Peça na conversa pra juntar etapas, ou crie as outras depois.</div>`:''}
-    ${plPlanCtx.origin&&noTeam?`<div class="ppwarn">Desdobrar usa o backlog do <b>time</b> — entre na conta e escolha um time pra aprovar.</div>`:''}
+    ${plPlanCtx.origin&&noTeam?`<div class="ppwarn">${(typeof isLocalSpace==='function'&&isLocalSpace())?'Desdobrar usa o backlog do <b>time</b>, na nuvem — este espaço é local (Grátis).':'Desdobrar usa o backlog do <b>time</b> — entre na conta e escolha um time pra aprovar.'}</div>`:''}
     ${plPlanCtx.origin?'':plWhereHtml(noTeam, n)}
     <div class="ppfoot">${plPlanCtx.origin?'':plPreviewHtml(plPreviewFields())}<span class="ppfoot-sp"></span><button class="btn sm${plPlanCtx.origin?'':' quiet'}" id="ppDiscard"${PLP().locked?' disabled':''}>${plPlanCtx.origin?'cancelar':'Seguir como 1 tarefa'}</button><button class="btn primary sm" id="ppApprove"${((plPlanCtx.origin?noTeam:(plWhere(noTeam)==='time'&&noTeam))||PLP().locked||(busyHere))?' disabled':''}${busyHere?' title="espere a IA responder — ela pode ajustar o plano"':''}>${PLP().locked?'criando…':plApproveLabel(n, plPlanCtx.origin?'origin':plWhere(noTeam))}</button></div>
   </div>`;
@@ -590,8 +590,9 @@ function plWhereHtml(noTeam, n){
   const w=plWhere(noTeam), team=(!noTeam&&typeof cloudData!=='undefined'&&cloudData&&cloudData.team&&cloudData.team.name)||'';
   const dis=noTeam?' disabled':'';
   return `<div class="g2where g2where3" role="radiogroup" aria-label="O que fazer com o épico"><span class="g2k">Ao aprovar</span>`+
-    `<button type="button" class="g2wopt${w==='mandar'?' on':''}" role="radio" aria-checked="${w==='mandar'}" data-plwhere="mandar"${dis}><b>Mandar pro time${team?' · '+esc(team):''}</b><span>${noTeam?'entre na conta e escolha um time pra usar esta opção':`${n} ${n===1?'cartão':'cartões'} na fila do time, ninguém roda agora · escolha quem faz cada um`}</span></button>`+
-    `<button type="button" class="g2wopt${w==='time'?' on':''}" role="radio" aria-checked="${w==='time'}" data-plwhere="time"${dis}><b>Rodar agora, no meu nome</b><span>${noTeam?'entre na conta e escolha um time pra usar esta opção':'épico no time com as tarefas em seu nome; a onda 1 começa nesta máquina'}</span></button>`+
+    // Grátis (F1): no espaço local o épico só roda aqui — as opções de nuvem nem aparecem (nada de upgrade dentro do plano)
+    ((typeof isLocalSpace==='function'&&isLocalSpace())?'':`<button type="button" class="g2wopt${w==='mandar'?' on':''}" role="radio" aria-checked="${w==='mandar'}" data-plwhere="mandar"${dis}><b>Mandar pro time${team?' · '+esc(team):''}</b><span>${noTeam?'entre na conta e escolha um time pra usar esta opção':`${n} ${n===1?'cartão':'cartões'} na fila do time, ninguém roda agora · escolha quem faz cada um`}</span></button>`+
+    `<button type="button" class="g2wopt${w==='time'?' on':''}" role="radio" aria-checked="${w==='time'}" data-plwhere="time"${dis}><b>Rodar agora, no meu nome</b><span>${noTeam?'entre na conta e escolha um time pra usar esta opção':'épico no time com as tarefas em seu nome; a onda 1 começa nesta máquina'}</span></button>`)+
     `<button type="button" class="g2wopt${w==='local'?' on':''}" role="radio" aria-checked="${w==='local'}" data-plwhere="local"><b>Só neste computador</b><span>cada etapa vira uma tarefa local; a próxima começa quando a anterior provar</span></button></div>`;
 }
 // aprovar "aqui neste computador": o épico proposto vira plano do orquestrador e abre o grafo pra aprovar e rodar
@@ -619,7 +620,7 @@ async function plApproveLocal(btn){
 async function plCreateEpic(){
   if(!PLP()) return;
   if(!plPlanCtx.origin && plBusy){ toast('Espere a IA responder — ela pode ajustar o plano.','warn'); return; }
-  if(!(SB.sess() && cloudTeamId())){ toast('Épico usa o backlog do time — entre na conta e escolha um time primeiro.','warn',{ label:'abrir Conta', fn:ERR_ACTIONS.conta }); return; }
+  if(!(SB.sess() && cloudTeamId())){ if(typeof isLocalSpace==='function'&&isLocalSpace()){ toast('Épico no backlog do time usa a nuvem — este espaço é local (Grátis). Aprove "Só neste computador".','info'); return; } toast('Épico usa o backlog do time — entre na conta e escolha um time primeiro.','warn',{ label:'abrir Conta', fn:ERR_ACTIONS.conta }); return; }
   plWaves(PLP().tasks); plSortWaves(PLP().tasks); // ondas finais só com o que está marcado
   const picked=PLP().tasks.filter(x=>x.on);
   if(!picked.length){ toast('Marque pelo menos uma tarefa do épico.','warn'); return; }

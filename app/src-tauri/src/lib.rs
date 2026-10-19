@@ -5891,6 +5891,41 @@ fn write_llm_env(content: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Plano Grátis: chaves do computador que uma conta SUBSTITUIU ao entrar (mesmo nome no cofre). Ficam guardadas à parte,
+/// no arquivo irmão (600), e voltam pro llm.env quando a pessoa sai da conta. Nunca em localStorage. Vazio = apaga.
+fn llm_env_stash_path() -> PathBuf {
+    llm_env_path().with_file_name("llm-gratis.env")
+}
+#[tauri::command(async)]
+fn read_llm_env_stash() -> Result<String, String> {
+    Ok(std::fs::read_to_string(llm_env_stash_path()).unwrap_or_default())
+}
+#[tauri::command(async)]
+fn write_llm_env_stash(content: String) -> Result<(), String> {
+    let p = llm_env_stash_path();
+    if content.trim().is_empty() {
+        let _ = std::fs::remove_file(&p);
+        return Ok(());
+    }
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(|e| e.to_string())?; }
+    std::fs::write(&p, content).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+#[cfg(test)]
+mod llm_env_stash_tests {
+    #[test]
+    fn irmao_do_llm_env() {
+        let p = super::llm_env_stash_path();
+        assert_eq!(p.parent(), super::llm_env_path().parent());
+        assert_eq!(p.file_name().and_then(|n| n.to_str()), Some("llm-gratis.env"));
+    }
+}
+
 /// ROUTE AI: testa a conexão com o gateway alternativo (OpenAI-compatible) usando
 /// a config do cofre. Prova chave + endpoint + modelo respondendo de verdade, sem
 /// depender do shim (que vive no processo do motor). Não expõe a chave.
@@ -6776,6 +6811,20 @@ fn update_dest(cur_app: &std::path::Path, new_app: &std::path::Path) -> PathBuf 
     cur_app.to_path_buf()
 }
 
+/// Plano Grátis (F1): canal PÚBLICO de atualização, pra quem está sem conta — o latest.json dos downloads da landing no
+/// GitHub Releases (mesmo formato do bucket privado). Pelo Rust porque o github.com responde 302 sem CORS (o fetch do
+/// WebView não segue). URL FIXA (nada vindo do front). 404/sem rede/qualquer falha → "" (o front fica em silêncio).
+const UPD_PUB_MANIFEST: &str = "https://github.com/douglaspoa/multi-agents-and-branches/releases/latest/download/latest.json";
+#[tauri::command(async)]
+fn update_manifest_public() -> String {
+    let mut c = Command::new("curl");
+    c.args(["-fsSL", "--max-time", "15", "--max-filesize", "65536", UPD_PUB_MANIFEST]);
+    match output_timeout(c, 20) {
+        Ok(o) if o.status.success() => String::from_utf8_lossy(&o.stdout).into_owned(),
+        _ => String::new(),
+    }
+}
+
 /// Auto-update estilo Claude: baixa o zip (URL assinada), troca o .app em
 /// disco e relança. curl/ditto não aplicam quarantine → abre sem Gatekeeper.
 #[tauri::command(async)]
@@ -6788,42 +6837,62 @@ fn apply_update(url: String) -> Result<(), String> {
         return Err("url inválida".to_string());
     }
     let tmp = std::env::temp_dir().join("constellation-update");
-    let _ = std::fs::remove_dir_all(&tmp);
-    std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    let zip = update_download(&tmp, &url)?;
+    let new_app = update_extract(&tmp, &zip)?;
+    update_swap_relaunch(&tmp, &new_app)
+}
+
+/// baixa o zip pra uma pasta limpa (com teto de tempo: rede pendurada não trava o "atualizar" pra sempre)
+fn update_download(tmp: &Path, url: &str) -> Result<PathBuf, String> {
+    let _ = std::fs::remove_dir_all(tmp);
+    std::fs::create_dir_all(tmp).map_err(|e| e.to_string())?;
     let zip = tmp.join("update.zip");
-    let dl = Command::new("curl").args(["-fsSL", "-o"]).arg(&zip).arg(&url).output().map_err(|e| e.to_string())?;
+    let dl = Command::new("curl").args(["-fsSL", "--max-time", "900", "-o"]).arg(&zip).arg(url).output().map_err(|e| e.to_string())?;
     if !dl.status.success() {
         return Err(format!("download falhou: {}", String::from_utf8_lossy(&dl.stderr)));
     }
-    let ux = Command::new("ditto").args(["-xk"]).arg(&zip).arg(&tmp).output().map_err(|e| e.to_string())?;
+    Ok(zip)
+}
+
+/// descompacta e acha o .app extraído
+fn update_extract(tmp: &Path, zip: &Path) -> Result<PathBuf, String> {
+    let ux = Command::new("ditto").args(["-xk"]).arg(zip).arg(tmp).output().map_err(|e| e.to_string())?;
     if !ux.status.success() {
         return Err(format!("descompactação falhou: {}", String::from_utf8_lossy(&ux.stderr)));
     }
-    // acha o .app extraído
-    let new_app = std::fs::read_dir(&tmp).map_err(|e| e.to_string())?
+    std::fs::read_dir(tmp).map_err(|e| e.to_string())?
         .flatten()
         .map(|e| e.path())
         .find(|p| p.extension().map(|x| x == "app").unwrap_or(false))
-        .ok_or("zip sem .app dentro")?;
-    // bundle atual: Contents/MacOS/exe → sobe 3
+        .ok_or_else(|| "zip sem .app dentro".to_string())
+}
+
+/// bundle em execução: Contents/MacOS/exe → sobe 3
+fn update_current_app() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let cur_app = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent())
         .ok_or("não achei o bundle atual")?.to_path_buf();
     if cur_app.extension().map(|x| x != "app").unwrap_or(true) {
         return Err("instalação não-bundle — atualize manualmente".to_string());
     }
-    let dest = update_dest(&cur_app, &new_app);
+    Ok(cur_app)
+}
+
+/// troca o .app em disco (com rollback) e relança
+fn update_swap_relaunch(tmp: &Path, new_app: &Path) -> Result<(), String> {
+    let cur_app = update_current_app()?;
+    let dest = update_dest(&cur_app, new_app);
     let backup = cur_app.with_extension("app.old");
     let _ = std::fs::remove_dir_all(&backup);
     std::fs::rename(&cur_app, &backup).map_err(|e| format!("não consegui mover o app atual: {e}"))?;
-    let cp = Command::new("cp").arg("-R").arg(&new_app).arg(&dest).output().map_err(|e| e.to_string())?;
+    let cp = Command::new("cp").arg("-R").arg(new_app).arg(&dest).output().map_err(|e| e.to_string())?;
     if !cp.status.success() {
         if dest != cur_app { let _ = std::fs::remove_dir_all(&dest); }
         let _ = std::fs::rename(&backup, &cur_app); // rollback
         return Err(format!("cópia falhou: {}", String::from_utf8_lossy(&cp.stderr)));
     }
     let _ = std::fs::remove_dir_all(&backup);
-    let _ = std::fs::remove_dir_all(&tmp);
+    let _ = std::fs::remove_dir_all(tmp);
     if dest != cur_app {
         // caminho novo: registra no LaunchServices (best-effort, igual ao deploy-local.sh)
         let _ = Command::new("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister")
@@ -6836,6 +6905,76 @@ fn apply_update(url: String) -> Result<(), String> {
         std::process::exit(0);
     });
     Ok(())
+}
+
+/// Plano Grátis: o zip PÚBLICO (downloads da landing no GitHub Releases). URL constante — o front não escolhe nada.
+const UPD_PUB_ZIP: &str = "https://github.com/douglaspoa/multi-agents-and-branches/releases/latest/download/Starfork-portable.zip";
+
+/// TeamIdentifier de um bundle assinado (`codesign -dv` escreve no stderr). None = sem assinatura / "not set".
+fn codesign_team(app: &Path) -> Option<String> {
+    let o = Command::new("codesign").arg("-dv").arg(app).output().ok()?;
+    team_from_codesign(&String::from_utf8_lossy(&o.stderr))
+}
+fn team_from_codesign(txt: &str) -> Option<String> {
+    txt.lines().find_map(|l| l.trim().strip_prefix("TeamIdentifier="))
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty() && t != "not set")
+}
+/// as checagens do zip público, em ordem: tamanho igual ao do manifesto (corrida manifesto × zip), assinatura válida e o
+/// MESMO time do app que está rodando (lido do próprio bundle, nunca fixo no código)
+fn update_pub_size(zip_len: u64, size: u64) -> Result<(), String> {
+    if size == 0 || zip_len != size { return Err(format!("tamanho do zip ({zip_len}) diferente do manifesto ({size})")); }
+    Ok(())
+}
+fn update_pub_check(zip_len: u64, size: u64, sig_ok: bool, team_new: Option<&str>, team_cur: Option<&str>) -> Result<(), String> {
+    update_pub_size(zip_len, size)?;
+    if !sig_ok { return Err("codesign --verify falhou no .app baixado".into()); }
+    match (team_new, team_cur) {
+        (Some(a), Some(b)) if a == b => Ok(()),
+        (a, b) => Err(format!("time da assinatura não confere (baixado {:?} × atual {:?})", a, b)),
+    }
+}
+
+/// Atualização do canal PÚBLICO (sem conta). Qualquer checagem que falhar: aborta EM SILÊNCIO (Ok(false)) e registra no
+/// log — nada é trocado. Ok(true) = trocou e vai relançar.
+#[tauri::command(async)]
+fn apply_update_public(size: u64) -> Result<bool, String> {
+    if !cfg!(target_os = "macos") { return Ok(false); }
+    let tmp = std::env::temp_dir().join("constellation-update-pub");
+    let abort = |why: String| -> Result<bool, String> {
+        web_log(format!("[atualização pública] abortada: {why}"));
+        let _ = std::fs::remove_dir_all(std::env::temp_dir().join("constellation-update-pub"));
+        Ok(false)
+    };
+    let zip = match update_download(&tmp, UPD_PUB_ZIP) { Ok(z) => z, Err(e) => return abort(e) };
+    let zip_len = std::fs::metadata(&zip).map(|m| m.len()).unwrap_or(0);
+    if let Err(e) = update_pub_size(zip_len, size) { return abort(e); } // antes de descompactar: corrida manifesto × zip
+    let new_app = match update_extract(&tmp, &zip) { Ok(a) => a, Err(e) => return abort(e) };
+    let cur_app = match update_current_app() { Ok(a) => a, Err(e) => return abort(e) };
+    let sig_ok = Command::new("codesign").args(["--verify", "--deep", "--strict"]).arg(&new_app).output().map(|o| o.status.success()).unwrap_or(false);
+    let (tn, tc) = (codesign_team(&new_app), codesign_team(&cur_app));
+    if let Err(e) = update_pub_check(zip_len, size, sig_ok, tn.as_deref(), tc.as_deref()) { return abort(e); }
+    match update_swap_relaunch(&tmp, &new_app) { Ok(()) => Ok(true), Err(e) => abort(e) }
+}
+#[cfg(test)]
+mod update_pub_tests {
+    use super::*;
+    #[test]
+    fn team_do_codesign() {
+        assert_eq!(team_from_codesign("Executable=/x\nIdentifier=dev.starfork\nTeamIdentifier=AB12CD34EF\nSealed Resources=none"), Some("AB12CD34EF".into()));
+        assert_eq!(team_from_codesign("TeamIdentifier=not set"), None);
+        assert_eq!(team_from_codesign("code object is not signed at all"), None);
+    }
+    #[test]
+    fn checagens_do_zip_publico() {
+        assert!(update_pub_check(10, 10, true, Some("T1"), Some("T1")).is_ok());
+        assert!(update_pub_check(9, 10, true, Some("T1"), Some("T1")).is_err(), "corrida manifesto × zip");
+        assert!(update_pub_check(10, 0, true, Some("T1"), Some("T1")).is_err(), "manifesto sem size");
+        assert!(update_pub_check(10, 10, false, Some("T1"), Some("T1")).is_err(), "assinatura inválida");
+        assert!(update_pub_check(10, 10, true, Some("T2"), Some("T1")).is_err(), "outro time");
+        assert!(update_pub_check(10, 10, true, None, None).is_err(), "sem assinatura dos dois lados");
+        assert!(UPD_PUB_ZIP.starts_with("https://github.com/douglaspoa/multi-agents-and-branches/releases/latest/download/"));
+    }
 }
 
 static PROJECT_CHAT_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
@@ -10826,6 +10965,8 @@ pub fn run() {
             read_llm_env,
             codex_models,
             write_llm_env,
+            read_llm_env_stash,
+            write_llm_env_stash,
             route_ai_ping,
             list_skills,
             set_active_skills,
@@ -10915,6 +11056,8 @@ pub fn run() {
             project_chat,
             is_dev_install,
             apply_update,
+            update_manifest_public,
+            apply_update_public,
             notify_native,
             notif_status,
             notif_open_settings,

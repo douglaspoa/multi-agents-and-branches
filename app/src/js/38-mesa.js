@@ -703,7 +703,7 @@ async function mesaCreate(){
   if(typeof repoHasGit==='function' && !repoHasGit()){ if(!(typeof gitGate==='function' && await gitGate())) return; }
   const cloud=!!(typeof SB!=='undefined' && SB.sess() && cloudTeamId());
   const asEpic=!!resume || (ap.length>1 && cloud);
-  if(resume && !cloud){ toast('Retomar o épico precisa da conta e do time — entre na Conta e escolha o time.','warn'); return; }
+  if(resume && !cloud){ toast((typeof isLocalSpace==='function'&&isLocalSpace())?'Retomar o épico usa o quadro do time, na nuvem — este espaço é local (Grátis).':'Retomar o épico precisa da conta e do time — entre na Conta e escolha o time.','warn'); return; }
   const q=resume?`Retomar o épico "${resume.epic}"? Falta criar:\n\n${ap.map(r=>'• '+r.titulo).join('\n')}\n\n(o que já foi criado não se repete)`:asEpic?`Criar um ÉPICO no backlog do time com ${ap.length} tarefas?\n\n${ap.map(r=>'• '+r.titulo).join('\n')}`
                :`Criar ${ap.length===1?'1 tarefa':ap.length+' tarefas'} neste projeto (sem iniciar)?\n\n${ap.map(r=>'• '+r.titulo).join('\n')}`+(ap.length>1&&!cloud?'\n\n(Sem nuvem/time: viram tarefas soltas, não épico.)':'');
   if(!await mesaConfirm(q, asEpic?`Criar épico com ${ap.length} demanda${ap.length===1?'':'s'}`:'Criar demandas', ap)) return;

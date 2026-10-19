@@ -107,7 +107,7 @@ function ldWireErr(root, err, ctx, retry, o){
 // estados de página padrão (sem projeto, sem conta, sem organização, sem permissão) — o MESMO bloco do vazio, com a ação
 const LD_STATES={
   semprojeto:{ icon:'folder', title:'Nenhum projeto aberto', help:'Abra uma pasta com git ou comece um projeto novo na Fábrica — as demandas rodam dentro de um projeto.', action:'abrir um projeto' },
-  semconta:{ icon:'warn', title:'Entre na sua conta', help:'Organização, times, convites e chaves seguem a sua conta. O que é deste computador continua valendo sem conta.', action:'entrar' },
+  semconta:{ icon:'warn', title:'Entre na sua conta', help:'Organização, times e convites seguem a sua conta (a nuvem do time). Sem conta, tudo deste computador continua valendo — inclusive as chaves de IA.', action:'entrar' },
   semorg:{ icon:'warn', title:'Você ainda não está numa organização', help:'Crie uma organização com o primeiro time, ou entre num time com o convite que recebeu.', action:'criar organização' },
   semperm:{ icon:'warn', title:'Só quem administra vê isto', help:'Peça pra um admin da organização fazer isso, ou te dar a permissão.', action:'' },
 };

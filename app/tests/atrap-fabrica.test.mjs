@@ -207,7 +207,7 @@ test('C1–C5: medidor corta no fim, Uso sem rótulo repetido nem "ex-", persona
 
 test('revisão: nenhum código engolido por comentário de fim de linha nos js do app', () => {
   const dir = new URL('../src/js/', import.meta.url);
-  const CODE = /\b(const|let|var) [A-Za-z_$][\w$]*\s*=(?!=)|\bawait [A-Za-z_$][\w$.]*\(|;\s*(if\(|return\b|const |let )|\b[A-Za-z_$][\w$.]*\([^)]*\);\s*[A-Za-z_$}]|\b[A-Za-z_$][\w$]*:[^,\s]+, ?[A-Za-z_$][\w$]*:[^,\s]+,|\b[A-Za-z_$][\w$.]*=[^=\s][^;]*;\s*[A-Za-z_$]/;
+  const CODE = /\b(const|let|var) [A-Za-z_$][\w$]*\s*=(?!=)|\bawait [A-Za-z_$][\w$.]*\(|;\s*(if\(|return\b|const |let )|\b[A-Za-z_$][\w$.]*\([^)]*\);\s*[A-Za-z_$}]|\b[A-Za-z_$][\w$]*:[^,\s]+, ?[A-Za-z_$][\w$]*:[^,\s]+,|\b[A-Za-z_$][\w$.]*=[^=\s][^;]*;\s*[A-Za-z_$]|\b[A-Za-z_$][\w$.]*=(true|false|null|\d+|'[^']*'|\[\]|\{\});\s*$/; // a última: atribuição solta no FIM do comentário (41: \"… repoSyncBusy=true;\" passou batido)
   const EXC = ["63-revisao-pr.js:const rvUi={};"]; // comentário que descreve o formato do objeto (não é código)
   const achados = [];
   for (const f of readdirSync(dir).filter((x) => x.endsWith('.js'))) {

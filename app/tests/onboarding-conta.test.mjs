@@ -50,15 +50,22 @@ test('checkUpdate redesenha o bloco "Versão" mesmo saindo cedo (sem sessão / d
   const block = cut(envSrc, 'async function checkUpdate(manual){', 'async function applyUpdate');
   const run = async (opts) => {
     let renders = 0;
+    const espaco = cut(readFileSync(new URL('../src/js/39-espaco.js', import.meta.url), 'utf8'), '// @puro-espaco-inicio', '// @puro-espaco-fim');
     const f = new Function('SB', 'invoke', 'osKind', 'sbFetch', 'humanErr', '$id', 'toast', 'esc', 'ic', 'updRenderCfg',
-      'let updInfo=null; let updLast={ at:0, ok:false, msg:"", dev:false, mine:0 }; let updToastFor=0;\n' + block + '\nreturn { checkUpdate, get last(){ return updLast; } };');
+      espaco + '\nlet updInfo=null; let updLast={ at:0, ok:false, msg:"", dev:false, mine:0 }; let updToastFor=0;\n' + block + '\nreturn { checkUpdate, get last(){ return updLast; }, get info(){ return updInfo; } };');
     const api = f(opts.SB, opts.invoke, () => opts.os || 'mac', opts.sbFetch || (async () => { throw new Error('Failed to fetch'); }),
       (e, ctx) => ({ msg: ctx + ' — Sem conexão agora — cheque a internet/VPN e tente de novo.' }), opts.$id || (() => ({ style: {} })), opts.toast || (() => {}), (s) => s, () => '', () => { renders++; });
     const r = await api.checkUpdate(true);
     return { r, renders, api };
   };
-  const noSess = await run({ SB: { sess: () => null }, invoke: async () => false });
-  assert.equal(noSess.renders, 1); assert.match(noSess.r.msg, /sem sessão/);
+  // Grátis (F1): sem sessão vai pro canal PÚBLICO (GitHub Releases, pelo Rust) e, sem versão publicada, fica em silêncio
+  const pubCalls = [];
+  const noSess = await run({ SB: { sess: () => null }, invoke: async (c) => { pubCalls.push(c); return c === 'update_manifest_public' ? '' : false; },
+    sbFetch: async () => { throw new Error('não pode usar o bucket privado sem sessão'); } });
+  assert.equal(noSess.renders, 1); assert.equal(noSess.r.ok, true); assert.match(noSess.r.msg, /sem versão nova no canal público/);
+  assert.doesNotMatch(noSess.r.msg, /entre na conta|sem sessão/); assert.ok(pubCalls.includes('update_manifest_public'));
+  const pubNew = await run({ SB: { sess: () => null }, invoke: async (c) => (c === 'update_manifest_public' ? JSON.stringify({ buildMs: 999999, version: '16/10', file: 'Starfork-portable.zip' }) : c === 'build_info' ? '1000' : false) });
+  assert.match(pubNew.r.msg, /versão nova/); assert.equal(pubNew.api.info.canal, 'publico', 'o "atualizar" baixa o zip público');
   const dev = await run({ SB: { sess: () => ({}) }, invoke: async (c) => c === 'is_dev_install' });
   assert.equal(dev.renders, 1); assert.equal(dev.r.dev, true);
   const net = await run({ SB: { sess: () => ({}) }, invoke: async () => false });

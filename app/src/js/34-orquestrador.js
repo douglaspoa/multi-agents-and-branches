@@ -624,7 +624,8 @@ function orqWhere(){ return orq.where==='time' && orqTeamOk() ? 'time' : 'local'
 function orqWhereHtml(p){
   const w=orqWhere(), ok=orqTeamOk(), n=p.phases.length;
   return `<div class="g2where" role="radiogroup" aria-label="Onde roda"><span class="g2k">Onde roda</span><button type="button" class="g2wopt${w==='local'?' on':''}" role="radio" aria-checked="${w==='local'}" data-orqwhere="local"><b>Aqui neste computador</b><span>cada etapa vira uma tarefa local; a próxima começa quando a anterior provar</span></button>`+
-    `<button type="button" class="g2wopt${w==='time'?' on':''}" role="radio" aria-checked="${w==='time'}" data-orqwhere="time"${ok?'':' disabled'}><b>No quadro do time</b><span>${ok?`vira épico com ${n} ${n===1?'cartão':'cartões'}; quem pegar roda no computador dele`:'entre na conta e escolha um time pra usar esta opção'}</span></button></div>`;
+    // Grátis (F1): espaço local não tem quadro do time — a opção some (nada de upgrade dentro do plano)
+    ((typeof isLocalSpace==='function'&&isLocalSpace())?'</div>':`<button type="button" class="g2wopt${w==='time'?' on':''}" role="radio" aria-checked="${w==='time'}" data-orqwhere="time"${ok?'':' disabled'}><b>No quadro do time</b><span>${ok?`vira épico com ${n} ${n===1?'cartão':'cartões'}; quem pegar roda no computador dele`:'entre na conta e escolha um time pra usar esta opção'}</span></button></div>`);
 }
 async function orqApproveTeam(){
   const o=orq, p=o.plan; if(!p||o.busy) return;

@@ -322,7 +322,7 @@ async function memLearnTick(snap){
   try{ const l=await invoke('learn_pending',{ repo:snap.repo })||[]; if(state.repo===snap.repo) memLearnBadge(l.length); }catch(_){ }
 }
 window.memLearnTick=memLearnTick;
-async function memTeamAvailable(){ try{ return !!(SB.configured() && SB.sess() && cloudData && cloudData.org && await prefsKey()); }catch(_){ return false; } }
+async function memTeamAvailable(){ try{ return !!(SB.configured() && SB.sess() && !(typeof isLocalSpace==='function'&&isLocalSpace()) && cloudData && cloudData.org && await prefsKey()); }catch(_){ return false; } }
 
 async function openMemoria(){
   const ov=$id('memOverlay'); if(!ov) return;
@@ -347,7 +347,7 @@ function memModeSeg(id){
   const opts=[['time','Time','sincroniza com o time (padrão quando o projeto está num time)'],['local','Local','só nesta máquina; os agentes ainda leem o time'],['so-local','Só local','os agentes ignoram o cérebro do time']];
   return '<div class="memseg" id="'+id+'" role="radiogroup" aria-label="Onde salvar as memórias novas">'+opts.map(([v,l,t])=>{
     const dis=v==='time' && !MEM.hasTeam;
-    return '<button role="radio" aria-checked="'+(MEM.mode===v)+'" class="'+(MEM.mode===v?'on':'')+'" data-mmode="'+v+'" title="'+memEsc(dis?'entre num time (Conta e time) num projeto com git remote pra usar o cérebro do time':t)+'"'+(dis?' disabled':'')+'>'+l+'</button>'; }).join('')+'</div>';
+    return '<button role="radio" aria-checked="'+(MEM.mode===v)+'" class="'+(MEM.mode===v?'on':'')+'" data-mmode="'+v+'" title="'+memEsc(dis?((typeof isLocalSpace==='function'&&isLocalSpace())?'o cérebro do time sincroniza pela nuvem do time — aqui a memória fica no disco do projeto':'entre num time (Conta e time) num projeto com git remote pra usar o cérebro do time'):t)+'"'+(dis?' disabled':'')+'>'+l+'</button>'; }).join('')+'</div>';
 }
 async function memSetMode(mode, repo){
   try{ await invoke('memory_set_mode',{ repo:repo||MEM.repo||state.repo, mode }); MEM.mode=mode; MEM.explicit=true;
@@ -663,6 +663,7 @@ let memSyncBusy=false, memLastSyncErr='';
 const MEM_PAGE=500;
 async function memCloudCtx(repo){
   if(!repo || !(SB.configured() && SB.sess() && cloudData && cloudData.org)) return null;
+  if(typeof isLocalSpace==='function' && isLocalSpace()) return null; // Grátis (F1): sem cérebro do time na nuvem
   const k=await prefsKey(); if(!k || state.repo!==repo) return null; // prefsKey lê o projeto ATIVO
   // lê/lapida pela forma nova E a antiga desta máquina (alias de ssh); grava sempre na nova (k.repo)
   const ks=r=>({ knownKey:'memKnown:'+k.orgId+':'+r+':'+repo, lastKey:'memLast:'+k.orgId+':'+r+':'+repo });
@@ -678,6 +679,7 @@ async function memCloudTombstone(repo, slug){
   }catch(e){ console.warn('memCloudTombstone', e); }
 }
 async function memTeamSync(){
+  if(typeof cloudAllowed==='function' && !cloudAllowed()) return false; // Grátis (F1): memória fica no disco do projeto
   if(memSyncBusy) return false; memSyncBusy=true; memLastSyncErr='';
   const repo=state.repo; // o sync inteiro é PRESO a este projeto
   let changed=false, aborted=false, secrets=0;

@@ -123,6 +123,7 @@ function sbRefresh(){
 // sessão caiu (refresh_token inválido): limpa o que é da conta e mostra o login com o aviso — nada de erro cru
 function sbSessionEnded(reason){
   lsSet('sb:ended', reason||'expired');
+  try{ if(typeof billingOn!=='undefined'){ billingOn=false; billingKnown=false; } }catch(_){ } // idem ao sair (sbLogout)
   cloudData=null; cloudAutoInvTried=false; cloudJustJoined='';
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
   try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // quem entrar depois não usa as chaves de quem caiu
@@ -133,6 +134,9 @@ function sbSessionEnded(reason){
 function sbLogout(){
   const s=SB.sess();
   SB.setSess(null); lsSet('sb:ended','');
+  // a cobrança lida é da conta que saiu: quem entrar depois (ex.: um Enterprise) não pode herdar um billingOn=true sem
+  // assinatura e cair no espaço local até o próximo billingSync
+  try{ if(typeof billingOn!=='undefined'){ billingOn=false; billingKnown=false; } }catch(_){ }
   cloudData=null; cloudAutoInvTried=false; cloudJustJoined=''; cloudMsg='';
   try{ if(typeof myBilling!=='undefined') myBilling=null; }catch(_){ }
   try{ if(typeof secretsForget==='function') secretsForget(); }catch(_){ } // chaves da conta não ficam pro próximo (bloqueador 02)
@@ -213,15 +217,16 @@ const sbRpc = (fn,args)=>sbFetch('/rest/v1/rpc/'+fn, { method:'POST', body: JSON
 let cloudData = null;   // { org, teams, members(do time atual), meRole, profileByUser }
 let cloudMsg = '';      // feedback (erro/ok) da última ação
 let cloudInvLast = null; // convite recém-gerado: a mensagem pronta sobrevive ao redesenho da Conta
-function cloudTeamId(){ return lsGet('sb:team') || ''; }
+// espaço local (Grátis, 39-espaco): não há time na nuvem — todo `SB.sess() && cloudTeamId()` cai no caminho local
+function cloudTeamId(){ if(typeof isLocalSpace==='function' && isLocalSpace()) return ''; return lsGet('sb:team') || ''; }
 function cloudUserId(){ const s=SB.sess(); return s && s.user ? s.user.id : ''; }
 
 let cloudCfgOpen=false; // compat: o servidor da conta agora mora em Ajustes › Sistema
 // "Conta e time" virou Ajustes › Conta e time (67-ajustes, F4 · G3): abrir/fechar/redesenhar delegam pra lá
 function openCloud(){ if(typeof ajustesOpen==='function') ajustesOpen(cloudCfgOpen?'sistema':'perfil'); cloudCfgOpen=false; }
-// "fechar" da conta: sem sessão o login é obrigatório (a tela de entrada fica); com sessão volta à seção anterior de
-// Ajustes — nunca fecha a aba inteira
-function closeCloud(){ cloudMsg=''; if(!SB.sess()){ if(typeof auShow==='function') auShow(lsGet('sb:email')?'login':'signup'); return; } if(typeof ajustesBack==='function') ajustesBack(); }
+// "fechar" da conta: volta à seção anterior de Ajustes — nunca fecha a aba inteira
+// Grátis (F1): sem sessão o app segue local — fechar a conta nunca abre a tela de entrada à força
+function closeCloud(){ cloudMsg=''; if(typeof ajustesBack==='function') ajustesBack(); }
 
 let cloudAutoInvTried=false;
 let cloudJustJoined=''; // time em que o convite pendente acabou de te colocar (a tela "pronto"/um aviso conta e zera)
@@ -247,7 +252,7 @@ async function cloudLoad(){
     sbGet('org_members?select=role&org_id=eq.'+org.id+'&user_id=eq.'+cloudUserId()),
     sbGet('org_members?select=user_id,role&org_id=eq.'+org.id), // admin vê todos; membro só ele (RLS)
   ]);
-  let teamId = cloudTeamId();
+  let teamId = lsGet('sb:team') || ''; // cru: no espaço local cloudTeamId() é '' e a escolha da pessoa não pode se perder
   if(!teams.find(t=>t.id===teamId)){ teamId = teams[0] ? teams[0].id : ''; lsSet('sb:team', teamId); }
   // membros de TODOS os times que o usuário enxerga (RLS filtra sozinho)
   const tms = teams.length ? await sbGet('team_members?select=team_id,user_id,role&team_id=in.('+teams.map(t=>'"'+t.id+'"').join(',')+')') : [];
@@ -276,23 +281,19 @@ function cloudBtnSync(){
     const btn=$id('cloudBtn'); if(btn) btn.title = (team ? 'Time '+team.name+' · ' : '') + ((s.user&&s.user.email)||'') + ' — conta, organização e convites';
   }
   if(typeof devUiSync==='function') devUiSync(); // "Publicar release" aparece pra owner/admin
+  if(s && typeof espacoMigrar==='function') espacoMigrar(cloudUserId()); // 1º login: o que foi feito no Grátis passa pra conta
+  if(typeof espacoSync==='function') espacoSync();
   loginGateSync();
 }
-// LOGIN OBRIGATÓRIO: sem conta não usa — dados (repos, agentes, memória) e
-// assinatura são da conta do usuário. A própria tela da nuvem vira o gate.
+// Grátis (F1): o login é OPCIONAL — sem sessão o app abre no espaço local. A versão antiga trancava o cloudOverlay;
+// esta só solta uma trava que tenha sobrado (o 44-onboarding a substitui no boot).
 function loginGateSync(){
   if(typeof SF_PANE!=='undefined' && SF_PANE) return; // painel da tela dividida: o login é da janela principal
   const ov=$id('cloudOverlay'), x=$id('cloudClose');
   if(!ov) return;
-  if(!SB.sess()){
-    ov.dataset.lock='1'; ov.style.zIndex='115'; // acima de tudo — login vem primeiro
-    if(ov.style.display!=='flex'){ ov.style.display='flex'; renderCloud(); }
-    if(x) x.style.display='none';
-  } else {
-    if(ov.dataset.lock==='1'){ ov.dataset.lock=''; ov.style.display='none'; cloudMsg=''; }
-    ov.style.zIndex='';
-    if(x) x.style.display='';
-  }
+  if(ov.dataset.lock==='1'){ ov.dataset.lock=''; ov.style.display='none'; cloudMsg=''; }
+  ov.style.zIndex='';
+  if(x) x.style.display='';
 }
 setTimeout(()=>loginGateSync(), 3000); // depois do refresh de sessão do boot (arrow: usa a versão do 44-onboarding)
 

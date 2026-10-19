@@ -65,7 +65,8 @@ test('07: cobrança desligada = "Uso livre", sem "inativo" nem "ver planos"', ()
   const unk = AJ.ajBillingLine(null, 'u1', null, 'unknown');
   assert.equal(unk.unknown, true); assert.equal(unk.free, undefined); assert.match(unk.name, /Não consegui ler a assinatura/);
   const bill = read('src/js/41-assinatura-chaves.js');
-  assert.match(bill, /billingOn=billingPlans\.length>0; billingKnown=true;/, 'só a leitura que deu certo decide');
+  assert.match(bill, /billingPlans=plans; billingKnown=true;\n    if\(!plans\.length\)\{ billingOn=false;/, 'só a leitura que deu certo decide');
+  assert.ok(bill.indexOf('billingOn=true; payHide(); return;') > bill.indexOf('const grant='), 'Grátis F1: billingOn só liga com a assinatura já decidida (o espaço não pisca pro local)');
   assert.match(cut(aj, 'async function ajRenderAssinatura(', 'const AJ_RENDER='), /\(typeof billingKnown!=='undefined' && !billingKnown\) \? 'unknown'/);
   const sec = cut(aj, 'async function ajRenderAssinatura(', 'const AJ_RENDER=');
   assert.match(sec, /ajBillingLine\(b, ajMe\(\), null, off\)/);
@@ -162,7 +163,7 @@ test('12: convite gravado sem linha de volta não quebra o botão nem mostra ing
 
 // ---------------------------------------------------------------- 13 · Primeiros passos por cima
 test('13: Primeiros passos só abre sozinho no boot se a pessoa ainda está na Central', () => {
-  assert.equal(P.ppAutoOk('flow'), true); assert.equal(P.ppAutoOk(''), true);
+  assert.equal(P.ppAutoOk('flow'), true); assert.equal(P.ppAutoOk(''), true); assert.equal(P.ppAutoOk('meu'), true, 'Meu trabalho é a casa (abre sozinho no boot)');
   assert.equal(P.ppAutoOk('cfg'), false); assert.equal(P.ppAutoOk('t:123'), false);
   assert.match(aj, /setTimeout\(\(\)=>\{ if\(ppAutoOk\(typeof activeTab!=='undefined'\?activeTab:''\)\) ppMaybeStart\(\); \}, 3800\);/);
   assert.doesNotMatch(aj, /setTimeout\(ppMaybeStart, 3800\)/);

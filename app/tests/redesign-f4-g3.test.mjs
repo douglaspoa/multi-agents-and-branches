@@ -239,8 +239,8 @@ test('Verificação não abre mais sozinha no boot: faixa na Central + selo na s
 test('chaves de modelo: só em Ajustes › IA e modelos (Conta e Issues não têm mais), mesmo cofre (user_secrets)', () => {
   const k = read('js/41-assinatura-chaves.js');
   assert.doesNotMatch(k, /function secretsRenderCloud|sbSecretAdd|sbSecretDs/);
-  assert.match(k, /async function secretSet\(name, value\)\{\n  await sbFetch\('\/rest\/v1\/user_secrets\?on_conflict=user_id,name'/, 'armazenamento igual (compatível)');
-  assert.match(aj, /<b>Outras chaves da conta<\/b>/);
+  assert.match(k, /async function secretSet\(name, value\)\{\n  if\(secretsAreLocal\(\)\)\{ await secretsLocalWrite\(name, value\);[^\n]*\n  await sbFetch\('\/rest\/v1\/user_secrets\?on_conflict=user_id,name'/, 'armazenamento igual (compatível); Grátis F1: espaço local grava no llm.env');
+  assert.match(aj, /'Outras chaves da conta'/);
   assert.match(aj, /\{ id:'gemini'[\s\S]*\{ id:'opencode'/, 'Gemini e OpenCode têm cartão');
   assert.match(aj, /invoke\('term_ai_bins'\)/, 'estado real pelo mesmo resolvedor do terminal');
   assert.doesNotMatch(aj, /ainda não existe no app|a confirmar|Seletor de IA único<\/h3>/, 'sem conteúdo de mock em produção');

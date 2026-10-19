@@ -210,6 +210,12 @@ window.tsClaimOnly=tsClaimOnly; window.tsRelease=tsRelease; window.tsReassign=ts
 function tsK(kind){ return actVerb(kind); } // texto da atividade: fonte única ACT_KIND_PT (00-util) — nunca o código cru ("pr_opened")
 function renderTeamBoard(){
   const el=$id('teamBoard'); if(!el) return;
+  // Grátis (F1): o quadro do time é nuvem — no espaço local o primeiro uso mostra o motivo, o preço e a alternativa grátis
+  if(typeof isLocalSpace==='function' && isLocalSpace() && typeof upgradeCtaHtml==='function'){
+    const html=`<div class="emptyrepo" style="display:flex;flex-direction:column;align-items:center">`+emptyHtml({ icon:'cloud', title:'Espaço do time', help:'Aqui o time vê as tarefas, os PRs e quem está em quê — na nuvem.' })+upgradeCtaHtml('time')+`</div>`;
+    if(teamPaintSig!==html){ teamPaintSig=html; el.innerHTML=html; upgradeCtaWire(el); }
+    return;
+  }
   if(!SB.sess() || !cloudTeamId()){
     // sem conta → a tela de entrada direto; com conta e sem time → a aba Conta (antes: "abrir Time na nuvem"
     // abria um painel intermediário que só tinha outro botão pra entrar)

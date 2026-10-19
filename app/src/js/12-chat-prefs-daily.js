@@ -163,13 +163,13 @@ async function openPrefs(){
   if(typeof prefsChecksRender==='function') prefsChecksRender(); // checagens: sem conta e sem GitHub também
   if(typeof provasPrefsRender==='function') provasPrefsRender(repoPath); // provas no PR: opção do projeto (.git/config)
   $id('prefsRepo').textContent=pathBase(repoPath);
-  const cloudOk=!!(SB.sess()&&cloudData&&cloudData.org);
+  const cloudOk=!!(SB.sess()&&cloudData&&cloudData.org) && !(typeof isLocalSpace==='function'&&isLocalSpace());
   const k=cloudOk?await prefsKey():null; prefsK=k?Object.assign({ path:repoPath }, k):null; // a chave (org+repo) fica presa ao projeto carregado
   const ta=$id('prefsText'), off=$id('prefsConvOff'); const box=ta&&(ta.closest('.ceditor')||ta);
   if(box) box.style.display=k?'':'none';
   { const sc=$id('prefsConvScope'); if(sc){ const tm=cloudData&&cloudData.teams&&cloudData.teams.find(t=>t.id===(typeof cloudTeamId==='function'?cloudTeamId():'')); sc.textContent=tm?'Time '+tm.name:'Time'; } }
   if(!k){
-    if(off){ off.hidden=false; off.textContent=cloudOk?'As convenções do time precisam de um repositório com git remote (publique o projeto no GitHub em Projetos).':'Entre na sua conta pra escrever as convenções do time — proteção e checagens já valem sem conta.'; }
+    if(off){ off.hidden=false; off.textContent=cloudOk?'As convenções do time precisam de um repositório com git remote (publique o projeto no GitHub em Projetos).':(typeof isLocalSpace==='function'&&isLocalSpace())?'As convenções do time ficam na nuvem do time — proteção e checagens já valem neste computador.':'Entre na sua conta pra escrever as convenções do time — proteção e checagens já valem sem conta.'; }
     $id('prefsMeta').textContent=''; prefsBarSync(); return;
   }
   if(off) off.hidden=true;
