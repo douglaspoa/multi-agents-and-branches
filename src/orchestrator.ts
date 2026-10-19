@@ -35,6 +35,7 @@ import { attachProofs, proofKind, replaceReport, type AttachResult } from "./pr-
 import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, extraStageAgents, extraStagePrompt, finishExtraStage, newExtraStage, resolveExtraAgent, runningExtra, upsertExtraStage, type ExtraAgent, type ExtraStage } from "./revisao-alteracao.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 import { readSpeaker, speakerLine, speakerTag } from "./quem.ts";
+import { agentClaimFrom, claimFromReq, testGate, testTimeoutMs } from "./test-runner.ts";
 
 /** Catálogo do projeto sem estourar (config ilegível → só os padrões). */
 function loadConfigSafe(repo: string) { try { return loadConfig(repo).agents; } catch { return []; } }
@@ -903,7 +904,7 @@ export class Orchestrator {
    *     de verdade e precisam passar.
    * Retorna { ok, reasons } — `reasons` descreve o que reprovou.
    */
-  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec, opts: { runTests?: boolean } = {}): Promise<{ ok: boolean; reasons: string[] }> {
+  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec, opts: { runTests?: boolean; testTimeoutMs?: number } = {}): Promise<{ ok: boolean; reasons: string[] }> {
     const reasons: string[] = [];
     const artDir = join(task.worktree, ".cardume", "artifacts");
     let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
@@ -918,6 +919,7 @@ export class Orchestrator {
     }
     if (!found || list.length === 0) {
       if ((spec.requirements ?? []).length) reasons.push("sem requirements.json comprovando os requisitos");
+      if (opts.runTests !== false) reasons.push(...(await this.testGate(taskId, task, spec, opts)));
       return { ok: reasons.length === 0, reasons };
     }
     for (const r of list) {
@@ -935,12 +937,8 @@ export class Orchestrator {
         reasons.push(...mobileProofGaps(list as never, uiChanged, (e) => evidenceExists(artDir, task.worktree, e)));
       }
     } catch { /* sem detecção/diff: fica só a regra geral */ }
-    const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
     // runTests:false = consulta SEM efeito colateral (task_status no terminal): não roda a suíte (até 180s)
-    if (wantsTests && opts.runTests !== false) {
-      const t = await this.runRepoTests(task.worktree);
-      if (t.ran && !t.passed) reasons.push(`os testes falharam: ${t.detail}`);
-    }
+    if (opts.runTests !== false) reasons.push(...(await this.testGate(taskId, task, spec, opts)));
     return { ok: reasons.length === 0, reasons };
   }
 
@@ -952,27 +950,30 @@ export class Orchestrator {
     return [...out];
   }
 
-  /** Roda o teste do repo NA WORKTREE, se houver `scripts.test` real. Timeout 180s. */
-  private async runRepoTests(worktree: string): Promise<{ ran: boolean; passed: boolean; detail: string }> {
-    // SÓ a falta do package.json (projeto não-node, ou ainda vazio) = sem comando de teste. package.json
-    // ilegível/quebrado continua REPROVANDO, como antes (o projeto não roda).
-    let pkg: { scripts?: Record<string, string> };
-    try {
-      pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8"));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return { ran: false, passed: true, detail: "sem package.json" };
-      return { ran: true, passed: false, detail: `package.json inválido: ${String((err as Error)?.message ?? err).slice(0, 140)}` };
+  /**
+   * VERIFICAÇÃO INDEPENDENTE (src/test-runner.ts): roda a suíte do projeto SEMPRE que houver uma (não só quando a
+   * tarefa pediu), compara com o que o agente relatou e grava o selo em spec.verification. Devolve os motivos de
+   * reprovação (vazio = passou). Tarefa só de docs/CSS pula com o motivo registrado.
+   */
+  private async testGate(taskId: string, task: TaskRow, spec: TaskSpec, opts: { testTimeoutMs?: number } = {}): Promise<string[]> {
+    if (spec.kind === "review") return []; // revisão de PR: a pasta é do PR de outra pessoa, não tem suíte nossa
+    const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
+    let reqRaw: unknown = null;
+    for (const p of [join(task.worktree, ".cardume", "artifacts", "requirements.json"), join(this.ws.repo, ".cardume", "artifacts", taskId, "requirements.json")]) {
+      try { reqRaw = JSON.parse(await readFile(p, "utf8")); break; } catch { /* sem arquivo aqui */ }
     }
-    try {
-      const testCmd = pkg.scripts?.test ?? "";
-      if (!testCmd || /no test specified/i.test(testCmd)) return { ran: false, passed: true, detail: "sem comando de teste" };
-      await run("npm", ["test", "--silent"], { cwd: worktree, timeout: 180000 });
-      return { ran: true, passed: true, detail: "npm test passou" };
-    } catch (err) {
-      const e = err as Error & { killed?: boolean; stderr?: string };
-      if (e.killed) return { ran: true, passed: false, detail: "npm test estourou o tempo (180s)" };
-      return { ran: true, passed: false, detail: String(e.stderr || e.message || "").slice(0, 160) };
-    }
+    let sha = "", dirty = false;
+    try { sha = (await run("git", ["-C", task.worktree, "rev-parse", "HEAD"])).stdout.trim(); } catch { /* sem git */ }
+    try { dirty = (await run("git", ["-C", task.worktree, "status", "--porcelain"])).stdout.split("\n").some((l) => l.trim() && !l.slice(3).startsWith(".cardume/")); } catch { /* sem git */ }
+    const said = agentClaimFrom(this.store.eventsForTask(taskId));
+    const prev = (this.freshSpec(taskId) ?? spec).verification ?? null;
+    const timeoutMs = Math.min(opts.testTimeoutMs ?? Infinity, testTimeoutMs(this.ws.repo));
+    const g = await testGate({ worktree: task.worktree, wantsTests, changed: await this.changedFiles(task.worktree, task.base), claims: [claimFromReq(reqRaw), said?.claim ?? null], timeoutMs, sha, dirty, prev });
+    try { this.store.patchSpec(taskId, { verification: g.verification }); } catch { /* banco ocupado: o selo sai na próxima verificação */ }
+    if (g.divergence) this.store.addEvent(taskId, "Sistema", "relato-divergente", g.divergence, false);
+    if (g.note && g.run === null && g.verification.tests?.skipped) this.store.addEvent(taskId, "Sistema", "note", `verificação: ${g.note}`, true);
+    if (g.run?.timedOut && !wantsTests) this.store.addEvent(taskId, "Sistema", "note", `verificação: ${g.run.detail} — a entrega não foi reprovada por isso (a tarefa não pediu testes)`, false);
+    return g.reasons;
   }
 
   /**
@@ -2668,7 +2669,8 @@ export class Orchestrator {
     }
     // etapa extra que rodou NESTE turno do terminal (o app mandou a instrução pra mesma sessão): fecha com o que mudou
     if (runningExtra(this.freshSpec(taskId)?.extraStages)) await this.finishExtraStage(taskId, true).catch(() => null);
-    const gate = await this.verifyProofs(taskId, task, spec).catch((e) => ({ ok: false, reasons: [String((e as Error)?.message ?? e)] }));
+    // em linha (hook Stop, prazo de 240 s): a suíte ganha no máximo 150 s — o resto é do commit, das provas e da trava
+    const gate = await this.verifyProofs(taskId, task, spec, o.deferPr ? { testTimeoutMs: 150_000 } : {}).catch((e) => ({ ok: false, reasons: [String((e as Error)?.message ?? e)] }));
     this.store.addEvent(taskId, "Sistema", "note", gate.ok ? "gate de verificação: ok — requisitos provados com evidência" : `gate de verificação: pendente — ${gate.reasons.slice(0, 3).join(" · ")}`, gate.ok);
     if (isBusy()) return gate; // a pessoa já mandou outra coisa: o turno novo manda no status
     // fim de uma rodada de CONSTRUÇÃO com revisor na equipe: o terminal troca pro revisor (o app executa a troca)

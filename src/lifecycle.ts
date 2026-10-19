@@ -21,8 +21,9 @@ export interface ReviewRound {
   model?: string;
 }
 export interface NeedsYou {
-  /** teto = 80% do teto; rodadas = a revisão pediria a 3ª rodada; veredito = revisor não deu aprova/muda legível */
-  kind: "teto" | "rodadas" | "veredito";
+  /** teto = 80% do teto; rodadas = a revisão pediria a 3ª rodada; veredito = revisor não deu aprova/muda legível;
+   * ci = o CI do PR falhou de novo depois de 2 voltas automáticas (o app pergunta; não volta mais sozinho) */
+  kind: "teto" | "rodadas" | "veredito" | "ci";
   text: string;
   at: number;
   /** índice do papel que estava pra rodar (retomar daqui) */
