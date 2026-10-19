@@ -47,17 +47,18 @@ test('gdHtml: achado com arquivo:linha, valor só mascarado, dispensar e o selo 
   assert.equal(c.gdHtml(null), '', 'sem portão ainda: nada');
 });
 
-test('gdAddIgnore ≡ addIgnore do motor; gdParseIgnores aceita lista ou { list }; gdWithout tira o achado e o motivo', () => {
+test('gdWithout tira o achado e o motivo; aviso antigo e dispensa sem assinatura aparecem', () => {
   const c = ctx();
-  let l = c.gdAddIgnore([], { fingerprint: 'a:r:1', motivo: ' exemplo ', por: '', em: '2026-10-19T00:00:00.000Z' });
-  l = c.gdAddIgnore(l, { fingerprint: 'a:r:1', motivo: 'exemplo do README', por: 'Douglas', em: '2026-10-19T01:00:00.000Z' });
-  assert.deepEqual(J(l), [{ fingerprint: 'a:r:1', motivo: 'exemplo do README', por: 'Douglas', em: '2026-10-19T01:00:00.000Z' }]);
-  assert.equal(J(c.gdAddIgnore([], { fingerprint: 'x', motivo: 'm' }))[0].por, 'Você');
-  assert.deepEqual(J(c.gdParseIgnores(JSON.stringify({ list: [{ fingerprint: 'x' }, { nada: 1 }] }))).length, 1);
-  assert.deepEqual(J(c.gdParseIgnores('lixo')), []);
   const w = J(c.gdWithout(G, SECRET.fingerprint));
   assert.deepEqual([w.findings.length, w.reasons.length, w.ignored], [1, 0, 1]);
   assert.equal(J(c.gdModel(w)).state, 'warn');
+  const OLD = { ...SECRET, fingerprint: 'src/old.ts:aws-access-token:abc', file: 'src/old.ts', old: true, blocks: false, severity: 'baixa', message: 'segredo antigo no arquivo (já estava na base): AWS Access Key' };
+  const m = J(c.gdModel({ findings: [OLD, SQL], skipped: [], unsigned: 2 }));
+  assert.deepEqual(m.findings.map((f) => f.file), ['src/db.ts', 'src/old.ts'], 'antigo por último');
+  const h = c.gdHtml({ findings: [OLD], skipped: [], unsigned: 2 });
+  assert.match(h, /segredo antigo/);
+  assert.match(h, /já estava na base/);
+  assert.match(h, /2 dispensas sem assinatura do app ignoradas/);
 });
 
 test('fiação: Revisão monta o bloco, dispensar usa askText (nunca window.confirm), CSS só com tokens', () => {
@@ -65,10 +66,19 @@ test('fiação: Revisão monta o bloco, dispensar usa askText (nunca window.conf
   assert.match(ws, /if\(e\.type==='guarda'\)/, 'o evento guarda vira linha de sistema na conversa (não atividade)');
   const dom = src.slice(src.indexOf('// @guarda-puro-fim'));
   assert.match(dom, /await askText\(/);
-  assert.match(dom, /invoke\('write_file',\{ taskId, path, content/);
+  assert.match(dom, /invoke\('guard_dismiss',\{ taskId, fingerprint:fp, motivo:/, 'quem assina e grava é o Rust (o agente não alcança)');
+  assert.doesNotMatch(dom, /invoke\('write_file'/, 'o front não escreve o guard-ignore.json direto');
   assert.doesNotMatch(dom, /window\.confirm|confirm\(/);
   const block = css.slice(css.indexOf('Frente 2 · bloco "Guarda"'));
   assert.ok(block.length > 100);
   assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|rgba?\(/, 'nenhuma cor literal');
   assert.match(block, /var\(--tone-crit\)/);
+});
+
+test('Rust: guard_dismiss registrado, assina com guard_sign e não rastreia em revisão de PR (kind review)', () => {
+  const lib = rd('../src-tauri/src/lib.rs');
+  assert.match(lib, /\n\s+guard_dismiss,\n/);
+  const fn = lib.slice(lib.indexOf('fn guard_dismiss('), lib.indexOf('/// Salva o arquivo editado na worktree.'));
+  assert.match(fn, /guard_sign::dismiss\(/);
+  assert.match(fn, /if kind != "review" \{\s*let _ = Command::new\("git"\)\.arg\("-C"\)\.arg\(&wt\)\.args\(\["add", "-f", rel\]\)/);
 });
