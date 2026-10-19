@@ -38,6 +38,7 @@ import { capCheck, capPauseText, effectiveCap, MAX_REVIEW_ROUNDS } from "./lifec
 import { Store } from "./store.ts";
 import { attemptFromHook, loopReset, loopTrack, loopTurnEnd, quietTool, stripAnsi } from "./loop-detect.ts";
 import { taskToYaml } from "./util/yaml.ts";
+import { releaseOnExit } from "./test-runner.ts";
 import type { AgentStatus, TaskSpec } from "./types.ts";
 
 export type TermMode = "terminal" | "auto";
@@ -1298,6 +1299,8 @@ export async function turnEndCli(repo: string, taskId: string, o: { inline?: boo
   const task = orch.store.getTask(taskId);
   if (!task) { orch.close(); return; }
   const lock = join(termDir(task.worktree), "turn-end.lock");
+  // prazo ABSOLUTO do hook Stop (o Claude Code mata o hook em STOP_HOOK_TIMEOUT_S): o que roda em linha respeita
+  const deadline = o.inline ? Date.now() + STOP_HOOK_TIMEOUT_S * 1000 : undefined;
   let openPr = false;
   try {
     mkdirSync(dirname(lock), { recursive: true });
@@ -1313,11 +1316,13 @@ export async function turnEndCli(repo: string, taskId: string, o: { inline?: boo
     }
     if (fd === null) { orch.close(); if (o.inline) spawnTurnEnd(taskId, repo); return; } // outro fim de turno em curso
     closeSync(fd);
+    // morto no meio (SIGTERM do prazo do hook, Ctrl-C): a trava não fica presa e a suíte filha morre junto (test-runner)
+    const release = releaseOnExit(lock);
     try {
-      const r = await orch.terminalTurnEnd(taskId, () => (orch.store.termGet(taskId)?.busy ?? 0) === 1, { deferPr: !!o.inline });
+      const r = await orch.terminalTurnEnd(taskId, () => (orch.store.termGet(taskId)?.busy ?? 0) === 1, { deferPr: !!o.inline, deadline });
       openPr = !!r?.openPr;
       const st = readTermState(task.worktree); st.lastTurnEnd = Date.now(); writeTermState(task.worktree, st);
-    } finally { rmSync(lock, { force: true }); }
+    } finally { release(); }
   } finally { orch.close(); }
   // o PR (push + gh) sai DESTACADO: o hook devolve o controle ao Claude Code com o estado já consistente
   if (openPr) spawnDetached(["turn-end", taskId, "--so-pr", "--repo", repo], repo);

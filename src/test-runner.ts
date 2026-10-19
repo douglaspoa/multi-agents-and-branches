@@ -9,7 +9,7 @@
 //   testGate(...)              → a parte de testes do portão (verifyProofs chama; não grava nada — quem chama grava)
 //
 // Tudo que é regra é função pura (testes em src/test-runner.test.ts). O único efeito colateral é runTests.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -301,6 +301,34 @@ export async function runTests(dir: string, o: { timeoutMs?: number; runner?: Ru
   return { ...base, ran: true, passed: false, detail: `${runner.label}: ${why}` };
 }
 
+/** Suítes rodando agora (pid do grupo) — o processo morrendo leva elas junto, nunca ficam órfãs. */
+const liveKids = new Set<number>();
+/** Mata a árvore de um processo: grupo inteiro no Unix (kill -pid), `taskkill /T /F` no Windows. */
+export function killTree(pid: number, sig: NodeJS.Signals = "SIGTERM"): void {
+  try {
+    if (process.platform === "win32") spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+    else process.kill(-pid, sig);
+  } catch { /* já morreu */ }
+}
+let exitHooked = false;
+/** SIGTERM/SIGINT viram process.exit (o 'exit' roda: mata as suítes filhas, solta travas). Idempotente. */
+export function exitOnSignals(): void {
+  if (exitHooked) return;
+  exitHooked = true;
+  process.on("exit", () => { for (const p of liveKids) killTree(p, "SIGKILL"); });
+  for (const [sig, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
+    if (process.listenerCount(sig) === 0) process.once(sig, () => process.exit(code));
+  }
+}
+
+/** Trava em arquivo que SOME se o processo morrer (exit, SIGTERM, SIGINT). Devolve quem solta antes, no caminho normal. */
+export function releaseOnExit(path: string): () => void {
+  const free = () => { try { rmSync(path, { force: true }); } catch { /* já foi */ } };
+  process.on("exit", free);
+  exitOnSignals();
+  return () => { process.off("exit", free); free(); };
+}
+
 function spawnCapture(cmd: string, args: string[], cwd: string, timeoutMs: number): Promise<{ code: number | null; out: string; timedOut: boolean; spawnErr?: string }> {
   return new Promise((resolve) => {
     const win = process.platform === "win32";
@@ -319,20 +347,21 @@ function spawnCapture(cmd: string, args: string[], cwd: string, timeoutMs: numbe
       resolve({ code: null, out: "", timedOut: false, spawnErr: (e as Error).message });
       return;
     }
-    const killTree = (sig: NodeJS.Signals) => {
-      try { if (!win && cp.pid) process.kill(-cp.pid, sig); else cp.kill(sig); } catch { /* já morreu */ }
-    };
-    const timer = setTimeout(() => { timedOut = true; killTree("SIGTERM"); setTimeout(() => killTree("SIGKILL"), 3000).unref(); }, timeoutMs);
+    const pid = cp.pid;
+    if (pid) { liveKids.add(pid); exitOnSignals(); }
+    const kill = (sig: NodeJS.Signals) => { if (pid) killTree(pid, sig); else { try { cp.kill(sig); } catch { /* já morreu */ } } };
+    const timer = setTimeout(() => { timedOut = true; kill("SIGTERM"); setTimeout(() => kill("SIGKILL"), 3000).unref(); }, timeoutMs);
+    const done = () => { if (pid) liveKids.delete(pid); };
     cp.stdout?.on("data", keep);
     cp.stderr?.on("data", keep);
     cp.on("error", (e) => {
       if (settled) return;
-      settled = true; clearTimeout(timer);
+      settled = true; clearTimeout(timer); done();
       resolve({ code: null, out, timedOut: false, spawnErr: (e as NodeJS.ErrnoException).code === "ENOENT" ? `${cmd} não encontrado` : e.message });
     });
     cp.on("close", (code) => {
       if (settled) return;
-      settled = true; clearTimeout(timer);
+      settled = true; clearTimeout(timer); done();
       resolve({ code, out, timedOut });
     });
   });

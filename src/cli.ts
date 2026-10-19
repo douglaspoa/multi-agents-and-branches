@@ -1144,6 +1144,12 @@ async function main() {
     case "statusline":
       process.exitCode = statuslineCli(a.flags[HOOK_MARK.slice(2)] ?? "", repo);
       break;
+    case "verify-tests": {
+      // suíte do portão em SEGUNDO PLANO (o fim de turno do terminal dispara; o selo é gravado ao terminar)
+      const orch = new Orchestrator(repo);
+      try { await orch.runTestsNow(a._[1]); } finally { orch.close(); }
+      break;
+    }
     case "turn-end":
       if (a.flags["so-pr"]) { const orch = new Orchestrator(repo); try { await orch.terminalOpenPr(a._[1]); } finally { orch.close(); } break; }
       await turnEndCli(repo, a._[1]);

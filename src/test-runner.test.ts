@@ -4,8 +4,8 @@
 // com o número real e grava o evento `relato-divergente` e o selo em spec.verification.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { agentClaimFrom, baselineDir, baselineRun, claimDivergence, claimFromReq, compareWithBase, detectRunner, isEnvFailure, parseClaim, parseCounts, parseFailedNames, runTests, skipReason, testGate, testTimeoutMs, type TestRun } from "./test-runner.ts";
@@ -376,4 +376,66 @@ test("baselineRun: duas chamadas ao mesmo tempo pro mesmo SHA rodam a base uma v
   const [a, b] = await Promise.all([baselineRun({ repo, worktree: repo, baseSha: sha, timeoutMs: 5000, run }), baselineRun({ repo, worktree: repo, baseSha: sha, timeoutMs: 5000, run })]);
   assert.equal(calls, 1);
   assert.deepEqual(a?.counts, b?.counts);
+});
+
+// ---------------------------------------------------------------- hook Stop (revisão adversarial, itens 5–7)
+
+test("fim de turno do terminal: a suíte NÃO roda em linha — vai pro segundo plano; o selo sai depois e o PR reaproveita", async () => {
+  const repo = gitRepo("turno-bg");
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("t4"));
+    const t = orch.store.getTask("t4")!;
+    // suíte que conta quantas vezes rodou (e demora 1,5 s)
+    writeFileSync(join(t.worktree, "package.json"), JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap c.test.mjs" } }));
+    writeFileSync(join(t.worktree, "c.test.mjs"), `import { test } from "node:test";\nimport { appendFileSync } from "node:fs";\ntest("a", async () => { appendFileSync(${JSON.stringify(join(root, "t4-runs"))}, "x"); await new Promise((r) => setTimeout(r, 1500)); });\n`);
+    const spawned: string[] = [];
+    orch.spawnVerify = (id: string) => { spawned.push(id); return true; };
+    const t0 = Date.now();
+    await orch.terminalTurnEnd("t4", () => false, { deferPr: true, deadline: Date.now() + 240_000 });
+    assert.ok(Date.now() - t0 < 1400, "o hook não esperou a suíte");
+    assert.deepEqual(spawned, ["t4"]);
+    assert.ok(!existsSync(join(root, "t4-runs")), "nada rodou em linha");
+    assert.ok(orch.store.eventsForTask("t4").some((e) => /suíte roda em segundo plano/.test(e.text)));
+    // o processo de segundo plano (verify-tests) roda e grava o selo
+    await orch.runTestsNow("t4");
+    assert.equal(readFileSync(join(root, "t4-runs"), "utf8"), "x");
+    assert.equal((JSON.parse(orch.store.getTask("t4")!.spec_json) as TaskSpec).verification!.tests!.ok, true);
+    // o PR (openPr → verifyProofs completo) cobra o resultado da MESMA versão sem rodar de novo
+    const gate = await orch.verifyProofs("t4", orch.store.getTask("t4")!, JSON.parse(orch.store.getTask("t4")!.spec_json));
+    assert.equal(gate.reasons.filter((r) => /testes/.test(r)).length, 0);
+    assert.equal(readFileSync(join(root, "t4-runs"), "utf8"), "x", "reaproveitou o selo");
+    // prazo absoluto quase vencido no caminho síncrono: min(150 s, prazo − agora − 40 s) < 5 s → também vai pro segundo plano
+    writeFileSync(join(t.worktree, "c2.mjs"), "export {};\n");
+    spawned.length = 0;
+    await orch.verifyProofs("t4", orch.store.getTask("t4")!, JSON.parse(orch.store.getTask("t4")!.spec_json), { deadline: Date.now() + 42_000 });
+    assert.deepEqual(spawned, ["t4"]);
+    assert.equal(readFileSync(join(root, "t4-runs"), "utf8"), "x");
+  } finally { orch.close(); }
+});
+
+const RUNNER = new URL("./test-runner.ts", import.meta.url).href;
+const waitFor = async (f: () => boolean, ms = 10_000) => { const until = Date.now() + ms; while (!f() && Date.now() < until) await new Promise((r) => setTimeout(r, 50)); return f(); };
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+test("SIGTERM no meio da suíte: a suíte filha morre junto (sem órfã) e a trava some", { skip: process.platform === "win32" }, async () => {
+  const d = dirWith({ "package.json": JSON.stringify({ scripts: { test: `node -e "require('fs').writeFileSync('kid.pid', String(process.pid)); setTimeout(()=>{}, 60000)"` } }) });
+  const lock = join(d, "turn-end.lock");
+  writeFileSync(lock, "");
+  const script = `import { runTests, releaseOnExit } from ${JSON.stringify(RUNNER)};\nreleaseOnExit(${JSON.stringify(lock)});\nawait runTests(${JSON.stringify(d)}, { timeoutMs: 60000 });\n`;
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const p = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", "--input-type=module", "-e", script], { stdio: "ignore", env });
+  assert.ok(await waitFor(() => existsSync(join(d, "kid.pid"))), "a suíte começou");
+  const kid = Number(readFileSync(join(d, "kid.pid"), "utf8"));
+  assert.ok(alive(kid));
+  p.kill("SIGTERM");
+  await new Promise((r) => p.on("exit", r));
+  assert.ok(await waitFor(() => !alive(kid), 5000), "suíte órfã ficou viva");
+  assert.ok(!existsSync(lock), "turn-end.lock ficou presa");
+});
+
+test("killTree: Windows usa taskkill /T /F (árvore inteira); Unix mata o grupo", () => {
+  const src = readFileSync(new URL("./test-runner.ts", import.meta.url), "utf8");
+  assert.match(src, /spawnSync\("taskkill", \["\/PID", String\(pid\), "\/T", "\/F"\]/);
+  assert.match(src, /process\.kill\(-pid, sig\)/);
 });
