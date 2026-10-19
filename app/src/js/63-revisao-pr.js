@@ -289,6 +289,8 @@ function rvTopHtml(t, m){
     : rvHasReviewer(t)?'ainda não revisou':'';
   const loose=(m.pins.loose||[]);
   const parts=[];
+  const seal=(typeof verifSealHtml==='function')?verifSealHtml(t):''; // verificação independente (83-verificacao): testes reais · CI · relato
+  if(seal) parts.push(seal);
   if(n) parts.push(`<span>Você aceitou <b>${acc} de ${n}</b> ${n===1?'requisito':'requisitos'}</span>`);
   if(m.map.out.length) parts.push(`<span><b class="rvwarn">${nPl(m.map.out.length,'trecho')}</b> fora dos requisitos</span>`);
   if(m.map.unc.length) parts.push(`<span><b class="rvwarn">${nPl(m.map.unc.length,'trecho')}</b> sem ligação</span>`);

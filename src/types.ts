@@ -204,7 +204,7 @@ export interface TaskSpec {
   /** Selo da VERIFICAÇÃO INDEPENDENTE (src/test-runner.ts): testes reais × relato do agente + CI do PR (o app grava `ci`). */
   verification?: import("./test-runner.ts").Verification | null;
   /** Vigia do CI no PR (o app grava): voltas automáticas ao agente (máx. 2) e o último commit já tratado. */
-  ciGate?: { rounds: number; lastSha?: string; asked?: boolean; at?: number } | null;
+  ciGate?: { rounds: number; lastSha?: string; asked?: boolean; at?: number; ci?: { total: number; fail: number; pending: number } | null } | null;
   /** Rastro das edições de spec feitas por agentes (src/agent-edits.ts) — o app mostra antes/depois e desfaz. */
   agentEdits?: import("./agent-edits.ts").AgentEditRecord[];
   /** Ids de edições já aplicadas (idempotência da fila do app) — separado do rastro, que é cortado. */

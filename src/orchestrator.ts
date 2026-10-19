@@ -968,7 +968,7 @@ export class Orchestrator {
     const said = agentClaimFrom(this.store.eventsForTask(taskId));
     const prev = (this.freshSpec(taskId) ?? spec).verification ?? null;
     const timeoutMs = Math.min(opts.testTimeoutMs ?? Infinity, testTimeoutMs(this.ws.repo));
-    const g = await testGate({ worktree: task.worktree, wantsTests, changed: await this.changedFiles(task.worktree, task.base), claims: [claimFromReq(reqRaw), said?.claim ?? null], timeoutMs, sha, dirty, prev });
+    const g = await testGate({ worktree: task.worktree, wantsTests, changed: await this.changedFiles(task.worktree, task.base), claims: [claimFromReq(reqRaw), said?.claim ?? null], timeoutMs, sha, dirty, prev, ci: (this.freshSpec(taskId) ?? spec).ciGate?.ci ?? null });
     try { this.store.patchSpec(taskId, { verification: g.verification }); } catch { /* banco ocupado: o selo sai na próxima verificação */ }
     if (g.divergence) this.store.addEvent(taskId, "Sistema", "relato-divergente", g.divergence, false);
     if (g.note && g.run === null && g.verification.tests?.skipped) this.store.addEvent(taskId, "Sistema", "note", `verificação: ${g.note}`, true);

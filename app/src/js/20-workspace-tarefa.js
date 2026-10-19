@@ -1253,6 +1253,8 @@ function fwThreadHtml(t){
       out.push(`<div class="cmsg bot"><span class="cav" aria-hidden="true" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
       continue;
     }
+    // verificação independente (src/test-runner.ts): o que o agente relatou não bate com a execução real
+    if(e.type==='relato-divergente'){ flush(); lastWho=''; out.push(`<div class="csys">${(typeof IC!=='undefined'&&IC.warn)||''} ${esc('Relato divergente: '+tx)}</div>`); continue; }
     if(e.type==='error'){ flush(); out.push(`<div class="cmsg bot"><span class="cav" aria-hidden="true" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`); continue; }
     // atividade (ler/rodar/editar/…) — acumula pra virar UMA linha de raciocínio
     act.push(e);

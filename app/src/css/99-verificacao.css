@@ -1,0 +1,6 @@
+/* Starfork — 99-verificacao (83-verificacao.js): o selo "Verificado: testes 84/86 · CI 3/4 · relato divergente"
+   no cartão do quadro e no topo da aba Revisão. A cor vem do STATUS_META (--vs, posta pelo JS); só tokens do tema. */
+.vseal{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:1px 8px;border-radius:999px;font:600 var(--fs-xs)/1.6 var(--ui);color:var(--vs,var(--muted));background:color-mix(in srgb,var(--vs,var(--muted)) 12%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--vs,var(--muted)) 35%,transparent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.vseal::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--vs,var(--muted))}
+.kb-seal{display:flex;min-width:0;margin-top:6px}
+.rvtop .vseal{font-size:var(--fs-sm)}

@@ -334,6 +334,8 @@ export interface GateInput {
   sha?: string;
   dirty?: boolean;
   prev?: Verification | null;
+  /** o CI do PR que o vigia do app gravou (spec.ciGate.ci) — entra no selo junto com os testes */
+  ci?: Verification["ci"];
   /** injetável nos testes */
   run?: (dir: string, o: { timeoutMs: number }) => Promise<TestRun>;
 }
@@ -349,7 +351,7 @@ export interface GateResult {
 /** A parte de TESTES do portão: roda (ou pula com motivo), compara o relato e monta o selo. Não grava nada. */
 export async function testGate(g: GateInput): Promise<GateResult> {
   const reasons: string[] = [];
-  const ci = g.prev?.ci ?? null;
+  const ci = g.ci ?? g.prev?.ci ?? null;
   const skip = g.wantsTests ? null : skipReason(g.changed);
   if (skip) {
     return { reasons, divergence: null, run: null, note: skip, verification: { tests: { passed: null, failed: null, ran: false, runner: "", ok: true, skipped: skip }, ci, divergente: false, at: Date.now() } };
@@ -359,7 +361,7 @@ export async function testGate(g: GateInput): Promise<GateResult> {
   if (p && p.tests && p.tests.ran && !p.tests.timedOut && g.sha && p.sha === g.sha && !g.dirty) {
     if (!p.tests.ok) reasons.push(`os testes falharam: ${p.tests.runner}${p.tests.passed != null ? ` (${p.tests.passed}/${(p.tests.passed ?? 0) + (p.tests.failed ?? 0)} passaram)` : ""}`);
     if (p.divergente && p.relato) reasons.push(p.relato);
-    return { reasons, divergence: null, run: null, note: "mesma versão já verificada — a suíte não rodou de novo", verification: p };
+    return { reasons, divergence: null, run: null, note: "mesma versão já verificada — a suíte não rodou de novo", verification: { ...p, ci } };
   }
   const r = await (g.run ?? runTests)(g.worktree, { timeoutMs: g.timeoutMs });
   let divergence: string | null = null;

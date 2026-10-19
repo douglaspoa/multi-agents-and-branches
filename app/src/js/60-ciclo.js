@@ -38,7 +38,7 @@ function cicloDecision(t){
   if(ny && t.status==='needs-you') return { kind:ny.kind, text:ny.text||'' };
   return null;
 }
-const CICLO_DEC_TITLE={ teto:'Teto de custo', rodadas:'Revisão pediu a 3ª rodada', veredito:'Revisão sem veredito legível' };
+const CICLO_DEC_TITLE={ teto:'Teto de custo', rodadas:'Revisão pediu a 3ª rodada', veredito:'Revisão sem veredito legível', ci:'CI do PR falhou de novo' };
 function cicloDecisionHtml(t, d, ui){
   if(!d) return '';
   ui=ui||{};
@@ -54,6 +54,11 @@ function cicloDecisionHtml(t, d, ui){
         <label class="cicdec-f cicdec-why"><span>motivo</span><input class="in" id="cicWhy" autocomplete="off" value="${escA(ui.why||'')}" placeholder="ex.: falta o teste de login"></label>
         <div class="cicdec-acts"><button class="btn sm cicdec-go" id="cicRelease">liberar e seguir</button><button class="btn sm" id="cicStop">parar aqui</button></div>
       </div>${err}</section>`;
+  }
+  // CI (83-verificacao): passou das voltas automáticas — mandar corrigir mais uma vez (conta no teto) ou deixar assim
+  if(d.kind==='ci'){
+    return `<section class="cicdec" id="cicDecide" aria-label="Precisa de você: ${escA(CICLO_DEC_TITLE.ci)}">${head}${text}
+      <div class="cicdec-form"><div class="cicdec-acts"><button class="btn sm cicdec-go" id="cicCiFix">mandar o agente corrigir</button><button class="btn sm" id="cicCiKeep">deixar como está</button></div></div>${err}</section>`;
   }
   // rodadas / veredito (P3): seguir sem mais revisão (com motivo), mais uma rodada (conta no teto) ou parar
   return `<section class="cicdec" id="cicDecide" aria-label="Precisa de você: ${escA(CICLO_DEC_TITLE[d.kind]||'decisão')}">${head}${text}
@@ -80,6 +85,7 @@ async function cicloAct(t, kind){
       toast('Parada — o trabalho ficou como está','ok');
     }
     else if(kind==='go' || kind==='round') await cicloReviewDecide(t, kind, why);
+    else if(kind==='cifix' || kind==='cikeep') await ciPersonDecide(t, kind);
     delete cicUi[t.id];
     lastSig=''; await refresh();
   }catch(e){ ui.err=(typeof errShort==='function')?errShort(e):String(e&&e.message||e); const el=$id('cicErr'); if(el) el.textContent=ui.err; }
@@ -105,7 +111,7 @@ function cicloPaint(t){
   cicMotion(t, host);
   ['cicUsd','cicWhy'].forEach(id=>{ const el=$id(id); if(el) el.oninput=()=>{ const u=cicUi[t.id]=cicUi[t.id]||{}; u[id==='cicUsd'?'usd':'why']=el.value; }; });
   const on=(id, k)=>{ const b=$id(id); if(b) b.onclick=()=>cicloAct(t, k); };
-  on('cicRelease','release'); on('cicStop','stop'); on('cicGo','go'); on('cicRound','round');
+  on('cicRelease','release'); on('cicStop','stop'); on('cicGo','go'); on('cicRound','round'); on('cicCiFix','cifix'); on('cicCiKeep','cikeep');
   const why=$id('cicWhy'); if(why) why.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const b=$id('cicRelease')||$id('cicGo'); if(b) b.click(); } };
   if(loop && typeof loopWire==='function') loopWire(host, t);
   if(typeof cicloStripWire==='function') cicloStripWire(host, t);
