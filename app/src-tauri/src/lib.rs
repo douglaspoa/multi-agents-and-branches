@@ -1058,7 +1058,7 @@ fn signal_group(pid: i32, sig: i32) {
 /// MODO PROTEGIDO — regras de NEGAÇÃO do Claude Code (`--disallowedTools`), que valem
 /// MESMO em `--permission-mode bypassPermissions` (as regras de deny são avaliadas antes
 /// do modo). ESPELHO de src/engine/protect.ts (denyRules) — o teste TS confere a lista.
-const PROTECT_DENY: [&str; 50] = [
+const PROTECT_DENY: [&str; 52] = [
     "Read(**/.env)",
     "Edit(**/.env)",
     "Read(**/.env.local)",
@@ -1089,6 +1089,8 @@ const PROTECT_DENY: [&str; 50] = [
     "Edit(**/.ssh/**)",
     "Read(**/.aws/**)",
     "Edit(**/.aws/**)",
+    "Read(~/.cardume/guard.key)",
+    "Edit(~/.cardume/guard.key)",
     "Bash(rm -rf /)",
     "Bash(rm -rf / *)",
     "Bash(rm -rf ~)",

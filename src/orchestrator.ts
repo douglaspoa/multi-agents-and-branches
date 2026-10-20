@@ -36,7 +36,7 @@ import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, e
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 import { readSpeaker, speakerLine, speakerTag } from "./quem.ts";
 import { agentClaimFrom, baselineRun, claimFromReq, testGate, testTimeoutMs } from "./test-runner.ts";
-import { guardSummary, runGuard, type GuardResult } from "./guard.ts";
+import { guardSummary, prepareGuardInBackground, runGuard, type GuardResult } from "./guard.ts";
 
 /** Catálogo do projeto sem estourar (config ilegível → só os padrões). */
 function loadConfigSafe(repo: string) { try { return loadConfig(repo).agents; } catch { return []; } }
@@ -279,6 +279,8 @@ export class Orchestrator {
   }
 
   async createTask(spec: TaskSpec, refSources: string[] = []): Promise<TaskRow> {
+    // guarda: o gitleaks é preparado em segundo plano já na criação — o portão nunca espera download
+    try { prepareGuardInBackground(); } catch { /* sem guarda: o portão avisa "guarda desligada" */ }
     // Garante a equipe (retrocompat: 1 builder).
     if (!spec.roles || spec.roles.length === 0) {
       spec.roles = [{ role: "builder", name: spec.agent, engine: spec.engine, model: spec.model }];
