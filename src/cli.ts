@@ -12,7 +12,7 @@ import { c, statusColor, eventGlyph } from "./util/ansi.ts";
 import { slugify } from "./types.ts";
 import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
 import { rolesForKind, TASK_KINDS, type TaskKind } from "./lifecycle.ts";
-import { applyOrgPolicy, orgAgentPolicy, policyActive } from "./org-policy.ts";
+import { applyOrgPolicy, orgAgentPolicy, orgGuardPolicy, policyActive } from "./org-policy.ts";
 import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
@@ -241,6 +241,9 @@ async function cmdNew(repo: string, a: Args) {
       Object.assign(spec, r.spec);
       policyNotes = r.notes;
     }
+    // Frente 2: a org pode rebaixar o bloqueio da guarda pra aviso (padrão: bloqueia sempre)
+    const gp = orgGuardPolicy(raw);
+    if (gp) spec.orgPolicy = { ...(spec.orgPolicy ?? { rules: [] }), guard: gp };
   }
 
   const refSources = a.multi.ref ?? [];
@@ -1141,6 +1144,12 @@ async function main() {
     case "statusline":
       process.exitCode = statuslineCli(a.flags[HOOK_MARK.slice(2)] ?? "", repo);
       break;
+    case "verify-tests": {
+      // suíte do portão em SEGUNDO PLANO (o fim de turno do terminal dispara; o selo é gravado ao terminar)
+      const orch = new Orchestrator(repo);
+      try { await orch.runTestsNow(a._[1]); } finally { orch.close(); }
+      break;
+    }
     case "turn-end":
       if (a.flags["so-pr"]) { const orch = new Orchestrator(repo); try { await orch.terminalOpenPr(a._[1]); } finally { orch.close(); } break; }
       await turnEndCli(repo, a._[1]);

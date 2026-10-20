@@ -62,6 +62,7 @@ function kbCardHtml(vm, ic){
   return `<article class="kb-card${vm.trav?' trav':''}${vm.sel?' sel':''}${vm.cls?' '+vm.cls:''}" data-kbid="${E(vm.id)}" tabindex="0" aria-label="${E('abrir: '+(vm.title||'sem título'))}"${drag?` draggable="true" data-kbdrops="${E(Object.keys(vm.drops).join(' '))}"`:''}${vm.attrs||''}>`+
     `<div class="kb-ct">${E(vm.title||'sem título')}${vm.tag?` <span class="kb-tag" title="time">${E(vm.tag)}</span>`:''}</div>`+
     (vm.chain?`<div class="kb-chain chain">${vm.chain}</div>`:'')+mid+
+    (vm.seal?`<div class="kb-seal">${vm.seal}</div>`:'')+
     (vm.trav?`<div class="kb-trav" title="${E(vm.travTip||vm.trav)}">${ic.warn||''}<span>${E(vm.trav)}</span></div>`:'')+
     (acts?`<div class="kb-acts">${acts}</div>`:'')+
     `<div class="kb-ft">${who}<span class="kb-sp"></span>${vm.ago?`<span class="kb-ago" title="${E(vm.agoTip||'última modificação')}">${E(vm.ago)}</span>`:''}${menu}</div></article>`;
@@ -125,7 +126,7 @@ function kbLocalVm(t){
     :(typeof conflitoDe==='function' && conflitoDe(t))?[{ act:'fixconf', label:'Resolver conflito', primary:true, title:'no terminal da tarefa: traz a base, resolve, roda os testes e faz push' }]:[];
   return { id:t.id, kind:'local', col:kbColOf(flowBucket(t)), ts, title:mdTitle(t.title||''), sel:typeof selected!=='undefined'&&selected===t.id,
     chain:chainHtml(c, { omit:['task','who','st'] }), who:me?kbWho(me):`<span class="pchip kb-agent" title="rodando nesta máquina"><span class="pnm">${esc(t.agent||'agente')}</span></span>`,
-    reqs:kbLocalReqs(t), thumb:th.thumb, proofs:th.n, trav:tr?tr.tx:'', travTip:tr?tr.tip:'', ago:a.ago, agoTip:a.tip, drops:kbLocalDrops(t), acts, menu:true, ref:t };
+    reqs:kbLocalReqs(t), seal:(typeof verifSealHtml==='function')?verifSealHtml(t):'', thumb:th.thumb, proofs:th.n, trav:tr?tr.tx:'', travTip:tr?tr.tip:'', ago:a.ago, agoTip:a.tip, drops:kbLocalDrops(t), acts, menu:true, ref:t };
 }
 
 // ---- cartão do time (teamTasks) ----

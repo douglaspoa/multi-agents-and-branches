@@ -107,6 +107,8 @@ export async function taskStatus(orch: Orchestrator, taskId: string): Promise<Ta
   const gate = await orch.verifyProofs(taskId, task, spec, { runTests: false }).catch((e) => ({ ok: false, reasons: [String((e as Error)?.message ?? e)] }));
   const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
   const faltaProvar = [...gate.reasons];
+  // a guarda não roda na consulta (sem efeito): vale o que a última verificação achou (src/guard.ts)
+  for (const r of spec.guard?.reasons ?? []) if (!faltaProvar.includes(r)) faltaProvar.push(`${r} (guarda de segurança, última verificação)`);
   if (!["review", "done", "merged"].includes(task.status)) faltaProvar.push(`a tarefa está "${STATUS_PT[task.status] ?? task.status}" — quando terminar, set_status review`);
   const provado = faltaProvar.length === 0;
   const merged = task.status === "merged";

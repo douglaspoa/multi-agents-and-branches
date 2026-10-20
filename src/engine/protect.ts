@@ -31,6 +31,7 @@ export const SECRET_PATHS = [
   "~/.aws/**",
   "**/.ssh/**",
   "**/.aws/**",
+  "~/.cardume/guard.key", // chave que assina as dispensas da guarda (só o app dispensa achado)
 ];
 
 /** Comandos DESTRUTIVOS / de alto risco no shell. `rm -rf /*` fica de FORA de propósito:

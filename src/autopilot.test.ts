@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { apCapCheck, AP_CAP_REQUIRED, canStartIn, lockFile, renderReport, normalizePlan, propagateBlocked, readState, requestStop, runAutopilot, runnable, stateFile, FIRST_COMMIT_MSG, type ApTaskState } from "./autopilot.ts";
 import { Orchestrator } from "./orchestrator.ts";
+import { runTests } from "./test-runner.ts";
 import { Store } from "./store.ts";
 import { tempHome } from "./testing/temp-home.ts";
 
@@ -346,13 +347,14 @@ test("slug vazio: título só com símbolos vira 'tarefa', 'tarefa-2'…; o épi
   assert.equal(normalizePlan({ tasks: [{ title: "" }, {}] }, "", "web").tasks.map((t) => t.id).join(","), "tarefa,tarefa-2");
 });
 
-test("runRepoTests: só a FALTA do package.json conta como 'sem testes'; package.json quebrado reprova", async () => {
+test("runTests (portão): só a FALTA de suíte conta como 'sem testes'; package.json quebrado reprova", async () => {
   const d = realpathSync(mkdtempSync(join(tmpdir(), "starfork-rt-")));
   try {
-    const rt = (Orchestrator.prototype as unknown as { runRepoTests: (w: string) => Promise<{ ran: boolean; passed: boolean; detail: string }> }).runRepoTests;
-    assert.deepEqual(await rt.call({}, d), { ran: false, passed: true, detail: "sem package.json" });
+    const r0 = await runTests(d);
+    assert.equal(r0.ran, false);
+    assert.equal(r0.passed, true);
     writeFileSync(join(d, "package.json"), "{ quebrado");
-    const r = await rt.call({}, d);
+    const r = await runTests(d);
     assert.equal(r.passed, false);
     assert.match(r.detail, /package\.json inválido/);
   } finally { rmSync(d, { recursive: true, force: true }); }

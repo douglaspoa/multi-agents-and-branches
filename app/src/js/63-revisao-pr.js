@@ -289,6 +289,8 @@ function rvTopHtml(t, m){
     : rvHasReviewer(t)?'ainda não revisou':'';
   const loose=(m.pins.loose||[]);
   const parts=[];
+  const seal=(typeof verifSealHtml==='function')?verifSealHtml(t):''; // verificação independente (83-verificacao): testes reais · CI · relato
+  if(seal) parts.push(seal);
   if(n) parts.push(`<span>Você aceitou <b>${acc} de ${n}</b> ${n===1?'requisito':'requisitos'}</span>`);
   if(m.map.out.length) parts.push(`<span><b class="rvwarn">${nPl(m.map.out.length,'trecho')}</b> fora dos requisitos</span>`);
   if(m.map.unc.length) parts.push(`<span><b class="rvwarn">${nPl(m.map.unc.length,'trecho')}</b> sem ligação</span>`);
@@ -512,4 +514,74 @@ async function prvFixAll(t, info, btn){
   const ok=await fwSendText(t.id, 'Pra integrar o PR, resolva tudo isto, em ordem, e me avise:\n\n'+parts.map((p,i)=>`${i+1}) ${p}`).join('\n\n'));
   if(ok){ toast('pedido enviado ao agente','ok'); fwMode='conversa'; fwRememberTab(); renderWorkspace(); }
   else if(btn && btn.isConnected){ btn.disabled=false; btn.innerHTML=IC.ai+' corrigir tudo com o agente'; }
+}
+
+// ---------------------------------------------------------------- GUARDA DE SEGURANÇA (Frente 2 · src/guard.ts)
+// Bloco "Guarda" no topo da aba Revisão (nas 3 vistas: provas, por requisito e diff): os achados do último portão
+// (segredo / código, severidade, arquivo:linha), "dispensar" com motivo e o selo "guarda desligada: motivo". Os dados
+// vêm de t.spec.guard (o motor grava a cada portão). O valor do segredo nunca chega aqui: só 4 caracteres + ••••.
+// Dispensar = comando Tauri guard_dismiss: o RUST assina a entrada (HMAC com a chave local ~/.cardume/guard.key) e grava
+// em .cardume/guard-ignore.json — o agente escreve na worktree mas não alcança esse comando, então a dispensa dele não vale.
+// @guarda-puro-inicio (testado em app/tests/guarda.test.mjs)
+const GD_SEV={ alta:'alta', media:'média', baixa:'baixa' };
+// o que a Revisão mostra: bloqueia primeiro, segredo antes de código, aviso antigo por último
+function gdModel(g){
+  if(!g || typeof g!=='object') return { state:'none', findings:[], skipped:[], ignored:0, unsigned:0 };
+  const rank=f=>(f.blocks?0:2)+(f.old?4:0)+(f.kind==='segredo'?0:1);
+  const findings=(Array.isArray(g.findings)?g.findings:[]).slice().sort((a,b)=>rank(a)-rank(b) || String(a.file).localeCompare(String(b.file)) || (a.line||0)-(b.line||0));
+  const skipped=Array.isArray(g.skipped)?g.skipped:[];
+  const state=findings.some(f=>f.blocks)?'block':findings.length?'warn':skipped.length?'off':'ok';
+  return { state, findings, skipped, ignored:+g.ignored||0, unsigned:+g.unsigned||0 };
+}
+// tira um achado dispensado do resultado guardado (até o próximo portão recalcular)
+function gdWithout(g, fp){
+  const f=((g&&g.findings)||[]).find(x=>x.fingerprint===fp); if(!f) return g;
+  const tag=' em '+f.file+':'+f.line+' ';
+  return { ...g, findings:g.findings.filter(x=>x.fingerprint!==fp), reasons:(g.reasons||[]).filter(r=>!String(r).includes(tag)), ignored:(+g.ignored||0)+1 };
+}
+function gdHtml(g){
+  const m=gdModel(g); if(m.state==='none') return '';
+  const head={ block:'a entrega está bloqueada', warn:'achados pra você olhar (não bloqueiam)', off:'não varreu tudo', ok:'nada encontrado no diff' }[m.state];
+  const rows=m.findings.map(f=>{
+    const tone=f.blocks?'crit':f.old?'info':f.severity==='alta'||f.severity==='media'?'warn':'info';
+    const tag=f.old?(f.kind==='segredo'?'segredo antigo':'código antigo'):(f.kind==='segredo'?'segredo':'código')+' · '+(GD_SEV[f.severity]||f.severity)+(f.blocks?' · bloqueia':'');
+    const what=f.kind==='segredo'?`${f.old?'já estava na base · ':''}segredo <code>${esc(f.masked||'••••')}</code>`:esc(f.message||f.rule);
+    return `<li class="gdi gd-${tone}"><span class="gdsev">${esc(tag)}</span><span class="gdwhat">${what}<small class="dim"> ${esc(f.rule)}</small></span><code class="gdloc">${esc(f.file)}:${+f.line||0}</code><span class="gdact"><button type="button" class="lnk" data-gdfix="${escA(f.fingerprint)}">mandar pro agente</button><button type="button" class="lnk sec" data-gdign="${escA(f.fingerprint)}">dispensar</button></span></li>`;
+  }).join('');
+  const off=m.skipped.map(s=>`<span class="gdoff" role="status">${esc(/^guarda/.test(s)?s:'guarda desligada: '+s)}</span>`).join('');
+  const uns=m.unsigned?`<span class="gdoff" role="status" title="entradas do .cardume/guard-ignore.json sem a assinatura deste app (o agente não consegue dispensar sozinho)">${m.unsigned} dispensa${m.unsigned>1?'s':''} sem assinatura do app ignorada${m.unsigned>1?'s':''}</span>`:'';
+  return `<div class="gdh"><b>Guarda</b><span class="gdst gd-${m.state==='block'?'crit':m.state==='ok'?'ok':'warn'}">${esc(head)}</span>${m.ignored?`<small class="dim">${m.ignored} dispensado${m.ignored>1?'s':''}</small>`:''}${uns}${off}</div>${rows?`<ul class="gdl">${rows}</ul>`:''}`;
+}
+// @guarda-puro-fim
+function gdMount(t, main){
+  if(!main) return;
+  const html=gdHtml((t.spec||{}).guard);
+  let box=main.querySelector(':scope > .gd');
+  if(!html){ if(box) box.remove(); return; }
+  if(!box){ box=document.createElement('section'); box.className='gd'; box.setAttribute('aria-label','guarda de segurança'); main.prepend(box); box.__gdHtml=''; }
+  if(box.__gdHtml===html) return;
+  box.innerHTML=html; box.__gdHtml=html;
+  box.onclick=e=>gdClick(t.id, e);
+}
+async function gdClick(taskId, e){
+  const b=e.target.closest('button'); if(!b) return;
+  const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return;
+  const g=(t.spec||{}).guard; const fp=b.dataset.gdfix||b.dataset.gdign; const f=((g&&g.findings)||[]).find(x=>x.fingerprint===fp); if(!f) return;
+  if(b.dataset.gdfix){
+    const msg=f.kind==='segredo'
+      ? `A guarda de segurança achou um segredo no código em ${f.file}:${f.line} (${f.masked||'••••'}, ${f.rule}). Troque por variável de ambiente; nunca escreva o valor no código. Se a chave é real, avise que ela precisa ser trocada.`
+      : `A guarda de segurança apontou ${f.file}:${f.line} (${f.rule}, severidade ${GD_SEV[f.severity]||f.severity}): ${f.message}. Corrija o código (não basta esconder o aviso).`;
+    if(await fwSendText(t.id, msg)) toast('pedido enviado ao agente','ok');
+    return;
+  }
+  const motivo=await askText('Por que dispensar este achado? (fica registrado em .cardume/guard-ignore.json)', f.kind==='segredo'?'ex.: chave de exemplo da documentação, não é real':'ex.: a entrada já é validada antes');
+  if(!motivo || !String(motivo).trim()) return;
+  const por=(typeof cloudUser==='function'&&cloudUser()&&cloudUser().name)||'Você';
+  try{ await invoke('guard_dismiss',{ taskId, fingerprint:fp, motivo:String(motivo).trim(), por, em:new Date().toISOString() }); }
+  catch(err){ showErr(err, 'Não consegui gravar o achado dispensado'); return; }
+  const next=gdWithout(g, fp);
+  t.spec={ ...(t.spec||{}), guard:next };
+  invoke('patch_task_spec',{ taskId, patch:{ guard:next } }).catch(err=>console.error('guarda: patch_task_spec', err));
+  toast('achado dispensado — o motivo vai junto na branch','ok');
+  const main=b.closest('.gd')&&b.closest('.gd').parentElement; if(main) gdMount(t, main);
 }

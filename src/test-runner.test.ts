@@ -1,0 +1,441 @@
+// node --test src/test-runner.test.ts  (npm test)
+// Frente 1 · verificação independente: detectRunner / parseCounts / parseClaim / divergência (puras) + o PORTÃO
+// (Orchestrator.verifyProofs) numa worktree de verdade: suíte que falha com o agente relatando sucesso → reprova
+// com o número real e grava o evento `relato-divergente` e o selo em spec.verification.
+import { test, before, after } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { agentClaimFrom, baselineDir, baselineRun, claimDivergence, claimFromReq, compareWithBase, detectRunner, isEnvFailure, parseClaim, parseCounts, parseFailedNames, runTests, skipReason, testGate, testTimeoutMs, type TestRun } from "./test-runner.ts";
+import { Orchestrator } from "./orchestrator.ts";
+import { tempHome } from "./testing/temp-home.ts";
+import type { TaskSpec } from "./types.ts";
+
+const root = realpathSync(mkdtempSync(join(tmpdir(), "starfork-verif-")));
+const saved: Record<string, string | undefined> = {};
+let home: { home: string; cleanup: () => void };
+before(() => {
+  for (const k of ["HOME", "USERPROFILE", "CARDUME_MOCK_SPEED", "CARDUME_AUTOSUMMARY", "CARDUME_NOTIFY", "STARFORK_TEST_TIMEOUT_S"]) saved[k] = process.env[k];
+  home = tempHome({ learnMode: "desligado" });
+  process.env.HOME = home.home; process.env.USERPROFILE = home.home;
+  process.env.CARDUME_MOCK_SPEED = "50"; process.env.CARDUME_AUTOSUMMARY = "0"; process.env.CARDUME_NOTIFY = "0";
+  delete process.env.STARFORK_TEST_TIMEOUT_S;
+});
+after(() => {
+  for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  home.cleanup();
+  rmSync(root, { recursive: true, force: true });
+});
+let n = 0;
+const dirWith = (files: Record<string, string>) => {
+  const d = join(root, `p${++n}`);
+  for (const [f, c] of Object.entries(files)) { mkdirSync(join(d, f, ".."), { recursive: true }); writeFileSync(join(d, f), c); }
+  mkdirSync(d, { recursive: true });
+  return d;
+};
+
+// ---------------------------------------------------------------- detectRunner
+
+test("detectRunner: npm/pnpm/yarn/bun pelo lockfile; 'no test specified' não conta; pytest, cargo, go e swift; nada → null", () => {
+  assert.equal(detectRunner(dirWith({ "package.json": '{"scripts":{"test":"node --test"}}' }))?.label, "npm test");
+  assert.equal(detectRunner(dirWith({ "package.json": '{"scripts":{"test":"vitest"}}', "pnpm-lock.yaml": "" }))?.kind, "pnpm");
+  assert.equal(detectRunner(dirWith({ "package.json": '{"scripts":{"test":"jest"}}', "yarn.lock": "" }))?.kind, "yarn");
+  assert.deepEqual(detectRunner(dirWith({ "package.json": '{"scripts":{"test":"x"}}', "bun.lock": "" }))?.args, ["run", "test"]);
+  // o test que o `npm init` cria não é suíte — e um projeto Python com package.json de ferramenta cai no pytest
+  assert.equal(detectRunner(dirWith({ "package.json": '{"scripts":{"test":"echo \\"Error: no test specified\\" && exit 1"}}' })), null);
+  assert.equal(detectRunner(dirWith({ "package.json": '{"scripts":{}}', "tests/test_a.py": "" }))?.kind, "pytest");
+  assert.equal(detectRunner(dirWith({ "pyproject.toml": "[tool.pytest.ini_options]\n" }))?.kind, "pytest");
+  assert.equal(detectRunner(dirWith({ "pytest.ini": "" }))?.label, "pytest");
+  assert.equal(detectRunner(dirWith({ "test_x.py": "" }))?.kind, "pytest");
+  assert.equal(detectRunner(dirWith({ "Cargo.toml": "[package]" }))?.label, "cargo test");
+  assert.deepEqual(detectRunner(dirWith({ "go.mod": "module x" }))?.args, ["test", "-v", "./..."]);
+  assert.equal(detectRunner(dirWith({ "Package.swift": "// swift" }))?.label, "swift test");
+  assert.equal(detectRunner(dirWith({ "README.md": "oi" })), null);
+  assert.equal(detectRunner(dirWith({ "pyproject.toml": "[project]\nname='x'\n" })), null, "pyproject sem pytest e sem tests/ não é suíte");
+});
+
+test("detectRunner: package.json inválido LANÇA (o portão reprova, a regra de sempre)", () => {
+  assert.throws(() => detectRunner(dirWith({ "package.json": "{ quebrado" })), /package\.json inválido/);
+});
+
+// ---------------------------------------------------------------- parseCounts
+
+test("parseCounts: node:test (TAP e spec, soma rodadas encadeadas), jest, vitest, mocha", () => {
+  assert.deepEqual(parseCounts("npm", "# tests 86\n# pass 84\n# fail 2\n"), { passed: 84, failed: 2 });
+  assert.deepEqual(parseCounts("npm", "# pass 10\n# fail 0\n...\n# pass 5\n# fail 1\n"), { passed: 15, failed: 1 });
+  assert.deepEqual(parseCounts("npm", "ℹ tests 3\nℹ pass 3\nℹ fail 0\n"), { passed: 3, failed: 0 });
+  assert.deepEqual(parseCounts("yarn", "Test Suites: 1 failed\nTests:       2 failed, 84 passed, 86 total\n"), { passed: 84, failed: 2 });
+  assert.deepEqual(parseCounts("pnpm", " Test Files  1 failed (3)\n      Tests  2 failed | 84 passed (86)\n"), { passed: 84, failed: 2 });
+  assert.deepEqual(parseCounts("npm", "\n  84 passing (2s)\n  2 failing\n"), { passed: 84, failed: 2 });
+  assert.deepEqual(parseCounts("npm", "\u001b[32m# pass 3\u001b[0m\n# fail 0"), { passed: 3, failed: 0 }, "sem as cores ANSI");
+  assert.equal(parseCounts("npm", "tudo certo"), null);
+});
+
+test("parseCounts: pytest, cargo (soma os alvos), go -v, swift (XCTest e swift-testing)", () => {
+  assert.deepEqual(parseCounts("pytest", "....F.\n=========== 84 passed, 2 failed in 1.20s ===========\n"), { passed: 84, failed: 2 });
+  assert.deepEqual(parseCounts("pytest", "84 passed, 1 error in 0.3s\n"), { passed: 84, failed: 1 });
+  assert.deepEqual(parseCounts("pytest", "===== 12 passed in 0.10s =====\n"), { passed: 12, failed: 0 });
+  assert.deepEqual(parseCounts("cargo", "test result: ok. 40 passed; 0 failed; 0 ignored\n...\ntest result: FAILED. 44 passed; 2 failed; 0 ignored\n"), { passed: 84, failed: 2 });
+  assert.deepEqual(parseCounts("go", "=== RUN   TestA\n--- PASS: TestA (0.00s)\n=== RUN   TestB\n--- FAIL: TestB (0.00s)\n    --- PASS: TestB/sub (0.00s)\nFAIL\n"), { passed: 2, failed: 1 });
+  assert.deepEqual(parseCounts("swift", "Executed 10 tests, with 0 failures\nExecuted 86 tests, with 2 failures (0 unexpected) in 1.0s\n"), { passed: 84, failed: 2 });
+  assert.deepEqual(parseCounts("swift", "✔ Test run with 12 tests passed after 0.5 seconds.\n"), { passed: 12, failed: 0 });
+  assert.equal(parseCounts("go", "ok  \tx\t0.1s\n"), null);
+});
+
+// ---------------------------------------------------------------- parseClaim + divergência
+
+test("parseClaim: '86/86', 'ALL PASSED', '86 passed', 'Tests: 84 passed, 2 failed', em português também", () => {
+  assert.deepEqual(parseClaim("Pronto! Testes: 86/86 ✅"), { passed: 86, total: 86 });
+  assert.deepEqual(parseClaim("Tests: 84 passed, 2 failed"), { passed: 84, total: 86 });
+  assert.deepEqual(parseClaim("2 failed, 84 passed, 86 total"), { passed: 84, total: 86 });
+  assert.deepEqual(parseClaim("rodei a suíte: 86 passed"), { passed: 86, total: null });
+  assert.deepEqual(parseClaim("86 testes passando"), { passed: 86, total: null });
+  assert.deepEqual(parseClaim("passaram 86 de 86 testes"), { passed: 86, total: 86 });
+  assert.deepEqual(parseClaim("ALL PASSED"), { passed: null, total: null, allPassed: true });
+  assert.deepEqual(parseClaim("todos os testes passaram"), { passed: null, total: null, allPassed: true });
+  // sem número de teste: não acusa ninguém
+  assert.equal(parseClaim("Fiz a tela de login e o botão de sair."), null);
+  assert.equal(parseClaim("Entrega em 19/10, rodada 1/2"), null, "data e rodada não são relato de teste");
+  assert.equal(parseClaim("R2 passed na revisão"), null, "número colado em palavra (R2) não conta");
+  assert.equal(parseClaim(""), null);
+  // revisão adversarial: N/M sem palavra de teste perto não é relato
+  assert.equal(parseClaim("Passo 3/5 concluído"), null);
+  assert.equal(parseClaim("A especificação 2/3 está pronta"), null);
+  assert.equal(parseClaim("✓ 4/6 requisitos feitos"), null);
+  assert.equal(parseClaim("Combinado pra 10/12"), null);
+  assert.equal(parseClaim("Passo 3/5: agora a parte longa da explicação, e os testes ficam pra depois"), null, "palavra de teste longe do número");
+});
+
+test("claimDivergence: só acusa quando o agente diz MAIS do que o real (passou mais, ou tudo verde com suíte vermelha)", () => {
+  assert.equal(claimDivergence({ passed: 86, total: 86 }, { passed: 84, failed: 2 }), "o agente relatou 86/86, a execução real deu 84/86");
+  assert.equal(claimDivergence({ passed: 86, total: null }, { passed: 84, failed: 2 }), "o agente relatou 86/86, a execução real deu 84/86");
+  assert.equal(claimDivergence({ passed: null, total: null, allPassed: true }, { passed: 84, failed: 2 }), "o agente relatou todos os testes passando, a execução real deu 84/86");
+  assert.equal(claimDivergence({ passed: 84, total: 86 }, { passed: 84, failed: 2 }), null, "relatou a falha certinho: bate");
+  assert.equal(claimDivergence({ passed: 5, total: 5 }, { passed: 86, failed: 0 }), null, "rodou só um pedaço, tudo verde: não acusa");
+  assert.equal(claimDivergence({ passed: 80, total: 86 }, { passed: 86, failed: 0 }), null, "relatou MENOS do que o real: não é mentira");
+  assert.equal(claimDivergence({ passed: 84, total: null }, { passed: 86, failed: 0 }), null, "'84 passed' de antes da correção, real 86/86: não acusa");
+  assert.equal(claimDivergence({ passed: 82, total: 86 }, { passed: 84, failed: 2 }), null, "relatou falha maior que a real: não acusa");
+  assert.equal(claimDivergence({ passed: 85, total: 86 }, { passed: 84, failed: 2 }), "o agente relatou 85/86, a execução real deu 84/86", "disse que passou mais do que passou");
+  assert.equal(claimDivergence(null, { passed: 1, failed: 1 }), null, "sem relato legível: só mostra o real");
+  assert.equal(claimDivergence({ passed: 3, total: 3 }, null), null, "sem contagem real legível: não acusa");
+});
+
+test("agentClaimFrom: a fala mais recente do agente DESDE o último pedido da pessoa; Sistema não conta. claimFromReq lê texto ou objeto", () => {
+  const evs = [
+    { agent: "Íris", type: "done", text: "Testes: 10/10" },
+    { agent: "Você", type: "note", text: "Você: arruma o login" },
+    { agent: "Íris", type: "think", text: "rodando npm test… 84 passed, 2 failed" },
+    { agent: "Íris", type: "done", text: "Pronto, 86/86 testes passando" },
+    { agent: "Sistema", type: "note", text: "gate de verificação: 1/2" },
+  ];
+  assert.deepEqual(agentClaimFrom(evs)?.claim, { passed: 86, total: 86 });
+  assert.equal(agentClaimFrom(evs.slice(0, 2)), null, "relato de antes do pedido novo não vale");
+  assert.equal(agentClaimFrom(evs.slice(0, 3)), null, "think do meio do turno não é relato");
+  assert.equal(agentClaimFrom([...evs.slice(0, 4), { agent: "Íris", type: "done", text: "Pronto, tela feita." }]), null, "só a ÚLTIMA fala final conta (sem número = sem relato)");
+  assert.deepEqual(claimFromReq({ list: [], tests: "86/86" }), { passed: 86, total: 86 });
+  assert.deepEqual(claimFromReq({ tests: { passed: 84, failed: 2 } }), { passed: 84, total: 86 });
+  assert.equal(claimFromReq([{ req: "x" }]), null);
+});
+
+test("skipReason: só docs/CSS pula com motivo; código, diff vazio ou só .cardume roda", () => {
+  assert.match(skipReason(["README.md", "docs/guia.md", "src/app.css"]) ?? "", /só toca em docs\/estilo \(3 arquivos\)/);
+  assert.equal(skipReason(["README.md", "src/app.ts"]), null);
+  assert.equal(skipReason([]), null);
+  assert.equal(skipReason([".cardume/artifacts/requirements.json"]), null);
+});
+
+test("testTimeoutMs: padrão 180 s; env STARFORK_TEST_TIMEOUT_S; testTimeoutSec do .cardume/checks.json", () => {
+  assert.equal(testTimeoutMs(), 180_000);
+  const repo = dirWith({ ".cardume/checks.json": '{"testTimeoutSec":30}' });
+  assert.equal(testTimeoutMs(repo), 30_000);
+  process.env.STARFORK_TEST_TIMEOUT_S = "5";
+  try { assert.equal(testTimeoutMs(repo), 5_000); } finally { delete process.env.STARFORK_TEST_TIMEOUT_S; }
+});
+
+// ---------------------------------------------------------------- testGate (com run injetado)
+
+const fakeRun = (r: Partial<TestRun>) => async () => ({ ran: true, passed: true, detail: "ok", runner: "npm test", kind: "npm", ...r }) as TestRun;
+test("testGate: projeto sem suíte passa; timeout sem a tarefa pedir não reprova (fica no selo); com pedido reprova", async () => {
+  const none = await testGate({ worktree: root, wantsTests: false, changed: ["a.ts"], claims: [], timeoutMs: 1000, run: async () => ({ ran: false, passed: true, detail: "sem suíte de testes detectada" }) });
+  assert.deepEqual(none.reasons, []);
+  assert.equal(none.verification.tests, null);
+  const slow = fakeRun({ ran: true, passed: false, timedOut: true, detail: "npm test estourou o tempo (1s)" });
+  const a = await testGate({ worktree: root, wantsTests: false, changed: ["a.ts"], claims: [], timeoutMs: 1000, run: slow });
+  assert.deepEqual(a.reasons, []);
+  assert.equal(a.verification.tests?.timedOut, true);
+  const b = await testGate({ worktree: root, wantsTests: true, changed: ["a.ts"], claims: [], timeoutMs: 1000, run: slow });
+  assert.match(b.reasons[0], /estourou o tempo/);
+});
+
+test("testGate: docs-only pula (com motivo) a não ser que a tarefa peça testes; mesma versão já verificada não roda de novo", async () => {
+  let calls = 0;
+  const run = async () => { calls++; return { ran: true, passed: false, detail: "npm test: 1/2 passaram", runner: "npm test", counts: { passed: 1, failed: 1 } } as TestRun; };
+  const skip = await testGate({ worktree: root, wantsTests: false, changed: ["README.md"], claims: [], timeoutMs: 1000, run });
+  assert.equal(calls, 0);
+  assert.match(skip.verification.tests?.skipped ?? "", /docs\/estilo/);
+  await testGate({ worktree: root, wantsTests: true, changed: ["README.md"], claims: [], timeoutMs: 1000, run });
+  assert.equal(calls, 1, "a tarefa pediu testes: roda mesmo só com docs");
+  const first = await testGate({ worktree: root, wantsTests: false, changed: ["a.ts"], claims: [{ passed: 2, total: 2 }], timeoutMs: 1000, sha: "abc", run });
+  assert.equal(calls, 2);
+  assert.equal(first.verification.sha, "abc");
+  assert.equal(first.verification.divergente, true);
+  const again = await testGate({ worktree: root, wantsTests: false, changed: ["a.ts"], claims: [], timeoutMs: 1000, sha: "abc", prev: first.verification, run });
+  assert.equal(calls, 2, "mesmo HEAD, sem mudança solta: reaproveita");
+  assert.deepEqual(again.reasons, ["os testes falharam: npm test (1/2 passaram)"], "relato novo (sem número): o motivo antigo de divergência não se repete");
+  assert.equal(again.verification.divergente, false);
+  const same = await testGate({ worktree: root, wantsTests: false, changed: ["a.ts"], claims: [{ passed: 2, total: 2 }], timeoutMs: 1000, sha: "abc", prev: first.verification, run });
+  assert.equal(same.divergence, null, "mesma divergência: não grava o evento de novo");
+  assert.deepEqual(same.reasons, ["os testes falharam: npm test (1/2 passaram)", "o agente relatou 2/2, a execução real deu 1/2"], "recalculada contra o relato atual, sem duplicar");
+  await testGate({ worktree: root, wantsTests: false, changed: ["a.ts"], claims: [], timeoutMs: 1000, sha: "abc", dirty: true, prev: first.verification, run });
+  assert.equal(calls, 3, "mudança solta: roda de novo");
+});
+
+// ---------------------------------------------------------------- runTests de verdade (node --test)
+
+const SUITE_2_DE_3 = `import { test } from "node:test";\nimport assert from "node:assert";\ntest("a", () => {});\ntest("b", () => {});\ntest("c", () => { assert.equal(1, 2); });\n`;
+test("runTests: roda a suíte de verdade e lê o número real; tempo-limite mata a árvore", async () => {
+  const d = dirWith({ "package.json": JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap t.test.mjs" } }), "t.test.mjs": SUITE_2_DE_3 });
+  const r = await runTests(d, { timeoutMs: 60_000 });
+  assert.equal(r.ran, true);
+  assert.equal(r.passed, false);
+  assert.deepEqual(r.counts, { passed: 2, failed: 1 });
+  assert.match(r.detail, /npm test: 2\/3 passaram/);
+  const slow = dirWith({ "package.json": JSON.stringify({ scripts: { test: "node -e \"setTimeout(()=>{},60000)\"" } }) });
+  const t0 = Date.now();
+  const s = await runTests(slow, { timeoutMs: 1500 });
+  assert.equal(s.timedOut, true);
+  assert.ok(Date.now() - t0 < 15_000, "não esperou o processo filho");
+});
+
+// ---------------------------------------------------------------- o PORTÃO (verifyProofs) com fixture de repo
+
+function gitRepo(name: string): string {
+  const repo = join(root, name);
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+  g("config", "user.email", "t@t"); g("config", "user.name", "t"); g("config", "commit.gpgsign", "false");
+  writeFileSync(join(repo, "README.md"), "base\n");
+  g("add", "-A"); g("commit", "-q", "-m", "base");
+  return repo;
+}
+const spec = (id: string): TaskSpec => ({
+  id, title: id, objective: "somar itens", deliverables: ["soma"], requirements: ["soma os itens"],
+  scope: { owns: ["src"], offLimits: [] },
+  autonomy: { clarifications: "assume", commit: "at-end", runTests: false, approval: "auto" },
+  engine: "mock", agent: "Íris", light: true, base: "main", autoPr: "no",
+  roles: [{ role: "builder", name: "Íris", engine: "mock" }],
+}) as TaskSpec;
+
+test("portão: suíte que FALHA com o agente relatando sucesso → reprova com o número real, evento relato-divergente e selo", async () => {
+  const repo = gitRepo("portao");
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("t1"));
+    const t = orch.store.getTask("t1")!;
+    const wt = t.worktree;
+    writeFileSync(join(wt, "package.json"), JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap t.test.mjs" } }));
+    writeFileSync(join(wt, "t.test.mjs"), SUITE_2_DE_3);
+    mkdirSync(join(wt, ".cardume", "artifacts"), { recursive: true });
+    writeFileSync(join(wt, ".cardume", "artifacts", "evidence.md"), "rodei os testes\n");
+    writeFileSync(join(wt, ".cardume", "artifacts", "requirements.json"), JSON.stringify({ list: [{ req: "soma os itens", status: "done", evidence: ["evidence.md"] }] }));
+    orch.store.addEvent("t1", "Íris", "done", "Pronto! Implementei a soma. Testes: 3/3 passando ✅", true, "builder");
+
+    // consulta sem efeito colateral (task_status do terminal): não roda a suíte nem grava selo
+    const quiet = await orch.verifyProofs("t1", t, JSON.parse(t.spec_json), { runTests: false });
+    assert.equal(quiet.ok, true, "runTests:false continua sem rodar a suíte");
+    assert.equal((JSON.parse(orch.store.getTask("t1")!.spec_json) as TaskSpec).verification, undefined);
+    await orch.verifyProofs("t1", t, JSON.parse(t.spec_json));
+
+    const evs = orch.store.eventsForTask("t1");
+    const div = evs.filter((e) => e.type === "relato-divergente");
+    assert.equal(div.length, 1);
+    assert.equal(div[0].text, "o agente relatou 3/3, a execução real deu 2/3");
+    const s = JSON.parse(orch.store.getTask("t1")!.spec_json) as TaskSpec;
+    assert.deepEqual({ ...s.verification!.tests }, { passed: 2, failed: 1, ran: true, runner: "npm test", ok: false });
+    assert.equal(s.verification!.divergente, true);
+    assert.equal(s.verification!.ci, null);
+    // a mesma checagem pelo resultado do portão
+    const gate = await orch.verifyProofs("t1", orch.store.getTask("t1")!, s);
+    assert.equal(gate.ok, false);
+    assert.ok(gate.reasons.some((r) => /^os testes falharam: npm test/.test(r)), gate.reasons.join(" · "));
+    assert.ok(gate.reasons.includes("o agente relatou 3/3, a execução real deu 2/3"), gate.reasons.join(" · "));
+  } finally { orch.close(); }
+});
+
+test("portão: projeto sem suíte continua passando; a tarefa não pediu testes e mesmo assim a suíte roda quando existe", async () => {
+  const repo = gitRepo("sem-suite");
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("t2"));
+    const t = orch.store.getTask("t2")!;
+    mkdirSync(join(t.worktree, ".cardume", "artifacts"), { recursive: true });
+    writeFileSync(join(t.worktree, ".cardume", "artifacts", "ev.md"), "ok\n");
+    writeFileSync(join(t.worktree, ".cardume", "artifacts", "requirements.json"), JSON.stringify([{ req: "soma os itens", status: "done", evidence: ["ev.md"] }]));
+    const g1 = await orch.verifyProofs("t2", t, JSON.parse(t.spec_json));
+    assert.deepEqual(g1, { ok: true, reasons: [] });
+    writeFileSync(join(t.worktree, "package.json"), JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap ok.test.mjs" } }));
+    writeFileSync(join(t.worktree, "ok.test.mjs"), `import { test } from "node:test";\ntest("a", () => {});\n`);
+    const g2 = await orch.verifyProofs("t2", t, JSON.parse(orch.store.getTask("t2")!.spec_json));
+    assert.deepEqual(g2, { ok: true, reasons: [] });
+    const s = JSON.parse(orch.store.getTask("t2")!.spec_json) as TaskSpec;
+    assert.deepEqual({ ...s.verification!.tests }, { passed: 1, failed: 0, ran: true, runner: "npm test", ok: true });
+  } finally { orch.close(); }
+});
+
+// ---------------------------------------------------------------- baseline da base (revisão adversarial, item 4)
+
+test("parseFailedNames: TAP not ok (sem SKIP/TODO), jest ●, pytest FAILED, cargo FAILED, go --- FAIL; nada legível → null", () => {
+  assert.deepEqual(parseFailedNames("npm", "ok 1 - a\nnot ok 2 - soma vazia\n    not ok 1 - sub\nnot ok 3 - depois # TODO\n"), ["soma vazia", "sub"]);
+  assert.deepEqual(parseFailedNames("yarn", "  ● Lista › soma vazia\n\n  ● Test suite failed to run\n"), ["Lista › soma vazia"]);
+  assert.deepEqual(parseFailedNames("pytest", "FAILED tests/test_a.py::test_soma - assert 1 == 2\nERROR tests/test_b.py::test_db\n"), ["tests/test_a.py::test_soma", "tests/test_b.py::test_db"]);
+  assert.deepEqual(parseFailedNames("cargo", "test calc::soma ... ok\ntest calc::vazia ... FAILED\n"), ["calc::vazia"]);
+  assert.deepEqual(parseFailedNames("go", "--- FAIL: TestB (0.00s)\n    --- FAIL: TestB/sub (0.00s)\n"), ["TestB", "TestB/sub"]);
+  assert.equal(parseFailedNames("npm", "deu ruim"), null);
+});
+
+test("isEnvFailure: comando/módulo ausente e banco fora do ar são ambiente; assert não é", () => {
+  assert.ok(isEnvFailure("sh: vitest: command not found"));
+  assert.ok(isEnvFailure("Error: Cannot find module 'express'"));
+  assert.ok(isEnvFailure("ModuleNotFoundError: No module named 'django'"));
+  assert.ok(isEnvFailure("psql: could not connect to server: Connection refused"));
+  assert.ok(!isEnvFailure("AssertionError: 1 == 2"));
+});
+
+const TR = (o: Partial<TestRun>) => ({ ran: true, passed: false, detail: "x", ...o }) as TestRun;
+test("compareWithBase: falha nova pelos NOMES; sem nomes, pela contagem; ambiente igual dos dois lados = aviso", () => {
+  assert.deepEqual(compareWithBase(TR({ failedNames: ["a"] }), TR({ passed: true })), { fresh: true }, "main verde: toda falha é nova");
+  assert.deepEqual(compareWithBase(TR({ failedNames: ["a"] }), null), { fresh: true });
+  assert.deepEqual(compareWithBase(TR({ failedNames: ["a", "b"] }), TR({ failedNames: ["a"] })), { fresh: true, novos: ["b"] });
+  assert.deepEqual(compareWithBase(TR({ failedNames: ["a"] }), TR({ failedNames: ["a", "c"] })), { fresh: false, warn: "a main já tinha 2 testes falhando" });
+  assert.deepEqual(compareWithBase(TR({ counts: { passed: 8, failed: 2 } }), TR({ counts: { passed: 9, failed: 2 } })), { fresh: false, warn: "a main já tinha 2 testes falhando" });
+  assert.equal(compareWithBase(TR({ counts: { passed: 7, failed: 3 } }), TR({ counts: { passed: 9, failed: 2 } })).fresh, true);
+  assert.deepEqual(compareWithBase(TR({ envFail: true }), TR({ envFail: true })), { fresh: false, warn: "a suíte não roda neste ambiente (a main falha igual)" });
+  assert.equal(compareWithBase(TR({ envFail: true }), TR({ envFail: false })).fresh, true);
+});
+
+test("testGate com a base: main já falhava igual → aviso no selo, sem reprovar; falha nova → reprova citando o teste", async () => {
+  const run = async () => TR({ runner: "npm test", detail: "npm test: 8/10 passaram", counts: { passed: 8, failed: 2 }, failedNames: ["a", "b"] });
+  let baseCalls = 0;
+  const same = await testGate({ worktree: root, wantsTests: false, changed: ["x.ts"], claims: [], timeoutMs: 1000, run, baseline: async () => { baseCalls++; return TR({ failedNames: ["a", "b"] }); } });
+  assert.deepEqual(same.reasons, []);
+  assert.equal(same.verification.tests?.baseWarn, "a main já tinha 2 testes falhando");
+  assert.equal(baseCalls, 1);
+  const novo = await testGate({ worktree: root, wantsTests: false, changed: ["x.ts"], claims: [], timeoutMs: 1000, run, baseline: async () => TR({ failedNames: ["a"] }) });
+  assert.deepEqual(novo.reasons, ["os testes falharam: npm test: 8/10 passaram — falha nova em relação à main: b"]);
+  // passou: a base nem roda
+  await testGate({ worktree: root, wantsTests: false, changed: ["x.ts"], claims: [], timeoutMs: 1000, run: async () => TR({ passed: true }), baseline: async () => { baseCalls++; return null; } });
+  assert.equal(baseCalls, 1, "preguiçoso: suíte verde não roda a base");
+  // cache da mesma versão com aviso: continua sem reprovar
+  const again = await testGate({ worktree: root, wantsTests: false, changed: ["x.ts"], claims: [], timeoutMs: 1000, sha: "s1", prev: { ...same.verification, sha: "s1" }, run });
+  assert.deepEqual(again.reasons, []);
+});
+
+test("portão: suíte que JÁ falhava na main vira aviso (worktree da base, cache em ~/.cardume/baseline); teste novo quebrado reprova", async () => {
+  const repo = gitRepo("base-vermelha");
+  const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap" } }));
+  writeFileSync(join(repo, "velho.test.mjs"), `import { test } from "node:test";\nimport assert from "node:assert";\ntest("ok", () => {});\ntest("quebrado da main", () => { assert.equal(1, 2); });\n`);
+  g("add", "-A"); g("commit", "-q", "-m", "suite com falha antiga");
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("t3"));
+    const t = orch.store.getTask("t3")!;
+    mkdirSync(join(t.worktree, ".cardume", "artifacts"), { recursive: true });
+    writeFileSync(join(t.worktree, ".cardume", "artifacts", "ev.md"), "ok\n");
+    writeFileSync(join(t.worktree, ".cardume", "artifacts", "requirements.json"), JSON.stringify([{ req: "soma os itens", status: "done", evidence: ["ev.md"] }]));
+    writeFileSync(join(t.worktree, "soma.mjs"), "export const soma = (a, b) => a + b;\n");
+    const g1 = await orch.verifyProofs("t3", t, JSON.parse(t.spec_json));
+    assert.deepEqual(g1, { ok: true, reasons: [] }, "a falha já existia na main: não reprova");
+    const s = JSON.parse(orch.store.getTask("t3")!.spec_json) as TaskSpec;
+    assert.equal(s.verification!.tests!.baseWarn, "a main já tinha 1 teste falhando");
+    const cacheDir = baselineDir(repo);
+    assert.equal(readdirSync(cacheDir).filter((f) => f.endsWith(".json")).length, 1, "cache da base gravado");
+    assert.ok(!execFileSync("git", ["-C", repo, "worktree", "list"], { encoding: "utf8" }).includes("starfork-base-"), "worktree da base removida");
+    // cache compartilhado: a mesma base não roda de novo
+    const sha = readdirSync(cacheDir).find((f) => f.endsWith(".json"))!.replace(/\.json$/, "");
+    let calls = 0;
+    await baselineRun({ repo, worktree: t.worktree, baseSha: sha, timeoutMs: 5000, run: async () => { calls++; return TR({}); } });
+    assert.equal(calls, 0);
+    // teste NOVO quebrado: reprova citando ele
+    writeFileSync(join(t.worktree, "novo.test.mjs"), `import { test } from "node:test";\nimport assert from "node:assert";\ntest("quebrado novo", () => { assert.equal(1, 2); });\n`);
+    const g2 = await orch.verifyProofs("t3", orch.store.getTask("t3")!, JSON.parse(orch.store.getTask("t3")!.spec_json));
+    assert.equal(g2.ok, false);
+    assert.ok(g2.reasons.some((r) => /falha nova em relação à main: .*quebrado novo/.test(r)), g2.reasons.join(" · "));
+    assert.ok(!g2.reasons.some((r) => /quebrado da main/.test(r)));
+    assert.ok(existsSync(cacheDir));
+  } finally { orch.close(); }
+});
+
+test("baselineRun: duas chamadas ao mesmo tempo pro mesmo SHA rodam a base uma vez só", async () => {
+  const repo = gitRepo("base-concorrente");
+  const sha = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  let calls = 0;
+  const run = async () => { calls++; await new Promise((r) => setTimeout(r, 200)); return TR({ counts: { passed: 1, failed: 1 } }); };
+  const [a, b] = await Promise.all([baselineRun({ repo, worktree: repo, baseSha: sha, timeoutMs: 5000, run }), baselineRun({ repo, worktree: repo, baseSha: sha, timeoutMs: 5000, run })]);
+  assert.equal(calls, 1);
+  assert.deepEqual(a?.counts, b?.counts);
+});
+
+// ---------------------------------------------------------------- hook Stop (revisão adversarial, itens 5–7)
+
+test("fim de turno do terminal: a suíte NÃO roda em linha — vai pro segundo plano; o selo sai depois e o PR reaproveita", async () => {
+  const repo = gitRepo("turno-bg");
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("t4"));
+    const t = orch.store.getTask("t4")!;
+    // suíte que conta quantas vezes rodou (e demora 1,5 s)
+    writeFileSync(join(t.worktree, "package.json"), JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap c.test.mjs" } }));
+    writeFileSync(join(t.worktree, "c.test.mjs"), `import { test } from "node:test";\nimport { appendFileSync } from "node:fs";\ntest("a", async () => { appendFileSync(${JSON.stringify(join(root, "t4-runs"))}, "x"); await new Promise((r) => setTimeout(r, 1500)); });\n`);
+    const spawned: string[] = [];
+    orch.spawnVerify = (id: string) => { spawned.push(id); return true; };
+    const t0 = Date.now();
+    await orch.terminalTurnEnd("t4", () => false, { deferPr: true, deadline: Date.now() + 240_000 });
+    assert.ok(Date.now() - t0 < 1400, "o hook não esperou a suíte");
+    assert.deepEqual(spawned, ["t4"]);
+    assert.ok(!existsSync(join(root, "t4-runs")), "nada rodou em linha");
+    assert.ok(orch.store.eventsForTask("t4").some((e) => /suíte roda em segundo plano/.test(e.text)));
+    // o processo de segundo plano (verify-tests) roda e grava o selo
+    await orch.runTestsNow("t4");
+    assert.equal(readFileSync(join(root, "t4-runs"), "utf8"), "x");
+    assert.equal((JSON.parse(orch.store.getTask("t4")!.spec_json) as TaskSpec).verification!.tests!.ok, true);
+    // o PR (openPr → verifyProofs completo) cobra o resultado da MESMA versão sem rodar de novo
+    const gate = await orch.verifyProofs("t4", orch.store.getTask("t4")!, JSON.parse(orch.store.getTask("t4")!.spec_json));
+    assert.equal(gate.reasons.filter((r) => /testes/.test(r)).length, 0);
+    assert.equal(readFileSync(join(root, "t4-runs"), "utf8"), "x", "reaproveitou o selo");
+    // prazo absoluto quase vencido no caminho síncrono: min(150 s, prazo − agora − 40 s) < 5 s → também vai pro segundo plano
+    writeFileSync(join(t.worktree, "c2.mjs"), "export {};\n");
+    spawned.length = 0;
+    await orch.verifyProofs("t4", orch.store.getTask("t4")!, JSON.parse(orch.store.getTask("t4")!.spec_json), { deadline: Date.now() + 42_000 });
+    assert.deepEqual(spawned, ["t4"]);
+    assert.equal(readFileSync(join(root, "t4-runs"), "utf8"), "x");
+  } finally { orch.close(); }
+});
+
+const RUNNER = new URL("./test-runner.ts", import.meta.url).href;
+const waitFor = async (f: () => boolean, ms = 10_000) => { const until = Date.now() + ms; while (!f() && Date.now() < until) await new Promise((r) => setTimeout(r, 50)); return f(); };
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+test("SIGTERM no meio da suíte: a suíte filha morre junto (sem órfã) e a trava some", { skip: process.platform === "win32" }, async () => {
+  const d = dirWith({ "package.json": JSON.stringify({ scripts: { test: `node -e "require('fs').writeFileSync('kid.pid', String(process.pid)); setTimeout(()=>{}, 60000)"` } }) });
+  const lock = join(d, "turn-end.lock");
+  writeFileSync(lock, "");
+  const script = `import { runTests, releaseOnExit } from ${JSON.stringify(RUNNER)};\nreleaseOnExit(${JSON.stringify(lock)});\nawait runTests(${JSON.stringify(d)}, { timeoutMs: 60000 });\n`;
+  const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+  const p = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", "--input-type=module", "-e", script], { stdio: "ignore", env });
+  assert.ok(await waitFor(() => existsSync(join(d, "kid.pid"))), "a suíte começou");
+  const kid = Number(readFileSync(join(d, "kid.pid"), "utf8"));
+  assert.ok(alive(kid));
+  p.kill("SIGTERM");
+  await new Promise((r) => p.on("exit", r));
+  assert.ok(await waitFor(() => !alive(kid), 5000), "suíte órfã ficou viva");
+  assert.ok(!existsSync(lock), "turn-end.lock ficou presa");
+});
+
+test("killTree: Windows usa taskkill /T /F (árvore inteira); Unix mata o grupo", () => {
+  const src = readFileSync(new URL("./test-runner.ts", import.meta.url), "utf8");
+  assert.match(src, /spawnSync\("taskkill", \["\/PID", String\(pid\), "\/T", "\/F"\]/);
+  assert.match(src, /process\.kill\(-pid, sig\)/);
+});

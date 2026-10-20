@@ -946,6 +946,7 @@ function renderWorkspace(){
       ${body}
       ${bar}`;
   }
+  if(fwMode==='revisao' && typeof gdMount==='function') gdMount(t, main); // Frente 2: bloco "Guarda" no topo da Revisão
   if(!keepEditor){ main.dataset.mk=mk; fwPutScroll(main, mainMem); }
   if(keepEditor||fwMode==='pr'||fwMode==='revisao'||fwMode==='entrega'||fwMode==='previa'||(fwMode==='codigo'&&typeof cxOn==='function'&&cxOn())){ /* wiring próprio nas funções de página (ou editor intacto) */ }
   else if(fwEditing){
@@ -1230,6 +1231,7 @@ function fwThreadHtml(t){
     { const m=tx.match(/^sessão iniciada · ([^\s·]+)/); if(m) ranBy[e.agent]=aiRunLabel('claude', m[1]);
       const ra=tx.match(/^Route AI: rodando na (.+) \(([^)]+)\)$/); if(ra) ranBy[e.agent]=ra[1]+' · '+ra[2]; }
     // P10: "skills ativas · agente@vN · motor" é medição — fica no "ver detalhes" da faixa, não na conversa
+    if(e.type==='guarda'){ flush(); out.push(`<div class="csys">${esc(tx)}</div>`); continue; } // Frente 2: resumo da guarda de segurança
     if(e.type==='papel' || e.type==='suggest') continue; // suggest = chips de resposta do terminal (64-terminal-integrado), não é fala
     if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
@@ -1253,6 +1255,8 @@ function fwThreadHtml(t){
       out.push(`<div class="cmsg bot"><span class="cav" aria-hidden="true" style="background:${agentColor(e.agent)}">${agentBadge(e.agent)}</span><div style="min-width:0;flex:1">${who}<div class="cbub">${chatMdEv(e.id, tx)}<button class="ccopy" title="copiar">⧉</button></div></div></div>`);
       continue;
     }
+    // verificação independente (src/test-runner.ts): o que o agente relatou não bate com a execução real
+    if(e.type==='relato-divergente'){ flush(); lastWho=''; out.push(`<div class="csys">${(typeof IC!=='undefined'&&IC.warn)||''} ${esc('Relato divergente: '+tx)}</div>`); continue; }
     if(e.type==='error'){ flush(); out.push(`<div class="cmsg bot"><span class="cav" aria-hidden="true" style="background:var(--crit)">!</span><div class="cbub err">${esc(tx)}</div></div>`); continue; }
     // atividade (ler/rodar/editar/…) — acumula pra virar UMA linha de raciocínio
     act.push(e);

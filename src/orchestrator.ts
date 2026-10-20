@@ -1,6 +1,6 @@
 import { cp, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative } from "node:path";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { globsOverlap } from "./glob.ts";
 import { GitService } from "./git.ts";
@@ -13,7 +13,7 @@ import { taskToYaml } from "./util/yaml.ts";
 import { prepEpicTurn } from "./epic-context.ts";
 import { detectMobileProject, isMobileProject, mobileCleanup, mobileProofGaps, mobileTurnRelease, realDeps, UI_FILE_RE, type MobileDeps } from "./mobile.ts";
 import { Brain, extractJson, harvestWorktree, mergeMemNotes, notesInContext, readManifest, seedWorktree, writeManifest, type Note, type NoteInput } from "./memory.ts";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { appendPending, applySkill, itemText, learnedSkills, ownedSkillNames, parseRetro, PERSONA_MAX_CHARS, PERSONA_MIN_N, parseSkillMd, readLearnSettings, readPending, rejectReason, retroOwner, retroPrompt, roleLearningContext, skillsDir, type OwnedSkill, type PendingItem, type SkillEntry, type TeamMember } from "./learn.ts";
 import { homedir } from "node:os";
 import { MockEngine } from "./engine/mock.ts";
@@ -35,6 +35,8 @@ import { attachProofs, proofKind, replaceReport, type AttachResult } from "./pr-
 import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, extraStageAgents, extraStagePrompt, finishExtraStage, newExtraStage, resolveExtraAgent, runningExtra, upsertExtraStage, type ExtraAgent, type ExtraStage } from "./revisao-alteracao.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 import { readSpeaker, speakerLine, speakerTag } from "./quem.ts";
+import { agentClaimFrom, baselineRun, claimFromReq, testGate, testTimeoutMs } from "./test-runner.ts";
+import { guardSummary, prepareGuardInBackground, runGuard, type GuardResult } from "./guard.ts";
 
 /** Catálogo do projeto sem estourar (config ilegível → só os padrões). */
 function loadConfigSafe(repo: string) { try { return loadConfig(repo).agents; } catch { return []; } }
@@ -277,6 +279,8 @@ export class Orchestrator {
   }
 
   async createTask(spec: TaskSpec, refSources: string[] = []): Promise<TaskRow> {
+    // guarda: o gitleaks é preparado em segundo plano já na criação — o portão nunca espera download
+    try { prepareGuardInBackground(); } catch { /* sem guarda: o portão avisa "guarda desligada" */ }
     // Garante a equipe (retrocompat: 1 builder).
     if (!spec.roles || spec.roles.length === 0) {
       spec.roles = [{ role: "builder", name: spec.agent, engine: spec.engine, model: spec.model }];
@@ -903,8 +907,10 @@ export class Orchestrator {
    *     de verdade e precisam passar.
    * Retorna { ok, reasons } — `reasons` descreve o que reprovou.
    */
-  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec, opts: { runTests?: boolean } = {}): Promise<{ ok: boolean; reasons: string[] }> {
+  async verifyProofs(taskId: string, task: TaskRow, spec: TaskSpec, opts: VerifyOpts = {}): Promise<{ ok: boolean; reasons: string[] }> {
     const reasons: string[] = [];
+    // GUARDA DE SEGURANÇA (src/guard.ts): começa já, em paralelo com o resto; consulta sem efeito (runTests:false) não roda
+    const guard = opts.runTests === false ? null : this.changedFiles(task.worktree, task.base).then((files) => runGuard({ worktree: task.worktree, base: task.base, files, policy: spec.orgPolicy, onResult: (g) => this.recordGuard(taskId, g) }));
     const artDir = join(task.worktree, ".cardume", "artifacts");
     let list: Array<{ req?: string; status?: string; evidence?: string[] }> = [];
     let found = false;
@@ -918,6 +924,8 @@ export class Orchestrator {
     }
     if (!found || list.length === 0) {
       if ((spec.requirements ?? []).length) reasons.push("sem requirements.json comprovando os requisitos");
+      if (opts.runTests !== false) reasons.push(...(await this.testGate(taskId, task, spec, opts)));
+      if (guard) reasons.push(...(await guard).reasons);
       return { ok: reasons.length === 0, reasons };
     }
     for (const r of list) {
@@ -935,13 +943,16 @@ export class Orchestrator {
         reasons.push(...mobileProofGaps(list as never, uiChanged, (e) => evidenceExists(artDir, task.worktree, e)));
       }
     } catch { /* sem detecção/diff: fica só a regra geral */ }
-    const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
     // runTests:false = consulta SEM efeito colateral (task_status no terminal): não roda a suíte (até 180s)
-    if (wantsTests && opts.runTests !== false) {
-      const t = await this.runRepoTests(task.worktree);
-      if (t.ran && !t.passed) reasons.push(`os testes falharam: ${t.detail}`);
-    }
+    if (opts.runTests !== false) reasons.push(...(await this.testGate(taskId, task, spec, opts)));
+    if (guard) reasons.push(...(await guard).reasons);
     return { ok: reasons.length === 0, reasons };
+  }
+
+  /** Resultado da guarda: a lista vai pra spec (a Revisão mostra) e uma linha de gente vira o evento `guarda`. */
+  private recordGuard(taskId: string, g: GuardResult): void {
+    try { this.store.patchSpec(taskId, { guard: g }); } catch { /* tarefa sumiu */ }
+    try { this.store.addEvent(taskId, "Sistema", "guarda", guardSummary(g), g.reasons.length === 0); } catch { /* sem store */ }
   }
 
   /** Arquivos mudados na branch (commits desde a base + o que está solto). Falhou → [] (regra leniente). */
@@ -952,28 +963,72 @@ export class Orchestrator {
     return [...out];
   }
 
-  /** Roda o teste do repo NA WORKTREE, se houver `scripts.test` real. Timeout 180s. */
-  private async runRepoTests(worktree: string): Promise<{ ran: boolean; passed: boolean; detail: string }> {
-    // SÓ a falta do package.json (projeto não-node, ou ainda vazio) = sem comando de teste. package.json
-    // ilegível/quebrado continua REPROVANDO, como antes (o projeto não roda).
-    let pkg: { scripts?: Record<string, string> };
-    try {
-      pkg = JSON.parse(await readFile(join(worktree, "package.json"), "utf8"));
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return { ran: false, passed: true, detail: "sem package.json" };
-      return { ran: true, passed: false, detail: `package.json inválido: ${String((err as Error)?.message ?? err).slice(0, 140)}` };
+  /**
+   * VERIFICAÇÃO INDEPENDENTE (src/test-runner.ts): roda a suíte do projeto SEMPRE que houver uma (não só quando a
+   * tarefa pediu), compara com o que o agente relatou e grava o selo em spec.verification. Devolve os motivos de
+   * reprovação (vazio = passou). Tarefa só de docs/CSS pula com o motivo registrado.
+   */
+  private async testGate(taskId: string, task: TaskRow, spec: TaskSpec, opts: VerifyOpts = {}): Promise<string[]> {
+    if (spec.kind === "review") return []; // revisão de PR: a pasta é do PR de outra pessoa, não tem suíte nossa
+    const wantsTests = spec.autonomy?.runTests === true || (spec.artifacts ?? []).some((a) => a.kind === "tests");
+    let reqRaw: unknown = null;
+    for (const p of [join(task.worktree, ".cardume", "artifacts", "requirements.json"), join(this.ws.repo, ".cardume", "artifacts", taskId, "requirements.json")]) {
+      try { reqRaw = JSON.parse(await readFile(p, "utf8")); break; } catch { /* sem arquivo aqui */ }
     }
+    let sha = "", dirty = false;
+    try { sha = (await run("git", ["-C", task.worktree, "rev-parse", "HEAD"])).stdout.trim(); } catch { /* sem git */ }
+    try { dirty = (await run("git", ["-C", task.worktree, "status", "--porcelain"])).stdout.split("\n").some((l) => l.trim() && !l.slice(3).startsWith(".cardume/")); } catch { /* sem git */ }
+    // prazo ABSOLUTO (hook Stop): a suíte só ganha o que sobra até o prazo, com 40 s de folga pro resto do fim de turno
+    const byDeadline = opts.deadline ? Math.min(150_000, opts.deadline - Date.now() - 40_000) : Infinity;
+    const timeoutMs = Math.min(opts.testTimeoutMs ?? Infinity, byDeadline, testTimeoutMs(this.ws.repo));
+    const lock = join(task.worktree, ".cardume", "verify.lock");
+    // outra verificação desta tarefa rodando (a de segundo plano do fim de turno): espera ela e reaproveita o selo
+    if (!opts.testsInBackground) await waitLock(lock, testTimeoutMs(this.ws.repo) + 30_000);
+    const prev = (this.freshSpec(taskId) ?? spec).verification ?? null;
+    const cached = !!(prev?.tests?.ran && !prev.tests.timedOut && sha && prev.sha === sha && !dirty);
+    // fim de turno do terminal: a suíte NÃO roda aqui (seguraria o hook) — vai pro segundo plano e é cobrada no PR
+    if (!cached && (opts.testsInBackground || timeoutMs < 5_000)) {
+      if (this.spawnVerify(taskId)) this.store.addEvent(taskId, "Sistema", "note", "verificação: a suíte roda em segundo plano — o resultado entra no selo e é cobrado antes de abrir o PR", true);
+      return [];
+    }
+    let fd: number | null = null;
+    try { mkdirSync(dirname(lock), { recursive: true }); fd = openSync(lock, "w"); } catch { /* sem trava: segue */ }
     try {
-      const testCmd = pkg.scripts?.test ?? "";
-      if (!testCmd || /no test specified/i.test(testCmd)) return { ran: false, passed: true, detail: "sem comando de teste" };
-      await run("npm", ["test", "--silent"], { cwd: worktree, timeout: 180000 });
-      return { ran: true, passed: true, detail: "npm test passou" };
-    } catch (err) {
-      const e = err as Error & { killed?: boolean; stderr?: string };
-      if (e.killed) return { ran: true, passed: false, detail: "npm test estourou o tempo (180s)" };
-      return { ran: true, passed: false, detail: String(e.stderr || e.message || "").slice(0, 160) };
+      const said = agentClaimFrom(this.store.eventsForTask(taskId));
+      const g = await testGate({ worktree: task.worktree, wantsTests, changed: await this.changedFiles(task.worktree, task.base), claims: [claimFromReq(reqRaw), said?.claim ?? null], timeoutMs, sha, dirty, prev, ci: (this.freshSpec(taskId) ?? spec).ciGate?.ci ?? null,
+        // falhou → a mesma suíte no merge-base: só falha NOVA reprova (a main já vermelha vira aviso no selo)
+        baseline: async () => {
+          const mb = (await run("git", ["-C", task.worktree, "merge-base", "HEAD", task.base])).stdout.trim();
+          return baselineRun({ repo: this.ws.repo, worktree: task.worktree, baseSha: mb, timeoutMs });
+        } });
+      try { this.store.patchSpec(taskId, { verification: g.verification }); } catch { /* banco ocupado: o selo sai na próxima verificação */ }
+      if (g.divergence) this.store.addEvent(taskId, "Sistema", "relato-divergente", g.divergence, false);
+      if (g.note && g.run === null && g.verification.tests?.skipped) this.store.addEvent(taskId, "Sistema", "note", `verificação: ${g.note}`, true);
+      if (g.run?.timedOut && !wantsTests) this.store.addEvent(taskId, "Sistema", "note", `verificação: ${g.run.detail} — a entrega não foi reprovada por isso (a tarefa não pediu testes)`, false);
+      if (g.verification.tests?.baseWarn && g.run) this.store.addEvent(taskId, "Sistema", "note", `verificação: a suíte falhou, mas ${g.verification.tests.baseWarn} — não reprovei por isso`, false);
+      return g.reasons;
+    } finally {
+      if (fd !== null) { try { closeSync(fd); } catch { /* já fechado */ } }
+      rmSync(lock, { force: true });
     }
   }
+
+  /** `verify-tests <id>` (processo destacado do fim de turno): roda a suíte agora e grava o selo. */
+  async runTestsNow(taskId: string): Promise<string[]> {
+    const task = this.store.getTask(taskId);
+    if (!task || ["merged", "aborted"].includes(task.status)) return [];
+    return this.testGate(taskId, task, this.freshSpec(taskId) ?? (JSON.parse(task.spec_json) as TaskSpec));
+  }
+
+  /** Dispara `verify-tests` destacado (o CLI que está rodando é o process.argv[1]). Nos testes (node --test) não dispara. */
+  spawnVerify = (taskId: string): boolean => {
+    if (process.env.NODE_TEST_CONTEXT && !process.env.STARFORK_VERIFY_SPAWN) return false;
+    try {
+      const c = spawn(process.execPath, [...process.execArgv.filter((a) => a === "--experimental-sqlite"), "--disable-warning=ExperimentalWarning", process.argv[1], "verify-tests", taskId, "--repo", this.ws.repo], { cwd: this.ws.repo, detached: true, stdio: "ignore", env: process.env });
+      c.unref();
+      return true;
+    } catch { return false; }
+  };
 
   /**
    * SEQUENTIAL-LOCK honrado: se a política é sequential-lock e o escopo desta
@@ -2631,7 +2686,7 @@ export class Orchestrator {
    * coleta artefatos, roda o GATE (verifyProofs) e leva a tarefa pra "review". Se um turno novo começou
    * no meio (sessão ocupada de novo), não mexe no status. Devolve o resultado do gate.
    */
-  async terminalTurnEnd(taskId: string, isBusy: () => boolean = () => false, o: { deferPr?: boolean } = {}): Promise<{ ok: boolean; reasons: string[]; openPr?: boolean } | null> {
+  async terminalTurnEnd(taskId: string, isBusy: () => boolean = () => false, o: { deferPr?: boolean; deadline?: number } = {}): Promise<{ ok: boolean; reasons: string[]; openPr?: boolean } | null> {
     const task = this.store.getTask(taskId);
     if (!task) return null;
     const spec = JSON.parse(task.spec_json) as TaskSpec;
@@ -2668,7 +2723,8 @@ export class Orchestrator {
     }
     // etapa extra que rodou NESTE turno do terminal (o app mandou a instrução pra mesma sessão): fecha com o que mudou
     if (runningExtra(this.freshSpec(taskId)?.extraStages)) await this.finishExtraStage(taskId, true).catch(() => null);
-    const gate = await this.verifyProofs(taskId, task, spec).catch((e) => ({ ok: false, reasons: [String((e as Error)?.message ?? e)] }));
+    // fim de turno do terminal: a suíte vai pro segundo plano (o hook Stop não segura); o PR cobra o resultado
+    const gate = await this.verifyProofs(taskId, task, spec, { testsInBackground: true, deadline: o.deadline }).catch((e) => ({ ok: false, reasons: [String((e as Error)?.message ?? e)] }));
     this.store.addEvent(taskId, "Sistema", "note", gate.ok ? "gate de verificação: ok — requisitos provados com evidência" : `gate de verificação: pendente — ${gate.reasons.slice(0, 3).join(" · ")}`, gate.ok);
     if (isBusy()) return gate; // a pessoa já mandou outra coisa: o turno novo manda no status
     // fim de uma rodada de CONSTRUÇÃO com revisor na equipe: o terminal troca pro revisor (o app executa a troca)
@@ -2827,5 +2883,20 @@ export async function rewritePrReport(prUrl: string, report: string, cwd: string
     return { changed: true };
   } catch (e) {
     return { changed: false, error: String((e as { stderr?: string }).stderr || (e as Error).message || e).trim() };
+  }
+}
+
+/** Opções do portão: runTests:false = consulta sem efeito; testsInBackground = fim de turno do terminal (a suíte vai
+ * pra um processo destacado); deadline = prazo absoluto (ms) do hook — a suíte ganha min(150 s, prazo − agora − 40 s). */
+export interface VerifyOpts { runTests?: boolean; testTimeoutMs?: number; testsInBackground?: boolean; deadline?: number }
+
+/** Espera a trava de verificação desta tarefa sumir (outro processo rodando a suíte); trava velha não segura. */
+async function waitLock(lock: string, maxMs: number): Promise<void> {
+  const until = Date.now() + maxMs;
+  while (Date.now() < until) {
+    let age = 0;
+    try { age = Date.now() - statSync(lock).mtimeMs; } catch { return; }
+    if (age > maxMs) return;
+    await sleep(500);
   }
 }

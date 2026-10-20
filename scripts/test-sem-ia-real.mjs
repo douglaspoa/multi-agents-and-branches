@@ -20,3 +20,6 @@ if (process.platform !== "win32" && !process.env.STARFORK_TEST_NO_AI) {
   process.env.STARFORK_TEST_NO_AI = bin; // filhos herdam e reusam o mesmo binário
   for (const k of ["CARDUME_CLAUDE", "CARDUME_CODEX"]) process.env[k] ??= bin;
 }
+
+// Frente 2 (src/guard.ts): o portão nunca baixa o gitleaks durante os testes (teste que precisa injeta o próprio).
+process.env.STARFORK_GUARD_NO_DOWNLOAD ??= "1";

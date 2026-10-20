@@ -22,6 +22,7 @@ mod autopilot;
 mod epic_context;
 mod epic_requests;
 mod gh_contas;
+mod guard_sign;
 mod learn;
 mod media_proto;
 mod navegador;
@@ -1057,7 +1058,7 @@ fn signal_group(pid: i32, sig: i32) {
 /// MODO PROTEGIDO — regras de NEGAÇÃO do Claude Code (`--disallowedTools`), que valem
 /// MESMO em `--permission-mode bypassPermissions` (as regras de deny são avaliadas antes
 /// do modo). ESPELHO de src/engine/protect.ts (denyRules) — o teste TS confere a lista.
-const PROTECT_DENY: [&str; 50] = [
+const PROTECT_DENY: [&str; 52] = [
     "Read(**/.env)",
     "Edit(**/.env)",
     "Read(**/.env.local)",
@@ -1088,6 +1089,8 @@ const PROTECT_DENY: [&str; 50] = [
     "Edit(**/.ssh/**)",
     "Read(**/.aws/**)",
     "Edit(**/.aws/**)",
+    "Read(~/.cardume/guard.key)",
+    "Edit(~/.cardume/guard.key)",
     "Bash(rm -rf /)",
     "Bash(rm -rf / *)",
     "Bash(rm -rf ~)",
@@ -1310,7 +1313,8 @@ fn task_front_spec(spec: &serde_json::Value) -> Option<serde_json::Value> {
     let mut m = serde_json::Map::new();
     // ciclo da tarefa (mesa 03/10): teto/liberações, exceção "precisa de você", tipo, rodadas e o que rodou por papel; termMode (motor terminal)
     // advisor: o conselheiro PEDIDO na tarefa (faixa, Entrega e doca do terminal — src/advisor.ts)
-    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "termRole", "advisor"] {
+    // verification/ciGate: o selo da verificação independente (src/test-runner.ts) e o vigia do CI (83-verificacao.js)
+    for k in ["budgetUsd", "budgetHit", "autopilot", "termMode", "needsYou", "budgetReleases", "taskKind", "reviewRounds", "roleRuns", "termRole", "advisor", "verification", "ciGate"] {
         if let Some(v) = spec.get(k).filter(|v| !v.is_null()) { m.insert(k.to_string(), v.clone()); }
     }
     // Cadeado 1 na faixa: a tarefa pausa pra aprovar o plano?
@@ -4446,7 +4450,8 @@ fn build_info() -> String {
 /// Whitelist de estados seguros; merged também libera claims/pendências.
 #[tauri::command(async)]
 fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> Result<(), String> {
-    if !["review", "merged", "draft", "running", "cancelled"].contains(&status.as_str()) {
+    // needs-you: o vigia do CI (83-verificacao) para a tarefa pra pessoa decidir depois das voltas automáticas
+    if !["review", "merged", "draft", "running", "cancelled", "needs-you"].contains(&status.as_str()) {
         return Err(format!("status inválido: {status}"));
     }
     // cancelar = parar o agente se estiver rodando (como abortar, mas com rótulo próprio)
@@ -7455,6 +7460,30 @@ fn rename_branch(state: State<AppState>, task_id: String, name: String) -> Resul
     Ok(clean)
 }
 
+/// Frente 2: "dispensar" um achado da guarda de segurança — grava a entrada ASSINADA (HMAC com a chave local
+/// ~/.cardume/guard.key, que só o app usa) no .cardume/guard-ignore.json da worktree e rastreia o arquivo à força
+/// (`.cardume/` está no exclude) pra ele ir junto na branch. Em revisão de PR de outra pessoa (kind "review") NÃO
+/// rastreia: a dispensa fica só local.
+#[tauri::command(async)]
+fn guard_dismiss(state: State<AppState>, task_id: String, fingerprint: String, motivo: String, por: String, em: String) -> Result<(), String> {
+    let (wt, _base) = task_wt_base(&state, &task_id)?;
+    if !wt.is_dir() {
+        return Err("a worktree desta tarefa não existe mais".into());
+    }
+    let rel = guard_sign::dismiss(&wt, std::path::Path::new(&home_dir_s()), &fingerprint, &motivo, &por, &em)?;
+    let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let kind: String = open(&path)
+        .ok()
+        .and_then(|c| c.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("kind").and_then(|k| k.as_str()).map(|k| k.to_string()))
+        .unwrap_or_default();
+    if kind != "review" {
+        let _ = Command::new("git").arg("-C").arg(&wt).args(["add", "-f", rel]).output();
+    }
+    Ok(())
+}
+
 /// Salva o arquivo editado na worktree.
 #[tauri::command(async)]
 fn write_file(state: State<AppState>, task_id: String, path: String, content: String) -> Result<(), String> {
@@ -8184,6 +8213,10 @@ struct PrInfo {
     additions: i64,
     deletions: i64,
     changed_files: i64,
+    /// commit da ponta do PR (headRefOid) — o vigia do CI (83-verificacao.js) trata cada falha UMA vez por commit
+    head_sha: String,
+    /// ids das execuções do GitHub Actions das checagens que falharam (pra `gh run view <id> --log-failed`)
+    failing_runs: Vec<String>,
 }
 
 fn pr_is_bot(a: &str) -> bool {
@@ -8429,10 +8462,10 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         exists: false, number: 0, url: String::new(), state: String::new(), decision: String::new(), mergeable: String::new(), body: String::new(),
         comments: vec![], reviews: vec![], is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
         checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(), created_at: String::new(),
-        additions: 0, deletions: 0, changed_files: 0,
+        additions: 0, deletions: 0, changed_files: 0, head_sha: String::new(), failing_runs: vec![],
     };
     let mut vcmd = gh_contas::gh_in(&repo);
-    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName,createdAt,additions,deletions,changedFiles"]).args(gh_repo_args(&repo)).current_dir(&repo);
+    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName,headRefOid,createdAt,additions,deletions,changedFiles"]).args(gh_repo_args(&repo)).current_dir(&repo);
     let view = output_timeout(vcmd, 12).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
     if !view.status.success() {
         let err = String::from_utf8_lossy(&view.stderr).to_string();
@@ -8610,7 +8643,50 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         additions: v["additions"].as_i64().unwrap_or(0),
         deletions: v["deletions"].as_i64().unwrap_or(0),
         changed_files: v["changedFiles"].as_i64().unwrap_or(0),
+        head_sha: v["headRefOid"].as_str().unwrap_or("").to_string(),
+        failing_runs: pr_failing_runs(&v["statusCheckRollup"]),
     })
+}
+
+/// Ids das execuções do Actions (detailsUrl …/actions/runs/<id>/…) das checagens que FALHARAM — sem repetir.
+fn pr_failing_runs(rollup: &serde_json::Value) -> Vec<String> {
+    let failing = pr_failing_checks(rollup);
+    let mut out: Vec<String> = vec![];
+    if let Some(arr) = rollup.as_array() {
+        for c in arr {
+            let name = c["name"].as_str().or_else(|| c["context"].as_str()).unwrap_or("").trim();
+            if name.is_empty() || !failing.iter().any(|f| f == name) { continue; }
+            let url = c["detailsUrl"].as_str().or_else(|| c["targetUrl"].as_str()).unwrap_or("");
+            if let Some(id) = url.split("/actions/runs/").nth(1).map(|r| r.chars().take_while(|ch| ch.is_ascii_digit()).collect::<String>()) {
+                if !id.is_empty() && !out.contains(&id) { out.push(id); }
+            }
+        }
+    }
+    out
+}
+
+/// As últimas `n` linhas de um texto (o log de CI que volta pro agente).
+fn tail_lines(s: &str, n: usize) -> String {
+    let lines: Vec<&str> = s.trim_end().lines().collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+/// Últimas 60 linhas do log das etapas que falharam numa execução do GitHub Actions (`gh run view <id> --log-failed`),
+/// com a conta do gh deste repo (gh_contas). O vigia do CI (83-verificacao.js) devolve isso pro agente.
+#[tauri::command(async)]
+fn pr_ci_log(state: State<AppState>, run_id: String) -> Result<String, String> {
+    let id = run_id.trim();
+    if id.is_empty() || id.len() > 20 || !id.chars().all(|c| c.is_ascii_digit()) {
+        return Err("id de execução inválido".to_string());
+    }
+    let repo = repo_of(&state)?;
+    let mut c = gh_contas::gh_in(&repo);
+    c.args(["run", "view", id, "--log-failed"]).args(gh_repo_args(&repo)).current_dir(&repo);
+    let o = output_timeout(c, 30).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
+    if !o.status.success() {
+        return Err(format!("gh run view falhou: {}", String::from_utf8_lossy(&o.stderr).trim()));
+    }
+    Ok(tail_lines(&String::from_utf8_lossy(&o.stdout), 60))
 }
 
 #[derive(Serialize)]
@@ -11085,6 +11161,7 @@ pub fn run() {
             task_files,
             read_file,
             write_file,
+            guard_dismiss,
             rename_branch,
             read_ref,
             list_branches,
@@ -11094,6 +11171,7 @@ pub fn run() {
             provas_setting,
             pr_compare_url,
             pr_status,
+            pr_ci_log,
             pr_resolve_thread,
             merge_pr,
             rework_from_pr,
@@ -11356,7 +11434,7 @@ mod pr_status_tests {
             exists: true, number: 1, url: "u".into(), state: "OPEN".into(), decision: decision.into(), mergeable: String::new(), body: String::new(),
             comments: vec![], reviews: rs.clone(), is_draft: false, merge_state_status: String::new(), base_ref_name: String::new(),
             checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(), created_at: String::new(),
-            additions: 0, deletions: 0, changed_files: 0,
+            additions: 0, deletions: 0, changed_files: 0, head_sha: String::new(), failing_runs: vec![],
         };
         let none = std::collections::HashSet::new();
         let info = mk("CHANGES_REQUESTED");
@@ -11381,6 +11459,28 @@ mod pr_status_tests {
         assert_eq!(pr_failing_checks(&r), vec!["test".to_string(), "vercel".to_string()]);
         assert!(pr_failing_checks(&serde_json::Value::Null).is_empty());
         assert_eq!(pr_checks_summary(&serde_json::Value::Null), (0, 0, 0));
+    }
+    #[test]
+    fn ci_runs_que_falharam_e_cauda_do_log() {
+        let r = serde_json::json!([
+            {"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/o/r/actions/runs/11/job/1"},
+            {"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/o/r/actions/runs/222/job/9"},
+            {"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE","detailsUrl":"https://github.com/o/r/actions/runs/222/job/10"},
+            {"__typename":"StatusContext","context":"vercel","state":"ERROR","targetUrl":"https://vercel.com/x"}
+        ]);
+        assert_eq!(pr_failing_runs(&r), vec!["222".to_string()], "só as que falharam, sem repetir; fora do Actions não tem log");
+        assert!(pr_failing_runs(&serde_json::Value::Null).is_empty());
+        let log: String = (1..=100).map(|i| format!("linha {i}\n")).collect();
+        let t = tail_lines(&log, 60);
+        assert_eq!(t.lines().count(), 60);
+        assert!(t.starts_with("linha 41") && t.ends_with("linha 100"));
+        assert_eq!(tail_lines("a\nb", 60), "a\nb");
+    }
+    #[test]
+    fn snapshot_leva_o_selo_de_verificacao() {
+        let b = task_front_spec(&serde_json::json!({"verification":{"divergente":true,"tests":{"passed":84,"failed":2}},"ciGate":{"rounds":1}})).expect("tem selo");
+        assert_eq!(b["verification"]["divergente"], true);
+        assert_eq!(b["ciGate"]["rounds"], 1);
     }
     #[test]
     fn no_pr_vs_network_error() {

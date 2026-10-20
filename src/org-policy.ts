@@ -108,3 +108,17 @@ export function applyOrgPolicy(spec0: TaskSpec, p: OrgAgentPolicy, catalog: { id
   spec.orgPolicy = { rules: policyRules(p), ...(p.tetoMaxUsd != null ? { tetoMaxUsd: p.tetoMaxUsd } : {}), ...(p.portao ? { portao: true } : {}) };
   return { spec, blocked: "", notes };
 }
+
+/**
+ * Frente 2 · guarda de segurança no diff (src/guard.ts): "segredo sempre bloqueia" e "semgrep alto bloqueia" ficam
+ * LIGADOS por padrão. Só um `false` explícito em `agentes.guard` (ou `guard` direto) rebaixa pra aviso. Devolve null
+ * quando nada foi relaxado — aí a spec nem leva o bloco e vale o padrão.
+ */
+export function orgGuardPolicy(raw: unknown): { secretsBlock: boolean; codeHighBlock: boolean } | null {
+  const o0 = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const o = o0.agentes && typeof o0.agentes === "object" ? (o0.agentes as Record<string, unknown>) : o0;
+  const g = o.guard && typeof o.guard === "object" ? (o.guard as Record<string, unknown>) : {};
+  const secretsBlock = g.secretsBlock !== false;
+  const codeHighBlock = g.codeHighBlock !== false;
+  return secretsBlock && codeHighBlock ? null : { secretsBlock, codeHighBlock };
+}
