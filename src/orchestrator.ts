@@ -35,7 +35,8 @@ import { attachProofs, proofKind, replaceReport, type AttachResult } from "./pr-
 import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, extraStageAgents, extraStagePrompt, finishExtraStage, newExtraStage, resolveExtraAgent, runningExtra, upsertExtraStage, type ExtraAgent, type ExtraStage } from "./revisao-alteracao.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 import { readSpeaker, speakerLine, speakerTag } from "./quem.ts";
-import { agentClaimFrom, baselineRun, claimFromReq, testGate, testTimeoutMs } from "./test-runner.ts";
+import { agentClaimFrom, baselineRun, claimFromReq, detectRunner, testGate, testTimeoutMs, type Runner, type Verification } from "./test-runner.ts";
+import { affectedPlan, detectCi, effectiveTestMode, readTestCfg, recordDuration, suggestAffected, type TestMode } from "./test-plan.ts";
 import { guardSummary, prepareGuardInBackground, runGuard, type GuardResult } from "./guard.ts";
 
 /** Catálogo do projeto sem estourar (config ilegível → só os padrões). */
@@ -978,57 +979,99 @@ export class Orchestrator {
     let sha = "", dirty = false;
     try { sha = (await run("git", ["-C", task.worktree, "rev-parse", "HEAD"])).stdout.trim(); } catch { /* sem git */ }
     try { dirty = (await run("git", ["-C", task.worktree, "status", "--porcelain"])).stdout.split("\n").some((l) => l.trim() && !l.slice(3).startsWith(".cardume/")); } catch { /* sem git */ }
+    const fresh0 = this.freshSpec(taskId) ?? spec;
+    const prev0 = fresh0.verification ?? null;
+    // ---- onda 1.1: o modo do projeto (checks.json), que a política da organização pode fixar ----
+    const cfg = readTestCfg(this.ws.repo);
+    const { mode } = effectiveTestMode(cfg, (fresh0.orgPolicy as { testMode?: TestMode } | null | undefined)?.testMode ?? null);
+    const seal = (tests: NonNullable<Verification["tests"]>) => {
+      try { this.store.patchSpec(taskId, { verification: { tests, ci: prev0?.ci ?? null, divergente: false, at: Date.now(), ...(sha && !dirty ? { sha } : {}) } satisfies Verification }); } catch { /* banco ocupado */ }
+    };
+    // a pessoa entregou sem esperar os testes (desta versão): não roda nem espera
+    const skip = fresh0.testsSkip;
+    if (skip?.reason && (!skip.sha || skip.sha === sha)) {
+      seal({ passed: prev0?.tests?.passed ?? null, failed: prev0?.tests?.failed ?? null, ran: false, runner: prev0?.tests?.runner ?? "", ok: true, skippedBy: skip.reason });
+      return [];
+    }
+    if (mode === "desligado") { seal({ passed: null, failed: null, ran: false, runner: "", ok: true, off: "testes desligados neste projeto" }); return []; }
+    if (mode === "so-no-pr" && !opts.forPr) { if (!prev0?.tests?.ran) seal({ passed: null, failed: null, ran: false, runner: "", ok: true, off: "os testes rodam ao abrir o PR" }); return []; }
     // prazo ABSOLUTO (hook Stop): a suíte só ganha o que sobra até o prazo, com 40 s de folga pro resto do fim de turno
+    const tmo = cfg.testTimeoutSec ? cfg.testTimeoutSec * 1000 : testTimeoutMs(this.ws.repo);
     const byDeadline = opts.deadline ? Math.min(150_000, opts.deadline - Date.now() - 40_000) : Infinity;
-    const timeoutMs = Math.min(opts.testTimeoutMs ?? Infinity, byDeadline, testTimeoutMs(this.ws.repo));
+    const timeoutMs = Math.min(opts.testTimeoutMs ?? Infinity, byDeadline, tmo);
+    const changed = await this.changedFiles(task.worktree, task.base);
+    // o plano: com CI, só os testes AFETADOS (a suíte inteira fica com o CI e o vigia); sem CI, a inteira
+    const hasCi = detectCi(task.worktree) || (fresh0.ciGate?.ci?.total ?? 0) > 0;
+    let plan: { scope: "afetados" | "inteira"; runner: Runner | null; sig: string; ci?: boolean } | undefined;
+    try {
+      const runner = detectRunner(task.worktree);
+      const fast = (mode === "auto" || mode === "afetados") ? cfg.testFast : undefined;
+      const full = mode === "sempre" || (mode === "auto" && !hasCi && !fast);
+      plan = { ...affectedPlan(task.worktree, runner, changed, { full, fullWhy: mode === "sempre" ? "modo sempre" : "o projeto não tem CI", testFast: fast, fullSuiteOver: cfg.fullSuiteOver }), ci: hasCi };
+    } catch { plan = undefined; /* package.json inválido: testGate reprova como sempre */ }
     const lock = join(task.worktree, ".cardume", "verify.lock");
-    // outra verificação desta tarefa rodando (a de segundo plano do fim de turno): espera ela e reaproveita o selo
-    if (!opts.testsInBackground) await waitLock(lock, testTimeoutMs(this.ws.repo) + 30_000);
+    if (!opts.bg) {
+      // a entrega lê o resultado da versão atual: uma verificação de OUTRA versão rodando é cancelada; da MESMA, espera
+      const h = readVerifyLock(lock);
+      if (h?.bg && h.sha && h.sha !== sha) { killVerify(h.pid); await waitLock(lock, 10_000); }
+      if (!opts.testsInBackground) { supersedePending(task.worktree); await waitLock(lock, tmo + 30_000); }
+    }
     const prev = (this.freshSpec(taskId) ?? spec).verification ?? null;
-    const cached = !!(prev?.tests?.ran && !prev.tests.timedOut && sha && prev.sha === sha && !dirty);
+    const cached = !!(prev?.tests?.ran && !prev.tests.timedOut && sha && prev.sha === sha && !dirty && (prev.tests.planSig ?? "") === (plan?.sig ?? prev.tests.planSig ?? ""));
     // fim de turno do terminal: a suíte NÃO roda aqui (seguraria o hook) — vai pro segundo plano e é cobrada no PR
     if (!cached && (opts.testsInBackground || timeoutMs < 5_000)) {
       if (this.spawnVerify(taskId)) this.store.addEvent(taskId, "Sistema", "note", "verificação: a suíte roda em segundo plano — o resultado entra no selo e é cobrado antes de abrir o PR", true);
       return [];
     }
-    let fd: number | null = null;
-    try { mkdirSync(dirname(lock), { recursive: true }); fd = openSync(lock, "w"); } catch { /* sem trava: segue */ }
+    try { mkdirSync(dirname(lock), { recursive: true }); writeFileSync(lock, JSON.stringify({ pid: process.pid, bg: !!opts.bg, sha, at: Date.now() })); } catch { /* sem trava: segue */ }
+    if (!cached) { try { this.store.patchSpec(taskId, { verification: { ...(prev ?? { tests: null, ci: null, divergente: false, at: Date.now() }), running: { since: Date.now(), sha } } }); } catch { /* banco ocupado */ } }
     try {
       const said = agentClaimFrom(this.store.eventsForTask(taskId));
-      const g = await testGate({ worktree: task.worktree, wantsTests, changed: await this.changedFiles(task.worktree, task.base), claims: [claimFromReq(reqRaw), said?.claim ?? null], timeoutMs, sha, dirty, prev, ci: (this.freshSpec(taskId) ?? spec).ciGate?.ci ?? null,
-        // falhou → a mesma suíte no merge-base: só falha NOVA reprova (a main já vermelha vira aviso no selo)
+      const g = await testGate({ worktree: task.worktree, wantsTests, changed, claims: [claimFromReq(reqRaw), said?.claim ?? null], timeoutMs, sha, dirty, prev, ci: (this.freshSpec(taskId) ?? spec).ciGate?.ci ?? null, plan,
+        // falhou → o MESMO plano no merge-base: só falha NOVA reprova (a main já vermelha vira aviso no selo)
         baseline: async () => {
           const mb = (await run("git", ["-C", task.worktree, "merge-base", "HEAD", task.base])).stdout.trim();
-          return baselineRun({ repo: this.ws.repo, worktree: task.worktree, baseSha: mb, timeoutMs });
+          return baselineRun({ repo: this.ws.repo, worktree: task.worktree, baseSha: mb, timeoutMs, ...(plan ? { runner: plan.runner, planSig: plan.sig } : {}) });
         } });
-      try { this.store.patchSpec(taskId, { verification: g.verification }); } catch { /* banco ocupado: o selo sai na próxima verificação */ }
+      // duração da suíte (histórico por repo) → sugestão, uma vez por projeto, de rodar só os afetados
+      const v: Verification = { ...g.verification, running: null };
+      if (g.run?.ran && !g.run.timedOut && g.run.durationMs != null) {
+        const recs = recordDuration(this.ws.repo, { at: Date.now(), ms: g.run.durationMs, scope: plan?.scope ?? "inteira", ok: g.run.passed });
+        const avg = suggestAffected(recs, cfg, mode, hasCi);
+        if (avg != null) v.suggest = { avgSec: avg };
+      }
+      try { this.store.patchSpec(taskId, { verification: v }); } catch { /* banco ocupado: o selo sai na próxima verificação */ }
       if (g.divergence) this.store.addEvent(taskId, "Sistema", "relato-divergente", g.divergence, false);
       if (g.note && g.run === null && g.verification.tests?.skipped) this.store.addEvent(taskId, "Sistema", "note", `verificação: ${g.note}`, true);
       if (g.run?.timedOut && !wantsTests) this.store.addEvent(taskId, "Sistema", "note", `verificação: ${g.run.detail} — a entrega não foi reprovada por isso (a tarefa não pediu testes)`, false);
       if (g.verification.tests?.baseWarn && g.run) this.store.addEvent(taskId, "Sistema", "note", `verificação: a suíte falhou, mas ${g.verification.tests.baseWarn} — não reprovei por isso`, false);
       return g.reasons;
     } finally {
-      if (fd !== null) { try { closeSync(fd); } catch { /* já fechado */ } }
-      rmSync(lock, { force: true });
+      const h = readVerifyLock(lock);
+      if (!h || h.pid === process.pid) rmSync(lock, { force: true });
     }
   }
 
-  /** `verify-tests <id>` (processo destacado do fim de turno): roda a suíte agora e grava o selo. */
-  async runTestsNow(taskId: string): Promise<string[]> {
+  /** `verify-tests <id> [--debounce ms]` (processo destacado): roda a suíte agora e grava o selo. Com debounce, espera
+   * o agente parar de commitar — um pedido mais novo (outro commit, o fim de turno, a entrega) cancela este. */
+  async runTestsNow(taskId: string, o: { debounceMs?: number } = {}): Promise<string[]> {
+    const task0 = this.store.getTask(taskId);
+    if (!task0 || ["merged", "aborted"].includes(task0.status)) return [];
+    const token = supersedePending(task0.worktree);
+    if (o.debounceMs) {
+      await sleep(o.debounceMs);
+      if (readWant(task0.worktree) !== token) return []; // outro pedido chegou depois: ele roda, este desiste
+    }
+    const lock = join(task0.worktree, ".cardume", "verify.lock");
+    const h = readVerifyLock(lock);
+    if (h?.bg && h.pid !== process.pid) { killVerify(h.pid); await waitLock(lock, 10_000); } // a verificação da versão velha morre (com a árvore)
     const task = this.store.getTask(taskId);
-    if (!task || ["merged", "aborted"].includes(task.status)) return [];
-    return this.testGate(taskId, task, this.freshSpec(taskId) ?? (JSON.parse(task.spec_json) as TaskSpec));
+    if (!task) return [];
+    return this.testGate(taskId, task, this.freshSpec(taskId) ?? (JSON.parse(task.spec_json) as TaskSpec), { bg: true });
   }
 
   /** Dispara `verify-tests` destacado (o CLI que está rodando é o process.argv[1]). Nos testes (node --test) não dispara. */
-  spawnVerify = (taskId: string): boolean => {
-    if (process.env.NODE_TEST_CONTEXT && !process.env.STARFORK_VERIFY_SPAWN) return false;
-    try {
-      const c = spawn(process.execPath, [...process.execArgv.filter((a) => a === "--experimental-sqlite"), "--disable-warning=ExperimentalWarning", process.argv[1], "verify-tests", taskId, "--repo", this.ws.repo], { cwd: this.ws.repo, detached: true, stdio: "ignore", env: process.env });
-      c.unref();
-      return true;
-    } catch { return false; }
-  };
+  spawnVerify = (taskId: string, debounceMs = 0): boolean => spawnVerifyCli(taskId, this.ws.repo, debounceMs);
 
   /**
    * SEQUENTIAL-LOCK honrado: se a política é sequential-lock e o escopo desta
@@ -1667,7 +1710,7 @@ export class Orchestrator {
       }
     }
     if (!o.draft) {
-      const gate = await this.verifyProofs(taskId, task, spec);
+      const gate = await this.verifyProofs(taskId, task, spec, { forPr: true });
       if (!gate.ok) {
         const why = gate.reasons.slice(0, 3).join(" · ");
         this.store.addEvent(taskId, agent, "note", `PR NÃO aberto (gate de verificação): ${why}`, false);
@@ -2888,15 +2931,51 @@ export async function rewritePrReport(prUrl: string, report: string, cwd: string
 
 /** Opções do portão: runTests:false = consulta sem efeito; testsInBackground = fim de turno do terminal (a suíte vai
  * pra um processo destacado); deadline = prazo absoluto (ms) do hook — a suíte ganha min(150 s, prazo − agora − 40 s). */
-export interface VerifyOpts { runTests?: boolean; testTimeoutMs?: number; testsInBackground?: boolean; deadline?: number }
+export interface VerifyOpts { runTests?: boolean; testTimeoutMs?: number; testsInBackground?: boolean; deadline?: number; forPr?: boolean; bg?: boolean }
 
 /** Espera a trava de verificação desta tarefa sumir (outro processo rodando a suíte); trava velha não segura. */
 async function waitLock(lock: string, maxMs: number): Promise<void> {
   const until = Date.now() + maxMs;
   while (Date.now() < until) {
-    let age = 0;
-    try { age = Date.now() - statSync(lock).mtimeMs; } catch { return; }
-    if (age > maxMs) return;
+    if (!readVerifyLock(lock)) return; // sem trava, ou o dono morreu
     await sleep(500);
   }
+}
+
+/** Quem segura a trava de verificação da tarefa: { pid, bg (processo de segundo plano), sha (versão) }. */
+function readVerifyLock(lock: string): { pid: number; bg: boolean; sha: string } | null {
+  try {
+    const j = JSON.parse(readFileSync(lock, "utf8"));
+    const pid = Number(j?.pid);
+    if (!Number.isFinite(pid) || pid <= 0) return null;
+    try { process.kill(pid, 0); } catch { return null; } // dono morreu: trava velha
+    return { pid, bg: j.bg === true, sha: String(j.sha ?? "") };
+  } catch { return null; }
+}
+/** Cancela uma verificação de segundo plano: SIGTERM no processo (o exit dele mata a suíte filha com a árvore). */
+function killVerify(pid: number): void {
+  if (pid === process.pid) return;
+  try { process.kill(pid, "SIGTERM"); } catch { /* já morreu */ }
+}
+const wantFile = (wt: string) => join(wt, ".cardume", "verify.want");
+function readWant(wt: string): string { try { return readFileSync(wantFile(wt), "utf8").trim(); } catch { return ""; } }
+/** Marca um pedido de verificação novo: quem estava esperando o debounce desiste. Devolve o token. */
+function supersedePending(wt: string): string {
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  try { mkdirSync(dirname(wantFile(wt)), { recursive: true }); writeFileSync(wantFile(wt), token); } catch { /* sem pasta */ }
+  return token;
+}
+/** `verify-tests <id>` destacado (o CLI que roda é o process.argv[1] — o mesmo jeito do fim de turno). */
+export function spawnVerifyCli(taskId: string, repo: string, debounceMs = 0): boolean {
+  if (process.env.NODE_TEST_CONTEXT && !process.env.STARFORK_VERIFY_SPAWN) return false;
+  try {
+    const c = spawn(process.execPath, [...process.execArgv.filter((a) => a === "--experimental-sqlite"), "--disable-warning=ExperimentalWarning", process.argv[1], "verify-tests", taskId, ...(debounceMs > 0 ? ["--debounce", String(debounceMs)] : []), "--repo", repo], { cwd: repo, detached: true, stdio: "ignore", env: process.env });
+    c.unref();
+    return true;
+  } catch { return false; }
+}
+/** Commit do agente no terminal (hook PostToolUse do Bash): verificação em segundo plano com debounce de ~20 s. */
+export const VERIFY_DEBOUNCE_MS = 20_000;
+export function isGitCommitCmd(cmd: unknown): boolean {
+  return /(^|[;&|,]\s*|\s)git(\s+-C\s+\S+)?\s+commit\b/.test(String(cmd ?? ""));
 }

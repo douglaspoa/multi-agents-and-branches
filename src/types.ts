@@ -203,6 +203,8 @@ export interface TaskSpec {
   epicChecks?: { id: string; evidence: string; at: string }[];
   /** Selo da VERIFICAÇÃO INDEPENDENTE (src/test-runner.ts): testes reais × relato do agente + CI do PR (o app grava `ci`). */
   verification?: import("./test-runner.ts").Verification | null;
+  /** A pessoa entregou sem esperar os testes (motivo obrigatório; o app grava com o HEAD da hora). */
+  testsSkip?: { reason: string; at: number; sha?: string } | null;
   /** Vigia do CI no PR (o app grava): voltas automáticas ao agente (máx. 2) e o último commit já tratado. */
   ciGate?: { rounds: number; lastSha?: string; asked?: boolean; awaiting?: boolean; at?: number; ci?: { total: number; fail: number; pending: number } | null } | null;
   /** Rastro das edições de spec feitas por agentes (src/agent-edits.ts) — o app mostra antes/depois e desfaz. */
@@ -242,7 +244,7 @@ export interface TaskSpec {
   /** Revisão: agentes chamados como ETAPA EXTRA ("Chamar outro agente…") — o que cada um mudou vai pra Revisão e pro PR. */
   extraStages?: import("./revisao-alteracao.ts").ExtraStage[];
   /** F5 · P14: a política da organização (Empresa) que valia quando a tarefa nasceu — em frases, vai pro Relatório do PR. */
-  orgPolicy?: { rules: string[]; tetoMaxUsd?: number; portao?: boolean; guard?: { secretsBlock?: boolean; codeHighBlock?: boolean } } | null;
+  orgPolicy?: { rules: string[]; tetoMaxUsd?: number; portao?: boolean; guard?: { secretsBlock?: boolean; codeHighBlock?: boolean }; testMode?: import("./test-plan.ts").TestMode } | null;
   /** Frente 2: o último resultado da guarda de segurança no diff (src/guard.ts) — a Revisão mostra os achados. */
   guard?: import("./guard.ts").GuardResult | null;
 }

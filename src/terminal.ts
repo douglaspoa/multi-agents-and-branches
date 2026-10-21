@@ -33,7 +33,7 @@ import { readSpeaker, speakerLine } from "./quem.ts";
 import { INTEGRADO_CLAUDE_CMDS, INTEGRADO_RULE, linkProjectSkills, shellInstructions, suggestedSinceUser, suggestFromText, writeInstructionsSection, writeStarforkCommands } from "./terminal-integrado.ts";
 import { resolveToolCached, toolPath } from "./engine/bin-resolve.ts";
 import { protectArgs, protectEnabled } from "./engine/protect.ts";
-import { engineKind, Orchestrator, deliverPrompt, readCostCapSetting } from "./orchestrator.ts";
+import { engineKind, isGitCommitCmd, Orchestrator, deliverPrompt, readCostCapSetting, spawnVerifyCli, VERIFY_DEBOUNCE_MS } from "./orchestrator.ts";
 import { capCheck, capPauseText, effectiveCap, MAX_REVIEW_ROUNDS } from "./lifecycle.ts";
 import { Store } from "./store.ts";
 import { attemptFromHook, loopReset, loopTrack, loopTurnEnd, quietTool, stripAnsi } from "./loop-detect.ts";
@@ -1259,6 +1259,8 @@ export function hookCli(event: string, taskArg: string, repoArg: string, argvPay
       if (event === "UserPromptSubmit") loopReset(store, taskId, { quick: true });
       else if (eff.turnEnd) loopTurnEnd(store, taskId, { quick: true });
       else loopTrack(store, taskId, attemptFromHook(event, p), { quick: true });
+      // onda 1.1: commit do agente → a verificação começa CEDO, em segundo plano (debounce ~20 s; commit novo cancela)
+      if (event === "PostToolUse" && isGitCommitCmd((p.tool_input as { command?: unknown } | undefined)?.command)) spawnVerifyCli(taskId, repo, VERIFY_DEBOUNCE_MS);
       // chips de reserva: o agente não chamou suggest_replies, mas a fala termina com opções claras
       if (eff.turnEnd && full) {
         try {

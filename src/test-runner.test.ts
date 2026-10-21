@@ -29,6 +29,8 @@ after(() => {
   rmSync(root, { recursive: true, force: true });
 });
 let n = 0;
+// o selo dos testes sem os campos que variam (duração, assinatura do plano)
+const pick = (t: unknown) => { const { durationMs: _d, planSig: _p, ...rest } = (t ?? {}) as Record<string, unknown>; void _d; void _p; return rest; };
 const dirWith = (files: Record<string, string>) => {
   const d = join(root, `p${++n}`);
   for (const [f, c] of Object.entries(files)) { mkdirSync(join(d, f, ".."), { recursive: true }); writeFileSync(join(d, f), c); }
@@ -253,7 +255,7 @@ test("portão: suíte que FALHA com o agente relatando sucesso → reprova com o
     assert.equal(div.length, 1);
     assert.equal(div[0].text, "o agente relatou 3/3, a execução real deu 2/3");
     const s = JSON.parse(orch.store.getTask("t1")!.spec_json) as TaskSpec;
-    assert.deepEqual({ ...s.verification!.tests }, { passed: 2, failed: 1, ran: true, runner: "npm test", ok: false });
+    assert.deepEqual(pick(s.verification!.tests), { passed: 2, failed: 1, ran: true, runner: "npm test", ok: false, scope: "inteira" });
     assert.equal(s.verification!.divergente, true);
     assert.equal(s.verification!.ci, null);
     // a mesma checagem pelo resultado do portão
@@ -280,7 +282,7 @@ test("portão: projeto sem suíte continua passando; a tarefa não pediu testes 
     const g2 = await orch.verifyProofs("t2", t, JSON.parse(orch.store.getTask("t2")!.spec_json));
     assert.deepEqual(g2, { ok: true, reasons: [] });
     const s = JSON.parse(orch.store.getTask("t2")!.spec_json) as TaskSpec;
-    assert.deepEqual({ ...s.verification!.tests }, { passed: 1, failed: 0, ran: true, runner: "npm test", ok: true });
+    assert.deepEqual(pick(s.verification!.tests), { passed: 1, failed: 0, ran: true, runner: "npm test", ok: true, scope: "inteira" });
   } finally { orch.close(); }
 });
 

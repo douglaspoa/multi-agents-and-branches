@@ -12,7 +12,7 @@ import { c, statusColor, eventGlyph } from "./util/ansi.ts";
 import { slugify } from "./types.ts";
 import { ensureConfig, loadConfig, resolveAgents, resolveWorkflow } from "./config.ts";
 import { rolesForKind, TASK_KINDS, type TaskKind } from "./lifecycle.ts";
-import { applyOrgPolicy, orgAgentPolicy, orgGuardPolicy, policyActive } from "./org-policy.ts";
+import { applyOrgPolicy, orgAgentPolicy, orgGuardPolicy, orgTestMode, policyActive } from "./org-policy.ts";
 import { parseArgs, type Args } from "./util/args.ts";
 import type { AgentRole, Role, TaskRow, TaskSpec } from "./types.ts";
 import { ensureFreshContext, epicTasksText, knownEpics, listEpicTasks, resolveEditTarget, resolveEpicTarget } from "./epic-context.ts";
@@ -244,6 +244,9 @@ async function cmdNew(repo: string, a: Args) {
     // Frente 2: a org pode rebaixar o bloqueio da guarda pra aviso (padrão: bloqueia sempre)
     const gp = orgGuardPolicy(raw);
     if (gp) spec.orgPolicy = { ...(spec.orgPolicy ?? { rules: [] }), guard: gp };
+    // onda 1.1: a org pode fixar o modo dos testes do portão (vence o .cardume/checks.json do projeto)
+    const tm = orgTestMode(raw);
+    if (tm) spec.orgPolicy = { ...(spec.orgPolicy ?? { rules: [] }), testMode: tm };
   }
 
   const refSources = a.multi.ref ?? [];
@@ -1147,7 +1150,7 @@ async function main() {
     case "verify-tests": {
       // suíte do portão em SEGUNDO PLANO (o fim de turno do terminal dispara; o selo é gravado ao terminar)
       const orch = new Orchestrator(repo);
-      try { await orch.runTestsNow(a._[1]); } finally { orch.close(); }
+      try { await orch.runTestsNow(a._[1], { debounceMs: Number(a.flags.debounce) || 0 }); } finally { orch.close(); }
       break;
     }
     case "turn-end":
