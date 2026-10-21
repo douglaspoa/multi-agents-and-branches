@@ -423,7 +423,7 @@ function orqWireChat(body){
   const ta=$id('orqChatTa'); if(!ta) return;
   // a tela do plano tem guarda de "HTML igual → não repinta": os chips pendentes se desenham direto no lugar
   const pend=()=>attRenderPend('orqChatPend', orq.chatAtts, pend); pend();
-  chatComposer({ input:'orqChatTa', attach:'orqChatAtt', pend:()=>orq.chatAtts, taskId:()=>null, rerender:pend, onSend:orqChatSend, send:'orqChatSend',
+  chatComposer({ input:'orqChatTa', attach:'orqChatAtt', pend:()=>orq.chatAtts, taskId:()=>null, rerender:pend, styleSel:true, onSend:orqChatSend, send:'orqChatSend',
     stop:{ btn:'orqChatStop', busy:()=>!!orq.chatBusy, fn:orqChatStop }, busyHint:'o orquestrador está lendo o repo · ■ parar interrompe — dá pra ir escrevendo a próxima' });
   ta.oninput=()=>{ orq.chatDraft=ta.value; chatGrow(ta); };
   bindClick('orqChatSend', orqChatSend);

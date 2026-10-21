@@ -161,7 +161,8 @@ function chatModelPillEnsure(box, p){
   return chatModelPillWire(p);
 }
 // cfg: { input, attach, pend, taskId, rerender, afterAdd?, onSend, onKey?, stop?:{btn, busy:()=>bool, fn}, send?, busyHint?, hint?,
-//        modelPill?:{ id, label, title?, popup?, onPick(anchor) } — a IA/modelo deste chat, embaixo da caixa (opcional) }
+//        modelPill?:{ id, label, title?, popup?, onPick(anchor) } — a IA/modelo deste chat, embaixo da caixa (opcional)
+//        styleSel?:true — o chip "Respostas: Normal/Curto" (estilo das respostas da IA; só em chat de CONVERSA) }
 // Idempotente (on* handlers + flag no elemento): pode ser chamado a cada render.
 // onKey(e) roda ANTES do Enter; devolver true (ou dar preventDefault) cancela o envio.
 function chatComposer(cfg){
@@ -169,6 +170,7 @@ function chatComposer(cfg){
   const input=$id(cfg.input); if(!input) return;
   const box=chatNormalize(input);
   if(cfg.modelPill) chatModelPillEnsure(box, cfg.modelPill);
+  if(cfg.styleSel && typeof chatStyleEnsure==='function') chatStyleEnsure(box); // "Respostas: Normal | Curto" (12-chat-prefs-daily)
   input.onkeydown=(e)=>{
     if(cfg.onKey && cfg.onKey(e)===true) return;
     if(e.defaultPrevented) return;

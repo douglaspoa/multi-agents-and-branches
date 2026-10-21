@@ -1,0 +1,57 @@
+/* CHAT FORMATADO (21/10): resposta da IA com leitura de "chat do Claude" — hierarquia sutil de títulos, parágrafos com
+   respiro, listas recuadas com marcador discreto, código em mono com fundo e rolagem horizontal, tabela legível, citação.
+   Vale pra toda bolha da IA renderizada pelo mdToHtml (Nova demanda, chat do projeto, orquestrador, Nova issue, épico) e
+   pro chat da tarefa (.cmsg.bot .cbub). Só tokens do tema: claro e escuro saem iguais em estrutura. */
+.plmsg.bot:not(.plmsg-plan){max-width:min(92%,calc(72ch + 40px))}
+.plmsg.bot .plbub:not(.plmodel):not(.think),
+.cmsg.bot .cbub:not(.think):not(.err){
+  min-width:0;max-width:72ch;overflow-wrap:break-word;line-height:1.62;font-size:var(--fs-base)}
+.plmsg.bot .plbub:not(.plmodel)>:first-child,.cmsg.bot .cbub>:first-child{margin-top:0}
+.plmsg.bot .plbub:not(.plmodel)>:last-child,.cmsg.bot .cbub>:last-child{margin-bottom:0}
+
+/* parágrafos e títulos: respiro entre blocos, títulos só um pouco maiores que o texto */
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) p{margin:0 0 .72em}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) :is(h1,h2,h3,h4,h5,h6){font-family:inherit;color:var(--text);letter-spacing:-.005em;line-height:1.35;border:0;padding:0;text-transform:none}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) h1{font-size:1.2em;font-weight:650;margin:1.05em 0 .45em}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) h2{font-size:1.1em;font-weight:650;margin:1em 0 .4em}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) h3{font-size:1em;font-weight:650;margin:.95em 0 .35em}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) :is(h4,h5,h6){font-size:.94em;font-weight:600;color:var(--text-2);margin:.9em 0 .3em}
+
+/* listas: recuo, marcador discreto, itens com ar; aninhadas mais juntas */
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) :is(ul,ol){margin:.3em 0 .8em;padding-left:1.45em}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) li{margin:.28em 0;padding-left:.15em}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) li::marker{color:var(--text-3,var(--muted))}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) ol>li::marker{font-variant-numeric:tabular-nums;font-weight:600}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) li :is(ul,ol){margin:.2em 0 .25em}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) ul ul{list-style-type:circle}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) li>pre.mdcode{margin:.45em 0 .55em}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) .mdcont{margin-top:.35em}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) .mdchk{color:var(--text-3,var(--muted))}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) .mdchk.on{color:var(--ok,var(--accent))}
+
+/* ênfase, código inline e links */
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) :is(strong,b){font-weight:650;color:var(--text)}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) del{color:var(--text-3,var(--muted))}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) :not(pre)>code{font-family:var(--mono,ui-monospace,monospace);font-size:.84em;background:var(--surface-3);border:1px solid var(--border);border-radius:5px;padding:.08em .38em;white-space:break-spaces}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:2px}
+
+/* bloco de código: fundo, mono, rolagem horizontal (nunca quebra a bolha) */
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) pre.mdcode{font-family:var(--mono,ui-monospace,monospace);font-size:.82em;line-height:1.55;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-sm,8px);padding:.75em .95em;margin:.5em 0 .85em;overflow-x:auto;white-space:pre;max-width:100%;tab-size:2}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) pre.mdcode code{background:none;border:0;padding:0;font-size:1em;white-space:pre}
+
+/* tabela: cabeçalho marcado, linhas finas, texto quebra (sem cortar), rolagem quando larga */
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) .mdtablew{margin:.5em 0 .9em;max-height:none;overflow-x:auto;border:1px solid var(--border);border-radius:var(--r-sm,8px)}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) .mdtable{width:auto;min-width:100%;border-collapse:collapse;font:inherit;font-size:.9em;line-height:1.45}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) .mdtable :is(th,td){white-space:normal;max-width:none;overflow:visible;text-overflow:clip;padding:.45em .8em;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) .mdtable thead th{position:static;background:var(--surface-3);font-weight:600;color:var(--text)}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) .mdtable tbody tr:last-child td{border-bottom:0}
+
+/* citação e separador */
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) blockquote{margin:.5em 0 .85em;padding:.1em 0 .1em .95em;border-left:3px solid var(--border-strong,var(--border));color:var(--text-2)}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) blockquote>:last-child{margin-bottom:0}
+:is(.plmsg.bot .plbub,.cmsg.bot .cbub) hr{border:0;border-top:1px solid var(--border);margin:1.1em 0}
+
+/* chip "Respostas: Normal | Curto" ao lado da caixa do chat */
+.cc-row .ccstyle,.ndctl .ccstyle{flex:none}
+.ccstyle-tag{font-style:normal;font-weight:500;color:var(--text-3,var(--muted));font-size:.86em;margin-left:4px}
+@media (max-width:1100px){.ccstyle .ndchip-l{display:none}}
