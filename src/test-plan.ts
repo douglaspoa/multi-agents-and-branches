@@ -50,6 +50,18 @@ export function readTestCfg(repo: string): TestCfg {
   try { return parseTestCfg(JSON.parse(readFileSync(join(repo, ".cardume", "checks.json"), "utf8"))); } catch { return parseTestCfg(null); }
 }
 
+const MODE_PT: Record<TestMode, string> = { auto: "automático", sempre: "sempre a suíte inteira", afetados: "só os afetados", "so-no-pr": "só ao abrir o PR", desligado: "desligado" };
+/**
+ * Transparência (o agente consegue mexer no checks.json): o que vai no selo e no corpo do PR. Vazio quando é o padrão.
+ * tampered = a branch da tarefa alterou o checks.json (vale o da base).
+ */
+export function testModeNote(o: { mode: TestMode; byOrg?: boolean; testFast?: string; tampered?: boolean }): string[] {
+  const out: string[] = [];
+  if (o.tampered) out.push("a tarefa tentou mudar o modo de testes (vale o da base)");
+  if (o.byOrg) out.push(`modo de testes: ${MODE_PT[o.mode]} (definido pela organização)`);
+  else if (o.mode !== "auto" || o.testFast) out.push(`modo de testes: ${MODE_PT[o.mode]}${o.testFast ? ` · comando rápido \`${o.testFast}\`` : ""} (definido no projeto)`);
+  return out;
+}
 /** O modo que vale: o da organização vence o do projeto. */
 export function effectiveTestMode(cfg: TestCfg, org?: TestMode | null): { mode: TestMode; byOrg: boolean } {
   return org ? { mode: org, byOrg: true } : { mode: cfg.testMode, byOrg: false };

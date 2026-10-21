@@ -36,7 +36,7 @@ import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, e
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 import { readSpeaker, speakerLine, speakerTag } from "./quem.ts";
 import { agentClaimFrom, baselineRun, claimFromReq, detectRunner, onExitCleanup, procStartMs, sameProcess, testGate, testTimeoutMs, type Runner, type Verification } from "./test-runner.ts";
-import { affectedPlan, detectCi, effectiveTestMode, readTestCfg, recordDuration, suggestAffected, type TestMode } from "./test-plan.ts";
+import { affectedPlan, detectCi, effectiveTestMode, parseTestCfg, readTestCfg, recordDuration, suggestAffected, testModeNote, type TestMode } from "./test-plan.ts";
 import { guardSummary, prepareGuardInBackground, runGuard, type GuardResult } from "./guard.ts";
 
 /** Catálogo do projeto sem estourar (config ilegível → só os padrões). */
@@ -984,10 +984,21 @@ export class Orchestrator {
     const fresh0 = this.freshSpec(taskId) ?? spec;
     const prev0 = fresh0.verification ?? null;
     // ---- onda 1.1: o modo do projeto (checks.json), que a política da organização pode fixar ----
-    const cfg = readTestCfg(this.ws.repo);
-    const { mode } = effectiveTestMode(cfg, (fresh0.orgPolicy as { testMode?: TestMode } | null | undefined)?.testMode ?? null);
+    // TRANSPARÊNCIA: o agente consegue mexer no checks.json. Se a branch da tarefa alterou ele, vale o da BASE (com aviso)
+    const changed = await this.changedFiles(task.worktree, task.base);
+    let cfg = readTestCfg(this.ws.repo);
+    let tampered = false;
+    if (changed.includes(".cardume/checks.json")) {
+      tampered = true;
+      let baseRaw: unknown = null;
+      try { const mb = (await run("git", ["-C", task.worktree, "merge-base", "HEAD", task.base])).stdout.trim(); baseRaw = JSON.parse((await run("git", ["-C", task.worktree, "show", `${mb}:.cardume/checks.json`])).stdout); } catch { /* a base não tinha: padrão */ }
+      cfg = parseTestCfg(baseRaw);
+    }
+    const orgMode = (fresh0.orgPolicy as { testMode?: TestMode } | null | undefined)?.testMode ?? null;
+    const { mode, byOrg } = effectiveTestMode(cfg, orgMode);
+    const modeNote = testModeNote({ mode, byOrg, testFast: cfg.testFast, tampered });
     const seal = (tests: NonNullable<Verification["tests"]>) => {
-      try { this.store.patchSpec(taskId, { verification: { tests, ci: prev0?.ci ?? null, divergente: false, at: Date.now(), ...(sha && !dirty ? { sha } : {}) } satisfies Verification }); } catch { /* banco ocupado */ }
+      try { this.store.patchSpec(taskId, { verification: { tests: { ...tests, ...(modeNote.length ? { modeNote } : {}) }, ci: prev0?.ci ?? null, divergente: false, at: Date.now(), ...(sha && !dirty ? { sha } : {}) } satisfies Verification }); } catch { /* banco ocupado */ }
     };
     // a pessoa entregou sem esperar os testes (desta versão): não roda nem espera
     const skip = fresh0.testsSkip;
@@ -1003,7 +1014,6 @@ export class Orchestrator {
     const tmo = testTimeoutMs(this.ws.repo);
     const byDeadline = opts.deadline ? Math.min(150_000, opts.deadline - Date.now() - 40_000) : Infinity;
     const timeoutMs = Math.min(opts.testTimeoutMs ?? Infinity, byDeadline, tmo);
-    const changed = await this.changedFiles(task.worktree, task.base);
     // o plano: com CI, só os testes AFETADOS (a suíte inteira fica com o CI e o vigia); sem CI, a inteira
     // CI só conta se RODA A SUÍTE (passo de teste); checks no PR sozinhos podem ser lint/deploy
     const hasCi = detectCi(task.worktree);
@@ -1046,6 +1056,7 @@ export class Orchestrator {
         } });
       // duração da suíte (histórico por repo) → sugestão, uma vez por projeto, de rodar só os afetados
       const v: Verification = { ...g.verification, running: null };
+      if (v.tests && modeNote.length) v.tests = { ...v.tests, modeNote };
       if (g.run?.ran && !g.run.timedOut && g.run.durationMs != null) {
         const recs = recordDuration(this.ws.repo, { at: Date.now(), ms: g.run.durationMs, scope: plan?.scope ?? "inteira", ok: g.run.passed });
         const avg = suggestAffected(recs, cfg, mode, hasCi);
@@ -1817,7 +1828,9 @@ export class Orchestrator {
       requirements, costByRole, totalUsd: this.store.taskSpend(taskId),
       // piloto com `--budget-usd 0`: sem teto por escolha explícita (compatibilidade) — o relatório diz isso, não inventa um teto
       capUsd: spec.autopilot && !(Number(spec.budgetUsd) > 0) ? 0 : effectiveCap(spec.budgetUsd, readCostCapSetting()),
-      reviewOverride: spec.reviewOverride?.reason, releases: spec.budgetReleases ?? [], rounds: spec.reviewRounds ?? [], runs: spec.roleRuns ?? [], extraLines: extraReportLines(spec.extraStages),
+      reviewOverride: spec.reviewOverride?.reason, releases: spec.budgetReleases ?? [], rounds: spec.reviewRounds ?? [], runs: spec.roleRuns ?? [],
+      // transparência: modo de testes fora do padrão (ou a tarefa tentou mudar) vai pro corpo do PR
+      extraLines: [...extraReportLines(spec.extraStages), ...(spec.verification?.tests?.modeNote ?? []).map((l) => `**Testes:** ${l}`)],
       orgPolicy: spec.orgPolicy?.rules,
       ...(att && Object.keys(att.links).length ? { proofs: att.links } : {}),
       ...(att?.note ? { proofNote: att.note } : {}),

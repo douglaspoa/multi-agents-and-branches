@@ -66,6 +66,8 @@ export interface Verification {
     off?: string;
     /** a pessoa entregou sem esperar os testes (motivo) */
     skippedBy?: string;
+    /** transparência: modo de testes fora do padrão / a tarefa tentou mudar (selo e corpo do PR) */
+    modeNote?: string[];
   } | null;
   /** a suíte está rodando agora (o app mostra "rodando testes · 40 s") */
   running?: { since: number; sha?: string } | null;

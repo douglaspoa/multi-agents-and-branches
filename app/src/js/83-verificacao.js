@@ -48,6 +48,8 @@ function verifSeal(v, now){
     else if(c.pending){ bump('wait'); tips.push(`${c.pending} checagem(ns) do CI rodando`); }
   }
   if(v.divergente && !since){ parts.push('relato divergente'); bump('bad'); if(v.relato) tips.push(v.relato); }
+  // transparência: modo de testes fora do padrão (o agente consegue mexer no checks.json)
+  for(const n of ((t&&t.modeNote)||[])){ parts.push(n); if(/tentou mudar/.test(n)) bump('warn'); }
   if(!parts.length) return null;
   const text=(since?'':'Verificado: ')+parts.join(' · ');
   return { text, tone, tip:[text, ...tips].join('\n'), ...(since?{ running:true }:{}) };

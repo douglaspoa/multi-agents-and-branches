@@ -257,3 +257,12 @@ test('onda 1.1 · tela: cartão e Revisão oferecem "entregar sem esperar" enqua
   assert.match(pf, /cfg\.testFast=v/);
   assert.match(src, /testModeAsked:true \}, yes\?\{ testMode:'afetados' \}/, 'Sim grava o testMode');
 });
+
+test('transparência: o selo mostra o modo de testes fora do padrão; "tentou mudar" deixa o selo amarelo; o corpo do PR do app leva as linhas', () => {
+  const c = pure();
+  const s1 = J(c.verifSeal({ tests: { passed: 3, failed: 0, ran: true, ok: true, modeNote: ['modo de testes: desligado (definido no projeto)'] }, ci: null }, 1));
+  assert.equal(s1.text, 'Verificado: testes 3/3 · modo de testes: desligado (definido no projeto)');
+  const s2 = J(c.verifSeal({ tests: { passed: 3, failed: 0, ran: true, ok: true, modeNote: ['a tarefa tentou mudar o modo de testes (vale o da base)'] }, ci: null }, 1));
+  assert.equal(s2.tone, 'warn');
+  assert.match(rd('../src/js/21-pull-request.js'), /modeNote\)\|\|\[\];\n\s*if\(notes\.length\) s\+=/);
+});

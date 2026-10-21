@@ -10,7 +10,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { affectedPlan, detectCi, effectiveTestMode, jsTestTool, parseTestCfg, pytestTargets, readDurations, recordDuration, suggestAffected, type DurationRec } from "./test-plan.ts";
+import { affectedPlan, detectCi, effectiveTestMode, jsTestTool, parseTestCfg, pytestTargets, readDurations, recordDuration, suggestAffected, testModeNote, type DurationRec } from "./test-plan.ts";
 import { orgTestMode } from "./org-policy.ts";
 import { isGitCommitCmd, Orchestrator, parsePorcelainZ } from "./orchestrator.ts";
 import { parseEtime, procStartMs, sameProcess, winArg } from "./test-runner.ts";
@@ -464,5 +464,43 @@ test("'sem esperar' só vale pra versão commitada (sha não vazio, sem mudança
     const src = readFileSync(new URL("./orchestrator.ts", import.meta.url), "utf8");
     assert.match(src, /await commitLoose\(\);\n\s*\/\/ "entregue sem esperar os testes" vale pra versão que a pessoa viu[\s\S]{0,400}testsSkip: null/);
     assert.match(src, /const tmo = testTimeoutMs\(this\.ws\.repo\);/, "env STARFORK_TEST_TIMEOUT_S vence o checks.json");
+  } finally { orch.close(); }
+});
+
+// ---------------------------------------------------------------- transparência do modo de testes
+
+test("testModeNote: padrão não diz nada; projeto/organização dizem o modo; tentativa de mudar avisa", () => {
+  assert.deepEqual(testModeNote({ mode: "auto" }), []);
+  assert.deepEqual(testModeNote({ mode: "desligado" }), ["modo de testes: desligado (definido no projeto)"]);
+  assert.deepEqual(testModeNote({ mode: "auto", testFast: "npm run unit" }), ["modo de testes: automático · comando rápido `npm run unit` (definido no projeto)"]);
+  assert.deepEqual(testModeNote({ mode: "sempre", byOrg: true }), ["modo de testes: sempre a suíte inteira (definido pela organização)"]);
+  assert.deepEqual(testModeNote({ mode: "sempre", tampered: true }), ["a tarefa tentou mudar o modo de testes (vale o da base)", "modo de testes: sempre a suíte inteira (definido no projeto)"]);
+});
+
+test("a branch da tarefa muda o checks.json pra 'desligado': vale o da BASE (sempre), a suíte roda e o selo + o PR avisam", async () => {
+  const runs = join(root, "tamper-runs");
+  const repo = join(root, "tamper");
+  execFileSync("git", ["init", "-q", "-b", "main", repo]);
+  const g = (...a: string[]) => execFileSync("git", ["-C", repo, ...a], { stdio: "ignore" });
+  g("config", "user.email", "t@t"); g("config", "user.name", "t"); g("config", "commit.gpgsign", "false");
+  writeFileSync(join(repo, ".gitignore"), "node_modules/\n.cardume/*\n!.cardume/checks.json\n");
+  mkdirSync(join(repo, ".cardume"), { recursive: true });
+  writeFileSync(join(repo, ".cardume", "checks.json"), JSON.stringify({ testMode: "sempre" }));
+  writeFileSync(join(repo, "package.json"), JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap c.test.mjs" } }));
+  writeFileSync(join(repo, "c.test.mjs"), COUNT_SUITE(runs));
+  g("add", "-A"); g("commit", "-q", "-m", "base");
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("tp1"));
+    const wt = orch.store.getTask("tp1")!.worktree;
+    commitIn(wt, { "src/a.js": "1\n", ".cardume/checks.json": JSON.stringify({ testMode: "desligado" }) }, "agente mexeu no modo");
+    // o app lê o checks.json do repo principal; aqui a branch da tarefa também mudou o dela
+    await orch.verifyProofs("tp1", orch.store.getTask("tp1")!, sp(orch, "tp1"));
+    assert.equal(readFileSync(runs, "utf8"), "x", "vale o da base: a suíte rodou");
+    const t = sp(orch, "tp1").verification!.tests!;
+    assert.deepEqual(t.modeNote, ["a tarefa tentou mudar o modo de testes (vale o da base)", "modo de testes: sempre a suíte inteira (definido no projeto)"]);
+    const rep = await orch.reportFor("tp1");
+    assert.match(rep, /\*\*Testes:\*\* a tarefa tentou mudar o modo de testes/);
+    assert.match(rep, /\*\*Testes:\*\* modo de testes: sempre a suíte inteira \(definido no projeto\)/);
   } finally { orch.close(); }
 });
