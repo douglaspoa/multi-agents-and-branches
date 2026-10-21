@@ -323,6 +323,47 @@ fn claude_cmd(bin: &str) -> Command {
     c.env_remove("ANTHROPIC_API_KEY").env_remove("ANTHROPIC_AUTH_TOKEN");
     c
 }
+/// Dá pra EXECUTAR este claude? Existir não basta (21/10, usuário real): o `claude` do npm novo aponta pra
+/// `bin/claude.exe`, que só vira executável se o postinstall rodou — sem ele o arquivo existe mas dá EACCES e
+/// todo chat quebrava, mesmo com outro claude bom em ~/.local/bin. Arquivo regular (segue o link), não vazio e
+/// com bit de execução (no Windows basta ser arquivo não vazio).
+fn claude_runnable(p: &std::path::Path) -> bool {
+    match std::fs::metadata(p) {
+        Ok(m) if m.is_file() && m.len() > 0 => {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                m.permissions().mode() & 0o111 != 0
+            }
+            #[cfg(not(unix))]
+            {
+                true
+            }
+        }
+        _ => false,
+    }
+}
+#[cfg(all(test, unix))]
+mod claude_runnable_tests {
+    use super::claude_runnable;
+    use std::os::unix::fs::PermissionsExt;
+    #[test]
+    fn so_serve_o_que_executa() {
+        let d = std::env::temp_dir().join(format!("sf-claude-rs-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&d);
+        let ok = d.join("ok"); std::fs::write(&ok, "#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&ok, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let sem_x = d.join("claude.exe"); std::fs::write(&sem_x, "x").unwrap();
+        std::fs::set_permissions(&sem_x, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let link = d.join("claude"); let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&sem_x, &link).unwrap();
+        assert!(claude_runnable(&ok));
+        assert!(!claude_runnable(&sem_x));
+        assert!(!claude_runnable(&link), "link do npm pra claude.exe sem +x não serve");
+        assert!(!claude_runnable(&d.join("nao-existe")));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+}
 fn claude_bin() -> String {
     if let Ok(c) = std::env::var("CARDUME_CLAUDE") {
         if !c.is_empty() {
@@ -337,7 +378,7 @@ fn claude_bin() -> String {
             let up = std::path::PathBuf::from(up);
             for rel in [[".local", "bin"], [".claude", "local"]] {
                 let cand = up.join(rel[0]).join(rel[1]).join("claude.exe");
-                if cand.is_file() {
+                if claude_runnable(&cand) {
                     return cand.display().to_string();
                 }
             }
@@ -350,7 +391,7 @@ fn claude_bin() -> String {
     if let Ok(node) = std::env::var("CARDUME_NODE") {
         if let Some(dir) = std::path::Path::new(&node).parent() {
             let cand = dir.join("claude");
-            if cand.exists() {
+            if claude_runnable(&cand) {
                 return cand.display().to_string();
             }
         }
@@ -363,7 +404,7 @@ fn claude_bin() -> String {
         if nb != "node" {
             if let Some(dir) = std::path::Path::new(&nb).parent() {
                 let cand = dir.join("claude");
-                if cand.is_file() {
+                if claude_runnable(&cand) {
                     return cand.display().to_string();
                 }
             }
@@ -373,7 +414,7 @@ fn claude_bin() -> String {
         let home = std::path::PathBuf::from(home);
         for rel in [".local/bin/claude", ".claude/local/claude"] {
             let cand = home.join(rel);
-            if cand.is_file() {
+            if claude_runnable(&cand) {
                 return cand.display().to_string();
             }
         }
@@ -385,14 +426,14 @@ fn claude_bin() -> String {
             vs.sort();
             for v in vs.iter().rev() {
                 let cand = v.join("bin").join("claude");
-                if cand.is_file() {
+                if claude_runnable(&cand) {
                     return cand.display().to_string();
                 }
             }
         }
     }
     for p in ["/opt/homebrew/bin/claude", "/usr/local/bin/claude"] {
-        if std::path::Path::new(p).is_file() {
+        if claude_runnable(std::path::Path::new(p)) {
             return p.to_string();
         }
     }

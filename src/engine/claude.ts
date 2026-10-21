@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
-import { closeSync, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, closeSync, constants as fsConst, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -113,6 +113,23 @@ export function adjustRuleOf(spec: { adjustment?: string }): string {
     : "";
 }
 
+/**
+ * Dá pra EXECUTAR este claude? Existir não basta (21/10, usuário real): o `claude` do npm novo aponta pra
+ * `bin/claude.exe`, que só vira executável se o postinstall rodou — sem ele o arquivo existe mas dá EACCES e
+ * TODO chat quebrava, mesmo com outro claude bom em ~/.local/bin. Exige arquivo regular (segue o link),
+ * não vazio e com permissão de execução; qualquer erro = não serve, tenta o próximo.
+ */
+export function claudeRunnable(p: string): boolean {
+  try {
+    const st = statSync(p);
+    if (!st.isFile() || st.size === 0) return false;
+    accessSync(p, fsConst.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveClaude(): string {
   if (process.env.CARDUME_CLAUDE) return process.env.CARDUME_CLAUDE;
   // Windows: o binário é `claude.exe` (instalador nativo em %USERPROFILE%\.local\bin). O shim do npm
@@ -132,7 +149,7 @@ export function resolveClaude(): string {
   // depois os locais padrão pra PATH mínimo de app GUI (instalador nativo etc.).
   try {
     const near = join(dirname(process.execPath), "claude");
-    if (existsSync(near)) return near;
+    if (claudeRunnable(near)) return near;
   } catch {
     /* ignora */
   }
@@ -144,7 +161,7 @@ export function resolveClaude(): string {
       "/opt/homebrew/bin/claude",
       "/usr/local/bin/claude",
     ]) {
-      if (existsSync(p)) return p;
+      if (claudeRunnable(p)) return p;
     }
   } catch {
     /* ignora */
