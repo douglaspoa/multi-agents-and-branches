@@ -23,6 +23,7 @@ mod epic_context;
 mod epic_requests;
 mod gh_contas;
 mod guard_sign;
+mod repo_acesso;
 mod learn;
 mod media_proto;
 mod navegador;
@@ -445,8 +446,14 @@ impl AppState {
         // app não joga o usuário de volta pro projeto do env.
         let db = read_project_list()
             .iter()
-            .map(|p| PathBuf::from(p).join(".cardume").join("state.sqlite"))
-            .find(|db| db.exists())
+            .find_map(|p| match repo_acesso::workspace_db(Path::new(p)) {
+                Ok(db) => Some(db),
+                Err(e) => {
+                    // bug 21/10: projeto pulado no boot sem deixar rastro (pasta bloqueada pelo macOS virava "sem projeto")
+                    web_log(format!("[repo] boot: pulei {p} — {e}"));
+                    None
+                }
+            })
             .or_else(|| {
                 std::env::var("CARDUME_REPO")
                     .ok()
@@ -1554,11 +1561,10 @@ fn open(path: &PathBuf) -> Result<Connection, String> {
 
 #[tauri::command(async)]
 fn set_repo(state: State<AppState>, repo: String) -> Result<String, String> {
-    let db = PathBuf::from(&repo).join(".cardume").join("state.sqlite");
-    if !db.exists() {
-        return Err(format!("sem state.sqlite em {} — rode `cardume init`", db.display()));
-    }
+    // motivo REAL (pasta bloqueada pelo macOS ≠ falta preparar) — antes tudo virava "sem state.sqlite… rode `cardume init`"
+    let db = repo_acesso::workspace_db(Path::new(&repo)).inspect_err(|e| web_log(format!("[repo] set_repo {repo} falhou: {e}")))?;
     ensure_app_schema(&db);
+    web_log(format!("[repo] set_repo {repo}: ok"));
     *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db.clone());
     Ok(repo)
 }
@@ -2117,30 +2123,74 @@ fn list_projects(state: State<AppState>, user: Option<String>) -> Vec<Project> {
 }
 
 /// Conta da vez trocou (login/logout/boot): grava e, se o projeto ATIVO é de outra conta, troca pro
-/// primeiro visível (ou fica sem projeto). Devolve o resumo pra linha da barra lateral.
+/// primeiro visível (ou fica sem projeto). E o inverso (bug 21/10): SEM projeto ativo e com projetos visíveis pra conta
+/// da vez, reabre o primeiro — antes, sair/expirar a sessão fechava o projeto (os dela ficam ocultos sem sessão) e
+/// entrar de novo NÃO reabria: a lateral voltava a mostrar os projetos, mas o backend ficava sem nenhum para sempre
+/// ("repo não definido" em todo chat e no tick da coordenação). Devolve o resumo pra linha da barra lateral.
 #[tauri::command(async)]
 fn set_projects_user(state: State<AppState>, user: Option<String>) -> serde_json::Value {
     projetos_conta::set_current_user(user.as_deref());
-    let mut switched = false;
     let f = projetos_conta::read_from(&projects_file());
     let u = projetos_conta::current_user();
     let vis = projetos_conta::visible_paths(&f, u.as_deref());
-    if let Some(a) = active_repo_of(&state) {
-        let known = f.items.iter().any(|e| e.path == a);
-        if known && !vis.contains(&a) {
-            let next = vis.iter().map(|p| PathBuf::from(p).join(".cardume").join("state.sqlite")).find(|db| db.exists());
-            if let Some(db) = &next { ensure_app_schema(db); }
-            *state.db.lock().unwrap_or_else(|e| e.into_inner()) = next;
-            switched = true;
+    let active = active_repo_of(&state);
+    let (mut switched, mut restored) = (false, false);
+    if let Some(next) = active_for_user(active.as_deref(), u.as_deref(), &f, &vis) {
+        if let Some(db) = &next { ensure_app_schema(db); }
+        let to = next.as_ref().and_then(|d| d.parent().and_then(|d| d.parent())).map(|r| r.display().to_string());
+        let who = u.as_deref().map(|x| x.chars().take(8).collect::<String>()).unwrap_or_else(|| "sem sessão".into());
+        match &active {
+            Some(a) => { web_log(format!("[conta] projeto ativo {a} não é da conta da vez ({who}) → {}", to.as_deref().unwrap_or("NENHUM projeto aberto"))); switched = true; }
+            None => { web_log(format!("[conta] sem projeto aberto; reabri {} (conta da vez: {who})", to.as_deref().unwrap_or("?"))); restored = true; }
         }
+        *state.db.lock().unwrap_or_else(|e| e.into_inner()) = next;
     }
     serde_json::json!({
         "switched": switched,
+        "restored": restored,
         "active": active_repo_of(&state),
         "visible": vis.len(),
         "hidden": projetos_conta::hidden_count(&f, u.as_deref()),
         "pending": f.pending,
     })
+}
+/// O que fazer com o projeto ativo quando a conta da vez muda: `None` = nada muda; `Some(novo)` = troca (o novo pode ser
+/// `None` = fica sem projeto). Primeiro visível = primeiro da lista com o workspace acessível (mesma regra do boot).
+/// SEM sessão (`user` None: sessão expirou, saiu, Grátis) o projeto ABERTO fica aberto — só OUTRA conta entrando o fecha.
+/// Antes, a sessão cair (agora sem tela de login obrigatória, #171) fechava o projeto em uso e o backend ficava sem nenhum.
+fn active_for_user(active: Option<&str>, user: Option<&str>, f: &projetos_conta::ProjFile, vis: &[String]) -> Option<Option<PathBuf>> {
+    let first = || vis.iter().find_map(|p| repo_acesso::workspace_db(Path::new(p)).ok());
+    match active {
+        Some(a) if user.is_some() && f.items.iter().any(|e| e.path == a) && !vis.iter().any(|v| v == a) => Some(first()),
+        Some(_) => None,
+        None => first().map(Some),
+    }
+}
+#[cfg(all(test, unix))]
+mod active_for_user_tests {
+    use super::*;
+    use projetos_conta::{ProjEntry, ProjFile};
+    #[test]
+    fn sessao_caiu_e_voltou_reabre_o_projeto_da_conta() {
+        let d = std::env::temp_dir().join(format!("sf-afu-{}", std::process::id()));
+        let (mine, other) = (d.join("loja"), d.join("outra"));
+        for r in [&mine, &other] { std::fs::create_dir_all(r.join(".cardume")).unwrap(); std::fs::write(r.join(".cardume/state.sqlite"), b"").unwrap(); }
+        let (m, o) = (mine.display().to_string(), other.display().to_string());
+        let f = ProjFile { items: vec![ProjEntry { path: m.clone(), owner: Some("u-ana".into()) }, ProjEntry { path: o.clone(), owner: Some("u-beto".into()) }], ..Default::default() };
+        let vis = |u: Option<&str>| projetos_conta::visible_paths(&f, u);
+        // sessão expirou / user '' transitório: o projeto em uso NÃO fecha (antes: backend sem projeto = "repo não definido")
+        assert_eq!(active_for_user(Some(&m), None, &f, &vis(None)), None);
+        // versão antiga já tinha fechado (backend sem projeto) e ela entra de novo: reabre o dela (antes: None pra sempre)
+        assert_eq!(active_for_user(None, Some("u-ana"), &f, &vis(Some("u-ana"))), Some(Some(mine.join(".cardume/state.sqlite"))));
+        // projeto ativo visível: nada muda
+        assert_eq!(active_for_user(Some(&m), Some("u-ana"), &f, &vis(Some("u-ana"))), None);
+        // projeto do Beto ativo e a Ana entra: troca pro dela (o escopo por conta continua valendo)
+        assert_eq!(active_for_user(Some(&o), Some("u-ana"), &f, &vis(Some("u-ana"))), Some(Some(mine.join(".cardume/state.sqlite"))));
+        // sem nada visível e sem ativo: nada muda (e nunca abre projeto de outra conta)
+        assert_eq!(active_for_user(None, Some("u-carla"), &f, &vis(Some("u-carla"))), None);
+        assert_eq!(active_for_user(None, None, &f, &vis(None)), None);
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }
 
 /// Resumo da lista pra conta da vez (linha "mostrando os projetos de … · N ocultos").
@@ -2772,10 +2822,7 @@ fn gh_owners() -> Vec<gh_contas::GhOwner> {
 /// Troca o projeto ativo para um já existente na lista.
 #[tauri::command(async)]
 fn switch_project(state: State<AppState>, path: String) -> Result<String, String> {
-    let db = PathBuf::from(&path).join(".cardume").join("state.sqlite");
-    if !db.exists() {
-        return Err(format!("sem workspace do Starfork em {path}"));
-    }
+    let db = repo_acesso::workspace_db(Path::new(&path)).inspect_err(|e| web_log(format!("[repo] trocar pra {path} falhou: {e}")))?;
     ensure_app_schema(&db);
     *state.db.lock().unwrap_or_else(|e| e.into_inner()) = Some(db);
     // move pro topo: o topo da lista é o "último projeto ativo" restaurado no boot
@@ -5504,9 +5551,59 @@ fn planner_sys(repo: &Path, prompt: &str) -> String { estilo::with_style(&memori
 /// ({ line }) pro chat mostrar o que a IA está fazendo; `ai_chat_stop` derruba o processo (PLANNER_STOPPED).
 #[tauri::command(async)]
 fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
-    let repo = repo_of(&state)?;
+    chat_logged("ai_chat", ai_chat_inner(app, state, prompt, session_id, model))
+}
+/// Registra no log do app (/tmp/constellation-web.log) a falha de um chat de IA — com o passo, sem o texto da conversa.
+fn chat_logged(cmd: &str, r: Result<AiChat, String>) -> Result<AiChat, String> {
+    if let Err(e) = &r {
+        if !e.ends_with("_STOPPED") { web_log(format!("[{cmd}] falhou: {}", e.lines().find(|l| !l.trim().is_empty()).unwrap_or(""))); }
+    }
+    r
+}
+/// Repo do chat + a pasta legível: o erro diz QUAL passo falhou (abrir o projeto / pasta do projeto).
+fn chat_repo(state: &State<AppState>, repo: Option<String>) -> Result<PathBuf, String> {
+    chat_repo_at(state.db.lock().unwrap_or_else(|e| e.into_inner()).clone(), repo)
+}
+fn chat_repo_at(db: Option<PathBuf>, repo: Option<String>) -> Result<PathBuf, String> {
+    let explicit = repo.map(|r| PathBuf::from(r.trim())).filter(|p| !p.as_os_str().is_empty() && p.is_dir());
+    let repo = explicit
+        .or_else(|| db.and_then(|p| p.parent().and_then(|d| d.parent()).map(|r| r.to_path_buf())))
+        .ok_or_else(|| repo_acesso::step("abrir o projeto", "repo não definido"))?;
+    if let Some(e) = repo_acesso::folder_err(&repo) { return Err(repo_acesso::step("abrir a pasta do projeto", e)); }
+    Ok(repo)
+}
+#[cfg(all(test, unix))]
+mod chat_repo_tests {
+    use super::*;
+    #[test]
+    fn chat_sem_repo_no_backend_diz_o_passo_e_mantem_o_marcador_que_o_front_recupera() {
+        // o bug 21/10: tela com projeto, backend sem (state.db None) → o front casa "repo não definido" e reabre
+        let e = chat_repo_at(None, None).unwrap_err();
+        assert_eq!(e, "abrir o projeto: repo não definido");
+        let d = std::env::temp_dir().join(format!("sf-chat-repo-{}", std::process::id()));
+        std::fs::create_dir_all(d.join(".cardume")).unwrap();
+        assert_eq!(chat_repo_at(Some(d.join(".cardume/state.sqlite")), None).unwrap(), d);
+        // pasta que sumiu depois de aberta: o passo + o motivo com prefixo
+        let gone = std::env::temp_dir().join(format!("sf-chat-repo-sumiu-{}", std::process::id()));
+        let e = chat_repo_at(Some(gone.join(".cardume/state.sqlite")), None).unwrap_err();
+        assert!(e.starts_with("abrir a pasta do projeto: PASTA_SUMIU:"), "{e}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn spawn_com_eperm_aponta_a_pasta_nao_o_programa() {
+        let mut c = Command::new("/bin/echo");
+        c.current_dir("/Users/fulano/Documents/projeto-inexistente-sf");
+        let why = spawn_reason(&c, &std::io::Error::from_raw_os_error(1));
+        assert!(why.starts_with("PASTA_SUMIU:") || why.starts_with("SEM_ACESSO_PASTA"), "{why}");
+        let c2 = Command::new("/bin/echo");
+        assert!(spawn_reason(&c2, &std::io::Error::from_raw_os_error(13)).contains("sem permissão de execução"));
+        assert!(spawn_reason(&c2, &std::io::Error::from_raw_os_error(2)).starts_with("falha ao rodar claude"));
+    }
+}
+fn ai_chat_inner(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
+    let repo = chat_repo(&state, None)?;
     let sys = planner_sys(&repo, &prompt);
-    let eng = chat_pick(&session_id)?;
+    let eng = chat_pick(&session_id).map_err(|e| repo_acesso::step("escolher a IA", e))?;
     if eng != ai_once::AiEngine::Claude {
         return chat_other("nova-tarefa", eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&PLANNER_PID), "PLANNER_STOPPED", &emit_activity(&app, "planner-activity"));
     }
@@ -5541,6 +5638,20 @@ fn ai_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, sessio
     run_claude_stream(&app, cmd, &PLANNER_PID, "PLANNER_STOPPED", 600, "planner-activity", usage_ledger::Tag::new("nova-tarefa", &repo, &model, &session_id))
 }
 
+/// Por que o spawn do claude falhou: com EPERM/EACCES o culpado costuma ser a PASTA (o filho entra nela antes do exec —
+/// no macOS a privacidade nega com "Operation not permitted") e não o binário; ENOENT = claude não achado.
+fn spawn_reason(cmd: &Command, e: &std::io::Error) -> String {
+    let perm = e.kind() == std::io::ErrorKind::PermissionDenied || e.raw_os_error() == Some(1);
+    if perm {
+        if let Some(dir) = cmd.get_current_dir() {
+            if let Some(why) = repo_acesso::folder_err(dir) { return why; }
+            if e.raw_os_error() == Some(1) { return repo_acesso::io_reason(dir, e); }
+        }
+        return format!("o programa {} não pôde ser executado (sem permissão de execução): {e}", cmd.get_program().to_string_lossy());
+    }
+    format!("falha ao rodar claude: {e} [{}]", cmd.get_program().to_string_lossy()) // "falha ao rodar claude:" é casado pelo front (claude-missing)
+}
+
 /// Roda o `claude -p --output-format stream-json` e, enquanto ele trabalha, emite cada ferramenta usada
 /// ("lendo X", "procurando Y") no evento `event` — a tela mostra o que a IA está fazendo em vez de só
 /// "pensando…". `slot` guarda o pid pro botão parar; parar → Err(stop_marker). Usado pelo planner e pelo chat do projeto.
@@ -5551,7 +5662,7 @@ fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync:
     let started = std::time::Instant::now();
     detach_new_group(&mut cmd);
     cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = cmd.spawn().map_err(|e| format!("falha ao rodar claude: {e}"))?;
+    let mut child = cmd.spawn().map_err(|e| repo_acesso::step("iniciar a IA (claude)", spawn_reason(&cmd, &e)))?;
     let pid = child.id() as i32;
     slot.store(pid, std::sync::atomic::Ordering::SeqCst);
     // watchdog: investigar o código leva tempo, mas não pra sempre — com "parar" na tela, 10 min é o teto
@@ -5635,7 +5746,7 @@ fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync:
 fn ai_orchestrate_chat(state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>, plan: String, repo: Option<String>) -> Result<AiChat, String> {
     // a sessão do claude vive por PASTA (cwd): a conversa tem que rodar sempre no repo do plano,
     // senão trocar o projeto ativo no meio dela dava "No conversation found".
-    let repo = repo_or(&state, repo)?;
+    let repo = chat_repo(&state, repo)?;
     let locked = plan.contains("\"status\":\"running\"") || plan.contains("\"status\":\"done\"");
     let sys = format!(concat!(
         "Você é o ORQUESTRADOR do Starfork conversando com o dev em português sobre o PROJETO aberto e o PLANO que você propôs. ",
@@ -7004,9 +7115,12 @@ fn project_chat_sys(repo: &Path, prompt: &str) -> String { estilo::with_style(&m
 /// virar tarefa depois (a UI pede a spec pro mesmo session).
 #[tauri::command(async)]
 fn project_chat(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
-    let repo = repo_of(&state)?;
+    chat_logged("project_chat", project_chat_inner(app, state, prompt, session_id, model))
+}
+fn project_chat_inner(app: tauri::AppHandle, state: State<AppState>, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
+    let repo = chat_repo(&state, None)?;
     let sys = project_chat_sys(&repo, &prompt);
-    let eng = chat_pick(&session_id)?;
+    let eng = chat_pick(&session_id).map_err(|e| repo_acesso::step("escolher a IA", e))?;
     if eng != ai_once::AiEngine::Claude {
         return chat_other("chat-projeto", eng, &sys, &prompt, &session_id, &repo, 600, ChatStop::Slot(&PROJECT_CHAT_PID), "PROJECT_CHAT_STOPPED", &emit_activity(&app, "project-chat-activity"));
     }
@@ -10420,6 +10534,23 @@ async fn notif_status() -> Result<String, String> {
 }
 
 /// Abre Ajustes do Sistema › Notificações (URL fixa — o open_url só aceita http/https).
+/// Abre os Ajustes do Sistema na privacidade de ARQUIVOS (bug 21/10: pasta do projeto bloqueada pelo macOS).
+/// `kind`: "files" (Arquivos e Pastas) ou "full" (Acesso Total ao Disco). URL fixa — o front não escolhe o destino.
+#[tauri::command(async)]
+fn open_privacy_settings(kind: Option<String>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let url = if kind.as_deref() == Some("full") { "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles" } else { "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders" };
+        os_open(std::ffi::OsStr::new(url)).map_err(|e| format!("não consegui abrir os Ajustes do Sistema: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = kind;
+        Err("disponível só no macOS".to_string())
+    }
+}
+
 #[tauri::command(async)]
 fn notif_open_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -11304,6 +11435,7 @@ pub fn run() {
             notify_native,
             notif_status,
             notif_open_settings,
+            open_privacy_settings,
             web_log,
             tunnel_start,
             tunnel_stop,

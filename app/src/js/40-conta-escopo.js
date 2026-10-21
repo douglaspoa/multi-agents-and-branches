@@ -193,7 +193,10 @@ async function acctApplyProjects(){
   const me=cloudUserId();
   const r=await invoke('set_projects_user',{ user:me||'' });
   projScope=r||projScope;
-  if(r && r.switched){ await acctAfterSwitch(); toast('Este projeto é de outra conta — abri '+(r.active?pathBase(r.active):'a tela inicial')+'.', 'info'); }
+  // o projeto fechado por ser de outra conta não pode ser reaberto pelo "reabrir o último" (repoWanted, 10-core)
+  // conta voltou (login depois da sessão expirar) e o backend estava sem projeto: o Rust reabriu o primeiro da conta
+  if(r && r.restored && r.active){ lsSet('lastRepo', r.active); await acctAfterSwitch(); }
+  if(r && r.switched){ lsSet('lastRepo', r.active||''); await acctAfterSwitch(); toast('Este projeto é de outra conta — abri '+(r.active?pathBase(r.active):'a tela inicial')+'.', 'info'); }
   acctReset(()=>{ projOv=null; projOvAt=0; allTasksAt=0; localRemoteAt=0; });
   acctReset(()=>loadProjects());
   acctReset(()=>{ if(typeof railProjTick==='function') railProjTick().catch(()=>{}); });

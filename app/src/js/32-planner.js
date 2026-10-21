@@ -194,7 +194,8 @@ function plHeadPaint(){
   const t=$id('plTitle'); if(t){ const tt=(plFields&&plFields.title)||''; t.textContent=(tt&&typeof mdTitle==='function'?mdTitle(tt):tt)||'Nova demanda'; }
   const sc=$id('plScope'); if(sc){ const projs=((window.projectsList&&window.projectsList())||(typeof projList==='function'?projList().map(([path,name])=>({path,name})):[])).filter(p=>p&&p.path);
     const cur=projs.find(p=>p.path===state.repo), name=(cur&&cur.name)||projShort(state.repo||'')||'—';
-    const html=projs.length>1?`em <select class="nd-projsel" id="plProj" aria-label="projeto onde a demanda vai abrir">${projs.map(p=>`<option value="${escA(p.path)}"${p.path===state.repo?' selected':''}>${esc(p.name||projShort(p.path))}</option>`).join('')}</select>`:`em <b>${esc(name)}</b>`;
+    // sem projeto aberto, o <select> mostrava o 1º da lista como se estivesse aberto (bug 21/10) — agora pede a escolha
+    const html=projs.length>1?`em <select class="nd-projsel" id="plProj" aria-label="projeto onde a demanda vai abrir">${state.repo?'':'<option value="" selected disabled>escolha o projeto</option>'}${projs.map(p=>`<option value="${escA(p.path)}"${p.path===state.repo?' selected':''}>${esc(p.name||projShort(p.path))}</option>`).join('')}</select>`:`em <b>${esc(name)}</b>`;
     if(sc.__html!==html){ sc.innerHTML=html; sc.__html=html; const ps=$id('plProj'); if(ps) ps.onchange=async()=>{ const p=ps.value, was=state.repo;
       if(p && p!==state.repo && window.switchProject){ try{ await window.switchProject(p); }catch(e){ ps.value=was||''; showErr(e, 'Não deu pra trocar de projeto'); return; } } sc.__html=''; renderPlanner(); }; } }
   const sh=$id('plSegHost'); if(sh){ const h=ndMethodSeg('chat'); if(sh.__html!==h){ sh.innerHTML=h; sh.__html=h; } }
@@ -823,10 +824,12 @@ async function plSend(text){
       const tail=back?' Sua mensagem voltou pra caixa — é só enviar de novo.':' Sua mensagem ficou salva na conversa.';
       // erro conhecido (login do Claude expirado, Claude não instalado, limite de uso…) → a mensagem certa + botão;
       // só "demorou demais" quando é de fato tempo esgotado (antes "Login do Claude Code EXPIROU" caía aqui)
-      { const h=humanErr(msg); if(h.id!=='generic' && h.id!=='network'){ msg=h.msg+tail; if(h.action) toast(h.msg,'err',h.action); } // a ação do catálogo (entrar, instalar…) vira o botão do aviso
+      // bug 21/10: o backend estava sem o projeto e reabrir falhou → o motivo REAL (pasta bloqueada, falta preparar…)
+      { const raw=msg, h=humanErr(msg, e&&e.reopenFailed&&e.repo?'Não consegui abrir o projeto '+pathBase(e.repo):'');
+        if(h.id!=='generic' && h.id!=='network'){ const det=errDetailLine(raw, h.msg); msg=h.msg+(det?' Detalhe: '+det+'.':'')+tail; if(h.action) toast(h.msg,'err',h.action); } // a ação do catálogo (entrar, instalar, abrir Ajustes…) vira o botão do aviso
         else if(/timeout|timed out|demorou|rede indispon|tempo esgotado/i.test(msg)) msg='A IA demorou demais pra responder (rede lenta?).'+tail;
         else msg=(msg?'Não deu pra falar com a IA: '+errFirstLine(msg)+'.':'Algo falhou ao falar com a IA.')+tail; }
-      plMsgs.push({who:'sys', text:msg}); renderPlanner(); plAutoSave(true); return; }
+      sysMsgPush(plMsgs, msg); renderPlanner(); plAutoSave(true); return; } // o MESMO erro de novo vira "(×N)", não mais um balão
     if(r&&r.recovered) plMsgs.push({who:'sys', text:'a sessão anterior foi perdida — continuei com o histórico da conversa.'});
     plFields.kindSent=kindNext;
     aiKeepSid(r, s=>{ plSid=s; });
