@@ -45,10 +45,34 @@ export interface TestRun {
   failedNames?: string[] | null;
   /** a falha parece de AMBIENTE (comando/módulo ausente, sem banco), não do código */
   envFail?: boolean;
+  durationMs?: number;
 }
 /** O selo de verificação que fica no spec (spec.verification) e o app mostra no cartão e na Revisão. */
 export interface Verification {
-  tests: { passed: number | null; failed: number | null; ran: boolean; runner: string; ok: boolean; timedOut?: boolean; skipped?: string; baseWarn?: string } | null;
+  tests: {
+    passed: number | null; failed: number | null; ran: boolean; runner: string; ok: boolean; timedOut?: boolean; skipped?: string; baseWarn?: string;
+    /** onda 1.1: "afetados" (só o que o diff toca; a suíte inteira fica com o CI) ou "inteira" */
+    scope?: "afetados" | "inteira";
+    /** assinatura do plano que rodou (o cache por versão só vale pro mesmo plano) */
+    planSig?: string;
+    /** o projeto tem CI (o selo diz "suíte completa no CI") */
+    ci?: boolean;
+    /** o runner que rodou (npm/pnpm/yarn/bun/pytest/cargo/go/swift) — o FT-5 só usa o selo na checagem desse runner */
+    kind?: string;
+    /** a linha de comando exata que rodou — comando próprio do FT-5 só troca pelo selo se for IDÊNTICO */
+    cmdLine?: string;
+    durationMs?: number;
+    /** "testes desligados neste projeto" / "rodam ao abrir o PR" */
+    off?: string;
+    /** a pessoa entregou sem esperar os testes (motivo) */
+    skippedBy?: string;
+    /** transparência: modo de testes fora do padrão / a tarefa tentou mudar (selo e corpo do PR) */
+    modeNote?: string[];
+  } | null;
+  /** a suíte está rodando agora (o app mostra "rodando testes · 40 s") */
+  running?: { since: number; sha?: string } | null;
+  /** sugestão de rodar só os afetados (a suíte inteira passou de 2 min duas vezes): média em segundos */
+  suggest?: { avgSec: number } | null;
   ci: { total: number; fail: number; pending: number } | null;
   divergente: boolean;
   /** a frase do relato divergente (quando houver) */
@@ -286,14 +310,16 @@ export async function runTests(dir: string, o: { timeoutMs?: number; runner?: Ru
   }
   if (!runner) return { ran: false, passed: true, detail: "sem suíte de testes detectada" };
   const timeoutMs = o.timeoutMs ?? TEST_TIMEOUT_MS;
+  const t0 = Date.now();
   const r = await spawnCapture(runner.cmd, runner.args, dir, timeoutMs);
+  const durationMs = Date.now() - t0;
   const counts = parseCounts(runner.kind, r.out);
   const tail = tailOf(r.out);
   // nomes sem a pasta (a mesma suíte roda na worktree da tarefa e na da base — o caminho não pode diferenciar)
   let dirs: string[] = [dir];
   try { dirs = [...new Set([realpathSync(dir), dir])]; } catch { /* pasta sumiu */ }
   const failedNames = parseFailedNames(runner.kind, r.out)?.map((n) => dirs.reduce((a, d) => a.split(d).join("<repo>"), n)) ?? null;
-  const base = { runner: runner.label, kind: runner.kind, counts, tail, failedNames, envFail: isEnvFailure(r.out) };
+  const base = { runner: runner.label, kind: runner.kind, counts, tail, failedNames, envFail: isEnvFailure(r.out), durationMs };
   if (r.timedOut) return { ...base, ran: true, passed: false, timedOut: true, detail: `${runner.label} estourou o tempo (${Math.round(timeoutMs / 1000)}s)` };
   if (r.spawnErr) return { ...base, ran: false, passed: true, detail: `${runner.label} não está instalado nesta máquina (${r.spawnErr})` };
   if (r.code === 0 && !(counts && counts.failed > 0)) return { ...base, ran: true, passed: true, detail: counts ? `${runner.label} passou (${fmtCounts(counts)})` : `${runner.label} passou` };
@@ -301,6 +327,35 @@ export async function runTests(dir: string, o: { timeoutMs?: number; runner?: Ru
   return { ...base, ran: true, passed: false, detail: `${runner.label}: ${why}` };
 }
 
+/** "[[dd-]hh:]mm:ss" do `ps -o etime=` → segundos. */
+export function parseEtime(e: string): number | null {
+  const m = String(e ?? "").trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+  if (!m) return null;
+  return (Number(m[1] ?? 0) * 86400) + (Number(m[2] ?? 0) * 3600) + Number(m[3]) * 60 + Number(m[4]);
+}
+/** Quando o processo `pid` começou (ms), pelo `ps` — null se não existe ou não deu pra saber (Windows). */
+export function procStartMs(pid: number): number | null {
+  if (pid === process.pid) return Math.round(Date.now() - process.uptime() * 1000);
+  if (process.platform === "win32") return null;
+  try {
+    const r = spawnSync("ps", ["-o", "etime=", "-p", String(pid)], { encoding: "utf8", timeout: 3000 });
+    const s = parseEtime(r.stdout);
+    return s == null ? null : Date.now() - s * 1000;
+  } catch { return null; }
+}
+/** O dono da trava ainda é o MESMO processo? (pid reaproveitado pelo sistema não conta) — tolerância de 5 s. */
+export function sameProcess(pid: number, startedAt: unknown): boolean {
+  const want = Number(startedAt);
+  if (!Number.isFinite(want) || want <= 0) return false;
+  const got = procStartMs(pid);
+  return got != null && Math.abs(got - want) < 5_000;
+}
+
+/** Um argumento pro cmd.exe: entre aspas (dentro delas & | < > ( ) são literais) e aspas internas dobradas. O % ainda
+ * expandiria variável — por isso nome com % (ou ! ^ ") nem chega aqui: o plano de afetados roda a suíte inteira. */
+export function winArg(a: string): string {
+  return `"${String(a).replace(/"/g, '""')}"`;
+}
 /** Suítes rodando agora (pid do grupo) — o processo morrendo leva elas junto, nunca ficam órfãs. */
 const liveKids = new Set<number>();
 /** Mata a árvore de um processo: grupo inteiro no Unix (kill -pid), `taskkill /T /F` no Windows. */
@@ -312,10 +367,22 @@ export function killTree(pid: number, sig: NodeJS.Signals = "SIGTERM"): void {
 }
 let exitHooked = false;
 /** SIGTERM/SIGINT viram process.exit (o 'exit' roda: mata as suítes filhas, solta travas). Idempotente. */
+const exitCleanups = new Set<() => void>();
+/** Limpeza que roda na SAÍDA (normal, SIGTERM, SIGINT): soltar o "rodando" do selo, travas, worktree temporária.
+ * Síncrona (o 'exit' do node não espera promessa). Devolve quem tira a limpeza no caminho normal. */
+export function onExitCleanup(fn: () => void): () => void {
+  exitOnSignals();
+  exitCleanups.add(fn);
+  return () => { exitCleanups.delete(fn); };
+}
 export function exitOnSignals(): void {
   if (exitHooked) return;
   exitHooked = true;
-  process.on("exit", () => { for (const p of liveKids) killTree(p, "SIGKILL"); });
+  // primeiro as suítes filhas morrem; depois a limpeza (selo, travas, worktree da base)
+  process.on("exit", () => {
+    for (const p of liveKids) killTree(p, "SIGKILL");
+    for (const f of [...exitCleanups]) { try { f(); } catch { /* segue limpando o resto */ } }
+  });
   for (const [sig, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
     if (process.listenerCount(sig) === 0) process.once(sig, () => process.exit(code));
   }
@@ -342,7 +409,10 @@ function spawnCapture(cmd: string, args: string[], cwd: string, timeoutMs: numbe
     const env: NodeJS.ProcessEnv = { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" };
     delete env.NODE_TEST_CONTEXT;
     try {
-      cp = spawn(cmd, args, { cwd, detached: !win, shell: win, env, stdio: ["ignore", "pipe", "pipe"] });
+      // Windows: nada de shell:true com nomes vindos do diff — cmd.exe /d /s /c com cada argumento escapado
+      cp = win
+        ? spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `"${[cmd, ...args].map(winArg).join(" ")}"`], { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsVerbatimArguments: true })
+        : spawn(cmd, args, { cwd, detached: true, env, stdio: ["ignore", "pipe", "pipe"] });
     } catch (e) {
       resolve({ code: null, out: "", timedOut: false, spawnErr: (e as Error).message });
       return;
@@ -425,10 +495,12 @@ function readBaseCache(file: string): TestRun | null {
  * só é chamado quando a suíte da tarefa falha. Cache em ~/.cardume/baseline/<repo>/<sha>.json; um SHA roda uma vez
  * só por vez (mesmo processo: a mesma promessa; outro processo: trava em arquivo).
  */
-export async function baselineRun(o: { repo: string; worktree: string; baseSha: string; timeoutMs: number; run?: (dir: string, x: { timeoutMs: number }) => Promise<TestRun> }): Promise<TestRun | null> {
+export async function baselineRun(o: { repo: string; worktree: string; baseSha: string; timeoutMs: number; runner?: Runner | null; planSig?: string; run?: (dir: string, x: { timeoutMs: number; runner?: Runner | null }) => Promise<TestRun> }): Promise<TestRun | null> {
   if (!/^[0-9a-f]{7,64}$/i.test(o.baseSha)) return null;
   const dir = baselineDir(o.repo);
-  const file = join(dir, `${o.baseSha}.json`);
+  // modo afetado: o MESMO conjunto afetado roda na base — o cache é por SHA + plano (a suíte inteira fica sem sufixo)
+  const suffix = o.planSig && !o.planSig.startsWith("inteira:") ? "-" + createHash("sha1").update(o.planSig).digest("hex").slice(0, 10) : "";
+  const file = join(dir, `${o.baseSha}${suffix}.json`);
   const going = baseInflight.get(file);
   if (going) return going;
   const p = (async (): Promise<TestRun | null> => {
@@ -447,6 +519,12 @@ export async function baselineRun(o: { repo: string; worktree: string; baseSha: 
     }
     const tmp = mkdtempSync(join(tmpdir(), "starfork-base-"));
     const wt = join(tmp, "wt");
+    // morto no meio (SIGTERM): a trava da base e a worktree temporária não ficam pra trás
+    const undo = onExitCleanup(() => {
+      rmSync(lock, { force: true });
+      rmSync(tmp, { recursive: true, force: true });
+      spawnSync("git", ["-C", o.repo, "worktree", "prune"], { stdio: "ignore", timeout: 5000 });
+    });
     try {
       const again = readBaseCache(file);
       if (again) return again;
@@ -454,7 +532,7 @@ export async function baselineRun(o: { repo: string; worktree: string; baseSha: 
       for (const d of DEP_DIRS) {
         try { if (existsSync(join(o.worktree, d)) && !existsSync(join(wt, d))) symlinkSync(realpathSync(join(o.worktree, d)), join(wt, d)); } catch { /* sem a pasta */ }
       }
-      const r = await (o.run ?? runTests)(wt, { timeoutMs: o.timeoutMs });
+      const r = await (o.run ?? runTests)(wt, o.runner !== undefined ? { timeoutMs: o.timeoutMs, runner: o.runner } : { timeoutMs: o.timeoutMs });
       if (!r.timedOut) {
         const keep = { ...r, failedNames: r.failedNames?.map((n) => n.split(wt).join("<repo>")) ?? r.failedNames, tail: (r.tail ?? "").slice(-4000) };
         writeFileSync(file, JSON.stringify({ sha: o.baseSha, at: Date.now(), run: keep }));
@@ -468,6 +546,7 @@ export async function baselineRun(o: { repo: string; worktree: string; baseSha: 
       rmSync(tmp, { recursive: true, force: true });
       await runCmd("git", ["-C", o.repo, "worktree", "prune"]).catch(() => undefined);
       rmSync(lock, { force: true });
+      undo();
     }
   })().finally(() => baseInflight.delete(file));
   baseInflight.set(file, p);
@@ -488,8 +567,10 @@ export interface GateInput {
   prev?: Verification | null;
   /** o CI do PR que o vigia do app gravou (spec.ciGate.ci) — entra no selo junto com os testes */
   ci?: Verification["ci"];
+  /** onda 1.1: o plano (só os afetados, ou a suíte inteira) — ausente = detecta e roda a inteira, como antes */
+  plan?: { scope: "afetados" | "inteira"; runner: Runner | null; sig: string; ci?: boolean };
   /** injetável nos testes */
-  run?: (dir: string, o: { timeoutMs: number }) => Promise<TestRun>;
+  run?: (dir: string, o: { timeoutMs: number; runner?: Runner | null }) => Promise<TestRun>;
   /** suíte da base (merge-base), chamada SÓ quando a da tarefa falha — sem ela, qualquer falha reprova */
   baseline?: (r: TestRun) => Promise<TestRun | null>;
 }
@@ -512,7 +593,7 @@ export async function testGate(g: GateInput): Promise<GateResult> {
   }
   // mesma versão do código já verificada (fim de turno de conversa, sem commit novo): reaproveita o resultado
   const p = g.prev;
-  if (p && p.tests && p.tests.ran && !p.tests.timedOut && g.sha && p.sha === g.sha && !g.dirty) {
+  if (p && p.tests && p.tests.ran && !p.tests.timedOut && g.sha && p.sha === g.sha && !g.dirty && (p.tests.planSig ?? "") === (g.plan?.sig ?? p.tests.planSig ?? "")) {
     if (!p.tests.ok && !p.tests.baseWarn) reasons.push(`os testes falharam: ${p.tests.runner}${p.tests.passed != null ? ` (${p.tests.passed}/${(p.tests.passed ?? 0) + (p.tests.failed ?? 0)} passaram)` : ""}`);
     // a divergência é recalculada contra o relato ATUAL (o motivo antigo não se repete)
     const real = p.tests.passed != null && p.tests.failed != null ? { passed: p.tests.passed, failed: p.tests.failed } : null;
@@ -523,7 +604,7 @@ export async function testGate(g: GateInput): Promise<GateResult> {
     void _old;
     return { reasons, divergence: div && div !== p.relato ? div : null, run: null, note: "mesma versão já verificada — a suíte não rodou de novo", verification: { ...rest, ci, divergente: !!div, ...(div ? { relato: div } : {}) } };
   }
-  const r = await (g.run ?? runTests)(g.worktree, { timeoutMs: g.timeoutMs });
+  const r = await (g.run ?? runTests)(g.worktree, g.plan ? { timeoutMs: g.timeoutMs, runner: g.plan.runner } : { timeoutMs: g.timeoutMs });
   let divergence: string | null = null;
   if (r.ran && !r.timedOut) {
     for (const c of g.claims) { divergence = claimDivergence(c, r.counts ?? null); if (divergence) break; }
@@ -539,7 +620,9 @@ export async function testGate(g: GateInput): Promise<GateResult> {
   }
   if (divergence) reasons.push(divergence);
   const tests = r.ran || r.timedOut
-    ? { passed: r.counts?.passed ?? null, failed: r.counts?.failed ?? null, ran: r.ran, runner: r.runner ?? "", ok: r.passed, ...(r.timedOut ? { timedOut: true } : {}), ...(baseWarn ? { baseWarn } : {}) }
+    ? { passed: r.counts?.passed ?? null, failed: r.counts?.failed ?? null, ran: r.ran, runner: r.runner ?? "", ok: r.passed, ...(r.timedOut ? { timedOut: true } : {}), ...(baseWarn ? { baseWarn } : {}),
+        ...(g.plan ? { scope: g.plan.scope, planSig: g.plan.sig, ...(g.plan.ci ? { ci: true } : {}) } : {}), ...(r.durationMs != null ? { durationMs: r.durationMs } : {}),
+        ...((g.plan?.runner?.kind ?? r.kind) ? { kind: g.plan?.runner?.kind ?? r.kind } : {}), ...(g.plan?.runner ? { cmdLine: [g.plan.runner.cmd, ...g.plan.runner.args].join(" ") } : {}) }
     : r.runner ? { passed: null, failed: null, ran: false, runner: r.runner, ok: true, skipped: r.detail } : null;
   return {
     reasons, divergence, run: r,

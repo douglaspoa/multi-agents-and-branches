@@ -224,3 +224,45 @@ test('vigia: no máximo 3 tarefas por volta', async () => {
   await h.tick();
   assert.equal(h.n('pr_status'), 3);
 });
+
+test('onda 1.1 · selo: afetados + CI, rodando com o tempo, desligado/só no PR, entregue sem esperar; texto da sugestão', () => {
+  const c = pure();
+  const af = J(c.verifSeal({ tests: { passed: 12, failed: 0, ran: true, runner: 'vitest related', ok: true, scope: 'afetados', ci: true, durationMs: 8000 }, ci: null, divergente: false }, 1));
+  assert.equal(af.text, 'Verificado: testes afetados 12/12 · suíte completa no CI');
+  assert.match(af.tip, /em 8 s/);
+  const run = J(c.verifSeal({ tests: { passed: 1, failed: 0, ran: true, ok: true }, running: { since: 1_000 }, ci: null, divergente: true }, 41_000));
+  assert.equal(run.text, 'rodando testes · 40 s');
+  assert.equal(run.tone, 'wait');
+  assert.equal(run.running, true);
+  assert.equal(c.verifSeal({ tests: null, running: { since: 1 }, ci: null }, 31 * 60000 + 2), null, 'trava de mais de 30 min não conta como rodando');
+  assert.equal(c.verifSeal({ tests: { ran: false, ok: true, off: 'testes desligados neste projeto' }, ci: null }, 1).text, 'Verificado: testes desligados neste projeto');
+  assert.equal(c.verifSeal({ tests: { ran: false, ok: true, off: 'os testes rodam ao abrir o PR' }, ci: null }, 1).text, 'Verificado: os testes rodam ao abrir o PR');
+  const sk = J(c.verifSeal({ tests: { ran: false, ok: true, skippedBy: 'hotfix' }, ci: null }, 1));
+  assert.equal(sk.text, 'Verificado: entregue sem esperar os testes');
+  assert.equal(sk.tone, 'warn');
+  assert.match(sk.tip, /motivo: hotfix/);
+  assert.equal(c.verifSuggestText(240), 'A suíte deste projeto leva ~4 min. Rodar só os testes afetados e a suíte completa só ao abrir o PR?');
+});
+
+test('onda 1.1 · tela: cartão e Revisão oferecem "entregar sem esperar" enquanto roda (askText, nunca confirm); Ajustes edita o testMode', () => {
+  const kb = rd('../src/js/72-kanban.js'), rv = rd('../src/js/63-revisao-pr.js'), pf = rd('../src/js/12-chat-prefs-daily.js');
+  assert.match(kb, /verifRunning\(t\).*act:'skiptests'/);
+  assert.match(kb, /act==='skiptests' && typeof verifSkipTests==='function'\) verifSkipTests\(vm\.ref\)/);
+  assert.match(rv, /data-vskip>entregar sem esperar os testes…/);
+  assert.match(src, /askText\('Entregar sem esperar os testes'/);
+  assert.match(src, /invoke\('tests_skip',\{ taskId:t\.id, reason \}\)/);
+  assert.doesNotMatch(src, /window\.confirm|[^.\w]confirm\(/);
+  for (const m of ['auto', 'afetados', 'sempre', 'so-no-pr', 'desligado']) assert.match(pf, new RegExp(`\\['${m}',`));
+  assert.match(pf, /data-ckmode/);
+  assert.match(pf, /cfg\.testFast=v/);
+  assert.match(src, /testModeAsked:true \}, yes\?\{ testMode:'afetados' \}/, 'Sim grava o testMode');
+});
+
+test('transparência: o selo mostra o modo de testes fora do padrão; "tentou mudar" deixa o selo amarelo; o corpo do PR do app leva as linhas', () => {
+  const c = pure();
+  const s1 = J(c.verifSeal({ tests: { passed: 3, failed: 0, ran: true, ok: true, modeNote: ['modo de testes: desligado (definido no projeto)'] }, ci: null }, 1));
+  assert.equal(s1.text, 'Verificado: testes 3/3 · modo de testes: desligado (definido no projeto)');
+  const s2 = J(c.verifSeal({ tests: { passed: 3, failed: 0, ran: true, ok: true, modeNote: ['a tarefa tentou mudar o modo de testes (vale o da base)'] }, ci: null }, 1));
+  assert.equal(s2.tone, 'warn');
+  assert.match(rd('../src/js/21-pull-request.js'), /modeNote\)\|\|\[\];\n\s*if\(notes\.length\) s\+=/);
+});

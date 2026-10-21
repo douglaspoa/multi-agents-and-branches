@@ -8672,6 +8672,68 @@ fn tail_lines(s: &str, n: usize) -> String {
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
+/// "[[dd-]hh:]mm:ss" do `ps -o etime=` → segundos.
+fn parse_etime(e: &str) -> Option<i64> {
+    let e = e.trim();
+    let (days, rest) = match e.split_once('-') { Some((d, r)) => (d.parse::<i64>().ok()?, r), None => (0, e) };
+    let parts: Vec<i64> = rest.split(':').map(|p| p.parse::<i64>().ok()).collect::<Option<Vec<_>>>()?;
+    let (h, m, s) = match parts.as_slice() { [m, s] => (0, *m, *s), [h, m, s] => (*h, *m, *s), _ => return None };
+    Some(days * 86400 + h * 3600 + m * 60 + s)
+}
+/// O processo `pid` ainda é o que começou em `start_ms`? (pid reaproveitado pelo sistema não conta; tolerância 5 s)
+fn same_process(pid: i32, start_ms: i64) -> bool {
+    if start_ms <= 0 || cfg!(windows) { return false; }
+    let Ok(o) = Command::new("ps").args(["-o", "etime=", "-p", &pid.to_string()]).output() else { return false };
+    match parse_etime(&String::from_utf8_lossy(&o.stdout)) { Some(secs) => ((now_ms() - secs * 1000) - start_ms).abs() < 5_000, None => false }
+}
+/// Pid da verificação de SEGUNDO PLANO desta worktree (`.cardume/verify.lock` com bg:true), se o dono confere (pid +
+/// horário de início). Lock morto ou pid reaproveitado → None (ninguém leva sinal).
+fn verify_bg_pid(wt: &Path) -> Option<i32> {
+    let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(wt.join(".cardume").join("verify.lock")).ok()?).ok()?;
+    if j["bg"].as_bool() != Some(true) { return None; }
+    let pid = j["pid"].as_i64().filter(|p| *p > 0)? as i32;
+    if !same_process(pid, j["start"].as_i64().unwrap_or(0)) { return None; }
+    Some(pid)
+}
+/// Motivo do "entregar sem esperar os testes" (aparado; curto demais não vale).
+fn tests_skip_reason(reason: &str) -> Result<String, String> {
+    let r: String = reason.trim().chars().take(500).collect();
+    if r.chars().filter(|c| c.is_alphanumeric()).count() < 3 { return Err("escreva o motivo de entregar sem esperar os testes".into()); }
+    Ok(r)
+}
+/// Grava o "sem esperar" em TRANSAÇÃO (lê → funde → grava, como o patchSpec do motor: o motor grava no mesmo spec).
+fn tests_skip_write(conn: &Connection, task_id: &str, reason: &str, head: &str) -> Result<(), String> {
+    conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
+    let res = (|| -> Result<(), String> {
+        let spec_json: String = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |row| row.get(0)).map_err(|e| e.to_string())?;
+        let mut spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or(serde_json::json!({}));
+        spec["testsSkip"] = serde_json::json!({ "reason": reason, "at": now_ms(), "sha": head });
+        if spec["verification"].is_object() { spec["verification"]["running"] = serde_json::Value::Null; }
+        conn.execute("UPDATE task SET spec_json=?1 WHERE id=?2", params![spec.to_string(), task_id]).map_err(|e| e.to_string())?;
+        conn.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 0)", params![task_id, now_ms(), format!("entregue sem esperar os testes: {reason}")]).map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    match res {
+        Ok(()) => conn.execute_batch("COMMIT").map_err(|e| e.to_string()),
+        Err(e) => { let _ = conn.execute_batch("ROLLBACK"); Err(e) }
+    }
+}
+/// "Entregar sem esperar os testes" (onda 1.1): grava o motivo na spec (testsSkip, com o HEAD da hora — vale pra esta
+/// versão), registra o evento e cancela a verificação de segundo plano. O portão do motor não roda nem espera a suíte.
+#[tauri::command(async)]
+fn tests_skip(state: State<AppState>, task_id: String, reason: String) -> Result<(), String> {
+    let r = tests_skip_reason(&reason)?;
+    let wt = task_worktree(&state, &task_id)?;
+    let head = wt_fingerprint(&wt).map(|f| f.head).unwrap_or_default();
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open(&db).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+    tests_skip_write(&conn, &task_id, &r, &head)?;
+    // a verificação em segundo plano para (o exit dela mata a suíte filha com a árvore)
+    if let Some(pid) = verify_bg_pid(&wt) { signal_group(pid, procsig::TERM); }
+    Ok(())
+}
+
 /// Últimas 60 linhas do log das etapas que falharam numa execução do GitHub Actions (`gh run view <id> --log-failed`),
 /// com a conta do gh deste repo (gh_contas). O vigia do CI (83-verificacao.js) devolve isso pro agente.
 #[tauri::command(async)]
@@ -9014,18 +9076,114 @@ fn run_one_check(task_id: &str, dir: &Path, def: &CheckDef, secs: u64) -> CheckR
 }
 
 /// Roda as checagens LIGADAS na worktree, em ordem; `on_step(i, Some(res))` depois de cada uma.
-fn run_checks_in(task_id: &str, wt: &Path, defs: &[CheckDef], secs: u64, mut on_step: impl FnMut(&CheckDef, Option<&CheckResult>)) -> Vec<CheckResult> {
+fn run_checks_in(task_id: &str, wt: &Path, defs: &[CheckDef], secs: u64, on_step: impl FnMut(&CheckDef, Option<&CheckResult>)) -> Vec<CheckResult> {
+    run_checks_in_with(task_id, wt, defs, secs, on_step, |_| None)
+}
+/// Igual ao run_checks_in, mas `decide` pode devolver o resultado SEM rodar o comando (o selo do motor, onda 1.1).
+fn run_checks_in_with(task_id: &str, wt: &Path, defs: &[CheckDef], secs: u64, mut on_step: impl FnMut(&CheckDef, Option<&CheckResult>), mut decide: impl FnMut(&CheckDef) -> Option<CheckResult>) -> Vec<CheckResult> {
     check_stops().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
     let mut out = vec![];
     for d in defs.iter().filter(|d| d.on) {
         if check_stops().lock().unwrap_or_else(|e| e.into_inner()).contains(task_id) { break; }
         on_step(d, None);
-        let r = run_one_check(task_id, wt, d, secs);
+        let r = match decide(d) { Some(r) => r, None => run_one_check(task_id, wt, d, secs) };
         on_step(d, Some(&r));
         out.push(r);
     }
     check_stops().lock().unwrap_or_else(|e| e.into_inner()).remove(task_id);
     out
+}
+
+
+// ---------- Onda 1.1: o portão de checagens (FT-5) lê o SELO do motor pros testes ----------
+// O motor (src/test-runner.ts + test-plan.ts) já roda a suíte e grava spec.verification com o HEAD. Pra checagem de
+// TESTES, o FT-5 usa esse selo quando ele é da MESMA versão (HEAD igual, sem mudança solta), espera a verificação do
+// motor que estiver rodando pra esse HEAD e respeita "entregue sem esperar os testes". Lint/tipos/build e comandos
+// que não são de teste rodam como sempre.
+
+/// A checagem é de TESTES (o que o motor cobre)? Os ids detectados (npm:test, cargo:test, py:pytest, go:test) ou um
+/// comando próprio que é o runner de testes.
+fn is_test_check(d: &CheckDef) -> bool {
+    if matches!(d.id.as_str(), "npm:test" | "cargo:test" | "py:pytest" | "go:test") { return true; }
+    let c = d.cmd.trim();
+    ["npm test", "npm run test", "pnpm test", "pnpm run test", "yarn test", "bun run test", "cargo test", "go test", "pytest", "python -m pytest", "python3 -m pytest", "swift test"]
+        .iter().any(|p| c == *p || c.starts_with(&format!("{p} ")))
+}
+
+#[derive(Debug, PartialEq)]
+enum SealUse { Use(bool, String, u64), Wait, Run }
+
+/// O selo do motor é desta checagem? Id detectado → o runner do selo tem de ser o mesmo (npm:test ↔ npm/pnpm/yarn/bun,
+/// cargo:test ↔ cargo, py:pytest ↔ pytest, go:test ↔ go). Comando próprio → só se for IDÊNTICO à linha que o motor
+/// rodou (um comando mais rigoroso, -race/--all-features/tests/integration, roda sempre).
+fn seal_matches(d: &CheckDef, t: &serde_json::Value) -> bool {
+    let kind = t["kind"].as_str().unwrap_or("");
+    match d.id.as_str() {
+        "npm:test" => matches!(kind, "npm" | "pnpm" | "yarn" | "bun"),
+        "cargo:test" => kind == "cargo",
+        "py:pytest" => kind == "pytest",
+        "go:test" => kind == "go",
+        _ => t["cmdLine"].as_str().map(|c| c.trim() == d.cmd.trim() && !c.trim().is_empty()).unwrap_or(false),
+    }
+}
+
+/// O que fazer com uma checagem de testes, pelo selo do motor (spec) e pela versão atual da worktree.
+fn seal_decision(d: &CheckDef, spec: &serde_json::Value, head: &str, dirty: bool, now: i64) -> SealUse {
+    if head.is_empty() || dirty { return SealUse::Run; }
+    let skip = &spec["testsSkip"];
+    if let Some(r) = skip["reason"].as_str().filter(|r| !r.trim().is_empty()) {
+        if skip["sha"].as_str() == Some(head) { return SealUse::Use(true, format!("entregue sem esperar os testes: {r}"), 0); }
+    }
+    let v = &spec["verification"];
+    if let Some(since) = v["running"]["since"].as_i64() {
+        let sha = v["running"]["sha"].as_str().unwrap_or("");
+        if now - since < 30 * 60_000 && (sha.is_empty() || sha == head) { return SealUse::Wait; }
+    }
+    let t = &v["tests"];
+    if v["sha"].as_str() != Some(head) || t["ran"].as_bool() != Some(true) || t["timedOut"].as_bool() == Some(true) { return SealUse::Run; }
+    if !seal_matches(d, t) { return SealUse::Run; }
+    let afetados = t["scope"].as_str() == Some("afetados");
+    // só os afetados (ou o testFast) SEM CI não substitui a suíte completa: o "aprovar e abrir PR" roda ela aqui
+    if afetados && t["ci"].as_bool() != Some(true) { return SealUse::Run; }
+    let base_warn = t["baseWarn"].as_str().unwrap_or("");
+    let ok = t["ok"].as_bool() == Some(true) || !base_warn.is_empty();
+    let nums = match (t["passed"].as_i64(), t["failed"].as_i64()) { (Some(p), Some(f)) => format!(" {p}/{}", p + f), _ => String::new() };
+    let short: String = head.chars().take(7).collect();
+    let mut log = format!("resultado do selo do motor (mesma versão, {short}): {}{nums} {}", if afetados { "testes afetados" } else { "testes" }, if t["ok"].as_bool() == Some(true) { "passaram" } else { "falharam" });
+    if afetados { log.push_str(" · a suíte completa roda no CI"); }
+    if !base_warn.is_empty() { log.push_str(&format!(" · {base_warn} (não reprova)")); }
+    if let Some(r) = t["runner"].as_str().filter(|r| !r.is_empty()) { log.push_str(&format!(" · {r}")); }
+    SealUse::Use(ok, log, t["durationMs"].as_u64().unwrap_or(0))
+}
+
+fn task_spec_json(db: &Path, task_id: &str) -> serde_json::Value {
+    let Ok(conn) = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY) else { return serde_json::json!({}) };
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(3000));
+    conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)).ok()
+        .and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(serde_json::json!({}))
+}
+
+/// As checagens do projeto com os TESTES vindos do selo do motor (mesma versão) — o FT-5 do "aprovar e abrir PR" e o
+/// repo_checks do celular. `waiting(d, segundos)` avisa a tela enquanto espera a verificação do motor.
+fn run_checks_sealed(db: Option<PathBuf>, task_id: &str, wt: &Path, defs: &[CheckDef], secs: u64, fp: &TaskFingerprint, on_step: impl FnMut(&CheckDef, Option<&CheckResult>), mut waiting: impl FnMut(&CheckDef, u64)) -> Vec<CheckResult> {
+    let tid = task_id.to_string();
+    run_checks_in_with(task_id, wt, defs, secs, on_step, move |d| {
+        if !is_test_check(d) { return None; }
+        let db = db.as_ref()?;
+        let t0 = now_ms();
+        loop {
+            match seal_decision(d, &task_spec_json(db, &tid), &fp.head, fp.dirty, now_ms()) {
+                SealUse::Run => return None,
+                SealUse::Use(ok, log, ms) => return Some(CheckResult { id: d.id.clone(), label: d.label.clone(), cmd: d.cmd.clone(), ok, exit_code: Some(if ok { 0 } else { 1 }), duration_ms: ms, timed_out: false, stopped: false, log }),
+                SealUse::Wait => {
+                    let waited = ((now_ms() - t0) / 1000) as u64;
+                    if waited >= secs || check_stops().lock().unwrap_or_else(|e| e.into_inner()).contains(&tid) { return None; }
+                    waiting(d, waited);
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                }
+            }
+        }
+    })
 }
 
 #[derive(Serialize)]
@@ -9087,8 +9245,14 @@ fn run_checks(app: tauri::AppHandle, state: State<AppState>, task_id: String) ->
     let defs = effective_checks(&detect_checks_in(&wt), &cfg);
     let fp = wt_fingerprint(&wt)?; // ANTES de rodar: é esta versão que foi verificada
     let tid = task_id.clone();
-    let results = run_checks_in(&task_id, &wt, &defs, checks_timeout_secs(&cfg), |d, r| {
+    let tid2 = task_id.clone();
+    let app2 = app.clone();
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    // testes: o selo do motor da MESMA versão vale (não roda de novo); verificação do motor rodando = espera ela
+    let results = run_checks_sealed(db, &task_id, &wt, &defs, checks_timeout_secs(&cfg), &fp, |d, r| {
         let _ = app.emit("checks-progress", serde_json::json!({ "taskId": tid, "id": d.id, "label": d.label, "phase": if r.is_some() { "done" } else { "start" }, "result": r }));
+    }, |d, secs| {
+        let _ = app2.emit("checks-progress", serde_json::json!({ "taskId": tid2, "id": d.id, "label": format!("{} — esperando a verificação do motor · {secs} s", d.label), "phase": "start" }));
     });
     Ok(ChecksRun { fingerprint: fp.fingerprint, head: fp.head, dirty: fp.dirty, at: now_ms(), results })
 }
@@ -9120,7 +9284,9 @@ fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>
     let wt = task_worktree(&state, &task_id)?;
     let cfg = read_checks_cfg(&repo);
     let defs = effective_checks(&detect_checks_in(&wt), &cfg);
-    let res = run_checks_in(&task_id, &wt, &defs, checks_timeout_secs(&cfg), |_, _| {});
+    let fp = wt_fingerprint(&wt)?;
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let res = run_checks_sealed(db, &task_id, &wt, &defs, checks_timeout_secs(&cfg), &fp, |_, _| {}, |_, _| {});
     Ok(res
         .into_iter()
         .map(|r| {
@@ -11173,6 +11339,7 @@ pub fn run() {
             pr_compare_url,
             pr_status,
             pr_ci_log,
+            tests_skip,
             pr_resolve_thread,
             merge_pr,
             rework_from_pr,
@@ -11476,6 +11643,108 @@ mod pr_status_tests {
         assert_eq!(t.lines().count(), 60);
         assert!(t.starts_with("linha 41") && t.ends_with("linha 100"));
         assert_eq!(tail_lines("a\nb", 60), "a\nb");
+    }
+    #[test]
+    fn entregar_sem_esperar_motivo_e_pid_do_segundo_plano() {
+        assert!(tests_skip_reason("  ").is_err());
+        assert!(tests_skip_reason("ok").is_err());
+        assert_eq!(tests_skip_reason("  hotfix urgente ").unwrap(), "hotfix urgente");
+        let d = std::env::temp_dir().join(format!("sf-vlock-{}", std::process::id()));
+        std::fs::create_dir_all(d.join(".cardume")).unwrap();
+        // o dono CONFERE (pid + horário de início): este processo, com o início certo
+        let me = std::process::id() as i32;
+        let started = Command::new("ps").args(["-o", "etime=", "-p", &me.to_string()]).output().ok().and_then(|o| parse_etime(&String::from_utf8_lossy(&o.stdout))).map(|s| now_ms() - s * 1000).unwrap_or(0);
+        std::fs::write(d.join(".cardume").join("verify.lock"), format!(r#"{{"pid":{me},"start":{started},"bg":true,"sha":"a"}}"#)).unwrap();
+        if !cfg!(windows) { assert_eq!(verify_bg_pid(&d), Some(me)); }
+        std::fs::write(d.join(".cardume").join("verify.lock"), format!(r#"{{"pid":{me},"start":{},"bg":true}}"#, started - 3_600_000)).unwrap();
+        assert_eq!(verify_bg_pid(&d), None, "pid reaproveitado (início não bate): nunca sinaliza");
+        std::fs::write(d.join(".cardume").join("verify.lock"), r#"{"pid":4242,"bg":true}"#).unwrap();
+        assert_eq!(verify_bg_pid(&d), None, "sem horário de início: trava morta");
+        std::fs::write(d.join(".cardume").join("verify.lock"), format!(r#"{{"pid":{me},"start":{started},"bg":false}}"#)).unwrap();
+        assert_eq!(verify_bg_pid(&d), None, "a verificação da entrega (síncrona) não é cancelada");
+        assert_eq!(parse_etime("01:02"), Some(62));
+        assert_eq!(parse_etime("1-02:03:04"), Some(86400 + 7384));
+        assert_eq!(parse_etime("lixo"), None);
+        // gravação em transação: funde no spec do banco (o que o motor gravou continua lá)
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE task (id TEXT, spec_json TEXT); CREATE TABLE event (task_id TEXT, agent TEXT, ts INTEGER, type TEXT, text TEXT, ok INTEGER); INSERT INTO task VALUES ('t', '{\"guard\":{\"x\":1},\"verification\":{\"running\":{\"since\":1}}}');").unwrap();
+        tests_skip_write(&conn, "t", "hotfix urgente", "h1").unwrap();
+        let sp: serde_json::Value = serde_json::from_str(&conn.query_row("SELECT spec_json FROM task", [], |r| r.get::<_, String>(0)).unwrap()).unwrap();
+        assert_eq!(sp["testsSkip"]["sha"], "h1");
+        assert_eq!(sp["guard"]["x"], 1);
+        assert!(sp["verification"]["running"].is_null());
+        assert_eq!(conn.query_row("SELECT text FROM event", [], |r| r.get::<_, String>(0)).unwrap(), "entregue sem esperar os testes: hotfix urgente");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn ft5_le_o_selo_do_motor_pros_testes() {
+        let now = 1_000_000_i64;
+        let def = |id: &str, cmd: &str| CheckDef { id: id.into(), label: "x".into(), cmd: cmd.into(), on: true, source: "custom".into() };
+        let npm = def("npm:test", "npm run test --silent");
+        let sealed = serde_json::json!({ "verification": { "sha": "abc1234", "tests": { "ran": true, "ok": true, "passed": 12, "failed": 0, "scope": "afetados", "ci": true, "durationMs": 8000, "runner": "vitest related", "kind": "npm" } } });
+        match seal_decision(&npm, &sealed, "abc1234", false, now) {
+            SealUse::Use(ok, log, ms) => { assert!(ok); assert_eq!(ms, 8000); assert!(log.contains("testes afetados 12/12 passaram"), "{log}"); assert!(log.contains("suíte completa roda no CI")); }
+            o => panic!("esperava usar o selo: {o:?}"),
+        }
+        assert_eq!(seal_decision(&npm, &sealed, "outro99", false, now), SealUse::Run, "HEAD diferente: roda");
+        assert_eq!(seal_decision(&npm, &sealed, "abc1234", true, now), SealUse::Run, "mudança solta: roda");
+        // B1: só os afetados (ou testFast) SEM CI não substitui a suíte completa
+        let sem_ci = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": true, "scope": "afetados", "kind": "npm" } } });
+        assert_eq!(seal_decision(&npm, &sem_ci, "h", false, now), SealUse::Run, "afetados sem CI: o FT-5 roda a suíte");
+        // B2: o selo é de UM runner — só vale na checagem dele
+        let cargo = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": true, "scope": "inteira", "kind": "cargo" } } });
+        assert!(matches!(seal_decision(&def("cargo:test", "cargo test"), &cargo, "h", false, now), SealUse::Use(true, _, _)));
+        for other in ["npm:test", "py:pytest", "go:test"] { assert_eq!(seal_decision(&def(other, "x"), &cargo, "h", false, now), SealUse::Run, "{other} não é do selo cargo"); }
+        assert_eq!(seal_decision(&npm, &serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": true } } }), "h", false, now), SealUse::Run, "selo sem runner: roda");
+        // I6: comando próprio só se IDÊNTICO à linha que o motor rodou
+        let go = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": true, "scope": "inteira", "kind": "go", "cmdLine": "go test -v ./..." } } });
+        assert!(matches!(seal_decision(&def("custom:0", "go test -v ./..."), &go, "h", false, now), SealUse::Use(true, _, _)));
+        assert_eq!(seal_decision(&def("custom:1", "go test -race ./..."), &go, "h", false, now), SealUse::Run, "comando mais rigoroso roda sempre");
+        let failing = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": false, "passed": 8, "failed": 2, "kind": "npm" } } });
+        assert!(matches!(seal_decision(&npm, &failing, "h", false, now), SealUse::Use(false, _, _)), "selo vermelho reprova sem rodar");
+        let base = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": false, "baseWarn": "a main já tinha 2 testes falhando", "kind": "npm" } } });
+        assert!(matches!(seal_decision(&npm, &base, "h", false, now), SealUse::Use(true, _, _)), "falha que já vinha da main não reprova");
+        let running = serde_json::json!({ "verification": { "running": { "since": now - 5000, "sha": "h" } } });
+        assert_eq!(seal_decision(&npm, &running, "h", false, now), SealUse::Wait);
+        assert_eq!(seal_decision(&npm, &running, "h", false, now + 31 * 60_000), SealUse::Run, "trava velha não segura");
+        let skip = serde_json::json!({ "testsSkip": { "reason": "hotfix", "sha": "h" }, "verification": { "running": { "since": now, "sha": "h" } } });
+        match seal_decision(&npm, &skip, "h", false, now) { SealUse::Use(true, log, _) => assert!(log.contains("entregue sem esperar os testes: hotfix")), o => panic!("{o:?}") }
+        assert_eq!(seal_decision(&npm, &skip, "h2", false, now), SealUse::Run, "o 'sem esperar' vale só pro HEAD dele");
+        assert_eq!(seal_decision(&npm, &skip, "h", true, now), SealUse::Run, "o 'sem esperar' não vale com mudança solta");
+        assert!(is_test_check(&def("npm:test", "npm run test --silent")));
+        assert!(is_test_check(&def("custom:0", "pytest -q")));
+        assert!(!is_test_check(&def("npm:lint", "npm run lint --silent")));
+        assert!(!is_test_check(&def("npm:typecheck", "npm run typecheck --silent")));
+        assert!(!is_test_check(&def("custom:1", "npx playwright test")), "comando que não é o runner do motor roda como sempre");
+    }
+    #[test]
+    fn ft5_com_selo_valido_nao_chama_o_comando_de_teste_e_com_head_diferente_chama() {
+        use rusqlite::Connection;
+        let d = std::env::temp_dir().join(format!("sf-ft5-{}-{}", std::process::id(), now_ms()));
+        std::fs::create_dir_all(&d).unwrap();
+        let db = d.join("state.sqlite");
+        let conn = Connection::open(&db).unwrap();
+        conn.execute_batch("CREATE TABLE task (id TEXT PRIMARY KEY, spec_json TEXT);").unwrap();
+        let spec = serde_json::json!({ "verification": { "sha": "head1", "tests": { "ran": true, "ok": true, "passed": 3, "failed": 0, "scope": "inteira", "kind": "npm" } } });
+        conn.execute("INSERT INTO task VALUES ('t', ?1)", params![spec.to_string()]).unwrap();
+        drop(conn);
+        let marker = d.join("rodou-teste");
+        let lint_marker = d.join("rodou-lint");
+        let sh = |f: &std::path::Path| if cfg!(windows) { format!("type nul > \"{}\"", f.display()) } else { format!("touch '{}'", f.display()) };
+        let defs = vec![
+            CheckDef { id: "npm:test".into(), label: "Testes".into(), cmd: sh(&marker), on: true, source: "package.json".into() },
+            CheckDef { id: "npm:lint".into(), label: "Linter".into(), cmd: sh(&lint_marker), on: true, source: "package.json".into() },
+        ];
+        let fp = |h: &str| TaskFingerprint { fingerprint: h.into(), head: h.into(), dirty: false };
+        let r = run_checks_sealed(Some(db.clone()), "t", &d, &defs, 30, &fp("head1"), |_, _| {}, |_, _| {});
+        assert!(!marker.exists(), "selo válido pro HEAD: o comando de teste NÃO rodou");
+        assert!(lint_marker.exists(), "lint roda como sempre");
+        assert!(r[0].ok && r[0].log.contains("selo do motor"), "{}", r[0].log);
+        let _ = std::fs::remove_file(&lint_marker);
+        let r2 = run_checks_sealed(Some(db.clone()), "t", &d, &defs, 30, &fp("head2"), |_, _| {}, |_, _| {});
+        assert!(marker.exists(), "HEAD diferente: o comando de teste rodou");
+        assert!(r2[0].ok && !r2[0].log.contains("selo do motor"));
+        let _ = std::fs::remove_dir_all(&d);
     }
     #[test]
     fn snapshot_leva_o_selo_de_verificacao() {

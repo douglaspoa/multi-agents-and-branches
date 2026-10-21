@@ -12,19 +12,30 @@ const CI_MAX_VOLTAS=2;
 const CI_WATCH_ST=new Set(['review','pr-open']);
 const CI_SEM_PUSH_MS=3*60000; // devolvida há mais que isso, de volta à revisão sem commit novo = o agente não deu push
 const CI_POR_TICK=3;           // no máximo 3 tarefas por volta (cada pr_status leva segundos — as voltas não se sobrepõem)
-// o selo: { text, tone:'ok'|'bad'|'wait'|'warn', tip } ou null (nada verificado ainda)
-function verifSeal(v){
+// a verificação está rodando agora? (selo "rodando testes · 40 s"; trava velha de mais de 30 min não conta)
+const VERIF_RUN_MAX_MS=30*60000;
+function verifRunningSince(v, now){ const r=v&&v.running; const since=r&&+r.since; return since && (now-since)<VERIF_RUN_MAX_MS ? since : 0; }
+function verifDur(ms){ const s=Math.max(0,Math.round(ms/1000)); return s<60?`${s} s`:`${Math.floor(s/60)} min ${String(s%60).padStart(2,'0')} s`; }
+// o selo: { text, tone:'ok'|'bad'|'wait'|'warn', tip, running } ou null (nada verificado ainda)
+function verifSeal(v, now){
   if(!v) return null;
+  now=now||Date.now();
   const parts=[], tips=[]; let tone='ok';
   const bump=k=>{ const rank={ ok:0, wait:1, warn:2, bad:3 }; if(rank[k]>rank[tone]) tone=k; };
-  const t=v.tests;
-  if(t){
-    if(t.skipped){ parts.push('testes pulados'); tips.push(t.skipped); }
+  const t=v.tests, since=verifRunningSince(v, now);
+  if(since){ parts.push(`rodando testes · ${verifDur(now-since)}`); bump('wait'); tips.push('a suíte roda em segundo plano — a entrega só lê o resultado'); }
+  else if(t){
+    if(t.skippedBy){ parts.push('entregue sem esperar os testes'); tips.push('motivo: '+t.skippedBy); bump('warn'); }
+    else if(t.off){ parts.push(t.off); }
+    else if(t.skipped){ parts.push('testes pulados'); tips.push(t.skipped); }
     else if(t.timedOut){ parts.push('testes sem tempo'); tips.push(`${t.runner||'a suíte'} não terminou no tempo-limite`); bump('warn'); }
     else if(t.ran){
       const tot=t.passed!=null?t.passed+(t.failed||0):null;
-      parts.push(tot!=null?`testes ${t.passed}/${tot}`:(t.ok?'testes ok':'testes falharam'));
-      tips.push(`${t.runner||'suíte'} rodada pelo Starfork na cópia da tarefa`);
+      const nome=t.scope==='afetados'?'testes afetados':'testes';
+      parts.push(tot!=null?`${nome} ${t.passed}/${tot}`:(t.ok?`${nome} ok`:`${nome} falharam`));
+      // com CI, só os afetados rodaram aqui: a suíte completa é do CI (e do vigia)
+      if(t.scope==='afetados' && t.ci) parts.push('suíte completa no CI');
+      tips.push(`${t.runner||'suíte'} rodada pelo Starfork na cópia da tarefa`+(t.durationMs!=null?` em ${verifDur(t.durationMs)}`:''));
       // a main já falhava igual (suíte da base): aviso, não reprovação
       if(!t.ok && t.baseWarn){ parts.push(t.baseWarn); bump('warn'); }
       else if(!t.ok) bump('bad');
@@ -36,10 +47,17 @@ function verifSeal(v){
     if(c.fail){ bump('bad'); tips.push(`${c.fail} checagem(ns) do CI falhando`); }
     else if(c.pending){ bump('wait'); tips.push(`${c.pending} checagem(ns) do CI rodando`); }
   }
-  if(v.divergente){ parts.push('relato divergente'); bump('bad'); if(v.relato) tips.push(v.relato); }
+  if(v.divergente && !since){ parts.push('relato divergente'); bump('bad'); if(v.relato) tips.push(v.relato); }
+  // transparência: modo de testes fora do padrão (o agente consegue mexer no checks.json)
+  for(const n of ((t&&t.modeNote)||[])){ parts.push(n); if(/tentou mudar/.test(n)) bump('warn'); }
   if(!parts.length) return null;
-  const text='Verificado: '+parts.join(' · ');
-  return { text, tone, tip:[text, ...tips].join('\n') };
+  const text=(since?'':'Verificado: ')+parts.join(' · ');
+  return { text, tone, tip:[text, ...tips].join('\n'), ...(since?{ running:true }:{}) };
+}
+// texto da sugestão automática (a suíte inteira passou de 2 min duas vezes)
+function verifSuggestText(avgSec){
+  const min=Math.max(2, Math.round((+avgSec||0)/60));
+  return `A suíte deste projeto leva ~${min} min. Rodar só os testes afetados e a suíte completa só ao abrir o PR?`;
 }
 // o selo de uma tarefa: o do motor + o CI que o vigia gravou (cada lado grava a sua chave — não se atropelam)
 function verifOf(t){
@@ -93,8 +111,41 @@ function ciAskText(names, why){
 // @verif-puro-fim
 
 const VSEAL_TONE={ ok:'done', bad:'error', wait:'running', warn:'blocked' }; // cor = a do STATUS_META (nenhuma cor própria)
+function verifRunning(t){ return !!verifRunningSince(((t&&t.spec)||{}).verification, Date.now()); }
+// "entregar sem esperar os testes" (onda 1.1): motivo obrigatório — fica no selo e na conversa; a suíte de fundo para
+async function verifSkipTests(t){
+  if(!t) return false;
+  const reason=String(await askText('Entregar sem esperar os testes', 'por que entregar sem esperar os testes? (fica registrado no selo e na conversa)', '')||'').trim();
+  if(!reason) return false;
+  try{ await invoke('tests_skip',{ taskId:t.id, reason }); toast('Entregue sem esperar os testes — o motivo ficou registrado','ok'); lastSig=''; refresh().catch(()=>{}); return true; }
+  catch(e){ showErr(e, 'Não consegui registrar'); return false; }
+}
+// sugestão automática, UMA vez por projeto: aviso não bloqueante; "Sim" grava testMode no .cardume/checks.json
+const verifSugAsked={};
+async function verifSuggestTick(){
+  if(!state.repo || verifSugAsked[state.repo]) return;
+  const t=(state.tasks||[]).find(x=>((x.spec||{}).verification||{}).suggest);
+  if(!t) return;
+  const key='vsug:'+state.repo;
+  if(lsGet(key)){ verifSugAsked[state.repo]=1; return; }
+  let cfg={};
+  try{ cfg=((await invoke('checks_config',{ taskId:null }))||{}).cfg||{}; }catch(_){ return; }
+  verifSugAsked[state.repo]=1;
+  if(cfg.testModeAsked) return;
+  lsSet(key, '1');
+  const answer=async(yes)=>{
+    try{
+      const cur=((await invoke('checks_config',{ taskId:null }))||{}).cfg||{};
+      await invoke('checks_save',{ cfg:Object.assign({}, cur, { testModeAsked:true }, yes?{ testMode:'afetados' }:{}) });
+      if(typeof chkDraft!=='undefined') Object.keys(chkDraft).forEach(k=>delete chkDraft[k]);
+      if(yes) toast('Pronto: só os testes afetados durante a tarefa; a suíte completa ao abrir o PR','ok');
+    }catch(e){ showErr(e, 'Não salvou'); }
+  };
+  toast(verifSuggestText(t.spec.verification.suggest.avgSec), 'info', { label:'Sim', fn:()=>answer(true) }, { label:'Agora não', fn:()=>answer(false) });
+}
+tickLoop('verifSuggestTick', verifSuggestTick, 30000, 15000, { local:true });
 function verifSealHtml(t, cls){
-  const s=verifSeal(verifOf(t)); if(!s) return '';
+  const s=verifSeal(verifOf(t), Date.now()); if(!s) return '';
   return `<span class="vseal${cls?' '+cls:''}" data-tone="${s.tone}" style="--vs:${stColor(VSEAL_TONE[s.tone])}" title="${escA(s.tip)}">${esc(s.text)}</span>`;
 }
 

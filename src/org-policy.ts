@@ -7,6 +7,7 @@
  */
 import type { AgentRole, TaskSpec } from "./types.ts";
 import { diversifyReviewer, producerIndex, reviewerIsSame } from "./lifecycle.ts";
+import { asMode, type TestMode } from "./test-plan.ts";
 
 export interface OrgAgentPolicy {
   /** toda tarefa passa pelo portão: sem PR automático e com prova */
@@ -121,4 +122,14 @@ export function orgGuardPolicy(raw: unknown): { secretsBlock: boolean; codeHighB
   const secretsBlock = g.secretsBlock !== false;
   const codeHighBlock = g.codeHighBlock !== false;
   return secretsBlock && codeHighBlock ? null : { secretsBlock, codeHighBlock };
+}
+
+/**
+ * Onda 1.1 · portão rápido: a org pode FIXAR o modo dos testes do portão (`agentes.testMode` ou `testMode` direto:
+ * auto | sempre | afetados | so-no-pr | desligado). Vence o .cardume/checks.json do projeto. null = não fixa.
+ */
+export function orgTestMode(raw: unknown): TestMode | null {
+  const o0 = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const o = o0.agentes && typeof o0.agentes === "object" ? (o0.agentes as Record<string, unknown>) : o0;
+  return asMode(o.testMode);
 }

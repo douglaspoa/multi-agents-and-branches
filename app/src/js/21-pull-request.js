@@ -233,6 +233,10 @@ function chkPrBodyChecks(t){
   if(r && (g.st==='pass'||g.st==='fail'||(g.st==='override'&&g.was==='fail'))) s+=(r.results||[]).map(x=>`- ${x.ok?'✓':'✕'} ${x.label} — \`${x.cmd}\` · ${chkDur(x.durationMs)}${x.ok?'':x.timedOut?' · passou do tempo-limite':' · exit '+(x.exitCode==null?'?':x.exitCode)}`).join('\n')+'\n_rodadas pelo Starfork na cópia da tarefa_\n';
   else s+='_não rodou na versão final_\n';
   if(g.st==='override') s+=`\nAtenção: aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${g.ov.reason}\n`;
+  // transparência (onda 1.1): modo de testes fora do padrão, ou a tarefa tentou mudar o checks.json
+  const tk=(state.tasks||[]).find(x=>x.id===t.id)||t;
+  const notes=((((tk.spec||{}).verification||{}).tests||{}).modeNote)||[];
+  if(notes.length) s+='\n'+notes.map(n=>`- ${n}`).join('\n')+'\n';
   return s;
 }
 // cabeçalho da tarefa (20): o botão "aprovar e abrir PR" reflete o gate — bloqueado leva pra Verificação na Entrega
