@@ -295,6 +295,16 @@ test("modos: desligado (selo), so-no-pr (só no openPr), entregar sem esperar (m
     assert.ok(!existsSync(runs), "fora do PR não roda");
     await orch.verifyProofs("m1", orch.store.getTask("m1")!, sp(orch, "m1"), { forPr: true });
     assert.equal(readFileSync(runs, "utf8"), "x", "no openPr roda");
+    // "afetados" sem CI: no meio do caminho só os afetados (testFast); ao abrir o PR, a suíte completa
+    writeFileSync(join(repo, ".cardume", "checks.json"), JSON.stringify({ testMode: "afetados", testFast: "echo '# pass 1'" }));
+    commitIn(wt, { "src/a2.js": "1\n" });
+    await orch.verifyProofs("m1", orch.store.getTask("m1")!, sp(orch, "m1"));
+    assert.equal(sp(orch, "m1").verification!.tests!.scope, "afetados");
+    assert.equal(readFileSync(runs, "utf8"), "x", "o testFast rodou no lugar da suíte");
+    await orch.verifyProofs("m1", orch.store.getTask("m1")!, sp(orch, "m1"), { forPr: true });
+    assert.equal(sp(orch, "m1").verification!.tests!.scope, "inteira");
+    assert.equal(readFileSync(runs, "utf8"), "xx", "ao abrir o PR, a suíte completa");
+    writeFileSync(runs, "x");
     // a org fixa "sempre" e vence o desligado do projeto
     writeFileSync(join(repo, ".cardume", "checks.json"), JSON.stringify({ testMode: "desligado" }));
     commitIn(wt, { "src/b.js": "1\n" });

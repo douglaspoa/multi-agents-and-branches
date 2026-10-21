@@ -7,3 +7,10 @@
 .kb-seal .vseal{white-space:normal;border-radius:8px;align-items:flex-start;padding:2px 8px}
 .kb-seal .vseal::before{margin-top:.45em}
 .rvtop .vseal{font-size:var(--fs-sm)}
+.vseal[data-tone="wait"]::before{animation:vseal-pulse 1.4s ease-in-out infinite}
+@keyframes vseal-pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){ .vseal[data-tone="wait"]::before{animation:none} }
+/* Ajustes do projeto › Testes do portão (12-chat-prefs-daily: chkCfgEditor) */
+.ckmode{display:grid;gap:6px;margin:10px 0;padding-top:10px;border-top:1px solid var(--border)}
+.ckmode .ckrow select,.ckmode .ckrow input[data-ckfast]{flex:1;min-width:0}
+.ckmode .ckrow input[data-ckover]{width:72px}

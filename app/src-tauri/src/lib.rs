@@ -8671,6 +8671,39 @@ fn tail_lines(s: &str, n: usize) -> String {
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
+/// Pid da verificação de SEGUNDO PLANO desta worktree (`.cardume/verify.lock` com bg:true), se houver.
+fn verify_bg_pid(wt: &Path) -> Option<i32> {
+    let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(wt.join(".cardume").join("verify.lock")).ok()?).ok()?;
+    if j["bg"].as_bool() != Some(true) { return None; }
+    j["pid"].as_i64().filter(|p| *p > 0).map(|p| p as i32)
+}
+/// Motivo do "entregar sem esperar os testes" (aparado; curto demais não vale).
+fn tests_skip_reason(reason: &str) -> Result<String, String> {
+    let r: String = reason.trim().chars().take(500).collect();
+    if r.chars().filter(|c| c.is_alphanumeric()).count() < 3 { return Err("escreva o motivo de entregar sem esperar os testes".into()); }
+    Ok(r)
+}
+/// "Entregar sem esperar os testes" (onda 1.1): grava o motivo na spec (testsSkip, com o HEAD da hora — vale pra esta
+/// versão), registra o evento e cancela a verificação de segundo plano. O portão do motor não roda nem espera a suíte.
+#[tauri::command(async)]
+fn tests_skip(state: State<AppState>, task_id: String, reason: String) -> Result<(), String> {
+    let r = tests_skip_reason(&reason)?;
+    let wt = task_worktree(&state, &task_id)?;
+    let head = wt_fingerprint(&wt).map(|f| f.head).unwrap_or_default();
+    let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+    let conn = Connection::open(&db).map_err(|e| e.to_string())?;
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
+    let spec_json: String = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |row| row.get(0)).map_err(|e| e.to_string())?;
+    let mut spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or(serde_json::json!({}));
+    spec["testsSkip"] = serde_json::json!({ "reason": r, "at": now_ms(), "sha": head });
+    if spec["verification"].is_object() { spec["verification"]["running"] = serde_json::Value::Null; }
+    conn.execute("UPDATE task SET spec_json=?1 WHERE id=?2", params![spec.to_string(), task_id]).map_err(|e| e.to_string())?;
+    let _ = conn.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 0)", params![task_id, now_ms(), format!("entregue sem esperar os testes: {r}")]);
+    // a verificação em segundo plano para (o exit dela mata a suíte filha com a árvore)
+    if let Some(pid) = verify_bg_pid(&wt) { signal_group(pid, procsig::TERM); }
+    Ok(())
+}
+
 /// Últimas 60 linhas do log das etapas que falharam numa execução do GitHub Actions (`gh run view <id> --log-failed`),
 /// com a conta do gh deste repo (gh_contas). O vigia do CI (83-verificacao.js) devolve isso pro agente.
 #[tauri::command(async)]
@@ -11172,6 +11205,7 @@ pub fn run() {
             pr_compare_url,
             pr_status,
             pr_ci_log,
+            tests_skip,
             pr_resolve_thread,
             merge_pr,
             rework_from_pr,
@@ -11475,6 +11509,19 @@ mod pr_status_tests {
         assert_eq!(t.lines().count(), 60);
         assert!(t.starts_with("linha 41") && t.ends_with("linha 100"));
         assert_eq!(tail_lines("a\nb", 60), "a\nb");
+    }
+    #[test]
+    fn entregar_sem_esperar_motivo_e_pid_do_segundo_plano() {
+        assert!(tests_skip_reason("  ").is_err());
+        assert!(tests_skip_reason("ok").is_err());
+        assert_eq!(tests_skip_reason("  hotfix urgente ").unwrap(), "hotfix urgente");
+        let d = std::env::temp_dir().join(format!("sf-vlock-{}", std::process::id()));
+        std::fs::create_dir_all(d.join(".cardume")).unwrap();
+        std::fs::write(d.join(".cardume").join("verify.lock"), r#"{"pid":4242,"bg":true,"sha":"a"}"#).unwrap();
+        assert_eq!(verify_bg_pid(&d), Some(4242));
+        std::fs::write(d.join(".cardume").join("verify.lock"), r#"{"pid":4242,"bg":false}"#).unwrap();
+        assert_eq!(verify_bg_pid(&d), None, "a verificação da entrega (síncrona) não é cancelada");
+        let _ = std::fs::remove_dir_all(&d);
     }
     #[test]
     fn snapshot_leva_o_selo_de_verificacao() {

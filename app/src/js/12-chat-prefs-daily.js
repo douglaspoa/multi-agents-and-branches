@@ -206,6 +206,14 @@ $id('prefsSave').onclick=async()=>{
 // próprios. Salvo em <repo>/.cardume/checks.json (local, sem precisar de conta). O mesmo editor aparece
 // dentro da Entrega ("checagens") — quem não usa a nuvem também configura.
 const chkDraft={}; // chave → { detected, file, cfg } (rascunho sobrevive a re-render da tela)
+// onda 1.1 · portão rápido: como os testes do portão do motor rodam neste projeto (testMode no checks.json)
+const TEST_MODE_OPTS=[
+  ['auto','automático — com CI, só os testes afetados; sem CI, a suíte inteira'],
+  ['afetados','só os afetados — a suíte completa ao abrir o PR'],
+  ['sempre','sempre a suíte inteira'],
+  ['so-no-pr','só ao abrir o PR'],
+  ['desligado','desligado — sem testes no portão'],
+];
 async function chkCfgEditor(box, taskId, onSaved){
   if(!box) return;
   const key=(taskId||'repo')+'@'+(state.repo||'');
@@ -224,6 +232,10 @@ async function chkCfgEditor(box, taskId, onSaved){
       ${d.detected.length?d.detected.map(x=>`<label class="ckrow"><input type="checkbox" data-ckon="${escA(x.id)}"${on(x)?' checked':''}><b>${esc(x.label)}</b><span class="mono ckcmd">${esc(x.cmd)}</span><span class="cksrc">detectado · ${esc(x.source)}</span></label>`).join('')
         :'<div class="dim ckempty">nada detectado automaticamente (sem package.json com lint/test, Cargo.toml, pytest ou go.mod) — adicione um comando abaixo</div>'}
       ${cfg.custom.map((x,i)=>`<div class="ckrow ckcustom"><input type="checkbox" data-ccon="${i}"${x.on===false?'':' checked'}><input class="in" data-cclabel="${i}" value="${escA(x.label||'')}" placeholder="nome (ex.: Testes E2E)"><input class="in mono" data-cccmd="${i}" value="${escA(x.cmd||'')}" placeholder="comando (ex.: npx playwright test)"><button class="btn sm ghost" data-ccdel="${i}" title="remover">✕</button></div>`).join('')}
+      <div class="ckmode"><b>Testes do portão</b><span class="dim">como o Starfork roda a suíte do projeto antes de entregar (vale pra todas as tarefas deste projeto)</span>
+        <label class="ckrow"><span class="dim">modo</span><select class="in" data-ckmode>${TEST_MODE_OPTS.map(([v,l])=>`<option value="${v}"${(cfg.testMode||'auto')===v?' selected':''}>${esc(l)}</option>`).join('')}</select></label>
+        <label class="ckrow"><span class="dim">comando rápido</span><input class="in mono" data-ckfast value="${escA(cfg.testFast||'')}" placeholder="opcional — substitui o comando nos testes afetados (ex.: npm run test:unit)"></label>
+        <label class="ckrow"><span class="dim">suíte inteira acima de</span><input class="in" type="number" min="1" max="1000" data-ckover value="${escA(String(cfg.fullSuiteOver||40))}"><span class="dim">arquivos no diff</span></label></div>
       <div class="ckfoot"><button class="btn sm" data-ccadd="1">+ comando próprio</button>
         <span class="dim">tempo-limite</span><input class="in" type="number" min="1" max="120" data-cktime="1" value="${escA(String(cfg.timeoutMin||10))}"><span class="dim">min cada</span>
         <span style="flex:1"></span><span class="dim mono ckfile" title="${escA(d.file)}">.cardume/checks.json</span><button class="btn sm primary" data-cksave="1">salvar checagens</button></div>
@@ -235,6 +247,9 @@ async function chkCfgEditor(box, taskId, onSaved){
     box.querySelectorAll('[data-ccdel]').forEach(el=>el.onclick=()=>{ cfg.custom.splice(+el.dataset.ccdel,1); paint(); });
     box.querySelectorAll('[data-ccadd]').forEach(el=>el.onclick=()=>{ cfg.custom.push({ id:'custom:'+Date.now().toString(36), label:'', cmd:'', on:true }); paint(); const i=box.querySelectorAll('[data-cclabel]'); if(i.length) i[i.length-1].focus(); });
     box.querySelectorAll('[data-cktime]').forEach(el=>el.oninput=()=>{ const n=Math.round(+el.value); if(n>=1&&n<=120) cfg.timeoutMin=n; });
+    box.querySelectorAll('[data-ckmode]').forEach(el=>el.onchange=()=>{ cfg.testMode=el.value; cfg.testModeAsked=true; });
+    box.querySelectorAll('[data-ckfast]').forEach(el=>el.oninput=()=>{ const v=el.value.trim(); if(v) cfg.testFast=v; else delete cfg.testFast; });
+    box.querySelectorAll('[data-ckover]').forEach(el=>el.oninput=()=>{ const n=Math.round(+el.value); if(n>=1&&n<=1000) cfg.fullSuiteOver=n; });
     box.querySelectorAll('[data-cksave]').forEach(el=>el.onclick=async()=>{
       el.disabled=true; const o=el.textContent; el.textContent='salvando…';
       const clean={ ...cfg, custom:cfg.custom.filter(x=>String(x.cmd||'').trim()).map(x=>({ ...x, label:String(x.label||'').trim()||String(x.cmd).trim(), cmd:String(x.cmd).trim() })) };

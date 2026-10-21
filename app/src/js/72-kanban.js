@@ -124,6 +124,8 @@ function kbLocalVm(t){
   const c=chainOfNow(t), ts=kbLocalTs(t), a=kbAgo(ts), th=kbLocalThumb(t), tr=kbLocalTrav(t);
   const acts=t.status==='draft'?[{ act:'start', label:'Iniciar', primary:true, title:'iniciar o rascunho agora (ou arraste pra “Em andamento”)' }]
     :(typeof conflitoDe==='function' && conflitoDe(t))?[{ act:'fixconf', label:'Resolver conflito', primary:true, title:'no terminal da tarefa: traz a base, resolve, roda os testes e faz push' }]:[];
+  // testes rodando (83-verificacao): dá pra entregar sem esperar, com motivo
+  if(typeof verifRunning==='function' && verifRunning(t) && ['review','pr-open'].includes(t.status)) acts.push({ act:'skiptests', label:'entregar sem esperar', title:'entregar sem esperar os testes (pede um motivo, que fica registrado)' });
   return { id:t.id, kind:'local', col:kbColOf(flowBucket(t)), ts, title:mdTitle(t.title||''), sel:typeof selected!=='undefined'&&selected===t.id,
     chain:chainHtml(c, { omit:['task','who','st'] }), who:me?kbWho(me):`<span class="pchip kb-agent" title="rodando nesta máquina"><span class="pnm">${esc(t.agent||'agente')}</span></span>`,
     reqs:kbLocalReqs(t), seal:(typeof verifSealHtml==='function')?verifSealHtml(t):'', thumb:th.thumb, proofs:th.n, trav:tr?tr.tx:'', travTip:tr?tr.tip:'', ago:a.ago, agoTip:a.tip, drops:kbLocalDrops(t), acts, menu:true, ref:t };
@@ -292,7 +294,7 @@ function kbHandlers(vms, after){
     open(vm){ if(vm.kind==='local'){ const t=vm.ref; if(t._cross && t.repo && t.repo!==state.repo){ switchToProjectTask(t.repo, t.id); return; } selected=t.id; render(); openOrEdit(t); }
       else caOpen(vm.ref); },
     menu(vm, anchor){ if(vm.kind==='local') openTaskMenu(vm.id, anchor); else { const l=caLocalOf(vm.ref); if(l) openTaskMenu(l.id, anchor); else kbTeamMenu(vm.ref, anchor, after); } },
-    act(vm, act, btn){ if(vm.kind==='local'){ if(act==='start') crossRun(vm.id, ()=>startTask(vm.id)); else if(act==='fixconf') resolverConflito(vm.id, btn); return; }
+    act(vm, act, btn){ if(vm.kind==='local'){ if(act==='start') crossRun(vm.id, ()=>startTask(vm.id)); else if(act==='fixconf') resolverConflito(vm.id, btn); else if(act==='skiptests' && typeof verifSkipTests==='function') verifSkipTests(vm.ref); return; }
       return Promise.resolve(caAct(act, vm.ref, btn)).then(()=>{ if(after) after(); }).catch(err=>showErr(err, 'Não deu')); },
     async drop(vm, col, act){
       if(vm.kind==='local'){ if(act==='start') return crossRun(vm.id, ()=>startTask(vm.id)); return; }

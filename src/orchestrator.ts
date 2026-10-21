@@ -1006,8 +1006,11 @@ export class Orchestrator {
     try {
       const runner = detectRunner(task.worktree);
       const fast = (mode === "auto" || mode === "afetados") ? cfg.testFast : undefined;
-      const full = mode === "sempre" || (mode === "auto" && !hasCi && !fast);
-      plan = { ...affectedPlan(task.worktree, runner, changed, { full, fullWhy: mode === "sempre" ? "modo sempre" : "o projeto não tem CI", testFast: fast, fullSuiteOver: cfg.fullSuiteOver }), ci: hasCi };
+      // "afetados" sem CI: a suíte completa roda ao abrir o PR (é o combinado da sugestão automática)
+      const prFull = mode === "afetados" && !!opts.forPr && !hasCi;
+      const full = mode === "sempre" || prFull || (mode === "auto" && !hasCi && !fast);
+      const fullWhy = mode === "sempre" ? "modo sempre" : prFull ? "suíte completa ao abrir o PR" : "o projeto não tem CI";
+      plan = { ...affectedPlan(task.worktree, runner, changed, { full, fullWhy, testFast: prFull ? undefined : fast, fullSuiteOver: cfg.fullSuiteOver }), ci: hasCi };
     } catch { plan = undefined; /* package.json inválido: testGate reprova como sempre */ }
     const lock = join(task.worktree, ".cardume", "verify.lock");
     if (!opts.bg) {
