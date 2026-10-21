@@ -30,7 +30,7 @@ after(() => {
 });
 let n = 0;
 // o selo dos testes sem os campos que variam (duração, assinatura do plano)
-const pick = (t: unknown) => { const { durationMs: _d, planSig: _p, ...rest } = (t ?? {}) as Record<string, unknown>; void _d; void _p; return rest; };
+const pick = (t: unknown) => { const { durationMs: _d, planSig: _p, kind: _k, cmdLine: _c, ...rest } = (t ?? {}) as Record<string, unknown>; void _d; void _p; void _k; void _c; return rest; };
 const dirWith = (files: Record<string, string>) => {
   const d = join(root, `p${++n}`);
   for (const [f, c] of Object.entries(files)) { mkdirSync(join(d, f, ".."), { recursive: true }); writeFileSync(join(d, f), c); }

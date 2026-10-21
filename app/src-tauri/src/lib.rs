@@ -9083,8 +9083,22 @@ fn is_test_check(d: &CheckDef) -> bool {
 #[derive(Debug, PartialEq)]
 enum SealUse { Use(bool, String, u64), Wait, Run }
 
+/// O selo do motor é desta checagem? Id detectado → o runner do selo tem de ser o mesmo (npm:test ↔ npm/pnpm/yarn/bun,
+/// cargo:test ↔ cargo, py:pytest ↔ pytest, go:test ↔ go). Comando próprio → só se for IDÊNTICO à linha que o motor
+/// rodou (um comando mais rigoroso, -race/--all-features/tests/integration, roda sempre).
+fn seal_matches(d: &CheckDef, t: &serde_json::Value) -> bool {
+    let kind = t["kind"].as_str().unwrap_or("");
+    match d.id.as_str() {
+        "npm:test" => matches!(kind, "npm" | "pnpm" | "yarn" | "bun"),
+        "cargo:test" => kind == "cargo",
+        "py:pytest" => kind == "pytest",
+        "go:test" => kind == "go",
+        _ => t["cmdLine"].as_str().map(|c| c.trim() == d.cmd.trim() && !c.trim().is_empty()).unwrap_or(false),
+    }
+}
+
 /// O que fazer com uma checagem de testes, pelo selo do motor (spec) e pela versão atual da worktree.
-fn seal_decision(spec: &serde_json::Value, head: &str, dirty: bool, now: i64) -> SealUse {
+fn seal_decision(d: &CheckDef, spec: &serde_json::Value, head: &str, dirty: bool, now: i64) -> SealUse {
     if head.is_empty() || dirty { return SealUse::Run; }
     let skip = &spec["testsSkip"];
     if let Some(r) = skip["reason"].as_str().filter(|r| !r.trim().is_empty()) {
@@ -9097,13 +9111,16 @@ fn seal_decision(spec: &serde_json::Value, head: &str, dirty: bool, now: i64) ->
     }
     let t = &v["tests"];
     if v["sha"].as_str() != Some(head) || t["ran"].as_bool() != Some(true) || t["timedOut"].as_bool() == Some(true) { return SealUse::Run; }
+    if !seal_matches(d, t) { return SealUse::Run; }
+    let afetados = t["scope"].as_str() == Some("afetados");
+    // só os afetados (ou o testFast) SEM CI não substitui a suíte completa: o "aprovar e abrir PR" roda ela aqui
+    if afetados && t["ci"].as_bool() != Some(true) { return SealUse::Run; }
     let base_warn = t["baseWarn"].as_str().unwrap_or("");
     let ok = t["ok"].as_bool() == Some(true) || !base_warn.is_empty();
-    let afetados = t["scope"].as_str() == Some("afetados");
     let nums = match (t["passed"].as_i64(), t["failed"].as_i64()) { (Some(p), Some(f)) => format!(" {p}/{}", p + f), _ => String::new() };
     let short: String = head.chars().take(7).collect();
     let mut log = format!("resultado do selo do motor (mesma versão, {short}): {}{nums} {}", if afetados { "testes afetados" } else { "testes" }, if t["ok"].as_bool() == Some(true) { "passaram" } else { "falharam" });
-    if afetados && t["ci"].as_bool() == Some(true) { log.push_str(" · a suíte completa roda no CI"); }
+    if afetados { log.push_str(" · a suíte completa roda no CI"); }
     if !base_warn.is_empty() { log.push_str(&format!(" · {base_warn} (não reprova)")); }
     if let Some(r) = t["runner"].as_str().filter(|r| !r.is_empty()) { log.push_str(&format!(" · {r}")); }
     SealUse::Use(ok, log, t["durationMs"].as_u64().unwrap_or(0))
@@ -9125,7 +9142,7 @@ fn run_checks_sealed(db: Option<PathBuf>, task_id: &str, wt: &Path, defs: &[Chec
         let db = db.as_ref()?;
         let t0 = now_ms();
         loop {
-            match seal_decision(&task_spec_json(db, &tid), &fp.head, fp.dirty, now_ms()) {
+            match seal_decision(d, &task_spec_json(db, &tid), &fp.head, fp.dirty, now_ms()) {
                 SealUse::Run => return None,
                 SealUse::Use(ok, log, ms) => return Some(CheckResult { id: d.id.clone(), label: d.label.clone(), cmd: d.cmd.clone(), ok, exit_code: Some(if ok { 0 } else { 1 }), duration_ms: ms, timed_out: false, stopped: false, log }),
                 SealUse::Wait => {
@@ -11613,24 +11630,38 @@ mod pr_status_tests {
     #[test]
     fn ft5_le_o_selo_do_motor_pros_testes() {
         let now = 1_000_000_i64;
-        let sealed = serde_json::json!({ "verification": { "sha": "abc1234", "tests": { "ran": true, "ok": true, "passed": 12, "failed": 0, "scope": "afetados", "ci": true, "durationMs": 8000, "runner": "vitest related" } } });
-        match seal_decision(&sealed, "abc1234", false, now) {
+        let def = |id: &str, cmd: &str| CheckDef { id: id.into(), label: "x".into(), cmd: cmd.into(), on: true, source: "custom".into() };
+        let npm = def("npm:test", "npm run test --silent");
+        let sealed = serde_json::json!({ "verification": { "sha": "abc1234", "tests": { "ran": true, "ok": true, "passed": 12, "failed": 0, "scope": "afetados", "ci": true, "durationMs": 8000, "runner": "vitest related", "kind": "npm" } } });
+        match seal_decision(&npm, &sealed, "abc1234", false, now) {
             SealUse::Use(ok, log, ms) => { assert!(ok); assert_eq!(ms, 8000); assert!(log.contains("testes afetados 12/12 passaram"), "{log}"); assert!(log.contains("suíte completa roda no CI")); }
             o => panic!("esperava usar o selo: {o:?}"),
         }
-        assert_eq!(seal_decision(&sealed, "outro99", false, now), SealUse::Run, "HEAD diferente: roda");
-        assert_eq!(seal_decision(&sealed, "abc1234", true, now), SealUse::Run, "mudança solta: roda");
-        let failing = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": false, "passed": 8, "failed": 2 } } });
-        assert!(matches!(seal_decision(&failing, "h", false, now), SealUse::Use(false, _, _)), "selo vermelho reprova sem rodar");
-        let base = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": false, "baseWarn": "a main já tinha 2 testes falhando" } } });
-        assert!(matches!(seal_decision(&base, "h", false, now), SealUse::Use(true, _, _)), "falha que já vinha da main não reprova");
+        assert_eq!(seal_decision(&npm, &sealed, "outro99", false, now), SealUse::Run, "HEAD diferente: roda");
+        assert_eq!(seal_decision(&npm, &sealed, "abc1234", true, now), SealUse::Run, "mudança solta: roda");
+        // B1: só os afetados (ou testFast) SEM CI não substitui a suíte completa
+        let sem_ci = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": true, "scope": "afetados", "kind": "npm" } } });
+        assert_eq!(seal_decision(&npm, &sem_ci, "h", false, now), SealUse::Run, "afetados sem CI: o FT-5 roda a suíte");
+        // B2: o selo é de UM runner — só vale na checagem dele
+        let cargo = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": true, "scope": "inteira", "kind": "cargo" } } });
+        assert!(matches!(seal_decision(&def("cargo:test", "cargo test"), &cargo, "h", false, now), SealUse::Use(true, _, _)));
+        for other in ["npm:test", "py:pytest", "go:test"] { assert_eq!(seal_decision(&def(other, "x"), &cargo, "h", false, now), SealUse::Run, "{other} não é do selo cargo"); }
+        assert_eq!(seal_decision(&npm, &serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": true } } }), "h", false, now), SealUse::Run, "selo sem runner: roda");
+        // I6: comando próprio só se IDÊNTICO à linha que o motor rodou
+        let go = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": true, "scope": "inteira", "kind": "go", "cmdLine": "go test -v ./..." } } });
+        assert!(matches!(seal_decision(&def("custom:0", "go test -v ./..."), &go, "h", false, now), SealUse::Use(true, _, _)));
+        assert_eq!(seal_decision(&def("custom:1", "go test -race ./..."), &go, "h", false, now), SealUse::Run, "comando mais rigoroso roda sempre");
+        let failing = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": false, "passed": 8, "failed": 2, "kind": "npm" } } });
+        assert!(matches!(seal_decision(&npm, &failing, "h", false, now), SealUse::Use(false, _, _)), "selo vermelho reprova sem rodar");
+        let base = serde_json::json!({ "verification": { "sha": "h", "tests": { "ran": true, "ok": false, "baseWarn": "a main já tinha 2 testes falhando", "kind": "npm" } } });
+        assert!(matches!(seal_decision(&npm, &base, "h", false, now), SealUse::Use(true, _, _)), "falha que já vinha da main não reprova");
         let running = serde_json::json!({ "verification": { "running": { "since": now - 5000, "sha": "h" } } });
-        assert_eq!(seal_decision(&running, "h", false, now), SealUse::Wait);
-        assert_eq!(seal_decision(&running, "h", false, now + 31 * 60_000), SealUse::Run, "trava velha não segura");
+        assert_eq!(seal_decision(&npm, &running, "h", false, now), SealUse::Wait);
+        assert_eq!(seal_decision(&npm, &running, "h", false, now + 31 * 60_000), SealUse::Run, "trava velha não segura");
         let skip = serde_json::json!({ "testsSkip": { "reason": "hotfix", "sha": "h" }, "verification": { "running": { "since": now, "sha": "h" } } });
-        match seal_decision(&skip, "h", false, now) { SealUse::Use(true, log, _) => assert!(log.contains("entregue sem esperar os testes: hotfix")), o => panic!("{o:?}") }
-        assert_eq!(seal_decision(&skip, "h2", false, now), SealUse::Run, "o 'sem esperar' vale só pro HEAD dele");
-        let def = |id: &str, cmd: &str| CheckDef { id: id.into(), label: "x".into(), cmd: cmd.into(), on: true, source: "custom".into() };
+        match seal_decision(&npm, &skip, "h", false, now) { SealUse::Use(true, log, _) => assert!(log.contains("entregue sem esperar os testes: hotfix")), o => panic!("{o:?}") }
+        assert_eq!(seal_decision(&npm, &skip, "h2", false, now), SealUse::Run, "o 'sem esperar' vale só pro HEAD dele");
+        assert_eq!(seal_decision(&npm, &skip, "h", true, now), SealUse::Run, "o 'sem esperar' não vale com mudança solta");
         assert!(is_test_check(&def("npm:test", "npm run test --silent")));
         assert!(is_test_check(&def("custom:0", "pytest -q")));
         assert!(!is_test_check(&def("npm:lint", "npm run lint --silent")));
@@ -11645,7 +11676,7 @@ mod pr_status_tests {
         let db = d.join("state.sqlite");
         let conn = Connection::open(&db).unwrap();
         conn.execute_batch("CREATE TABLE task (id TEXT PRIMARY KEY, spec_json TEXT);").unwrap();
-        let spec = serde_json::json!({ "verification": { "sha": "head1", "tests": { "ran": true, "ok": true, "passed": 3, "failed": 0 } } });
+        let spec = serde_json::json!({ "verification": { "sha": "head1", "tests": { "ran": true, "ok": true, "passed": 3, "failed": 0, "scope": "inteira", "kind": "npm" } } });
         conn.execute("INSERT INTO task VALUES ('t', ?1)", params![spec.to_string()]).unwrap();
         drop(conn);
         let marker = d.join("rodou-teste");

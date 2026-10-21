@@ -57,6 +57,10 @@ export interface Verification {
     planSig?: string;
     /** o projeto tem CI (o selo diz "suíte completa no CI") */
     ci?: boolean;
+    /** o runner que rodou (npm/pnpm/yarn/bun/pytest/cargo/go/swift) — o FT-5 só usa o selo na checagem desse runner */
+    kind?: string;
+    /** a linha de comando exata que rodou — comando próprio do FT-5 só troca pelo selo se for IDÊNTICO */
+    cmdLine?: string;
     durationMs?: number;
     /** "testes desligados neste projeto" / "rodam ao abrir o PR" */
     off?: string;
@@ -564,7 +568,8 @@ export async function testGate(g: GateInput): Promise<GateResult> {
   if (divergence) reasons.push(divergence);
   const tests = r.ran || r.timedOut
     ? { passed: r.counts?.passed ?? null, failed: r.counts?.failed ?? null, ran: r.ran, runner: r.runner ?? "", ok: r.passed, ...(r.timedOut ? { timedOut: true } : {}), ...(baseWarn ? { baseWarn } : {}),
-        ...(g.plan ? { scope: g.plan.scope, planSig: g.plan.sig, ...(g.plan.ci ? { ci: true } : {}) } : {}), ...(r.durationMs != null ? { durationMs: r.durationMs } : {}) }
+        ...(g.plan ? { scope: g.plan.scope, planSig: g.plan.sig, ...(g.plan.ci ? { ci: true } : {}) } : {}), ...(r.durationMs != null ? { durationMs: r.durationMs } : {}),
+        ...((g.plan?.runner?.kind ?? r.kind) ? { kind: g.plan?.runner?.kind ?? r.kind } : {}), ...(g.plan?.runner ? { cmdLine: [g.plan.runner.cmd, ...g.plan.runner.args].join(" ") } : {}) }
     : r.runner ? { passed: null, failed: null, ran: false, runner: r.runner, ok: true, skipped: r.detail } : null;
   return {
     reasons, divergence, run: r,

@@ -55,14 +55,21 @@ export function effectiveTestMode(cfg: TestCfg, org?: TestMode | null): { mode: 
   return org ? { mode: org, byOrg: true } : { mode: cfg.testMode, byOrg: false };
 }
 
-/** O repo tem CI que roda a suíte nos PRs? GitHub Actions com gatilho push/pull_request, .gitlab-ci.yml ou CircleCI. */
+/** Passo de CI com cara de TESTE (deploy/lint não contam). */
+export const CI_TEST_STEP_RE = /\b(npm (run )?test|pnpm (run )?test|yarn (run )?test|bun (run )?test|npx (vitest|jest)|vitest|jest|pytest|python3? -m pytest|tox|nox|cargo (nextest|test)|go test|make test|swift test|xcodebuild test|gradle(w)? test|mvn test)\b/;
+/**
+ * O repo tem CI que RODA A SUÍTE? GitHub Actions com gatilho push/pull_request E um passo de teste; .gitlab-ci.yml ou
+ * CircleCI com um passo de teste. Workflow só de deploy ou lint não conta (a suíte inteira ficaria sem ninguém rodar).
+ */
 export function detectCi(dir: string): boolean {
-  if (existsSync(join(dir, ".gitlab-ci.yml")) || existsSync(join(dir, ".circleci", "config.yml"))) return true;
+  const read = (f: string) => { try { return readFileSync(f, "utf8"); } catch { return ""; } };
+  for (const f of [join(dir, ".gitlab-ci.yml"), join(dir, ".circleci", "config.yml")]) if (CI_TEST_STEP_RE.test(read(f))) return true;
   const wf = join(dir, ".github", "workflows");
   let files: string[] = [];
   try { files = readdirSync(wf).filter((f) => /\.ya?ml$/i.test(f)); } catch { return false; }
   return files.some((f) => {
-    try { return /^\s*(on\s*:.*\b(push|pull_request)\b|-?\s*(push|pull_request)\s*:?\s*$)/m.test(readFileSync(join(wf, f), "utf8")); } catch { return false; }
+    const y = read(join(wf, f));
+    return /^\s*(on\s*:.*\b(push|pull_request)\b|-?\s*(push|pull_request)\s*:?\s*$)/m.test(y) && CI_TEST_STEP_RE.test(y);
   });
 }
 

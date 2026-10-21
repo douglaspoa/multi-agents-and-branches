@@ -1001,7 +1001,8 @@ export class Orchestrator {
     const timeoutMs = Math.min(opts.testTimeoutMs ?? Infinity, byDeadline, tmo);
     const changed = await this.changedFiles(task.worktree, task.base);
     // o plano: com CI, só os testes AFETADOS (a suíte inteira fica com o CI e o vigia); sem CI, a inteira
-    const hasCi = detectCi(task.worktree) || (fresh0.ciGate?.ci?.total ?? 0) > 0;
+    // CI só conta se RODA A SUÍTE (passo de teste); checks no PR sozinhos podem ser lint/deploy
+    const hasCi = detectCi(task.worktree);
     let plan: { scope: "afetados" | "inteira"; runner: Runner | null; sig: string; ci?: boolean } | undefined;
     try {
       const runner = detectRunner(task.worktree);

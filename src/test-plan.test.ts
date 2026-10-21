@@ -53,12 +53,17 @@ test("checks.json: padrão auto/40; modos válidos; testFast; lixo vira padrão;
   assert.deepEqual(effectiveTestMode(parseTestCfg({ testMode: "desligado" }), null), { mode: "desligado", byOrg: false });
 });
 
-test("detectCi: GitHub Actions com push/pull_request, GitLab, CircleCI; workflow só manual não conta", () => {
-  assert.equal(detectCi(dirWith({ ".github/workflows/ci.yml": "name: ci\non:\n  pull_request:\n  push:\n    branches: [main]\n" })), true);
-  assert.equal(detectCi(dirWith({ ".github/workflows/ci.yaml": "on: [push]\n" })), true);
-  assert.equal(detectCi(dirWith({ ".github/workflows/rel.yml": "on:\n  workflow_dispatch:\n" })), false);
-  assert.equal(detectCi(dirWith({ ".gitlab-ci.yml": "test:\n  script: npm test\n" })), true);
-  assert.equal(detectCi(dirWith({ ".circleci/config.yml": "version: 2.1\n" })), true);
+test("detectCi: só CI que RODA A SUÍTE (passo de teste) — workflow de deploy/lint não conta; GitLab e CircleCI pela mesma regra", () => {
+  const step = "jobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm test\n";
+  assert.equal(detectCi(dirWith({ ".github/workflows/ci.yml": "name: ci\non:\n  pull_request:\n  push:\n    branches: [main]\n" + step })), true);
+  assert.equal(detectCi(dirWith({ ".github/workflows/ci.yaml": "on: [push]\n" + step.replace("npm test", "cargo test --all") })), true);
+  assert.equal(detectCi(dirWith({ ".github/workflows/rel.yml": "on:\n  workflow_dispatch:\n" + step })), false, "sem gatilho de push/PR");
+  assert.equal(detectCi(dirWith({ ".github/workflows/deploy.yml": "on:\n  push:\njobs:\n  d:\n    steps:\n      - run: npm run deploy\n" })), false, "deploy não é teste");
+  assert.equal(detectCi(dirWith({ ".github/workflows/lint.yml": "on: [pull_request]\njobs:\n  l:\n    steps:\n      - run: npm run lint\n" })), false, "lint não é teste");
+  assert.equal(detectCi(dirWith({ ".gitlab-ci.yml": "test:\n  script: pytest -q\n" })), true);
+  assert.equal(detectCi(dirWith({ ".gitlab-ci.yml": "deploy:\n  script: ./deploy.sh\n" })), false);
+  assert.equal(detectCi(dirWith({ ".circleci/config.yml": "version: 2.1\njobs:\n  t:\n    steps:\n      - run: go test ./...\n" })), true);
+  assert.equal(detectCi(dirWith({ ".circleci/config.yml": "version: 2.1\n" })), false);
   assert.equal(detectCi(dirWith({ "README.md": "x" })), false);
 });
 
@@ -179,7 +184,7 @@ const commitIn = (wt: string, files: Record<string, string>, msg = "agente") => 
 
 test("META · projeto COM CI e diff de 2 arquivos: o portão roda só os testes relacionados (vitest related) e o selo diz 'suíte completa no CI'", async () => {
   const repo = gitRepo("com-ci", {
-    ".github/workflows/ci.yml": "on:\n  pull_request:\n",
+    ".github/workflows/ci.yml": "on:\n  pull_request:\njobs:\n  t:\n    steps:\n      - run: npm test\n",
     "package.json": JSON.stringify({ scripts: { test: "vitest run" }, devDependencies: { vitest: "^2" } }),
     "src/a.ts": "export const a = 1;\n", "src/b.ts": "export const b = 1;\n", "src/c.ts": "export const c = 1;\n",
   });
@@ -200,6 +205,8 @@ test("META · projeto COM CI e diff de 2 arquivos: o portão roda só os testes 
     assert.equal(t.scope, "afetados");
     assert.equal(t.ci, true);
     assert.deepEqual([t.passed, t.failed, t.ok], [2, 0, true]);
+    assert.equal(t.kind, "npm", "o selo diz de qual runner é (o FT-5 só usa na checagem dele)");
+    assert.equal(t.cmdLine, "npx --no-install vitest related src/a.ts src/b.ts --run");
     // o mesmo diff tocando o package.json → suíte inteira (npm test → vitest run)
     commitIn(wt, { "package.json": JSON.stringify({ scripts: { test: "vitest run" }, devDependencies: { vitest: "^2" }, name: "x" }) });
     await orch.verifyProofs("ci1", orch.store.getTask("ci1")!, sp(orch, "ci1"));
