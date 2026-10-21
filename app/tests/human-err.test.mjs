@@ -137,7 +137,7 @@ test('IO do macOS/Windows: os error N', () => {
   assert.equal(id('No such file or directory (os error 2)'), 'not-found');
   assert.equal(id('The system cannot find the path specified. (os error 3)'), 'not-found');
   assert.equal(id('Access is denied. (os error 5)'), 'permission');
-  assert.equal(id('Operation not permitted (os error 1)'), 'permission');
+  assert.equal(id('Operation not permitted (os error 1)'), 'mac-folder'); // bug 21/10: pasta bloqueada pelo macOS ≠ conta sem acesso
   assert.equal(id('The process cannot access the file because it is being used by another process. (os error 32)'), 'file-busy');
   assert.equal(id('Resource busy (os error 16)'), 'file-busy');
   assert.equal(id('No space left on device (os error 28)'), 'disk');
@@ -231,7 +231,7 @@ test('R8 revisão: os error 3 no Unix (kill) e os error 1 sem texto não são "a
   assert.equal(id('No such process (os error 3)'), 'generic');
   assert.equal(id('The system cannot find the path specified. (os error 3)'), 'not-found');
   assert.equal(id('erro qualquer (os error 1)'), 'generic');
-  assert.equal(id('Operation not permitted (os error 1)'), 'permission');
+  assert.equal(id('Operation not permitted (os error 1)'), 'mac-folder'); // bug 21/10: pasta bloqueada pelo macOS ≠ conta sem acesso
 });
 test('R8 revisão: bad-json não casa linha de stack nem "invalid args" do Tauri', () => {
   assert.notEqual(id('TypeError: x is undefined\n    at JSON.parse (<anonymous>)'), 'bad-json');

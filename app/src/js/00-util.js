@@ -277,11 +277,31 @@ const ERR_ACTIONS={
   conta:   ()=>{ if(typeof auShow==='function' && typeof SB!=='undefined' && !SB.sess()) auShow('login'); else if(typeof ajustesOpen==='function') ajustesOpen('perfil'); else if(window.openTab) window.openTab('conta'); },
   suaia:   ()=>{ if(window.suaIaOpenCfg) window.suaIaOpenCfg(); else if(window.openTab) window.openTab('cfg'); },
   // wt-gone: abre a conversa da tarefa aberta (mandar uma mensagem recria a cópia) e põe o foco na caixa
+  // bug 21/10: pasta do projeto bloqueada pela privacidade do macOS → Ajustes › Privacidade e Segurança › Arquivos e Pastas
+  privacy: ()=>{ if(typeof invoke==='function') invoke('open_privacy_settings',{ kind:'files' }).catch(e=>showErr(e,'Não consegui abrir os Ajustes do Sistema')); },
+  // pasta sem .cardume: prepara (open_project roda o `cardume init`) a pasta que a tela quis abrir
+  prepare: ()=>{ if(typeof repoPrepare==='function') return repoPrepare(); if(window.openTab) window.openTab('projetos'); },
+  projetos:()=>{ if(window.openTab) window.openTab('projetos'); },
   conversa:()=>{ if(typeof fwTask!=='undefined' && fwTask && typeof renderWorkspace==='function'){ fwMode='conversa'; renderWorkspace(); setTimeout(()=>{ if(typeof fwFocusTalk==='function'){ fwFocusTalk(); return; } const i=document.getElementById('fwInput'); if(i) i.focus(); },60); } }, // compositor escondido (terminal integrado): o foco vai pro terminal
 };
 // ORDEM importa: o primeiro que casa vence (ex.: "'origin' does not appear… Could not read from remote"
 // é SEM REMOTE, não rede; "Permission denied (publickey)… Could not read from remote" é permissão).
 const ERR_CATALOG=[
+  // bug 21/10 (chat da Nova demanda): o motivo REAL de não dar pra usar a pasta do projeto — os prefixos vêm do Rust
+  // (repo_acesso.rs). ANTES de tudo: "Operation not permitted" era "Sem permissão… conta sem acesso ao repositório".
+  { id:'mac-folder', re:/SEM_ACESSO_PASTA_MAC:|operation not permitted/i,
+    msg:'O macOS não deu ao Starfork acesso à pasta do projeto — libere em Ajustes do Sistema › Privacidade e Segurança › Arquivos e Pastas (ou Acesso Total ao Disco) e tente de novo.', act:'privacy', label:'abrir Ajustes' },
+  { id:'folder-perm', re:/SEM_ACESSO_PASTA:/,
+    msg:'Sem permissão de leitura na pasta do projeto — confira as permissões dela (Finder › Obter Informações) e tente de novo.' },
+  { id:'folder-gone', re:/PASTA_SUMIU:/,
+    msg:'A pasta do projeto não existe mais (movida, renomeada ou apagada) — abra de novo pelo caminho novo em Projetos.', act:'projetos', label:'abrir Projetos' },
+  { id:'repo-prepare', re:/SEM_WORKSPACE:|sem state\.sqlite|sem workspace do Starfork/i,
+    msg:'Esta pasta ainda não foi preparada pro Starfork.', act:'prepare', label:'Preparar' },
+  { id:'repo-none', re:/repo n[ãa]o definido/i,
+    msg:'Nenhum projeto aberto agora — escolha o projeto (no topo da barra lateral) e tente de novo.', act:'projetos', label:'abrir Projetos' },
+  // 403 da API do Claude (conta sem acesso ao uso) ≠ 403 do GitHub — antes os dois viravam "sem acesso ao repositório"
+  { id:'ai-403', re:/API Error:? 403|permission_error/i,
+    msg:'O Claude recusou o pedido (403): a conta logada no Claude Code não tem acesso a esse uso — rode `claude` num terminal, confira o login (/login) e o plano, ou escolha outra IA.', act:'suaia', label:'escolher a IA' },
   // antes do gh-auth: a frase orienta com "gh auth switch/login" e casaria lá
   { id:'gh-no-access', re:/^GH_NO_ACCESS:|could not resolve to a repository/i,
     msg:'A conta logada no GitHub (gh) não tem acesso a este repositório — troque pra conta certa (gh auth switch) ou entre com ela (gh auth login).', act:'github', label:'abrir GitHub (Ajustes)' },
@@ -400,7 +420,7 @@ const ERR_CATALOG=[
   { id:'cloud-permission', re:/row-level security|insufficient_privilege|\b42501\b|permission denied for (table|relation|schema|function)/i,
     msg:'Sua função na organização/time não permite isso — peça pra um admin do time fazer (ou te dar a permissão).' },
   { id:'permission', re:/permission denied|EACCES|EPERM|operation not permitted|\b403\b|forbidden|protected branch|write access .* not granted|must have (admin|push) (rights|access)|resource not accessible|access is denied|os error (5|13)\b/i,
-    msg:'Sem permissão pra essa ação (arquivo protegido ou conta sem acesso ao repositório).' },
+    msg:'Sem permissão pra essa ação (arquivo protegido, ou a conta do GitHub sem acesso ao repositório).' },
   // R8: arquivo em uso (Windows os error 32 / EBUSY)
   { id:'file-busy', re:/EBUSY|resource busy|os error (16|32|33)\b|being used by another process|text file busy/i,
     msg:'O arquivo está em uso por outro programa — feche esse programa e tente de novo.' },
@@ -419,6 +439,37 @@ const ERR_CATALOG=[
   { id:'network', re:/failed to fetch|load failed|networkerror|network is unreachable|timed? ?out|ETIMEDOUT|ECONNREFUSED|ECONNRESET|ENOTFOUND|could not resolve host|couldn'?t resolve|temporary failure in name resolution|\boffline\b|sem conex[aã]o|unable to access|failed to connect|could not read from remote|connection (refused|reset|closed)|EAI_AGAIN|EHOSTUNREACH|dns error|error sending request|tempo esgotado|demorou demais|os error (60|61|65|10060|10061)\b/i,
     msg:'Sem conexão agora — cheque a internet/VPN e tente de novo.' },
 ];
+// @repo-retry-inicio — regras PURAS (app/tests/chat-repo-erro.test.mjs)
+// Bug 21/10: a tela mostrava o projeto, mas o backend estava sem nenhum aberto (state.db None) e todo comando de IA
+// voltava "repo não definido". `repoRetry` roda o comando; se o backend disser que não há projeto e a TELA tiver um
+// (d.want), reabre ele (d.reopen = set_repo) e tenta UMA vez de novo. Se reabrir falhar, sobe o motivo REAL do
+// set_repo (pasta bloqueada pelo macOS, falta preparar…) em vez do "repo não definido".
+const REPO_NONE_RE=/repo n[ãa]o definido/i;
+async function repoRetry(run, d){
+  d=d||{};
+  try{ return await run(); }
+  catch(e){
+    if(!REPO_NONE_RE.test(errText(e))) throw e;
+    const repo=d.want ? d.want() : '';
+    const log=(l)=>{ try{ if(d.log) d.log(l); }catch(_){ } };
+    if(!repo){ log('[repo] backend sem projeto aberto e nenhum projeto na tela'); throw e; }
+    log('[repo] backend sem projeto com "'+pathBase(repo)+'" na tela — reabrindo (set_repo) e repetindo uma vez');
+    try{ await d.reopen(repo); }
+    catch(e2){ const raw=errText(e2); log('[repo] reabrir '+repo+' falhou: '+errFirstLine(raw));
+      const x=new Error(raw); x.repo=repo; x.reopenFailed=true; throw x; }
+    return await run();
+  }
+}
+// mensagem de sistema no chat: a MESMA de novo logo em seguida não empilha — vira uma só com "(×N)"
+// (k: o campo do papel — 'who' no planner, 'role' no chat do projeto)
+function sysMsgPush(msgs, text, extra, k){
+  k=k||'who'; const l=msgs[msgs.length-1];
+  if(l && l[k]==='sys' && (l.base||l.text)===text){ l.n=(l.n||1)+1; l.base=text; l.text=text+' (×'+l.n+')'; return l; }
+  const m=Object.assign({ [k]:'sys', text }, extra||{}); msgs.push(m); return m;
+}
+// a 1ª linha do erro cru pra diagnóstico ("detalhe: …"), sem repetir o que a frase traduzida já diz
+function errDetailLine(raw, shown){ const f=errFirstLine(raw); return (f && !String(shown||'').includes(f)) ? f : ''; }
+// @repo-retry-fim
 // ctx (opcional): o que se tentava fazer ("Falha ao abrir o PR") — vira o prefixo da mensagem
 function humanErr(e, ctx){
   const txt=errText(e);

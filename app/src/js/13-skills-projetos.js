@@ -220,6 +220,7 @@ function projetosRender(ov){
   body.querySelectorAll('[data-pjpub]').forEach(b=>b.onclick=()=>pub(b.dataset.pjpub, b));
   // BUG-20: remover o projeto ATIVO fecha ele (o Rust passa pro próximo da lista ou pro estado vazio) — recarrega tudo
   const rm=async(p)=>{ const wasActive=(p===state.repo); if(!await askYes('Remover '+projShort(p)+' da lista? (não apaga arquivos)')) return;
+    if(p===lsGet('lastRepo')) lsSet('lastRepo',''); // tirado da lista: o "reabrir o último" (10-core) não traz de volta
     try{ await invoke('remove_project',{path:p}); }catch(e){ showErr(e, 'Não consegui remover o projeto da lista'); return; }
     if(wasActive){ selected=null; lastSig=''; if(typeof clearProjectCaches==='function') clearProjectCaches(); await refresh(); }
     if(window.loadProjects) await window.loadProjects(); openProjetos(); };

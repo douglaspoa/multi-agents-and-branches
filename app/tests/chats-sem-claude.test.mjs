@@ -103,7 +103,8 @@ test('nenhum motor pronto → erro humano apontando a escolha da IA (Ajustes ›
 
 test('Rust: cada chat escolhe o motor ANTES dos argumentos do claude; os não-Claude vão pro chat_turn (só-leitura)', () => {
   const lib = rs('lib.rs');
-  const body = (name) => cut(lib, `fn ${name}(`, '\n}\n');
+  // ai_chat/project_chat viraram envelopes (log do passo que falhou, bug 21/10): o corpo de verdade é o *_inner
+  const body = (name) => lib.includes(`fn ${name}_inner(`) ? cut(lib, `fn ${name}_inner(`, '\n}\n') : cut(lib, `fn ${name}(`, '\n}\n');
   for (const [name, marker] of [['ai_chat', 'PLANNER_STOPPED'], ['project_chat', 'PROJECT_CHAT_STOPPED'], ['issue_chat', 'ISSUE_CHAT_STOPPED'], ['ai_orchestrate_chat', 'ORQ_CHAT_STOPPED'], ['ai_orchestrate', 'ORQ_PLAN_STOPPED']]) {
     const b = body(name);
     const pick = b.search(/chat_pick\(|ai_once::chat_engine\(/), other = b.indexOf('chat_other('), claude = b.indexOf('claude_cmd(');

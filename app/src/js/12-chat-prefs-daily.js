@@ -137,9 +137,10 @@ async function pcSend(){
       const last=ms2[ms2.length-1]; if(last&&last.role==='user'&&last.text===text) ms2.pop();
       ms2.push({role:'sys', text:'Parado. Sua mensagem voltou pra caixa — edite e envie de novo quando quiser.'});
       const i=$id('pcInput'); if(i&&!i.value) i.value=text; pcPend.push(...atts);
-    } else { const h=humanErr(msg); // login do Claude expirado etc. → mensagem certa + botão (antes "expirou" virava "demorou demais")
-      if(h.id!=='generic' && h.id!=='network'){ ms2.push({role:'sys', text:h.msg+' Sua pergunta ficou salva.'}); if(h.action) showErr(msg); }
-      else ms2.push({role:'sys', text:'Não consegui responder: '+msg.slice(0,300)+(/timeout|timed out|demorou|tempo esgotado/i.test(msg)?' — a leitura do projeto demorou demais; tente uma pergunta mais específica.':' — sua pergunta ficou salva; é só enviar de novo.')}); }
+    } else { const h=humanErr(msg, e&&e.reopenFailed&&e.repo?'Não consegui abrir o projeto '+pathBase(e.repo):''); // login do Claude expirado etc. → mensagem certa + botão (antes "expirou" virava "demorou demais")
+      // bug 21/10: o mesmo erro de novo vira "(×N)" (sysMsgPush) e leva a 1ª linha do erro cru pra diagnóstico
+      if(h.id!=='generic' && h.id!=='network'){ const det=errDetailLine(msg, h.msg); sysMsgPush(ms2, h.msg+(det?' Detalhe: '+det+'.':'')+' Sua pergunta ficou salva.', null, 'role'); if(h.action) showErr(e&&e.reopenFailed?e:msg); }
+      else sysMsgPush(ms2, 'Não consegui responder: '+msg.slice(0,300)+(/timeout|timed out|demorou|tempo esgotado/i.test(msg)?' — a leitura do projeto demorou demais; tente uma pergunta mais específica.':' — sua pergunta ficou salva; é só enviar de novo.'), null, 'role'); }
     pcSave(ms2,key);
   }
   pcBusy=false; pcStopping=false; pcBusyRepo=''; pcRender();

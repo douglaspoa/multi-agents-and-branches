@@ -51,10 +51,41 @@ function perfTabOpen(kind){
 // Envelope de rastreabilidade: TODA falha de comando de backend (login, PR,
 // planner, qualquer um) é registrada (52-erros → Supabase) SEM parar de propagar
 // o erro pra quem chamou. web_log fica de fora (é o log local — evita ruído/recursão).
-const invoke = (cmd, args) => _invokeRaw(cmd, args).catch((err) => {
+// Bug 21/10: comando que precisa do projeto e volta "repo não definido" com um projeto NA TELA → reabre o projeto no
+// backend (set_repo) e repete UMA vez (repoRetry, 00-util). Os comandos que abrem/trocam/listam projeto ficam de fora.
+const REPO_SELF=new Set(['set_repo','open_project','switch_project','remove_project','list_projects','set_projects_user','snapshot','web_log']);
+const invoke = (cmd, args) => (REPO_SELF.has(cmd) ? _invokeRaw(cmd, args) : repoRetry(() => _invokeRaw(cmd, args), { want: repoWanted, reopen: repoReopen, log: __diagLog })).catch((err) => {
   try { if (cmd !== "web_log" && window.logAppError) window.logAppError("invoke:" + cmd, err); } catch (_) {}
   throw err;
 });
+// o projeto que a TELA considera aberto: o do snapshot ou, com o backend sem nenhum, o último aberto — desde que ele
+// ainda esteja na lista da conta da vez (projeto escondido por ser de outra conta NUNCA é reaberto por aqui)
+function repoWanted(){
+  try{
+    if(typeof state!=='undefined' && state && state.repo) return state.repo;
+    const last=lsGet('lastRepo')||'';
+    if(last && typeof projects!=='undefined' && Array.isArray(projects) && projects.some(p=>p&&p.path===last)) return last;
+  }catch(_){ }
+  return '';
+}
+let repoReopenFail={ repo:'', at:0, err:null };
+async function repoReopen(repo){
+  // set_repo que acabou de falhar pra esta pasta não roda de novo a cada clique (30s): devolve o mesmo motivo
+  if(repoReopenFail.repo===repo && Date.now()-repoReopenFail.at<30000) throw repoReopenFail.err;
+  try{ await _invokeRaw('set_repo', { repo }); }
+  catch(e){ repoReopenFail={ repo, at:Date.now(), err:e }; throw e; }
+  repoReopenFail={ repo:'', at:0, err:null };
+  connected=true; lastSig='';
+  try{ refresh(); }catch(_){ }
+}
+window.repoWanted=repoWanted;
+// "Preparar" (erro SEM_WORKSPACE): roda o `cardume init` na pasta que a tela quis abrir (open_project) e abre
+async function repoPrepare(){
+  const repo=(repoReopenFail.repo)||repoWanted();
+  if(!repo){ if(window.openTab) window.openTab('projetos'); return; }
+  try{ await invoke('open_project',{ path:repo }); repoReopenFail={ repo:'', at:0, err:null }; selected=null; lastSig=''; await refresh(); if(typeof loadProjects==='function') await loadProjects(); toast('Projeto '+pathBase(repo)+' preparado — pode enviar de novo.','ok'); }
+  catch(e){ showErr(e, 'Não consegui preparar '+pathBase(repo)); }
+}
 // Versão SEM registro na nuvem: pra tarefas em segundo plano que repetem sozinhas (observador de
 // issues a cada 2 min etc.). Falha ali é esperada de vez em quando (rede, VPN) e vira ruído em app_errors.
 const invokeQuiet = (cmd, args) => _invokeRaw(cmd, args);
@@ -263,6 +294,16 @@ let connected = false;
 function fmtTime(ms){ const d=new Date(ms); return d.toTimeString().slice(0,8); }
 function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
 
+// backend sem projeto (boot sem acesso à pasta, conta trocou…) mas o último projeto aberto continua na lista da conta:
+// reabre sozinho; falhou → o motivo REAL na barra (não "sem repo") e no log. Uma tentativa a cada 60s, no máximo.
+let repoBootAt=0;
+function repoBootReopen(){
+  if(Date.now()-repoBootAt<60000) return; const repo=repoWanted(); if(!repo) return; repoBootAt=Date.now();
+  __diagLog('[repo] snapshot sem projeto; reabrindo o último ('+pathBase(repo)+')');
+  repoReopen(repo).catch(e=>{ __diagLog('[repo] reabrir no boot falhou: '+errFirstLine(errText(e)));
+    const h=humanErr(e, 'Não consegui abrir '+pathBase(repo)); const t=$id('connTxt'); if(t){ t.textContent=h.msg; t.title=h.raw||''; }
+    toast(h.msg, 'err', h.action||{ label:'ver detalhes', fn:()=>errDetails(h) }, h.action?{ label:'ver detalhes', fn:()=>errDetails(h) }:null); });
+}
 async function connect(repo){
   try{
     await invoke("set_repo", { repo });
@@ -483,6 +524,7 @@ async function refresh(){
   // R5-5: o snapshot não traz o catálogo (config) — antes cada refresh o apagava e as cores dos agentes caíam no hash
   if(prevCfg && !state.config && prevRepo===snap.repo) state.config = prevCfg;
   connected = !!snap.repo;
+  if(!pane){ if(snap.repo) lsSet('lastRepo', snap.repo); else repoBootReopen(); } // bug 21/10: tela e backend no MESMO projeto
   if(!pane && typeof budgetWatch==='function') try{ budgetWatch(); }catch(e){ tickErr('budgetWatch', e); }
   if(typeof protectLoad==='function' && !protectLoaded) protectLoad();
   gitUiSync(); // pasta sem git: esconde Grafo e o que depende de branch
