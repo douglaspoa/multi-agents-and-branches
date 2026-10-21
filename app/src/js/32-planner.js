@@ -225,7 +225,7 @@ let PL_IA=null;
 function plRecommend(){ const k=plEffKind(); return aiRecommend({ mode:(ND_TO_MODE[k]||'build'), title:plFields.title||'', objective:plGuessText(), nReq:(plFields.requirements||[]).length }); }
 function plRenderCtl(){
   const el=$id('plCtl'); if(!el) return;
-  const html=`<span id="plIa"></span><button type="button" class="ndchip${plFields.kind?' set':''}" id="plType" aria-haspopup="dialog" title="tipo da demanda (opcional)"><span class="ndchip-l">Tipo:</span> <b>${esc(plTypeLabel())}</b>${IC_CARET}</button>`;
+  const html=`<span id="plIa"></span><button type="button" class="ndchip${plFields.kind?' set':''}" id="plType" aria-haspopup="dialog" title="tipo da demanda (opcional)"><span class="ndchip-l">Tipo:</span> <b>${esc(plTypeLabel())}</b>${IC_CARET}</button>`+(typeof chatStyleChipHtml==='function'?chatStyleChipHtml(chatStyleGet()):''); // estilo das respostas (12-chat-prefs-daily)
   if(el.__html!==html){ el.innerHTML=html; el.__html=html; PL_IA=null; }
   const host=$id('plIa'); const { eng, model }=plModelNow();
   if(host && typeof iaPick==='function'){ if(!PL_IA || !host.contains(PL_IA.pill)) PL_IA=iaPick(host, { value:{ engine:eng, model }, scope:'demanda', recommend:plRecommend, advisor:true, advisorValue:plFields.advisor,
