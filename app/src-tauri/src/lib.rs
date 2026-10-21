@@ -8671,17 +8671,51 @@ fn tail_lines(s: &str, n: usize) -> String {
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
-/// Pid da verificação de SEGUNDO PLANO desta worktree (`.cardume/verify.lock` com bg:true), se houver.
+/// "[[dd-]hh:]mm:ss" do `ps -o etime=` → segundos.
+fn parse_etime(e: &str) -> Option<i64> {
+    let e = e.trim();
+    let (days, rest) = match e.split_once('-') { Some((d, r)) => (d.parse::<i64>().ok()?, r), None => (0, e) };
+    let parts: Vec<i64> = rest.split(':').map(|p| p.parse::<i64>().ok()).collect::<Option<Vec<_>>>()?;
+    let (h, m, s) = match parts.as_slice() { [m, s] => (0, *m, *s), [h, m, s] => (*h, *m, *s), _ => return None };
+    Some(days * 86400 + h * 3600 + m * 60 + s)
+}
+/// O processo `pid` ainda é o que começou em `start_ms`? (pid reaproveitado pelo sistema não conta; tolerância 5 s)
+fn same_process(pid: i32, start_ms: i64) -> bool {
+    if start_ms <= 0 || cfg!(windows) { return false; }
+    let Ok(o) = Command::new("ps").args(["-o", "etime=", "-p", &pid.to_string()]).output() else { return false };
+    match parse_etime(&String::from_utf8_lossy(&o.stdout)) { Some(secs) => ((now_ms() - secs * 1000) - start_ms).abs() < 5_000, None => false }
+}
+/// Pid da verificação de SEGUNDO PLANO desta worktree (`.cardume/verify.lock` com bg:true), se o dono confere (pid +
+/// horário de início). Lock morto ou pid reaproveitado → None (ninguém leva sinal).
 fn verify_bg_pid(wt: &Path) -> Option<i32> {
     let j: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(wt.join(".cardume").join("verify.lock")).ok()?).ok()?;
     if j["bg"].as_bool() != Some(true) { return None; }
-    j["pid"].as_i64().filter(|p| *p > 0).map(|p| p as i32)
+    let pid = j["pid"].as_i64().filter(|p| *p > 0)? as i32;
+    if !same_process(pid, j["start"].as_i64().unwrap_or(0)) { return None; }
+    Some(pid)
 }
 /// Motivo do "entregar sem esperar os testes" (aparado; curto demais não vale).
 fn tests_skip_reason(reason: &str) -> Result<String, String> {
     let r: String = reason.trim().chars().take(500).collect();
     if r.chars().filter(|c| c.is_alphanumeric()).count() < 3 { return Err("escreva o motivo de entregar sem esperar os testes".into()); }
     Ok(r)
+}
+/// Grava o "sem esperar" em TRANSAÇÃO (lê → funde → grava, como o patchSpec do motor: o motor grava no mesmo spec).
+fn tests_skip_write(conn: &Connection, task_id: &str, reason: &str, head: &str) -> Result<(), String> {
+    conn.execute_batch("BEGIN IMMEDIATE").map_err(|e| e.to_string())?;
+    let res = (|| -> Result<(), String> {
+        let spec_json: String = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |row| row.get(0)).map_err(|e| e.to_string())?;
+        let mut spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or(serde_json::json!({}));
+        spec["testsSkip"] = serde_json::json!({ "reason": reason, "at": now_ms(), "sha": head });
+        if spec["verification"].is_object() { spec["verification"]["running"] = serde_json::Value::Null; }
+        conn.execute("UPDATE task SET spec_json=?1 WHERE id=?2", params![spec.to_string(), task_id]).map_err(|e| e.to_string())?;
+        conn.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 0)", params![task_id, now_ms(), format!("entregue sem esperar os testes: {reason}")]).map_err(|e| e.to_string())?;
+        Ok(())
+    })();
+    match res {
+        Ok(()) => conn.execute_batch("COMMIT").map_err(|e| e.to_string()),
+        Err(e) => { let _ = conn.execute_batch("ROLLBACK"); Err(e) }
+    }
 }
 /// "Entregar sem esperar os testes" (onda 1.1): grava o motivo na spec (testsSkip, com o HEAD da hora — vale pra esta
 /// versão), registra o evento e cancela a verificação de segundo plano. O portão do motor não roda nem espera a suíte.
@@ -8693,12 +8727,7 @@ fn tests_skip(state: State<AppState>, task_id: String, reason: String) -> Result
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
     let conn = Connection::open(&db).map_err(|e| e.to_string())?;
     let _ = conn.busy_timeout(std::time::Duration::from_millis(5000));
-    let spec_json: String = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |row| row.get(0)).map_err(|e| e.to_string())?;
-    let mut spec: serde_json::Value = serde_json::from_str(&spec_json).unwrap_or(serde_json::json!({}));
-    spec["testsSkip"] = serde_json::json!({ "reason": r, "at": now_ms(), "sha": head });
-    if spec["verification"].is_object() { spec["verification"]["running"] = serde_json::Value::Null; }
-    conn.execute("UPDATE task SET spec_json=?1 WHERE id=?2", params![spec.to_string(), task_id]).map_err(|e| e.to_string())?;
-    let _ = conn.execute("INSERT INTO event (task_id, agent, ts, type, text, ok) VALUES (?1, 'Sistema', ?2, 'note', ?3, 0)", params![task_id, now_ms(), format!("entregue sem esperar os testes: {r}")]);
+    tests_skip_write(&conn, &task_id, &r, &head)?;
     // a verificação em segundo plano para (o exit dela mata a suíte filha com a árvore)
     if let Some(pid) = verify_bg_pid(&wt) { signal_group(pid, procsig::TERM); }
     Ok(())
@@ -11621,10 +11650,29 @@ mod pr_status_tests {
         assert_eq!(tests_skip_reason("  hotfix urgente ").unwrap(), "hotfix urgente");
         let d = std::env::temp_dir().join(format!("sf-vlock-{}", std::process::id()));
         std::fs::create_dir_all(d.join(".cardume")).unwrap();
-        std::fs::write(d.join(".cardume").join("verify.lock"), r#"{"pid":4242,"bg":true,"sha":"a"}"#).unwrap();
-        assert_eq!(verify_bg_pid(&d), Some(4242));
-        std::fs::write(d.join(".cardume").join("verify.lock"), r#"{"pid":4242,"bg":false}"#).unwrap();
+        // o dono CONFERE (pid + horário de início): este processo, com o início certo
+        let me = std::process::id() as i32;
+        let started = Command::new("ps").args(["-o", "etime=", "-p", &me.to_string()]).output().ok().and_then(|o| parse_etime(&String::from_utf8_lossy(&o.stdout))).map(|s| now_ms() - s * 1000).unwrap_or(0);
+        std::fs::write(d.join(".cardume").join("verify.lock"), format!(r#"{{"pid":{me},"start":{started},"bg":true,"sha":"a"}}"#)).unwrap();
+        if !cfg!(windows) { assert_eq!(verify_bg_pid(&d), Some(me)); }
+        std::fs::write(d.join(".cardume").join("verify.lock"), format!(r#"{{"pid":{me},"start":{},"bg":true}}"#, started - 3_600_000)).unwrap();
+        assert_eq!(verify_bg_pid(&d), None, "pid reaproveitado (início não bate): nunca sinaliza");
+        std::fs::write(d.join(".cardume").join("verify.lock"), r#"{"pid":4242,"bg":true}"#).unwrap();
+        assert_eq!(verify_bg_pid(&d), None, "sem horário de início: trava morta");
+        std::fs::write(d.join(".cardume").join("verify.lock"), format!(r#"{{"pid":{me},"start":{started},"bg":false}}"#)).unwrap();
         assert_eq!(verify_bg_pid(&d), None, "a verificação da entrega (síncrona) não é cancelada");
+        assert_eq!(parse_etime("01:02"), Some(62));
+        assert_eq!(parse_etime("1-02:03:04"), Some(86400 + 7384));
+        assert_eq!(parse_etime("lixo"), None);
+        // gravação em transação: funde no spec do banco (o que o motor gravou continua lá)
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE task (id TEXT, spec_json TEXT); CREATE TABLE event (task_id TEXT, agent TEXT, ts INTEGER, type TEXT, text TEXT, ok INTEGER); INSERT INTO task VALUES ('t', '{\"guard\":{\"x\":1},\"verification\":{\"running\":{\"since\":1}}}');").unwrap();
+        tests_skip_write(&conn, "t", "hotfix urgente", "h1").unwrap();
+        let sp: serde_json::Value = serde_json::from_str(&conn.query_row("SELECT spec_json FROM task", [], |r| r.get::<_, String>(0)).unwrap()).unwrap();
+        assert_eq!(sp["testsSkip"]["sha"], "h1");
+        assert_eq!(sp["guard"]["x"], 1);
+        assert!(sp["verification"]["running"].is_null());
+        assert_eq!(conn.query_row("SELECT text FROM event", [], |r| r.get::<_, String>(0)).unwrap(), "entregue sem esperar os testes: hotfix urgente");
         let _ = std::fs::remove_dir_all(&d);
     }
     #[test]

@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { affectedPlan, detectCi, effectiveTestMode, jsTestTool, parseTestCfg, pytestTargets, readDurations, recordDuration, suggestAffected, type DurationRec } from "./test-plan.ts";
 import { orgTestMode } from "./org-policy.ts";
 import { isGitCommitCmd, Orchestrator, parsePorcelainZ } from "./orchestrator.ts";
-import { winArg } from "./test-runner.ts";
+import { parseEtime, procStartMs, sameProcess, winArg } from "./test-runner.ts";
 import type { Runner } from "./test-runner.ts";
 import { tempHome } from "./testing/temp-home.ts";
 import type { TaskSpec } from "./types.ts";
@@ -163,6 +163,9 @@ test("isGitCommitCmd: o commit do agente no Bash (também com -C e encadeado); o
   assert.ok(isGitCommitCmd("git commit -m 'x'"));
   assert.ok(isGitCommitCmd("git add -A && git commit -am x"));
   assert.ok(isGitCommitCmd("git -C sub commit -m x"));
+  assert.ok(isGitCommitCmd("git -c user.name=x commit -m y"));
+  assert.ok(isGitCommitCmd("git -c a=b -C dir commit --amend"));
+  assert.ok(isGitCommitCmd("git --no-pager commit -m x"));
   assert.ok(isGitCommitCmd(["bash", "-lc", "git commit -m x"]));
   assert.ok(!isGitCommitCmd("git status"));
   assert.ok(!isGitCommitCmd("echo 'commit'"));
@@ -382,4 +385,84 @@ test("Windows: argumento pro cmd vai entre aspas (aspas internas dobradas)", () 
   assert.equal(winArg('x"y'), '"x""y"');
   const src = readFileSync(new URL("./test-runner.ts", import.meta.url), "utf8");
   assert.doesNotMatch(src, /shell: win/, "nada de shell:true com nome vindo do diff");
+});
+
+// ---------------------------------------------------------------- revisão adversarial 2: travas, sinais, "sem esperar"
+
+test("dono da trava confere pid + horário de início: pid reaproveitado não é o mesmo processo", () => {
+  assert.equal(parseEtime("05:07"), 307);
+  assert.equal(parseEtime("2-01:00:00"), 2 * 86400 + 3600);
+  assert.equal(parseEtime("x"), null);
+  const me = procStartMs(process.pid)!;
+  assert.ok(sameProcess(process.pid, me));
+  assert.ok(!sameProcess(process.pid, me - 3_600_000), "início diferente: outro processo com o mesmo pid");
+  assert.ok(!sameProcess(process.pid, undefined), "trava sem horário: morta");
+});
+
+test("trava atômica: duas entregas ao mesmo tempo no MESMO processo rodam a suíte uma vez; trava de pid reaproveitado é ignorada (sem sinal)", async () => {
+  const runs = join(root, "atom-runs");
+  const repo = gitRepo("atomica", { "package.json": JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap c.test.mjs" } }), "c.test.mjs": COUNT_SUITE(runs, 400) });
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("a1"));
+    const wt = orch.store.getTask("a1")!.worktree;
+    commitIn(wt, { "src/a.js": "1\n" });
+    // trava de um processo que "morreu" e cujo pid foi reaproveitado (o nosso, com outro início): ignorada
+    mkdirSync(join(wt, ".cardume"), { recursive: true });
+    writeFileSync(join(wt, ".cardume", "verify.lock"), JSON.stringify({ pid: process.pid, start: 1, bg: true, sha: "velho" }));
+    const t = () => orch.store.getTask("a1")!;
+    const [g1, g2] = await Promise.all([orch.verifyProofs("a1", t(), sp(orch, "a1"), { forPr: true }), orch.verifyProofs("a1", t(), sp(orch, "a1"), { forPr: true })]);
+    assert.deepEqual([g1.ok, g2.ok], [true, true]);
+    assert.equal(readFileSync(runs, "utf8"), "x", "uma suíte só na worktree");
+    assert.ok(!existsSync(join(wt, ".cardume", "verify.lock")), "trava solta no fim");
+  } finally { orch.close(); }
+});
+
+test("fim de turno NÃO mata a verificação da mesma versão (espera); SIGTERM no meio solta o 'rodando' do selo e a trava", { skip: process.platform === "win32" }, async () => {
+  const repo = gitRepo("mesmo-sha", { "package.json": JSON.stringify({ scripts: { test: `node -e "require('fs').writeFileSync('kid.pid', String(process.pid)); setTimeout(()=>{}, 60000)"` } }) });
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("ms1"));
+    const wt = orch.store.getTask("ms1")!.worktree;
+    commitIn(wt, { "src/a.js": "1\n" });
+    const env = { ...process.env }; delete env.NODE_TEST_CONTEXT;
+    const p = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", CLI, "verify-tests", "ms1", "--repo", repo], { stdio: "ignore", env });
+    assert.ok(await waitFor(() => existsSync(join(wt, "kid.pid"))), "a verificação começou");
+    const kid = Number(readFileSync(join(wt, "kid.pid"), "utf8"));
+    assert.ok(sp(orch, "ms1").verification?.running, "selo 'rodando'");
+    // pedido novo pra MESMA versão (o fim de turno): não mata, não começa outra
+    const t0 = Date.now();
+    assert.deepEqual(await orch.runTestsNow("ms1"), []);
+    assert.ok(Date.now() - t0 < 3000);
+    assert.ok(alive(kid) && p.exitCode === null, "a verificação da mesma versão continua");
+    // SIGTERM: a suíte morre, o selo deixa de dizer 'rodando' e a trava some
+    p.kill("SIGTERM");
+    await new Promise((r) => p.exitCode !== null ? r(null) : p.on("exit", r));
+    assert.ok(await waitFor(() => !alive(kid), 5000), "suíte órfã");
+    assert.equal(sp(orch, "ms1").verification?.running ?? null, null, "o 'rodando' foi solto");
+    assert.ok(!existsSync(join(wt, ".cardume", "verify.lock")), "a trava não ficou presa");
+  } finally { orch.close(); }
+});
+
+test("'sem esperar' só vale pra versão commitada (sha não vazio, sem mudança solta); o openPr invalida o skip se commitar algo novo", async () => {
+  const runs = join(root, "skip-runs");
+  const repo = gitRepo("skip-limpo", { "package.json": JSON.stringify({ type: "module", scripts: { test: "node --test --test-reporter=tap c.test.mjs" } }), "c.test.mjs": COUNT_SUITE(runs) });
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("sk1"));
+    const wt = orch.store.getTask("sk1")!.worktree;
+    commitIn(wt, { "src/a.js": "1\n" });
+    const head = execFileSync("git", ["-C", wt, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    orch.store.patchSpec("sk1", { testsSkip: { reason: "hotfix", at: 1, sha: head } });
+    writeFileSync(join(wt, "src", "solto.js"), "2\n"); // mudança solta: o skip não cobre isso
+    await orch.verifyProofs("sk1", orch.store.getTask("sk1")!, sp(orch, "sk1"), { forPr: true });
+    assert.equal(readFileSync(runs, "utf8"), "x", "com mudança solta a suíte roda");
+    orch.store.patchSpec("sk1", { testsSkip: { reason: "hotfix", at: 1, sha: "" } });
+    rmSync(join(wt, "src", "solto.js"));
+    await orch.verifyProofs("sk1", orch.store.getTask("sk1")!, sp(orch, "sk1"), { forPr: true });
+    assert.notEqual(sp(orch, "sk1").verification?.tests?.skippedBy, "hotfix", "skip sem sha não vale");
+    const src = readFileSync(new URL("./orchestrator.ts", import.meta.url), "utf8");
+    assert.match(src, /await commitLoose\(\);\n\s*\/\/ "entregue sem esperar os testes" vale pra versão que a pessoa viu[\s\S]{0,400}testsSkip: null/);
+    assert.match(src, /const tmo = testTimeoutMs\(this\.ws\.repo\);/, "env STARFORK_TEST_TIMEOUT_S vence o checks.json");
+  } finally { orch.close(); }
 });

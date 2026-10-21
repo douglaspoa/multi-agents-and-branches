@@ -325,6 +325,30 @@ export async function runTests(dir: string, o: { timeoutMs?: number; runner?: Ru
   return { ...base, ran: true, passed: false, detail: `${runner.label}: ${why}` };
 }
 
+/** "[[dd-]hh:]mm:ss" do `ps -o etime=` → segundos. */
+export function parseEtime(e: string): number | null {
+  const m = String(e ?? "").trim().match(/^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+  if (!m) return null;
+  return (Number(m[1] ?? 0) * 86400) + (Number(m[2] ?? 0) * 3600) + Number(m[3]) * 60 + Number(m[4]);
+}
+/** Quando o processo `pid` começou (ms), pelo `ps` — null se não existe ou não deu pra saber (Windows). */
+export function procStartMs(pid: number): number | null {
+  if (pid === process.pid) return Math.round(Date.now() - process.uptime() * 1000);
+  if (process.platform === "win32") return null;
+  try {
+    const r = spawnSync("ps", ["-o", "etime=", "-p", String(pid)], { encoding: "utf8", timeout: 3000 });
+    const s = parseEtime(r.stdout);
+    return s == null ? null : Date.now() - s * 1000;
+  } catch { return null; }
+}
+/** O dono da trava ainda é o MESMO processo? (pid reaproveitado pelo sistema não conta) — tolerância de 5 s. */
+export function sameProcess(pid: number, startedAt: unknown): boolean {
+  const want = Number(startedAt);
+  if (!Number.isFinite(want) || want <= 0) return false;
+  const got = procStartMs(pid);
+  return got != null && Math.abs(got - want) < 5_000;
+}
+
 /** Um argumento pro cmd.exe: entre aspas (dentro delas & | < > ( ) são literais) e aspas internas dobradas. O % ainda
  * expandiria variável — por isso nome com % (ou ! ^ ") nem chega aqui: o plano de afetados roda a suíte inteira. */
 export function winArg(a: string): string {
@@ -341,10 +365,22 @@ export function killTree(pid: number, sig: NodeJS.Signals = "SIGTERM"): void {
 }
 let exitHooked = false;
 /** SIGTERM/SIGINT viram process.exit (o 'exit' roda: mata as suítes filhas, solta travas). Idempotente. */
+const exitCleanups = new Set<() => void>();
+/** Limpeza que roda na SAÍDA (normal, SIGTERM, SIGINT): soltar o "rodando" do selo, travas, worktree temporária.
+ * Síncrona (o 'exit' do node não espera promessa). Devolve quem tira a limpeza no caminho normal. */
+export function onExitCleanup(fn: () => void): () => void {
+  exitOnSignals();
+  exitCleanups.add(fn);
+  return () => { exitCleanups.delete(fn); };
+}
 export function exitOnSignals(): void {
   if (exitHooked) return;
   exitHooked = true;
-  process.on("exit", () => { for (const p of liveKids) killTree(p, "SIGKILL"); });
+  // primeiro as suítes filhas morrem; depois a limpeza (selo, travas, worktree da base)
+  process.on("exit", () => {
+    for (const p of liveKids) killTree(p, "SIGKILL");
+    for (const f of [...exitCleanups]) { try { f(); } catch { /* segue limpando o resto */ } }
+  });
   for (const [sig, code] of [["SIGTERM", 143], ["SIGINT", 130]] as const) {
     if (process.listenerCount(sig) === 0) process.once(sig, () => process.exit(code));
   }
@@ -481,6 +517,12 @@ export async function baselineRun(o: { repo: string; worktree: string; baseSha: 
     }
     const tmp = mkdtempSync(join(tmpdir(), "starfork-base-"));
     const wt = join(tmp, "wt");
+    // morto no meio (SIGTERM): a trava da base e a worktree temporária não ficam pra trás
+    const undo = onExitCleanup(() => {
+      rmSync(lock, { force: true });
+      rmSync(tmp, { recursive: true, force: true });
+      spawnSync("git", ["-C", o.repo, "worktree", "prune"], { stdio: "ignore", timeout: 5000 });
+    });
     try {
       const again = readBaseCache(file);
       if (again) return again;
@@ -502,6 +544,7 @@ export async function baselineRun(o: { repo: string; worktree: string; baseSha: 
       rmSync(tmp, { recursive: true, force: true });
       await runCmd("git", ["-C", o.repo, "worktree", "prune"]).catch(() => undefined);
       rmSync(lock, { force: true });
+      undo();
     }
   })().finally(() => baseInflight.delete(file));
   baseInflight.set(file, p);
