@@ -1,4 +1,54 @@
 // Starfork — 12-chat-prefs-daily
+// ---------- estilo das respostas da IA nos chats de conversa (21/10) ----------
+// "Normal" (PADRÃO: markdown organizado, conclusão primeiro) × "Curto e direto" (fraseologia da aviação: BLUF, a resposta
+// na 1ª frase, até 5 itens curtos, perguntas fechadas). Preferência DESTA pessoa nesta máquina: ~/.constellation/settings.json
+// › chatStyle — o Rust (estilo.rs) lê a cada mensagem e põe as regras no prompt da Nova demanda, do chat do projeto, do
+// orquestrador e da Nova issue (nunca no agente que codifica). localStorage é só o espelho pra pintar o seletor sem esperar.
+// Normal é o padrão porque o curto corta contexto que quem está começando ainda quer ler — a pessoa escolhe.
+const CHAT_STYLES=[
+  { v:'normal', label:'Normal', hint:'markdown organizado: conclusão primeiro, listas e títulos quando ajudam' },
+  { v:'curto', label:'Curto e direto', tag:'estilo aviação', hint:'a resposta na 1ª frase, até 5 itens curtos, sem introdução nem resumo — “quer mais detalhe?” quando houver' },
+];
+// @estilo-puro-inicio
+function chatStyleOf(v){ return String(v==null?'':v).replace(/"/g,'').trim().toLowerCase()==='curto' ? 'curto' : 'normal'; }
+function chatStyleLabel(v){ return chatStyleOf(v)==='curto' ? 'Curto e direto' : 'Normal'; }
+function chatStyleChipHtml(v){ // o chip discreto ao lado da caixa do chat (mesmo desenho do "Tipo ▾" da Nova demanda)
+  const c=chatStyleOf(v);
+  return `<button type="button" class="ndchip ccstyle${c==='curto'?' set':''}" data-chatstyle-btn aria-haspopup="dialog" title="como a IA responde nos chats: Normal ou Curto e direto (estilo aviação)"><span class="ndchip-l">Respostas:</span> <b>${c==='curto'?'Curto':'Normal'}</b><svg class="ndcaret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4.5 6.5l3.5 3.5 3.5-3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+}
+function chatStylePopHtml(v){
+  const c=chatStyleOf(v), e=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  return `<div class="ndpop-h">Respostas da IA <span>vale aqui e nos outros chats de conversa — fica salvo pra você</span></div>`+
+    CHAT_STYLES.map(o=>`<button type="button" class="ndpop-opt${o.v===c?' on':''}" data-chatstyle="${o.v}" role="menuitemradio" aria-checked="${o.v===c}"><b>${e(o.label)}${o.tag?` <i class="ccstyle-tag">${e(o.tag)}</i>`:''}</b><span>${e(o.hint)}</span></button>`).join('');
+}
+// @estilo-puro-fim
+function chatStyleGet(){ return chatStyleOf(lsGet('chatStyle')); }
+function chatStylePaint(){ // todos os chips/segmentos na tela acompanham a escolha
+  const c=chatStyleGet();
+  document.querySelectorAll('[data-chatstyle-btn]').forEach(b=>{ b.classList.toggle('set', c==='curto'); const t=b.querySelector('b'); if(t) t.textContent=c==='curto'?'Curto':'Normal'; });
+  document.querySelectorAll('[data-ajstyle]').forEach(b=>{ const on=b.dataset.ajstyle===c; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
+}
+async function chatStyleSet(v){
+  const c=chatStyleOf(v), was=chatStyleGet(); lsSet('chatStyle', c); chatStylePaint();
+  try{ await invoke('write_setting',{ key:'chatStyle', value:c }); return true; }
+  catch(e){ lsSet('chatStyle', was); chatStylePaint(); if(typeof showErr==='function') showErr(e,'Não salvou o estilo das respostas'); return false; }
+}
+// settings.json é a verdade (é o que o Rust lê): o espelho local acompanha ao abrir o app
+function chatStyleSync(){ try{ invoke('read_settings').then(s=>{ let o={}; try{ o=JSON.parse(s||'{}')||{}; }catch(_){ } lsSet('chatStyle', chatStyleOf(o.chatStyle)); chatStylePaint(); }).catch(()=>{}); }catch(_){ } }
+function chatStyleOpen(anchor){
+  if(typeof ndPopover!=='function') return chatStyleSet(chatStyleGet()==='curto'?'normal':'curto');
+  ndPopover(anchor, chatStylePopHtml(chatStyleGet()), p=>p.querySelectorAll('[data-chatstyle]').forEach(b=>b.onclick=async()=>{ const v=b.dataset.chatstyle; ndPopClose(); if(await chatStyleSet(v) && typeof toast==='function') toast(v==='curto'?'Respostas curtas e diretas (estilo aviação) a partir da próxima mensagem':'Respostas no formato normal a partir da próxima mensagem'); try{ anchor.focus(); }catch(_){ } }));
+}
+// um handler só pra todos os chips (planner, chat do projeto, orquestrador, Nova issue)
+document.addEventListener('click', e=>{ const b=e.target && e.target.closest && e.target.closest('[data-chatstyle-btn]'); if(!b || b.disabled) return; e.preventDefault(); chatStyleOpen(b); });
+// garante o chip na linha de botões do compositor (chatComposer cfg.styleSel) — idempotente
+function chatStyleEnsure(box){
+  const row=box && [...box.children].find(x=>x.classList && x.classList.contains('cc-row')); if(!row) return;
+  if(row.querySelector('[data-chatstyle-btn]')) return;
+  const tmp=document.createElement('div'); tmp.innerHTML=chatStyleChipHtml(chatStyleGet()); const chip=tmp.firstElementChild;
+  const sp=row.querySelector('.cc-sp'); if(sp) row.insertBefore(chip, sp); else row.appendChild(chip);
+}
+chatStyleSync();
 // ---------- chat do projeto ----------
 let pcBusy=false, pcStopping=false, pcBusyRepo='', pcToTaskBusy=false, pcToTaskRepo=''; // pcBusyRepo/pcToTaskRepo: de QUAL projeto é a chamada em andamento
 // @puro-inicio pcGate — pergunta e "virar tarefa" usam a MESMA sessão da IA do projeto: nunca rodam juntas nele.
@@ -60,7 +110,7 @@ function pcRender(){
   { const b=th.querySelector('#pcClear2'); if(b) b.onclick=()=>{ const o=$id('pcClear'); if(o) o.click(); }; }
   th.querySelectorAll('[data-sg]').forEach(b=>b.onclick=()=>{ const i=$id('pcInput'); if(i){ i.value=b.dataset.sg; i.focus(); } });
   attRenderPend('pcPend', pcPend, pcRender);
-  chatComposer({ input:'pcInput', attach:'pcAttach', pend:()=>pcPend, taskId:()=>null, rerender:pcRender, onSend:pcSend, send:'pcSend', modelPill:aiChatModelPill('pcModel'),
+  chatComposer({ input:'pcInput', attach:'pcAttach', pend:()=>pcPend, taskId:()=>null, rerender:pcRender, onSend:pcSend, send:'pcSend', styleSel:true, modelPill:aiChatModelPill('pcModel'),
     stop:{ btn:'pcStop', busy:()=>pcBusy && pcBusyRepo===(state.repo||''), fn:pcStop }, busyHint:'lendo o projeto… · ■ parar interrompe — dá pra ir escrevendo a próxima' });
   keep(th);
 }

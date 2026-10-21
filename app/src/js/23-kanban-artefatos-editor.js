@@ -304,36 +304,98 @@ function mdTidy(s){
   const f=t.trim().match(/^```(?:markdown|md)\s*\n([\s\S]*?)\n```$/i); if(f) t=f[1];
   return t;
 }
+// chat formatado (21/10, "respostas gigantes e sem formatação"): listas ANINHADAS (pelo recuo), numeração que sobrevive a
+// linha em branco/código no meio (start=), citação (>), tarefa [ ]/[x], quebra forçada ("  " ou \ no fim), ~~riscado~~,
+// link solto, código inline protegido (nada de *itálico* dentro de `código`) e STREAMING: o markdown que ainda está
+// chegando (``` sem fechar, ** sem par na última linha, linha de tabela pela metade, "- " sem texto) renderiza sem piscar.
+// Tudo DENTRO desta função (os testes extraem só ela) e tudo escapado: texto de IA/issue nunca vira HTML ativo.
 function mdToHtml(md){
   md=ghHtmlClean(typeof mdTidy==='function'?mdTidy(md):md); // typeof: testes que extraem só o mdToHtml seguem valendo
   const e=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  const link=(m,label,url)=>{ const h=mdSafeHref(url); return h?`<a href="${e(h)}" data-exthref="${e(h)}" rel="noreferrer">${label}</a>`:label; };
-  const inline=s=>e(s).replace(/`([^`]+)`/g,'<code>$1</code>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>').replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,link);
+  const link=(label,url)=>{ const h=mdSafeHref(url); return h?`<a href="${e(h)}" data-exthref="${e(h)}" rel="noreferrer">${label}</a>`:label; };
+  const emph=t=>t.replace(/\*\*\*([^*]+)\*\*\*/g,'<strong><em>$1</em></strong>').replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[^*])\*([^*]+)\*/g,'$1<em>$2</em>').replace(/~~([^~]+)~~/g,'<del>$1</del>');
+  const inline=s=>{
+    const keep=[], put=h=>'\u0000'+(keep.push(h)-1)+'\u0000';
+    let t=e(String(s).replace(/\u0000/g,''));
+    t=t.replace(/`([^`]+)`/g,(m,c)=>put('<code>'+c+'</code>')); // código primeiro: nada de ênfase/link dentro dele
+    t=t.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g,(m,l,u)=>put(link(emph(l),u)));
+    t=t.replace(/(^|[\s(])(https?:\/\/[^\s<]+)/g,(m,p,u)=>{ // link solto: para antes de aspas/sinal no fim
+      const cut=u.search(/&(quot|#39|lt|gt);/); let tail=''; if(cut>=0){ tail=u.slice(cut); u=u.slice(0,cut); }
+      const mm=u.match(/[.,;:!?)\]]+$/); if(mm){ tail=mm[0]+tail; u=u.slice(0,-mm[0].length); }
+      return u ? p+put(link(u,u))+tail : m; });
+    t=emph(t);
+    for(let k=0;k<4 && /\u0000\d+\u0000/.test(t);k++) t=t.replace(/\u0000(\d+)\u0000/g,(m,i)=>keep[+i]);
+    return t.replace(/\u0001/g,'<br>');
+  };
   const lines=String(md).replace(/\r\n/g,'\n').split('\n');
-  let html='', inCode=false, code=[], list=null, para=[];
-  const fp=()=>{ if(para.length){ html+='<p>'+inline(para.join(' '))+'</p>'; para=[]; } };
-  const fl=()=>{ if(list){ html+='</'+list+'>'; list=null; } };
+  // STREAMING: ** ou ` sem par na ÚLTIMA linha (fora de código) fecham sozinhos — o negrito não "pisca" como **texto cru
+  { const fences=lines.filter(l=>/^\s*```/.test(l)).length; let j=lines.length-1; while(j>0 && !lines[j].trim()) j--;
+    if(fences%2===0 && lines[j] && !/^\s*\|/.test(lines[j])){ let l=lines[j];
+      if(((l.match(/`/g)||[]).length)%2===1 && !/```/.test(l)) l+='`';
+      if(((l.replace(/`[^`]*`/g,'').match(/\*\*/g)||[]).length)%2===1 && !/^\s*\*\*\s*$/.test(l)) l+='**';
+      lines[j]=l; } }
+  const last=lines.length-1;
+  let html='', inCode=false, code=[], codeInd=0, codeInLi=false, para=[], stack=[], blank=false;
+  const brk=l=>/( {2,}|\\)$/.test(l) ? l.replace(/( {2,}|\\)$/,'')+'\u0001' : l.trimEnd(); // quebra forçada no fim da linha
+  const fp=()=>{ if(para.length){ html+='<p>'+inline(para.map((l,k)=>k<para.length-1?brk(l):l.trim()).join(' ').replace(/\u0001 /g,'\u0001'))+'</p>'; para=[]; } };
+  const close=n=>{ while(stack.length>n) html+='</li></'+stack.pop().t+'>'; };
+  const fl=()=>close(0);
+  const wid=s=>s.replace(/\t/g,'    ').length;
   const isRow=l=>/^\s*\|.*\|\s*$/.test(l), isSep=l=>/^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(l);
+  const sepish=l=>/^\s*\|?[\s:|-]*-[\s:|-]*$/.test(l); // separador ainda chegando ("|---|--")
   const cells=l=>l.trim().replace(/^\|/,'').replace(/\|$/,'').split('|').map(c=>c.trim());
+  const pre=()=>'<pre class="mdcode"><code>'+e(code.join('\n'))+'</code></pre>';
+  const chk=t=>{ const c=t.match(/^\[( |x|X)\]\s+/); return c ? (c[1]===' '?'<span class="mdchk" aria-label="a fazer">☐</span> ':'<span class="mdchk on" aria-label="feito">☑</span> ')+inline(t.slice(c[0].length)) : inline(t); };
   for(let i=0;i<lines.length;i++){
     const line=lines[i];
-    if(line.trim().startsWith('```')){ if(inCode){ html+='<pre class="mdcode"><code>'+e(code.join('\n'))+'</code></pre>'; code=[]; inCode=false; } else { fp(); fl(); inCode=true; } continue; }
-    if(inCode){ code.push(line); continue; }
-    if(isRow(line) && i+1<lines.length && isSep(lines[i+1])){ // tabela GFM
-      fp(); fl(); const head=cells(line); i++;
-      const body=[]; while(i+1<lines.length && isRow(lines[i+1])){ i++; body.push(cells(lines[i])); }
+    const fence=line.match(/^(\s*)```/);
+    if(fence){
+      if(inCode){ html+=pre(); code=[]; inCode=false; codeInLi=false; continue; }
+      fp(); codeInd=wid(fence[1]);
+      codeInLi=!!(stack.length && codeInd>0); // ``` recuado debaixo de um item: o código fica DENTRO do item (a numeração segue)
+      if(!codeInLi) fl(); blank=false; inCode=true; continue;
+    }
+    if(inCode){ code.push(codeInd ? line.replace(new RegExp('^[ \\t]{0,'+codeInd+'}'),'') : line); continue; }
+    // tabela GFM (e, no streaming, o cabeçalho que ainda espera o separador / a linha que está chegando)
+    if(isRow(line) && (i+1<lines.length ? (isSep(lines[i+1]) || (i+1===last && sepish(lines[i+1]))) : i===last && cells(line).length>1)){
+      fp(); fl(); blank=false; const head=cells(line); if(i<last) i++;
+      const body=[]; while(i+1<lines.length && (isRow(lines[i+1]) || (i+1===last && /^\s*\|/.test(lines[i+1])))){ i++; body.push(cells(lines[i])); }
       html+='<div class="mdtablew"><table class="mdtable"><thead><tr>'+head.map(c=>'<th>'+inline(c)+'</th>').join('')+'</tr></thead><tbody>'+body.map(r=>'<tr>'+r.map(c=>'<td>'+inline(c)+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>';
       continue;
     }
+    if(/^\s{0,3}>/.test(line)){ // citação: junta as linhas com > e formata o miolo (mesma função)
+      fp(); fl(); blank=false; const q=[line.replace(/^\s{0,3}>\s?/,'')];
+      while(i+1<lines.length && /^\s{0,3}>/.test(lines[i+1])){ i++; q.push(lines[i].replace(/^\s{0,3}>\s?/,'')); }
+      html+='<blockquote>'+mdToHtml(q.join('\n'))+'</blockquote>'; continue;
+    }
     const h=line.match(/^(#{1,6})\s+(.*)$/);
-    if(h){ fp(); fl(); const lv=h[1].length; html+='<h'+lv+'>'+inline(h[2])+'</h'+lv+'>'; continue; }
-    if(/^\s*[-*+]\s+/.test(line)){ fp(); if(list!=='ul'){ fl(); html+='<ul>'; list='ul'; } html+='<li>'+inline(line.replace(/^\s*[-*+]\s+/,''))+'</li>'; continue; }
-    if(/^\s*\d+[.)]\s+/.test(line)){ fp(); if(list!=='ol'){ fl(); html+='<ol>'; list='ol'; } html+='<li>'+inline(line.replace(/^\s*\d+[.)]\s+/,''))+'</li>'; continue; }
-    if(/^\s*(---|\*\*\*|___)\s*$/.test(line)){ fp(); fl(); html+='<hr>'; continue; }
-    if(line.trim()===''){ fp(); fl(); continue; }
-    para.push(line.trim());
+    if(h){ fp(); fl(); blank=false; const lv=h[1].length; html+='<h'+lv+'>'+inline(h[2])+'</h'+lv+'>'; continue; }
+    if(i===last && /^(#{1,6}|\s*(?:[-*+]|\d+[.)]))\s*$/.test(line) && !/^\s*(---|\*\*\*|___)\s*$/.test(line)) continue; // marcador sem texto ainda (streaming)
+    if(/^\s*(---|\*\*\*|___)\s*$/.test(line)){ fp(); fl(); blank=false; html+='<hr>'; continue; }
+    const li=line.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+    if(li){
+      fp(); blank=false;
+      const ind=wid(li[1]), t=/\d/.test(li[2])?'ol':'ul', n=parseInt(li[2],10);
+      const open=()=>{ stack.push({ t, ind }); html+='<'+t+(t==='ol'&&n!==1?' start="'+n+'"':'')+'><li>'; };
+      while(stack.length>1 && ind<stack[stack.length-1].ind) close(stack.length-1);
+      const top=stack[stack.length-1];
+      if(!top) open();
+      else if(ind>=top.ind+2) open(); // mais recuado: lista dentro do item
+      else if(top.t!==t){ close(stack.length-1); open(); }
+      else html+='</li><li>';
+      html+=chk(li[3]);
+      continue;
+    }
+    if(line.trim()===''){ fp(); if(stack.length) blank=true; continue; }
+    if(stack.length){ // texto depois de um item: continuação dele (recuado) ou fim da lista
+      const ind=wid(line.match(/^\s*/)[0]);
+      if(!blank){ html+=' '+inline(line.trim()); continue; }
+      if(ind>=2){ html+='<div class="mdcont">'+inline(line.trim())+'</div>'; blank=false; continue; }
+      fl(); blank=false;
+    }
+    para.push(line.replace(/^\s+/,''));
   }
-  fp(); fl(); if(inCode&&code.length) html+='<pre class="mdcode"><code>'+e(code.join('\n'))+'</code></pre>';
+  fp(); if(inCode && code.length) html+=pre(); fl();
   return html;
 }
 // @md-puro-inicio — derivados do mdToHtml (NUNCA um parser novo): todos escapam o texto (dado de IA/issue é não confiável)
@@ -353,7 +415,7 @@ function mdListHtml(arr){
 }
 // TEXTO puro (sem marcação) pra resumo de uma linha / título / chip: o chamador ainda passa no esc()
 function mdPlain(s){
-  const h=mdToHtml(s).replace(/<li>/g,'• ').replace(/<\/(p|li|h[1-6]|pre|tr|td|th|ul|ol)>|<br\s*\/?>|<hr>/g,' ').replace(/<[^>]+>/g,'');
+  const h=mdToHtml(s).replace(/<li>/g,'• ').replace(/<\/(p|li|h[1-6]|pre|tr|td|th|ul|ol|blockquote|div)>|<br\s*\/?>|<hr>/g,' ').replace(/<[^>]+>/g,'');
   const t=h.replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/\s+/g,' ').trim();
   return t.replace(/^• (?!.*• )/,'');
 }

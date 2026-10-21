@@ -12,7 +12,7 @@ const AJ_SECTIONS=[
   { id:'motores', grp:'ia', label:'Motores e chaves', scope:'computador', kw:'ia claude code codex deepseek gemini opencode gateway ia da sua empresa chave api openai lgcx outras chaves modelo padrão testar privacidade medidor porcentagem plano seletor' },
   { id:'custo', grp:'pc', label:'Custo e limites', scope:'computador', kw:'teto tarefa aviso custo cotação dólar real tarefas ao mesmo tempo paralelo fila retomar limite' },
   { id:'modo', grp:'pc', label:'Como as tarefas rodam', scope:'computador', kw:'modo terminal automático aprovação navegador dos agentes janela previsão tempo custo antes de rodar loop repetindo mesmo erro pausar' },
-  { id:'aparencia', grp:'pc', label:'Aparência', scope:'computador', kw:'tema claro escuro sistema cor' },
+  { id:'aparencia', grp:'pc', label:'Aparência', scope:'computador', kw:'tema claro escuro sistema cor respostas da ia chat curto direto aviação estilo markdown formatação' },
   { id:'aprendizado', grp:'pc', label:'Aprendizado', scope:'computador', kw:'aprendizado contínuo retro revisão memória sugerir automático desligado' },
   { id:'github', grp:'pc', label:'GitHub', scope:'computador', kw:'github conta gh pr push envio sso trocar entrar' },
   { id:'verificacao', grp:'pc', label:'Verificação', scope:'computador', kw:'verificação ambiente git node github cli túnel prévia simulador ios emulador android maestro pesquisa ampliada instalar pendência' },
@@ -488,6 +488,13 @@ function ajRenderModo(host){
 function ajRenderAparencia(host){
   host.innerHTML=ajSecHead('aparencia', 'Claro (papel e tinta azul) ou escuro (verde do logo). Sistema segue o macOS. Vale na hora, inclusive nos terminais.')+'<div id="temaHost" class="ajtema"></div>';
   if(typeof temaCfgMount==='function') temaCfgMount($id('temaHost'));
+  // estilo das respostas da IA nos chats de conversa (12-chat-prefs-daily · estilo.rs): o mesmo do chip "Respostas:" do chat
+  if(typeof CHAT_STYLES!=='undefined'){
+    const c=chatStyleGet();
+    host.insertAdjacentHTML('beforeend', `<h3 class="ajh3" id="ajStyleH" style="margin-top:28px">Respostas da IA nos chats</h3><p class="ajhint">Nova demanda, conversa do projeto, orquestrador e Nova issue. Não muda o agente que escreve o código. Também dá pra trocar no chip “Respostas:” ao lado da caixa do chat.</p>`+
+      `<div class="ajrlist" role="radiogroup" aria-labelledby="ajStyleH">${CHAT_STYLES.map(o=>`<button type="button" class="ajrcard${o.v===c?' on':''}" role="radio" data-ajstyle="${o.v}" aria-checked="${o.v===c}"><span class="rd"></span><b>${esc(o.label)}${o.v==='normal'?' <span class="ajtag">padrão</span>':o.tag?' <span class="ajtag">'+esc(o.tag)+'</span>':''}</b><span>${esc(o.hint)}</span></button>`).join('')}</div>`);
+    host.querySelectorAll('[data-ajstyle]').forEach(b=>b.onclick=async()=>{ if(await chatStyleSet(b.dataset.ajstyle)) ajSaved(); });
+  }
 }
 function ajRenderAprendizado(host){
   const opts=[['sugerir','Sugerir','Você revisa antes de entrar na memória (Projeto › Memória › Pra revisar).'],['auto','Automático','Entra sozinho. Dá pra desfazer na Memória.'],['desligado','Desligado','Nenhuma revisão no fim das tarefas — nenhuma chamada extra de IA.']];
