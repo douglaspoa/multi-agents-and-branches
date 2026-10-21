@@ -325,6 +325,11 @@ export async function runTests(dir: string, o: { timeoutMs?: number; runner?: Ru
   return { ...base, ran: true, passed: false, detail: `${runner.label}: ${why}` };
 }
 
+/** Um argumento pro cmd.exe: entre aspas (dentro delas & | < > ( ) são literais) e aspas internas dobradas. O % ainda
+ * expandiria variável — por isso nome com % (ou ! ^ ") nem chega aqui: o plano de afetados roda a suíte inteira. */
+export function winArg(a: string): string {
+  return `"${String(a).replace(/"/g, '""')}"`;
+}
 /** Suítes rodando agora (pid do grupo) — o processo morrendo leva elas junto, nunca ficam órfãs. */
 const liveKids = new Set<number>();
 /** Mata a árvore de um processo: grupo inteiro no Unix (kill -pid), `taskkill /T /F` no Windows. */
@@ -366,7 +371,10 @@ function spawnCapture(cmd: string, args: string[], cwd: string, timeoutMs: numbe
     const env: NodeJS.ProcessEnv = { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" };
     delete env.NODE_TEST_CONTEXT;
     try {
-      cp = spawn(cmd, args, { cwd, detached: !win, shell: win, env, stdio: ["ignore", "pipe", "pipe"] });
+      // Windows: nada de shell:true com nomes vindos do diff — cmd.exe /d /s /c com cada argumento escapado
+      cp = win
+        ? spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `"${[cmd, ...args].map(winArg).join(" ")}"`], { cwd, env, stdio: ["ignore", "pipe", "pipe"], windowsVerbatimArguments: true })
+        : spawn(cmd, args, { cwd, detached: true, env, stdio: ["ignore", "pipe", "pipe"] });
     } catch (e) {
       resolve({ code: null, out: "", timedOut: false, spawnErr: (e as Error).message });
       return;

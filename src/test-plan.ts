@@ -74,7 +74,14 @@ export function detectCi(dir: string): boolean {
 }
 
 /** Mudança nisso pode quebrar QUALQUER teste: roda a suíte inteira. */
-export const FULL_TRIGGER_RE = /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|vitest\.config\.[\w.]+|vite\.config\.[\w.]+|jest\.config\.[\w.]+|babel\.config\.[\w.]+|tsconfig[\w.-]*\.json|pyproject\.toml|setup\.cfg|setup\.py|pytest\.ini|tox\.ini|conftest\.py|requirements[\w.-]*\.txt|poetry\.lock|uv\.lock|Cargo\.toml|Cargo\.lock|go\.mod|go\.sum|Package\.swift)$/;
+export const FULL_TRIGGER_RE = /(^|\/)(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|vitest\.config\.[\w.]+|vitest\.workspace\.[\w.]+|vitest\.setup\.[\w.]+|vite\.config\.[\w.]+|jest\.config\.[\w.]+|jest\.setup\.[\w.]+|setupTests\.[\w.]+|babel\.config\.[\w.]+|\.babelrc[\w.]*|\.env[\w.-]*|tsconfig[\w.-]*\.json|pyproject\.toml|setup\.cfg|setup\.py|pytest\.ini|tox\.ini|conftest\.py|requirements[\w.-]*\.txt|poetry\.lock|uv\.lock|Cargo\.toml|Cargo\.lock|go\.mod|go\.sum|Package\.swift)$/;
+/** Arquivo que não é código nem doc — dado de teste (.json, .snap, .env, fixtures, .yml…): mudar isso pode quebrar
+ * teste que nenhum grafo de import enxerga. Roda a suíte inteira. */
+const CODE_RE = /\.((m|c)?[jt]sx?|vue|svelte|css|scss|sass|less|go|rs|py|pyi|swift)$/i;
+const DOC_RE = /\.(md|mdx|markdown|txt|rst|adoc|png|jpe?g|gif|svg|webp|ico|pdf)$|(^|\/)(LICENSE|CHANGELOG|AUTHORS|CODEOWNERS)(\.\w+)?$/i;
+const FIXTURE_DIR_RE = /(^|\/)(fixtures?|__fixtures__|__snapshots__|testdata|test-data|snapshots)\//i;
+/** Nome que pode ir como argumento sem surpresa em nenhum shell (o Windows passa pelo cmd): o resto roda a inteira. */
+const SAFE_NAME_RE = /^[\p{L}\p{N}_./@+ -]+$/u;
 
 export interface AffectedPlan {
   /** "afetados" = só o que o diff toca; "inteira" = a suíte toda (com o porquê) */
@@ -122,6 +129,13 @@ export function affectedPlan(dir: string, runner: Runner | null, changed: string
   const over = o.fullSuiteOver ?? FULL_SUITE_OVER;
   if (files.length > over) return full(`o diff tem ${files.length} arquivos (mais de ${over})`);
   if (!files.length) return full("sem diff legível");
+  // arquivo apagado ou renomeado: quem importava ele não aparece no grafo — roda tudo
+  const gone = files.find((f) => !exists(dir, f));
+  if (gone) return full(`o diff apaga ou renomeia ${gone}`);
+  const data = files.find((f) => !DOC_RE.test(f) && (!CODE_RE.test(f) || FIXTURE_DIR_RE.test(f)));
+  if (data) return full(`o diff mexe em ${data} (dado/configuração, não código)`);
+  const odd = files.find((f) => !SAFE_NAME_RE.test(f));
+  if (odd) return full(`nome de arquivo com caractere especial: ${odd}`);
   if (o.testFast) {
     const r = shellRunner(o.testFast, runner.kind, o.testFast);
     return { scope: "afetados", runner: r, sig: `fast:${o.testFast}` };
@@ -137,28 +151,33 @@ export function affectedPlan(dir: string, runner: Runner | null, changed: string
     if (!js.length) return full("o diff não tem arquivo JS/TS");
     const [cmd, pre] = execFor(runner);
     return done(tool === "vitest"
-      ? { kind: runner.kind, cmd, args: [...pre, "vitest", "related", ...js, "--run"], label: "vitest related" }
-      : { kind: runner.kind, cmd, args: [...pre, "jest", "--ci", "--findRelatedTests", ...js], label: "jest --findRelatedTests" });
+      ? { kind: runner.kind, cmd, args: [...pre, "vitest", "related", ...js, "--run", "--passWithNoTests"], label: "vitest related" }
+      : { kind: runner.kind, cmd, args: [...pre, "jest", "--ci", "--passWithNoTests", "--findRelatedTests", ...js], label: "jest --findRelatedTests" });
   }
   if (runner.kind === "go") {
-    const dirs = [...new Set(files.filter((f) => f.endsWith(".go")).map((f) => posix.dirname(f)))].filter((d) => exists(dir, d === "." ? "go.mod" : d));
-    if (!dirs.length) return full("o diff não tem arquivo .go");
-    return done({ kind: "go", cmd: "go", args: ["test", "-v", ...dirs.map((d) => (d === "." ? "." : `./${d}/...`))], label: "go test (pacotes mudados)" });
+    // os pacotes que DEPENDEM do mudado também quebram (go list -deps reverso) — mapear isso aqui ficaria caro e frágil:
+    // go roda ./... inteiro (a suíte do go costuma ser rápida e tem cache próprio)
+    return full("go: os pacotes que dependem do mudado não são mapeados — roda ./... inteiro");
   }
   if (runner.kind === "cargo") {
     const crates = new Set<string>();
     for (const f of files.filter((x) => x.endsWith(".rs"))) {
       const c = crateOf(dir, f);
       if (!c) return full(`não achei o crate de ${f}`);
+      if (!/^[A-Za-z0-9_-]+$/.test(c)) return full(`nome de crate inesperado: ${c}`);
       crates.add(c);
     }
     if (!crates.size) return full("o diff não tem arquivo .rs");
     return done({ kind: "cargo", cmd: "cargo", args: ["test", ...[...crates].sort().flatMap((c) => ["-p", c])], label: "cargo test -p" });
   }
   if (runner.kind === "pytest") {
-    const tests = pytestTargets(dir, live.filter((f) => f.endsWith(".py")));
+    const py = live.filter((f) => f.endsWith(".py"));
+    const tests = pytestTargets(dir, py);
+    // correspondência confiável: TODO módulo mudado tem o test_<módulo>.py dele (senão roda tudo)
+    const sem = py.find((f) => { const b = posix.basename(f); return !/^test_.*\.py$|_test\.py$/.test(b) && b !== "__init__.py" && !tests.some((t) => [`test_${b}`, b.replace(/\.py$/, "_test.py")].includes(posix.basename(t))); });
+    if (sem) return full(`nenhum teste corresponde a ${sem}`);
     if (!tests.length) return full("nenhum teste corresponde aos módulos mudados");
-    return done({ kind: "pytest", cmd: runner.cmd, args: ["-m", "pytest", "-q", "--lf", ...tests], label: "pytest (testes dos módulos mudados)" });
+    return done({ kind: "pytest", cmd: runner.cmd, args: ["-m", "pytest", "-q", ...tests], label: "pytest (testes dos módulos mudados)" });
   }
   return full(`${runner.label} não tem modo de testes afetados`);
 }

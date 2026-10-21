@@ -956,11 +956,13 @@ export class Orchestrator {
     try { this.store.addEvent(taskId, "Sistema", "guarda", guardSummary(g), g.reasons.length === 0); } catch { /* sem store */ }
   }
 
-  /** Arquivos mudados na branch (commits desde a base + o que está solto). Falhou → [] (regra leniente). */
+  /** Arquivos mudados na branch (commits desde a base + o que está solto). Falhou → [] (regra leniente).
+   * -z + quotePath=false: nome com acento/espaço vem cru; --no-renames: renome vira apagado + novo (o apagado conta);
+   * -uall: arquivo novo em pasta nova vem como ARQUIVO, não como a pasta. */
   private async changedFiles(worktree: string, base: string): Promise<string[]> {
     const out = new Set<string>();
-    try { for (const l of (await run("git", ["-C", worktree, "diff", "--name-only", `${base}...HEAD`])).stdout.split("\n")) if (l.trim()) out.add(l.trim()); } catch { /* base sumiu */ }
-    try { for (const l of (await run("git", ["-C", worktree, "status", "--porcelain"])).stdout.split("\n")) if (l.trim()) out.add(l.slice(3).trim()); } catch { /* sem git */ }
+    try { for (const l of (await run("git", ["-c", "core.quotePath=false", "-C", worktree, "diff", "--name-only", "-z", "--no-renames", `${base}...HEAD`])).stdout.split("\0")) if (l.trim()) out.add(l); } catch { /* base sumiu */ }
+    try { for (const f of parsePorcelainZ((await run("git", ["-c", "core.quotePath=false", "-C", worktree, "status", "--porcelain", "-z", "-uall"])).stdout)) out.add(f); } catch { /* sem git */ }
     return [...out];
   }
 
@@ -2982,4 +2984,17 @@ export function spawnVerifyCli(taskId: string, repo: string, debounceMs = 0): bo
 export const VERIFY_DEBOUNCE_MS = 20_000;
 export function isGitCommitCmd(cmd: unknown): boolean {
   return /(^|[;&|,]\s*|\s)git(\s+-C\s+\S+)?\s+commit\b/.test(String(cmd ?? ""));
+}
+
+/** `git status --porcelain -z`: "XY caminho\0"; renome/cópia vem "R  novo\0antigo\0" — os DOIS contam. */
+export function parsePorcelainZ(out: string): string[] {
+  const toks = out.split("\0");
+  const files: string[] = [];
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t.length < 4) continue;
+    files.push(t.slice(3));
+    if (/^[RC]/.test(t)) { const old = toks[++i]; if (old) files.push(old); }
+  }
+  return files;
 }

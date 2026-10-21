@@ -12,7 +12,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { affectedPlan, detectCi, effectiveTestMode, jsTestTool, parseTestCfg, pytestTargets, readDurations, recordDuration, suggestAffected, type DurationRec } from "./test-plan.ts";
 import { orgTestMode } from "./org-policy.ts";
-import { isGitCommitCmd, Orchestrator } from "./orchestrator.ts";
+import { isGitCommitCmd, Orchestrator, parsePorcelainZ } from "./orchestrator.ts";
+import { winArg } from "./test-runner.ts";
 import type { Runner } from "./test-runner.ts";
 import { tempHome } from "./testing/temp-home.ts";
 import type { TaskSpec } from "./types.ts";
@@ -79,13 +80,13 @@ test("jsTestTool: vitest/jest pelo script ou pelas dependências; node --test e 
 });
 
 test("affectedPlan JS: vitest related / jest --findRelatedTests só com os arquivos que existem; script genérico cai pra inteira", () => {
-  const v = dirWith({ "package.json": JSON.stringify({ scripts: { test: "vitest run" } }), "src/a.ts": "", "src/b.ts": "" });
-  const p = affectedPlan(v, NPM, ["src/a.ts", "src/b.ts", "src/apagado.ts", "README.md"]);
+  const v = dirWith({ "package.json": JSON.stringify({ scripts: { test: "vitest run" } }), "src/a.ts": "", "src/b.ts": "", "README.md": "" });
+  const p = affectedPlan(v, NPM, ["src/a.ts", "src/b.ts", "README.md"]);
   assert.equal(p.scope, "afetados");
-  assert.deepEqual([p.runner?.cmd, ...p.runner!.args], ["npx", "--no-install", "vitest", "related", "src/a.ts", "src/b.ts", "--run"]);
+  assert.deepEqual([p.runner?.cmd, ...p.runner!.args], ["npx", "--no-install", "vitest", "related", "src/a.ts", "src/b.ts", "--run", "--passWithNoTests"], "sem teste relacionado = 0 afetados, não vermelho");
   const j = dirWith({ "package.json": JSON.stringify({ scripts: { test: "jest" } }), "yarn.lock": "", "src/a.js": "" });
   const pj = affectedPlan(j, { ...NPM, kind: "yarn", cmd: "yarn", args: ["test"] }, ["src/a.js"]);
-  assert.deepEqual([pj.runner?.cmd, ...pj.runner!.args], ["yarn", "jest", "--ci", "--findRelatedTests", "src/a.js"]);
+  assert.deepEqual([pj.runner?.cmd, ...pj.runner!.args], ["yarn", "jest", "--ci", "--passWithNoTests", "--findRelatedTests", "src/a.js"]);
   const g = dirWith({ "package.json": JSON.stringify({ scripts: { test: "node --test" } }), "a.js": "" });
   assert.equal(affectedPlan(g, NPM, ["a.js"]).scope, "inteira");
   assert.match(affectedPlan(g, NPM, ["a.js"]).why ?? "", /não tem modo de testes afetados/);
@@ -97,32 +98,48 @@ test("affectedPlan JS: vitest related / jest --findRelatedTests só com os arqui
 
 test("affectedPlan: gatilhos de suíte inteira (package.json, lockfile, configs) e diff grande; full forçado", () => {
   const v = dirWith({ "package.json": JSON.stringify({ scripts: { test: "vitest" } }), "src/a.ts": "" });
-  for (const f of ["package.json", "pnpm-lock.yaml", "vitest.config.ts", "jest.config.js", "tsconfig.build.json", "pyproject.toml", "Cargo.toml", "go.mod"]) {
+  for (const f of ["package.json", "pnpm-lock.yaml", "vitest.config.ts", "vitest.workspace.ts", "vitest.setup.ts", "src/setupTests.ts", ".babelrc", ".env.test", "jest.config.js", "jest.setup.js", "tsconfig.build.json", "pyproject.toml", "conftest.py", "pytest.ini", "Cargo.toml", "go.mod"]) {
+    mkdirSync(join(v, f, ".."), { recursive: true }); if (!existsSync(join(v, f))) writeFileSync(join(v, f), "");
     const p = affectedPlan(v, NPM, ["src/a.ts", f]);
     assert.equal(p.scope, "inteira", f);
     assert.match(p.why ?? "", new RegExp(f.replace(/\./g, "\\.")));
   }
   const many = Array.from({ length: 41 }, (_, i) => `src/f${i}.ts`);
+  for (const f of many) writeFileSync(join(v, f), "");
   assert.match(affectedPlan(v, NPM, many).why ?? "", /41 arquivos \(mais de 40\)/);
   assert.equal(affectedPlan(v, NPM, many.slice(0, 5), { fullSuiteOver: 3 }).scope, "inteira");
   assert.equal(affectedPlan(v, NPM, ["src/a.ts"], { full: true, fullWhy: "o projeto não tem CI" }).why, "o projeto não tem CI");
   assert.notEqual(affectedPlan(v, NPM, ["src/a.ts"]).sig, affectedPlan(v, NPM, ["src/a.ts"], { full: true }).sig, "planos diferentes: cache diferente");
 });
 
-test("affectedPlan go/cargo/pytest: pacotes das pastas mudadas, -p dos crates, testes dos módulos (+ --lf); sem correspondência roda tudo", () => {
+test("affectedPlan go/cargo/pytest: go roda ./... inteiro (dependentes não mapeados); -p dos crates (nome validado); pytest só com correspondência de TODO módulo, sem --lf", () => {
   const go = dirWith({ "go.mod": "module x", "api/h.go": "", "db/q.go": "", "main.go": "" });
-  const pg = affectedPlan(go, { kind: "go", cmd: "go", args: ["test", "-v", "./..."], label: "go test ./..." }, ["api/h.go", "db/q.go", "main.go"]);
-  assert.deepEqual(pg.runner?.args, ["test", "-v", "./api/...", "./db/...", "."]);
-  const rs = dirWith({ "Cargo.toml": "[workspace]\nmembers = [\"core\", \"cli\"]\n", "core/Cargo.toml": "[package]\nname = \"meu-core\"\n", "core/src/lib.rs": "", "cli/Cargo.toml": "[package]\nname = \"meu-cli\"\n", "cli/src/main.rs": "" });
-  const pr = affectedPlan(rs, { kind: "cargo", cmd: "cargo", args: ["test"], label: "cargo test" }, ["core/src/lib.rs", "cli/src/main.rs"]);
-  assert.deepEqual(pr.runner?.args, ["test", "-p", "meu-cli", "-p", "meu-core"]);
+  const pg = affectedPlan(go, { kind: "go", cmd: "go", args: ["test", "-v", "./..."], label: "go test ./..." }, ["api/h.go", "db/q.go"]);
+  assert.equal(pg.scope, "inteira");
+  assert.deepEqual(pg.runner?.args, ["test", "-v", "./..."]);
+  assert.match(pg.why ?? "", /dependem do mudado/);
+  const rs = dirWith({ "Cargo.toml": "[workspace]\nmembers = [\"core\", \"cli\"]\n", "core/Cargo.toml": "[package]\nname = \"meu-core\"\n", "core/src/lib.rs": "", "cli/Cargo.toml": "[package]\nname = \"meu-cli\"\n", "cli/src/main.rs": "", "x/Cargo.toml": "[package]\nname = \"x;rm -rf\"\n", "x/src/lib.rs": "" });
+  const CARGO: Runner = { kind: "cargo", cmd: "cargo", args: ["test"], label: "cargo test" };
+  assert.deepEqual(affectedPlan(rs, CARGO, ["core/src/lib.rs", "cli/src/main.rs"]).runner?.args, ["test", "-p", "meu-cli", "-p", "meu-core"]);
+  assert.match(affectedPlan(rs, CARGO, ["x/src/lib.rs"]).why ?? "", /nome de crate inesperado/);
   const py = dirWith({ "pytest.ini": "", "app/precos.py": "", "app/outro.py": "", "tests/unit/test_precos.py": "", "tests/test_x.py": "" });
   const PY: Runner = { kind: "pytest", cmd: "python3", args: ["-m", "pytest", "-q"], label: "pytest" };
   const pp = affectedPlan(py, PY, ["app/precos.py", "tests/test_x.py"]);
-  assert.deepEqual(pp.runner?.args, ["-m", "pytest", "-q", "--lf", "tests/test_x.py", "tests/unit/test_precos.py"]);
+  assert.deepEqual(pp.runner?.args, ["-m", "pytest", "-q", "tests/test_x.py", "tests/unit/test_precos.py"], "sem --lf");
   assert.equal(affectedPlan(py, PY, ["app/outro.py"]).scope, "inteira", "módulo sem teste correspondente: roda tudo");
+  assert.equal(affectedPlan(py, PY, ["app/precos.py", "app/outro.py"]).scope, "inteira", "UM módulo sem correspondência já roda tudo");
   assert.deepEqual(pytestTargets(py, ["app/__init__.py"]), []);
-  assert.equal(affectedPlan(dirWith({ "Package.swift": "" }), { kind: "swift", cmd: "swift", args: ["test"], label: "swift test" }, ["Sources/a.swift"]).scope, "inteira");
+  assert.equal(affectedPlan(dirWith({ "Package.swift": "", "Sources/a.swift": "" }), { kind: "swift", cmd: "swift", args: ["test"], label: "swift test" }, ["Sources/a.swift"]).scope, "inteira");
+});
+
+test("affectedPlan: arquivo apagado/renomeado, dado de teste (.json/.snap/.env/fixtures) e nome com caractere especial → suíte inteira", () => {
+  const v = dirWith({ "package.json": JSON.stringify({ scripts: { test: "vitest" } }), "src/a.ts": "", "src/dados.json": "", "src/__snapshots__/a.test.ts.snap": "", "test/fixtures/x.ts": "", "src/b&c.ts": "", "docs/x.md": "" });
+  assert.match(affectedPlan(v, NPM, ["src/a.ts", "src/velho.ts"]).why ?? "", /apaga ou renomeia src\/velho\.ts/);
+  assert.match(affectedPlan(v, NPM, ["src/a.ts", "src/dados.json"]).why ?? "", /dado\/configuração/);
+  assert.equal(affectedPlan(v, NPM, ["src/a.ts", "src/__snapshots__/a.test.ts.snap"]).scope, "inteira");
+  assert.equal(affectedPlan(v, NPM, ["src/a.ts", "test/fixtures/x.ts"]).scope, "inteira", "código dentro de fixtures é dado");
+  assert.match(affectedPlan(v, NPM, ["src/b&c.ts"]).why ?? "", /caractere especial/);
+  assert.equal(affectedPlan(v, NPM, ["src/a.ts", "docs/x.md"]).scope, "afetados", "doc junto não força a inteira");
 });
 
 // ---------------------------------------------------------------- duração e sugestão
@@ -200,13 +217,13 @@ test("META · projeto COM CI e diff de 2 arquivos: o portão roda só os testes 
     commitIn(wt, { "src/a.ts": "export const a = 2;\n", "src/b.ts": "export const b = 2;\n" });
     const gate = await orch.verifyProofs("ci1", orch.store.getTask("ci1")!, sp(orch, "ci1"));
     assert.deepEqual(gate, { ok: true, reasons: [] });
-    assert.equal(readFileSync(log, "utf8").trim(), "related src/a.ts src/b.ts --run", "só os 2 arquivos do diff");
+    assert.equal(readFileSync(log, "utf8").trim(), "related src/a.ts src/b.ts --run --passWithNoTests", "só os 2 arquivos do diff");
     const t = sp(orch, "ci1").verification!.tests!;
     assert.equal(t.scope, "afetados");
     assert.equal(t.ci, true);
     assert.deepEqual([t.passed, t.failed, t.ok], [2, 0, true]);
     assert.equal(t.kind, "npm", "o selo diz de qual runner é (o FT-5 só usa na checagem dele)");
-    assert.equal(t.cmdLine, "npx --no-install vitest related src/a.ts src/b.ts --run");
+    assert.equal(t.cmdLine, "npx --no-install vitest related src/a.ts src/b.ts --run --passWithNoTests");
     // o mesmo diff tocando o package.json → suíte inteira (npm test → vitest run)
     commitIn(wt, { "package.json": JSON.stringify({ scripts: { test: "vitest run" }, devDependencies: { vitest: "^2" }, name: "x" }) });
     await orch.verifyProofs("ci1", orch.store.getTask("ci1")!, sp(orch, "ci1"));
@@ -342,4 +359,27 @@ test("sugestão: a suíte inteira passou de 2 min duas vezes → o selo leva a s
     assert.equal(sp(orch, "l1").verification!.suggest?.avgSec, 240);
     assert.ok((readDurations(repo).at(-1)?.ms ?? -1) >= 0, "esta rodada também foi medida");
   } finally { orch.close(); }
+});
+
+test("changedFiles: -z sem aspas (acento/espaço), arquivo novo em pasta nova vem como ARQUIVO, renome conta os dois lados", async () => {
+  assert.deepEqual(parsePorcelainZ("?? src/novo/a.ts\0 M ação.ts\0R  novo.ts\0velho.ts\0"), ["src/novo/a.ts", "ação.ts", "novo.ts", "velho.ts"]);
+  const repo = gitRepo("mudados", { "src/velho.ts": "1\n", "src/ação x.ts": "1\n" });
+  const orch = new Orchestrator(repo);
+  try {
+    await orch.createTask(spec("cf1"));
+    const wt = orch.store.getTask("cf1")!.worktree;
+    execFileSync("git", ["-C", wt, "mv", "src/velho.ts", "src/novo.ts"]);
+    commitIn(wt, { "src/ação x.ts": "2\n" });
+    mkdirSync(join(wt, "lib", "sub"), { recursive: true });
+    writeFileSync(join(wt, "lib", "sub", "u.ts"), "x");
+    const files = (await (orch as unknown as { changedFiles: (w: string, b: string) => Promise<string[]> }).changedFiles(wt, "main")).sort();
+    assert.deepEqual(files, ["lib/sub/u.ts", "src/ação x.ts", "src/novo.ts", "src/velho.ts"]);
+  } finally { orch.close(); }
+});
+
+test("Windows: argumento pro cmd vai entre aspas (aspas internas dobradas)", () => {
+  assert.equal(winArg("src/a b.ts"), '"src/a b.ts"');
+  assert.equal(winArg('x"y'), '"x""y"');
+  const src = readFileSync(new URL("./test-runner.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /shell: win/, "nada de shell:true com nome vindo do diff");
 });
