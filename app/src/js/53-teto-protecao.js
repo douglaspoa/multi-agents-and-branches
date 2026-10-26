@@ -14,13 +14,13 @@
 // teto SEMPRE ligado (mesa 03/10): 0 não é mais "sem teto" — vale o padrão de Configurações
 function budgetOf(t){ const b=((t&&t.spec)||{}).budgetUsd; return (b!=null && b!=='' && +b>0) ? +b : costCapDefault(); }
 function budgetPendId(taskId){ let h=0; for(const ch of String(taskId)) h=(h*31+ch.charCodeAt(0))|0; return -(Math.abs(h)%2000000000+1); }
-// liberar mais NUNCA é um clique só (veto da Carla + pedido do Rafa): é sempre o VALOR escrito e o MOTIVO, que vai pro PR
+// liberar mais NUNCA é um clique só (veto da Carla): é sempre o VALOR escrito. O motivo virou opcional (dono, 26/10).
 const BUDGET_STOP_TXT='Parar aqui';
 function budgetPrompt(t, hit){
   const cap=+hit.cap||budgetOf(t), usd=+hit.usd||0, pct=Math.round(usd/(cap||1)*100);
   return `A tarefa “${t.title||t.id}” já usou ${fmtCost(usd)} de ${fmtCost(cap)} (${pct}% do teto).\n\n`+
     (hit.mode==='stopped' ? 'O agente foi parado (neste sistema não dá pra congelar). ' : hit.mode==='etapa' ? 'Parei antes da próxima etapa — nada se perde. ' : 'O agente está pausado — nada se perde. ')+
-    'Pra seguir, escreva quanto liberar e o motivo (ex.: “liberar 2 porque falta o teste de login”) — o motivo vai pro PR. Parar deixa o trabalho como está, pra você revisar.';
+    'Pra seguir, escreva quanto liberar (ex.: “liberar 2”). Parar deixa o trabalho como está, pra você revisar.';
 }
 // chamada no refresh ANTES do detectNotifs: a pergunta nova vira notificação "Precisa de você"
 function budgetInject(snap){
@@ -65,7 +65,7 @@ function budgetWatch(){
     }
     if(sp.budgetHit){
       // retomada por outro caminho (▶ retomar, nova mensagem): a pergunta caducou, mas o teto NÃO sobe sozinho —
-      // limpa a marca e, se o gasto segue ≥ 80%, o próximo tick pausa e pergunta de novo (liberar = valor + motivo)
+      // limpa a marca e, se o gasto segue ≥ 80%, o próximo tick pausa e pergunta de novo (liberar = o valor escrito)
       if(active){ budgetBusy.add(t.id); invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetHit:null, needsYou:null } }).catch(e=>console.error('teto', e)).finally(()=>budgetBusy.delete(t.id)); }
       continue;
     }
@@ -104,10 +104,11 @@ async function budgetAnswer(pendId, answer){
       await invoke('patch_task_spec',{ taskId:t.id, patch:{ budgetHit:null, needsYou:null } });
       toast('Parada no teto — o trabalho ficou como está','ok');
     } else {
-      // liberar = valor + motivo escritos (conversa, celular ou a seção da tarefa) — sem os dois, nada muda
-      const r=parseRelease(answer); if(!r.ok) throw new Error(r.why);
+      // liberar = o valor escrito (conversa, celular ou a seção da tarefa); o motivo é opcional desde 26/10
+      const r=parseRelease(answer), m=String(answer||'').match(/(\d+(?:[.,]\d{1,2})?)/);
+      if(!r.ok && !m) throw new Error('escreva quanto liberar, em dólares (ex.: "liberar 2")');
       budgetBusy.delete(t.id);
-      await budgetRelease(t, r.usd, r.reason);
+      await budgetRelease(t, r.ok?r.usd:m[1], r.ok?r.reason:'');
     }
   }
   // o erro SOBE (quem respondeu mostra e destrava as opções): antes era engolido aqui e a conversa achava que
@@ -119,8 +120,13 @@ function budgetOrgMax(t){ const p=((t&&t.spec)||{}).orgPolicy; return p&&+p.teto
 // LIBERAR MAIS (P6): sobe o teto pelo valor escrito, guarda {valor, motivo} em spec.budgetReleases (vai pro PR) e
 // retoma do jeito que parou: pausada → continua o processo; parada → manda seguir; entre etapas (motor) → ▶.
 // Liberar pouco demais (ainda ≥ 80% do teto novo) só pararia de novo na hora: recusa dizendo o mínimo.
+// 26/10 (dono): liberar o teto NÃO pede mais motivo — só o valor. Se a pessoa escreveu um (chat/celular), ele é guardado.
+function budgetReleaseArgs(usd, reason){
+  const v=releaseCheck(usd, 'liberado pela tela do teto'); if(!v.ok) return v; // a régua do valor é a mesma (>0, até 1.000)
+  return { ok:true, usd:v.usd, reason:String(reason==null?'':reason).replace(/\s+/g,' ').trim().slice(0,400) };
+}
 async function budgetRelease(t, usd, reason){
-  const r=releaseCheck(usd, reason); if(!r.ok) throw new Error(r.why);
+  const r=budgetReleaseArgs(usd, reason); if(!r.ok) throw new Error(r.why);
   const sp=t.spec||{}, hit=sp.budgetHit||null, cap=budgetOf(t), spent=taskCost(t.id).usd;
   const capAfter=+(cap+r.usd).toFixed(2);
   // F5 · P14: o teto máximo da política da organização vale também pra liberação (em palavra, com o valor)
@@ -134,11 +140,11 @@ async function budgetRelease(t, usd, reason){
     if(hit && hit.mode==='stopped'){ if(typeof talkTask==='function') await talkTask(t.id, 'Pode continuar de onde parou (o teto de custo foi ampliado).'); }
     else if(hit && hit.mode==='etapa') await invoke('start_task',{ taskId:t.id });
     else if(hit || t.status==='paused') await invoke('resume_task',{ taskId:t.id });
-    toast('Liberado: teto agora é '+fmtCost(capAfter,{usdOnly:true})+' — o motivo vai pro PR','ok');
+    toast('Liberado: teto agora é '+fmtCost(capAfter,{usdOnly:true}),'ok');
   } finally { budgetBusy.delete(t.id); lastSig=''; refresh().catch(()=>{}); }
 }
 // F4 · G3: o teto atingido aparece como "Aviso do Starfork" (não é pergunta de um agente fictício) — na linha da Central e
-// na tarefa: "Parar aqui" ou "liberar até US$ X" com motivo (vai pro PR). Componente único: budgetNoticeHtml + budgetNoticeWire.
+// na tarefa: "Parar aqui" ou "liberar até US$ X" (sem motivo obrigatório desde 26/10). Componente único: budgetNoticeHtml + budgetNoticeWire.
 function budgetNoticeHtml(t){
   const hit=((t&&t.spec)||{}).budgetHit; if(!hit) return '';
   const cap=+hit.cap||budgetOf(t), usd=+hit.usd||0, pct=Math.round(usd/(cap||1)*100);
@@ -146,7 +152,7 @@ function budgetNoticeHtml(t){
   const sug=Math.max(1, Math.ceil(cap));
   return `<div class="bnotice" role="status" data-bnotice="${escA(t.id)}"><div class="bn-h">${(typeof IC!=='undefined'&&IC.warn)||''}<b>Aviso do Starfork</b><span class="dim">· não é pergunta de agente</span></div>
     <p>A tarefa chegou a <b>${pct}% do teto</b>: ${esc(fmtCost(usd,{usdOnly:true}))} de ${esc(fmtCost(cap))}. ${hit.mode==='stopped'?'O agente foi parado':'Ela está pausada'} e nada se perdeu.</p>
-    <div class="bn-a"><button type="button" class="btn sm" data-bn="stop">${BUDGET_STOP_TXT}</button><span class="dim">ou liberar mais</span><span class="ajmoney"><i>US$</i><input class="in" type="number" min="0.5" step="0.5" value="${sug}" data-bn-usd aria-label="quanto liberar, em dólar"></span><input class="in" data-bn-why placeholder="motivo (vai pro PR)" aria-label="motivo"><button type="button" class="btn primary sm" data-bn="go">Liberar e continuar</button></div>
+    <div class="bn-a"><button type="button" class="btn sm" data-bn="stop">${BUDGET_STOP_TXT}</button><span class="dim">ou liberar mais</span><span class="ajmoney"><i>US$</i><input class="in" type="number" min="0.5" step="0.5" value="${sug}" data-bn-usd aria-label="quanto liberar, em dólar"></span><button type="button" class="btn primary sm" data-bn="go">Liberar e continuar</button></div>
     <p class="dim bn-f">${max!=null?'A organização permite até '+esc(fmtCost(max,{usdOnly:true}))+' por tarefa (Regras da organização). ':''}O teto padrão fica em Ajustes › Custo e limites.</p><p class="bn-err" role="alert" hidden></p></div>`;
 }
 function budgetNoticeWire(root){
@@ -160,10 +166,9 @@ function budgetNoticeWire(root){
         const pend=((state&&state.pending)||[]).find(p=>p.kind==='budget' && String(p.taskId)===String(t.id));
         if(!pend && !((t.spec||{}).budgetHit)){ err('Este aviso já foi resolvido — a tela vai atualizar.'); b.disabled=false; return; }
         if(b.dataset.bn==='stop'){ if(pend) await budgetAnswer(pend.id, BUDGET_STOP_TXT); else { err('Este aviso já foi resolvido — a tela vai atualizar.'); b.disabled=false; } }
-        else { const usd=parseFloat(String(box.querySelector('[data-bn-usd]').value).replace(',','.')), why=String(box.querySelector('[data-bn-why]').value||'').trim();
+        else { const usd=parseFloat(String(box.querySelector('[data-bn-usd]').value).replace(',','.'));
           if(!(usd>0)){ err('Escreva quanto liberar — um valor em US$ maior que 0.'); b.disabled=false; box.querySelector('[data-bn-usd]').focus(); return; }
-          if(!why){ err('Escreva o motivo — ele vai pro PR.'); b.disabled=false; box.querySelector('[data-bn-why]').focus(); return; }
-          await budgetRelease(t, usd, why); }
+          await budgetRelease(t, usd, ''); }
       }catch(e){ err(humanErr(e,'Não deu').msg); b.disabled=false; }
     });
   });
@@ -172,7 +177,7 @@ function budgetNoticeWire(root){
 let ntBudgetPending=null;
 function budgetFieldHtml(id){
   const v=ntBudgetPending!=null?ntBudgetPending:costCapDefault();
-  return `<label class="budgetfld" title="Teto sempre ligado: a 80% dele a tarefa para e pergunta. Liberar mais pede o valor e o motivo."><span>teto da tarefa US$</span><input class="in" id="${id}" type="number" min="0.5" step="0.5" value="${escA(String(v))}"><span class="dim" data-brl="${id}">≈ R$ ${fmtNumBR(v*usdBrlRate(),true)} · para a 80%</span></label>`;
+  return `<label class="budgetfld" title="Teto sempre ligado: a 80% dele a tarefa para e pergunta. Liberar mais pede só o valor."><span>teto da tarefa US$</span><input class="in" id="${id}" type="number" min="0.5" step="0.5" value="${escA(String(v))}"><span class="dim" data-brl="${id}">≈ R$ ${fmtNumBR(v*usdBrlRate(),true)} · para a 80%</span></label>`;
 }
 function budgetFieldWire(id){
   const el=$id(id); if(!el) return;

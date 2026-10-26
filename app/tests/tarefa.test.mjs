@@ -127,12 +127,14 @@ test('budgetAnswer: pergunta que sumiu e falha do backend viram ERRO (a tela des
   vm.runInContext(pure + m[0] + '\nthis.budgetAnswer=budgetAnswer;', c);
   await assert.rejects(c.budgetAnswer(-1, 'Continuar'), /já não está aberta/);
   c.state.pending = [{ id: -1, taskId: 't1' }]; c.state.tasks = [{ id: 't1', spec: { budgetHit: { cap: 5, usd: 5.2 } } }];
-  // liberar SEMPRE pede valor + motivo (veto da Carla): "Continuar" sozinho não sobe o teto
+  // liberar SEMPRE pede o valor (veto da Carla): "Continuar" sozinho não sobe o teto; o motivo é opcional desde 26/10
   await assert.rejects(c.budgetAnswer(-1, 'Continuar'), /escreva quanto liberar/);
-  await assert.rejects(c.budgetAnswer(-1, 'liberar 2'), /motivo/);
-  assert.ok(!c.calls.some((x) => x[0] === 'budgetRelease'), 'sem motivo, nada é liberado');
+  assert.ok(!c.calls.some((x) => x[0] === 'budgetRelease'), 'sem valor, nada é liberado');
+  await assert.rejects(c.budgetAnswer(-1, 'liberar 2'), /falhou patch_task_spec/);
+  assert.deepEqual(c.calls.find((x) => x[0] === 'budgetRelease').slice(1), ['2', ''], 'só o valor já libera');
+  c.calls.length = 0;
   await assert.rejects(c.budgetAnswer(-1, 'liberar 2 porque falta o teste de login'), /falhou patch_task_spec/);
-  assert.deepEqual(c.calls.find((x) => x[0] === 'budgetRelease').slice(1), [2, 'falta o teste de login']);
+  assert.deepEqual(c.calls.find((x) => x[0] === 'budgetRelease').slice(1), [2, 'falta o teste de login'], 'motivo escrito é guardado');
   assert.ok(!c.calls.some((x) => x[0] === 'showErr'), 'quem mostra o erro é quem respondeu (sem mensagem dupla)');
 });
 
