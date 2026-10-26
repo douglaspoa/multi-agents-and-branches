@@ -48,10 +48,9 @@ function cicloDecisionHtml(t, d, ui){
   const err=`<p class="cicdec-err" id="cicErr" role="alert">${esc(ui.err||'')}</p>`;
   if(d.kind==='teto'){
     return `<section class="cicdec" id="cicDecide" aria-label="Precisa de você: teto de custo">${head}${text}
-      <p class="cicdec-sub">Gasto até agora <b>${esc(fmtCost(spent,{usdOnly:true}))}</b> de <b>${esc(fmtCost(cap,{usdOnly:true}))}</b>. Liberar mais pede o valor e o motivo — o motivo vai pro PR.</p>
+      <p class="cicdec-sub">Gasto até agora <b>${esc(fmtCost(spent,{usdOnly:true}))}</b> de <b>${esc(fmtCost(cap,{usdOnly:true}))}</b>. Pra seguir, diga quanto liberar.</p>
       <div class="cicdec-form">
         <label class="cicdec-f cicdec-usd"><span>liberar US$</span><input class="in" id="cicUsd" inputmode="decimal" autocomplete="off" value="${escA(ui.usd||'')}" placeholder="2"></label>
-        <label class="cicdec-f cicdec-why"><span>motivo</span><input class="in" id="cicWhy" autocomplete="off" value="${escA(ui.why||'')}" placeholder="ex.: falta o teste de login"></label>
         <div class="cicdec-acts"><button class="btn sm cicdec-go" id="cicRelease">liberar e seguir</button><button class="btn sm" id="cicStop">parar aqui</button></div>
       </div>${err}</section>`;
   }
@@ -76,7 +75,7 @@ async function cicloAct(t, kind){
   ui.usd=usd; ui.why=why; ui.err='';
   const btns=[...document.querySelectorAll('#cicDecide button')]; btns.forEach(b=>b.disabled=true);
   try{
-    if(kind==='release') await budgetRelease(t, usd, why);
+    if(kind==='release') await budgetRelease(t, usd, '');
     else if(kind==='stop'){
       if(!await askYes('Parar a tarefa aqui? O trabalho fica como está, pra você revisar.')) return;
       if(typeof budgetQuiet!=='undefined') budgetQuiet.add(t.id);
@@ -112,6 +111,7 @@ function cicloPaint(t){
   ['cicUsd','cicWhy'].forEach(id=>{ const el=$id(id); if(el) el.oninput=()=>{ const u=cicUi[t.id]=cicUi[t.id]||{}; u[id==='cicUsd'?'usd':'why']=el.value; }; });
   const on=(id, k)=>{ const b=$id(id); if(b) b.onclick=()=>cicloAct(t, k); };
   on('cicRelease','release'); on('cicStop','stop'); on('cicGo','go'); on('cicRound','round'); on('cicCiFix','cifix'); on('cicCiKeep','cikeep');
+  const usdEl=$id('cicUsd'); if(usdEl) usdEl.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const b=$id('cicRelease'); if(b) b.click(); } }; // sem motivo (26/10): Enter no valor libera
   const why=$id('cicWhy'); if(why) why.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); const b=$id('cicRelease')||$id('cicGo'); if(b) b.click(); } };
   if(loop && typeof loopWire==='function') loopWire(host, t);
   if(typeof cicloStripWire==='function') cicloStripWire(host, t);

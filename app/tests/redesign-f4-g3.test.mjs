@@ -218,13 +218,13 @@ test('erro: diz o que fazer (passos), "ver detalhes" inline com copiar e abrir e
   assert.match(aj, /VIEW_OVERLAY\.errtab='errTabOverlay'/);
 });
 
-test('teto atingido = "Aviso do Starfork" (não pergunta de agente fictício): parar ou liberar com motivo', () => {
+test('teto atingido = "Aviso do Starfork" (não pergunta de agente fictício): parar ou liberar só com o valor (sem motivo desde 26/10)', () => {
   const t = read('js/53-teto-protecao.js');
   assert.match(t, /agent:'Aviso do Starfork', kind:'budget', notice:true/);
   const n = cut(t, 'function budgetNoticeHtml(t){', 'function budgetNoticeWire(root){');
   assert.match(n, /<b>Aviso do Starfork<\/b><span class="dim">· não é pergunta de agente<\/span>/);
-  assert.match(n, /data-bn="stop">\$\{BUDGET_STOP_TXT\}/); assert.match(n, /placeholder="motivo \(vai pro PR\)"/);
-  assert.match(cut(t, 'function budgetNoticeWire(root){', '// teto escolhido'), /if\(!why\)\{ err\('Escreva o motivo — ele vai pro PR\.'\)/);
+  assert.match(n, /data-bn="stop">\$\{BUDGET_STOP_TXT\}/); assert.doesNotMatch(n, /data-bn-why|motivo/);
+  assert.doesNotMatch(cut(t, 'function budgetNoticeWire(root){', '// teto escolhido'), /Escreva o motivo/);
 });
 
 test('Verificação não abre mais sozinha no boot: faixa na Central + selo na sub-navegação', () => {

@@ -70,7 +70,7 @@ test('a liberação é uma SEÇÃO da aba (não modal): valor + motivo, gasto at
   assert.match(h, /<b>Precisa de você<\/b>/);
   assert.match(h, /parei antes de Nyx revisar/);
   assert.match(h, /Gasto até agora <b>US\$ 1,60<\/b> de <b>US\$ 2,00<\/b>/);
-  assert.match(h, /id="cicUsd"/); assert.match(h, /id="cicWhy"[^>]*value="falta &lt;b&gt;"/, 'o que foi digitado volta escapado');
+  assert.match(h, /id="cicUsd"/); assert.doesNotMatch(h, /id="cicWhy"|motivo/, 'liberar o teto não pede motivo (dono, 26/10)');
   assert.match(h, /liberar e seguir/); assert.match(h, /parar aqui/);
   assert.match(h, /role="alert"/);
   // rodadas: seguir pra prova (com motivo), mais uma rodada, parar
@@ -81,14 +81,15 @@ test('a liberação é uma SEÇÃO da aba (não modal): valor + motivo, gasto at
   assert.doesNotMatch(hr, /melhorou/i);
 });
 
-test('budgetRelease: sem motivo nada muda; pouco demais recusa dizendo o mínimo; ok grava valor+motivo e retoma do jeito certo', async () => {
-  const m = teto.match(/async function budgetRelease\([^)]*\)\{[\s\S]*?\n\}\n/); assert.ok(m);
+test('budgetRelease: motivo é opcional (26/10); pouco demais recusa dizendo o mínimo; ok grava valor+motivo e retoma do jeito certo', async () => {
+  const m = teto.match(/function budgetReleaseArgs\([^)]*\)\{[\s\S]*?\n\}\nasync function budgetRelease\([^)]*\)\{[\s\S]*?\n\}\n/); assert.ok(m);
   const mk = (t, spent) => { const c = ctx({ budgetOf: () => 2, taskCost: () => ({ usd: spent }) }); run(c, teto.match(/function budgetOrgMax\(t\)\{[^\n]*\n/)[0] + m[0] + '\nthis.budgetRelease=budgetRelease;'); return c; };
   const t = { id: 't', status: 'needs-you', spec: { budgetUsd: 2, budgetHit: { usd: 1.6, cap: 2, mode: 'etapa' }, budgetReleases: [{ usd: 1, reason: 'antes', at: 1, capBefore: 1, capAfter: 2 }] } };
   let c = mk(t, 1.6);
-  await assert.rejects(c.budgetRelease(t, '2', 'sim'), /motivo/);
   await assert.rejects(c.budgetRelease(t, '', 'falta o teste de login'), /quanto liberar/);
   assert.equal(c.calls.filter((x) => x[0] === 'patch_task_spec').length, 0, 'nada gravado');
+  { const c0 = mk(t, 1.6); await c0.budgetRelease(t, '2', ''); // sem motivo: libera (o dono tirou a obrigação em 26/10)
+    const p0 = c0.calls.find((x) => x[0] === 'patch_task_spec')[1].patch; assert.equal(p0.budgetUsd, 4); assert.equal(p0.budgetReleases.at(-1).reason, ''); }
   // gasto 1,90 de 2,00: liberar 0,01 deixaria em 94% — pararia de novo na hora; diz o mínimo (0,39 → 80% de 2,39 ≥ 1,90)
   await assert.rejects(mk(t, 1.9).budgetRelease(t, '0,01', 'falta o teste de login'), /libere pelo menos US\$ 0,39/);
   await c.budgetRelease(t, '1,5', 'falta o teste de login');
