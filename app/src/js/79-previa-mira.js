@@ -63,6 +63,7 @@ function mrToolsHtml(t){
   const seg=MR_DEVS.map(d=>`<button type="button" data-mr="dev" data-v="${d.k}" aria-pressed="${dev===d.k}">${esc(d.n)}</button>`).join('');
   return `<div class="te-seg" role="group" aria-label="Onde ver">${seg}</div>`+
     `<button type="button" class="btn sm mr-mira${st.picking?' on':''}" data-mr="mira" aria-pressed="${st.picking?'true':'false'}" aria-keyshortcuts="M" title="${native?'marcar uma área da tela do aparelho e dizer o que mudar':'passe o mouse no app e clique nas partes que quer mudar (Esc sai)'}">${MR_IC.target}<span>Mira</span><span class="kbd">M</span></button>`+
+    (typeof piaCmpToolsHtml==='function'?piaCmpToolsHtml(t):'')+ // 85: "Comparar com protótipo" quando a tarefa tem um ligado
     (changed?`<div class="te-seg" role="group" aria-label="Comparar"><button type="button" data-mr="cmp" data-v="0" aria-pressed="${!cmp}">Agora</button><button type="button" data-mr="cmp" data-v="1" aria-pressed="${cmp}">Antes e depois</button></div>`:'')+
     `<span class="sp"></span><span class="mr-st">${esc(t.branch||'')}${t.branch?' · ':''}${esc(changed?'recarregada após a alteração da IA':(typeof stMeta==='function'?stMeta(typeof taskSt==='function'?taskSt(t):t.status).pt:''))}</span>`+
     `<button type="button" class="btn ghost sm" data-mr="ext">Abrir no Navegador</button>`;
@@ -88,7 +89,8 @@ function mrPanelHtml(t){
 function mrRender(t, main){
   const dev=mrDev(t.id), native=mrNative(t, dev);
   const changed=!!MR.before[t.id] && mrChanged(t.id), cmp=!!MR.cmp[t.id] && changed;
-  const kind=native?'native':cmp?'cmp':'page';
+  const pcmp=!native && typeof piaCmpOn==='function' && piaCmpOn(t); // 85: Prévia × protótipo
+  const kind=native?'native':pcmp?'proto':cmp?'cmp':'page';
   if(!(main.firstElementChild && main.firstElementChild.classList.contains('mr') && main.firstElementChild.dataset.mrTask===t.id && main.firstElementChild.dataset.kind===kind)){
     main.innerHTML=`<div class="mr" data-mr-task="${escA(t.id)}" data-kind="${kind}"><div class="mr-tools" role="toolbar" aria-label="Prévia"></div><div class="mr-stage"><div class="mr-dev"><div class="mr-bar"><span class="mr-dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="mr-url mono"></span></div><div class="mr-scr"><div class="mr-app"></div></div></div><div class="mr-side"></div></div></div>`;
     main.__mrTools=''; main.__mrSide='';
@@ -103,7 +105,8 @@ function mrRender(t, main){
   else {
     mrReleaseDevice();
     if(typeof nvSt==='function'){ const st=nvSt(t.id); if(st.vp!=='desktop'){ st.vp='desktop'; } }
-    if(cmp){ app.innerHTML=''; mrCmpPaint(t, root); }
+    if(pcmp){ app.innerHTML=''; piaCmpPaint(t, root); }
+    else if(cmp){ app.innerHTML=''; mrCmpPaint(t, root); }
     else { const b=root.querySelector('.mr-cmp'); if(b) b.remove(); if(typeof appRender==='function') appRender(t.id, app); else if(typeof nvRender==='function') nvRender(t.id, app); }
   }
   const url=root.querySelector('.mr-url'); if(url){ const a=(typeof nvSt==='function'&&nvSt(t.id).addr)||''; const s=a.replace(/^https?:\/\//,''); if(url.textContent!==s) url.textContent=s||'app desta tarefa'; }
@@ -178,7 +181,7 @@ async function mrSend(t){
 // o painel acompanha cada marcação da página (o 57 pinta o dele; aqui só a caixa "O que mudar aqui?" e o botão da Mira)
 if(typeof nvPaint==='function'){ const base=nvPaint; nvPaint=function(taskId){ base(taskId); try{ const t=typeof fwTaskObj==='function'?fwTaskObj():null; if(t && t.id===taskId && mrOn() && fwMode==='previa'){ mrSidePaint(t); const main=$id('fwMain'); const tools=main&&main.querySelector('.mr-tools'); if(tools){ const h=mrToolsHtml(t); if(main.__mrTools!==h){ main.__mrTools=h; tools.innerHTML=h; } } } }catch(_){ } }; }
 // print do elemento marcado pela Mira: mira-N.png (o nome que o pedido cita)
-if(typeof nvShotReq==='function'){ const base=nvShotReq; nvShotReq=function(taskId, item, rect){ const r=base(taskId, item, rect); try{ if(mrOn() && fwMode==='previa' && !(item&&item.text==='antes')) r.name='mira-'+Math.max(1, nvSt(taskId).picks.length)+'.png'; else if(item&&item.text==='antes') r.name='mira-antes.png'; }catch(_){ } return r; }; }
+if(typeof nvShotReq==='function'){ const base=nvShotReq; nvShotReq=function(taskId, item, rect){ const r=base(taskId, item, rect); try{ if(mrOn() && fwMode==='previa' && !(item&&(item.text==='antes'||item.text==='proto-real'))) r.name='mira-'+Math.max(1, nvSt(taskId).picks.length)+'.png'; else if(item&&item.text==='antes') r.name='mira-antes.png'; else if(item&&item.text==='proto-real') r.name='prototipo-previa.png'; }catch(_){ } return r; }; }
 // tecla M na Prévia (fora de campo e do terminal); Esc já desliga a Mira (20-workspace → nvEscape)
 document.addEventListener('keydown', (e)=>{
   if(!mrOn() || typeof fwMode==='undefined' || fwMode!=='previa' || !mrKeyToggles(e)) return;

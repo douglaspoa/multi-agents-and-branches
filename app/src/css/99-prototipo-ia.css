@@ -1,0 +1,76 @@
+/* Protótipo · a IA e as pontes (85-prototipo-ia.js) — painel "IA" do protótipo, estados da geração e Prévia × protótipo */
+.pia-panel{display:grid;gap:10px;align-content:start;min-width:0}
+.pia-card{border:1px solid var(--border);background:var(--surface);border-radius:var(--r);padding:10px;display:grid;gap:8px;font-size:var(--fs-sm);min-width:0}
+.pia-card.ok,.pia-card.on{border-color:var(--accent-line)}
+.pia-card.no{opacity:.6}
+.pia-card.err{border-color:var(--crit)}
+.pia-card.err h4{color:var(--crit)}
+.pia-card h4{margin:0;font-size:var(--fs-base);display:flex;gap:7px;align-items:center;line-height:1.3}
+.pia-card p{margin:0;color:var(--text-2);line-height:1.45}
+.pia-card .pia-x{color:var(--text)}
+.pia-q{font-size:var(--fs-xs)}
+.pia-dim{color:var(--muted);font-size:var(--fs-xs)}
+.pia-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.pia-sum{font-size:var(--fs-sm);color:var(--muted)}
+.pia-foot{display:flex;gap:6px;flex-wrap:wrap;position:sticky;bottom:0;z-index:3;background:var(--bg);padding:8px 0;border-top:1px solid var(--border)}
+.pia-av{width:20px;height:20px;border-radius:var(--r-pill);display:inline-grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-size:var(--fs-xs);flex:none}
+.pia-pn{min-width:20px;height:20px;padding:0 5px;border-radius:var(--r-pill);display:inline-grid;place-items:center;background:var(--accent);color:var(--on-accent);font-size:var(--fs-xs);font-weight:700;flex:none}
+.pia-crit{font-size:var(--fs-xs);color:var(--purple);border:1px solid currentColor;border-radius:var(--r-pill);padding:0 6px;flex:none}
+.pia-chk{display:flex;gap:7px;align-items:flex-start;font-size:var(--fs-sm);color:var(--text-2);cursor:pointer}
+.pia-chk input{margin-top:2px}
+.pia-ba{display:grid;grid-template-columns:1fr 1fr;gap:6px;min-width:0}
+.pia-ba figure{margin:0;border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden;background:var(--web-bg);position:relative;min-width:0}
+.pia-ba figcaption{position:absolute;top:3px;left:6px;font:600 var(--fs-xs) var(--ui);color:var(--text-2);text-transform:uppercase;letter-spacing:.04em;z-index:1;background:var(--surface);padding:0 4px;border-radius:3px}
+.pia-mini{display:block;width:100%;height:124px;border:0;background:var(--web-bg);pointer-events:none}
+.pia-adj{display:grid;gap:6px}
+.pia-adj textarea{width:100%;box-sizing:border-box;resize:vertical}
+.pia-steps{display:grid;gap:5px;font-size:var(--fs-sm);color:var(--muted)}
+.pia-steps .dn{color:var(--good)}
+.pia-steps .pia-act{font-family:var(--mono);font-size:var(--fs-xs);color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pia-skel{height:12px;border-radius:6px;background:linear-gradient(90deg,var(--surface-2),var(--border),var(--surface-2));background-size:200% 100%;animation:pia-sk 1.2s infinite}
+.pia-skel.w70{width:70%}
+@keyframes pia-sk{to{background-position:-200% 0}}
+.pia-spin{width:14px;height:14px;border:2px solid var(--border-strong);border-top-color:var(--accent);border-radius:50%;animation:pia-rot .8s linear infinite;display:inline-block;vertical-align:-2px;flex:none}
+.pia-spin.sm{width:10px;height:10px}
+.pia-spin.lg{width:28px;height:28px;border-width:3px}
+@keyframes pia-rot{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.pia-spin,.pia-skel{animation:none}}
+.pia-state{max-width:520px;margin:0 auto;text-align:center;display:grid;gap:12px;justify-items:center;padding:24px 16px}
+.pia-state h2{margin:0;font-size:var(--fs-lg)}
+.pia-state p{margin:0;color:var(--text-2)}
+.pia-state .pia-skel{width:100%}
+.pia-state.err h2{color:var(--crit)}
+.pia-acts{display:grid;gap:3px;font-family:var(--mono);font-size:var(--fs-xs);color:var(--muted);width:100%;text-align:left}
+.pia-acts span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pia-panel .kbd,.pia-state .kbd,.pia-cmp .kbd{font-family:var(--mono);font-size:var(--fs-xs);border:1px solid var(--border-strong);border-radius:4px;padding:0 4px;margin-left:4px;color:var(--muted)}
+
+/* Prévia ⌘4 × protótipo */
+.mr[data-kind="proto"] .mr-dev{display:none}
+.pia-cmpbtn.on{background:var(--accent-soft);border-color:var(--accent-line)}
+.pia-cmp{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;gap:10px;padding-top:12px;overflow:auto}
+.pia-cmphd{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.pia-cmphd .sp{flex:1}
+.pia-pad{padding:16px}
+.pia-diffs{display:grid;gap:6px;font-size:var(--fs-sm);border:1px solid var(--border);background:var(--surface);border-radius:var(--r);padding:8px 10px}
+.pia-diffs.ok{border-color:var(--accent-line)}
+.pia-diffs.err{border-color:var(--crit);color:var(--crit)}
+.pia-dl{font-size:var(--fs-xs);color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.pia-diff{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;border:1px solid var(--warn);background:var(--warn-bg);border-radius:var(--r-sm);padding:6px 8px}
+.pia-diff span{min-width:0;flex:1 1 220px}
+.pia-side{display:flex;gap:16px;min-width:0;justify-content:center;align-items:flex-start}
+.pia-fig{flex:1 1 0;min-width:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.pia-fig figcaption{font-size:var(--fs-xs);color:var(--muted);display:flex;gap:6px;align-items:center;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pia-pill{font-size:var(--fs-xs);border:1px solid var(--border-strong);border-radius:var(--r-pill);padding:0 6px;color:var(--text-2)}
+.pia-pill.ok{border-color:var(--good);color:var(--good)}
+.pia-live{min-height:420px;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--web-bg);display:flex;flex-direction:column}
+.pia-live .apppane{flex:1;min-height:0}
+.pia-pbox{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--web-bg);width:100%}
+.pia-pfw{overflow:hidden;position:relative}
+.pia-pf{border:0;display:block;background:var(--web-bg);pointer-events:none}
+.pia-over{display:grid;gap:8px;justify-items:center;min-width:0}
+.pia-ovbox{position:relative;width:100%;max-width:100%;border-radius:var(--r);overflow:hidden;border:1px solid var(--border)}
+.pia-ovbox .pia-pbox{border:0;border-radius:0}
+.pia-ovbox .pia-live{border:0;border-radius:0;min-height:0}
+.pia-cut{position:absolute;top:0;bottom:0;width:2px;background:var(--accent);transform:translateX(-1px);pointer-events:none;z-index:2}
+.pia-range{width:min(320px,100%);accent-color:var(--accent)}
+.pia-diffs>.btn,.pia-diffs>span+.btn{justify-self:start}

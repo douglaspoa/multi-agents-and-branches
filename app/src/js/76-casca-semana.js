@@ -29,6 +29,7 @@ const SEM_IC={
   gear:'<circle cx="8" cy="8" r="2.1"/><path d="M8 2.4v1.8M8 11.8v1.8M2.4 8h1.8M11.8 8h1.8M4 4l1.3 1.3M10.7 10.7L12 12M12 4l-1.3 1.3M5.3 10.7L4 12" stroke-linecap="round"/>',
   search:'<circle cx="7" cy="7" r="4.2"/><path d="M10.2 10.2 13.6 13.6" stroke-linecap="round"/>',
   plus:'<path d="M8 3.4v9.2M3.4 8h9.2" stroke-linecap="round"/>',
+  proto:'<rect x="2" y="2.8" width="12" height="10.4" rx="1.4"/><path d="M2 6h12M5.6 6v7.2"/>',
   term:'<rect x="2" y="3" width="12" height="10" rx="1.6"/><path d="M4.6 6.4 6.6 8l-2 1.6M8 10h3" stroke-linecap="round" stroke-linejoin="round"/>',
   code:'<path d="M5.6 4.6 2.4 8l3.2 3.4M10.4 4.6 13.6 8l-3.2 3.4" stroke-linecap="round" stroke-linejoin="round"/>',
   shield:'<path d="M8 1.9l4.7 1.8v3.6c0 3.1-2.1 5.5-4.7 6.8-2.6-1.3-4.7-3.7-4.7-6.8V3.7z" stroke-linejoin="round"/>',
@@ -131,6 +132,7 @@ const MAPA_GRUPOS=[
     ['cal','Semana do time','quem está com o quê por dia, sem dono, travados; distribuir','semana'],
     ['box','Entregas','o que foi entregue, por dia, com prova; relatório','entregas'],
     ['issue','Issues','pedidos que chegam do painel do time (Jira, Linear, GitHub…); rodar ou mandar pra alguém','issues'],
+    ['proto','Protótipos','rascunhar a tela antes do código: desenhar, colar prints, comentar e pedir pra IA corrigir','prototipos'],
     ['plus','Nova demanda (⌘N)','pedir algo e escolher quem faz; ideias também começam aqui','nova']]],
   ['Dentro de uma tarefa','A tarefa abre numa aba; o terminal da IA é o centro',[
     ['term','Conversa','o terminal da IA; tudo que você pergunta ou pede cai aqui',''],
@@ -734,6 +736,7 @@ function semSideSync(){
   const iss=(()=>{ try{ return Object.keys(typeof trkUnseen==='function'?trkUnseen():{}).length; }catch(_){ return 0; } })();
   const src=(()=>{ try{ return (typeof trk!=='undefined'&&trk&&trk.name)?String(trk.name):''; }catch(_){ return ''; } })();
   const rh=document.querySelector('#rail>.rhead .n'), ab=rh?rh.textContent:'';
+  if(typeof ptSideSync==='function') ptSideSync(); // 84-prototipo: contador de Protótipos (relê só quando o projeto muda)
   const sig=[nm, ev, mem, iss, src, state&&state.repo, ab].join('|'); if(sig===semSideSig) return; semSideSig=sig;
   if(n) n.textContent=nm;
   if(d) d.style.background=(state&&state.repo&&typeof projColor==='function')?projColor(state.repo):'var(--muted)';

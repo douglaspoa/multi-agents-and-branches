@@ -57,7 +57,9 @@
 <link rel="stylesheet" href="css/99-epico-aba.css">
 <link rel="stylesheet" href="css/99-planos.css">
 <link rel="stylesheet" href="css/99-verificacao.css">
+<link rel="stylesheet" href="css/99-prototipo.css">
 <link rel="stylesheet" href="css/99-chat-md.css">
+<link rel="stylesheet" href="css/99-prototipo-ia.css">
 </head>
 <body>
 <div class="app">
@@ -85,6 +87,7 @@
         <button class="btn sbitem" id="semanaBtn" data-sbgo="semana" title="Semana do time — quem está com o quê por dia, sem dono, travados; distribuir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><rect x="2.5" y="3.4" width="11" height="10.1" rx="1.4"/><path d="M2.5 6.6h11M5.4 2v2.6M10.6 2v2.6" stroke-linecap="round"/></svg><span class="sbl">Semana do time</span></button>
         <button class="btn sbitem" id="entregasBtn" data-sbgo="entregas" title="Entregas — o que foi entregue, por dia, com prova; relatório"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><path d="M2.6 5 8 2.4 13.4 5v6L8 13.6 2.6 11z" stroke-linejoin="round"/><path d="M2.6 5 8 7.6 13.4 5M8 7.6v6" stroke-linejoin="round"/></svg><span class="sbl">Entregas</span></button>
         <button class="btn sbitem" id="issuesBtn" title="Issues — os pedidos que chegam do painel conectado do time (Jira, Linear, GitHub…)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><circle cx="8" cy="8" r="5.4"/><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/></svg><span class="sbl">Issues</span><span class="sbcnt q" id="issuesCnt" hidden></span></button>
+        <button class="btn sbitem" id="protoBtn" data-sbgo="prototipos" title="Protótipos — rascunhe a tela antes do código: desenhe, cole prints, comente e peça pra IA corrigir"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" aria-hidden="true"><rect x="2" y="2.8" width="12" height="10.4" rx="1.4"/><path d="M2 6h12M5.6 6v7.2"/></svg><span class="sbl">Protótipos</span><span class="sbcnt" id="protoCnt" hidden></span></button>
       </nav>
       <div class="sbsubgrp" id="sbAbertasH">Abertas</div>
       <div id="rail" aria-labelledby="sbAbertasH"></div>
@@ -727,6 +730,9 @@
 <div class="overlay fwoverlay pgov" id="mapaOverlay" style="display:none"><div class="pgpage sempage" id="mapaPage"></div></div>
 <!-- 80-aprovar: a fila "Para aprovar" (lista + painel de provas) — aba, nunca modal -->
 <div class="overlay fwoverlay pgov" id="aprovarOverlay" style="display:none"><div class="pgpage sempage" id="aprovarPage"></div></div>
+<!-- 84-prototipo: a página Protótipos (lista + criar) e a aba de cada protótipo (quadro + painel) — abas, nunca modal -->
+<div class="overlay fwoverlay pgov" id="protoListOverlay" style="display:none"><div class="pgpage sempage" id="protoListPage"></div></div>
+<div class="overlay fwoverlay pgov" id="protoOverlay" style="display:none"><div class="pgpage" id="protoPage"></div></div>
 <!-- Planos (82-planos): Grátis × Pro × Empresa — aba, nunca modal -->
 <div class="overlay fwoverlay pgov" id="planosOverlay" style="display:none"><div class="pgpage" id="planosPage"></div></div>
 
@@ -839,6 +845,8 @@
 <script src="js/81-epico-aba.js"></script>
 <script src="js/82-planos.js"></script>
 <script src="js/83-verificacao.js"></script>
+<script src="js/84-prototipo.js"></script>
+<script src="js/85-prototipo-ia.js"></script>
 <script src="js/99-e2e.js"></script>
 </body>
 </html>
