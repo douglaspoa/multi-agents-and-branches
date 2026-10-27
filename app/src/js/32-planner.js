@@ -226,13 +226,15 @@ let PL_IA=null;
 function plRecommend(){ const k=plEffKind(); return aiRecommend({ mode:(ND_TO_MODE[k]||'build'), title:plFields.title||'', objective:plGuessText(), nReq:(plFields.requirements||[]).length }); }
 function plRenderCtl(){
   const el=$id('plCtl'); if(!el) return;
-  const html=`<span id="plIa"></span><button type="button" class="ndchip${plFields.kind?' set':''}" id="plType" aria-haspopup="dialog" title="tipo da demanda (opcional)"><span class="ndchip-l">Tipo:</span> <b>${esc(plTypeLabel())}</b>${IC_CARET}</button>`+(typeof chatStyleChipHtml==='function'?chatStyleChipHtml(chatStyleGet()):''); // estilo das respostas (12-chat-prefs-daily)
+  const html=`<span id="plIa"></span><button type="button" class="ndchip${plFields.kind?' set':''}" id="plType" aria-haspopup="dialog" title="tipo da demanda (opcional)"><span class="ndchip-l">Tipo:</span> <b>${esc(plTypeLabel())}</b>${IC_CARET}</button>`+(typeof chatStyleChipHtml==='function'?chatStyleChipHtml(chatStyleGet()):'') // estilo das respostas (12-chat-prefs-daily)
+    +(typeof protoRascunharDaDemanda==='function'?`<button type="button" class="ndchip${plFields.protoId?' set':''}" id="plProto" title="a IA desenha a tela num protótipo ligado a esta demanda (Desktop e Celular) — você comenta e ele vai junto com a tarefa">${typeof semIc==='function'?semIc('spark'):IC.starforkEm}${plFields.protoId?'Protótipo ligado':'Rascunhar a tela'}</button>`:''); // 85: ponte pro Protótipo
   if(el.__html!==html){ el.innerHTML=html; el.__html=html; PL_IA=null; }
   const host=$id('plIa'); const { eng, model }=plModelNow();
   if(host && typeof iaPick==='function'){ if(!PL_IA || !host.contains(PL_IA.pill)) PL_IA=iaPick(host, { value:{ engine:eng, model }, scope:'demanda', recommend:plRecommend, advisor:true, advisorValue:plFields.advisor,
       onChange:(v)=>{ plFields.engine=v.engine; plFields.model=v.model||''; plFields.advisor=v.advisor; plFields.engineLabel=aiRunLabel(v.engine, v.model); const m=plModelMsg(); m.choice={ eng:v.engine, model:v.model, saved:false }; renderPlanner(); plAutoSave(); } });
     else PL_IA.set({ engine:eng, model }); }
   const b=$id('plType'); if(b) b.onclick=()=>plOpenTypePop(b);
+  const pb=$id('plProto'); if(pb) pb.onclick=async()=>{ if(plFields.protoId && typeof openPrototipo==='function'){ openPrototipo(plFields.protoId); return; } pb.disabled=true; try{ await protoRascunharDaDemanda(plGuessText()); }finally{ pb.disabled=false; plRenderCtl(); } };
 }
 // texto que a IA (e o palpite de tipo) enxerga: o objetivo, senão a 1ª mensagem sua, senão o que está na caixa
 function plGuessText(){ const you=plMsgs.find(m=>m.who==='you'); let inp=''; try{ inp=($id('plInput')||{}).value||''; }catch(_){} return plFields.objective||(you&&you.text)||inp||''; }
@@ -913,7 +915,8 @@ async function plCreateInner(){
       toast('“'+String(payload.title||'').slice(0,60)+'” foi pro quadro do time'+(who?(who===cloudUserId()?', no seu nome':' com '+tmName(who)):', livre')+'. Ninguém começou a rodar.','ok');
       return row;
     }
-    const nid=await invoke('new_task', await trkBeforeNewTask(payload)); if(typeof budgetApply==='function') await budgetApply(nid); if(typeof estSaveFor==='function') await estSaveFor(nid); await plClearDraft(); closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
+    if(plFields.protoId && typeof protoPayloadRef==='function') await protoPayloadRef(plFields.protoId, payload); // 85: o protótipo rascunhado vai junto
+    const nid=await invoke('new_task', await trkBeforeNewTask(payload)); if(plFields.protoId && typeof protoLinkTask==='function') protoLinkTask(plFields.protoId, nid); if(typeof budgetApply==='function') await budgetApply(nid); if(typeof estSaveFor==='function') await estSaveFor(nid); await plClearDraft(); closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
   await refresh(); }
   catch(e){ showErr(e, 'Falha ao criar'); const b2=$id('plCreate')||b; if(b2){ b2.disabled=false; b2.innerHTML=bHtml||(IC.cright+' criar e rodar'); } }
 }
@@ -941,6 +944,7 @@ async function ntApplyShare(payload){
   if(share==='team'){ payload.start=false; const who=ntWho||null; await cloudShareTask(payload, { assignee:who }); ntWho='';
     toast('“'+String(payload.title||'').slice(0,60)+'” foi pro quadro do time'+(who?(who===cloudUserId()?', no seu nome':' com '+tmName(who)):', livre')+'. Ninguém começou a rodar.','ok'); return true; }
   const localId=await invoke('new_task', await trkBeforeNewTask(payload));
+  if(typeof protoAfterTaskCreated==='function') await protoAfterTaskCreated(localId, ntSubmitCtx.tab); // 85: Formulário montado pelo Protótipo → liga e copia
   if(typeof budgetApply==='function') await budgetApply(localId); // teto escolhido no "Como executar?"
   if(share==='self') cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e));
   return false;
