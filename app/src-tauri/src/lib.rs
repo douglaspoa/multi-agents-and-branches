@@ -15,6 +15,7 @@ mod curador;
 mod ambiente;
 mod orfaos;
 mod padroes;
+mod prototipos;
 mod device;
 mod ai_once;
 mod bin_resolve;
@@ -11272,6 +11273,13 @@ pub fn run() {
             padroes::memory_snapshot,
             padroes::memory_history,
             padroes::memory_usage,
+            prototipos::proto_list,
+            prototipos::proto_read,
+            prototipos::proto_write,
+            prototipos::proto_asset_put,
+            prototipos::proto_asset_url,
+            prototipos::proto_delete,
+            prototipos::proto_export_to_task,
             learn::agent_forget,
             device::device_cli,
             ambiente::env_detect,
