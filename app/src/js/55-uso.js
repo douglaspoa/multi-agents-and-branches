@@ -11,7 +11,7 @@ const USO_SOURCES={
   'tarefa':'Tarefas', 'nova-tarefa':'Nova demanda (conversa e formulário)', 'personas':'Fábrica · mesas e personas',
   'chat-projeto':'Conversa do projeto', 'chat-issues':'Nova issue', 'orquestrador':'Etapas (várias tarefas)',
   'retro':'Revisão e aprendizados', 'previsao':'Previsão', 'titulo-branch':'Títulos e nomes de branch',
-  'commit-pr':'Commit e PR', 'relatorios':'Resumo do período', 'teste':'Testes de conexão', 'autopilot':'Fábrica · construir sozinho', 'ideia':'Fábrica · ideias', 'fabrica':'Fábrica · varreduras', 'outros':'Outros',
+  'commit-pr':'Commit e PR', 'relatorios':'Resumo do período', 'teste':'Testes de conexão', 'autopilot':'Fábrica · construir sozinho', 'ideia':'Fábrica · ideias', 'fabrica':'Fábrica · varreduras', 'prototipo':'Protótipos', 'outros':'Outros',
 };
 const USO_ENGINES={ claude:'Claude Code', codex:'Codex', deepseek:'DeepSeek', gateway:'IA da sua empresa' };
 const USO_PERIODS=[['hoje','Hoje'],['7d','7 dias'],['30d','30 dias'],['mes','Este mês']]; // "este mês" = o mesmo começo do "uso deste mês" do medidor

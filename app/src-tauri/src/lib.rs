@@ -46,6 +46,7 @@ mod term_hist;
 mod pty_e2e;
 mod usage_ledger;
 mod task_code;
+mod prototipo_ia;
 #[cfg(target_os = "macos")]
 mod notif_mac;
 #[cfg(test)]
@@ -11405,6 +11406,8 @@ pub fn run() {
             issue_chat,
             issue_chat_stop,
             project_chat_stop,
+            prototipo_ia::proto_ai,
+            prototipo_ia::proto_ai_stop,
             orq_chat_stop,
             orq_plan_stop,
             create_skill,

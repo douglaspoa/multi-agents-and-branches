@@ -14,7 +14,7 @@ import { isDshLabel } from "./engine/dsh.ts";
  */
 export const USAGE_SOURCES = [
   "tarefa", "nova-tarefa", "personas", "chat-projeto", "chat-issues", "orquestrador", "retro", "previsao",
-  "titulo-branch", "commit-pr", "relatorios", "teste", "autopilot", "ideia", "fabrica", "outros",
+  "titulo-branch", "commit-pr", "relatorios", "teste", "autopilot", "ideia", "fabrica", "prototipo", "outros",
 ] as const;
 export type UsageSource = (typeof USAGE_SOURCES)[number];
 
