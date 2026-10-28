@@ -160,6 +160,7 @@ test('modos pelo tipo: entrega que não é código esconde Código, Revisão e P
   assert.equal(M.fwModesNonCodeOf({ type: 'feat', kind: 'research' }), true);
   assert.equal(M.fwModesNonCodeOf({ type: 'feat', branch: 'report/q3' }), true);
   assert.equal(M.fwModesNonCodeOf({ type: 'docs', diffFiles: 0 }), true, 'docs sem mexer no repo = documento');
+  for (const type of ['invest', 'design', 'research', 'report']) assert.equal(M.fwModesNonCodeOf({ type, diffFiles: 3 }), false, type + ' mexendo em código mostra Código e Revisão');
   assert.equal(M.fwModesNonCodeOf({ type: 'docs', diffFiles: 2 }), false, 'docs que mudou arquivos ainda precisa de Revisão');
   assert.equal(M.fwModesNonCodeOf({ type: 'feat', nonCode: true }), true, 'entregaNonCode (só entregou arquivos)');
   assert.equal(M.fwModesNonCodeOf({ type: 'invest', prUrl: 'https://github.com/a/b/pull/1' }), false, 'PR aberto: mostra tudo');
@@ -179,4 +180,15 @@ test('detector: ícones do "+" são SVG do IC, botões só-ícone têm aria-labe
   assert.equal((qf.match(/<button class="fvic[^>]*data-(?:fv|view|nv-view|kbview)="[^"]*"[^>]*aria-label="/g) || []).length, 4); // 72-kanban: o Kanban da barra virou o Quadro (data-kbview) · F4 (D22): a grade e os cartões saíram da Execução — lista (tabela) + Kanban (+ os 2 da barra antiga)
   assert.match(qf, /if\(!r\.hasAttribute\('role'\)\)\{ r\.setAttribute\('role','button'\);/);
   assert.match(gr, /<div class="prow2 more" data-more="1" role="button" tabindex="0"/);
+});
+
+test('fwArtOnly: tarefa design/invest só é "documento" enquanto não mexeu em arquivo do repo (28/10)', () => {
+  const src = readFileSync(new URL('../src/js/20-workspace-tarefa.js', import.meta.url), 'utf8');
+  const fn = src.match(/function fwArtOnly\(t\)\{[\s\S]*?\n\}\n/)[0];
+  const mk = (type, files) => new Function('taskType', 'diffOf', 'diffFiles', fn + '\nreturn fwArtOnly;')(() => type, () => (files == null ? null : { files }), (d) => d.files);
+  assert.equal(mk('design', null)({ id: 't' }), true, 'design sem diff = documento');
+  assert.equal(mk('design', 0)({ id: 't' }), true);
+  assert.equal(mk('design', 4)({ id: 't' }), false, 'design mexendo em código mostra Código e Revisão');
+  assert.equal(mk('invest', 2)({ id: 't' }), false);
+  assert.equal(mk('feat', 0)({ id: 't' }), false);
 });

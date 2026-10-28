@@ -117,6 +117,7 @@ function artThumb(taskId, name){
 const FW_NONCODE_TYPES=['invest','design','research','report'];
 function fwModesNonCodeOf(o){
   if(!o || o.prUrl) return false; // PR aberto: é código, mostra tudo
+  if(o.diffFiles>0 && !o.nonCode) return false; // 28/10 (dono): tarefa "design/…" mexendo em código escondia Código e Revisão — mexeu em arquivo do repo, mostra tudo
   if(FW_NONCODE_TYPES.includes(o.type) || FW_NONCODE_TYPES.includes(o.kind)) return true;
   if(/^(research|report|relatorio)\//.test(o.branch||'')) return true;
   if(o.type==='docs' && !(o.diffFiles>0)) return true; // docs que não mexeu em arquivo do repo = documento entregue
