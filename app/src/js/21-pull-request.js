@@ -523,6 +523,7 @@ async function prCreateRun(t, base, step){
     if(typeof provasPushReport==='function' && url){ const pv=provasOf(t.id); if(pv&&(Object.keys(pv.links||{}).length||pv.note)) await provasPushReport(t, url); }
   }catch(e){ throw { step:3, err:e }; }
   prCache[t.id]=undefined; await loadPr(t.id,true); lastSig='';
+  if(typeof prrSoon==='function') prrSoon('acao'); // 86-pr-real: o estado real do PR depois de abrir
   return url;
 }
 // gh sem acesso/SSO ao repo (comum em quem não é membro da org ou sem SSO): o push funcionou, então dá pra criar o PR

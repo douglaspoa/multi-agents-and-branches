@@ -187,6 +187,9 @@ function apAprovavel(t){
   const g=AP.gone[t.id];
   if(g){ if(t.status!==g.st || Date.now()-g.at>10*60000) delete AP.gone[t.id]; else return false; }
   if(AP.pending && AP.pending.id===t.id && AP.pending.kind!=='enc') return true;
+  // estado REAL do PR (86-pr-real): integrado no GitHub (a tarefa vira integrada já já) ou fechado sem integrar
+  // (frase própria com Reabrir/Encerrar) — nenhum dos dois pede "Aprovar"
+  if(typeof prrVis==='function'){ const k=prrVis(t.id).kind; if(k==='merged'||k==='closed') return false; }
   if(typeof pendingOf==='function' && pendingOf(t.id).length) return false; // pergunta aberta: primeiro responder
   if(['running','thinking','queued','paused','plan-review','error','aborted','blocked'].includes(t.status) || t.busy) return false;
   if(t.status==='needs-you'){ const l=(typeof rvRounds==='function'?rvRounds(t):[]).slice(-1)[0]; return !!(l&&l.verdict==='muda'); }
@@ -369,7 +372,7 @@ function apFootHtml(v, mode){
   if(d.kind==='conflito') prim=`<button type="button" class="btn primary" data-ap="conflito" data-id="${id}">${apIc('spark')}Resolver conflito</button><button type="button" class="btn" disabled aria-disabled="true" title="Resolva o conflito primeiro">${apIc('check')}Aprovar</button>`;
   else if(d.kind==='motivo') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" data-ap="aprovar" data-id="${id}">Aprovar mesmo assim… ${apKbd('A')}</button>`;
   else if(d.kind==='bloqueado') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" disabled aria-disabled="true" title="${escA(d.why)}">${apIc('check')}Aprovar</button>`;
-  else prim=`<button type="button" class="btn primary" data-ap="aprovar" data-id="${id}">${apIc('check')}Aprovar ${apKbd('A')}</button><button type="button" class="btn" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button>`;
+  else prim=`<button type="button" class="btn primary" data-ap="aprovar" data-id="${id}">${apIc('check')}${v.info&&v.info.state==='OPEN'?'Integrar':'Aprovar'} ${apKbd('A')}</button><button type="button" class="btn" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button>`;
   return `<div class="apv-acts">${prim}<span class="apv-sp"></span>${enc}${open}</div>`;
 }
 // os botões da ação certa pra cada bloqueio (o 1º é o principal). cls: 'btn' (painel) · 'btn sm' (linha do Meu trabalho)
@@ -411,7 +414,8 @@ function proofPanel(taskId, mode){
   const body=cmp
     ? `<div class="apv-b">${sent}${chips}<div class="apv-g2"><div class="apv-col">${reqs}</div><div class="apv-col">${shots}${revClean?'':rev}</div></div>${v.dec.kind!=='ok'||!v.pode?apAlertHtml(v):''}</div>`
     : `<div class="apv-b">${sent}${chips}<div class="apv-g2"><div class="apv-col">${reqs}${rev}</div><div class="apv-col">${shots}${codeB}</div></div>${apAlertHtml(v)}</div>`;
-  return `<section class="apv apv-${mode}" data-proof="${escA(v.id)}" data-mode="${mode}" aria-label="${escA('Provas da '+(v.code||v.title))}">${head}${body}${apFootHtml(v, mode)}</section>`;
+  const prr=typeof prrAvisoHtml==='function'?prrAvisoHtml(v.id):'';
+  return `<section class="apv apv-${mode}" data-proof="${escA(v.id)}" data-mode="${mode}" aria-label="${escA('Provas da '+(v.code||v.title))}">${head}${body}${prr}${apFootHtml(v, mode)}</section>`;
 }
 window.proofPanel=proofPanel;
 
@@ -467,9 +471,17 @@ async function aprovarTarefa(taskId, o){
   let info=null;
   apBusy(taskId, 'conferindo os portões…');
   try{
+    // sem link do PR: confere no GitHub (pela branch, com a conta do projeto) ANTES — PR aberto por fora não vira outro PR,
+    // e PR já integrado lá só fecha a tarefa
+    if(!t.prUrl && typeof prrConferir==='function'){
+      apBusy(taskId, 'conferindo o PR no GitHub…');
+      const d=prrDecide(await prrConferir(taskId, { force:true }));
+      if(d.kind==='merged'){ toast(`${apCode(t)||apTitle(t).slice(0,40)} já estava integrada no GitHub${d.pr?' (PR #'+d.pr+')':''}.`,'ok'); return false; }
+      if(d.kind==='closed') return apBloq(t, { why:`O PR${d.pr?' #'+d.pr:''} desta branch foi fechado sem integrar no GitHub — reabra ou encerre a tarefa.`, acts:['pr'] });
+    }
     await Promise.all([
       (typeof reqProofCache!=='undefined' && reqProofCache[t.id]===undefined && typeof loadReqProofs==='function')?loadReqProofs(t.id).catch(()=>{}):null,
-      t.prUrl&&typeof loadPr==='function'?loadPr(t.id, true).catch(()=>{}):null,
+      (t.prUrl||(apTaskOf(taskId)||{}).prUrl)&&typeof loadPr==='function'?loadPr(t.id, true).catch(()=>{}):null,
       apStLoad(t.id).catch(()=>{}),
     ]);
     const dec=apDecide(apGates(t), { motivo });
@@ -897,14 +909,22 @@ function apMeuEvento(x, meta){
   if(bk) return { ms:apMod(t), av:'ia', s:`<b>Ainda não aprovei</b> ${tt}. ${esc(bk.why)}`, m, tid:id, live:true, blk:true,
     a:bk.acts.filter(k=>AP_BLK_ACT[k]).map((k,i)=>({ l:AP_BLK_ACT[k].l, pri:i===0, act:(b)=>apBlkAct(id, k, b) })).concat([verProvas, encerrar]) };
   let s;
+  // PR já aberto (pelo app ou por fora, achado pela branch — 86-pr-real): "Aprovar" aqui só INTEGRA, nunca abre outro PR
+  const pd=typeof prrVis==='function'?prrVis(id):{ kind:'none' };
+  const prAberto=(v.info&&v.info.state==='OPEN') || pd.kind==='open', prN=v.pr||(v.info&&v.info.number)||pd.pr||'';
   if(v.dec.kind==='conflito') s=`${tt} conflita com a main — a IA resolve se você pedir.`;
   else if(v.dec.precisa.includes('revisor')) s=`<b>O revisor</b> pediu mudança em ${tt}${v.rev&&v.rev.n>1?` (${v.rev.n} rodadas)`:''}.`;
+  else if(prAberto) s=prrFrase({ kind:'open', pr:prN }, tt);
   else s=`<b>A IA</b> terminou ${tt}${n?` com ${ok} de ${n} requisitos provados`:''}${espera}.`;
   const a=[];
-  if(v.pode && v.dec.kind==='ok') a.push({ l:'Aprovar', pri:true, ap:'aprovar', act:()=>aprovarTarefa(id) });
+  if(v.pode && v.dec.kind==='ok') a.push({ l:prAberto?'Integrar':'Aprovar', pri:true, ap:'aprovar', act:()=>aprovarTarefa(id) });
   a.push(Object.assign(verProvas, { pri:!(v.pode&&v.dec.kind==='ok') }));
   if(v.pode) a.push(encerrar);
-  return { ms:apMod(t), av:'ia', s, m, a, tid:id };
+  // não deu pra conferir o PR (sem gh, sem acesso, sem rede): diz, em vez de ficar calado, com as duas saídas
+  let mm=m;
+  if(pd.kind==='unknown'){ mm=[m, 'não consegui conferir o PR no GitHub — o motivo está em Ver provas'].filter(Boolean).join(' · '); a.push({ l:'Conferir de novo', q:true, act:()=>prrDeNovo(id) }); }
+  if(v.pode && typeof prrJaIntegrei==='function') a.push({ l:'Já integrei', q:true, act:(b)=>prrJaIntegrei(id, b) });
+  return { ms:apMod(t), av:'ia', s, m:mm, a, tid:id };
 }
 window.apMeuEvento=apMeuEvento;
 /** O painel compacto embaixo do evento aberto (76: meuHtml). */

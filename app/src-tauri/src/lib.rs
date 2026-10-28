@@ -23,6 +23,7 @@ mod autopilot;
 mod epic_context;
 mod epic_requests;
 mod gh_contas;
+mod pr_real;
 mod guard_sign;
 mod repo_acesso;
 mod learn;
@@ -4536,6 +4537,32 @@ fn build_info() -> String {
         .unwrap_or_default()
 }
 
+/// INTEGRADA — o caminho único (merge pelo app, merge feito no GitHub e achado na conferência, "marcar como integrada"
+/// à mão): status merged, data de conclusão, claims/pendências liberadas, preview morto e worktree removida.
+/// `only_open`: não mexe em tarefa já encerrada (merged/done/cancelled ou flag closed) — a conferência automática
+/// nunca "ressuscita" nem re-encerra. Devolve se virou integrada agora.
+fn task_mark_merged(state: &State<AppState>, task_id: &str, only_open: bool) -> bool {
+    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(path) = db_path_now else { return false };
+    let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) else { return false };
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    let sql = if only_open {
+        "UPDATE task SET status='merged' WHERE id=?1 AND status NOT IN ('merged','done','cancelled') AND COALESCE(flag,'')<>'closed'"
+    } else {
+        "UPDATE task SET status='merged' WHERE id=?1"
+    };
+    let _ = conn.execute("ALTER TABLE task ADD COLUMN flag TEXT", []); // idempotente (o filtro acima lê a coluna)
+    let flipped = conn.execute(sql, params![task_id]).unwrap_or(0) > 0;
+    if !flipped && only_open { return false; }
+    let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
+    let _ = conn.execute("DELETE FROM pending WHERE task_id=?1", params![task_id]);
+    task_mark_closed(&conn, task_id, true, now_ms());
+    preview_kill(&state.procs, task_id);
+    if let Ok(repo) = repo_of(state) { remove_task_worktree(&repo, &conn, task_id); }
+    flipped
+}
+
 /// Marca o STATUS da tarefa manualmente (ex.: PR mergeado direto no GitHub →
 /// "marcar como mergeada"; erro resolvido à mão → "voltar pra review").
 /// Whitelist de estados seguros; merged também libera claims/pendências.
@@ -4562,6 +4589,10 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
             });
         }
     }
+    if status == "merged" {
+        task_mark_merged(&state, &task_id, false);
+        return Ok(());
+    }
     set_task_status(&state, &task_id, &status)?;
     if status != "merged" && status != "cancelled" { // voltou pra fila (review/running/draft): não está mais concluída
         let p = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -4575,9 +4606,8 @@ fn mark_task_status(state: State<AppState>, task_id: String, status: String) -> 
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
                 let _ = conn.execute("DELETE FROM claim WHERE task_id=?1", params![task_id]);
                 let _ = conn.execute("DELETE FROM pending WHERE task_id=?1", params![task_id]);
-                task_mark_closed(&conn, &task_id, true, now_ms()); // data de conclusão (mergeada/cancelada à mão)
-                // mergeada: a worktree já não serve — cancelada fica (dá pra retomar/inspecionar; a limpeza manual tira)
-                if status == "merged" { if let Ok(repo) = repo_of(&state) { preview_kill(&state.procs, &task_id); remove_task_worktree(&repo, &conn, &task_id); } }
+                task_mark_closed(&conn, &task_id, true, now_ms()); // data de conclusão (cancelada à mão)
+                // cancelada: a worktree fica (dá pra retomar/inspecionar; a limpeza manual tira)
             }
         }
     }
@@ -7710,7 +7740,22 @@ fn task_branch(state: &State<AppState>, task_id: &str) -> Result<String, String>
 fn pr_head(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), String> {
     let repo = repo_of(state)?;
     let branch = task_branch(state, task_id)?;
-    let mut cands = vec![branch.clone()];
+    let cands = pr_head_cands(&repo, &branch);
+    let ra = gh_repo_args(&repo);
+    for c in &cands {
+        let mut v = gh_contas::gh_in(&repo);
+        v.args(["pr", "view", c, "--json", "number"]).args(&ra).current_dir(&repo);
+        if let Ok(o) = output_timeout(v, 10) {
+            if o.status.success() {
+                return Ok((repo, c.clone()));
+            }
+        }
+    }
+    Ok((repo, branch))
+}
+/// Heads possíveis do PR: a branch atual e o nome remoto antigo (upstream), se ela foi renomeada depois do push.
+fn pr_head_cands(repo: &PathBuf, branch: &str) -> Vec<String> {
+    let mut cands = vec![branch.to_string()];
     if let Ok(o) = Command::new("git")
         .arg("-C").arg(&repo)
         .args(["rev-parse", "--abbrev-ref", "--symbolic-full-name", &format!("{branch}@{{upstream}}")])
@@ -7723,17 +7768,7 @@ fn pr_head(state: &State<AppState>, task_id: &str) -> Result<(PathBuf, String), 
             }
         }
     }
-    let ra = gh_repo_args(&repo);
-    for c in &cands {
-        let mut v = gh_contas::gh_in(&repo);
-        v.args(["pr", "view", c, "--json", "number"]).args(&ra).current_dir(&repo);
-        if let Ok(o) = output_timeout(v, 10) {
-            if o.status.success() {
-                return Ok((repo, c.clone()));
-            }
-        }
-    }
-    Ok((repo, branch))
+    cands
 }
 
 fn repo_slug(repo: &PathBuf) -> Result<String, String> {
@@ -8275,12 +8310,26 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     if !push.status.success() {
         return Err(format!("git push falhou: {}", String::from_utf8_lossy(&push.stderr)));
     }
-    let out = gh_contas::gh_in(&repo)
+    let create = || gh_contas::gh_in(&repo)
         .args(["pr", "create", "--head", &branch, "--base", &base, "--title", &title, "--body", &body])
         .args(&ra)
         .current_dir(&repo)
         .output()
-        .map_err(|e| format!("gh indisponível: {e}"))?;
+        .map_err(|e| format!("gh indisponível: {e}"));
+    let mut out = create()?;
+    // a conta usada não enxerga o repo: descobre a conta logada que enxerga (sem `gh auth switch`) e — se o PR já
+    // existir com ela (aberto por fora) — devolve ele em vez de abrir outro; senão tenta criar 1× mais
+    if !out.status.success() && gh_no_repo_access(&String::from_utf8_lossy(&out.stderr)).is_some() {
+        if let Ok((slug, _)) = github_slug_of(&repo) {
+            if gh_contas::discover_query_account(&gh_bin(), &repo, &slug, true).is_some() {
+                let heads = pr_head_cands(&repo, &branch);
+                if let Ok(Some(p)) = pr_real::gh_find(&gh_bin(), &repo, &slug, "", &heads) {
+                    if p.state == "OPEN" && !p.url.is_empty() { return Ok(p.url); }
+                }
+                out = create()?;
+            }
+        }
+    }
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr).to_string();
         if err.contains("already exists") {
@@ -8590,7 +8639,7 @@ fn pr_parse_review_threads(v: &serde_json::Value, me: &str) -> Vec<PrComment> {
 /// Login da conta do gh que fala com ESTE repo (a gravada nele ou a ativa) — cache de 10 min por conta.
 fn gh_user_login(repo: &PathBuf) -> String {
     static CACHE: Mutex<Option<(String, String, std::time::Instant)>> = Mutex::new(None);
-    let key = gh_contas::repo_account(repo).unwrap_or_default();
+    let key = gh_contas::query_account(repo).unwrap_or_default();
     if let Some((k, u, at)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         if *k == key && at.elapsed() < std::time::Duration::from_secs(600) {
             return u.clone();
@@ -8622,16 +8671,27 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         checks_total: 0, checks_fail: 0, checks_pending: 0, failing_checks: vec![], gh_user: String::new(), created_at: String::new(),
         additions: 0, deletions: 0, changed_files: 0, head_sha: String::new(), failing_runs: vec![],
     };
-    let mut vcmd = gh_contas::gh_in(&repo);
-    vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName,headRefOid,createdAt,additions,deletions,changedFiles"]).args(gh_repo_args(&repo)).current_dir(&repo);
-    let view = output_timeout(vcmd, 12).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))?;
+    let run_view = || {
+        let mut vcmd = gh_contas::gh_in(&repo);
+        vcmd.args(["pr", "view", &branch, "--json", "number,url,state,reviewDecision,mergeable,body,comments,reviews,statusCheckRollup,isDraft,mergeStateStatus,baseRefName,headRefOid,createdAt,additions,deletions,changedFiles"]).args(gh_repo_args(&repo)).current_dir(&repo);
+        output_timeout(vcmd, 12).map_err(|e| format!("sem resposta do GitHub (gh): {e}"))
+    };
+    let mut view = run_view()?;
+    // a conta usada não enxerga o repo (org de OUTRA conta logada): descobre a certa (sem `gh auth switch`) e tenta 1× mais
+    if !view.status.success() && gh_no_repo_access(&String::from_utf8_lossy(&view.stderr)).is_some() {
+        if let Ok((slug, _)) = github_slug_of(&repo) {
+            if gh_contas::discover_query_account(&gh_bin(), &repo, &slug, false).is_some() {
+                view = run_view()?;
+            }
+        }
+    }
     if !view.status.success() {
         let err = String::from_utf8_lossy(&view.stderr).to_string();
         if gh_says_no_pr(&err) {
             return Ok(empty);
         }
         if let Some(r) = gh_no_repo_access(&err) {
-            return Err(format!("GH_NO_ACCESS: a conta logada no gh não tem acesso a {r} — rode `gh auth switch` (ou `gh auth login`) com a conta que enxerga esse repositório; se a org usa SSO, `gh auth refresh -h github.com -s repo` e autorize"));
+            return Err(format!("GH_NO_ACCESS: nenhuma conta logada no gh enxerga {r} — adicione a conta que enxerga esse repositório (`gh auth login`); se a org usa SSO, `gh auth refresh -h github.com -s repo` e autorize"));
         }
         return Err(format!("gh pr view falhou: {}", err.trim()));
     }
@@ -8768,12 +8828,8 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         if let Some(path) = db_path_now {
             if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
                 let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
-                let flipped = conn.execute(
-                    "UPDATE task SET status='merged' WHERE id=?1 AND status NOT IN ('merged','done')",
-                    params![task_id],
-                ).unwrap_or(0);
-                // worktree mergeada não serve mais — libera o disco na hora
-                if flipped > 0 { if let Ok(repo) = repo_of(&state) { preview_kill(&state.procs, &task_id); remove_task_worktree(&repo, &conn, &task_id); } }
+                // integrada fora do app: o caminho único (status, data de conclusão, claims, worktree)
+                task_mark_merged(&state, &task_id, true);
                 // o tamanho da tarefa integrada é o do PR (fonte única: diffstat — card, Entrega, celular leem dali)
                 diffstat_from_pr(&conn, &task_id, &v);
             }
@@ -8804,6 +8860,148 @@ fn pr_status(state: State<AppState>, task_id: String) -> Result<PrInfo, String> 
         head_sha: v["headRefOid"].as_str().unwrap_or("").to_string(),
         failing_runs: pr_failing_runs(&v["statusCheckRollup"]),
     })
+}
+
+/// Link de PR do GitHub válido → (owner/repo, número). Só `https://github.com/<o>/<r>/pull/<n>` (com ou sem sufixo).
+fn parse_pr_link(url: &str) -> Option<(String, u64)> {
+    let u = url.trim();
+    let rest = u.strip_prefix("https://github.com/").or_else(|| u.strip_prefix("http://github.com/")).or_else(|| u.strip_prefix("github.com/"))?;
+    let mut it = rest.split('/');
+    let (o, r, kw, n) = (it.next()?, it.next()?, it.next()?, it.next()?);
+    let ok = |x: &str| !x.is_empty() && x.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+    if !ok(o) || !ok(r) || kw != "pull" { return None; }
+    let n: u64 = n.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok()?;
+    if n == 0 { None } else { Some((format!("{o}/{r}"), n)) }
+}
+
+/// Grava prUrl/prNumber no spec da tarefa (só se mudou).
+fn task_set_pr(state: &State<AppState>, task_id: &str, url: &str, number: u64) {
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(path) = db_path_now else { return };
+    let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) else { return };
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
+    if let Ok(spec_str) = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
+        let mut spec = serde_json::from_str::<serde_json::Value>(&spec_str).unwrap_or_else(|_| serde_json::json!({}));
+        if !spec.is_object() { spec = serde_json::json!({}); }
+        if spec["prUrl"].as_str() != Some(url) || spec["prNumber"].as_u64() != Some(number) {
+            spec["prUrl"] = serde_json::json!(url);
+            spec["prNumber"] = serde_json::json!(number);
+            let _ = conn.execute("UPDATE task SET spec_json=?1 WHERE id=?2", params![spec.to_string(), task_id]);
+        }
+    }
+}
+
+/// CONFERE o PR da tarefa de verdade (barato: 1 `gh pr list` por head; sem gh/sem acesso → git). Acha o PR pela branch
+/// mesmo sem prUrl, com a conta ligada ao projeto; grava prUrl/número; PR MERGED (ou conteúdo já na base, pelo git) →
+/// tarefa integrada pelo caminho único (task_mark_merged). Nunca falha calado: o motivo volta em `reason`/`errKind`.
+#[tauri::command(async)]
+fn pr_sync_task(state: State<AppState>, task_id: String, base: Option<String>, force: Option<bool>) -> Result<pr_real::PrSync, String> {
+    let repo = repo_of(&state)?;
+    let (branch, spec_str, created, tbase, status, flag): (String, String, i64, String, String, String) = {
+        let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        let conn = open(&path)?;
+        let _ = conn.execute("ALTER TABLE task ADD COLUMN flag TEXT", []);
+        conn.query_row(
+            "SELECT branch, COALESCE(spec_json,'{}'), COALESCE(created_at,0), COALESCE(base,''), status, COALESCE(flag,'') FROM task WHERE id=?1",
+            params![task_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        ).map_err(|e| e.to_string())?
+    };
+    let spec: serde_json::Value = serde_json::from_str(&spec_str).unwrap_or_default();
+    let pr_url = spec["prUrl"].as_str().unwrap_or("").to_string();
+    let base = base.filter(|b| !b.trim().is_empty())
+        .or_else(|| spec["prBase"].as_str().map(String::from).filter(|b| !b.is_empty()))
+        .or_else(|| Some(tbase.clone()).filter(|b| !b.is_empty()))
+        .unwrap_or_else(|| "main".into());
+    let since = if created > 0 && created < 100_000_000_000 { created * 1000 } else { created };
+    let ended = ["merged", "done", "cancelled"].contains(&status.as_str()) || flag == "closed";
+    let heads = pr_head_cands(&repo, &branch);
+    let slug = github_slug_of(&repo).map(|(s, _)| s).unwrap_or_default();
+    let gh = gh_bin();
+    let mut out = pr_real::PrSync { head: branch.clone(), ..Default::default() };
+    let mut gh_err: Option<String> = None;
+    if slug.is_empty() && pr_url.is_empty() {
+        gh_err = Some("nogithub".into());
+    } else {
+        match pr_real::gh_find_any_account(&gh, &repo, &slug, &pr_url, &heads, force.unwrap_or(false)) {
+            Ok(Some(p)) => {
+                out.source = "gh".into();
+                out.account = gh_contas::query_account(&repo).unwrap_or_default();
+                if !p.url.is_empty() { task_set_pr(&state, &task_id, &p.url, p.number); }
+                out.state = p.state.clone();
+                out.number = p.number;
+                out.url = p.url;
+                if !p.head.is_empty() { out.head = p.head; }
+                if out.state == "MERGED" && !ended { out.flipped = task_mark_merged(&state, &task_id, true); }
+                return Ok(out);
+            }
+            Ok(None) => { out.source = "gh".into(); out.state = "NONE".into(); }
+            Err(e) => gh_err = Some(e),
+        }
+    }
+    // sem PR no GitHub, ou o gh não serviu: o git diz se o conteúdo já entrou na base (merge local, squash, rebase)
+    let (gst, why) = pr_real::git_verdict(&repo, &out.head, &base, since, true);
+    if gst == "MERGED" {
+        out.source = "git".into();
+        out.state = "MERGED".into();
+        out.reason = why;
+        if !ended { out.flipped = task_mark_merged(&state, &task_id, true); }
+        return Ok(out);
+    }
+    if let Some(e) = gh_err {
+        let kind = if e == "nogithub" { "other" } else { pr_real::err_kind(&e) };
+        out.source = "none".into();
+        out.state = "UNKNOWN".into();
+        out.err_kind = kind.into();
+        out.reason = if e == "nogithub" { "este projeto não tem remote no GitHub".into() } else { pr_real::err_reason(kind, &slug) };
+        if !why.is_empty() { out.reason = format!("{} · {}", out.reason, why); }
+    }
+    Ok(out)
+}
+
+/// "Já integrei / colar link do PR": grava o link (validado) na tarefa — o front confere logo em seguida (pr_sync_task).
+#[tauri::command(async)]
+fn pr_link_task(state: State<AppState>, task_id: String, url: String) -> Result<String, String> {
+    let (slug, n) = parse_pr_link(&url).ok_or("isso não parece um link de PR do GitHub (ex.: https://github.com/dono/repo/pull/12)")?;
+    let clean = format!("https://github.com/{slug}/pull/{n}");
+    task_set_pr(&state, &task_id, &clean, n);
+    Ok(clean)
+}
+
+/// "Reabrir" o PR fechado sem integrar (a branch ficou). PR já aberto = ok.
+#[tauri::command(async)]
+fn reopen_pr(state: State<AppState>, task_id: String) -> Result<String, String> {
+    let (repo, branch) = pr_head(&state, &task_id)?;
+    let spec_url: String = {
+        let path = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        let conn = open(&path)?;
+        conn.query_row("SELECT COALESCE(spec_json,'{}') FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0))
+            .ok().and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()).and_then(|v| v["prUrl"].as_str().map(String::from)).unwrap_or_default()
+    };
+    let target = if spec_url.is_empty() { branch } else { spec_url };
+    let mut c = gh_contas::gh_in(&repo);
+    c.args(["pr", "reopen", &target]).args(gh_repo_args(&repo)).current_dir(&repo);
+    let o = output_timeout(c, 60)?;
+    if o.status.success() { return Ok("PR reaberto".into()); }
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    if err.to_lowercase().contains("already open") { return Ok("o PR já estava aberto".into()); }
+    if let Some(r) = gh_no_repo_access(&err) { return Err(format!("GH_NO_ACCESS: nenhuma conta logada no gh enxerga {r}")); }
+    Err(err)
+}
+
+#[cfg(test)]
+mod pr_link_tests {
+    use super::parse_pr_link;
+    #[test]
+    fn link_de_pr() {
+        assert_eq!(parse_pr_link("https://github.com/loja/web/pull/12"), Some(("loja/web".into(), 12)));
+        assert_eq!(parse_pr_link(" https://github.com/loja/web-app/pull/7/files "), Some(("loja/web-app".into(), 7)));
+        assert_eq!(parse_pr_link("https://github.com/loja/web/pull/12#issuecomment-1"), Some(("loja/web".into(), 12)));
+        assert_eq!(parse_pr_link("https://github.com/loja/web/issues/12"), None);
+        assert_eq!(parse_pr_link("https://evil.example/loja/web/pull/12"), None);
+        assert_eq!(parse_pr_link("https://github.com/lo ja/web/pull/1"), None);
+        assert_eq!(parse_pr_link("https://github.com/loja/web/pull/0"), None);
+    }
 }
 
 /// Ids das execuções do Actions (detailsUrl …/actions/runs/<id>/…) das checagens que FALHARAM — sem repetir.
@@ -10242,17 +10440,8 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
         }
         cleanup_branch = true; // o gh não terminou a limpeza: fazemos depois de tirar a worktree
     }
-    // marca merged localmente + remove a worktree
-    // trava solta ANTES do bloco: guarda temporária num `if let` vive até o fim do bloco (deadlock se o bloco chama repo_of)
-    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
-    if let Some(path) = db_path_now {
-        if let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
-            let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
-            preview_kill(&state.procs, &task_id);
-            remove_task_worktree(&repo, &conn, &task_id);
-            let _ = conn.execute("UPDATE task SET status='merged' WHERE id=?1", params![task_id]);
-        }
-    }
+    // integrada: o MESMO caminho do "marcar como integrada" e da conferência (status, data, claims, worktree)
+    task_mark_merged(&state, &task_id, false);
     if cleanup_branch {
         // best-effort: branch local (liberada agora que a worktree saiu) e a remota, se ainda existir
         let _ = Command::new("git").arg("-C").arg(&repo).args(["worktree", "prune"]).output();
@@ -11714,6 +11903,9 @@ pub fn run() {
             provas_setting,
             pr_compare_url,
             pr_status,
+            pr_sync_task,
+            pr_link_task,
+            reopen_pr,
             pr_ci_log,
             tests_skip,
             pr_resolve_thread,

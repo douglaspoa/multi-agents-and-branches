@@ -126,3 +126,8 @@
 /* Meu trabalho: a linha mostra o andamento (abrindo o PR…, integrando em 4 s · Desfazer) e o bloqueio */
 .mev-s .apv-ring{display:inline-block;width:12px;height:12px;vertical-align:-1px;margin-right:6px}
 .mev.blk{box-shadow:inset 3px 0 0 var(--warn)}
+/* 86-pr-real: aviso discreto quando o app não conseguiu conferir o PR no GitHub (sem gh/sem acesso/sem rede) */
+.prr-aviso{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin:0 14px 10px;padding:6px 10px;border-radius:8px;font-size:var(--fs-xs);color:var(--text-2);background:color-mix(in srgb,var(--warn) 9%,transparent)}
+.prr-aviso .apic{color:var(--warn)}
+.prr-aviso span{flex:1 1 220px;min-width:0}
+.prr-aviso .lnk{font-size:var(--fs-xs)}

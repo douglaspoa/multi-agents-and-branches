@@ -136,7 +136,7 @@ test('Central: filtro "Para aprovar", a linha aberta é o painel compacto, A/P/J
 test('Meu trabalho e Revisão ⌘3 usam o mesmo painel (compact / task) — a revisão por requisito continua a um clique', () => {
   const sem = read('js/76-casca-semana.js'), ws = read('js/20-workspace-tarefa.js'), te = read('js/77-tarefa-etapas.js');
   assert.match(sem, /apMeuEvento\(x, meta\(x, x\.mod\)\)/); assert.match(sem, /apMeuExpHtml\(e\.tid\)/);
-  assert.match(JS, /l:'Aprovar', pri:true/); assert.match(JS, /'Esconder provas':'Ver provas'/);
+  assert.match(JS, /l:prAberto\?'Integrar':'Aprovar', pri:true/); assert.match(JS, /'Esconder provas':'Ver provas'/); // PR já aberto (86-pr-real): o mesmo botão integra
   assert.match(ws, /rvViewOf\(t\.id\)==='provas'\) apRenderTask\(t, main\)/);
   assert.match(te, /data-v="provas"/); assert.match(te, />Por requisito</);
   assert.match(RV, /function rvViewOf\(taskId\)\{ const v=rvViewM\[taskId\]; return v==='diff'\?'diff':v==='req'\|\|typeof apRenderTask!=='function'\?'req':'provas'; \}/);

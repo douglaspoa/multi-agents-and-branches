@@ -639,6 +639,8 @@ function openTaskMenu(taskId, anchor){
   if(t.flag==='closed') item('reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}), false, stIcon('review'));
   if(t.status!=='merged' && taskOffersMerge(t)) item('marcar como integrada (merge feito)', ()=>invoke('mark_task_status',{taskId,status:'merged'}), false, icEm(IC.merge));
+  // 86-pr-real: PR aberto/integrado por fora — cola o link e o app confere (ou marca integrada sem link)
+  if(typeof prrJaIntegrei==='function' && !taskEncerrada(t) && t.status!=='draft') item('já integrei · colar link do PR…', ()=>prrJaIntegrei(taskId, anchor), false, icEm(IC.merge), { stay:true, title:'grava o link do PR e confere no GitHub agora' });
   // E9 (bug #19): "em andamento" sem processo deixava um card "rodando" fantasma — agora o agente volta a trabalhar (pergunta antes)
   // pronta pra revisar: a MESMA caixa do cabeçalho da tarefa (71-revisao-alteracao) — cartões e linha da Central
   if(typeof rqCanAsk==='function' && rqCanAsk(t)){
