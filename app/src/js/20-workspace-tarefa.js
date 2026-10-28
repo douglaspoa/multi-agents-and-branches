@@ -68,7 +68,13 @@ function fwTreeOpenBtn(){
 // guarda o arquivo/modo na ABA (voltar pra aba reabre onde você estava)
 function fwRememberTab(){ if(!fwTask||typeof tabById!=='function') return; const tab=tabById('task:'+fwTask); if(tab){ tab.path=fwPath||null; tab.mode=fwMode; } }
 function fwIsWorking(t){ return t.status!=='paused' && (ACTIVE_ST.has(t.status)||t.status==='thinking'||t.busy) && !pendingOf(t.id).length; } // pausada = processo congelado, não "trabalhando"
-function fwArtOnly(t){ return typeof taskType==='function' && ['invest','design'].includes(taskType(t)); }
+// design/invest = entrega de documento… MENOS quando a tarefa mexeu em arquivo do repo (28/10, dono: "design/…" escrevendo
+// código escondia Código explicado e Revisão). Mexeu em código → é tarefa de código: Código, Revisão e PR aparecem.
+function fwArtOnly(t){
+  if(!(typeof taskType==='function' && ['invest','design'].includes(taskType(t)))) return false;
+  const d=(typeof diffOf==='function')?diffOf(t.id):null;
+  return !(d && typeof diffFiles==='function' && diffFiles(d)>0);
+}
 // subtítulo do chat conforme o ESTADO (antes dizia "ele lembra o que fez" até em erro)
 function fwChatSubText(t){
   if(pendingOf(t.id).length) return 'aguardando sua resposta';
