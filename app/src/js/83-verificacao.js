@@ -108,6 +108,26 @@ function ciAskText(names, why){
     ? `O CI do PR falhou (${nm}), mas a tarefa está no teto de custo · decida: mandar o agente corrigir ou deixar como está`
     : `O CI do PR falhou de novo (${nm}) depois de ${CI_MAX_VOLTAS} voltas automáticas · decida: mandar o agente corrigir mais uma vez ou deixar como está`;
 }
+// "pedir pro agente corrigir" (28/10): o texto diz o comando EXATO que o Starfork roda e de onde ele vem — o agente
+// conserta o código (não troca o comando por fora) e, quando ele termina, o próprio Starfork roda de novo (o portão
+// é o resultado oficial; o "npm run lint" que o agente rodou no terminal dele não conta sozinho).
+function verifFixText(bad){
+  return 'A verificação do Starfork falhou na sua cópia. O Starfork roda EXATAMENTE os comandos abaixo (detectados no projeto ou '+
+    'configurados em "checagens", .cardume/checks.json): corrija o código até eles passarem e rode você mesmo os MESMOS comandos pra conferir. '+
+    'Não troque por outro comando por fora — se o comando em si estiver errado pra este projeto, diga na resposta qual é o certo '+
+    '(a pessoa ajusta em "checagens"). Quando você terminar, o Starfork roda a verificação de novo sozinho.\n\n'+
+    (bad||[]).map(b=>`### ${b.label} — \`${b.cmd}\` (${b.timedOut?'passou do tempo-limite':'exit '+b.exitCode})\n\`\`\`\n${String(b.log||'').split('\n').slice(-40).join('\n')}\n\`\`\``).join('\n\n');
+}
+const VERIF_FIX_IDLE=new Set(['review','delivered','needs-you']);
+const VERIF_FIX_MAX_MS=12*3600e3;
+// roda de novo agora? arm={ fp, at } (gravado no "pedir pro agente corrigir") · fp = versão atual do código
+// → 'run' (o agente terminou e mexeu no código) · 'wait' (ainda trabalhando / nada mudou) · 'drop' (velho demais)
+function verifFixDue(arm, status, fp, now){
+  if(!arm) return 'drop';
+  if((now||0)-(+arm.at||0)>VERIF_FIX_MAX_MS) return 'drop';
+  if(!VERIF_FIX_IDLE.has(status)) return 'wait';
+  return fp && fp!==arm.fp ? 'run' : 'wait';
+}
 // @verif-puro-fim
 
 const VSEAL_TONE={ ok:'done', bad:'error', wait:'running', warn:'blocked' }; // cor = a do STATUS_META (nenhuma cor própria)
@@ -220,3 +240,20 @@ async function ciPersonDecide(t, kind){
     toast('Ficou como está — o CI vermelho continua visível no selo','ok');
   }
 }
+
+// o resultado do agente CONTA: depois do "pedir pro agente corrigir", quando ele termina com o código mudado, o Starfork
+// roda as MESMAS checagens (com o comando corrigido em "checagens", se a pessoa ajustou) — sem a pessoa clicar.
+function verifFixArm(taskId, fp){ lsSet('chkFix:'+taskId, JSON.stringify({ fp:fp||'', at:Date.now() })); }
+async function verifFixTick(){
+  for(const t of (state.tasks||[])){
+    let arm=null; try{ arm=JSON.parse(lsGet('chkFix:'+t.id)||'null'); }catch(_){ }
+    if(!arm) continue;
+    if(!VERIF_FIX_IDLE.has(t.status) && Date.now()-(+arm.at||0)<VERIF_FIX_MAX_MS) continue; // trabalhando: nem lê a versão
+    const f=await chkLoadFp(t.id, true);
+    const d=verifFixDue(arm, t.status, f&&f.fp&&f.fp.fingerprint, Date.now());
+    if(d==='wait') continue;
+    lsSet('chkFix:'+t.id, '');
+    if(d==='run' && !chkLive[t.id]){ toast('o agente terminou a correção — rodando a verificação de novo','info'); await chkRun(t); }
+  }
+}
+tickLoop('verifFixTick', verifFixTick, 15000, 8000, { local:true });

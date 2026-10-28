@@ -189,13 +189,30 @@ function enSaveBarHtml(t, arts){
   </section>`;
 }
 // ---- bloco Verificação (FT-5) ----
+// de onde vem o comando de cada checagem (detectado no package.json/Cargo…, comando próprio, editado, fallback de gerenciador)
+function enChkSrc(c){
+  if(c.source==='custom') return 'comando próprio';
+  if(/editado/.test(c.note||'')) return 'editado em checagens';
+  const m=/usando \w+|\w+ escolhido/.exec(c.note||'');
+  return 'detectado · '+(c.source||'projeto')+(m?' · '+m[0]:'');
+}
+function enChkSrcTip(c){ return [c.note, 'de onde vem: '+(c.source==='custom'?'.cardume/checks.json (comando próprio)':(c.source||'projeto')), 'editar em "checagens" vale na próxima rodada'].filter(Boolean).join('\n'); }
+function enInstallUrl(tool){ return { bun:'https://bun.sh/docs/installation', pnpm:'https://pnpm.io/installation', yarn:'https://yarnpkg.com/getting-started/install', npm:'https://nodejs.org/' }[tool]||''; }
+// "não rodou": a ferramenta falta neste computador — usar outro gerenciador (o que existir) ou instalar
+function enNaoRodouHtml(g, pmi){
+  const tools=chkMissTools(g), alts=((pmi&&pmi.available)||[]).filter(p=>!tools.includes(p));
+  const inst=tools.length===1 && enInstallUrl(tools[0]);
+  return `${IC.warn} <b>${esc(tools.join(', ')||'a ferramenta')} não está instalado neste computador</b> (ou não está no PATH do app) — ${g.miss.length===1?'1 checagem não rodou':g.miss.length+' checagens não rodaram'}. Não é teste falhando: dá pra aprovar com uma confirmação.
+    <span class="vf-missact">${alts.map(p=>`<button class="btn sm" data-vfpm="${escA(p)}" title="grava em .cardume/checks.json: as checagens deste projeto passam a rodar com ${escA(p)}">usar ${esc(p)}</button>`).join('')}${inst?`<button class="btn sm ghost" id="vfInstall" title="${escA(inst)}">${IC.extlink||'↗'} instalar ${esc(tools[0])}</button>`:''}</span>`;
+}
 function enVerifHtml(t){
   chkRefresh(t.id);
   const g=chkGate(t), done=taskIsDone(t);
   const pre=['review','delivered'].includes(t.status) && !t.prUrl && !done;
   const cfgOpen=!!enCfgOpen[t.id];
-  const pill={ none:['sem checagens','muted'], loading:['conferindo…','muted'], running:['rodando…','run'], notrun:['não rodou','warn'], stale:['desatualizada','warn'], fail:['falhou','crit'], pass:['passou','good'], override:['liberada com motivo','warn'], err:['indisponível','muted'] }[g.st]||['—','muted'];
+  const pill={ none:['sem checagens','muted'], loading:['conferindo…','muted'], running:['rodando…','run'], notrun:['não rodou','warn'], stale:['desatualizada','warn'], fail:['falhou','crit'], missing:['não rodou','warn'], pass:['passou','good'], override:['liberada com motivo','warn'], err:['indisponível','muted'] }[g.st]||['—','muted'];
   const r=g.r||(['notrun','stale','override'].includes(g.st)?chkResGet(t.id):null);
+  const pmi=(chkCfg[t.id]&&chkCfg[t.id].data&&chkCfg[t.id].data.pm)||null;
   const live=g.st==='running'?g.live:null;
   const cur=chkFpC[t.id]&&chkFpC[t.id].fp;
   const short=h=>String(h||'').slice(0,7);
@@ -209,24 +226,25 @@ function enVerifHtml(t){
     // tarefa já concluída: não há aprovação a liberar (antes pedia "rode pra liberar a aprovação" até em tarefa mergeada)
     : g.st==='notrun' ? (pre ? 'ainda não rodou nesta versão do código — rode pra liberar a aprovação' : done ? 'não rodou antes de concluir — dá pra rodar agora só pra conferir o código' : 'ainda não rodou nesta versão do código')
     : g.st==='stale' ? `<b>desatualizada</b>: o agente mexeu no código depois (verificada ${esc(short(r&&r.head))}${r&&r.dirty?'+':''}, agora ${esc(short(cur&&cur.head))}${cur&&cur.dirty?'+':''}).${done?'':' Rode de novo.'}`
-    : g.st==='fail' ? `<b>${nPl(g.bad.length,'checagem')} falhou</b> na versão atual — a aprovação fica bloqueada até corrigir (ou liberar com um motivo)`
+    : g.st==='fail' ? `<b>${nPl(g.bad.length,'checagem')} falhou</b> na versão atual — a aprovação fica bloqueada até corrigir (ou liberar com um motivo)`+(g.miss&&g.miss.length?` · ${esc(chkMissText(g))}`:'')
+    : g.st==='missing' ? enNaoRodouHtml(g, pmi)
     : g.st==='pass' ? `tudo verde na versão atual <span class="mono dim">${esc(short(r.head))}${r.dirty?'+':''}</span> · ${esc(agoShort(r.at))==='agora'?'agora':'há '+esc(agoShort(r.at))}`
-    : g.st==='override' ? `${IC.warn} liberada ${g.was==='fail'?'com checagem falhando':'sem verificação'}: <b>${esc(g.ov.reason)}</b>` : '';
+    : g.st==='override' ? `${IC.warn} liberada ${g.was==='missing'?'com checagem que não rodou':g.was==='fail'?'com checagem falhando':'sem verificação'}: <b>${esc(g.ov.reason)}</b>` : '';
   const byId=Object.fromEntries(((live?live.done:(r&&r.results))||[]).map(x=>[x.id,x]));
   const rows=(g.on||[]).map(c=>{
     const x=byId[c.id]; const running=live&&live.cur&&live.cur.id===c.id;
-    const st=running?'run':x?(x.ok?'ok':'fail'):'na';
+    const st=running?'run':x?(x.ok?'ok':x.notFound?'skip':'fail'):'na';
     const k=t.id+'|'+c.id; const open=enLogOpen.has(k);
-    const meta=x?`<span class="vf-m">${chkDur(x.durationMs)}</span><span class="vf-m">${x.timedOut?'tempo esgotado':x.stopped?'parada':'exit '+(x.exitCode==null?'?':x.exitCode)}</span>`:(running?'<span class="vf-m">rodando…</span>':'<span class="vf-m">—</span>');
-    return `<div class="vf-row ${st}${g.st==='stale'?' old':''}"><span class="vf-ic">${st==='ok'?'✓':st==='fail'?'✕':st==='run'?'<span class="spin"></span>':'·'}</span>
-      <div class="vf-t"><b>${esc(c.label)}</b><span class="mono vf-cmd" title="${escA(c.cmd)}">${esc(c.cmd)}</span></div>${meta}
+    const meta=x?(x.notFound?`<span class="vf-m vf-nf">não rodou · ${esc(x.notFound)} não instalado</span>`:`<span class="vf-m">${chkDur(x.durationMs)}</span><span class="vf-m">${x.timedOut?'tempo esgotado':x.stopped?'parada':'exit '+(x.exitCode==null?'?':x.exitCode)}</span>`):(running?'<span class="vf-m">rodando…</span>':'<span class="vf-m">—</span>');
+    return `<div class="vf-row ${st}${g.st==='stale'?' old':''}"><span class="vf-ic">${st==='ok'?'✓':st==='fail'?'✕':st==='skip'?'–':st==='run'?'<span class="spin"></span>':'·'}</span>
+      <div class="vf-t"><b>${esc(c.label)}</b><span class="mono vf-cmd" title="${escA(c.cmd)}">${esc(c.cmd)}</span><span class="vf-src" title="${escA(enChkSrcTip(c))}">${esc(enChkSrc(c))} · <a class="lnk" data-encfg="1">editar</a></span></div>${meta}
       ${x&&x.log?`<button class="btn sm ghost" data-vflog="${escA(k)}">${open?'esconder log':'ver log'}</button>`:''}</div>
       ${x&&open?`<pre class="vf-log mono">${esc(x.log||'')}</pre>`:''}`;
   }).join('');
   const canRun=!['none','loading','err','running'].includes(g.st);
   const runBtn = g.st==='running' ? `<button class="btn sm" id="vfStop">■ parar</button>`
     : canRun ? `<button class="btn sm${['notrun','stale'].includes(g.st)?' primary':''}" id="vfRun" title="roda as checagens do projeto na cópia desta tarefa (cada uma com até 10 min)">▶ ${g.st==='pass'||g.st==='fail'?'rodar de novo':'rodar checagens'}</button>` : '';
-  const ok=chkCanApprove(g);
+  const ok=chkCanApprove(g), okConfirm=chkCanApproveOrConfirm(g);
   // portão de prova (21: proofGate) antes da verificação. O verde da tela é o do cabeçalho (mesma ação) — aqui os
   // botões são neutros: um verde por tela.
   const pg=proofGate(t), unproven=pg.st==='unproven';
@@ -235,8 +253,8 @@ function enVerifHtml(t){
       ${unproven?`<span class="vf-proofmiss" role="status">${IC.warn} ${esc(nPl(pg.missing.length,'requisito'))} sem prova</span>`:''}
       <span style="flex:1"></span>
       ${unproven ? `<button class="btn sm ghost" id="vfNoProof" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar sem prova…</button><button class="btn" id="vfAskProof" title="${escA(proofMissingTip(pg))}">${IC.ai} pedir a prova ao agente</button>`
-        : `${!ok && !['running','loading'].includes(g.st)?`<button class="btn sm ghost" id="vfOverride" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button>`:''}
-      <button class="btn" id="vfApprove" ${ok?'':`disabled title="${escA(chkBlockWhy(g))}"`}>${IC.merge} aprovar e abrir PR</button>`}</div>` : '';
+        : `${!okConfirm && !['running','loading'].includes(g.st)?`<button class="btn sm ghost" id="vfOverride" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar mesmo assim…</button>`:''}
+      <button class="btn" id="vfApprove" ${ok?'':okConfirm?`title="${escA(chkBlockWhy(g))}"`:`disabled title="${escA(chkBlockWhy(g))}"`}>${IC.merge} aprovar e abrir PR</button>`}</div>` : '';
   // concluída: sem o tom de alerta (amarelo) de "falta rodar" — é só informação
   let pillShown=(done && ['notrun','stale'].includes(g.st)) ? [pill[0],'muted'] : pill;
   // sem checagens: o selo é o do portão de provas (nunca "sem checagens" como se nada protegesse a aprovação)
@@ -257,13 +275,18 @@ function enWireVerif(t, main){
   main.querySelectorAll('[data-encfg]').forEach(b=>b.onclick=()=>{ enCfgOpen[t.id]=!enCfgOpen[t.id]; renderWorkspace(); });
   bindClick('vfRun', ()=>chkRun(t));
   bindClick('vfStop', ()=>chkStop(t));
-  bindClick('vfApprove', ()=>{ const g=chkGate(t); if(chkCanApprove(g)) approveGate(t); });
+  bindClick('vfApprove', ()=>{ const g=chkGate(t); if(chkCanApproveOrConfirm(g)) approveGate(t); }); // "não rodou": approveGate pede a confirmação
+  main.querySelectorAll('[data-vfpm]').forEach(b=>b.onclick=()=>chkUsePm(t, b.dataset.vfpm));
+  bindClick('vfInstall', ()=>{ const u=enInstallUrl(chkMissTools(chkGate(t))[0]); if(u) openExternal(u); });
   bindClick('vfOverride', async()=>{ const g=chkGate(t); if(await chkOverride(t, g)){ renderWorkspace(); approveGate(t); } });
   bindClick('vfAskProof', (e)=>proofAsk(t, e.currentTarget));
   bindClick('vfNoProof', ()=>approveNoProof(t));
   bindClick('vfFix', async()=>{ const g=chkGate(t); if(g.st!=='fail') return;
-    const msg='A verificação do projeto falhou na sua cópia. Corrija e rode de novo antes de entregar:\n\n'+g.bad.map(b=>`### ${b.label} — \`${b.cmd}\` (${b.timedOut?'passou do tempo-limite':'exit '+b.exitCode})\n\`\`\`\n${String(b.log||'').split('\n').slice(-40).join('\n')}\n\`\`\``).join('\n\n');
-    if(typeof fwSendText==='function' && await fwSendText(t.id, msg)) toast('log enviado ao agente','ok'); }); // falhou: o showErr do envio já disse
+    // o resultado do agente CONTA: quando ele terminar (código mudou), o Starfork roda as MESMAS checagens sozinho
+    // (verifFixArm/verifFixTick, 83) — o portão é o resultado oficial, não o que o agente rodou por fora
+    if(typeof fwSendText==='function' && await fwSendText(t.id, verifFixText(g.bad))){
+      const f=await chkLoadFp(t.id, true); verifFixArm(t.id, (f&&f.fp&&f.fp.fingerprint)||'');
+      toast('log enviado ao agente — quando ele terminar, a verificação roda de novo sozinha','ok'); } }); // falhou: o showErr do envio já disse
   const cfgBox=$id('enChkCfg'); if(cfgBox && typeof chkCfgEditor==='function') chkCfgEditor(cfgBox, t.id, ()=>{ delete chkCfg[t.id]; chkRefresh(t.id); });
 }
 // ---- Prévia do entregável (FT-6) ----

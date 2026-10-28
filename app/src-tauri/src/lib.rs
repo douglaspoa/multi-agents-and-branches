@@ -8924,7 +8924,7 @@ struct RepoCheck {
 // grupo de processo próprio (detach_new_group) com tempo-limite (signal_group mata a árvore),
 // e devolve exit code, duração e as últimas ~200 linhas do log — não um .txt que o agente escreveu.
 
-#[derive(Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, serde::Deserialize, Clone, Debug, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 struct CheckDef {
     id: String,
@@ -8935,36 +8935,91 @@ struct CheckDef {
     /// de onde veio: "package.json", "Cargo.toml", "pytest", "go.mod" ou "custom"
     #[serde(default)]
     source: String,
+    /// por que o comando é este (ex.: "bun.lock pede bun, que não está instalado — usando npm"; "comando editado")
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    note: String,
 }
 
-/// Checagens que dá pra deduzir dos arquivos do projeto. `on` = ligada por padrão
-/// (build fica desligado: costuma ser lento e o typecheck já pega o grosso).
-fn detect_checks_in(dir: &Path) -> Vec<CheckDef> {
+/// Gerenciador de pacotes do projeto JS (o lockfile pede um; a pessoa pode escolher outro em "checagens").
+#[derive(Serialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+struct PmInfo {
+    /// o que o lockfile pede (npm sem lockfile de outro)
+    lock: String,
+    /// o que as checagens usam de fato
+    used: String,
+    /// escolha salva do projeto (.cardume/checks.json › pm), se houver
+    #[serde(skip_serializing_if = "Option::is_none")]
+    choice: Option<String>,
+    /// gerenciadores instalados neste computador (no PATH das checagens)
+    available: Vec<String>,
+    /// por que `used` ≠ `lock` (vazio quando é o do lockfile)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    note: String,
+}
+const JS_PMS: [&str; 4] = ["npm", "pnpm", "yarn", "bun"];
+/// Qual gerenciador rodar. Ordem: escolha do projeto → o do lockfile, se instalado → senão o primeiro instalado
+/// (npm, pnpm, yarn, bun) — 28/10: bun.lock sem bun no computador virava "exit 127" e bloqueava a aprovação em loop.
+/// Nada instalado → o do lockfile (o "não rodou: X não está instalado" explica).
+fn pick_pm(dir: &Path, choice: Option<&str>, has: &dyn Fn(&str) -> bool) -> PmInfo {
+    let lock = if dir.join("pnpm-lock.yaml").is_file() { "pnpm" }
+        else if dir.join("yarn.lock").is_file() { "yarn" }
+        else if dir.join("bun.lockb").is_file() || dir.join("bun.lock").is_file() { "bun" }
+        else { "npm" };
+    let available: Vec<String> = JS_PMS.iter().filter(|p| has(p)).map(|p| p.to_string()).collect();
+    let choice = choice.map(str::trim).filter(|c| JS_PMS.contains(c)).map(String::from);
+    let (used, note) = if let Some(c) = &choice {
+        (c.clone(), if c != lock { format!("{c} escolhido pra este projeto (o lockfile pede {lock})") } else { String::new() })
+    } else if available.iter().any(|a| a == lock) {
+        (lock.to_string(), String::new())
+    } else if let Some(alt) = available.first() {
+        (alt.clone(), format!("o lockfile pede {lock}, que não está instalado neste computador — usando {alt}"))
+    } else {
+        (lock.to_string(), String::new())
+    };
+    PmInfo { lock: lock.into(), used, choice, available, note }
+}
+fn pm_run(pm: &str, s: &str) -> String {
+    match pm {
+        "pnpm" => format!("pnpm run {s}"),
+        "yarn" => format!("yarn {s}"),
+        "bun" => format!("bun run {s}"),
+        _ => format!("npm run {s} --silent"),
+    }
+}
+
+/// Checagens que dá pra deduzir dos arquivos do projeto (com o gerenciador que EXISTE neste computador).
+fn detect_checks_in(dir: &Path, cfg: &serde_json::Value) -> Vec<CheckDef> {
+    let path = checks_path_env();
+    detect_checks_with(dir, cfg["pm"].as_str(), &|b| bin_on_path(b, &path))
+}
+/// O PmInfo do projeto JS (None sem package.json) — o front oferece "usar npm" com o que existe.
+fn project_pm(dir: &Path, cfg: &serde_json::Value) -> Option<PmInfo> {
+    if !dir.join("package.json").is_file() { return None; }
+    let path = checks_path_env();
+    Some(pick_pm(dir, cfg["pm"].as_str(), &|b| bin_on_path(b, &path)))
+}
+/// `on` = ligada por padrão (build fica desligado: costuma ser lento e o typecheck já pega o grosso).
+/// `has(bin)` = o binário existe no PATH das checagens (puro pra teste).
+fn detect_checks_with(dir: &Path, pm_choice: Option<&str>, has: &dyn Fn(&str) -> bool) -> Vec<CheckDef> {
     let mut out: Vec<CheckDef> = vec![];
-    let def = |id: &str, label: &str, cmd: String, on: bool, source: &str| CheckDef { id: id.into(), label: label.into(), cmd, on, source: source.into() };
+    let def = |id: &str, label: &str, cmd: String, on: bool, source: &str| CheckDef { id: id.into(), label: label.into(), cmd, on, source: source.into(), note: String::new() };
     if let Ok(txt) = std::fs::read_to_string(dir.join("package.json")) {
         if let Ok(j) = serde_json::from_str::<serde_json::Value>(&txt) {
-            let pm = if dir.join("pnpm-lock.yaml").is_file() { "pnpm" }
-                else if dir.join("yarn.lock").is_file() { "yarn" }
-                else if dir.join("bun.lockb").is_file() || dir.join("bun.lock").is_file() { "bun" }
-                else { "npm" };
-            let run = |s: &str| match pm {
-                "pnpm" => format!("pnpm run {s}"),
-                "yarn" => format!("yarn {s}"),
-                "bun" => format!("bun run {s}"),
-                _ => format!("npm run {s} --silent"),
-            };
+            let pm = pick_pm(dir, pm_choice, has);
+            let run = |s: &str| pm_run(&pm.used, s);
+            let js = |id: &str, label: &str, s: &str, on: bool| CheckDef { note: pm.note.clone(), ..def(id, label, run(s), on, "package.json") };
             let scripts = &j["scripts"];
-            let has = |s: &str| scripts[s].as_str().map(|v| !v.trim().is_empty()).unwrap_or(false);
-            if has("lint") { out.push(def("npm:lint", "Linter", run("lint"), true, "package.json")); }
-            if let Some(tc) = ["typecheck", "type-check", "check-types", "tsc"].iter().find(|s| has(s)) {
-                out.push(def("npm:typecheck", "Tipos (typecheck)", run(tc), true, "package.json"));
+            let has_s = |s: &str| scripts[s].as_str().map(|v| !v.trim().is_empty()).unwrap_or(false);
+            if has_s("lint") { out.push(js("npm:lint", "Linter", "lint", true)); }
+            if let Some(tc) = ["typecheck", "type-check", "check-types", "tsc"].iter().find(|s| has_s(s)) {
+                out.push(js("npm:typecheck", "Tipos (typecheck)", tc, true));
             }
             // o "test" que o `npm init` cria ("no test specified && exit 1") não é teste
-            if has("test") && !scripts["test"].as_str().unwrap_or("").contains("no test specified") {
-                out.push(def("npm:test", "Testes", run("test"), true, "package.json"));
+            if has_s("test") && !scripts["test"].as_str().unwrap_or("").contains("no test specified") {
+                out.push(js("npm:test", "Testes", "test", true));
             }
-            if has("build") { out.push(def("npm:build", "Build", run("build"), false, "package.json")); }
+            if has_s("build") { out.push(js("npm:build", "Build", "build", false)); }
         }
     }
     if dir.join("Cargo.toml").is_file() {
@@ -8987,11 +9042,17 @@ fn detect_checks_in(dir: &Path) -> Vec<CheckDef> {
 }
 
 /// Detectadas + configuração do projeto → lista final (com `on` resolvido).
-/// cfg = { "enabled": { "<id>": bool }, "custom": [{ id?, label, cmd, on? }], "timeoutMin": n }
+/// cfg = { "enabled": { "<id>": bool }, "cmd": { "<id>": "comando editado" }, "pm": "npm"|"pnpm"|"yarn"|"bun",
+///         "custom": [{ id?, label, cmd, on? }], "timeoutMin": n }
 fn effective_checks(detected: &[CheckDef], cfg: &serde_json::Value) -> Vec<CheckDef> {
     let mut out: Vec<CheckDef> = detected
         .iter()
-        .map(|d| CheckDef { on: cfg["enabled"][&d.id].as_bool().unwrap_or(d.on), ..d.clone() })
+        .map(|d| {
+            // comando editado em "checagens" (cfg.cmd.<id>) vale na próxima rodada — o detectado fica na nota
+            let edited = cfg["cmd"][&d.id].as_str().map(str::trim).filter(|c| !c.is_empty() && *c != d.cmd);
+            let (cmd, note) = match edited { Some(c) => (c.to_string(), format!("comando editado em checagens (o detectado era `{}`)", d.cmd)), None => (d.cmd.clone(), d.note.clone()) };
+            CheckDef { on: cfg["enabled"][&d.id].as_bool().unwrap_or(d.on), cmd, note, ..d.clone() }
+        })
         .collect();
     if let Some(arr) = cfg["custom"].as_array() {
         for (i, c) in arr.iter().enumerate() {
@@ -8999,7 +9060,7 @@ fn effective_checks(detected: &[CheckDef], cfg: &serde_json::Value) -> Vec<Check
             if cmd.is_empty() { continue; }
             let id = c["id"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()).unwrap_or_else(|| format!("custom:{i}"));
             let label = c["label"].as_str().map(|s| s.trim()).filter(|s| !s.is_empty()).unwrap_or(&cmd).to_string();
-            out.push(CheckDef { id, label, cmd, on: c["on"].as_bool().unwrap_or(true), source: "custom".into() });
+            out.push(CheckDef { id, label, cmd, on: c["on"].as_bool().unwrap_or(true), source: "custom".into(), note: String::new() });
         }
     }
     out
@@ -9128,6 +9189,9 @@ struct CheckResult {
     timed_out: bool,
     stopped: bool,
     log: String,
+    /// "não rodou": a ferramenta do comando não está instalada (exit 127) — o front mostra "não rodou", não "falhou"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    not_found: Option<String>,
 }
 
 /// pid do grupo da checagem em andamento por tarefa (pra "parar") + tarefas canceladas.
@@ -9136,21 +9200,45 @@ static CHECK_STOPS: std::sync::OnceLock<Mutex<std::collections::HashSet<String>>
 fn check_pids() -> &'static Mutex<HashMap<String, i32>> { CHECK_PIDS.get_or_init(|| Mutex::new(HashMap::new())) }
 fn check_stops() -> &'static Mutex<std::collections::HashSet<String>> { CHECK_STOPS.get_or_init(|| Mutex::new(Default::default())) }
 
-/// PATH pras checagens: app aberto pelo Finder tem PATH mínimo — junta o node
-/// resolvido (nvm incluso), Homebrew, cargo e go.
+/// PATH pras checagens: app aberto pelo Finder tem PATH mínimo (/usr/bin:/bin…) — junta o node resolvido e as
+/// pastas de toolchain do usuário do resolvedor único (bin_resolve: nvm, fnm, volta, asdf, mise, npm global,
+/// Homebrew, /usr/local/bin, ~/.local/bin, pnpm, ~/.bun/bin) + cargo e go. Só pastas que existem.
 fn checks_path_env() -> String {
-    let mut dirs: Vec<String> = vec![];
-    if let Some(d) = Path::new(&node_bin()).parent() { dirs.push(d.display().to_string()); }
     let home = home_opt().unwrap_or_default();
-    for d in ["/opt/homebrew/bin", "/usr/local/bin", "/usr/local/go/bin"] { dirs.push(d.into()); }
-    if !home.is_empty() {
-        dirs.push(format!("{home}/.cargo/bin"));
-        dirs.push(format!("{home}/go/bin"));
-        dirs.push(format!("{home}/.local/bin"));
-    }
+    let node = Some(node_bin()).filter(|x| x != "node");
+    let ctx = bin_resolve::live_ctx("checks", node);
+    let mut dirs: Vec<PathBuf> = ctx.node_dirs.clone();
+    let mut extra: Vec<PathBuf> = bin_resolve::candidate_dirs("checks", &ctx).into_iter().filter(|(_, l)| *l != "PATH").map(|(d, _)| d).collect();
+    extra.push(PathBuf::from("/usr/local/go/bin"));
+    if !home.is_empty() { extra.push(PathBuf::from(format!("{home}/.cargo/bin"))); extra.push(PathBuf::from(format!("{home}/go/bin"))); }
+    for d in extra { if d.is_dir() && !dirs.contains(&d) { dirs.push(d); } }
     let sep = if cfg!(windows) { ";" } else { ":" };
     let cur = std::env::var("PATH").unwrap_or_default();
-    format!("{}{sep}{cur}", dirs.join(sep))
+    let mut parts: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
+    for p in cur.split(sep).filter(|p| !p.is_empty()) { if !parts.iter().any(|x| x == p) { parts.push(p.to_string()); } }
+    parts.join(sep)
+}
+/// O binário existe em alguma pasta deste PATH? (Windows: .cmd/.exe também)
+fn bin_on_path(name: &str, path: &str) -> bool {
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    let names: Vec<String> = if cfg!(windows) { vec![format!("{name}.cmd"), format!("{name}.exe"), name.to_string()] } else { vec![name.to_string()] };
+    path.split(sep).filter(|d| !d.is_empty()).any(|d| names.iter().any(|n| Path::new(d).join(n).is_file()))
+}
+/// Exit 127 (Windows 9009) com o shell dizendo que o PRIMEIRO comando não existe = "não deu pra rodar", não teste
+/// vermelho: devolve o nome da ferramenta que falta (bun, pnpm…). Um binário que falta DENTRO do script (eslint sem
+/// `npm install`) continua sendo falha comum — o log diz qual.
+fn missing_tool(cmd: &str, exit: Option<i32>, log: &str) -> Option<String> {
+    if !(exit == Some(127) || (cfg!(windows) && exit == Some(9009))) { return None; }
+    // pula atribuições de ambiente (CI=1 bun run …)
+    let first = cmd.split_whitespace().find(|w| !w.contains('='))?;
+    let first = first.rsplit(['/', '\\']).next().unwrap_or(first).trim_end_matches(".exe").trim_end_matches(".cmd");
+    if first.is_empty() { return None; }
+    let says = log.lines().any(|l| {
+        let low = l.to_lowercase();
+        (low.contains("not found") || low.contains("não encontrado") || low.contains("is not recognized") || low.contains("no such file"))
+            && l.split(|c: char| c == ':' || c.is_whitespace() || c == '\'' || c == '"').any(|w| w == first)
+    });
+    says.then(|| first.to_string())
 }
 
 /// Roda UMA checagem no diretório, num grupo próprio; tempo-limite → mata a árvore.
@@ -9172,7 +9260,7 @@ fn run_one_check(task_id: &str, dir: &Path, def: &CheckDef, secs: u64) -> CheckR
     detach_new_group(&mut cmd);
     let fail = |msg: String, started: std::time::Instant| CheckResult {
         id: def.id.clone(), label: def.label.clone(), cmd: def.cmd.clone(), ok: false, exit_code: None,
-        duration_ms: started.elapsed().as_millis() as u64, timed_out: false, stopped: false, log: msg,
+        duration_ms: started.elapsed().as_millis() as u64, timed_out: false, stopped: false, log: msg, not_found: None,
     };
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -9225,10 +9313,14 @@ fn run_one_check(task_id: &str, dir: &Path, def: &CheckDef, secs: u64) -> CheckR
     if timed_out { log.push_str(&format!("\n⏱ passou de {} min — a checagem foi interrompida", secs / 60)); }
     if stopped { log.push_str("\n■ interrompida por você"); }
     let exit_code = status.and_then(|s| s.code());
+    let not_found = if timed_out || stopped { None } else { missing_tool(&def.cmd, exit_code, &log) };
+    if let Some(tool) = &not_found {
+        log.push_str(&format!("\n— {tool} não está instalado neste computador (ou não está no PATH do app): a checagem não rodou"));
+    }
     CheckResult {
         id: def.id.clone(), label: def.label.clone(), cmd: def.cmd.clone(),
         ok: !timed_out && !stopped && exit_code == Some(0),
-        exit_code, duration_ms: started.elapsed().as_millis() as u64, timed_out, stopped, log,
+        exit_code, duration_ms: started.elapsed().as_millis() as u64, timed_out, stopped, log, not_found,
     }
 }
 
@@ -9331,7 +9423,7 @@ fn run_checks_sealed(db: Option<PathBuf>, task_id: &str, wt: &Path, defs: &[Chec
         loop {
             match seal_decision(d, &task_spec_json(db, &tid), &fp.head, fp.dirty, now_ms()) {
                 SealUse::Run => return None,
-                SealUse::Use(ok, log, ms) => return Some(CheckResult { id: d.id.clone(), label: d.label.clone(), cmd: d.cmd.clone(), ok, exit_code: Some(if ok { 0 } else { 1 }), duration_ms: ms, timed_out: false, stopped: false, log }),
+                SealUse::Use(ok, log, ms) => return Some(CheckResult { id: d.id.clone(), label: d.label.clone(), cmd: d.cmd.clone(), ok, exit_code: Some(if ok { 0 } else { 1 }), duration_ms: ms, timed_out: false, stopped: false, log, not_found: None }),
                 SealUse::Wait => {
                     let waited = ((now_ms() - t0) / 1000) as u64;
                     if waited >= secs || check_stops().lock().unwrap_or_else(|e| e.into_inner()).contains(&tid) { return None; }
@@ -9351,6 +9443,9 @@ struct ChecksConfig {
     cfg: serde_json::Value,
     file: String,
     dir: String,
+    /// gerenciador de pacotes (projeto JS): o do lockfile, o usado, os instalados — pra "usar npm" quando falta o bun
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pm: Option<PmInfo>,
 }
 /// Checagens do projeto: detectadas (na cópia da tarefa, se `task_id`; senão no repo)
 /// + a configuração salva. O front mostra/edita; `run_checks` usa a mesma conta.
@@ -9359,9 +9454,10 @@ fn checks_config(state: State<AppState>, task_id: Option<String>) -> Result<Chec
     let repo = repo_of(&state)?;
     let dir = task_id.as_deref().filter(|s| !s.is_empty()).and_then(|t| task_worktree(&state, t).ok()).unwrap_or_else(|| repo.clone());
     let cfg = read_checks_cfg(&repo);
-    let detected = detect_checks_in(&dir);
+    let detected = detect_checks_in(&dir, &cfg);
     let effective = effective_checks(&detected, &cfg);
-    Ok(ChecksConfig { detected, effective, cfg, file: checks_cfg_path(&repo).display().to_string(), dir: dir.display().to_string() })
+    let pm = project_pm(&dir, &cfg);
+    Ok(ChecksConfig { detected, effective, cfg, file: checks_cfg_path(&repo).display().to_string(), dir: dir.display().to_string(), pm })
 }
 
 #[tauri::command(async)]
@@ -9399,7 +9495,7 @@ fn run_checks(app: tauri::AppHandle, state: State<AppState>, task_id: String) ->
         return Err("as checagens desta tarefa já estão rodando".into());
     }
     let cfg = read_checks_cfg(&repo);
-    let defs = effective_checks(&detect_checks_in(&wt), &cfg);
+    let defs = effective_checks(&detect_checks_in(&wt, &cfg), &cfg);
     let fp = wt_fingerprint(&wt)?; // ANTES de rodar: é esta versão que foi verificada
     let tid = task_id.clone();
     let tid2 = task_id.clone();
@@ -9440,7 +9536,7 @@ fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>
     let repo = repo_of(&state)?;
     let wt = task_worktree(&state, &task_id)?;
     let cfg = read_checks_cfg(&repo);
-    let defs = effective_checks(&detect_checks_in(&wt), &cfg);
+    let defs = effective_checks(&detect_checks_in(&wt, &cfg), &cfg);
     let fp = wt_fingerprint(&wt)?;
     let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let res = run_checks_sealed(db, &task_id, &wt, &defs, checks_timeout_secs(&cfg), &fp, |_, _| {}, |_, _| {});
@@ -9450,7 +9546,9 @@ fn repo_checks(state: State<AppState>, task_id: String) -> Result<Vec<RepoCheck>
             let detail = if r.ok { "passou".to_string() } else {
                 let lines: Vec<&str> = r.log.lines().collect();
                 let tail = lines[lines.len().saturating_sub(8)..].join("\n");
-                if tail.contains("os error 2") || tail.contains("not found") && r.exit_code == Some(127) {
+                if let Some(tool) = &r.not_found {
+                    format!("não rodou: {tool} não está instalado neste computador — escolha outro gerenciador em checagens")
+                } else if tail.contains("os error 2") || tail.contains("not found") && r.exit_code == Some(127) {
                     format!("comando não encontrado nesta máquina ({}) — veja Ajustes › Verificação", r.cmd)
                 } else { tail.chars().take(600).collect() }
             };
@@ -9544,14 +9642,14 @@ mod checks_tests {
     fn detecta_scripts_do_package_json_e_ignora_test_placeholder() {
         let d = tmp("pkg");
         std::fs::write(d.join("package.json"), r#"{"scripts":{"lint":"eslint .","typecheck":"tsc --noEmit","test":"echo \"Error: no test specified\" && exit 1","build":"vite build"}}"#).unwrap();
-        let c = detect_checks_in(&d);
+        let c = detect_checks_with(&d, None, &|_| true);
         let ids: Vec<&str> = c.iter().map(|x| x.id.as_str()).collect();
         assert_eq!(ids, vec!["npm:lint", "npm:typecheck", "npm:build"]);
         assert_eq!(c[0].cmd, "npm run lint --silent");
         assert!(!c[2].on, "build desligado por padrão");
         std::fs::write(d.join("pnpm-lock.yaml"), "").unwrap();
         std::fs::write(d.join("package.json"), r#"{"scripts":{"test":"vitest"}}"#).unwrap();
-        let c = detect_checks_in(&d);
+        let c = detect_checks_with(&d, None, &|_| true);
         assert_eq!(c.len(), 1);
         assert_eq!(c[0].cmd, "pnpm run test");
         let _ = std::fs::remove_dir_all(&d);
@@ -9562,18 +9660,18 @@ mod checks_tests {
         std::fs::write(d.join("Cargo.toml"), "[package]\nname='x'").unwrap();
         std::fs::write(d.join("pyproject.toml"), "[tool.pytest.ini_options]\n").unwrap();
         std::fs::write(d.join("go.mod"), "module x").unwrap();
-        let ids: Vec<String> = detect_checks_in(&d).into_iter().map(|x| x.id).collect();
+        let ids: Vec<String> = detect_checks_with(&d, None, &|_| true).into_iter().map(|x| x.id).collect();
         assert_eq!(ids, vec!["cargo:test", "py:pytest", "go:test"]);
         let vazio = tmp("vazio");
-        assert!(detect_checks_in(&vazio).is_empty());
+        assert!(detect_checks_with(&vazio, None, &|_| true).is_empty());
         let _ = std::fs::remove_dir_all(&d);
         let _ = std::fs::remove_dir_all(&vazio);
     }
     #[test]
     fn config_liga_desliga_e_soma_comandos_proprios() {
         let det = vec![
-            CheckDef { id: "npm:lint".into(), label: "Linter".into(), cmd: "npm run lint".into(), on: true, source: "package.json".into() },
-            CheckDef { id: "npm:build".into(), label: "Build".into(), cmd: "npm run build".into(), on: false, source: "package.json".into() },
+            CheckDef { id: "npm:lint".into(), label: "Linter".into(), cmd: "npm run lint".into(), on: true, source: "package.json".into(), ..Default::default() },
+            CheckDef { id: "npm:build".into(), label: "Build".into(), cmd: "npm run build".into(), on: false, source: "package.json".into(), ..Default::default() },
         ];
         let cfg = serde_json::json!({ "enabled": { "npm:lint": false, "npm:build": true }, "custom": [ { "label": "E2E", "cmd": "npx playwright test" }, { "cmd": "  " } ] });
         let e = effective_checks(&det, &cfg);
@@ -9599,7 +9697,7 @@ mod checks_tests {
     #[test]
     fn roda_checagem_com_exit_code_e_mata_no_tempo_limite() {
         let d = tmp("run");
-        let ok = CheckDef { id: "a".into(), label: "A".into(), cmd: "echo oi; echo erro >&2; exit 0".into(), on: true, source: "custom".into() };
+        let ok = CheckDef { id: "a".into(), label: "A".into(), cmd: "echo oi; echo erro >&2; exit 0".into(), on: true, source: "custom".into(), ..Default::default() };
         let r = run_one_check("t-test-a", &d, &ok, 30);
         assert!(r.ok);
         assert_eq!(r.exit_code, Some(0));
@@ -9614,6 +9712,72 @@ mod checks_tests {
         assert!(r.timed_out && !r.ok);
         assert!(t0.elapsed().as_secs() < 10);
         let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn lockfile_do_bun_sem_bun_instalado_cai_pro_npm_e_lembra_a_escolha() {
+        let d = tmp("bun");
+        std::fs::write(d.join("package.json"), r#"{"scripts":{"lint":"eslint .","test":"vitest run"}}"#).unwrap();
+        std::fs::write(d.join("bun.lock"), "{}").unwrap();
+        // bun instalado: o do lockfile
+        let c = detect_checks_with(&d, None, &|b| b == "bun" || b == "npm");
+        assert_eq!(c[0].cmd, "bun run lint");
+        assert!(c[0].note.is_empty());
+        // sem bun, com npm: npm, com a nota dizendo por quê (antes: exit 127 e aprovação bloqueada em loop)
+        let c = detect_checks_with(&d, None, &|b| b == "npm");
+        assert_eq!((c[0].cmd.as_str(), c[1].cmd.as_str()), ("npm run lint --silent", "npm run test --silent"));
+        assert!(c[0].note.contains("bun") && c[0].note.contains("usando npm"), "{}", c[0].note);
+        // escolha do projeto (checks.json › pm) vale mesmo com bun instalado
+        let c = detect_checks_with(&d, Some("pnpm"), &|_| true);
+        assert_eq!(c[0].cmd, "pnpm run lint");
+        assert!(c[0].note.contains("escolhido"));
+        // nada instalado: fica o do lockfile (o "não rodou" explica)
+        let c = detect_checks_with(&d, None, &|_| false);
+        assert_eq!(c[0].cmd, "bun run lint");
+        let pm = pick_pm(&d, None, &|b| b == "npm" || b == "yarn");
+        assert_eq!((pm.lock.as_str(), pm.used.as_str(), pm.available.clone()), ("bun", "npm", vec!["npm".to_string(), "yarn".to_string()]));
+        assert_eq!(pick_pm(&d, Some("lixo"), &|b| b == "npm").used, "npm", "escolha inválida é ignorada");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn comando_editado_em_checagens_vale_na_proxima_rodada() {
+        let det = vec![CheckDef { id: "npm:test".into(), label: "Testes".into(), cmd: "bun run test".into(), on: true, source: "package.json".into(), ..Default::default() }];
+        let e = effective_checks(&det, &serde_json::json!({ "cmd": { "npm:test": "npm test" } }));
+        assert_eq!(e[0].cmd, "npm test");
+        assert!(e[0].note.contains("bun run test"));
+        assert_eq!(effective_checks(&det, &serde_json::json!({ "cmd": { "npm:test": "  " } }))[0].cmd, "bun run test");
+    }
+    #[test]
+    fn exit_127_do_proprio_comando_e_nao_rodou_nao_falha() {
+        assert_eq!(missing_tool("bun run lint", Some(127), "sh: bun: command not found"), Some("bun".into()));
+        assert_eq!(missing_tool("bun run test", Some(127), "sh: 1: bun: not found"), Some("bun".into()));
+        assert_eq!(missing_tool("CI=1 pnpm run test", Some(127), "zsh:1: command not found: pnpm"), Some("pnpm".into()));
+        // binário que falta DENTRO do script: falha comum (faltou npm install), não "não rodou"
+        assert_eq!(missing_tool("npm run lint --silent", Some(127), "sh: eslint: command not found"), None);
+        assert_eq!(missing_tool("bun run lint", Some(1), "sh: bun: command not found"), None);
+        assert!(bin_on_path("sh", "/nao/existe:/bin:/usr/bin") || cfg!(windows));
+        assert!(!bin_on_path("sf-nao-existe-xyz", "/bin:/usr/bin"));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn roda_comando_inexistente_e_marca_nao_rodou() {
+        let d = tmp("nf");
+        let c = CheckDef { id: "npm:lint".into(), label: "Linter".into(), cmd: "sf-bun-fake-xyz run lint".into(), on: true, source: "package.json".into(), ..Default::default() };
+        let r = run_one_check("t-test-nf", &d, &c, 30);
+        assert!(!r.ok);
+        assert_eq!(r.exit_code, Some(127));
+        assert_eq!(r.not_found.as_deref(), Some("sf-bun-fake-xyz"), "log: {}", r.log);
+        assert!(r.log.contains("não está instalado"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn path_das_checagens_inclui_as_pastas_de_toolchain_que_existem() {
+        let p = checks_path_env();
+        let cur = std::env::var("PATH").unwrap_or_default();
+        for d in cur.split(if cfg!(windows) { ';' } else { ':' }).filter(|x| !x.is_empty()) { assert!(p.contains(d), "PATH herdado vai junto: {d}"); }
+        if let Some(h) = home_opt() {
+            let bun = format!("{h}/.bun/bin");
+            if Path::new(&bun).is_dir() { assert!(p.contains(&bun)); }
+        }
     }
     #[test]
     fn nome_de_pasta_seguro() {
@@ -11892,7 +12056,7 @@ mod pr_status_tests {
     #[test]
     fn ft5_le_o_selo_do_motor_pros_testes() {
         let now = 1_000_000_i64;
-        let def = |id: &str, cmd: &str| CheckDef { id: id.into(), label: "x".into(), cmd: cmd.into(), on: true, source: "custom".into() };
+        let def = |id: &str, cmd: &str| CheckDef { id: id.into(), label: "x".into(), cmd: cmd.into(), on: true, source: "custom".into(), ..Default::default() };
         let npm = def("npm:test", "npm run test --silent");
         let sealed = serde_json::json!({ "verification": { "sha": "abc1234", "tests": { "ran": true, "ok": true, "passed": 12, "failed": 0, "scope": "afetados", "ci": true, "durationMs": 8000, "runner": "vitest related", "kind": "npm" } } });
         match seal_decision(&npm, &sealed, "abc1234", false, now) {
@@ -11945,8 +12109,8 @@ mod pr_status_tests {
         let lint_marker = d.join("rodou-lint");
         let sh = |f: &std::path::Path| if cfg!(windows) { format!("type nul > \"{}\"", f.display()) } else { format!("touch '{}'", f.display()) };
         let defs = vec![
-            CheckDef { id: "npm:test".into(), label: "Testes".into(), cmd: sh(&marker), on: true, source: "package.json".into() },
-            CheckDef { id: "npm:lint".into(), label: "Linter".into(), cmd: sh(&lint_marker), on: true, source: "package.json".into() },
+            CheckDef { id: "npm:test".into(), label: "Testes".into(), cmd: sh(&marker), on: true, source: "package.json".into(), ..Default::default() },
+            CheckDef { id: "npm:lint".into(), label: "Linter".into(), cmd: sh(&lint_marker), on: true, source: "package.json".into(), ..Default::default() },
         ];
         let fp = |h: &str| TaskFingerprint { fingerprint: h.into(), head: h.into(), dirty: false };
         let r = run_checks_sealed(Some(db.clone()), "t", &d, &defs, 30, &fp("head1"), |_, _| {}, |_, _| {});

@@ -118,13 +118,19 @@ function conflitoComentario(base){ return 'Pediu pra resolver o conflito com a '
  * A verificação do projeto (chkGate do 21: a MESMA régua do "Preparando o PR") deixa abrir o PR? null = segue; senão o
  * motivo que aparece NA LINHA (Meu trabalho, Central, fila) e as ações certas — nunca abre a tarefa sozinho (bug 28/10:
  * o Aprovar caía no approveGate, que com a verificação pendente levava pra Entrega da tarefa e não aprovava nada).
- * acts: verif (rodar e seguir aprovando) · chkwhy (aprovar mesmo assim, com motivo) · pedir · retry
+ * acts: verif (rodar e seguir aprovando) · chkwhy (aprovar mesmo assim, com motivo) · naorodou (confirmação simples) · pedir · retry
+ * 'missing' (28/10): a ferramenta do comando não está instalada (exit 127, "bun run lint" sem bun) — "não rodou", não
+ * falha: aprovar pede só uma confirmação (chkMissingConfirm, 21), nunca o motivo longo nem "pedir alteração".
  */
 function apVerifBloqueio(g){
   const st=(g&&g.st)||'loading';
   if(['none','pass','override'].includes(st)) return null;
   if(st==='notrun'||st==='stale') return { kind:'verif', why:st==='stale'?'O código mudou depois da última verificação do projeto — rode de novo pra aprovar.':'A verificação do projeto (testes e checagens) ainda não rodou nesta versão.', acts:['verif','chkwhy'] };
   if(st==='fail'){ const L=((g&&g.bad)||[]).map(b=>b&&b.label).filter(Boolean); return { kind:'verif-falhou', why:'A verificação do projeto falhou'+(L.length?' ('+L.join(', ')+')':'')+'.', acts:['pedir','chkwhy','verif'] }; }
+  if(st==='missing'){
+    const miss=(g&&g.miss)||[], tools=[...new Set(miss.map(x=>x&&x.notFound).filter(Boolean))], L=miss.map(x=>x&&x.label).filter(Boolean);
+    return { kind:'nao-rodou', why:`${L.join(', ')||'Uma checagem'} ${L.length>1?'não rodaram':'não rodou'}: ${tools.join(', ')||'a ferramenta'} não está instalado neste computador (ou não está no PATH do app). Não é teste falhando.`, acts:['naorodou','entrega'] };
+  }
   if(st==='running') return { kind:'rodando', why:'A verificação do projeto está rodando — aprove de novo quando ela terminar.', acts:['retry'] };
   return { kind:'erro', why:'Não deu pra conferir a verificação do projeto'+(g&&g.err?': '+String(g.err).split('\n')[0].slice(0,160):'')+'.', acts:['retry'] };
 }
@@ -369,6 +375,7 @@ function apFootHtml(v, mode){
 // os botões da ação certa pra cada bloqueio (o 1º é o principal). cls: 'btn' (painel) · 'btn sm' (linha do Meu trabalho)
 const AP_BLK_ACT={
   verif:{ l:'Rodar a verificação', ic:'spark', tip:'roda os testes e as checagens do projeto e, se passar, segue aprovando' },
+  naorodou:{ l:'Aprovar sem essa checagem', ic:'check', tip:'pede só uma confirmação — fica anotado na descrição do PR' },
   chkwhy:{ l:'Aprovar mesmo assim…', ic:'check', tip:'pede um motivo — vai na descrição do PR e fica registrado' },
   pedir:{ l:'Pedir alteração', ic:'msg' }, retry:{ l:'Tentar de novo', ic:'undo' }, conflito:{ l:'Resolver conflito', ic:'spark' },
   publicar:{ l:'Publicar no GitHub', ic:'arrow' }, prweb:{ l:'Criar o PR no navegador', ic:'arrow' }, entrega:{ l:'Abrir os entregáveis', ic:'arrow' }, pr:{ l:'Ver o PR ↗', ic:'merge' },
@@ -523,6 +530,10 @@ async function apBlkAct(id, k, btn){
   if(k==='retry'){ delete AP.blk[id]; return aprovarTarefa(id); }
   if(k==='pedir'){ delete AP.blk[id]; AP.meuExp=id; AP.meuSel=id; return apPedirAbrir(id); }
   if(k==='chkwhy'){ const g=typeof chkGate==='function'?chkGate(t):{ st:'notrun' }; delete AP.blk[id]; AP.ui[id]={ mode:'why', chk:g.st==='fail'?'fail':'notrun' }; AP.focus=id; AP.meuExp=id; AP.meuSel=id; apRefresh(); return; }
+  if(k==='naorodou'){ // "não rodou" (ferramenta ausente): a mesma confirmação simples da Entrega (chkMissingConfirm, 21)
+    if(typeof chkMissingConfirm==='function' && await chkMissingConfirm(t, chkGate(t))){ delete AP.blk[id]; return aprovarTarefa(id); }
+    return;
+  }
   if(k==='conflito') return resolverConflito(id, btn);
   if(k==='pr'){ if(url) openExternal(url); return; }
   if(k==='entrega'){ if(typeof approveShowEntrega==='function') approveShowEntrega(t); return; }

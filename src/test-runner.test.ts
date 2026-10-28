@@ -441,3 +441,20 @@ test("killTree: Windows usa taskkill /T /F (árvore inteira); Unix mata o grupo"
   assert.match(src, /spawnSync\("taskkill", \["\/PID", String\(pid\), "\/T", "\/F"\]/);
   assert.match(src, /process\.kill\(-pid, sig\)/);
 });
+
+// ---------------------------------------------------------------- 28/10: bun.lock sem bun instalado
+test("installedRunner: lockfile pede bun/pnpm/yarn que não está instalado → npm roda o mesmo script; instalado ou sem npm → como veio", async () => {
+  const { installedRunner } = await import("./test-runner.ts");
+  const bun = detectRunner(dirWith({ "package.json": '{"scripts":{"test":"vitest run"}}', "bun.lock": "" }));
+  const semBun = installedRunner(bun, (b) => b === "npm");
+  assert.equal(semBun?.kind, "npm");
+  assert.deepEqual(semBun?.args, ["test", "--silent"]);
+  assert.match(semBun?.label ?? "", /bun não instalado/);
+  assert.equal(installedRunner(bun, () => true), bun, "bun instalado: o do lockfile");
+  assert.equal(installedRunner(bun, () => false), bun, "nem npm: como veio (runTests diz que não está instalado)");
+  const pnpm = detectRunner(dirWith({ "package.json": '{"scripts":{"test":"vitest"}}', "pnpm-lock.yaml": "" }));
+  assert.equal(installedRunner(pnpm, (b) => b === "npm")?.kind, "npm");
+  assert.equal(installedRunner(null, () => false), null);
+  const cargo = detectRunner(dirWith({ "Cargo.toml": "[package]" }));
+  assert.equal(installedRunner(cargo, () => false), cargo, "não-JS não muda");
+});

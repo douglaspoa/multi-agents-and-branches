@@ -157,7 +157,9 @@ function chkRefresh(taskId){
     if(JSON.stringify(chkGate({ id:taskId }))!==before) chkRerender(taskId); });
 }
 function chkRerender(taskId){ try{ if(typeof fwTask!=='undefined' && fwTask===taskId && typeof renderWorkspace==='function') renderWorkspace(); }catch(e){ console.error('chkRerender', e); } }
-// estado do gate (síncrono, a partir dos caches): none · loading · running · notrun · stale · fail · pass · override · err
+// estado do gate (síncrono, a partir dos caches): none · loading · running · notrun · stale · fail · missing · pass · override · err
+// missing (28/10) = alguma checagem NÃO RODOU porque a ferramenta do comando não existe neste computador (exit 127 —
+// "bun run lint" sem bun): não é teste vermelho. Aprovar pede só uma confirmação (chkMissingConfirm), não um motivo.
 function chkGate(t){
   const c=chkCfg[t.id]; if(!c) return { st:'loading', on:[] };
   const on=(c.data.effective||[]).filter(x=>x.on);
@@ -169,14 +171,24 @@ function chkGate(t){
   let g;
   if(!r) g={ st:'notrun', on };
   else if(r.fp!==cur || r.cfgSig!==chkCfgSig(c.data.effective)) g={ st:'stale', on, r };
-  else { const bad=(r.results||[]).filter(x=>!x.ok); g=bad.length?{ st:'fail', on, r, bad }:{ st:'pass', on, r }; }
-  if(['notrun','stale','fail'].includes(g.st) && ov && ov.fp===cur) return Object.assign(g, { st:'override', was:g.st, ov });
+  else { const bad=(r.results||[]).filter(x=>!x.ok && !x.notFound), miss=(r.results||[]).filter(x=>!x.ok && x.notFound);
+    g=bad.length?{ st:'fail', on, r, bad, miss }:miss.length?{ st:'missing', on, r, miss }:{ st:'pass', on, r }; }
+  if(['notrun','stale','fail','missing'].includes(g.st) && ov && ov.fp===cur) return Object.assign(g, { st:'override', was:g.st, ov });
   return g;
 }
 async function chkEnsure(t, force){ await chkLoadCfg(t.id, force); await chkLoadFp(t.id, force); return chkGate(t); }
 function chkCanApprove(g){ return ['none','pass','override'].includes(g.st); }
+// "não rodou": o botão de aprovar fica clicável (pede só uma confirmação)
+function chkCanApproveOrConfirm(g){ return chkCanApprove(g) || g.st==='missing'; }
+// ferramentas que faltam ("bun", "pnpm") e os rótulos das checagens que não rodaram
+function chkMissTools(g){ return [...new Set(((g&&g.miss)||[]).map(x=>x.notFound).filter(Boolean))]; }
+function chkMissText(g){
+  const tools=chkMissTools(g), labels=((g&&g.miss)||[]).map(x=>x.label);
+  return `${labels.join(', ')||'checagem'} ${labels.length>1?'não rodaram':'não rodou'}: ${tools.join(', ')||'a ferramenta'} não está instalado neste computador (ou não está no PATH do app)`;
+}
 function chkBlockWhy(g){
-  return g.st==='fail' ? `a verificação falhou (${g.bad.map(b=>b.label).join(', ')}) — corrija, ou use "aprovar mesmo assim" com um motivo`
+  return g.st==='missing' ? chkMissText(g)+' — aprovar pede só uma confirmação'
+    : g.st==='fail' ? `a verificação falhou (${g.bad.map(b=>b.label).join(', ')}) — corrija, ou use "aprovar mesmo assim" com um motivo`
     : g.st==='notrun' ? 'rode a verificação (testes e checagens automáticas) antes de aprovar'
     : g.st==='stale' ? 'o código mudou depois da última verificação — rode de novo pra liberar'
     : g.st==='running' ? 'a verificação está rodando…'
@@ -190,8 +202,10 @@ async function chkRun(t){
     const cfg=await chkLoadCfg(t.id, true);
     const res=await invoke('run_checks',{ taskId:t.id });
     chkResSetRun(t.id, res, cfg);
-    const bad=(res.results||[]).filter(x=>!x.ok);
-    toast(bad.length?`verificação: ${bad.length} de ${res.results.length} falhou`:`verificação passou ✓ (${res.results.length})`, bad.length?'warn':'ok');
+    const bad=(res.results||[]).filter(x=>!x.ok && !x.notFound), miss=(res.results||[]).filter(x=>!x.ok && x.notFound);
+    toast(bad.length?`verificação: ${bad.length} de ${res.results.length} falhou`
+      :miss.length?`verificação: ${miss.length===1?'1 checagem não rodou':miss.length+' checagens não rodaram'} (${[...new Set(miss.map(x=>x.notFound))].join(', ')} não instalado)`
+      :`verificação passou ✓ (${res.results.length})`, bad.length||miss.length?'warn':'ok');
     return res;
   }catch(e){ showErr(e, 'Não deu pra rodar a verificação'); return null; }
   finally{ delete chkLive[t.id]; await chkLoadFp(t.id, true); chkRerender(t.id); }
@@ -209,6 +223,30 @@ function chkOnProgress(p){
   chkRerender(p.taskId);
 }
 try{ window.__TAURI__.event.listen('checks-progress', ev=>chkOnProgress(ev&&ev.payload)); }catch(_){ }
+// "não rodou" (ferramenta ausente): confirmação simples, sem motivo longo — o registro diz o que não rodou e por quê.
+// Exportado (window.chkMissingConfirm): approveGate → chkApproveClick usa; o Aprovar inline (80, apBlkAct "naorodou") também.
+async function chkMissingConfirm(t, g){
+  if(!g || g.st!=='missing') return true;
+  if(!await askYes(`${chkMissText(g)}.\n\nAprovar e abrir o PR sem ${g.miss.length===1?'essa checagem':'essas checagens'}? (fica anotado na descrição do PR)`, 'Aprovar sem essa checagem')) return false;
+  const f=await chkLoadFp(t.id, true); const fp=(f&&f.fp&&f.fp.fingerprint)||'';
+  const reason=`não rodou — ${chkMissTools(g).join(', ')} não está instalado neste computador`;
+  const failing=g.miss.map(b=>b.label);
+  lsSet('chkOv:'+t.id, JSON.stringify({ fp, reason, at:Date.now(), failing, was:'missing' }));
+  invoke('checks_override_log',{ taskId:t.id, reason, fingerprint:fp, failing }).catch(()=>{});
+  return true;
+}
+try{ window.chkMissingConfirm=chkMissingConfirm; }catch(_){ }
+// "usar npm" (ou pnpm/yarn) neste projeto: grava checks.json › pm e roda de novo com o comando novo — nunca volta ao bun
+async function chkUsePm(t, pm){
+  try{
+    const cur=((await invoke('checks_config',{ taskId:null }))||{}).cfg||{};
+    await invoke('checks_save',{ cfg:Object.assign({}, cur, { pm }) });
+    Object.keys(chkCfg).forEach(k=>delete chkCfg[k]);
+    if(typeof chkDraft!=='undefined') Object.keys(chkDraft).forEach(k=>delete chkDraft[k]);
+    toast(`checagens deste projeto agora usam ${pm} — rodando de novo`,'ok');
+    await chkRun(t);
+  }catch(e){ showErr(e, 'Não salvou'); }
+}
 // "aprovar mesmo assim": exige motivo — vai pra descrição do PR e fica registrado (local + .cardume/checks-overrides.jsonl)
 // motivo: já escrito em outra tela (o "Aprovar mesmo assim…" do painel de provas, 80-aprovar) — não pergunta de novo
 async function chkOverride(t, g, motivo){
@@ -231,9 +269,9 @@ function chkPrBodyChecks(t){
   const g=chkGate(t); if(g.st==='none'||g.st==='loading') return '';
   const r=g.r||chkResGet(t.id);
   let s='\n\n## Verificação\n';
-  if(r && (g.st==='pass'||g.st==='fail'||(g.st==='override'&&g.was==='fail'))) s+=(r.results||[]).map(x=>`- ${x.ok?'✓':'✕'} ${x.label} — \`${x.cmd}\` · ${chkDur(x.durationMs)}${x.ok?'':x.timedOut?' · passou do tempo-limite':' · exit '+(x.exitCode==null?'?':x.exitCode)}`).join('\n')+'\n_rodadas pelo Starfork na cópia da tarefa_\n';
+  if(r && (['pass','fail','missing'].includes(g.st)||(g.st==='override'&&['fail','missing'].includes(g.was)))) s+=(r.results||[]).map(x=>x.notFound?`- – ${x.label} — \`${x.cmd}\` · não rodou (${x.notFound} não está instalado neste computador)`:`- ${x.ok?'✓':'✕'} ${x.label} — \`${x.cmd}\` · ${chkDur(x.durationMs)}${x.ok?'':x.timedOut?' · passou do tempo-limite':' · exit '+(x.exitCode==null?'?':x.exitCode)}`).join('\n')+'\n_rodadas pelo Starfork na cópia da tarefa_\n';
   else s+='_não rodou na versão final_\n';
-  if(g.st==='override') s+=`\nAtenção: aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${g.ov.reason}\n`;
+  if(g.st==='override') s+=g.was==='missing'?`\nAprovado com checagem que não rodou: ${g.ov.reason}\n`:`\nAtenção: aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${g.ov.reason}\n`;
   // transparência (onda 1.1): modo de testes fora do padrão, ou a tarefa tentou mudar o checks.json
   const tk=(state.tasks||[]).find(x=>x.id===t.id)||t;
   const notes=((((tk.spec||{}).verification||{}).tests||{}).modeNote)||[];
@@ -245,13 +283,14 @@ function chkDecorateApprove(btn, t){
   if(!btn||!t) return;
   if(typeof entregaNonCode==='function' && entregaNonCode(t)){ btn.innerHTML=`${IC.check} salvar entregáveis`; btn.title='salva os arquivos entregues numa pasta sua e conclui (sem PR)'; return; }
   chkRefresh(t.id);
-  const g=chkGate(t); const ok=chkCanApprove(g);
+  const g=chkGate(t); const ok=chkCanApproveOrConfirm(g);
   btn.classList.toggle('is-gated', !ok); btn.setAttribute('aria-disabled', ok?'false':'true');
   if(!ok) btn.title=chkBlockWhy(g)+' · clique pra ver a verificação';
 }
-function chkApproveClick(t){
+async function chkApproveClick(t){
   if(typeof entregaNonCode==='function' && entregaNonCode(t)){ approveShowEntrega(t); return; }
   const g=chkGate(t);
+  if(g.st==='missing'){ if(!await chkMissingConfirm(t, g)) return; return prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main'); }
   if(!chkCanApprove(g)){ toast(chkBlockWhy(g),'warn'); approveShowEntrega(t, 'enVerif'); return; }
   prPrepOpen(t.id, lsGet('prBase:'+t.id)||'main');
 }
@@ -346,7 +385,7 @@ async function approveGateRun(t){
   const pg=proofGate(t);
   if(pg.st==='unproven'){ toast(nPl(pg.missing.length,'requisito')+' sem prova — peça a prova ao agente, ou use "aprovar sem prova…" com um motivo','warn'); approveShowEntrega(t, 'enVerif'); return; }
   try{ await chkEnsure(t); }catch(_){ }
-  chkApproveClick(t);
+  await chkApproveClick(t);
 }
 async function approveNoProof(t){ if(await proofOverride(t)){ if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===t.id) renderWorkspace(); await approveGate(t); } }
 // ---- "Preparando o PR" (redesign p13): verificação real → push → criar ----
@@ -397,7 +436,14 @@ async function prPrepRun(t, base){
   const resHtml=r=>(r&&r.results||[]).map(x=>`${x.ok?'✓':'✕'} ${esc(x.label)} <span class="dim">${chkDur(x.durationMs)}</span>`).join(' · ');
   if(g.st==='none') prepMark(1,'ok','sem checagens configuradas no projeto — seguindo');
   else if(g.st==='pass') prepMark(1,'ok', resHtml(g.r));
-  else if(g.st==='override') prepMark(1,'ok', `<span style="color:var(--warn)">${IC.warn} aprovado ${g.was==='fail'?'com checagem falhando':'sem verificação'}: ${esc(g.ov.reason)}</span>`);
+  else if(g.st==='override') prepMark(1,'ok', `<span style="color:var(--warn)">${IC.warn} aprovado ${g.was==='missing'?'com checagem que não rodou':g.was==='fail'?'com checagem falhando':'sem verificação'}: ${esc(g.ov.reason)}</span>`);
+  else if(g.st==='missing'){
+    prepMark(1,'fail', esc(chkMissText(g)));
+    const f=$id('prepForce');
+    if(f){ f.textContent='seguir sem essa checagem'; f.style.display=''; f.onclick=async()=>{ if(!await chkMissingConfirm(t, g)) return; f.style.display='none';
+      prepMark(1,'ok', `<span style="color:var(--warn)">${IC.warn} seguiu sem ${esc(g.miss.map(x=>x.label).join(', '))} (não rodou)</span>`); prPrepFinish(t, base); }; }
+    return;
+  }
   else {
     const det = g.st==='fail' ? g.bad.map(c=>`<b>${esc(c.label)} falhou</b> <span class="dim">· ${c.timedOut?'passou do tempo-limite':'exit '+(c.exitCode==null?'?':c.exitCode)}</span><div class="mono" style="white-space:pre-wrap;font-size:var(--fs-xs);margin-top:4px;color:var(--crit);max-height:120px;overflow:auto">${esc(String(c.log||'').split('\n').slice(-12).join('\n'))}</div>`).join('')
       : esc(chkBlockWhy(g)||'não deu pra conferir a verificação');
