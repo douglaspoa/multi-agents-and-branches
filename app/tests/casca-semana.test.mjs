@@ -107,3 +107,29 @@ test('CSS: só o miolo rola; rodapé fixo; nada de rolagem lateral nas grades', 
   assert.match(CSS, /\.semcols\{display:grid;gap:10px;min-width:0\}/);
   assert.match(CSS, /@media \(max-height:740px\)\{[\s\S]*?\.sbfoot \.sbgrp\{display:none\}/, 'a 700px de altura o rodapé cabe');
 });
+
+test('Minha semana: cada tarefa no dia da última mudança; concluídas recolhidas; >7 dias concluída some (28/10)', () => {
+  const src = read('js/76-casca-semana.js');
+  const pure = src.slice(src.indexOf('// @mws-puro-inicio'), src.indexOf('// @mws-puro-fim'));
+  const dia0 = src.match(/function semDia0\(ms\)\{[^\n]*\n/)[0];
+  const consts = src.match(/const SEM_DIAS_LONGO=[^\n]*\n/)[0] + src.match(/const SEM_MESES=[^\n]*\n/)[0];
+  const M = new Function('semEntregueEm', consts + dia0 + pure + '\nreturn { semFim, semDiasMinha };')((x) => x.ent || 0);
+  const now = new Date(2026, 9, 28, 15, 0).getTime(), D = 86400000;
+  const L = [
+    { id: 'a', mod: now - 1000, st: 'running' },
+    { id: 'b', mod: now - D, st: 'review' },
+    { id: 'c', mod: now - 3 * D, st: 'running' },
+    { id: 'd', mod: now - 2 * D, st: 'closed', ent: now - 2 * D },
+    { id: 'e', mod: now - 10 * D, st: 'done', done: true, ent: now - 10 * D },
+    { id: 'f', mod: now - 10 * D, st: 'blocked' },
+  ];
+  const r = M.semDiasMinha(L, now);
+  assert.deepEqual(r.map((d) => d.l), ['Hoje', 'Ontem', r[2].l, r[3].l, 'Antes']);
+  assert.deepEqual(r[0].abertas.map((x) => x.id), ['a'], 'Hoje só tem o que mudou hoje');
+  assert.deepEqual(r[1].abertas.map((x) => x.id), ['b']);
+  assert.ok(r.some((d) => d.fim.some((x) => x.id === 'd')), 'concluída (mesmo com PR aberto) vai pras concluídas do dia');
+  assert.ok(!r.some((d) => [...d.abertas, ...d.fim].some((x) => x.id === 'e')), 'concluída há mais de 7 dias sai da semana');
+  assert.deepEqual(r.at(-1).abertas.map((x) => x.id), ['f'], 'aberta antiga vai pra "Antes", não pra Hoje');
+  assert.equal(M.semFim({ st: 'closed' }), true);
+  assert.match(src, /x\.card&&!semFim\(x\)&&x\.card\.assignee===me/, 'Devolver só em aberta');
+});
