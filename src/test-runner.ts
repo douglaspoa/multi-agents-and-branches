@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { liveCtx, resolveIn, toolPath } from "./engine/bin-resolve.ts";
 import { run as runCmd, sleep } from "./util/run.ts";
 
 export type RunnerKind = "npm" | "pnpm" | "yarn" | "bun" | "pytest" | "cargo" | "go" | "swift";
@@ -119,6 +120,20 @@ export function detectRunner(dir: string): Runner | null {
     return { kind: "pytest", cmd: py, args: ["-m", "pytest", "-q"], label: "pytest" };
   }
   return null;
+}
+
+/** O binário existe nesta máquina? Só disco (PATH + pastas de toolchain do resolvedor único) — sem shell de login. */
+export function hasBinFast(bin: string): boolean {
+  try { return !!resolveIn(bin, { ...liveCtx(bin), slow: false }).bin; } catch { return false; }
+}
+/**
+ * bun.lock (ou pnpm/yarn) sem o gerenciador instalado → o npm roda o MESMO script `test` (28/10: "bun run test"
+ * dava exit 127 e a verificação ficava vermelha em loop). Nada instalado → o runner como veio (o "não está
+ * instalado" do runTests explica). `has` injetável pros testes.
+ */
+export function installedRunner(r: Runner | null, has: (bin: string) => boolean = hasBinFast): Runner | null {
+  if (!r || !["pnpm", "yarn", "bun"].includes(r.kind) || r.cmd !== r.kind || has(r.cmd) || !has("npm")) return r;
+  return { kind: "npm", cmd: "npm", args: ["test", "--silent"], label: `npm test (${r.kind} não instalado)` };
 }
 
 function hasPytest(dir: string): boolean {
@@ -304,14 +319,20 @@ const tailOf = (s: string, n = 60) => s.split("\n").slice(-n).join("\n").trim();
 export async function runTests(dir: string, o: { timeoutMs?: number; runner?: Runner | null } = {}): Promise<TestRun> {
   let runner: Runner | null;
   try {
-    runner = o.runner !== undefined ? o.runner : detectRunner(dir);
+    runner = o.runner !== undefined ? o.runner : installedRunner(detectRunner(dir));
   } catch (err) {
     return { ran: true, passed: false, detail: (err as Error).message };
   }
   if (!runner) return { ran: false, passed: true, detail: "sem suíte de testes detectada" };
   const timeoutMs = o.timeoutMs ?? TEST_TIMEOUT_MS;
   const t0 = Date.now();
-  const r = await spawnCapture(runner.cmd, runner.args, dir, timeoutMs);
+  // app aberto pelo Finder: PATH mínimo — o binário vem do resolvedor único (~/.bun/bin, volta, nvm…) com a pasta dele no PATH
+  let bin = runner.cmd, pathEnv: string | undefined;
+  if (process.platform !== "win32" && !bin.includes("/")) {
+    const found = resolveIn(bin, { ...liveCtx(bin), slow: false }).bin;
+    if (found) { bin = found; pathEnv = toolPath(found, process.env.PATH); }
+  }
+  const r = await spawnCapture(bin, runner.args, dir, timeoutMs, pathEnv);
   const durationMs = Date.now() - t0;
   const counts = parseCounts(runner.kind, r.out);
   const tail = tailOf(r.out);
@@ -396,7 +417,7 @@ export function releaseOnExit(path: string): () => void {
   return () => { process.off("exit", free); free(); };
 }
 
-function spawnCapture(cmd: string, args: string[], cwd: string, timeoutMs: number): Promise<{ code: number | null; out: string; timedOut: boolean; spawnErr?: string }> {
+function spawnCapture(cmd: string, args: string[], cwd: string, timeoutMs: number, pathEnv?: string): Promise<{ code: number | null; out: string; timedOut: boolean; spawnErr?: string }> {
   return new Promise((resolve) => {
     const win = process.platform === "win32";
     let out = "";
@@ -406,7 +427,7 @@ function spawnCapture(cmd: string, args: string[], cwd: string, timeoutMs: numbe
     let cp: ReturnType<typeof spawn>;
     // NODE_TEST_CONTEXT herdado (o motor rodando dentro de um `node --test`) faz o node:test do projeto falar o
     // protocolo interno com o pai e sair 0 — a suíte do projeto precisa rodar como se fosse a primeira
-    const env: NodeJS.ProcessEnv = { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1" };
+    const env: NodeJS.ProcessEnv = { ...process.env, CI: "1", FORCE_COLOR: "0", NO_COLOR: "1", ...(pathEnv ? { PATH: pathEnv } : {}) };
     delete env.NODE_TEST_CONTEXT;
     try {
       // Windows: nada de shell:true com nomes vindos do diff — cmd.exe /d /s /c com cada argumento escapado

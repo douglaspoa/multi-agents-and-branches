@@ -652,7 +652,7 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .vf-pill.good{color:var(--good)}.vf-pill.crit{color:var(--crit)}.vf-pill.warn{color:var(--warn)}.vf-pill.run{color:var(--accent)}.vf-pill.muted{color:var(--text-3)}
 .en-verif.vf-fail{border-color:color-mix(in srgb,var(--crit) 45%,transparent)}
 .en-verif.vf-pass{border-color:color-mix(in srgb,var(--good) 35%,transparent)}
-.en-verif.vf-stale,.en-verif.vf-notrun,.en-verif.vf-override{border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
+.en-verif.vf-stale,.en-verif.vf-notrun,.en-verif.vf-override,.en-verif.vf-missing{border-color:color-mix(in srgb,var(--warn) 35%,transparent)}
 .vf-sum{font:400 var(--fs-base)/1.5 var(--display);color:var(--text-2);margin:-2px 0 10px}
 .vf-sum b{color:var(--text)}
 .vf-gate{display:flex;align-items:center;gap:6px;color:var(--text)}.vf-gate svg{width:14px;height:14px;color:var(--good);flex:none}
@@ -665,6 +665,11 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .vf-row.ok .vf-ic{color:var(--good);border-color:var(--good);background:color-mix(in srgb,var(--good) 12%,transparent)}
 .vf-row.fail .vf-ic{color:var(--crit);border-color:var(--crit);background:color-mix(in srgb,var(--crit) 12%,transparent)}
 .vf-row.run .vf-ic{border-color:var(--accent)}
+.vf-row.skip .vf-ic{color:var(--warn);border-color:var(--warn);border-style:dashed}
+.vf-nf{color:var(--warn)}
+.vf-src{font:500 var(--fs-xs) var(--code);color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:none;max-width:45%}
+.vf-missact{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ckrow input.ckcmdin{flex:1 1 auto;width:auto;min-width:0;height:28px;font-size:var(--fs-xs);margin-top:0}
 .vf-t{flex:1;min-width:0;display:flex;align-items:baseline;gap:10px}
 .vf-t b{font:500 var(--fs-base) var(--display);white-space:nowrap}
 .vf-cmd{font-size:var(--fs-xs);color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
@@ -687,6 +692,8 @@ body.nogit [data-rowpr],body.nogit #sumPr{display:none!important}
 .ckfoot{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:var(--fs-xs)}
 .ckfoot input[type=number]{width:58px;height:28px}
 .ckfile{font-size:var(--fs-xs)}
+.ckpmnote{font-size:var(--fs-xs);margin:-2px 0 4px}
+.ckrow select[data-ckpm]{min-width:0;max-width:100%;flex:0 1 auto}
 /* Ver funcionando */
 .en-live{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:12px;border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 7%,var(--card-bg))}
 .en-live-dot{width:9px;height:9px;border-radius:999px;background:var(--good);box-shadow:0 0 0 4px color-mix(in srgb,var(--good) 20%,transparent);flex:none}

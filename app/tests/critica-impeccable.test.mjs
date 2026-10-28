@@ -53,7 +53,7 @@ test('portão de prova vale em TODA porta de aprovação (cabeçalho, card da Ce
   assert.match(en, /proofGate\(t\)\.st==='unproven' \? `<button class="btn sm ghost" data-rownoproof=[\s\S]*?<button class="btn primary sm" data-rowproof=/);
   assert.match(qf, /bindClick\('sumPr', \(\)=>\{ \$id\('sumOverlay'\)\.style\.display='none'; approveGate\(t\); \}\);/);
   // Entrega: vfApprove/vfOverride passam pelo portão; os botões de lá são neutros (o verde é o do cabeçalho)
-  assert.match(en, /bindClick\('vfApprove', \(\)=>\{ const g=chkGate\(t\); if\(chkCanApprove\(g\)\) approveGate\(t\); \}\);/);
+  assert.match(en, /bindClick\('vfApprove', \(\)=>\{ const g=chkGate\(t\); if\(chkCanApproveOrConfirm\(g\)\) approveGate\(t\); \}\);/);
   assert.match(en, /chkOverride\(t, g\)\)\{ renderWorkspace\(\); approveGate\(t\); \}/);
   assert.match(en, /<button class="btn" id="vfAskProof"/); assert.match(en, /<button class="btn" id="vfApprove"/);
   assert.ok(!/class="btn primary" id="vf(Approve|AskProof)"/.test(en), 'um verde por tela');

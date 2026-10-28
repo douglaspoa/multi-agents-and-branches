@@ -272,15 +272,20 @@ async function chkCfgEditor(box, taskId, onSaved){
   if(!d){
     box.innerHTML='<div class="dim" style="font-size:var(--fs-sm)">lendo as checagens do projeto…</div>';
     try{ const c=await invoke('checks_config',{ taskId:taskId||null });
-      d=chkDraft[key]={ detected:(c&&c.detected)||[], file:(c&&c.file)||'', cfg:JSON.parse(JSON.stringify((c&&c.cfg)||{})) }; }
+      d=chkDraft[key]={ detected:(c&&c.detected)||[], file:(c&&c.file)||'', pm:(c&&c.pm)||null, cfg:JSON.parse(JSON.stringify((c&&c.cfg)||{})) }; }
     catch(e){ box.innerHTML=`<div class="dim" style="font-size:var(--fs-sm)">${esc(humanErr(e,'Não consegui ler as checagens').msg)}</div>`; return; }
   }
   const cfg=d.cfg; cfg.enabled=cfg.enabled||{}; cfg.custom=Array.isArray(cfg.custom)?cfg.custom:[];
+  cfg.cmd=(cfg.cmd&&typeof cfg.cmd==='object')?cfg.cmd:{};
+  // gerenciador de pacotes (projeto JS): "automático" = o do lockfile se estiver instalado, senão o que existir
+  const pm=d.pm, pmOpts=['npm','pnpm','yarn','bun'];
+  const pmRow=pm?`<label class="ckrow"><span class="dim">gerenciador</span><select class="in" data-ckpm><option value="">automático — ${esc(pm.lock)} (lockfile)${pm.note&&!pm.choice?' · usando '+esc(pm.used):''}</option>${pmOpts.map(p=>`<option value="${p}"${cfg.pm===p?' selected':''}>${p}${(pm.available||[]).includes(p)?'':' (não instalado)'}</option>`).join('')}</select></label>${pm.note?`<div class="dim ckpmnote">${esc(pm.note)}</div>`:''}`:'';
   const paint=()=>{
     const on=x=>cfg.enabled[x.id]!==undefined?!!cfg.enabled[x.id]:!!x.on;
     box.innerHTML=`<div class="ckcfg">
       <div class="ckh"><b>Checagens antes de aprovar</b><span class="dim">rodam na cópia de cada tarefa; com alguma falhando, "aprovar e abrir PR" fica bloqueado (dá pra liberar com um motivo)</span></div>
-      ${d.detected.length?d.detected.map(x=>`<label class="ckrow"><input type="checkbox" data-ckon="${escA(x.id)}"${on(x)?' checked':''}><b>${esc(x.label)}</b><span class="mono ckcmd">${esc(x.cmd)}</span><span class="cksrc">detectado · ${esc(x.source)}</span></label>`).join('')
+      ${pmRow}
+      ${d.detected.length?d.detected.map(x=>`<div class="ckrow"><input type="checkbox" data-ckon="${escA(x.id)}"${on(x)?' checked':''} aria-label="ligar ${escA(x.label)}"><b>${esc(x.label)}</b><input class="in mono ckcmdin" data-ckcmd="${escA(x.id)}" value="${escA(cfg.cmd[x.id]||x.cmd)}" placeholder="${escA(x.cmd)}" title="comando que o Starfork roda — editar vale na próxima rodada" aria-label="comando de ${escA(x.label)}"><span class="cksrc" title="${escA(x.note||'')}">${cfg.cmd[x.id]&&cfg.cmd[x.id]!==x.cmd?'editado':'detectado · '+esc(x.source)}</span></div>`).join('')
         :'<div class="dim ckempty">nada detectado automaticamente (sem package.json com lint/test, Cargo.toml, pytest ou go.mod) — adicione um comando abaixo</div>'}
       ${cfg.custom.map((x,i)=>`<div class="ckrow ckcustom"><input type="checkbox" data-ccon="${i}"${x.on===false?'':' checked'}><input class="in" data-cclabel="${i}" value="${escA(x.label||'')}" placeholder="nome (ex.: Testes E2E)"><input class="in mono" data-cccmd="${i}" value="${escA(x.cmd||'')}" placeholder="comando (ex.: npx playwright test)"><button class="btn sm ghost" data-ccdel="${i}" title="remover">✕</button></div>`).join('')}
       <div class="ckmode"><b>Testes do portão</b><span class="dim">como o Starfork roda a suíte do projeto antes de entregar (vale pra todas as tarefas deste projeto)</span>
@@ -292,6 +297,8 @@ async function chkCfgEditor(box, taskId, onSaved){
         <span style="flex:1"></span><span class="dim mono ckfile" title="${escA(d.file)}">.cardume/checks.json</span><button class="btn sm primary" data-cksave="1">salvar checagens</button></div>
     </div>`;
     box.querySelectorAll('[data-ckon]').forEach(el=>el.onchange=()=>{ cfg.enabled[el.dataset.ckon]=el.checked; });
+    box.querySelectorAll('[data-ckcmd]').forEach(el=>el.oninput=()=>{ const id=el.dataset.ckcmd, det=(d.detected.find(x=>x.id===id)||{}).cmd, v=el.value.trim(); if(v && v!==det) cfg.cmd[id]=v; else delete cfg.cmd[id]; });
+    box.querySelectorAll('[data-ckpm]').forEach(el=>el.onchange=()=>{ if(el.value) cfg.pm=el.value; else delete cfg.pm; });
     box.querySelectorAll('[data-ccon]').forEach(el=>el.onchange=()=>{ cfg.custom[+el.dataset.ccon].on=el.checked; });
     box.querySelectorAll('[data-cclabel]').forEach(el=>el.oninput=()=>{ cfg.custom[+el.dataset.cclabel].label=el.value; });
     box.querySelectorAll('[data-cccmd]').forEach(el=>el.oninput=()=>{ cfg.custom[+el.dataset.cccmd].cmd=el.value; });
@@ -303,7 +310,8 @@ async function chkCfgEditor(box, taskId, onSaved){
     box.querySelectorAll('[data-ckover]').forEach(el=>el.oninput=()=>{ const n=Math.round(+el.value); if(n>=1&&n<=1000) cfg.fullSuiteOver=n; });
     box.querySelectorAll('[data-cksave]').forEach(el=>el.onclick=async()=>{
       el.disabled=true; const o=el.textContent; el.textContent='salvando…';
-      const clean={ ...cfg, custom:cfg.custom.filter(x=>String(x.cmd||'').trim()).map(x=>({ ...x, label:String(x.label||'').trim()||String(x.cmd).trim(), cmd:String(x.cmd).trim() })) };
+      const cmdClean=Object.fromEntries(Object.entries(cfg.cmd||{}).filter(([,v])=>String(v||'').trim()));
+      const clean={ ...cfg, cmd:cmdClean, custom:cfg.custom.filter(x=>String(x.cmd||'').trim()).map(x=>({ ...x, label:String(x.label||'').trim()||String(x.cmd).trim(), cmd:String(x.cmd).trim() })) };
       try{ await invoke('checks_save',{ cfg:clean }); Object.keys(chkDraft).forEach(k=>delete chkDraft[k]);
         if(typeof chkCfg!=='undefined') Object.keys(chkCfg).forEach(k=>delete chkCfg[k]);
         toast('checagens salvas — valem pras próximas aprovações','ok'); if(onSaved) onSaved(); else chkCfgEditor(box, taskId); }

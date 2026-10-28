@@ -189,6 +189,11 @@ test('aprovar: a verificação do projeto pendente/falhando vira motivo NA linha
   const f = P.apVerifBloqueio({ st: 'fail', bad: [{ label: 'testes' }, { label: 'lint' }] });
   assert.equal(f.kind, 'verif-falhou'); assert.match(f.why, /falhou \(testes, lint\)/); assert.deepEqual(f.acts, ['pedir', 'chkwhy', 'verif']);
   assert.deepEqual(P.apVerifBloqueio({ st: 'running' }).acts, ['retry']);
+  // 28/10: exit 127 (bun não instalado) = "não rodou" — confirmação simples, sem motivo longo nem "pedir alteração"
+  const nr = P.apVerifBloqueio({ st: 'missing', miss: [{ label: 'Linter', notFound: 'bun' }, { label: 'Testes', notFound: 'bun' }] });
+  assert.equal(nr.kind, 'nao-rodou');
+  assert.match(nr.why, /Linter, Testes não rodaram: bun não está instalado/);
+  assert.deepEqual(nr.acts, ['naorodou', 'entrega']);
   assert.match(P.apVerifBloqueio({ st: 'err', err: 'worktree sumiu\nstack' }).why, /: worktree sumiu\.$/);
 });
 test('aprovar: sem PR NÃO passa mais pelo approveGate (que navega pra Entrega); abre o PR pelo prCreateRun, na linha', () => {

@@ -35,7 +35,7 @@ import { attachProofs, proofKind, replaceReport, type AttachResult } from "./pr-
 import { changeGate, extraCapGate, extraIsStale, extraLabel, extraReportLines, extraStageAgents, extraStagePrompt, finishExtraStage, newExtraStage, resolveExtraAgent, runningExtra, upsertExtraStage, type ExtraAgent, type ExtraStage } from "./revisao-alteracao.ts";
 import type { AgentRole, AgentStatus, Role, TaskRow, TaskSpec } from "./types.ts";
 import { readSpeaker, speakerLine, speakerTag } from "./quem.ts";
-import { agentClaimFrom, baselineRun, claimFromReq, detectRunner, onExitCleanup, procStartMs, sameProcess, testGate, testTimeoutMs, type Runner, type Verification } from "./test-runner.ts";
+import { agentClaimFrom, baselineRun, claimFromReq, detectRunner, installedRunner, onExitCleanup, procStartMs, sameProcess, testGate, testTimeoutMs, type Runner, type Verification } from "./test-runner.ts";
 import { affectedPlan, detectCi, effectiveTestMode, parseTestCfg, readTestCfg, recordDuration, suggestAffected, testModeNote, type TestMode } from "./test-plan.ts";
 import { guardSummary, prepareGuardInBackground, runGuard, type GuardResult } from "./guard.ts";
 
@@ -1019,7 +1019,7 @@ export class Orchestrator {
     const hasCi = detectCi(task.worktree);
     let plan: { scope: "afetados" | "inteira"; runner: Runner | null; sig: string; ci?: boolean } | undefined;
     try {
-      const runner = detectRunner(task.worktree);
+      const runner = installedRunner(detectRunner(task.worktree)); // bun.lock sem bun → npm (não "exit 127" em loop)
       const fast = (mode === "auto" || mode === "afetados") ? cfg.testFast : undefined;
       // "afetados" sem CI: a suíte completa roda ao abrir o PR (é o combinado da sugestão automática)
       const prFull = mode === "afetados" && !!opts.forPr && !hasCi;
