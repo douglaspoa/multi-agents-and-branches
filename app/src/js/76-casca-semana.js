@@ -397,7 +397,7 @@ function semPaint(k){
 function meuEventos(){
   const me=semMe(), out=[], its=semItens();
   const tt=s=>`<span class="tt">${esc(mdTitle(String(s||'')))}</span>`;
-  const quando=ms=>ms?(agoShort(ms)==='agora'?'agora':'há '+agoShort(ms).replace('min',' min').replace(/(\d)h$/,'$1 h').replace(/(\d)d$/,'$1 dias')):'';
+  const quando=ms=>ms?(agoShort(ms)==='agora'?'agora':'há '+agoShort(ms).replace('min',' min').replace(/(\d)h$/,'$1 h').replace(/^1d$/,'1 dia').replace(/(\d)d$/,'$1 dias')):'';
   const meta=(x, ms, extra)=>[x.code, quando(ms), extra].filter(Boolean).join(' · ');
   for(const p of ((typeof state!=='undefined'&&state.pending)||[])){
     const t=(state.tasks||[]).find(y=>y.id===p.taskId); if(!t) continue; const x=semItemLocal(t);
@@ -430,6 +430,27 @@ function meuEventos(){
   }
   return out.sort((a,b)=>(b.ms||0)-(a.ms||0));
 }
+// @mws-puro-inicio — Minha semana por dia (testado em app/tests/casca-semana.test.mjs)
+// "acabou do meu lado": entregue OU concluída (mesmo com PR ainda aberto) — sai das abertas e não tem Devolver
+function semFim(x){ return !!x && (!!x.done || x.st==='done' || x.st==='closed'); }
+function semDiasMinha(list, now){
+  const d0=semDia0(now), DIA=86400000, out=new Map();
+  const nome=(ts)=>{ const d=new Date(ts), dd=semDia0(ts), n=Math.round((d0-dd)/DIA);
+    if(n<=0) return { key:'d0', ord:0, l:'Hoje', s:SEM_DIAS_LONGO[d.getDay()]+', '+d.getDate() };
+    if(n===1) return { key:'d1', ord:1, l:'Ontem', s:SEM_DIAS_LONGO[d.getDay()]+', '+d.getDate() };
+    if(n<7) return { key:'d'+n, ord:n, l:SEM_DIAS_LONGO[d.getDay()].replace(/^./,c=>c.toUpperCase()), s:d.getDate()+' de '+SEM_MESES[d.getMonth()] };
+    return { key:'antes', ord:99, l:'Antes', s:'mais de 7 dias' }; };
+  for(const x of (list||[])){
+    const fim=semFim(x), ts=(fim && typeof semEntregueEm==='function' && semEntregueEm(x)) || x.mod || 0;
+    if(fim && ts && d0-semDia0(ts)>=7*DIA) continue; // concluída há mais de 7 dias não entra na semana
+    const g=nome(ts||now); if(!out.has(g.key)) out.set(g.key, { ...g, abertas:[], fim:[] });
+    out.get(g.key)[fim?'fim':'abertas'].push(x);
+  }
+  const by=(a,b)=>(b.mod||0)-(a.mod||0);
+  return [...out.values()].sort((a,b)=>a.ord-b.ord).map(d=>({ ...d, abertas:d.abertas.sort(by), fim:d.fim.sort(by) }));
+}
+// @mws-puro-fim
+const semMwsOpen={};
 let meuEvAtual=[];
 function meuHtml(){
   const me=semMe(), its=semItens(), ev=meuEventos(); meuEvAtual=ev;
@@ -437,15 +458,15 @@ function meuHtml(){
   const apSel=typeof apMeuSel==='function'?apMeuSel():'';
   const evH=ev.length?ev.map((e,i)=>`<div class="mev${e.tid&&e.tid===apSel?' sel':''}"${e.tid?` data-aptid="${escA(e.tid)}"`:''}><span class="mev-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="mev-tx"><div class="mev-s">${e.s}</div>${e.m?`<div class="mev-m">${esc(e.m)}</div>`:''}</div><div class="mev-a">${e.a.map((a,j)=>a.menu?`<button type="button" class="btn sm quiet" data-meva="${i}:${j}" aria-haspopup="menu">${esc(a.l)} ${semIc('chev')}</button>`:`<button type="button" class="btn sm${a.pri?' primary':''}" data-meva="${i}:${j}">${esc(a.l)}</button>`).join('')}</div></div>${e.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(e.tid):''}`).join('')
     :`<div class="mev-vazio">${semIc('check')} Nada esperando por você agora.</div>`;
-  // Minha semana: hoje (o que está comigo e não está em "Precisa de mim"), entregue ontem, e a minha fila
-  const t0=semDia0(Date.now()), ontem=t0-86400000;
+  // Minha semana (28/10, dono: "diz Hoje mas aparecem tarefas de outros dias"): cada tarefa no DIA da última mudança
+  // dela (Hoje, Ontem, e os dias da semana), abertas primeiro; concluídas ficam recolhidas no dia em que terminaram;
+  // mais antigas que 7 dias vão pra "Antes"; a fila (ainda não começou) continua no fim. Devolver só em aberta.
   const mine=its.filter(x=>x.who===me || (!x.card));
-  const hoje=mine.filter(x=>!x.done && x.bucket!=='fila' && x.bucket!=='aguardando' && !(x.local && x.bucket==='prontas'));
-  const ont=mine.filter(x=>{ const e=semEntregueEm(x); return e>=ontem && e<t0; });
-  const fila=mine.filter(x=>!x.done && x.bucket==='fila');
-  const linha=x=>`<div class="mws-it" role="button" tabindex="0" data-semopen="${escA(x.id)}"><span class="mws-code">${esc(x.code||'')}</span><span class="mws-t">${esc(mdTitle(x.titulo))}</span>${semChip(x)}${x.card&&!x.done&&x.card.assignee===me?`<button type="button" class="btn sm quiet" data-semdev="${escA(x.id)}" title="devolver pro time (pede o motivo)">${semIc('undo')}Devolver</button>`:''}</div>`;
-  const dia=(l, s, L)=>`<div class="mws-day"><div class="mws-d">${esc(l)}<span>${esc(s)}</span></div><div>${L.length?L.map(linha).join(''):'<div class="mws-nada">Nada.</div>'}</div></div>`;
-  const dOnt=new Date(ontem);
+  const fila=mine.filter(x=>!semFim(x) && x.bucket==='fila');
+  const linha=x=>`<div class="mws-it${semFim(x)?' fim':''}" role="button" tabindex="0" data-semopen="${escA(x.id)}"><span class="mws-code">${esc(x.code||'')}</span><span class="mws-t">${esc(mdTitle(x.titulo))}</span>${semChip(x)}${x.card&&!semFim(x)&&x.card.assignee===me?`<button type="button" class="btn sm quiet mws-dev" data-semdev="${escA(x.id)}" title="devolver pro time (pede o motivo)">${semIc('undo')}Devolver</button>`:''}</div>`;
+  const dias=semDiasMinha(mine.filter(x=>x.bucket!=='fila' || semFim(x)), Date.now());
+  const diaH=d=>{ const ab=d.abertas, fe=d.fim, key='mws:'+d.key, open=!!semMwsOpen[key];
+    return `<div class="mws-day"><div class="mws-d">${esc(d.l)}<span>${esc(d.s)}</span></div><div>${ab.map(linha).join('')}${fe.length?`<button type="button" class="mws-fim" data-mwsfim="${escA(key)}" aria-expanded="${open}">${semIc('check')}${fe.length} ${fe.length===1?'concluída':'concluídas'} ${open?'▾':'▸'}</button>${open?fe.map(linha).join(''):''}`:''}${!ab.length&&!fe.length?'<div class="mws-nada">Nada.</div>':''}</div></div>`; };
   const sent=semCards().filter(c=>c.created_by===me && c.assignee && c.assignee!==me && !semDelivered(c) && c.status!=='cancelled').map(semItemCard).sort((a,b)=>b.mod-a.mod);
   const sentH=sent.length?sent.map(x=>`<div class="mmd" role="button" tabindex="0" data-semopen="${escA(x.id)}">${personAv(x.who,{ decor:true })}<span class="mmd-t">${esc(mdTitle(x.titulo))}</span><span></span><span class="mmd-s" style="color:${x.trav?'var(--st-err)':stColor(x.st)}">${esc(personName(x.who,{ noYou:true }))} · ${esc(x.trav?'travada':stLabel(x.st))}</span></div>`).join('')
     :`<div class="mws-nada">${semTemTime()?'Nada que você mandou está aberto.':'Entre num time pra mandar demandas pra outras pessoas.'}</div>`;
@@ -453,7 +474,7 @@ function meuHtml(){
     <div class="semsec-h"><h2>Precisa de mim</h2><span class="n">${ev.length} · sai daqui quando você age${ev.some(e=>e.tid)?' · J/K troca, Espaço mostra as provas, A aprova, P pede alteração':''}</span></div>
     <section class="mevs" aria-label="Precisa de mim">${evH}</section>
     <div class="mw2"><section class="mws" aria-label="Minha semana"><div class="semsec-h"><h2>Minha semana</h2></div>
-      ${dia('Hoje', SEM_DIAS_LONGO[new Date(t0).getDay()]+', '+new Date(t0).getDate(), hoje)}${dia('Ontem', SEM_DIAS_LONGO[dOnt.getDay()]+', '+dOnt.getDate(), ont)}${dia('Na fila', 'próximas', fila)}</section>
+      ${dias.length?dias.map(diaH).join(''):'<div class="mws-nada">Nada com você nesta semana.</div>'}${fila.length?diaH({ key:'fila', l:'Na fila', s:'ainda não começou', abertas:fila, fim:[] }):''}</section>
     <aside class="mmds" aria-label="Mandei pro time"><div class="semsec-h"><h2>Mandei pro time</h2><span class="n">${sent.length}</span></div>${sentH}</aside></div></div>`;
 }
 function semChip(x){
@@ -749,6 +770,7 @@ function semSideSync(){
 
 // ===================== fiação das páginas =====================
 function semWire(pg, k){
+  pg.querySelectorAll('[data-mwsfim]').forEach(b=>{ b.onclick=()=>{ const k=b.dataset.mwsfim; semMwsOpen[k]=!semMwsOpen[k]; semPaint('meu'); }; });
   pg.querySelectorAll('[data-semopen]').forEach(el=>{ el.onclick=(e)=>{ const b=e.target.closest('button'); if(b && b!==el) return; semAbrir(semFind(el.dataset.semopen)); };
     if(el.getAttribute('role')==='button') el.onkeydown=(e)=>{ if(e.target===el && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); el.click(); } }; });
   pg.querySelectorAll('[data-semmenu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); semMenu(b, semFind(b.dataset.semmenu)); });

@@ -309,3 +309,11 @@
 .plideia .ndchip{color:var(--text-2);gap:6px}
 .plideia .ndchip .semi{width:13px;height:13px;color:var(--purple)}
 .plideia .lnk{font-size:var(--fs-xs)}
+/* Minha semana por dia (28/10): concluídas recolhidas no dia, sem Devolver; Devolver só aparece no hover/foco da linha */
+.mws-fim{display:inline-flex;align-items:center;gap:6px;margin:4px 8px;padding:2px 8px;border:0;border-radius:999px;background:transparent;color:var(--muted);font-size:var(--fs-xs);cursor:pointer}
+.mws-fim:hover{background:var(--surface);color:var(--text)}
+.mws-fim .semi{width:12px;height:12px}
+.mws-it.fim .mws-t{color:var(--muted)}
+.mws-it .mws-dev{opacity:0;transition:opacity .12s}
+.mws-it:hover .mws-dev,.mws-it:focus-within .mws-dev{opacity:1}
+@media (hover:none){.mws-it .mws-dev{opacity:1}}
