@@ -8,7 +8,7 @@ const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); as
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const JS = read('js/80-aprovar.js'), RV = read('js/63-revisao-pr.js'), HTML = read('index.html'), CSS = read('css/99-aprovar.css');
 const P = new Function('esc', 'escA', cut(RV, '// @revpr-puro-inicio', '// @revpr-puro-fim') + cut(JS, '// @ap-puro-inicio', '// @ap-puro-fim')
-  + '\nreturn { rvGatesOf, apMotivoOk, apDecide, apChips, apAoAprovar, apFrase, apPode, apOndaDepois, apSugestoes, apNav, conflitoPedido, conflitoAviso, conflitoComentario, AP_UNDO_MS };')(esc, esc);
+  + '\nreturn { rvGatesOf, apMotivoOk, apDecide, apChips, apAoAprovar, apFrase, apPode, apOndaDepois, apSugestoes, apNav, conflitoPedido, conflitoAviso, conflitoComentario, apVerifBloqueio, apEncerrarPlano, apEncerrarAtividade, AP_UNDO_MS };')(esc, esc);
 
 // portões como a aba PR monta (rvGatesOf), com o que muda em cada caso
 const gates = (o = {}) => P.rvGatesOf({
@@ -106,8 +106,8 @@ test('API exportada pra aba do épico: proofPanel, aprovarTarefa, pedirAlteracao
   assert.match(JS, /new CustomEvent\('sf:epico-ultima-integrada', \{ detail:\{ epicId:eid \} \}\)/);
   assert.match(JS, /function proofPanel\(taskId, mode\)\{\n  mode=\['full','compact','task'\]/);
 });
-test('não duplica regra: portões do rvGatesOf, PR pelo approveGate, merge pelo mergePrRun, motivo no checks_override_log', () => {
-  assert.match(JS, /rvGatesOf\(\{/); assert.match(JS, /await approveGate\(t\)/); assert.match(JS, /mergePrRun\(id\)/);
+test('não duplica regra: portões do rvGatesOf, PR pelo prCreateRun (a criação do "Preparando o PR"), merge pelo mergePrRun, motivo no checks_override_log', () => {
+  assert.match(JS, /rvGatesOf\(\{/); assert.match(JS, /await prCreateRun\(t,/); assert.match(JS, /mergePrRun\(id\)/);
   assert.match(JS, /checks_override_log/); assert.match(JS, /proofOverride\(t, motivo\)/); assert.match(JS, /rqChangeText\(/); assert.match(JS, /fwSendText\(taskId, msg\)/);
   const PR = read('js/21-pull-request.js');
   assert.match(PR, /async function mergePrRun\(taskId\)\{ await invoke\('merge_pr',\{ taskId, method:'squash' \}\)/);
@@ -178,4 +178,56 @@ test('resolver conflito: todas as telas chamam resolverConflito (nada de resolve
   }
   assert.match(JS, /window\.resolverConflito=resolverConflito/);
   assert.match(read('js/20-workspace-tarefa.js'), /await resolverConflito\(taskId, btn\)/);
+});
+
+// ===== bug 28/10: "ao clicar em Aprovar ele me joga pra dentro da tarefa sem aprovar" + Encerrar sem entregar =====
+test('aprovar: a verificação do projeto pendente/falhando vira motivo NA linha com a ação certa (nunca abre a tarefa)', () => {
+  for (const st of ['none', 'pass', 'override']) assert.equal(P.apVerifBloqueio({ st }), null, st + ' segue');
+  const n = P.apVerifBloqueio({ st: 'notrun' });
+  assert.equal(n.kind, 'verif'); assert.deepEqual(n.acts, ['verif', 'chkwhy']); assert.match(n.why, /ainda não rodou/);
+  assert.match(P.apVerifBloqueio({ st: 'stale' }).why, /mudou depois/);
+  const f = P.apVerifBloqueio({ st: 'fail', bad: [{ label: 'testes' }, { label: 'lint' }] });
+  assert.equal(f.kind, 'verif-falhou'); assert.match(f.why, /falhou \(testes, lint\)/); assert.deepEqual(f.acts, ['pedir', 'chkwhy', 'verif']);
+  assert.deepEqual(P.apVerifBloqueio({ st: 'running' }).acts, ['retry']);
+  assert.match(P.apVerifBloqueio({ st: 'err', err: 'worktree sumiu\nstack' }).why, /: worktree sumiu\.$/);
+});
+test('aprovar: sem PR NÃO passa mais pelo approveGate (que navega pra Entrega); abre o PR pelo prCreateRun, na linha', () => {
+  const f = cut(JS, 'async function aprovarTarefa(', 'window.aprovarTarefa=aprovarTarefa;');
+  assert.ok(!/approveGate\(/.test(f), 'approveGate leva pra dentro da tarefa quando a verificação não rodou');
+  assert.ok(!/openWorkspace|approveShowEntrega|apAbrirTarefa/.test(f), 'Aprovar nunca navega sozinho');
+  assert.match(f, /chkEnsure\(t, true\)/); assert.match(f, /apVerifBloqueio\(g\)/); assert.match(f, /prCreateRun\(t,/);
+  assert.match(f, /chkOverride\(t, g\.st==='fail'\?g:\{ st:'notrun' \}, motivo\)/, 'aprovar mesmo assim com o motivo do campo, sem outra pergunta');
+  const PR = read('js/21-pull-request.js');
+  assert.match(PR, /async function prCreateRun\(t, base, step\)/);
+  assert.match(cut(PR, 'async function prPrepFinish(', 'async function openPr('), /prCreateRun\(t, base, prepMark\)/, '"Preparando o PR" usa a mesma criação');
+  assert.match(PR, /async function chkOverride\(t, g, motivo\)/);
+  // o merge que falha também fica na linha
+  assert.match(cut(JS, 'async function apIntegrar(', '// ----'), /apBloq\(t, \{ why:'O merge do PR falhou: '/);
+});
+test('aprovar: o Meu trabalho mostra o andamento e o bloqueio na própria linha (Desfazer, ações), e sai quando integra', () => {
+  const f = cut(JS, 'function apMeuEvento(', 'window.apMeuEvento');
+  assert.match(f, /data-apcd/); assert.match(f, /Desfazer \(Z\)/); assert.match(f, /Ainda não aprovei/); assert.match(f, /Encerrar…/);
+  const S = read('js/76-casca-semana.js');
+  assert.match(S, /a\.act\(b\)/); assert.match(S, /a\.q\?' quiet'/);
+});
+test('encerrar: o plano diz o que acontece (PR fecha e a branch fica, issue fecha ou link, cartão, 4 s)', () => {
+  const L = P.apEncerrarPlano({ pr: 12, issue: 'LOJA-12', painel: 'fecha', time: true, rodando: true }).join('\n');
+  assert.match(L, /Para a IA/); assert.match(L, /Fecha o PR #12 .*a branch fica/); assert.match(L, /Fecha a issue LOJA-12 no painel/);
+  assert.match(L, /cartão do time/); assert.match(L, /desfazer em 4 s \(Z\)/); assert.match(L, /não segura a onda/);
+  const M = P.apEncerrarPlano({ issue: 'LOJA-12', painel: 'manual' }).join('\n');
+  assert.match(M, /fica aberta/); assert.ok(!/PR #/.test(M) && !/Para a IA/.test(M));
+  assert.equal(P.apEncerrarAtividade('  o cliente   desistiu '), 'Encerrou: o cliente desistiu');
+  assert.equal(P.apEncerrarAtividade(''), 'Encerrou sem entregar.');
+});
+test('encerrar: usa o status que o app já tem (cancelled + flag closed), close_pr sem apagar a branch e o conector de Issues', () => {
+  const f = cut(JS, 'async function apEncerrarRun(', 'apRefresh();\n}');
+  assert.match(f, /mark_task_status',\{ taskId:id, status:'cancelled' \}/); assert.match(f, /set_task_flag',\{ taskId:id, flag:'closed' \}/);
+  assert.match(f, /invoke\('close_pr'/); assert.match(f, /trkCloseIssue\(ctx\.issue, p\.motivo\)/); assert.match(f, /task_activity/);
+  assert.match(JS, /if\(AP\.pending && AP\.pending\.id===t\.id && AP\.pending\.kind!=='enc'\) return true;/, 'encerrando não prende a tarefa na fila');
+  // em todo lugar: painel de provas (fila, Central, épico, Revisão), Meu trabalho e o ⋯ da tarefa
+  assert.match(JS, /data-ap="encerrar"/); assert.match(JS, /if\(k==='encerrar'\) return void encerrarTarefa/);
+  assert.match(read('js/22-quadro-fluxo.js'), /item\('encerrar sem entregar…', \(\)=>encerrarTarefa\(taskId/);
+  const RS = readFileSync(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  assert.match(RS, /fn close_pr\(/); assert.match(RS, /"pr", "close", &branch\]/); assert.ok(!/fn close_pr[\s\S]{0,600}--delete-branch/.test(RS));
+  assert.match(RS, /\n\s+close_pr,\n/);
 });

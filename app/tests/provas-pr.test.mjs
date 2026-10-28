@@ -48,7 +48,7 @@ test('fiação: askYes (nunca confirm), abrir PR anexa ANTES do corpo, relatóri
   assert.match(src, /await askYes\(provasAskText\(r\.visibility\)/);
   assert.match(src, /invokeQuiet\('pr_attach_proofs'/);
   const pr = rd('../src/js/21-pull-request.js');
-  const fin = cut(pr, 'async function prPrepFinish', 'async function openPr(');
+  const fin = cut(pr, 'async function prCreateRun', 'async function openPr('); // a criação do PR (prCreateRun) é a do "Preparando o PR" e a do Aprovar (80)
   const a = fin.indexOf('provasAttach(t, { ask:true })'), b = fin.indexOf("invoke('pr_body_ai'");
   assert.ok(a > 0 && b > a, 'provas antes do corpo do PR');
   assert.ok(fin.indexOf("invoke('push_task'") < a, 'depois do push da branch');

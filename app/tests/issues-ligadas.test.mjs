@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/js/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const L = new Function(cut(read('14-issues-projeto.js'), '// @puro-trklig-inicio', '// @puro-trklig-fim')
-  + '\nreturn { trkCodeFromUrl, trkCodeOfCard, trkLinkIdx, trkWantKind, trkStatusForKind, trkKindOfStatus, trkShouldMove, trkRowOf, trkRowsFilter };')();
+  + '\nreturn { trkCodeFromUrl, trkCodeOfCard, trkLinkIdx, trkWantKind, trkStatusForKind, trkKindOfStatus, trkShouldMove, trkRowOf, trkRowsFilter, trkCloseStatusOf };')();
 const ISS = [{ code: 'FND-101', url: 'https://t.exemplo.dev/i/FND-101' }, { code: 'FND-103' }, { code: 'FND-110' }];
 const codeOfLocal = (t) => (t.branch.match(/\b([A-Z]{2,10}-\d+)\b/) || [])[1] || null;
 
@@ -118,4 +118,18 @@ test('"realizar eu mesmo" grava a issue no cartão e "mandar pro time" leva o re
   const L = new Function(cut(read('14-issues-projeto.js'), '// @puro-trklig-inicio', '// @puro-trklig-fim') + '\nreturn trkCodeOfCard;')();
   assert.equal(L(row, []), 'FND-101', 'o painel acha a tarefa pelo cartão');
   assert.match(S42, /await cloudAssign\(rows\[0\]\.id, who\); rows\[0\]\.assignee=who; if\(typeof trkCardAssign==='function'\) trkCardAssign\(rows\[0\], who\);/);
+});
+
+test('encerrar sem entregar: a issue vai pro status de cancelamento do painel; sem ele, pro "feito"', () => {
+  const C = [{ id: 'todo', kind: 'todo' }, { id: 'doing', kind: 'doing' }, { id: 'done', label: 'Feito', kind: 'done' }, { id: 'wont', label: "Won't do", kind: 'done' }];
+  assert.equal(L.trkCloseStatusOf(C).id, 'wont');
+  assert.equal(L.trkCloseStatusOf([{ id: 'a', kind: 'todo' }, { id: 'cancelada', label: 'Cancelada' }]).id, 'cancelada');
+  assert.equal(L.trkCloseStatusOf([{ id: 'todo', kind: 'todo' }, { id: 'done', kind: 'done' }]).id, 'done');
+  assert.equal(L.trkCloseStatusOf([{ id: 'todo', kind: 'todo' }]), null, 'sem status de fechada: o app pede pra fechar no painel');
+});
+test('encerrar: trkCloseIssue nunca lança e diz o porquê quando não dá (o 80 mostra "feche X no painel" com o link)', () => {
+  const S = read('14-issues-projeto.js'), f = cut(S, 'async function trkCloseIssue(', 'function trkSyncRetry(');
+  assert.match(f, /trkCall\('updateStatus'/);
+  assert.match(f, /done:false, code, url:urlOf\(\), why:'este painel não deixa mudar o status pelo app'/);
+  assert.match(f, /catch\(e\)\{ return \{ done:false/);
 });

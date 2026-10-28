@@ -456,7 +456,7 @@ function meuHtml(){
   const me=semMe(), its=semItens(), ev=meuEventos(); meuEvAtual=ev;
   const proj=(typeof state!=='undefined'&&state.repo)?pathBase(state.repo):'';
   const apSel=typeof apMeuSel==='function'?apMeuSel():'';
-  const evH=ev.length?ev.map((e,i)=>`<div class="mev${e.tid&&e.tid===apSel?' sel':''}"${e.tid?` data-aptid="${escA(e.tid)}"`:''}><span class="mev-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="mev-tx"><div class="mev-s">${e.s}</div>${e.m?`<div class="mev-m">${esc(e.m)}</div>`:''}</div><div class="mev-a">${e.a.map((a,j)=>a.menu?`<button type="button" class="btn sm quiet" data-meva="${i}:${j}" aria-haspopup="menu">${esc(a.l)} ${semIc('chev')}</button>`:`<button type="button" class="btn sm${a.pri?' primary':''}" data-meva="${i}:${j}">${esc(a.l)}</button>`).join('')}</div></div>${e.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(e.tid):''}`).join('')
+  const evH=ev.length?ev.map((e,i)=>`<div class="mev${e.tid&&e.tid===apSel?' sel':''}${e.blk?' blk':''}"${e.tid?` data-aptid="${escA(e.tid)}"`:''}><span class="mev-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="mev-tx"><div class="mev-s"${e.live?' role="status"':''}>${e.s}</div>${e.m?`<div class="mev-m">${esc(e.m)}</div>`:''}</div><div class="mev-a">${e.a.map((a,j)=>a.menu?`<button type="button" class="btn sm quiet" data-meva="${i}:${j}" aria-haspopup="menu">${esc(a.l)} ${semIc('chev')}</button>`:`<button type="button" class="btn sm${a.pri?' primary':a.q?' quiet':''}" data-meva="${i}:${j}">${esc(a.l)}</button>`).join('')}</div></div>${e.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(e.tid):''}`).join('')
     :`<div class="mev-vazio">${semIc('check')} Nada esperando por você agora.</div>`;
   // Minha semana (28/10, dono: "diz Hoje mas aparecem tarefas de outros dias"): cada tarefa no DIA da última mudança
   // dela (Hoje, Ontem, e os dias da semana), abertas primeiro; concluídas ficam recolhidas no dia em que terminaram;
@@ -790,7 +790,7 @@ function semWire(pg, k){
     const dd=ms=>perFmtDay(ms); relGerar(b, { all, members:semPessoas(), f:{}, per:{ key:'custom', from:dd(r.from), to:dd(r.to-1) }, range:r, pe:all, escopo:(typeof entEscopo==='function'?entEscopo(false):'') }); });
   pg.querySelectorAll('[data-semgo]').forEach(b=>b.onclick=()=>semIr(b.dataset.semgo));
   pg.querySelectorAll('[data-semguia]').forEach(b=>b.onclick=()=>semGuiaIniciar(b.dataset.semguia));
-  if(k==='meu') pg.querySelectorAll('[data-meva]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const [i,j]=b.dataset.meva.split(':').map(Number); const a=((meuEvAtual[i]||{}).a||[])[j]; if(!a) return; if(a.menu) semMenu(b, a.x); else a.act(); });
+  if(k==='meu') pg.querySelectorAll('[data-meva]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const [i,j]=b.dataset.meva.split(':').map(Number); const a=((meuEvAtual[i]||{}).a||[])[j]; if(!a) return; if(a.menu) semMenu(b, a.x); else a.act(b); });
   // arrastar entre pessoas (o teclado tem o Passar ▾ com os números)
   pg.querySelectorAll('[data-semdrag][draggable="true"]').forEach(el=>el.addEventListener('dragstart', ev=>{ ev.dataTransfer.setData('text/plain', el.dataset.semdrag); ev.dataTransfer.effectAllowed='move'; }));
   pg.querySelectorAll('[data-semdrop]').forEach(el=>{

@@ -278,6 +278,12 @@ function trkKindOfStatus(statuses, id){
   if(s.kind==='review' || (!['done','blocked'].includes(s.kind) && /\b(in[ _-]?)?review\b|revis[aã]o/i.test(String(s.label||'')+' '+String(s.id||'')))) return 'review';
   return s.kind||null;
 }
+// "Encerrar sem entregar" (80-aprovar): pra qual status a issue vai. Um de cancelamento quando o conector tem (pelo
+// kind ou pelo nome: cancelada, won't do, descartada, encerrada…); senão o "feito" — fechar é sair da fila de quem trabalha.
+function trkCloseStatusOf(statuses){
+  const L=statuses||[], tx=s=>String(s.label||'')+' '+String(s.id||'');
+  return L.find(s=>s.kind==='cancelled' || /cancel|won.?t[ _-]?(do|fix)|descart|abandon|encerrad|rejeit|n[ãa]o vai/i.test(tx(s))) || L.find(s=>s.kind==='done') || null;
+}
 // anda? nunca reabre issue feita; bloqueada só sai quando a tarefa termina; review → doing quando a tarefa volta a rodar
 function trkShouldMove(cur, want){ if(!want || cur===want || cur==='done') return false; if(cur==='blocked' && want!=='done') return false; return true; }
 // uma linha do painel: a issue + o que está ligado a ela (o 1º vínculo vivo vence)
@@ -396,6 +402,29 @@ async function trkSyncTasks(force){
     });
   }catch(_){ }
 }
+// fecha a issue `code` no painel conectado (a mesma operação updateStatus do quadro). Não lança: → { done, code, label,
+// already, url, why } — sem painel/operação/permissão, done:false com o porquê (quem chamou mostra "feche X no painel" + link)
+async function trkCloseIssue(code, motivo){
+  if(!code) return null;
+  try{ await trkLoad(); }catch(_){ }
+  const urlOf=()=>{ const i=trkIssues.find(x=>x.code===code); return (i&&i.url)||((trk&&trk.connector&&trk.connector.urlTemplate)?trkFill(trk.connector.urlTemplate,{ code, id:code }):''); };
+  if(!trkReady()) return { done:false, code, url:'', why:'o painel de Issues não está conectado' };
+  if(!(trk.connector.ops||{}).updateStatus) return { done:false, code, url:urlOf(), why:'este painel não deixa mudar o status pelo app' };
+  try{
+    if(!(await trkProjectOn())) return { done:false, code, url:urlOf(), why:'este projeto não usa o painel' };
+    if(!trkIssues.some(x=>x.code===code) || Date.now()-trkIssuesAt>120000) await trkFetchIssues();
+    const i=trkIssues.find(x=>x.code===code); if(!i) return { done:false, code, url:urlOf(), why:'não achei a issue no painel' };
+    const sts=trk.connector.statuses||[], to=trkCloseStatusOf(sts);
+    if((to && i.status===to.id) || trkKindOfStatus(sts, i.status)==='done'){ const c=trkStatus(i.status)||to||{}; return { done:true, already:true, code, label:c.label||c.id||i.status, url:i.url||'' }; }
+    if(!to) return { done:false, code, url:i.url||'', why:'o painel não tem um status de fechada' };
+    await trkCall('updateStatus',{ code:i.code, id:i.id, status:to.id, reason:motivo||'' });
+    i.status=to.id; trkMine[i.code]=to.id; delete trkSyncErr[i.code];
+    trkSyncLogPut(i.code, { to:to.id, label:to.label||to.id, kind:'closed', at:Date.now() });
+    trkBgRepaint();
+    return { done:true, code, label:to.label||to.id, url:i.url||'' };
+  }catch(e){ return { done:false, code, url:urlOf(), why:trkErrText(e) }; }
+}
+
 function trkSyncRetry(){ trkSyncAt=0; trkNextAt=0; Object.keys(trkSyncErr).forEach(k=>{ trkSyncErr[k].want='_'; }); trkSyncTasks(true).then(()=>trkBgRepaint()); }
 // TODA criação de tarefa passa aqui: regra ligada + projeto conectado + sem issue → cria e vincula
 async function trkBeforeNewTask(payload){

@@ -114,13 +114,44 @@ function conflitoAviso(o){
 }
 /** O comentário que fica no cartão do colega (atividade do time) — com o nome de quem pediu, nunca id. */
 function conflitoComentario(base){ return 'Pediu pra resolver o conflito com a '+(String(base||'').replace(/^origin\//,'').trim()||'main')+': trazer a base pra branch, resolver mantendo os dois lados, rodar os testes e fazer push.'; }
+/**
+ * A verificação do projeto (chkGate do 21: a MESMA régua do "Preparando o PR") deixa abrir o PR? null = segue; senão o
+ * motivo que aparece NA LINHA (Meu trabalho, Central, fila) e as ações certas — nunca abre a tarefa sozinho (bug 28/10:
+ * o Aprovar caía no approveGate, que com a verificação pendente levava pra Entrega da tarefa e não aprovava nada).
+ * acts: verif (rodar e seguir aprovando) · chkwhy (aprovar mesmo assim, com motivo) · pedir · retry
+ */
+function apVerifBloqueio(g){
+  const st=(g&&g.st)||'loading';
+  if(['none','pass','override'].includes(st)) return null;
+  if(st==='notrun'||st==='stale') return { kind:'verif', why:st==='stale'?'O código mudou depois da última verificação do projeto — rode de novo pra aprovar.':'A verificação do projeto (testes e checagens) ainda não rodou nesta versão.', acts:['verif','chkwhy'] };
+  if(st==='fail'){ const L=((g&&g.bad)||[]).map(b=>b&&b.label).filter(Boolean); return { kind:'verif-falhou', why:'A verificação do projeto falhou'+(L.length?' ('+L.join(', ')+')':'')+'.', acts:['pedir','chkwhy','verif'] }; }
+  if(st==='running') return { kind:'rodando', why:'A verificação do projeto está rodando — aprove de novo quando ela terminar.', acts:['retry'] };
+  return { kind:'erro', why:'Não deu pra conferir a verificação do projeto'+(g&&g.err?': '+String(g.err).split('\n')[0].slice(0,160):'')+'.', acts:['retry'] };
+}
+/**
+ * ENCERRAR SEM ENTREGAR ("às vezes a issue não vai pra frente", dono 28/10) — o que vai acontecer, em linhas, pra folha
+ * de confirmação. o = { pr (nº do PR aberto), issue (código), painel:'fecha'|'manual', time (tem cartão), rodando }
+ */
+function apEncerrarPlano(o){
+  o=o||{}; const L=[];
+  if(o.rodando) L.push('Para a IA, que ainda está trabalhando nela.');
+  L.push('A tarefa fica cancelada: sai de "Precisa de mim" e da fila Para aprovar, e não segura a onda do épico.');
+  if(o.pr) L.push(`Fecha o PR #${o.pr} no GitHub com o motivo como comentário (a branch fica, dá pra retomar).`);
+  if(o.issue) L.push(o.painel==='fecha'?`Fecha a issue ${o.issue} no painel de Issues.`:`A issue ${o.issue} fica aberta: este painel não deixa fechar daqui (o app avisa com o link).`);
+  if(o.time) L.push('Registra no cartão do time quem encerrou e por quê.');
+  L.push(`Dá pra desfazer em ${AP_UNDO_MS/1000} s (Z).`);
+  return L;
+}
+/** O texto da atividade no cartão do time e do comentário no PR. */
+function apEncerrarAtividade(motivo){ const m=String(motivo||'').replace(/\s+/g,' ').trim(); return m?'Encerrou: '+m.slice(0,300):'Encerrou sem entregar.'; }
 // @ap-puro-fim
 
 // ---------------------------------------------------------------- estado
 // pending: a aprovação na janela do Desfazer · busy: passo em andamento por tarefa · ui: campo aberto no painel
 // ('ask' = pedir alteração · 'why' = aprovar mesmo assim, com motivo) · draft: o que a pessoa digitou · gone: pediu
 // alteração (sai da fila até o status mudar) · ok: integrada agora há pouco (o painel diz "aprovada")
-const AP={ pending:null, busy:{}, ui:{}, draft:{}, focus:'', gone:{}, ok:{}, selId:'', meuExp:'', meuSel:'', tick:null, soon:null };
+// blk: o que impediu o último Aprovar, mostrado NA linha com a ação certa ({ why, acts }) · pending.kind 'enc' = encerrar
+const AP={ pending:null, busy:{}, ui:{}, draft:{}, focus:'', gone:{}, ok:{}, blk:{}, selId:'', meuExp:'', meuSel:'', tick:null, soon:null };
 function apTaskOf(id){ return ((typeof state!=='undefined'&&state.tasks)||[]).find(x=>x.id===id)||null; }
 function apMe(){ return (typeof cloudUserId==='function'&&cloudUserId())||''; }
 function apTemTime(){ try{ return !!(SB.sess() && cloudTeamId()); }catch(_){ return false; } }
@@ -149,7 +180,7 @@ function apAprovavel(t){
   if(!t || t._cross || t.status==='draft' || t.status==='cancelled' || (typeof taskIsDone==='function'&&taskIsDone(t))) return false;
   const g=AP.gone[t.id];
   if(g){ if(t.status!==g.st || Date.now()-g.at>10*60000) delete AP.gone[t.id]; else return false; }
-  if(AP.pending && AP.pending.id===t.id) return true;
+  if(AP.pending && AP.pending.id===t.id && AP.pending.kind!=='enc') return true;
   if(typeof pendingOf==='function' && pendingOf(t.id).length) return false; // pergunta aberta: primeiro responder
   if(['running','thinking','queued','paused','plan-review','error','aborted','blocked'].includes(t.status) || t.busy) return false;
   if(t.status==='needs-you'){ const l=(typeof rvRounds==='function'?rvRounds(t):[]).slice(-1)[0]; return !!(l&&l.verdict==='muda'); }
@@ -202,7 +233,7 @@ const AP_IMG=/\.(png|jpe?g|gif|webp)$/i;
 function apRevName(last){ const n=String((last&&(last.reviewer||last.agentId))||'Revisor'); return n.charAt(0).toUpperCase()+n.slice(1); }
 // o estado do painel (uma chave de STATUS_META: o selo vem de lá, nunca de mapa daqui)
 function apStKey(t, dec){
-  if(AP.pending && AP.pending.id===t.id) return 'integrando';
+  if(AP.pending && AP.pending.id===t.id && AP.pending.kind!=='enc') return 'integrando';
   if(AP.ok[t.id] || t.status==='merged') return 'merged';
   if(!apAprovavel(t)) return typeof taskSt==='function'?taskSt(t):t.status;
   if(dec.kind==='conflito') return 'conflict';
@@ -302,7 +333,8 @@ function apAlertHtml(v){
 function apFootHtml(v, mode){
   const id=escA(v.id), open=mode!=='task'?`<button type="button" class="btn ghost apv-open" data-ap="abrir" data-id="${id}">Abrir tarefa ${apKbd('↵')}</button>`:'';
   if(AP.pending && AP.pending.id===v.id){ const s=Math.max(0, Math.ceil((AP.pending.until-Date.now())/1000));
-    return `<div class="apv-pend" role="status"><span class="apv-ring" aria-hidden="true"></span><span>Aprovada. ${v.pr?'Integrando o PR #'+esc(String(v.pr)):'Integrando'} em <b data-apcd>${s}</b> s…</span><span class="apv-sp"></span><button type="button" class="btn sm" data-ap="undo">${apIc('undo')}Desfazer ${apKbd('Z')}</button></div>`; }
+    const tx=AP.pending.kind==='enc'?`Encerrando sem entregar em <b data-apcd>${s}</b> s…`:`Aprovada. ${v.pr?'Integrando o PR #'+esc(String(v.pr)):'Integrando'} em <b data-apcd>${s}</b> s…`;
+    return `<div class="apv-pend" role="status"><span class="apv-ring" aria-hidden="true"></span><span>${tx}</span><span class="apv-sp"></span><button type="button" class="btn sm" data-ap="undo">${apIc('undo')}Desfazer ${apKbd('Z')}</button></div>`; }
   if(AP.busy[v.id]) return `<div class="apv-pend" role="status"><span class="apv-ring" aria-hidden="true"></span><span>${esc(AP.busy[v.id].tx||'aprovando…')}</span></div>`;
   if(AP.ok[v.id] || v.t.status==='merged'){ const o=AP.ok[v.id]; const hh=o?new Date(o.at).toLocaleTimeString('pt-BR',{ hour:'2-digit', minute:'2-digit' }):'';
     return `<div class="apv-pend ok">${apIc('check')}<span>${o?'Aprovada por você · ':''}${v.pr?'PR #'+esc(String(v.pr))+' integrado':'Integrada'} na main${hh?' às '+esc(hh):''}</span></div>`; }
@@ -317,17 +349,33 @@ function apFootHtml(v, mode){
   }
   if(ui && ui.mode==='why'){
     const rv=v.dec.precisa.includes('revisor');
-    return `<div class="apv-ask"><label for="apTa-${id}" class="apv-askl">Aprovar mesmo ${rv?'com o revisor pedindo mudança':'sem a prova de todos os requisitos'}. Por quê? <span class="apv-dim">fica registrado no PR, na entrega e na Semana do time</span></label>`
+    const oque=ui.chk?(ui.chk==='fail'?'com a verificação do projeto falhando':'sem a verificação do projeto'):rv?'com o revisor pedindo mudança':'sem a prova de todos os requisitos';
+    return `<div class="apv-ask"><label for="apTa-${id}" class="apv-askl">Aprovar mesmo ${oque}. Por quê? <span class="apv-dim">fica registrado no PR, na entrega e na Semana do time</span></label>`
       +`<textarea id="apTa-${id}" class="apv-ta" rows="2" data-apta="why" data-id="${id}" placeholder="Ex.: os R$ 0,02 viram uma tarefa separada; o aviso no celular já está na LOJA-27"></textarea>`
       +`<div class="apv-row"><button type="button" class="btn primary sm" data-ap="motivo" data-id="${id}">${apIc('check')}Aprovar com motivo ${apKbd('⌘↵')}</button><button type="button" class="btn ghost sm" data-ap="cancelar" data-id="${id}">Cancelar ${apKbd('Esc')}</button></div></div>`;
   }
   if(!v.pode) return `<div class="apv-acts"><span class="apv-dim">aprova: <b>${esc(apWhoName(v.quem))}</b></span><button type="button" class="btn sm" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><span class="apv-sp"></span>${open}</div>`;
+  const enc=`<button type="button" class="btn ghost sm apv-enc" data-ap="encerrar" data-id="${id}" title="a tarefa não vai pra frente: cancela, fecha o PR e a issue">${apIc('x')}Encerrar sem entregar… ${apKbd('E')}</button>`;
+  // o último Aprovar parou em algo de verdade: o porquê fica AQUI, com a ação certa (nunca abre a tarefa sozinho)
+  const bk=AP.blk[v.id];
+  if(bk) return `<div class="apv-blkrow" role="alert"><div class="apv-after w">${apIc('alert')}<span><b>Ainda não aprovei.</b> ${esc(bk.why)}</span></div><div class="apv-acts">${apBlkBtns(v.id, bk.acts, 'btn')}<span class="apv-sp"></span>${enc}${open}</div></div>`;
   const d=v.dec; let prim;
   if(d.kind==='conflito') prim=`<button type="button" class="btn primary" data-ap="conflito" data-id="${id}">${apIc('spark')}Resolver conflito</button><button type="button" class="btn" disabled aria-disabled="true" title="Resolva o conflito primeiro">${apIc('check')}Aprovar</button>`;
   else if(d.kind==='motivo') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" data-ap="aprovar" data-id="${id}">Aprovar mesmo assim… ${apKbd('A')}</button>`;
   else if(d.kind==='bloqueado') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" disabled aria-disabled="true" title="${escA(d.why)}">${apIc('check')}Aprovar</button>`;
   else prim=`<button type="button" class="btn primary" data-ap="aprovar" data-id="${id}">${apIc('check')}Aprovar ${apKbd('A')}</button><button type="button" class="btn" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button>`;
-  return `<div class="apv-acts">${prim}<span class="apv-sp"></span>${open}</div>`;
+  return `<div class="apv-acts">${prim}<span class="apv-sp"></span>${enc}${open}</div>`;
+}
+// os botões da ação certa pra cada bloqueio (o 1º é o principal). cls: 'btn' (painel) · 'btn sm' (linha do Meu trabalho)
+const AP_BLK_ACT={
+  verif:{ l:'Rodar a verificação', ic:'spark', tip:'roda os testes e as checagens do projeto e, se passar, segue aprovando' },
+  chkwhy:{ l:'Aprovar mesmo assim…', ic:'check', tip:'pede um motivo — vai na descrição do PR e fica registrado' },
+  pedir:{ l:'Pedir alteração', ic:'msg' }, retry:{ l:'Tentar de novo', ic:'undo' }, conflito:{ l:'Resolver conflito', ic:'spark' },
+  publicar:{ l:'Publicar no GitHub', ic:'arrow' }, prweb:{ l:'Criar o PR no navegador', ic:'arrow' }, entrega:{ l:'Abrir os entregáveis', ic:'arrow' }, pr:{ l:'Ver o PR ↗', ic:'merge' },
+};
+function apBlkBtns(id, acts, cls){
+  return (acts||[]).filter(k=>AP_BLK_ACT[k]).map((k,i)=>{ const a=AP_BLK_ACT[k];
+    return `<button type="button" class="${cls}${i===0?' primary':''}" data-ap="blk" data-k="${escA(k)}" data-id="${escA(id)}"${a.tip?` title="${escA(a.tip)}"`:''}>${apIc(a.ic)}${esc(a.l)}</button>`; }).join('');
 }
 /**
  * O PAINEL DE PROVAS — o mesmo na fila ('full'), na Central e no Meu trabalho ('compact') e na Revisão ⌘3 ('task').
@@ -388,18 +436,26 @@ async function apEsperaPreparo(id){
 }
 function apBusy(id, tx){ if(tx) AP.busy[id]={ tx }; else delete AP.busy[id]; apRefresh(); }
 /**
- * APROVAR — uma ação: portões → aceitar os requisitos com prova → abrir o PR se não houver → 4 s com Desfazer (Z) →
+ * APROVAR — uma ação, SEM sair de onde a pessoa está (Meu trabalho, Central, fila, épico): portões → aceitar os requisitos
+ * com prova → verificação do projeto → abrir o PR se não houver (o andamento aparece na linha) → 4 s com Desfazer (Z) →
  * integrar na main → avisar a onda. Com o revisor pedindo mudança ou requisito sem prova, só com { motivo } (registrado).
+ * O que bloquear de verdade fica NA LINHA com a ação certa (AP.blk): rodar a verificação, aprovar mesmo assim com motivo,
+ * resolver conflito, publicar no GitHub… Navegar só quando a pessoa pede ("Ver provas" / "Abrir tarefa").
+ * Bug 28/10 (dono: "ao clicar em Aprovar ele me joga pra dentro da tarefa sem aprovar"): sem PR, isto chamava o
+ * approveGate (21), cuja régua da verificação ABRE a Entrega da tarefa quando ela não rodou — e devolvia sem aprovar.
  * Devolve uma Promise<boolean> (true = integrou; false = parou, desfeito ou recusado).
  */
 async function aprovarTarefa(taskId, o){
   o=o||{};
   const t=apTaskOf(taskId); if(!t){ toast('Essa tarefa não está nesta máquina — abra o projeto dela pra aprovar.','warn'); return false; }
-  if(AP.pending){ if(AP.pending.id!==taskId) toast(`Espere a ${apCode(apTaskOf(AP.pending.id)||{})||'tarefa anterior'} integrar (ou desfaça com Z) antes de aprovar outra.`,'info'); return false; }
+  if(AP.pending){ if(AP.pending.id!==taskId) toast(`Espere a ${apCode(apTaskOf(AP.pending.id)||{})||'tarefa anterior'} ${AP.pending.kind==='enc'?'encerrar':'integrar'} (ou desfaça com Z) antes de aprovar outra.`,'info'); return false; }
   if(AP.busy[taskId]) return false;
   if(!apAprovavel(t)){ toast('Esta tarefa não está pronta pra aprovar agora.','info'); return false; }
   const pd=apPodeDe(t); if(!pd.pode){ toast(`Quem aprova esta tarefa é ${apWhoName(pd.quem)} (ou o líder do time).`,'warn'); return false; }
-  if(typeof entregaNonCode==='function' && entregaNonCode(t)){ if(typeof approveGate==='function') approveGate(t); return false; } // documentos: o fim é salvar os entregáveis
+  const ui0=AP.ui[taskId]; const chkMotivo=!!(o.chk || (ui0 && ui0.mode==='why' && ui0.chk));
+  delete AP.blk[taskId];
+  // documentos: o fim é salvar os entregáveis (não tem PR) — diz isso aqui; abrir a Entrega é um clique da pessoa
+  if(typeof entregaNonCode==='function' && entregaNonCode(t)) return apBloq(t, { why:'Esta tarefa entrega documentos, não código: não tem PR pra integrar — salve os entregáveis na tarefa.', acts:['entrega'] });
   const motivo=String(o.motivo||'').trim();
   let info=null;
   apBusy(taskId, 'conferindo os portões…');
@@ -410,11 +466,11 @@ async function aprovarTarefa(taskId, o){
       apStLoad(t.id).catch(()=>{}),
     ]);
     const dec=apDecide(apGates(t), { motivo });
-    if(dec.kind==='conflito'){ toast(`A ${apCode(t)||'tarefa'} não pode ser aprovada: ${dec.why}.`,'warn'); return false; }
-    if(dec.kind==='bloqueado'){ toast('Ainda não dá pra aprovar. '+dec.why,'warn'); return false; }
+    if(dec.kind==='conflito') return apBloq(t, { why:'A branch conflita com a main — resolva o conflito antes de integrar.', acts:['conflito'] });
+    if(dec.kind==='bloqueado') return apBloq(t, { why:dec.why, acts:['pedir','retry'] });
     if(dec.kind==='motivo'){
       if(motivo) toast('Escreva o motivo em uma frase (pelo menos 3 palavras): ele vai pro PR e pra entrega.','warn');
-      AP.ui[taskId]={ mode:'why' }; AP.focus=taskId; return false; }
+      AP.ui[taskId]={ mode:'why' }; AP.focus=taskId; AP.meuExp=taskId; return false; }
     // motivo registrado — o mesmo log do "aprovar mesmo assim" (checks_override_log) e o mesmo campo do ciclo (reviewOverride)
     if(dec.precisa.includes('prova') && typeof proofOverride==='function' && !await proofOverride(t, motivo)) return false;
     if(dec.precisa.includes('revisor')){
@@ -427,23 +483,65 @@ async function aprovarTarefa(taskId, o){
     if(!await apAceitarTodos(t, dec.precisa.includes('prova')?motivo:'')) return false;
     info=apPrInfo(t);
     if(!(info && info.state==='OPEN')){
+      // a verificação do projeto: a MESMA régua do "Preparando o PR" (chkGate, 21), conferida aqui
+      apBusy(taskId, 'conferindo a verificação do projeto…');
+      let g; try{ g=typeof chkEnsure==='function'?await chkEnsure(t, true):{ st:'none' }; }catch(e){ g={ st:'err', err:errText(e) }; }
+      let bl=apVerifBloqueio(g);
+      if(bl && chkMotivo && (bl.kind==='verif'||bl.kind==='verif-falhou')){
+        if(!apMotivoOk(motivo)){ toast('Escreva o motivo em uma frase (pelo menos 3 palavras): ele vai pro PR e pra entrega.','warn'); AP.ui[taskId]={ mode:'why', chk:g.st }; AP.focus=taskId; AP.meuExp=taskId; return false; }
+        if(!await chkOverride(t, g.st==='fail'?g:{ st:'notrun' }, motivo)) return false;
+        bl=null;
+      }
+      if(bl){ if(bl.kind==='erro' && g.err) bl.why='Não deu pra conferir a verificação do projeto: '+humanErr(g.err, 'erro ao ler a cópia da tarefa').msg; return apBloq(t, bl); }
+      if(typeof repoHasRemote==='function' && !repoHasRemote()) return apBloq(t, { why:'Este projeto ainda não está no GitHub — o PR é aberto lá.', acts:['publicar'] });
+      // abrir o PR: a MESMA criação do "Preparando o PR" (prCreateRun, 21) — o andamento aparece aqui, na linha
       apBusy(taskId, 'abrindo o PR…');
-      await approveGate(t); // a porta única: verificação → push → PR (janela "Preparando o PR")
-      await apEsperaPreparo(t.id);
+      try{ await prCreateRun(t, (typeof lsGet==='function'&&lsGet('prBase:'+t.id))||'main', (n, st, tx)=>{ if(st==='run') apBusy(taskId, String(tx||'').replace(/<[^>]+>/g,'')); }); }
+      catch(x){ const e=(x&&x.step)?x.err:x;
+        return apBloq(t, { why:(x&&x.step===2?'Não consegui enviar a branch: ':'Não consegui abrir o PR: ')+humanErr(e).msg, acts:typeof prGhNoAccess==='function'&&x&&x.step===3&&prGhNoAccess(e)?['prweb','retry']:['retry'] }); }
       info=await loadPr(t.id, true).catch(()=>null);
-      if(!(info && info.exists && info.state==='OPEN')){ toast('O PR ainda não abriu — termine na janela "Preparando o PR" e aprove de novo.','info'); return false; }
+      if(!(info && info.exists && info.state==='OPEN')) return apBloq(t, { why:'Abri o PR, mas o GitHub ainda não mostra ele aberto — tente de novo em alguns segundos.', acts:['retry','pr'] });
     }
     const why=typeof prMergeBlock==='function'?prMergeBlock(info):'';
-    if(why){ toast('Não dá pra integrar agora. '+(typeof capFirst==='function'?capFirst(why):why),'warn'); return false; }
-  }catch(e){ showErr(e, 'Não consegui aprovar'); return false; }
+    if(why) return apBloq(t, { why:'Não dá pra integrar agora: '+why+'.', acts:info&&info.mergeable==='CONFLICTING'?['conflito','pr']:['pr','retry'] });
+  }catch(e){ return apBloq(t, { why:'Não consegui aprovar: '+humanErr(e).msg, acts:['retry'] }); }
   finally{ delete AP.busy[taskId]; apRefresh(); }
   return apAgendar(t, info, motivo);
 }
 window.aprovarTarefa=aprovarTarefa;
+/** Para o Aprovar e mostra o porquê NA linha (AP.blk). Se a linha não está à vista, avisa também num toast. → false */
+function apBloq(t, b){
+  AP.blk[t.id]={ why:b.why, acts:b.acts||[], at:Date.now() }; AP.ui[t.id]=null; AP.focus='';
+  const vis=document.querySelector(`[data-proof="${CSS.escape(t.id)}"], #meuPage [data-aptid="${CSS.escape(t.id)}"]`);
+  if(!vis) toast(`${apCode(t)||apTitle(t).slice(0,40)}: ${b.why}`, 'warn');
+  apRefresh(); return false;
+}
+/** Uma ação do bloqueio (o botão da linha). */
+async function apBlkAct(id, k, btn){
+  const t=apTaskOf(id); if(!t) return;
+  const info=apPrInfo(t), url=t.prUrl||(info&&info.url)||'';
+  if(k==='retry'){ delete AP.blk[id]; return aprovarTarefa(id); }
+  if(k==='pedir'){ delete AP.blk[id]; AP.meuExp=id; AP.meuSel=id; return apPedirAbrir(id); }
+  if(k==='chkwhy'){ const g=typeof chkGate==='function'?chkGate(t):{ st:'notrun' }; delete AP.blk[id]; AP.ui[id]={ mode:'why', chk:g.st==='fail'?'fail':'notrun' }; AP.focus=id; AP.meuExp=id; AP.meuSel=id; apRefresh(); return; }
+  if(k==='conflito') return resolverConflito(id, btn);
+  if(k==='pr'){ if(url) openExternal(url); return; }
+  if(k==='entrega'){ if(typeof approveShowEntrega==='function') approveShowEntrega(t); return; }
+  if(k==='publicar'){ if(typeof publishGithub==='function' && await publishGithub()){ delete AP.blk[id]; aprovarTarefa(id); } return; }
+  if(k==='prweb'){ try{ const cu=await invoke('pr_compare_url',{ taskId:id, base:(typeof lsGet==='function'&&lsGet('prBase:'+id))||'main' }); if(cu) await invoke('open_url',{ url:cu }); }catch(e){ showErr(e, 'Falha ao abrir o navegador'); } return; }
+  if(k==='verif'){
+    // roda a verificação AQUI (o mesmo chkRun do "Preparando o PR") e, se passar, segue aprovando
+    delete AP.blk[id]; apBusy(id, 'rodando a verificação do projeto (testes e checagens)…');
+    try{ await chkRun(t); }finally{ delete AP.busy[id]; }
+    const g=chkGate(t);
+    if(chkCanApprove(g)) return aprovarTarefa(id);
+    const bl=apVerifBloqueio(g); if(bl) return apBloq(t, bl);
+    apRefresh();
+  }
+}
 function apAgendar(t, info, motivo){
   return new Promise(res=>{
-    AP.ui[t.id]=null; AP.focus='';
-    AP.pending={ id:t.id, until:Date.now()+AP_UNDO_MS, motivo, res, pr:(info&&info.number)||prNumOf(t) };
+    AP.ui[t.id]=null; AP.focus=''; delete AP.blk[t.id];
+    AP.pending={ id:t.id, kind:'aprovar', until:Date.now()+AP_UNDO_MS, motivo, res, pr:(info&&info.number)||prNumOf(t) };
     AP.pending.timer=setTimeout(()=>apIntegrar(t.id), AP_UNDO_MS);
     clearInterval(AP.tick); AP.tick=setInterval(apTickCd, 250);
     toast(`Aprovada ${apCode(t)||apTitle(t).slice(0,40)}${motivo?' com motivo':''} · integrando em ${AP_UNDO_MS/1000} s`, 'ok', { label:'Desfazer (Z)', fn:()=>apDesfazer() });
@@ -455,12 +553,12 @@ function apTickCd(){
   const s=String(Math.max(0, Math.ceil((p.until-Date.now())/1000)));
   document.querySelectorAll('[data-apcd]').forEach(el=>{ if(el.textContent!==s) el.textContent=s; });
 }
-/** Desfaz a aprovação na janela de 4 s (nada foi integrado). */
+/** Desfaz a aprovação (ou o encerrar) na janela de 4 s (nada foi integrado nem fechado). */
 function apDesfazer(){
   const p=AP.pending; if(!p) return false;
   clearTimeout(p.timer); clearInterval(AP.tick); AP.tick=null; AP.pending=null;
   const t=apTaskOf(p.id);
-  toast(`Desfeito: ${(t&&apCode(t))||'a tarefa'} voltou pra fila. Nada foi integrado.`,'info');
+  toast(p.kind==='enc'?`Desfeito: ${(t&&apCode(t))||'a tarefa'} continua aberta. Nada foi encerrado nem fechado.`:`Desfeito: ${(t&&apCode(t))||'a tarefa'} voltou pra fila. Nada foi integrado.`,'info');
   try{ p.res(false); }catch(_){ }
   apRefresh(); return true;
 }
@@ -469,11 +567,92 @@ async function apIntegrar(id){
   const p=AP.pending; if(!p || p.id!==id) return;
   clearInterval(AP.tick); AP.tick=null; AP.pending=null;
   apBusy(id, 'integrando na main…');
-  let ok=false;
-  try{ ok=await mergePrRun(id); }catch(e){ showErr(e, 'Merge do PR falhou'); }
+  let ok=false, err=null;
+  try{ ok=await mergePrRun(id); }catch(e){ err=e; }
   delete AP.busy[id];
-  if(ok){ AP.ok[id]={ at:Date.now(), pr:p.pr }; apDepoisDoMerge(id, p.pr); }
+  if(ok){ AP.ok[id]={ at:Date.now(), pr:p.pr }; delete AP.blk[id]; apDepoisDoMerge(id, p.pr); }
+  else { const t=apTaskOf(id); if(t) apBloq(t, { why:'O merge do PR falhou: '+humanErr(err, 'o GitHub recusou o merge').msg, acts:['retry','pr'] }); }
   try{ p.res(ok); }catch(_){ }
+  apRefresh();
+}
+
+// ---------------------------------------------------------------- ENCERRAR SEM ENTREGAR
+// "às vezes a issue não vai pra frente" (dono 28/10). O status é o MESMO do "Cancelar · para e sai da fila" do menu de status
+// (22: mark_task_status cancelled + set_task_flag closed — STATUS_META.cancelled); o PR fecha (close_pr, a branch fica);
+// a issue fecha no painel conectado (trkCloseIssue, 14) ou o app avisa com o link; cartão do time ganha "Encerrou: <motivo>".
+// Mesma janela de 4 s com Desfazer (Z) do Aprovar — nada acontece antes dela acabar.
+function apIssueCodeOf(t){
+  let c=''; try{ c=(typeof trkTaskCode==='function' && trkTaskCode(t))||''; }catch(_){ c=''; }
+  if(!c){ const card=apCard(t); try{ if(card && typeof trkCodeOfCard==='function') c=trkCodeOfCard(card, typeof trkIssues!=='undefined'?trkIssues:[]); }catch(_){ } }
+  return c||String((t.spec&&t.spec.issueCode)||t.issueCode||'').trim();
+}
+function apPainelFecha(){ try{ return typeof trk!=='undefined' && trk && trkReady() && !!(trk.connector.ops||{}).updateStatus; }catch(_){ return false; } }
+async function encerrarTarefa(taskId, o){
+  o=o||{};
+  const t=apTaskOf(taskId);
+  if(!t){ if(typeof crossRun==='function') return crossRun(taskId, ()=>encerrarTarefa(taskId, o)); toast('Essa tarefa não está nesta máquina.','warn'); return false; }
+  if(typeof taskEncerrada==='function' && taskEncerrada(t)){ toast('Esta tarefa já está encerrada.','info'); return false; }
+  if(AP.pending){ toast(AP.pending.id===taskId?'Desfaça a aprovação (Z) antes de encerrar.':`Espere a ${apCode(apTaskOf(AP.pending.id)||{})||'tarefa anterior'} terminar (ou desfaça com Z).`,'info'); return false; }
+  if(AP.busy[taskId]) return false;
+  try{ if(typeof trkLoad==='function') await Promise.race([trkLoad(), new Promise(r=>setTimeout(r, 1500))]); }catch(_){ }
+  const info=apPrInfo(t), issue=apIssueCodeOf(t), card=apCard(t);
+  const ctx={ pr:info&&info.state==='OPEN'?(info.number||prNumOf(t)||'?'):'', prUrl:(info&&info.url)||t.prUrl||'', issue, painel:apPainelFecha()?'fecha':'manual', time:!!card,
+    rodando:!!(t.busy || (typeof ACTIVE_ST!=='undefined' && ACTIVE_ST.has(t.status)) || ['running','thinking'].includes(t.status)) };
+  let motivo=o.motivo;
+  if(motivo==null){
+    const plano=apEncerrarPlano(ctx).join('\n'), tit='Encerrar sem entregar “'+apTitle(t).slice(0,48)+'”?';
+    const r=typeof sheetAsk==='function'
+      ? await sheetAsk({ title:tit, text:plano, field:{ placeholder:'Motivo (opcional) — ex.: o cliente desistiu do cupom' }, allowEmpty:true, ok:'Encerrar', danger:true, anchor:o.anchor||null })
+      : (await askYes(plano, tit) ? '' : null);
+    if(r==null || r===false) return false;
+    motivo=r;
+  }
+  motivo=String(motivo||'').replace(/\s+/g,' ').trim().slice(0,300);
+  delete AP.blk[taskId]; AP.ui[taskId]=null; AP.focus='';
+  return new Promise(res=>{
+    AP.pending={ id:taskId, kind:'enc', until:Date.now()+AP_UNDO_MS, motivo, res, ctx };
+    AP.pending.timer=setTimeout(()=>apEncerrarRun(taskId), AP_UNDO_MS);
+    clearInterval(AP.tick); AP.tick=setInterval(apTickCd, 250);
+    toast(`Encerrando ${apCode(t)||apTitle(t).slice(0,40)} sem entregar em ${AP_UNDO_MS/1000} s`, 'info', { label:'Desfazer (Z)', fn:()=>apDesfazer() });
+    apRefresh();
+  });
+}
+window.encerrarTarefa=encerrarTarefa;
+async function apEncerrarRun(id){
+  const p=AP.pending; if(!p || p.id!==id || p.kind!=='enc') return;
+  clearInterval(AP.tick); AP.tick=null; AP.pending=null;
+  const t=apTaskOf(id); if(!t){ try{ p.res(false); }catch(_){ } apRefresh(); return; }
+  const ctx=p.ctx||{}, avisos=[], feitos=[];
+  apBusy(id, 'encerrando…');
+  try{
+    invokeQuiet('patch_task_spec',{ taskId:id, patch:{ closeReason:{ reason:p.motivo||'', at:Date.now(), by:apMe()||'' } } }).catch(()=>{});
+    await invoke('mark_task_status',{ taskId:id, status:'cancelled' });
+    await invoke('set_task_flag',{ taskId:id, flag:'closed' });
+    t.status='cancelled'; t.flag='closed';
+  }catch(e){ delete AP.busy[id]; showErr(e, 'Não consegui encerrar a tarefa'); try{ p.res(false); }catch(_){ } apRefresh(); return; }
+  if(ctx.pr){
+    apBusy(id, 'fechando o PR…');
+    try{ await invoke('close_pr',{ taskId:id, comment:'Encerrado no Starfork sem integrar'+(p.motivo?': '+p.motivo:'.') }); feitos.push('PR #'+ctx.pr+' fechado'); if(typeof prCache!=='undefined') prCache[id]=undefined; }
+    catch(e){ avisos.push({ tx:`O PR #${ctx.pr} continua aberto: ${humanErr(e).msg}. Feche no GitHub.`, url:ctx.prUrl }); }
+  }
+  if(ctx.issue){
+    apBusy(id, 'fechando a issue no painel…');
+    let r=null; try{ r=typeof trkCloseIssue==='function'?await trkCloseIssue(ctx.issue, p.motivo):null; }catch(e){ r={ done:false, why:String(e&&e.message||e) }; }
+    if(r && r.done) feitos.push(`issue ${ctx.issue} ${r.already?'já estava fechada':'→ “'+(r.label||'fechada')+'”'}`);
+    else avisos.push({ tx:`Feche a issue ${ctx.issue} no painel${r&&r.why?' — '+r.why:''}.`, url:(r&&r.url)||'' });
+  }
+  const card=apCard(t);
+  if(card && typeof sbPost==='function'){ try{ sbPost('task_activity',{ task_id:card.id, user_id:apMe(), kind:'comment', body:apEncerrarAtividade(p.motivo) }).catch(()=>{}); }catch(_){ } }
+  delete AP.busy[id];
+  try{ lastSig=''; if(typeof refresh==='function') await refresh(); }catch(_){ }
+  // UM aviso só (o toast é um por vez): o que foi feito + o que ficou pra pessoa fazer, com o link
+  const base=`${apCode(t)||apTitle(t).slice(0,40)} encerrada sem entregar${feitos.length?' · '+feitos.join(' · '):''}.`;
+  const lk=avisos.find(a=>a.url);
+  if(avisos.length) toast(base+' '+avisos.map(a=>a.tx).join(' '), 'warn', lk?{ label:'abrir no painel', fn:()=>openExternal(lk.url) }:undefined);
+  else toast(base, 'ok');
+  try{ window.dispatchEvent(new CustomEvent('sf:tarefa-encerrada', { detail:{ taskId:id, epicId:(t.epic&&t.epic.epicId)||null } })); }catch(_){ }
+  try{ if(t.epic && t.epic.epicId && typeof epicAutoStartTick==='function') epicAutoStartTick(); }catch(_){ } // cancelada não segura a onda
+  try{ p.res(true); }catch(_){ }
   apRefresh();
 }
 // a onda: se fechou, avisa (a aba do épico solta a próxima — regra #166/onda inteira) e acorda o início automático que já
@@ -666,9 +845,9 @@ function apFilaHtml(){
   if(!L.length) return `<div class="sempg">${head('nada esperando você')}<div class="apq-vazio"><b>Fila vazia.</b><p>Quando a IA terminar uma tarefa com as provas, ela aparece aqui com tudo pra decidir sem abrir: o que mudou, a prova de cada requisito, os prints e o veredito do revisor.</p></div></div>`;
   const i=apSelIdx(L); AP.selId=L[i].id;
   const items=L.map((t,j)=>{ const v=apVm(t); const sel=j===i;
-    const stx=AP.pending&&AP.pending.id===t.id?['ok','integrando…']:v.dec.kind==='conflito'?['bad','conflito']:v.dec.precisa.includes('revisor')?['bad','revisor pediu mudança']:v.dec.kind==='motivo'?['bad','falta prova']:v.dec.kind==='bloqueado'?['wn','ainda não dá']:['info',v.rows.length?`${v.rows.filter(r=>r.st==='ok'&&(r.evidence||[]).length).length}/${v.rows.length} provas`:'sem requisitos'];
+    const stx=AP.pending&&AP.pending.id===t.id?(AP.pending.kind==='enc'?['wn','encerrando…']:['ok','integrando…']):AP.busy[t.id]?['info',AP.busy[t.id].tx||'aprovando…']:AP.blk[t.id]?['wn','ainda não aprovei']:v.dec.kind==='conflito'?['bad','conflito']:v.dec.precisa.includes('revisor')?['bad','revisor pediu mudança']:v.dec.kind==='motivo'?['bad','falta prova']:v.dec.kind==='bloqueado'?['wn','ainda não dá']:['info',v.rows.length?`${v.rows.filter(r=>r.st==='ok'&&(r.evidence||[]).length).length}/${v.rows.length} provas`:'sem requisitos'];
     return `<button type="button" class="apq-i" role="option" aria-selected="${sel}" data-apsel="${escA(t.id)}"><span class="apq-t">${esc(v.title)}</span>${typeof personAv==='function'&&v.who?personAv(v.who,{ decor:true }):''}<span class="apq-m"><span class="mono">${esc(v.code||'')}</span>${v.ep?`<span>◆ onda ${v.ep.onda}</span>`:''}<span class="apq-s ${stx[0]}">${esc(stx[1])}</span>${v.pode?'':`<span class="apv-dim">aprova: ${esc(apWhoName(v.quem))}</span>`}</span></button>`; }).join('');
-  const hint=`<div class="apq-hint"><span>${apKbd('J')}${apKbd('K')} troca</span><span>${apKbd('A')} aprova</span><span>${apKbd('P')} pede alteração</span><span>${apKbd('↵')} abre</span><span>${apKbd('Z')} desfaz</span></div>`;
+  const hint=`<div class="apq-hint"><span>${apKbd('J')}${apKbd('K')} troca</span><span>${apKbd('A')} aprova</span><span>${apKbd('P')} pede alteração</span><span>${apKbd('E')} encerra</span><span>${apKbd('↵')} abre</span><span>${apKbd('Z')} desfaz</span></div>`;
   return `<div class="sempg apq-pg">${head(`${L.length} tarefa${L.length>1?'s':''} com provas prontas · a mais recente primeiro`)}<div class="apq"><div class="apq-l"><div class="apq-list" role="listbox" aria-label="Tarefas pra aprovar">${items}</div>${hint}</div><div class="apq-r">${proofPanel(L[i].id, 'full')}</div></div></div>`;
 }
 function apPaintFila(force){
@@ -695,14 +874,25 @@ function apMeuEvento(x, meta){
   const t=x.local, v=apVm(t), id=t.id, tt=`<span class="tt">${esc(v.title)}</span>`;
   const ok=v.rows.filter(r=>r.st==='ok'&&(r.evidence||[]).length).length, n=v.rows.length;
   const espera=v.ep && !v.ep.ultima && !v.ep.mesmaOnda.length ? ` · a onda ${v.ep.onda+1} espera isso` : v.ep&&v.ep.ultima&&!v.ep.mesmaOnda.length?' · é a última do épico':'';
+  const m=[meta, v.ep?`◆ ${v.ep.nome} · onda ${v.ep.onda}`:'', v.rev?`${v.rev.name}: ${v.rev.verdict==='aprova'?'aprovou':v.rev.verdict==='muda'?'pediu mudança':'ilegível'}`:'', v.pode?'':'aprova: '+apWhoName(v.quem)].filter(Boolean).join(' · ');
+  const P=AP.pending&&AP.pending.id===id?AP.pending:null, busy=AP.busy[id], bk=AP.blk[id];
+  const verProvas={ l:AP.meuExp===id?'Esconder provas':'Ver provas', act:()=>{ AP.meuExp=AP.meuExp===id?'':id; AP.meuSel=id; apRefresh(); } };
+  const encerrar={ l:'Encerrar…', q:true, act:(b)=>encerrarTarefa(id, { anchor:b }) };
+  // o andamento do Aprovar/Encerrar fica NESTA linha (a pessoa não sai do Meu trabalho)
+  if(P){ const s0=Math.max(0, Math.ceil((P.until-Date.now())/1000));
+    const s=P.kind==='enc'?`Encerrando ${tt} sem entregar em <b data-apcd>${s0}</b> s…`:`<b>Aprovada:</b> ${tt} integra${P.pr?' o PR #'+esc(String(P.pr)):''} na main em <b data-apcd>${s0}</b> s…`;
+    return { ms:apMod(t), av:'ia', s, m, a:[{ l:'Desfazer (Z)', pri:true, act:()=>apDesfazer() }], tid:id, live:true }; }
+  if(busy) return { ms:apMod(t), av:'ia', s:`<span class="apv-ring" aria-hidden="true"></span>${tt}: ${esc(busy.tx||'aprovando…')}`, m, a:[], tid:id, live:true };
+  if(bk) return { ms:apMod(t), av:'ia', s:`<b>Ainda não aprovei</b> ${tt}. ${esc(bk.why)}`, m, tid:id, live:true, blk:true,
+    a:bk.acts.filter(k=>AP_BLK_ACT[k]).map((k,i)=>({ l:AP_BLK_ACT[k].l, pri:i===0, act:(b)=>apBlkAct(id, k, b) })).concat([verProvas, encerrar]) };
   let s;
   if(v.dec.kind==='conflito') s=`${tt} conflita com a main — a IA resolve se você pedir.`;
   else if(v.dec.precisa.includes('revisor')) s=`<b>O revisor</b> pediu mudança em ${tt}${v.rev&&v.rev.n>1?` (${v.rev.n} rodadas)`:''}.`;
   else s=`<b>A IA</b> terminou ${tt}${n?` com ${ok} de ${n} requisitos provados`:''}${espera}.`;
   const a=[];
   if(v.pode && v.dec.kind==='ok') a.push({ l:'Aprovar', pri:true, ap:'aprovar', act:()=>aprovarTarefa(id) });
-  a.push({ l:AP.meuExp===id?'Esconder provas':'Ver provas', pri:!(v.pode&&v.dec.kind==='ok'), act:()=>{ AP.meuExp=AP.meuExp===id?'':id; AP.meuSel=id; apRefresh(); } });
-  const m=[meta, v.ep?`◆ ${v.ep.nome} · onda ${v.ep.onda}`:'', v.rev?`${v.rev.name}: ${v.rev.verdict==='aprova'?'aprovou':v.rev.verdict==='muda'?'pediu mudança':'ilegível'}`:'', v.pode?'':'aprova: '+apWhoName(v.quem)].filter(Boolean).join(' · ');
+  a.push(Object.assign(verProvas, { pri:!(v.pode&&v.dec.kind==='ok') }));
+  if(v.pode) a.push(encerrar);
   return { ms:apMod(t), av:'ia', s, m, a, tid:id };
 }
 window.apMeuEvento=apMeuEvento;
@@ -722,6 +912,8 @@ document.addEventListener('click', (e)=>{
   const panel=b.closest('[data-proof]'), id=b.dataset.id||(panel&&panel.dataset.proof)||'', k=b.dataset.ap;
   e.stopPropagation();
   if(k==='aprovar') return void aprovarTarefa(id);
+  if(k==='blk') return void apBlkAct(id, b.dataset.k, b);
+  if(k==='encerrar') return void encerrarTarefa(id, { anchor:b });
   if(k==='motivo'){ const ta=document.getElementById('apTa-'+id); return void aprovarTarefa(id, { motivo:ta?ta.value:'' }); }
   if(k==='pedir') return apPedirAbrir(id);
   if(k==='enviar'){ const ta=document.getElementById('apTa-'+id); return void pedirAlteracao(id, ta?ta.value:''); }
@@ -771,6 +963,7 @@ document.addEventListener('keydown', (e)=>{
     if(k==='j'||k==='ArrowDown'||k==='k'||k==='ArrowUp'){ e.preventDefault(); AP.selId=L[apNav(L.length, i, (k==='k'||k==='ArrowUp')?-1:1)].id; apPaintFila(); const b=document.querySelector(`#aprovarPage [data-apsel="${CSS.escape(AP.selId)}"]`); if(b){ b.focus({ preventScroll:true }); b.scrollIntoView({ block:'nearest' }); } return; }
     if(k==='a'){ e.preventDefault(); aprovarTarefa(cur); return; }
     if(k==='p'){ e.preventDefault(); apPedirAbrir(cur); return; }
+    if(k==='e'){ e.preventDefault(); encerrarTarefa(cur); return; }
     if(k==='Enter' && !(e.target.closest && e.target.closest('button:not([data-apsel]),a'))){ e.preventDefault(); apAbrirTarefa(cur, 'revisao'); return; }
     return;
   }
@@ -781,11 +974,13 @@ document.addEventListener('keydown', (e)=>{
     if(k===' ' && !(e.target.closest && e.target.closest('button,[role=button]'))){ e.preventDefault(); AP.meuSel=cur; AP.meuExp=AP.meuExp===cur?'':cur; apRefresh(); return; }
     if(k==='a'){ e.preventDefault(); AP.meuSel=cur; aprovarTarefa(cur); return; }
     if(k==='p'){ e.preventDefault(); AP.meuSel=cur; AP.meuExp=cur; apPedirAbrir(cur); return; }
+    if(k==='e'){ e.preventDefault(); AP.meuSel=cur; encerrarTarefa(cur); return; }
     return;
   }
   if(c==='task'){ const id=fwTask;
     if(k==='a'){ e.preventDefault(); aprovarTarefa(id); return; }
     if(k==='p'){ e.preventDefault(); apPedirAbrir(id); return; }
+    if(k==='e'){ e.preventDefault(); encerrarTarefa(id); return; }
   }
 });
 

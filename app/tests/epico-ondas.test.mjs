@@ -103,3 +103,9 @@ test('a UI diz quem segura e por quê ("esperando LOJA-1 · Catálogo terminar")
   assert.match(cut(ep, 'async function epAutoLocalTick(){', '\n}\n'), /if\(epAfterOpen\(t\.epic&&t\.epic\.epicId, \(t\.epic\|\|\{\}\)\.after\)\.length\) continue;/);
   assert.ok(cut(ep, 'async function epAutoLocalTick(){', '\n}\n').indexOf('epAfterOpen') < cut(ep, 'async function epAutoLocalTick(){', '\n}\n').indexOf('await startTask(id)'));
 });
+
+test('encerrada sem entregar (cancelada, com o PR fechado) não segura a onda', () => {
+  assert.equal(O.epDepOk(card('a', { status: 'cancelled', flag: 'closed', pr_url: 'https://github.com/loja/app/pull/9' })), true);
+  assert.equal(O.epDepOk(card('a', { status: 'cancelled' })), true);
+  assert.equal(O.epDepOk(card('a', { status: 'review', flag: 'closed', pr_url: 'https://github.com/loja/app/pull/9' })), false, 'concluída com PR aberto ainda segura');
+});
