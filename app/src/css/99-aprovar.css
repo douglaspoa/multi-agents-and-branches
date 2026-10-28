@@ -116,3 +116,13 @@
 /* ===================== Revisão ⌘3: o painel + o caminho pra revisão por requisito ===================== */
 .apv-task{padding:16px clamp(12px,2vw,24px) 28px;max-width:1240px;margin:0 auto;box-sizing:border-box;min-width:0}
 .apv-more{margin:10px 2px 0;font-size:var(--fs-sm);color:var(--muted)}
+/* bloqueio do último Aprovar (o porquê na linha, com a ação certa — nunca abre a tarefa sozinho) */
+.apv-blkrow{border-top:1px solid var(--border);border-radius:0 0 14px 14px;background:var(--surface-2);position:sticky;bottom:0;z-index:2}
+.apv-blkrow>.apv-after{margin:10px 16px 0}
+.apv-blkrow>.apv-acts{border-top:0;position:static}
+.ctexp-apb .apv-blkrow{bottom:-20px}
+.apv-enc{color:var(--text-2)}
+.apv-enc:hover{color:var(--crit)}
+/* Meu trabalho: a linha mostra o andamento (abrindo o PR…, integrando em 4 s · Desfazer) e o bloqueio */
+.mev-s .apv-ring{display:inline-block;width:12px;height:12px;vertical-align:-1px;margin-right:6px}
+.mev.blk{box-shadow:inset 3px 0 0 var(--warn)}

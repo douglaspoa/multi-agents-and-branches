@@ -59,7 +59,8 @@ function epInReview(t){ return ['review','delivered','pr-open'].includes(epEffSt
 // empilhar na branch da outra — se o PR muda na revisão, a de cima fica com código velho e o merge vira conflito).
 // t = cartão da nuvem (pr_url) ou tarefa local (prUrl).
 function epPrOpen(t){ if(!t) return false; const pr=('team_id' in t)?t.pr_url:t.prUrl; return !!pr && !['merged','done'].includes(t.status); }
-function epDepOk(t){ if(!t) return false; if(['merged','done'].includes(t.status)) return true; return t.flag==='closed' && !epPrOpen(t); }
+// encerrada sem entregar (cancelled, 80-aprovar) não segura a onda: o PR dela foi fechado, não há código pra esperar
+function epDepOk(t){ if(!t) return false; if(['merged','done','cancelled'].includes(t.status)) return true; return t.flag==='closed' && !epPrOpen(t); }
 // "esperando LOJA-1 · Título terminar" — o que segura a tarefa, com o porquê (PR aberto = falta integrar)
 // list: [{ title, code, b }] (b = epqBucket). esc injetado (a mesma função da app)
 function epWaitTx(list, esc){

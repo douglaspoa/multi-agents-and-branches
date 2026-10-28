@@ -10104,6 +10104,34 @@ fn merge_pr(state: State<AppState>, task_id: String, method: String) -> Result<S
     Ok("PR mergeado".to_string())
 }
 
+/// O `gh pr close` falhou só porque o PR já estava fechado/integrado? (encerrar duas vezes não é erro)
+fn pr_close_already(stderr: &str) -> bool {
+    let s = stderr.to_ascii_lowercase();
+    s.contains("already closed") || s.contains("already merged") || s.contains("can't be closed because it was already merged")
+}
+
+/// "Encerrar sem entregar" (80-aprovar): fecha o PR da tarefa no GitHub com o motivo como comentário.
+/// A branch FICA (sem --delete-branch): dá pra retomar depois. PR já fechado = ok.
+#[tauri::command(async)]
+fn close_pr(state: State<AppState>, task_id: String, comment: Option<String>) -> Result<String, String> {
+    let (repo, branch) = pr_head(&state, &task_id)?;
+    let mut c = gh_contas::gh_in(&repo);
+    c.args(["pr", "close", &branch]);
+    if let Some(m) = comment.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        c.args(["--comment", m]);
+    }
+    c.args(gh_repo_args(&repo)).current_dir(&repo);
+    let o = output_timeout(c, 60)?;
+    if o.status.success() {
+        return Ok("PR fechado".to_string());
+    }
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    if pr_close_already(&err) {
+        return Ok("o PR já estava fechado".to_string());
+    }
+    Err(err)
+}
+
 /// "Pediu mudanças" que ainda vale: o review mais recente do autor (não substituído), não ignorado na UI,
 /// e só enquanto a decisão do PR continua CHANGES_REQUESTED (aprovado depois → nada a reenviar).
 fn pr_open_review_asks<'a>(info: &'a PrInfo, ign: &std::collections::HashSet<String>) -> Vec<&'a PrReview> {
@@ -11526,6 +11554,7 @@ pub fn run() {
             tests_skip,
             pr_resolve_thread,
             merge_pr,
+            close_pr,
             rework_from_pr,
             merge_task,
             remove_task,
@@ -11947,7 +11976,7 @@ mod pr_status_tests {
 
 #[cfg(test)]
 mod motor_r7_tests {
-    use super::{home_from, pr_merge_landed};
+    use super::{home_from, pr_close_already, pr_merge_landed};
 
     #[test]
     fn pasta_do_usuario_no_windows_usa_userprofile() {
@@ -11969,6 +11998,13 @@ mod motor_r7_tests {
         assert!(pr_merge_landed(false, Some("MERGED\n")));
         assert!(!pr_merge_landed(false, Some("OPEN")));
         assert!(!pr_merge_landed(false, None));
+    }
+
+    #[test]
+    fn encerrar_pr_ja_fechado_nao_e_erro() {
+        assert!(pr_close_already("! Pull request douglas/loja-web#12 (Cupom) is already closed"));
+        assert!(pr_close_already("Pull request #12 can't be closed because it was already merged"));
+        assert!(!pr_close_already("HTTP 403: Resource not accessible by integration"));
     }
 }
 

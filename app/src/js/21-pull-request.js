@@ -210,9 +210,10 @@ function chkOnProgress(p){
 }
 try{ window.__TAURI__.event.listen('checks-progress', ev=>chkOnProgress(ev&&ev.payload)); }catch(_){ }
 // "aprovar mesmo assim": exige motivo — vai pra descrição do PR e fica registrado (local + .cardume/checks-overrides.jsonl)
-async function chkOverride(t, g){
+// motivo: já escrito em outra tela (o "Aprovar mesmo assim…" do painel de provas, 80-aprovar) — não pergunta de novo
+async function chkOverride(t, g, motivo){
   const what=g.st==='fail'?'com a verificação falhando':'sem a verificação da versão atual';
-  const reason=await askText('Aprovar mesmo assim', `por que aprovar ${what}? (vai na descrição do PR e fica registrado)`, '');
+  const reason=String(motivo||'').trim() || await askText('Aprovar mesmo assim', `por que aprovar ${what}? (vai na descrição do PR e fica registrado)`, '');
   if(!reason) return false;
   const f=await chkLoadFp(t.id, true); const fp=(f&&f.fp&&f.fp.fingerprint)||'';
   const failing=g.st==='fail'?(g.bad||[]).map(b=>b.label):[];
@@ -452,32 +453,43 @@ function prShowRetry(fn){
   b.textContent='↻ tentar de novo'; b.style.display=''; b.onclick=()=>{ b.style.display='none'; fn(); };
 }
 function prHideRetry(){ const b=$id('prepRetry'); if(b) b.style.display='none'; }
-async function prPrepFinish(t, base){
-  prHideRetry();
-  prepMark(2,'run','commitando e enviando a branch…');
-  try{ const msg=await invoke('push_task',{ taskId:t.id }); prepMark(2,'ok', esc(msg)); }
-  catch(e){ prFail(2, e, ()=>prPrepFinish(t, base)); return; }
+// a criação do PR em si — push → provas → descrição → gh pr create — sem tela própria. O "Preparando o PR" (abaixo) e o
+// Aprovar do painel de provas (80-aprovar, que mostra o andamento NA linha, sem abrir a tarefa) passam por aqui.
+// step(n, st, html): o andamento (2 = commit & push · 3 = abrir o PR). Falha sai como { step, err }.
+async function prCreateRun(t, base, step){
+  step=step||(()=>{});
+  step(2,'run','commitando e enviando a branch…');
+  try{ const msg=await invoke('push_task',{ taskId:t.id }); step(2,'ok', esc(msg)); }
+  catch(e){ throw { step:2, err:e }; }
   // provas (prints/vídeos) → branch starfork-provas; repositório público pergunta uma vez (60-provas-pr). Nunca bloqueia.
-  if(typeof provasAttach==='function'){ prepMark(3,'run','anexando as provas (prints) ao PR…'); await provasAttach(t, { ask:true }); }
-  prepMark(3,'run','escrevendo a descrição do PR (o quê · o que foi feito · como testar)…');
+  if(typeof provasAttach==='function'){ step(3,'run','anexando as provas (prints) ao PR…'); await provasAttach(t, { ask:true }); }
+  step(3,'run','escrevendo a descrição do PR (o quê · o que foi feito · como testar)…');
   let prBody;
   try{ prBody=await invoke('pr_body_ai',{ taskId:t.id }); }
   catch(_){ prBody=prBodyOf(t); }
   prBody=String(prBody||prBodyOf(t))+chkPrBodyExtra(t); // verificação real + "Atenção: aprovado com checagem falhando: motivo"
   if(typeof cicloReportFor==='function') prBody+=cicloReportFor(t); // Relatório Starfork: requisitos × provas, motivos, custo e versão por papel
-  prepMark(3,'run','criando o PR no GitHub…');
+  step(3,'run','criando o PR no GitHub…');
+  let url;
   try{
-    const url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBody });
+    url=await invoke('open_pr',{ taskId:t.id, base, title:t.title, body: prBody });
     // PR que já existia (o gh devolve o dele e ignora o corpo novo): o relatório com as provas entra por cima
     if(typeof provasPushReport==='function' && url){ const pv=provasOf(t.id); if(pv&&(Object.keys(pv.links||{}).length||pv.note)) await provasPushReport(t, url); }
-    prepMark(3,'ok', url?`<button class="btn sm" onclick="openExternal('${escA(url)}')" style="margin-top:4px">${esc(url.replace('https://',''))} ↗</button>`:'PR aberto');
-    prHideRetry();
-    prCache[t.id]=undefined; await loadPr(t.id,true); lastSig='';
-    if(typeof renderWorkspace==='function'&&fwTask===t.id){ fwMode='pr'; renderWorkspace(); }
-  }catch(e){ const s=errText(e);
-    // gh sem acesso/SSO ao repo (comum em quem não é membro da org ou sem SSO): o
-    // push funcionou, então dá pra criar o PR no NAVEGADOR (a sessão do dev tem acesso).
-    const ghAccess=/^GH_NO_ACCESS:|could not resolve to a repository|graphql|sso|not authorized|não enxerga/i.test(s) && humanErr(e).id!=='network';
+  }catch(e){ throw { step:3, err:e }; }
+  prCache[t.id]=undefined; await loadPr(t.id,true); lastSig='';
+  return url;
+}
+// gh sem acesso/SSO ao repo (comum em quem não é membro da org ou sem SSO): o push funcionou, então dá pra criar o PR
+// no NAVEGADOR (a sessão do dev tem acesso)
+function prGhNoAccess(e){ return /^GH_NO_ACCESS:|could not resolve to a repository|graphql|sso|not authorized|não enxerga/i.test(errText(e)) && humanErr(e).id!=='network'; }
+async function prPrepFinish(t, base){
+  prHideRetry();
+  let url;
+  try{ url=await prCreateRun(t, base, prepMark); }
+  catch(x){
+    const e=(x&&x.step)?x.err:x;
+    if(x&&x.step===2){ prFail(2, e, ()=>prPrepFinish(t, base)); return; }
+    const s=errText(e), ghAccess=prGhNoAccess(e);
     prFail(3, e, ()=>prPrepFinish(t, base), true);
     if(ghAccess){
       try{ const cu=await invoke('pr_compare_url',{ taskId:t.id, base }); const d=$id('prep3d');
@@ -494,7 +506,11 @@ async function prPrepFinish(t, base){
       // a branch já foi enviada — re-tentar só a criação do PR (ex.: falha de rede)
       prShowRetry(()=>prPrepFinish(t, base));
     }
+    return;
   }
+  prepMark(3,'ok', url?`<button class="btn sm" onclick="openExternal('${escA(url)}')" style="margin-top:4px">${esc(url.replace('https://',''))} ↗</button>`:'PR aberto');
+  prHideRetry();
+  if(typeof renderWorkspace==='function'&&fwTask===t.id){ fwMode='pr'; renderWorkspace(); }
 }
 async function openPr(t){
   const base=($id('prBase')||{}).value||'main';

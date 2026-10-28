@@ -656,6 +656,8 @@ function openTaskMenu(taskId, anchor){
   // E3 (bug #4): abortar só faz sentido com o agente vivo (antes aparecia até em mergeada e trocava 'merged' por 'aborted');
   // e passa pelo abortTask(), que confirma antes
   if(ACTIVE_ST.has(t.status)||t.status==='paused'||t.status==='plan-review'||t.status==='asking'||t.busy) item('interromper agora', ()=>abortTask(taskId), true, stIcon('aborted'));
+  // "não vai pra frente" (dono 28/10): cancela, fecha o PR (a branch fica) e a issue ligada, com 4 s pra desfazer (80-aprovar)
+  if(typeof encerrarTarefa==='function' && !taskEncerrada(t)) item('encerrar sem entregar…', ()=>encerrarTarefa(taskId, { anchor }), true, stIcon('cancelled'), { stay:true, title:'cancela a tarefa, fecha o PR e a issue no painel; pede um motivo opcional' });
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
   pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
