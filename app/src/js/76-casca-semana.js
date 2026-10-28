@@ -408,6 +408,8 @@ function meuEventos(){
     if(x.done) continue;
     const mine=x.who===me || (!x.card);
     if(mine && x.st==='plan-review') out.push({ ms:x.mod, av:'ia', s:`O plano de ${tt(x.titulo)} espera sua aprovação.`, m:meta(x, x.mod), a:[{ l:'Ver o plano', pri:true, act:()=>semAbrir(x) }] });
+    // 86-pr-real: o PR desta branch foi FECHADO sem integrar no GitHub → Reabrir / Encerrar (nunca "Aprovar")
+    else if(mine && x.local && typeof prrEventoFechado==='function' && prrEventoFechado(x, '')) out.push(prrEventoFechado(x, meta(x, x.mod)));
     // 80-aprovar: terminou com as provas (ou o revisor pediu mudança) → Aprovar direto na frase e "Ver provas" abre o painel aqui
     else if(mine && x.local && typeof apMeuEvento==='function' && typeof apAprovavel==='function' && apAprovavel(x.local)) out.push(apMeuEvento(x, meta(x, x.mod)));
     else if(mine && x.bucket==='prontas' && x.local){ const r=(x.local.requirements||[]).length; const ok=(typeof reqProvadas==='function')?reqProvadas(x.local):null;

@@ -51,13 +51,63 @@ pub(crate) fn repo_account(repo: &Path) -> Option<String> {
     if o.status.success() && valid_account(&a) { Some(a) } else { None }
 }
 
-/// gh pros comandos de um repositório: usa a conta gravada nele (se houver), senão a ativa.
+/// Conta do gh que o app DESCOBRIU enxergar este repo (consultas: PR, estado, comentários). Fica no config local
+/// do repo, separada da credencial do push: num clone por ssh o push nunca passa pelo gh, então a conta do push
+/// nunca era gravada e toda consulta caía na conta ATIVA — que, com o repo numa org de outra conta, respondia
+/// "Could not resolve to a Repository" pra sempre (o PR "nunca era achado").
+pub(crate) const QUERY_ACCOUNT_KEY: &str = "starfork.ghaccount";
+
+fn local_cfg(repo: &Path, key: &str) -> Option<String> {
+    let o = Command::new("git").arg("-C").arg(repo).args(["config", "--local", "--get", key]).output().ok()?;
+    let a = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    if o.status.success() && valid_account(&a) { Some(a) } else { None }
+}
+
+/// Conta pras CONSULTAS do gh neste repo: a do push (se o app gravou), senão a descoberta, senão nenhuma (= ativa).
+pub(crate) fn query_account(repo: &Path) -> Option<String> {
+    repo_account(repo).or_else(|| local_cfg(repo, QUERY_ACCOUNT_KEY))
+}
+
+/// gh pros comandos de um repositório: usa a conta ligada a ele (push ou descoberta), senão a ativa.
 pub(crate) fn gh_in(repo: &Path) -> Command {
-    let gh = gh_bin();
-    match repo_account(repo) {
-        Some(a) => gh_as(&gh, &a),
+    gh_in_with(&gh_bin(), repo)
+}
+pub(crate) fn gh_in_with(gh: &str, repo: &Path) -> Command {
+    match query_account(repo) {
+        Some(a) => gh_as(gh, &a),
         None => Command::new(gh),
     }
+}
+
+/// A conta usada (ou a ativa) não enxerga o repo `slug`: sonda TODAS as contas logadas (token de cada uma só no
+/// filho, nunca `gh auth switch`), escolhe a que enxerga e grava em QUERY_ACCOUNT_KEY. Some(conta) = trocou
+/// (vale tentar de novo). Recuo de 10 min por repo (o chaveiro não gosta de leituras repetidas) — `force` fura.
+pub(crate) fn discover_query_account(gh: &str, repo: &Path, slug: &str, force: bool) -> Option<String> {
+    static LAST: std::sync::Mutex<Option<std::collections::HashMap<String, std::time::Instant>>> = std::sync::Mutex::new(None);
+    let key = repo.display().to_string();
+    {
+        let mut g = LAST.lock().unwrap_or_else(|e| e.into_inner());
+        let m = g.get_or_insert_with(Default::default);
+        if !force && m.get(&key).map(|t| t.elapsed() < std::time::Duration::from_secs(600)).unwrap_or(false) {
+            return None;
+        }
+        m.insert(key, std::time::Instant::now());
+    }
+    let accts: Vec<_> = gh_accounts_with(gh).ok()?.into_iter().map(|a| (account_token(gh, &a.user), a.user)).collect();
+    let seen: Vec<(String, bool, bool)> = accts
+        .into_iter()
+        .map(|(tok, user)| {
+            let (vis, push) = probe_repo(gh, tok.as_deref(), slug);
+            (user, vis, push)
+        })
+        .collect();
+    let acc = pick_account(&seen)?;
+    if query_account(repo).as_deref() == Some(acc.as_str()) {
+        return None; // já era esta: tentar de novo daria o mesmo erro
+    }
+    let o = git_cfg(repo, &["--replace-all", QUERY_ACCOUNT_KEY, &acc]).ok()?;
+    if !o.status.success() { return None; }
+    Some(acc)
 }
 
 // ---------- donos (usuário + organizações) de todas as contas ----------
