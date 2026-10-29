@@ -42,6 +42,21 @@ pub(crate) struct PrFound {
     pub head: String,
 }
 
+/// Branch de tronco (main, develop…): NUNCA é a head do PR de uma tarefa. A branch da tarefa nasce de `origin/main`, então
+/// o upstream dela é `main` — procurar PR "pela head main" achava qualquer PR antigo main→main (29/10: tarefa ligada ao
+/// #232 "atualiza", de julho, e marcada integrada sem nunca ter subido).
+pub(crate) fn is_trunk(name: &str, extra: &[&str]) -> bool {
+    let n = name.trim().trim_start_matches("origin/");
+    n.is_empty()
+        || ["main", "master", "develop", "development", "dev", "trunk", "staging", "homol", "production", "release"].contains(&n)
+        || extra.iter().any(|e| !e.trim().is_empty() && e.trim().trim_start_matches("origin/") == n)
+}
+/// O PR gravado na tarefa é de OUTRA branch (head = tronco, ou nenhuma das heads possíveis da tarefa): link errado.
+pub(crate) fn link_bogus(found_head: &str, branch: &str, heads: &[String]) -> bool {
+    let h = found_head.trim();
+    !h.is_empty() && h != branch && (is_trunk(h, &[]) || !heads.iter().any(|x| x == h))
+}
+
 /// Saída de `gh pr list --json number,url,state,headRefName,updatedAt` (ou de um `gh pr view` = objeto) → o PR que vale:
 /// aberto primeiro (é o que está vivo), senão o integrado, senão o fechado — o mais recente em cada grupo.
 pub(crate) fn pick_pr(json: &str) -> Option<PrFound> {
@@ -107,7 +122,8 @@ pub(crate) fn gh_find(gh: &str, repo: &Path, slug: &str, pr_url: &str, heads: &[
     let mut all: Vec<PrFound> = vec![];
     for h in heads.iter().filter(|h| !h.trim().is_empty()) {
         let out = gh_json(gh_contas::gh_in_with(gh, repo), repo, &["pr", "list", "--head", h, "--state", "all", "--limit", "20", "--json", F], slug)?;
-        if let Some(p) = pick_pr(&out) { all.push(p); }
+        // defesa: `--head` casa só a head, mas um PR main→main nunca é o da tarefa
+        if let Some(p) = pick_pr(&out).filter(|p| !is_trunk(&p.head, &[])) { all.push(p); }
     }
     // mesma régua entre as heads: aberto > integrado > fechado
     let rank = |s: &str| match s { "OPEN" => 0, "MERGED" => 1, "CLOSED" => 2, _ => 3 };
@@ -237,6 +253,22 @@ mod tests {
         assert_eq!(pick_pr(j2).unwrap().number, 9, "aberto vence");
         let o = r#"{"number":5,"url":"u","state":"merged","headRefName":"h"}"#;
         assert_eq!(pick_pr(o).unwrap().state, "MERGED");
+    }
+
+    #[test]
+    fn tronco_nunca_e_head_de_pr_da_tarefa() {
+        assert!(is_trunk("main", &[]) && is_trunk("origin/master", &[]) && is_trunk("develop", &[]));
+        assert!(is_trunk("hml", &["origin/hml"]));
+        assert!(!is_trunk("feat/LW-1-cupom", &[]) && !is_trunk("agent/x", &[]));
+        let heads = vec!["feat/LW-1-cupom".to_string(), "agent/cupom".to_string()];
+        // o caso real: PR antigo main→main ligado à tarefa
+        assert!(link_bogus("main", "feat/LW-1-cupom", &heads));
+        // PR de outra branch qualquer também não é dela
+        assert!(link_bogus("feat/LW-9-outra", "feat/LW-1-cupom", &heads));
+        // a própria branch ou o nome antigo (renomeada depois do push) valem
+        assert!(!link_bogus("feat/LW-1-cupom", "feat/LW-1-cupom", &heads));
+        assert!(!link_bogus("agent/cupom", "feat/LW-1-cupom", &heads));
+        assert!(!link_bogus("", "feat/LW-1-cupom", &heads));
     }
 
     #[test]

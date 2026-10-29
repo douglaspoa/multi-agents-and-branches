@@ -63,8 +63,8 @@ async function prrConferir(taskId, o){
     r=Object.assign({}, r||{}, { at:Date.now() });
     PRR.r[taskId]=r;
     const d=prrDecide(r);
-    // o estado da tarefa mudou no banco (integrada, ou o link do PR foi gravado): recarrega e avisa a onda do épico
-    if((d.kind==='merged' && aberta) || (r.url && !tinhaPr)){
+    // o estado da tarefa mudou no banco (integrada, link do PR gravado — ou desfeito por ser de outra branch): recarrega
+    if((d.kind==='merged' && aberta) || (r.url && !tinhaPr) || (tinhaPr && !r.url && r.source==='gh')){
       if(typeof prCache!=='undefined') prCache[taskId]=undefined;
       try{ lastSig=''; if(typeof refresh==='function') await refresh(); }catch(_){ }
       const t1=((typeof state!=='undefined'&&state.tasks)||[]).find(x=>x.id===taskId);
