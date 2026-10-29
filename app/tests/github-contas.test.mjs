@@ -75,3 +75,11 @@ test('a tela usa o carregador: relê ao abrir e manda a conta junto do dono', ()
   const pr = readFileSync(new URL('../src/js/21-pull-request.js', import.meta.url), 'utf8');
   assert.match(pr, /invoke\('publish_github',\{[^}]*account:/);
 });
+
+test('GH_TOKEN herdado não trava a troca de conta (29/10)', () => {
+  const rs = readFileSync(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
+  const run = rs.slice(rs.indexOf('pub fn run() {'), rs.indexOf('pub fn run() {') + 3000);
+  assert.match(run, /for k in \["GH_TOKEN", "GITHUB_TOKEN"\][\s\S]*std::env::remove_var\(k\)/, 'o app limpa o GH_TOKEN herdado ao iniciar');
+  const sw = rs.slice(rs.indexOf('fn gh_switch_account'), rs.indexOf('fn gh_switch_account') + 600);
+  assert.match(sw, /env_remove\("GH_TOKEN"\)\.env_remove\("GITHUB_TOKEN"\)/, 'a troca roda sem o GH_TOKEN');
+});

@@ -2758,6 +2758,7 @@ fn gh_accounts_with(gh: &str) -> Result<Vec<GhAccount>, String> {
 #[tauri::command(async)]
 fn gh_switch_account(user: String) -> Result<String, String> {
     let mut c = Command::new(gh_bin());
+    c.env_remove("GH_TOKEN").env_remove("GITHUB_TOKEN"); // com a variável setada o gh recusa trocar de conta
     c.args(["auth", "switch", "-h", "github.com", "-u", &user]);
     let out = output_timeout(c, 15)?;
     if !out.status.success() {
@@ -11538,6 +11539,16 @@ pub fn run() {
     // (spawn_tracked já seta; aqui cobre qualquer outro caminho que suba o motor). Antes de qualquer thread.
     std::env::set_var("CARDUME_NOTIFY", "0");
     web_log("[rust] app iniciou".to_string());
+    // GH_TOKEN/GITHUB_TOKEN herdados de quem abriu o app (ex.: um script que fez `open` com a variável exportada) TRAVAM a
+    // troca de conta do GitHub ("The value of the GH_TOKEN environment variable is being used for authentication") e fazem
+    // todo gh/git usar uma conta fixa. O app usa as contas guardadas no gh; quando precisa de uma conta específica, passa o
+    // token só pro processo filho. 29/10: dono não conseguia trocar de conta depois de um deploy.
+    for k in ["GH_TOKEN", "GITHUB_TOKEN"] {
+        if std::env::var_os(k).is_some() {
+            std::env::remove_var(k);
+            web_log(format!("[rust] {k} herdado do ambiente ignorado (o app usa as contas do gh)"));
+        }
+    }
     // RUNTIME PRÓPRIO COM FOLGA: o padrão do Tauri tem 1 thread por núcleo (10 aqui) e os comandos
     // `#[tauri::command(async)]` síncronos rodam DIRETO nessas threads. Comandos que esperam algo externo
     // (IA, OAuth, processos) ocupavam as 10 e o snapshot nem executava — sonda registrou "runtime SATURADO:
