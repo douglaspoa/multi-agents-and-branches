@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, from, to) => { const a = src.indexOf(from); const b = src.indexOf(to, a + from.length); assert.ok(a >= 0 && b > a, 'trecho não encontrado: ' + from); return src.slice(a, b); };
 const term = read('js/60-terminal.js'), ti = read('js/64-terminal-integrado.js'), ws = read('js/20-workspace-tarefa.js'), aj = read('js/67-ajustes.js');
-const P = new Function(cut(term, '// @term-vivo-puro-inicio', '// @term-vivo-puro-fim') + '\nreturn { TERM_RIS, TERM_READY, TERM_MARK, termAutoOk, termReadyNow, termTrustAsk, termFocusFree, termVis };')();
+const P = new Function(cut(term, '// @term-vivo-puro-inicio', '// @term-vivo-puro-fim') + '\nreturn { TERM_RIS, TERM_READY, TERM_MARK, termAutoOk, termReadyNow, termTrustAsk, termFocusFree, termVis, termEnvBlocked };')();
 
 const H = { resumes: true, worktreeExists: true, sessionId: 's1', source: 'transcript' };
 const base = { enabled: true, on: true, hidden: false, mode: 'hist', alive: false, opening: false, tried: false, hinfo: H, headless: false, budget: false, paused: false, exitAt: 0, now: 1e9 };
@@ -275,4 +275,11 @@ test('confiança respondida pelo teclado (Enter no xterm): a barra some na hora'
   assert.equal(st.bar.style.display, 'none', 'sem barra velha (o "sair" mandaria Esc no meio de um turno)');
   listeners['term-data']({ payload: { taskId: 't1', data: '● seguindo' } });
   assert.equal(st.bar.style.display, 'none');
+});
+
+test('a IA bateu na regra do .env → a faixa oferece liberar (texto real do Claude Code)', () => {
+  assert.ok(P.termEnvBlocked("  \u23bf  Error: grep from '/proj/.cardume/worktrees/t1/.env' was blocked by a deny rule."));
+  assert.ok(P.termEnvBlocked('\u25cf Ainda bloqueado por regra de deny em qualquer .env, então não consigo obter os valores.'));
+  assert.ok(!P.termEnvBlocked('Criei o .env.example com as variáveis.'));
+  assert.ok(!P.termEnvBlocked("Error: Bash(sudo ls) was blocked by a deny rule."));
 });
