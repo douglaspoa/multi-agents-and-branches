@@ -14,7 +14,15 @@
 const PRR_ESPERA={ vivo:3*60000, erro:5*60000, foco:30000 };
 const PRR_ST=['review','delivered','conflict','needs-you'];
 /** Esta tarefa merece conferência do PR? (em revisão/PR aberto; nunca rascunho, rodando ou encerrada) */
+// integrada há até 7 dias COM link de PR: confere 1× por sessão — o link pode ter vindo da busca antiga pelo upstream
+// (PR main→main de outra coisa) e o pr_sync_task desfaz o link e volta a tarefa pra revisão
+function prrReconfere(t){
+  if(t.status!=='merged' || !t.prUrl || t.flag==='closed' || (typeof PRR!=='undefined' && PRR.r[t.id])) return false;
+  let f=+t.finishedAt||0; if(f && f<1e12) f*=1000;
+  return !!f && Date.now()-f < 7*86400000;
+}
 function prrCandidata(t){
+  if(t && prrReconfere(t)) return true;
   if(!t || t.status==='draft' || t.flag==='closed' || ['merged','done','cancelled'].includes(t.status)) return false;
   return PRR_ST.includes(t.status) || !!t.prUrl;
 }
