@@ -6,7 +6,7 @@ const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8'
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/76-casca-semana.js'), HTML = read('index.html'), CSS = read('css/99-casca-semana.css');
 const S = new Function(cut(JS, '// @semana-puro-inicio', '// @semana-puro-fim')
-  + '\nreturn { semDiasDaSemana, semIntervaloTx, semHojeTx, semColunas, semMenuOpcoes, semMotivoOk, semRelatorioTx, MAPA_GRUPOS, GUIAS, guiaPasso, guiaFaixaTx };')();
+  + '\nreturn { semDiasDaSemana, semIntervaloTx, semHojeTx, semColunas, semMenuOpcoes, semMotivoOk, semRelatorioTx, MAPA_GRUPOS, GUIAS, guiaPasso, guiaFaixaTx, semJuntaPorCodigo };')();
 const QUA = new Date(2026, 9, 14, 10).getTime(); // quarta 14/10
 const SAB = new Date(2026, 9, 17, 10).getTime(); // sábado 17/10
 
@@ -132,4 +132,11 @@ test('Minha semana: cada tarefa no dia da última mudança; concluídas recolhid
   assert.deepEqual(r.at(-1).abertas.map((x) => x.id), ['f'], 'aberta antiga vai pra "Antes", não pra Hoje');
   assert.equal(M.semFim({ st: 'closed' }), true);
   assert.match(src, /x\.card&&!semFim\(x\)&&x\.card\.assignee===me/, 'Devolver só em aberta');
+});
+
+test('a mesma demanda não aparece 2×: cartão do time sem local_id com a issue de uma tarefa local some (fica a local)', () => {
+  const code = (x) => x.code || '';
+  const cards = [{ id: 'c1', code: 'LW-41' }, { id: 'c2', code: 'LW-42' }, { id: 'c3', code: 'LW-43', local_id: 'x' }, { id: 'c4' }];
+  const locs = [{ id: 'tracer', code: 'LW-41' }, { id: 'sem-issue' }];
+  assert.deepEqual(S.semJuntaPorCodigo(cards, locs, code).map((c) => c.id), ['c2', 'c3', 'c4']);
 });

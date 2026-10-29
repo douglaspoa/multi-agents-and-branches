@@ -185,6 +185,12 @@ const GUIAS={
 // o passo i do guia (limitado ao fim) e o texto da faixa "passo N de M"
 function guiaPasso(g, i){ const n=(g&&g.steps||[]).length; const k=Math.max(0, Math.min(n-1, i|0)); return { i:k, n, fim:k===n-1, texto:n?g.steps[k][0]:'', sel:n?g.steps[k][1]:'', abre:n?g.steps[k][2]:'' }; }
 function guiaFaixaTx(g, i){ const p=guiaPasso(g, i); return `${g.t} · passo ${p.i+1} de ${p.n}: ${p.texto}`; }
+// cartão do time SEM local_id cuja issue (ex.: LW-41) é a de uma tarefa DESTA máquina = a mesma demanda: fica a local
+// (ela tem o estado real — "pra revisar" — e o cartão dizia "fila"). Antes a mesma tarefa aparecia 2× em Minha semana.
+function semJuntaPorCodigo(cards, locs, codeOf){
+  const porCod=new Map(); for(const l of locs||[]){ const c=codeOf(l); if(c && !porCod.has(c)) porCod.set(c, l.id); }
+  return (cards||[]).filter(c=>c.local_id || !porCod.has(codeOf(c)||'\u0000'));
+}
 // @semana-puro-fim
 
 // ===================== registro das páginas na barra de abas =====================
@@ -246,9 +252,10 @@ function semItens(){
   const v=semItensCalc(); semItensMemo={ k, v }; return v;
 }
 function semItensCalc(){
-  const cards=semCards().filter(t=>t.status!=='cancelled');
-  const noTime=new Set(cards.map(t=>t.local_id).filter(Boolean));
+  const cards0=semCards().filter(t=>t.status!=='cancelled');
+  const noTime=new Set(cards0.map(t=>t.local_id).filter(Boolean));
   const loc=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>t.status!=='draft' && !noTime.has(t.id) && t.status!=='cancelled');
+  const cards=semJuntaPorCodigo(cards0, loc, semCode);
   return [...cards.map(semItemCard), ...loc.map(semItemLocal)];
 }
 // quando foi ENTREGUE (carimbo real — 72: nunca updated_at); demanda desta máquina: o finishedAt
