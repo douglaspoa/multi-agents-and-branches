@@ -103,7 +103,12 @@ test('salvar e restaurar a divisão: JSON versionado; versão desconhecida, lixo
   assert.equal(F.cvSplitValid({ v: 1, panes: [{ kind: 'task', taskId: 'A' }, { kind: 'task', taskId: 'B' }], w: [0.9, 0.5] }, ids).w, undefined, 'larguras malucas: automáticas');
   assert.equal(F.cvDescValid({ kind: 'web', app: true, taskId: 'A' }, ids).app, true, 'Navegador com o app de uma demanda');
   assert.equal(F.cvDescValid({ kind: 'device' }, ids), null, 'Simulador sem demanda não existe');
-  assert.deepEqual(F.CV_SPLIT_KINDS, ['task', 'web', 'device', 'doc']); assert.equal(F.CV_MAX_PANES, 3);
+  assert.deepEqual(F.CV_SPLIT_KINDS, ['task', 'web', 'device', 'doc', 'quadro']); assert.equal(F.CV_MAX_PANES, 3);
+  // Quadro ao vivo (87): a aba guarda só o id do quadro; id estranho (subir pasta, vazio) não volta
+  assert.deepEqual(F.cvDescValid({ kind: 'quadro', ref: 'q-mh2x9ab' }, ids), { kind: 'quadro', ref: 'q-mh2x9ab' });
+  for (const ref of [undefined, '', '../q-1', 'q-', 'quadro', 'q-a/b']) assert.equal(F.cvDescValid({ kind: 'quadro', ref }, ids), null, String(ref));
+  assert.notEqual(F.cvTabIdOf({ kind: 'quadro', ref: 'q-1' }), F.cvTabIdOf({ kind: 'quadro', ref: 'q-2' }), 'um quadro por aba');
+  assert.equal(F.cvTabDesc({ id: 'x', kind: 'quadro', ref: 'q-1', title: 'Quadro' }).ref, 'q-1');
 });
 
 test('site externo: só http(s), YouTube vira /embed/ (nocookie) com o id pra capa; bloqueados conhecidos → "abrir fora"', () => {

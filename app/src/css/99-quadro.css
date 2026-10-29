@@ -1,0 +1,59 @@
+/* Quadro ao vivo (87-quadro.js) — aba do canvas: quadro grande à esquerda, a fala da IA à direita (empilha no estreito).
+   Cores só por token: as tintas do desenho (--qd-*) moram nos blocos de tema do 10-base (claro e escuro). */
+.qd{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:auto;background:var(--bg);color:var(--text);
+  --qd-hand-ff:'Bradley Hand','Chalkboard SE','Marker Felt','Segoe Print','Comic Sans MS',cursive}
+.qd-top{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;padding:10px 16px;border-bottom:1px solid var(--border);background:var(--surface)}
+.qd-title{font-size:var(--fs-md);font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:44ch}
+.qd-link{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-sm);color:var(--muted);min-width:0}
+.qd-tsel{max-width:240px;min-width:0;background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:inherit;font-size:var(--fs-sm);padding:4px 8px;border-radius:var(--r-xs)}
+.qd-sp{flex:1}
+.qd-live{display:inline-flex;align-items:center;gap:6px;font-size:var(--fs-xs);color:var(--muted)}
+.qd-live i{width:8px;height:8px;border-radius:50%;background:var(--qd-red);display:inline-block}
+.qd-live.off i{background:var(--line-2)}
+.qd-wrap{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;padding:14px 16px 24px;min-width:0}
+.qd-col{flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.qd-side{flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:12px}
+.qd-board{position:relative;background:var(--qd-paper);border:1px solid var(--border);border-radius:12px;overflow:hidden;aspect-ratio:1000/600;width:100%;
+  background-image:radial-gradient(var(--qd-dot) 1.2px, transparent 1.3px);background-size:22px 22px}
+.qd-board.drop{outline:2px dashed var(--qd-pen);outline-offset:-4px}
+.qd-board.drawing{cursor:crosshair;outline:2px solid var(--qd-pen);outline-offset:-2px}
+.qd-board.drawing .qd-svg{touch-action:none}
+.qd-svg{position:absolute;inset:0;width:100%;height:100%;display:block}
+.qd-hand{font-family:var(--qd-hand-ff)}
+.qd-tip-o{fill:var(--qd-ink);opacity:.85}
+.qd-tip-i{fill:var(--qd-paper)}
+.qd-cap{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);max-width:86%;background:var(--qd-cap);color:var(--qd-on-cap);padding:8px 14px;border-radius:10px;font-size:var(--fs-md);line-height:1.45;text-align:center;pointer-events:none}
+.qd-cap[hidden],.qd-over[hidden]{display:none!important}
+.qd-over{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:20px;pointer-events:none}
+.qd-msg{pointer-events:auto;display:flex;flex-direction:column;gap:8px;align-items:flex-start;max-width:440px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;font-size:var(--fs-base);line-height:1.5;color:var(--text-2);box-shadow:var(--shadow)}
+.qd-msg b{color:var(--text);display:inline-flex;align-items:center;gap:8px}
+.qd-msg.ghost{background:color-mix(in srgb,var(--surface) 88%,transparent);box-shadow:none}
+.qd-msg.err{border-left:3px solid var(--crit)}
+.qd-acts{margin:0;padding-left:18px;font-family:var(--mono, ui-monospace, monospace);font-size:var(--fs-xs);color:var(--muted)}
+.qd-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.qd-ctl{height:34px;min-width:44px;padding:0 12px;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);font:inherit;font-size:var(--fs-sm);cursor:pointer}
+.qd-ctl:disabled{opacity:.5;cursor:default}
+.qd-ctl[hidden]{display:none}
+.qd-pen[aria-pressed="true"]{background:var(--qd-pen);border-color:var(--qd-pen);color:var(--qd-on-cap)}
+.qd-ctl:focus-visible,.qd-tsel:focus-visible,.qd-q:focus-visible,.qd .btn:focus-visible,.qd-bub:focus-visible{outline:2px solid transparent;box-shadow:var(--ring)}
+.qd-card{background:var(--card-bg);border:1px solid var(--border);border-radius:12px;padding:12px 14px}
+.qd-card h2{margin:0 0 8px;font-size:var(--fs-xs);font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.qd-tr{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:7px;max-height:300px;overflow:auto}
+.qd-tr li{line-height:1.45;font-size:var(--fs-base);color:var(--text-2)}
+.qd-tr li.now{font-weight:600;color:var(--text)}
+.qd-tr li span{color:var(--muted);font-family:var(--mono, ui-monospace, monospace);font-size:var(--fs-xs);margin-right:6px}
+.qd-tr li.you span{color:var(--qd-pen)}
+.qd-chg{margin:0 0 10px;padding-left:20px;font-size:var(--fs-base);line-height:1.45}
+.qd-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.qd-ask{display:flex;flex-direction:column;gap:8px}
+.qd-q{width:100%;min-height:44px;resize:vertical;border-radius:8px;border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text);padding:9px 11px;font:inherit;font-size:var(--fs-base);line-height:1.45;box-sizing:border-box}
+.qd-go{align-self:flex-end}
+.qd-note{font-size:var(--fs-sm);line-height:1.45;color:var(--muted);margin:8px 0 0}
+.qd-note:empty{display:none}
+.qd-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.qd .btn[hidden]{display:none}
+/* bolha do chat que pede um desenho → abrir no Quadro */
+.qd-bub{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:4px 10px;border-radius:999px;border:1px solid var(--qd-pen);background:transparent;color:var(--qd-pen);font:inherit;font-size:var(--fs-sm);font-weight:600;cursor:pointer}
+@container (max-width:640px){ .qd-cap{font-size:var(--fs-sm);bottom:6px} .qd-wrap{padding:12px} }
+.qd-bgbtns{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
+.qd-top .qd-ctl{height:30px}

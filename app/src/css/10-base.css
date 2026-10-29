@@ -38,6 +38,8 @@
   /* fixos dos dois temas: marca, mídia, página web, moldura de aparelho */
   --logo:#3FD68A; --on-color:#FFFFFF; --media-bg:#000000; --web-bg:#FFFFFF; --yt-red:#E11D1D;
   --on-color-dark:#0B0D0F; --device-1:#2B2D31; --device-2:#141518; --device-edge:#3A3C41; --device-ink:#BBBBBB;
+  /* quadro ao vivo (87-quadro): papel, pontinhos, tintas por nome, marca-texto, caneta da pessoa, legenda */
+  --qd-paper:#FBFAF6; --qd-dot:#E2E0D6; --qd-ink:#1D2733; --qd-red:#C2412D; --qd-green:#1D7F45; --qd-blue:#2B5FAB; --qd-mute:#6B746F; --qd-mark:rgba(250,214,92,.55); --qd-pen:#7A3FC2; --qd-cap:rgba(20,33,61,.92); --qd-on-cap:#FFFFFF;
 }
 :root[data-theme="dark"]{ /* tema: escuro (verde do logo) */
   color-scheme:dark;
@@ -59,6 +61,7 @@
   --ansi-bblack:#6F857A; --ansi-bred:#F7BBA9; --ansi-bgreen:#3FD68A; --ansi-byellow:#F0D58C; --ansi-bblue:#BCE2FA; --ansi-bmagenta:#DCC4F7; --ansi-bcyan:#9BE3E6; --ansi-bwhite:#F4FAF6;
   --chart-1:#3FD68A; --chart-2:#7CC0E0; --chart-3:#E0B868; --chart-4:#C9A7F0; --chart-5:#E58C78; --chart-6:#6CCFD3; --chart-7:#E39AC8; --chart-8:#9AA8A0;
   --shade:rgba(0,0,0,1);
+  --qd-paper:#16211E; --qd-dot:#25352F; --qd-ink:#E4EEE8; --qd-red:#F0907A; --qd-green:#7FDCA7; --qd-blue:#8CC2F0; --qd-mute:#9DB2A7; --qd-mark:rgba(224,184,104,.35); --qd-pen:#C9A7F0; --qd-cap:rgba(5,12,10,.92); --qd-on-cap:#E4EEE8;
 }
 /* nomes semânticos que o app inteiro usa (apontam pros tokens do tema; os blocos de escopo abaixo os redefinem).
    O seletor ".sidebar .moremenu" devolve o escopo da página a algo aberto DENTRO da lateral (menu "Mais"). */
