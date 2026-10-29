@@ -264,8 +264,9 @@ function termTrustSeen(taskId, chunk){
   st.ttail=((st.ttail||'')+String(chunk||'')).slice(-6000);
   const ask=termTrustAsk(st.ttail);
   if(ask!==!!st.trust){ st.trust=ask; termSetAlive(taskId, true); }
-  const eb=termEnvBlocked(st.ttail);
-  if(eb!==!!st.envb){ st.envb=eb; termSetAlive(taskId, true); }
+  // é um EVENTO (não um estado da tela): o spinner do Claude redesenha logo depois e empurra o aviso pra fora do rabo —
+  // então trava ligado até a pessoa liberar ou a sessão reabrir (antes a faixa piscava e sumia)
+  if(!st.envb && termEnvBlocked(String(chunk||'')+'\n'+st.ttail.slice(-1500))){ st.envb=true; termSetAlive(taskId, true); }
 }
 /** "Permitir ler o .env": grava a permissão do projeto e REINICIA a IA na mesma sessão — as regras do claude valem desde
  * que ele abriu, então só liberar não basta. Depois avisa a IA pra tentar de novo. */
