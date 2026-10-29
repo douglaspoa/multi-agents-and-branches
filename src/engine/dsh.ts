@@ -6,7 +6,7 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { adjustRuleOf, exitGraceMs, killProcess, mapTool } from "./claude.ts";
 import { loadLlmEnv } from "./codex.ts";
-import { protectEnabled, PROTECT_RULE } from "./protect.ts";
+import { protectEnabled, protectRule as protectRuleFor } from "./protect.ts";
 import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { mobileRule } from "../mobile.ts";
 import { ASK_STYLE } from "../ask-style.ts";
@@ -326,7 +326,7 @@ const GROUND_RULE =
   " EXECUTE ANTES DE AFIRMAR: rode o projeto/testes de verdade nesta worktree (envs semeadas — veja .cardume/AMBIENTE.md) antes de qualquer conclusão; leitura de código não é verificação. Scripts descartáveis em .cardume/tmp/ (fora do diff). NUNCA abra Pull Request por conta própria.";
 
 export function buildDshPrompt(input: RunInput): string {
-  const protect = protectEnabled() ? PROTECT_RULE : "";
+  const protect = protectEnabled() ? protectRuleFor() : "";
   const mob = mobileRule({ cwd: input.cwd, role: input.role, spec: input.spec }); // PROVAS MOBILE (mesmo roteiro dos 3 motores)
   if (input.resume) return input.resume.instruction + (input.skillsRule ?? "") + GROUND_RULE + mob + protect;
   if (input.promptOverride) return input.promptOverride + ASK_RULE + GROUND_RULE + mob + protect;

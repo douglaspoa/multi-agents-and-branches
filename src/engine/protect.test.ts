@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { denyRules, protectArgs, protectEnabled, SECRET_PATHS, DANGEROUS_BASH } from "./protect.ts";
+import { denyRules, envReadEnabled, protectArgs, protectEnabled, protectRule, PROTECT_RULE, SECRET_PATHS, DANGEROUS_BASH } from "./protect.ts";
 
 test("protegido por padrão; só '0'/off/false/livre desliga", () => {
   assert.equal(protectEnabled({}), true);
@@ -13,7 +13,7 @@ test("protegido por padrão; só '0'/off/false/livre desliga", () => {
 });
 
 test("args: --disallowedTools seguido de uma regra por argv", () => {
-  const a = protectArgs(true);
+  const a = protectArgs(true, false);
   assert.equal(a[0], "--disallowedTools");
   assert.equal(a.length, 1 + SECRET_PATHS.length * 2 + DANGEROUS_BASH.length);
   // nenhuma regra começa com "-" (senão o parser do CLI a leria como flag)
@@ -42,4 +42,16 @@ test("lib.rs espelha a mesma lista (planner / nova issue / conector)", () => {
   const items = [...m[2].matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((x) => x[1]);
   assert.deepEqual(items, denyRules());
   assert.equal(Number(m[1]), denyRules().length);
+});
+
+test("ler o .env liberado: só some a LEITURA do .env — editar e as chaves continuam bloqueados", () => {
+  assert.equal(envReadEnabled({}), false);
+  assert.equal(envReadEnabled({ CARDUME_ENV_READ: "1" }), true);
+  const r = denyRules(true);
+  for (const gone of ["Read(**/.env)", "Read(**/.env.local)", "Read(**/.env.production*)", "Bash(cat *.env)", "Bash(cat *.env.local)"]) assert.ok(!r.includes(gone), gone);
+  for (const must of ["Edit(**/.env)", "Edit(**/.env.local)", "Read(**/*.pem)", "Read(~/.ssh/**)", "Bash(cat *.pem)", "Bash(sudo *)", "Bash(git push --force*)"]) assert.ok(r.includes(must), must);
+  assert.deepEqual(protectArgs(true, true).slice(1), r);
+  assert.deepEqual(protectArgs(false, true), []);
+  assert.ok(protectRule(true).includes("deixa LER o .env") && !protectRule(true).includes("(.env,"));
+  assert.equal(protectRule(false), PROTECT_RULE);
 });

@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tauri::State;
 
-use super::{ai_once, claude_bin, claude_cmd, claude_json, detach_new_group, memoria, procsig, protect_args, protect_on, repo_or, signal_group, AppState};
+use super::{ai_once, claude_bin, claude_cmd, claude_json, detach_new_group, memoria, procsig, repo_or, signal_group, AppState};
 
 /// Resposta máxima de uma persona (s). Uma persona só lê e opina — 5 min é folga.
 const ASK_SECS: u64 = 300;
@@ -238,7 +238,7 @@ pub fn mesa_ask(
     let model = model.filter(|m| !m.trim().is_empty());
     if let Some(m) = model.clone() { args.push("--model".into()); args.push(m); }
     args.extend(budget_args(budget_usd)); // teto DESTA chamada (parte do teto da mesa reservada pela tela)
-    args.extend(protect_args(protect_on(&repo))); // por último: a flag é variádica
+    args.extend(crate::protect_args_repo(&repo)); // por último: a flag é variádica
     let mut cmd = claude_cmd(&claude_bin());
     cmd.args(&args).current_dir(&repo);
     let started = std::time::Instant::now();

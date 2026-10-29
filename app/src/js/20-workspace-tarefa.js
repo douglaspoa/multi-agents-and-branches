@@ -1124,7 +1124,7 @@ function fwRenderPrPage(t, main){
 }
 // markdown leve nas bolhas (bold, `code`, títulos, listas) — sem ** cru na tela
 // bloco [ELEMENTOS DA PÁGINA] (modo design da Prévia, 57-navegador) vira um resumo curto — o agente recebe o bloco inteiro
-function chatMd(t){ try{ const sp=attSplit(t); const nv=(typeof nvSplit==='function')?nvSplit(sp.text):{ text:sp.text, sels:[] }; return mdToHtml(nv.text)+(nv.sels.length?nvSummaryHtml(nv.sels):'')+attRowHtml(sp.atts); }catch(_){ return esc(String(t||'')); } }
+function chatMd(t){ try{ const sp=attSplit(t); const nv=(typeof nvSplit==='function')?nvSplit(sp.text):{ text:sp.text, sels:[] }; return mdToHtml(nv.text)+(nv.sels.length?nvSummaryHtml(nv.sels):'')+attRowHtml(sp.atts)+(typeof envAskHtml==='function'?envAskHtml(nv.text):''); }catch(_){ return esc(String(t||'')); } }
 const mdMemo=new Map(); // evId:len → html (evita re-parsear a thread toda a cada tick)
 function chatMdEv(id, t){ const k=id+':'+String(t||'').length; let v=mdMemo.get(k); if(v===undefined){ v=chatMd(t); if(mdMemo.size>800) mdMemo.clear(); mdMemo.set(k,v); } return v; }
 // notas "de sistema" (não são fala do agente) viram linha discreta central

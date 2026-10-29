@@ -77,7 +77,7 @@ fn proto_ai_inner(app: tauri::AppHandle, state: State<AppState>, kind: String, p
         "--allowedTools".into(), PROTO_TOOLS.into(),
     ];
     // bypass não respeita o --allowedTools (só as negações valem) → modo protegido do repo, como o planner
-    args.extend(protect_args(protect_on(&repo)));
+    args.extend(crate::protect_args_repo(&repo));
     // sem isto o harness nega ler os PNGs dos recortes
     args.push("--permission-mode".into());
     args.push("bypassPermissions".into());

@@ -66,12 +66,23 @@ export function protectEnabled(env: Record<string, string | undefined> = process
   return !(v === "0" || v === "off" || v === "false" || v === "livre");
 }
 
+/** "Pode ler o .env" (Projeto › Regras, ou o botão na conversa): CARDUME_ENV_READ=1. Só LEITURA dos .env —
+ * editar .env, chaves, ~/.ssh e ~/.aws e os comandos destrutivos continuam bloqueados. Padrão: não. */
+export function envReadEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const v = (env.CARDUME_ENV_READ ?? "").trim().toLowerCase();
+  return v === "1" || v === "on" || v === "true" || v === "sim";
+}
+/** Regra que deixa de valer quando a leitura do .env foi liberada (Read de um .env* ou `cat` dele). */
+export function isEnvReadRule(r: string): boolean {
+  return /^Read\(\*\*\/\.env/.test(r) || /^Bash\(cat \*\.env/.test(r);
+}
+
 /** As regras, no formato do Claude Code. */
-export function denyRules(): string[] {
+export function denyRules(envRead = false): string[] {
   const out: string[] = [];
   for (const p of SECRET_PATHS) out.push(`Read(${p})`, `Edit(${p})`);
   for (const c of DANGEROUS_BASH) out.push(`Bash(${c})`);
-  return out;
+  return envRead ? out.filter((r) => !isEnvReadRule(r)) : out;
 }
 
 /**
@@ -79,10 +90,13 @@ export function denyRules(): string[] {
  * `--disallowedTools` é variádico: o chamador põe outra FLAG logo depois
  * (ex.: `--permission-mode`) pra ele não engolir argumentos posicionais.
  */
-export function protectArgs(on: boolean): string[] {
-  return on ? ["--disallowedTools", ...denyRules()] : [];
+export function protectArgs(on: boolean, envRead = envReadEnabled()): string[] {
+  return on ? ["--disallowedTools", ...denyRules(envRead)] : [];
 }
 
 /** Trecho do prompt: o agente pede ao humano em vez de insistir quando bate numa regra. */
+export function protectRule(envRead = envReadEnabled()): string {
+  return envRead ? PROTECT_RULE.replace("bloqueia a leitura/edição de SEGREDOS (.env, ", "deixa LER o .env (a pessoa liberou), mas bloqueia editar o .env e ler/editar SEGREDOS (") : PROTECT_RULE;
+}
 export const PROTECT_RULE =
   " MODO PROTEGIDO: este projeto bloqueia a leitura/edição de SEGREDOS (.env, chaves .pem/.key, id_rsa, ~/.ssh, ~/.aws) e comandos destrutivos (rm -rf em / ou ~, git push --force, curl|sh, sudo). Se uma ação for NEGADA por permissão, NÃO tente contornar (outro comando, cópia, cat, base64…) nem repita: chame mcp__cardume__ask_human explicando o que precisa e por quê — o humano fornece o valor ou faz a ação.";
