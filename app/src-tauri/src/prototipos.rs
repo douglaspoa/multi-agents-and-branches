@@ -45,7 +45,7 @@ pub fn asset_rel_ok(path: &str) -> Option<String> {
     asset_name_ok(rest).filter(|n| n == rest)
 }
 
-fn mime_of(name: &str) -> &'static str {
+pub(crate) fn mime_of(name: &str) -> &'static str {
     match name.rsplit('.').next().unwrap_or("").to_ascii_lowercase().as_str() {
         "png" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
@@ -56,14 +56,14 @@ fn mime_of(name: &str) -> &'static str {
     }
 }
 
-fn write_atomic(file: &Path, body: &[u8]) -> Result<(), String> {
+pub(crate) fn write_atomic(file: &Path, body: &[u8]) -> Result<(), String> {
     if let Some(d) = file.parent() { std::fs::create_dir_all(d).map_err(|e| format!("não criei a pasta do protótipo: {e}"))?; }
     let tmp = file.with_extension("tmp");
     std::fs::write(&tmp, body).map_err(|e| format!("não salvei o protótipo: {e}"))?;
     std::fs::rename(&tmp, file).map_err(|e| format!("não salvei o protótipo: {e}"))
 }
 
-fn read_json(p: &Path) -> Option<Value> {
+pub(crate) fn read_json(p: &Path) -> Option<Value> {
     std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok()).filter(|v| v.is_object())
 }
 

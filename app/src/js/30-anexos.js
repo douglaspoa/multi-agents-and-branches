@@ -187,7 +187,7 @@ function chatComposer(cfg){
 function chatCopyBtn(){ return '<button class="ccopy" title="copiar">⧉</button>'; }
 function chatMsgHtml(m){
   const w=m.who||m.role, t=String(m.text||'');
-  if(w==='you'||w==='user') return `<div class="plmsg you chatmsg"><div class="plbub">${mdToHtml(t)}${attRowHtml(m.atts)}</div></div>`; // igual ao chat da tarefa (chatMd): a sua mensagem também formata
+  if(w==='you'||w==='user') return `<div class="plmsg you chatmsg"><div class="plbub">${mdToHtml(t)}${attRowHtml(m.atts)}${typeof qdBubbleHtml==='function'?qdBubbleHtml(t, m.taskId||null):''}</div></div>`; // igual ao chat da tarefa (chatMd): a sua mensagem também formata
   if(w==='sys') return `<div class="plmsg sys chatmsg"><div class="plbub">${esc(t)}</div></div>`;
   return `<div class="plmsg bot chatmsg"><span class="plav">${IC.starfork}</span><div class="plbub">${mdToHtml(t)}${typeof envAskHtml==='function'?envAskHtml(t, m.repo):''}${chatCopyBtn()}</div></div>`;
 }

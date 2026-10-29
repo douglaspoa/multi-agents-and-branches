@@ -12,7 +12,7 @@
 const CV_VER=2, CV_VER_OK=[1,2], CV_MAX_PANES=3;
 const CV_CAPS={ web:2, stream:1 };
 // o que pode ir pra tela dividida (as outras abas — Central, Skills… — continuam abrindo sozinhas)
-const CV_SPLIT_KINDS=['task','web','device','doc'];
+const CV_SPLIT_KINDS=['task','web','device','doc','quadro'];
 // ---------- gerente de recursos (LRU com teto) ----------
 function cvRmNew(caps){ return { caps:Object.assign({}, CV_CAPS, caps||{}), live:{ web:[], stream:[] } }; }
 // pede (ou reafirma) o recurso `key` do tipo `kind`; vira o MAIS recente. Devolve as chaves despejadas (congelar).
@@ -73,6 +73,8 @@ function cvDescValid(d, taskIds){
   if(d.kind==='task' && !o.taskId) return null;
   if(d.kind==='device' && !o.taskId) return null;
   if(d.kind==='doc'){ if(!o.taskId) return null; if(d.ref!=null){ const r=String(d.ref); if(!/^(art|file|ref):[^\0]{1,300}$/.test(r) || /(^|\/)\.\.(\/|$)/.test(r.slice(4))) return null; o.ref=r; } }
+  // quadro ao vivo (87): ref = id do quadro (a demanda ligada mora no quadro.json, não na aba)
+  if(d.kind==='quadro'){ const r=String(d.ref==null?'':d.ref); if(!/^q-[A-Za-z0-9_-]{1,40}$/.test(r)) return null; o.ref=r; }
   if(d.kind==='web'){ if(d.app){ if(!o.taskId) return null; o.app=true; } else { const s=cvSiteUrl(d.url); if(!s) return null; o.url=s.url; } }
   return o;
 }

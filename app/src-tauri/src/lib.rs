@@ -16,6 +16,7 @@ mod ambiente;
 mod orfaos;
 mod padroes;
 mod prototipos;
+mod quadros;
 mod device;
 mod ai_once;
 mod bin_resolve;
@@ -48,6 +49,7 @@ mod pty_e2e;
 mod usage_ledger;
 mod task_code;
 mod prototipo_ia;
+mod quadro_ia;
 #[cfg(target_os = "macos")]
 mod notif_mac;
 #[cfg(test)]
@@ -11760,6 +11762,12 @@ pub fn run() {
             prototipos::proto_asset_url,
             prototipos::proto_delete,
             prototipos::proto_export_to_task,
+            quadros::quadro_list,
+            quadros::quadro_read,
+            quadros::quadro_write,
+            quadros::quadro_asset_put,
+            quadros::quadro_asset_url,
+            quadros::quadro_export,
             learn::agent_forget,
             device::device_cli,
             ambiente::env_detect,
@@ -11887,6 +11895,8 @@ pub fn run() {
             project_chat_stop,
             prototipo_ia::proto_ai,
             prototipo_ia::proto_ai_stop,
+            quadro_ia::quadro_ai,
+            quadro_ia::quadro_ai_stop,
             orq_chat_stop,
             orq_plan_stop,
             create_skill,

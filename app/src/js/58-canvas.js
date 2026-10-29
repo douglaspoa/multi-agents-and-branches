@@ -19,12 +19,13 @@ function cvSplitable(tab){ return !!(tab && CV_SPLIT_KINDS.includes(tab.kind)); 
 function cvInSplit(id){ return !!(SPL.ids && SPL.ids.includes(id)); }
 function cvSplitShowing(){ const o=$id('cvSplit'); return !!(o && o.style.display!=='none' && SPL.ids && SPL.ids.includes(activeTab)); }
 // overlay da aba ativa: Navegador/Simulador/Documento e qualquer aba que esteja na divisão → cvSplit
-function cvViewTarget(t){ if(!t) return null; if(cvInSplit(t.id) || ['web','device','doc'].includes(t.kind)) return 'cvSplit'; return null; }
+function cvViewTarget(t){ if(!t) return null; if(cvInSplit(t.id) || ['web','device','doc','quadro'].includes(t.kind)) return 'cvSplit'; return null; }
 function cvTitleOf(tab){
   if(!tab) return '';
   if(tab.kind==='task'){ const t=cvTask(tab.taskId); return t?t.title:(tab.title||'demanda'); }
   if(tab.kind==='web'){ if(tab.app){ const t=cvTask(tab.taskId); return 'app · '+(t?t.title:'demanda'); } const s=cvSiteUrl(tab.url); return s?(s.video?'vídeo · ':'')+s.host:'Navegador'; }
   if(tab.kind==='device'){ const t=cvTask(tab.taskId); return 'Simulador · '+(t?t.title:''); }
+  if(tab.kind==='quadro') return (typeof qdTitleOf==='function')?qdTitleOf(tab):'Quadro';
   if(tab.kind==='doc'){ if(tab.ref) return String(tab.ref).slice(String(tab.ref).indexOf(':')+1).split('/').pop(); const t=cvTask(tab.taskId); return 'Documento · '+(t?t.title:''); }
   return tab.title||'';
 }
@@ -224,6 +225,7 @@ function cvRenderPane(tab, el){
     if(tab.kind==='web') return tab.app ? cvAppTabRender(tab, body) : cvSiteRender(tab, body);
     if(tab.kind==='device') return cvDeviceRender(tab, body);
     if(tab.kind==='doc') return cvDocRender(tab, body);
+    if(tab.kind==='quadro' && typeof qdRender==='function') return qdRender(tab, body);
   }catch(e){ console.error('painel '+tab.kind, e); }
 }
 function cvPaint(el, html){ if(el.__html!==html){ el.__html=html; el.innerHTML=html; return true; } return false; }
@@ -514,6 +516,7 @@ function cvPlusMenu(anchor, opts){
     { k:'web', label:'Navegador', hint:'YouTube, documentação, ou o app de uma demanda', ic:IC.globe, sub:true },
     { k:'device', label:'Simulador iOS/Android', hint:'o celular de uma demanda ao vivo', ic:IC.phone, sub:true },
     { k:'doc', label:'Documento', hint:'README, um arquivo ou o que foi entregue', ic:IC.doc, sub:true },
+    { k:'quadro', label:'Quadro · a IA desenha', hint:'ela explica desenhando; você risca por cima', ic:`<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">${(VIEW_META.quadro||{}).icon||''}</svg>`, sub:true },
   ].filter(Boolean);
   m.innerHTML=(opts.split?`<div class="cvmsub"><b>Abrir ao lado</b><span class="dim">vai pra direita da aba atual</span></div>`:'')+`<div class="cvml">${items.map((x,i)=>`${x.grp?`<div class="cvmgrp" role="presentation">${esc(x.grp)}</div>`:''}<button type="button" class="cvmi" role="menuitem" data-cvmi="${i}"><span class="cvmic" aria-hidden="true">${x.ic}</span><span class="cvmt"><b>${esc(x.label)}</b><span>${esc(x.hint)}</span></span>${x.sub?'<span class="cvmch" aria-hidden="true">›</span>':''}</button>`).join('')}</div><div class="cvmfoot dim">arraste uma aba pra metade da tela pra dividir · ⌘\\</div>`;
   document.body.appendChild(m); SPL.menu=m;
@@ -534,6 +537,8 @@ function cvPlusMenu(anchor, opts){
     if(x.k==='web') return open({ kind:'web', url:'' }); // abre o navegador JÁ (aba em branco, barra de endereço focada) — sem formulário nem lista
     if(x.k==='device') return taskList('Simulador iOS/Android', t=>{ const i=(typeof DV!=='undefined')?DV.info[t.id]:null; return i&&i.mobile?'app de celular':'o simulador desta demanda'; }, t=>open({ kind:'device', taskId:t.id }));
     if(x.k==='doc') return taskList('Documento de qual demanda?', ()=>'README, entregáveis e anexos', t=>open({ kind:'doc', taskId:t.id }));
+    // Quadro: "Quadro novo" + a lista "Abrir quadro salvo" (lida do disco na hora)
+    if(x.k==='quadro' && typeof qdMenuItems==='function') return qdMenuItems(split).then(list=>{ if(SPL.menu===m) cvSubMenu(m, list, 'Quadro novo ou abrir quadro salvo'); });
   });
   cvMenuKeys(m);
   const f=m.querySelector('[data-cvmi]'); if(f) f.focus();

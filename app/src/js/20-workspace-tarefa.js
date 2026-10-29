@@ -536,6 +536,8 @@ function fwMoreItems(t){
   const prim=(fwPrimaryAction(t)||{}).id;
   const pv=taskPreviewTarget(t), tun=(typeof tunnelUp!=='undefined')?tunnelUp[t.id]:null;
   it.push({ k:'sum', label:`resumo e progresso · ${taskPct(t)}%`, hint:'tudo que já foi feito + o que falta' });
+  // Quadro ao vivo (87): a IA explica DESENHANDO como resolveu (ou, sem código ainda, o que entendeu da demanda)
+  if(typeof qdFromTask==='function') it.push({ k:'quadro', label:'desenhar · a IA explica num quadro', hint:['draft','queued'].includes(t.status)?'o que ela entendeu da demanda':'como ela resolveu, traço a traço' });
   if(t.status==='draft' && typeof editDraft==='function') it.push({ k:'editdraft', label:'editar o rascunho', hint:'reabre a Nova demanda preenchida' });
   if(prim==='fwAskProof') it.push({ k:'noproof', label:'aprovar sem prova…', hint:'exige um motivo — vai no PR' });
   if(typeof rqCanAsk==='function' && rqCanAsk(t)){ it.push({ k:'askfix', label:'pedir alteração', hint:'o agente continua na mesma branch' }); it.push({ k:'callagent', label:'chamar outro agente…', hint:'design, revisor, testes… como etapa extra' }); }
@@ -598,6 +600,7 @@ function fwOpenMore(t, anchor){
 async function fwMoreDo(t, k, anchor){
   const pv=taskPreviewTarget(t);
   if(k==='sum') openTaskSummary(t.id);
+  else if(k==='quadro'){ if(typeof qdFromTask==='function') await qdFromTask(t.id); }
   else if(k==='askfix') rqOpen(t.id);
   else if(k==='callagent') rqOpen(t.id, { mode:'agente' });
   else if(k==='noproof') await approveNoProof(t);
@@ -1239,7 +1242,7 @@ function fwThreadHtml(t){
     // P10: "skills ativas · agente@vN · motor" é medição — fica no "ver detalhes" da faixa, não na conversa
     if(e.type==='guarda'){ flush(); out.push(`<div class="csys">${esc(tx)}</div>`); continue; } // Frente 2: resumo da guarda de segurança
     if(e.type==='papel' || e.type==='suggest') continue; // suggest = chips de resposta do terminal (64-terminal-integrado), não é fala
-    if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
+    if(evIsUserMsg(e)){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, evUserText(tx))}${typeof qdBubbleHtml==='function'?qdBubbleHtml(evUserText(tx), t.id):''}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(tx.startsWith('humano respondeu:')){ flush(); lastWho=''; out.push(`<div class="cmsg you"><div class="cbub">${chatMdEv(e.id, tx.replace(/^humano respondeu:\s*/,''))}<button class="ccopy" title="copiar">⧉</button></div></div>`); continue; }
     if(isMetaNote(tx)){ flush(); out.push(`<div class="csys">${fwLinkify(tx)}</div>`); continue; }
     // nota de sistema do motor (fila, limite de uso, sessão retomada, rota de IA): linha de sistema com ícone
