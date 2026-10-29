@@ -20,6 +20,7 @@ test('o agente diz que o .env foi bloqueado → oferece liberar; outras falas n�
   const c = load();
   assert.ok(c.envBlockedSaid('Não consigo ler o .env: a permissão foi negada pelo modo protegido.'));
   assert.ok(c.envBlockedSaid('Read(.env) denied'));
+  assert.ok(c.envBlockedSaid('O modo protegido bloqueia arquivos *.key: pode salvar a chave como .txt?'));
   assert.ok(!c.envBlockedSaid('Criei o .env.example com as variáveis.'));
   assert.ok(!c.envBlockedSaid('A permissão do GitHub foi negada.'));
   assert.match(c.envAskHtml('não consigo ler o .env (bloqueado)'), /data-envallow="\/proj\/loja"/);

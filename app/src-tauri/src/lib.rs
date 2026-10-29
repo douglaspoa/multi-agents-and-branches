@@ -1175,7 +1175,9 @@ fn env_read_on(repo: &std::path::Path) -> bool {
     setting_get(&format!("envread:{}", repo.display())).map(|v| v.trim() == "1").unwrap_or(false)
 }
 /// Regra que some quando a leitura do .env foi liberada — ESPELHO de isEnvReadRule (src/engine/protect.ts).
-fn is_env_read_rule(r: &str) -> bool { r.starts_with("Read(**/.env") || r.starts_with("Bash(cat *.env") }
+fn is_env_read_rule(r: &str) -> bool {
+    r.starts_with("Read(**/.env") || r == "Read(**/*.key)" || r == "Read(**/*.pem)" || r.starts_with("Bash(cat *.env") || r == "Bash(cat *.pem)"
+}
 /// Args a pôr ANTES de `--permission-mode` (a flag é variádica: outra flag encerra a lista).
 fn protect_args(on: bool) -> Vec<String> { protect_args_env(on, false) }
 fn protect_args_env(on: bool, env_read: bool) -> Vec<String> {
@@ -1204,8 +1206,8 @@ mod protect_tests {
     #[test]
     fn ler_env_liberado_so_tira_a_leitura_do_env() {
         let a = protect_args_env(true, true);
-        for gone in ["Read(**/.env)", "Read(**/.env.local)", "Read(**/.env.production*)", "Bash(cat *.env)"] { assert!(!a.iter().any(|x| x == gone), "{gone}"); }
-        for must in ["Edit(**/.env)", "Edit(**/.env.local)", "Read(**/*.pem)", "Read(~/.ssh/**)", "Bash(cat *.pem)", "Bash(sudo *)"] { assert!(a.iter().any(|x| x == must), "{must}"); }
+        for gone in ["Read(**/.env)", "Read(**/.env.local)", "Read(**/.env.production*)", "Read(**/*.key)", "Read(**/*.pem)", "Bash(cat *.env)", "Bash(cat *.pem)"] { assert!(!a.iter().any(|x| x == gone), "{gone}"); }
+        for must in ["Edit(**/.env)", "Edit(**/*.key)", "Read(**/id_rsa*)", "Read(~/.ssh/**)", "Read(~/.aws/**)", "Read(~/.cardume/guard.key)", "Bash(cat *id_rsa*)", "Bash(sudo *)"] { assert!(a.iter().any(|x| x == must), "{must}"); }
         assert!(protect_args_env(false, true).is_empty());
         assert_eq!(protect_args_env(true, false), protect_args(true));
     }

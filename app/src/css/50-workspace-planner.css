@@ -682,3 +682,4 @@ label.budgetfld .in{width:72px!important;flex:0 0 auto;padding:3px 6px!important
 .protopts + .envopt,.envopt{gap:10px;align-items:flex-start;margin-top:10px;font-size:var(--fs-sm);line-height:1.45;cursor:pointer}
 .envopt input{margin-top:3px}
 .envask{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--warn-bg);border:1px solid var(--warn-line);font-size:var(--fs-sm)}
+.termenvbtn{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}

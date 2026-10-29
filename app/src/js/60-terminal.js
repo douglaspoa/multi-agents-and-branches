@@ -201,7 +201,10 @@ function termTrustAsk(tail){
 /** A IA bateu na regra que bloqueia o .env? ("… .env' was blocked by a deny rule" ou ela diz que o .env foi bloqueado) */
 function termEnvBlocked(tail){
   const v=termVis(tail).slice(-3000);
-  return /\.env[\w.-]*'? was blocked by a deny rule/i.test(v) || /(bloquead|negad|regra de deny|deny rule)[^\n]{0,80}\.env\b|\.env\b[^\n]{0,80}(bloquead|negad|deny rule)/i.test(v);
+  const S='(?:\\.env[\\w.-]*|\\.key|\\.pem)';
+  return new RegExp(S+"'? was blocked by a deny rule",'i').test(v)
+    || new RegExp('Permission to use \\w+ with command [^\\n]*'+S+'\\b','i').test(v)
+    || new RegExp('(bloquead|negad|regra de deny|deny rule|modo protegido bloqueia)[^\\n]{0,80}'+S+'\\b|'+S+'\\b[^\\n]{0,80}(bloquead|negad|deny rule)','i').test(v);
 }
 /** O foco pode ir pro terminal? (não rouba de campo de texto nem de folha de pergunta) */
 function termFocusFree(ae, host){
@@ -280,9 +283,9 @@ async function termEnvAllow(taskId, btn){
     await invoke('term_kill',{ taskId });
     for(let i=0;i<50 && st.alive;i++) await new Promise(r=>setTimeout(r, 100));
     if(!await termResume(taskId, { quiet:true })) throw new Error('o terminal não reabriu');
-    await invoke('term_send',{ taskId, text:'Liberei a leitura do .env neste projeto (só leitura; editar continua bloqueado). Pode tentar de novo.' });
-    toast('Leitura do .env liberada — a IA reiniciou na mesma conversa','ok');
-  }catch(e){ showErr(e, 'Não consegui reiniciar a IA'); if(btn&&btn.isConnected){ btn.disabled=false; btn.textContent='permitir ler o .env'; } }
+    await invoke('term_send',{ taskId, text:'Liberei a leitura dos segredos deste projeto (.env, .key, .pem — só leitura). Pode tentar de novo.' });
+    toast('Leitura dos segredos liberada — a IA reiniciou na mesma conversa','ok');
+  }catch(e){ showErr(e, 'Não consegui reiniciar a IA'); if(btn&&btn.isConnected){ btn.disabled=false; btn.textContent='Permitir ler segredos do projeto'; } }
 }
 /**
  * Retoma a sessão no PTY mantendo o histórico na tela até a IA desenhar (sem flash). o: { quiet, auto, btn }.
@@ -496,7 +499,7 @@ function termSetAlive(taskId, alive){
     st.mode='live';
     let th=st.trust ? `<span>${esc('a IA pergunta se você confia nesta pasta — é a pasta da tarefa, criada pelo Starfork a partir do seu repositório')}</span><span class="cc-sp"></span><button class="btn sm primary" data-termtrust="yes" data-task="${escA(taskId)}">confiar e continuar</button><button class="btn sm" data-termtrust="no" data-task="${escA(taskId)}" title="fecha a IA (Esc); o terminal volta pro shell">sair</button>` : '';
     if(!th && st.envb && !(typeof envReadOn==='function' && envReadOn((t&&t.repo)||state.repo)))
-      th=`<span>${esc('o modo protegido bloqueou a leitura do .env — liberar só a leitura neste projeto e reiniciar a IA (a conversa continua)')}</span><span class="cc-sp"></span><button class="btn sm primary" data-termenv="${escA(taskId)}">permitir ler o .env</button>`;
+      th=`<span>${esc('o modo protegido bloqueou um segredo do projeto (.env/.key/.pem) — liberar só a LEITURA e reiniciar a IA na mesma conversa')}</span><span class="cc-sp"></span><button class="btn sm primary termenvbtn" data-termenv="${escA(taskId)}">Permitir ler segredos do projeto</button>`;
     // faixa de UMA linha do que muda o que a pessoa faz: teto pausado (decidir), plano pra aprovar, revisor falando
     if(!th){ const n=termLiveNote(t);
       if(n) th=`<span data-termnote="${n.k}">${esc(n.text)}</span><span class="cc-sp"></span>`+(n.k==='budget'?`<button class="btn sm primary" data-termbudget="${escA(taskId)}" title="abre a decisão do teto: liberar mais (com motivo) ou parar aqui">decidir</button>`:''); }
