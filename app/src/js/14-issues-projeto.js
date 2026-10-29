@@ -427,7 +427,20 @@ async function trkCloseIssue(code, motivo){
 
 function trkSyncRetry(){ trkSyncAt=0; trkNextAt=0; Object.keys(trkSyncErr).forEach(k=>{ trkSyncErr[k].want='_'; }); trkSyncTasks(true).then(()=>trkBgRepaint()); }
 // TODA criação de tarefa passa aqui: regra ligada + projeto conectado + sem issue → cria e vincula
+// já existe uma tarefa ABERTA com o mesmo título (a IA criou pelo terminal e você criou de novo pela tela, ou o
+// clique foi duas vezes): antes nasciam 2 tarefas + 2 issues iguais. PURA.
+function trkTitleKey(s){ return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim(); }
+function trkDupOf(payload, tasks){
+  const k=trkTitleKey(payload&&payload.title); if(!k) return null;
+  return (tasks||[]).find(t=>t && trkTitleKey(t.title)===k && !['merged','done','cancelled'].includes(t.status) && t.flag!=='closed')||null;
+}
 async function trkBeforeNewTask(payload){
+  { const d=trkDupOf(payload, (typeof state!=='undefined'&&state.tasks)||[]);
+    if(d && !(await askYes(`Já existe uma tarefa aberta com esse título${d.branch&&/[A-Z][A-Z0-9]+-\d+/.test(d.branch)?' ('+d.branch.match(/[A-Z][A-Z0-9]+-\d+/)[0]+')':''}: “${String(d.title).slice(0,80)}”. Criar outra igual mesmo assim?`, 'Criar outra igual'))){
+      const e=new Error('criação cancelada: já existe uma tarefa igual'); e.shown=true;
+      if(typeof openWorkspace==='function') openWorkspace(d.id); // leva pra que já existe
+      throw e;
+    } }
   // F5 · P14: política da organização (Empresa) entra no payload — e o que o motor não cumpriria é recusado aqui,
   // em palavra (o erro sobe pra quem chamou o new_task). Sem login/Grátis: não toca na rede, payload intacto.
   if(typeof window.orgPolBeforeNewTask==='function') payload=await window.orgPolBeforeNewTask(payload);
