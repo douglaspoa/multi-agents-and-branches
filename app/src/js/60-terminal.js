@@ -198,6 +198,11 @@ function termReadyNow(o){
 function termTrustAsk(tail){
   return /Do you trust the files in this folder|Is this a project you (?:created or one you )?trust|trust the contents of this directory|Do you trust this (?:folder|directory)|Yes, I trust this folder/i.test(termVis(tail).slice(-3000));
 }
+/** A IA bateu na regra que bloqueia o .env? ("… .env' was blocked by a deny rule" ou ela diz que o .env foi bloqueado) */
+function termEnvBlocked(tail){
+  const v=termVis(tail).slice(-3000);
+  return /\.env[\w.-]*'? was blocked by a deny rule/i.test(v) || /(bloquead|negad|regra de deny|deny rule)[^\n]{0,80}\.env\b|\.env\b[^\n]{0,80}(bloquead|negad|deny rule)/i.test(v);
+}
 /** O foco pode ir pro terminal? (não rouba de campo de texto nem de folha de pergunta) */
 function termFocusFree(ae, host){
   if(!ae || ae.tagName==='BODY' || (host && host.contains && host.contains(ae))) return true;
@@ -259,6 +264,24 @@ function termTrustSeen(taskId, chunk){
   st.ttail=((st.ttail||'')+String(chunk||'')).slice(-6000);
   const ask=termTrustAsk(st.ttail);
   if(ask!==!!st.trust){ st.trust=ask; termSetAlive(taskId, true); }
+  const eb=termEnvBlocked(st.ttail);
+  if(eb!==!!st.envb){ st.envb=eb; termSetAlive(taskId, true); }
+}
+/** "Permitir ler o .env": grava a permissão do projeto e REINICIA a IA na mesma sessão — as regras do claude valem desde
+ * que ele abriu, então só liberar não basta. Depois avisa a IA pra tentar de novo. */
+async function termEnvAllow(taskId, btn){
+  const st=TERM[taskId]; if(!st) return;
+  const t=(state.tasks||[]).find(x=>x.id===taskId), repo=(t&&t.repo)||state.repo;
+  if(btn){ btn.disabled=true; btn.textContent='reiniciando a IA…'; }
+  try{
+    if(typeof envReadSet==='function') await envReadSet(repo, true);
+    st.envb=false; st.ttail='';
+    await invoke('term_kill',{ taskId });
+    for(let i=0;i<50 && st.alive;i++) await new Promise(r=>setTimeout(r, 100));
+    if(!await termResume(taskId, { quiet:true })) throw new Error('o terminal não reabriu');
+    await invoke('term_send',{ taskId, text:'Liberei a leitura do .env neste projeto (só leitura; editar continua bloqueado). Pode tentar de novo.' });
+    toast('Leitura do .env liberada — a IA reiniciou na mesma conversa','ok');
+  }catch(e){ showErr(e, 'Não consegui reiniciar a IA'); if(btn&&btn.isConnected){ btn.disabled=false; btn.textContent='permitir ler o .env'; } }
 }
 /**
  * Retoma a sessão no PTY mantendo o histórico na tela até a IA desenhar (sem flash). o: { quiet, auto, btn }.
@@ -471,6 +494,8 @@ function termSetAlive(taskId, alive){
   if(alive){
     st.mode='live';
     let th=st.trust ? `<span>${esc('a IA pergunta se você confia nesta pasta — é a pasta da tarefa, criada pelo Starfork a partir do seu repositório')}</span><span class="cc-sp"></span><button class="btn sm primary" data-termtrust="yes" data-task="${escA(taskId)}">confiar e continuar</button><button class="btn sm" data-termtrust="no" data-task="${escA(taskId)}" title="fecha a IA (Esc); o terminal volta pro shell">sair</button>` : '';
+    if(!th && st.envb && !(typeof envReadOn==='function' && envReadOn((t&&t.repo)||state.repo)))
+      th=`<span>${esc('o modo protegido bloqueou a leitura do .env — liberar só a leitura neste projeto e reiniciar a IA (a conversa continua)')}</span><span class="cc-sp"></span><button class="btn sm primary" data-termenv="${escA(taskId)}">permitir ler o .env</button>`;
     // faixa de UMA linha do que muda o que a pessoa faz: teto pausado (decidir), plano pra aprovar, revisor falando
     if(!th){ const n=termLiveNote(t);
       if(n) th=`<span data-termnote="${n.k}">${esc(n.text)}</span><span class="cc-sp"></span>`+(n.k==='budget'?`<button class="btn sm primary" data-termbudget="${escA(taskId)}" title="abre a decisão do teto: liberar mais (com motivo) ou parar aqui">decidir</button>`:''); }
@@ -544,7 +569,8 @@ try{
 }catch(_){ }
 document.addEventListener('visibilitychange', ()=>{ for(const id in TERM){ if(document.hidden) termDetach(id); else if(TERM[id].host.isConnected) termFit(id); } });
 document.addEventListener('click', (e)=>{
-  const b=e.target.closest&&e.target.closest('[data-termopen],[data-termfix],[data-termtrust],[data-termtake],[data-termbudget]'); if(!b) return; e.stopPropagation();
+  const b=e.target.closest&&e.target.closest('[data-termopen],[data-termfix],[data-termtrust],[data-termtake],[data-termbudget],[data-termenv]'); if(!b) return; e.stopPropagation();
+  if(b.dataset.termenv){ termEnvAllow(b.dataset.termenv, b); return; }
   if(b.dataset.termopen){ termOpen(b.dataset.termopen); return; }
   if(b.dataset.termtake){ if(typeof tiGoLive==='function') tiGoLive(b.dataset.termtake, { takeover:true }); return; }
   if(b.dataset.termbudget){ if(typeof tiCompShow==='function') tiCompShow(b.dataset.termbudget); return; }
