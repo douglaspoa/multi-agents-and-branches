@@ -10,7 +10,7 @@ import type { AgentEngine, AgentEvent, RunInput } from "./types.ts";
 import { ADVISOR_OFF_ENV, advisorArgs, advisorCostOf, advisorEnvBlocker, advisorEnvNote, advisorEventOf, advisorForRun, ADVISOR_NAME, claudeCliVersion, taskHasEvent, type Advisor } from "../advisor.ts";
 import { reasonRule } from "../change-reasons.ts";
 import { readAltConfig, ensureAltProxy } from "./altProxy.ts";
-import { protectArgs, protectEnabled, PROTECT_RULE } from "./protect.ts";
+import { protectArgs, protectEnabled, protectRule as protectRuleFor } from "./protect.ts";
 import { mobileRule } from "../mobile.ts";
 import { claudeAttempts } from "../loop-detect.ts";
 import { ASK_STYLE } from "../ask-style.ts";
@@ -330,7 +330,7 @@ export class ClaudeEngine implements AgentEngine {
     const skillsRule = input.skillsRule ?? "";
     // Modo protegido (padrão do projeto; "Livre" em Preferências do projeto → CARDUME_PROTECT=0)
     const protectOn = protectEnabled();
-    const protectRule = protectOn ? PROTECT_RULE : "";
+    const protectRule = protectOn ? protectRuleFor() : "";
     const prompt = input.resume
       ? input.resume.instruction + skillsRule + groundRule + doneRule + parallelRule + browserRule + mobRule + protectRule
       : (input.promptOverride ? input.promptOverride + groundRule + doneRule + parallelRule + browserRule + mobRule + protectRule : baseline + protectRule);

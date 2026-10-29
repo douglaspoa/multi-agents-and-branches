@@ -1169,13 +1169,23 @@ const PROTECT_DENY: [&str; 52] = [
 fn protect_on(repo: &std::path::Path) -> bool {
     setting_get(&format!("protect:{}", repo.display())).map(|v| v.trim() != "0").unwrap_or(true)
 }
+/// "Pode ler o .env" deste projeto (Projeto › Regras, ou o botão na conversa): `envread:<repo>` = "1".
+/// Só LEITURA: editar .env, chaves, ~/.ssh, ~/.aws e os destrutivos seguem bloqueados. Padrão: não.
+fn env_read_on(repo: &std::path::Path) -> bool {
+    setting_get(&format!("envread:{}", repo.display())).map(|v| v.trim() == "1").unwrap_or(false)
+}
+/// Regra que some quando a leitura do .env foi liberada — ESPELHO de isEnvReadRule (src/engine/protect.ts).
+fn is_env_read_rule(r: &str) -> bool { r.starts_with("Read(**/.env") || r.starts_with("Bash(cat *.env") }
 /// Args a pôr ANTES de `--permission-mode` (a flag é variádica: outra flag encerra a lista).
-fn protect_args(on: bool) -> Vec<String> {
+fn protect_args(on: bool) -> Vec<String> { protect_args_env(on, false) }
+fn protect_args_env(on: bool, env_read: bool) -> Vec<String> {
     if !on { return vec![]; }
     let mut v = vec!["--disallowedTools".to_string()];
-    v.extend(PROTECT_DENY.iter().map(|s| s.to_string()));
+    v.extend(PROTECT_DENY.iter().filter(|s| !(env_read && is_env_read_rule(s))).map(|s| s.to_string()));
     v
 }
+/// As regras do PROJETO: protegido/livre + "pode ler o .env".
+fn protect_args_repo(repo: &std::path::Path) -> Vec<String> { protect_args_env(protect_on(repo), env_read_on(repo)) }
 #[cfg(test)]
 mod protect_tests {
     use super::*;
@@ -1190,6 +1200,14 @@ mod protect_tests {
             assert!(a.iter().any(|x| x == must), "{must}");
         }
         assert!(a[1..].iter().all(|r| !r.starts_with('-') && !r.contains(',')));
+    }
+    #[test]
+    fn ler_env_liberado_so_tira_a_leitura_do_env() {
+        let a = protect_args_env(true, true);
+        for gone in ["Read(**/.env)", "Read(**/.env.local)", "Read(**/.env.production*)", "Bash(cat *.env)"] { assert!(!a.iter().any(|x| x == gone), "{gone}"); }
+        for must in ["Edit(**/.env)", "Edit(**/.env.local)", "Read(**/*.pem)", "Read(~/.ssh/**)", "Bash(cat *.pem)", "Bash(sudo *)"] { assert!(a.iter().any(|x| x == must), "{must}"); }
+        assert!(protect_args_env(false, true).is_empty());
+        assert_eq!(protect_args_env(true, false), protect_args(true));
     }
 }
 
@@ -1206,6 +1224,7 @@ fn spawn_tracked(state: &State<AppState>, task_id: &str, mut cmd: Command) -> Re
     // modo protegido do PROJETO (padrão ligado) → o motor passa as regras de negação ao claude
     let protect = repo_of(state).map(|r| protect_on(&r)).unwrap_or(true);
     cmd.env("CARDUME_PROTECT", if protect { "1" } else { "0" });
+    cmd.env("CARDUME_ENV_READ", if repo_of(state).map(|r| env_read_on(&r)).unwrap_or(false) { "1" } else { "0" });
     // novo grupo/sessão: o node vira líder e o claude herda o grupo
     detach_new_group(&mut cmd);
     // stdout/stderr ficam como o CHAMADOR configurou (ex.: new_task redireciona
@@ -5695,7 +5714,7 @@ fn ai_chat_inner(app: tauri::AppHandle, state: State<AppState>, prompt: String, 
         "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
     ];
     // bypass NÃO respeita o --allowedTools acima (só as regras de NEGAÇÃO valem) → modo protegido
-    args.extend(protect_args(protect_on(&repo)));
+    args.extend(protect_args_repo(&repo));
     // sem isto o harness NEGA ler prints anexados fora do repo (Desktop etc.)
     args.push("--permission-mode".to_string());
     args.push("bypassPermissions".to_string());
@@ -6380,7 +6399,7 @@ fn issue_chat(state: State<AppState>, prompt: String, session_id: Option<String>
         "--allowedTools".to_string(),
         "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git grep:*)".to_string(),
     ];
-    args.extend(protect_args(protect_on(&repo))); // bypass ignora o allowedTools; negação vale
+    args.extend(protect_args_repo(&repo)); // bypass ignora o allowedTools; negação vale
     args.push("--permission-mode".to_string());
     args.push("bypassPermissions".to_string());
     if let Some(m) = model.filter(|m| !m.trim().is_empty()) { args.push("--model".to_string()); args.push(m); }

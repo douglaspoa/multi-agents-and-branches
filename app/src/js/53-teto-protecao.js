@@ -209,20 +209,43 @@ let protectCache={}; // repo → true/false (settings.json)
 let protectLoaded=false;
 function protectLoad(){
   protectLoaded=true; // uma leitura só (o refresh chama a cada tick); sem resposta vale o padrão: protegido
-  return invoke('read_settings').then(s=>{ const o=JSON.parse(s||'{}'); const m={}; for(const k in o){ if(k.startsWith('protect:')) m[k.slice(8)]=String(o[k])!=='0'; } protectCache=m; lastSig=''; }).catch(()=>{});
+  return invoke('read_settings').then(s=>{ const o=JSON.parse(s||'{}'); const m={}, er={}; for(const k in o){ if(k.startsWith('protect:')) m[k.slice(8)]=String(o[k])!=='0'; if(k.startsWith('envread:')) er[k.slice(8)]=String(o[k])==='1'; } protectCache=m; envReadCache=er; lastSig=''; }).catch(()=>{});
 }
+// ---- "pode ler o .env" (por projeto): tira SÓ a leitura do .env da lista — editar .env, chaves e destrutivos seguem
+// bloqueados. Liga em Projeto › Regras ou no botão que aparece quando o agente diz que o .env foi bloqueado.
+let envReadCache={}; // repo → true
+function envReadOn(repo){ return !!envReadCache[repo||(state&&state.repo)||'']; }
+async function envReadSet(repo, on){
+  envReadCache[repo]=!!on;
+  await invoke('write_setting',{ key:'envread:'+repo, value:on?'1':'0' });
+  if(typeof mdMemo!=='undefined') mdMemo.clear(); // as bolhas memorizadas perdem o botão
+}
+// a fala do agente diz que não conseguiu ler o .env (negado pela regra) → oferece liberar ali mesmo
+function envBlockedSaid(t){ const s=String(t||''); return /\.env\b/.test(s) && /(bloque|negad|denied|permiss|n[ãa]o (consigo|consegui|posso|pude|tenho acesso)|sem acesso|protegido)/i.test(s); }
+function envAskHtml(t, repo){
+  const r=repo||(state&&state.repo)||'';
+  if(!r || !protectOnFor(r) || envReadOn(r) || !envBlockedSaid(t)) return '';
+  return `<div class="envask"><span>O modo protegido bloqueou a leitura do <code>.env</code>.</span><button type="button" class="btn sm" data-envallow="${escA(r)}">Permitir ler o .env neste projeto</button></div>`;
+}
+document.addEventListener('click', async e=>{
+  const b=e.target.closest&&e.target.closest('[data-envallow]'); if(!b) return;
+  const repo=b.dataset.envallow; b.disabled=true;
+  try{ await envReadSet(repo, true); }catch(err){ b.disabled=false; showErr(err, 'Não salvou'); return; }
+  const box=b.closest('.envask'); if(box) box.innerHTML='<span>Liberado: a partir da próxima mensagem o agente pode <b>ler</b> o <code>.env</code> deste projeto (editar continua bloqueado). Desliga em Projeto › Regras.</span>';
+  toast('Leitura do .env liberada neste projeto','ok'); lastSig='';
+});
 function protectOnFor(repo){ const r=repo||(state&&state.repo)||''; return protectCache[r]!==false; }
 async function protectSet(repo, on){
   protectCache[repo]=!!on;
   await invoke('write_setting',{ key:'protect:'+repo, value:on?'1':'0' });
 }
-function protectTip(on){
-  return on ? 'Modo protegido — o agente NÃO consegue:\n• '+PROTECT_BLOCKS.join('\n• ')+'\nSe precisar, ele pergunta pra você. Troque em Projeto › Regras.'
+function protectTip(on, repo){
+  return on ? 'Modo protegido — o agente NÃO consegue:\n• '+PROTECT_BLOCKS.join('\n• ')+(envReadOn(repo)?'\n(exceto LER o .env: liberado neste projeto)':'')+'\nSe precisar, ele pergunta pra você. Troque em Projeto › Regras.'
             : 'Modo livre — sem regras de bloqueio: o agente pode ler .env e rodar qualquer comando. Troque em Projeto › Regras.';
 }
 function protectBadgeHtml(t){
   const on=protectOnFor((t&&t.repo)||(state&&state.repo));
-  return `<span class="protbadge${on?'':' off'}" title="${escA(protectTip(on))}">${on?IC.shield:''}<span class="pbt">${on?'protegido':'livre'}</span></span>`;
+  return `<span class="protbadge${on?'':' off'}" title="${escA(protectTip(on, (t&&t.repo)||(state&&state.repo)))}">${on?IC.shield:''}<span class="pbt">${on?'protegido':'livre'}</span></span>`;
 }
 // bloco de Preferências do projeto
 function protectPrefsHtml(repo){
@@ -232,12 +255,15 @@ function protectPrefsHtml(repo){
       <label class="howopt${on?' on':''}"><input type="radio" name="protmode" value="1"${on?' checked':''}><span><span class="ht">Protegido <span class="rec">PADRÃO</span></span><div class="hd">O agente trabalha sozinho, mas não lê nem edita segredos (.env, chaves, ~/.ssh, ~/.aws) e não roda comandos destrutivos (rm -rf em / ou ~, git push --force, curl | sh, sudo). Quando precisar de um desses, ele pergunta pra você.</div></span></label>
       <label class="howopt${on?'':' on'}"><input type="radio" name="protmode" value="0"${on?'':' checked'}><span><span class="ht">Livre</span><div class="hd">Sem bloqueios: o agente pode ler .env e rodar qualquer comando. Use só em projeto de teste ou quando você confia no que ele vai fazer.</div></span></label>
     </div>
+    <label class="envopt" style="display:${on?'flex':'none'}"><input type="checkbox" id="envReadChk"${envReadOn(repo)?' checked':''}><span><b>Pode ler o .env</b> — o agente lê as variáveis (ex.: pra rodar o projeto ou depurar). Editar o .env, chaves, ~/.ssh e ~/.aws continua bloqueado.</span></label>
     <div class="dim" style="font-size:var(--fs-xs);margin-top:6px">Vale pras próximas execuções deste projeto (inclusive o planner). Tarefa já rodando mantém o modo com que começou.</div>`;
 }
 function protectPrefsWire(repo){
   const box=$id('protOpts'); if(!box) return;
+  const ec=$id('envReadChk'); if(ec) ec.onchange=async()=>{ try{ await envReadSet(repo, ec.checked); toast(ec.checked?'O agente pode ler o .env deste projeto':'Leitura do .env bloqueada de novo', ec.checked?'ok':'info'); lastSig=''; }catch(e){ ec.checked=!ec.checked; showErr(e, 'Não salvou'); } };
   box.querySelectorAll('input[name="protmode"]').forEach(r=>r.onchange=async()=>{
     box.querySelectorAll('.howopt').forEach(l=>l.classList.toggle('on', l.querySelector('input').checked));
+    { const eo=box.parentElement&&box.parentElement.querySelector('.envopt'); if(eo) eo.style.display=r.value==='1'?'flex':'none'; }
     try{ await protectSet(repo, r.value==='1'); toast(r.value==='1'?'Agentes em modo protegido':'Agentes em modo livre — sem bloqueios', r.value==='1'?'ok':'info'); lastSig=''; }
     catch(e){ showErr(e, 'Não salvou'); }
   });

@@ -229,6 +229,7 @@ fn engine_json(repo: &Path, args: &[String]) -> Result<serde_json::Value, String
     cmd.current_dir(repo).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).env("CARDUME_NOTIFY", "0");
     let protect = crate::protect_on(repo);
     cmd.env("CARDUME_PROTECT", if protect { "1" } else { "0" });
+    cmd.env("CARDUME_ENV_READ", if crate::env_read_on(repo) { "1" } else { "0" });
     let out = crate::output_timeout(cmd, 60).map_err(|e| format!("motor não respondeu: {e}"))?;
     let so = String::from_utf8_lossy(&out.stdout);
     let line = so.lines().rev().find(|l| l.trim_start().starts_with('{')).ok_or_else(|| {
