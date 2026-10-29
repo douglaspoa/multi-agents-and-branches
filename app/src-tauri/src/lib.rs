@@ -7764,7 +7764,8 @@ fn pr_head_cands(repo: &PathBuf, branch: &str) -> Vec<String> {
     {
         if o.status.success() {
             let up = String::from_utf8_lossy(&o.stdout).trim().trim_start_matches("origin/").to_string();
-            if !up.is_empty() && up != branch {
+            // upstream = tronco (a branch nasceu de origin/main e nunca subiu): não é nome antigo, é a base
+            if !up.is_empty() && up != branch && !pr_real::is_trunk(&up, &[]) {
                 cands.push(up);
             }
         }
@@ -8892,6 +8893,31 @@ fn task_set_pr(state: &State<AppState>, task_id: &str, url: &str, number: u64) {
     }
 }
 
+fn task_unset_pr(state: &State<AppState>, task_id: &str) {
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(path) = db_path_now else { return };
+    let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) else { return };
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(4000));
+    if let Ok(spec_str) = conn.query_row("SELECT spec_json FROM task WHERE id=?1", params![task_id], |r| r.get::<_, String>(0)) {
+        let mut spec = serde_json::from_str::<serde_json::Value>(&spec_str).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(o) = spec.as_object_mut() {
+            if o.remove("prUrl").is_some() | o.remove("prNumber").is_some() {
+                let _ = conn.execute("UPDATE task SET spec_json=?1 WHERE id=?2", params![spec.to_string(), task_id]);
+            }
+        }
+    }
+}
+/// Desfaz um "integrada" que veio de PR errado: volta pra revisão (a worktree é recriada ao falar com a tarefa).
+fn task_unmerge(state: &State<AppState>, task_id: &str) -> bool {
+    let db_path_now = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let Some(path) = db_path_now else { return false };
+    let Ok(conn) = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE) else { return false };
+    let _ = conn.busy_timeout(std::time::Duration::from_millis(8000));
+    let ok = conn.execute("UPDATE task SET status='review' WHERE id=?1 AND status='merged'", params![task_id]).unwrap_or(0) > 0;
+    if ok { task_mark_closed(&conn, task_id, false, 0); }
+    ok
+}
+
 /// CONFERE o PR da tarefa de verdade (barato: 1 `gh pr list` por head; sem gh/sem acesso → git). Acha o PR pela branch
 /// mesmo sem prUrl, com a conta ligada ao projeto; grava prUrl/número; PR MERGED (ou conteúdo já na base, pelo git) →
 /// tarefa integrada pelo caminho único (task_mark_merged). Nunca falha calado: o motivo volta em `reason`/`errKind`.
@@ -8915,7 +8941,7 @@ fn pr_sync_task(state: State<AppState>, task_id: String, base: Option<String>, f
         .or_else(|| Some(tbase.clone()).filter(|b| !b.is_empty()))
         .unwrap_or_else(|| "main".into());
     let since = if created > 0 && created < 100_000_000_000 { created * 1000 } else { created };
-    let ended = ["merged", "done", "cancelled"].contains(&status.as_str()) || flag == "closed";
+    let mut ended = ["merged", "done", "cancelled"].contains(&status.as_str()) || flag == "closed";
     let heads = pr_head_cands(&repo, &branch);
     let slug = github_slug_of(&repo).map(|(s, _)| s).unwrap_or_default();
     let gh = gh_bin();
@@ -8924,7 +8950,21 @@ fn pr_sync_task(state: State<AppState>, task_id: String, base: Option<String>, f
     if slug.is_empty() && pr_url.is_empty() {
         gh_err = Some("nogithub".into());
     } else {
-        match pr_real::gh_find_any_account(&gh, &repo, &slug, &pr_url, &heads, force.unwrap_or(false)) {
+        let mut found = pr_real::gh_find_any_account(&gh, &repo, &slug, &pr_url, &heads, force.unwrap_or(false));
+        // link gravado aponta pro PR de OUTRA branch (ex.: o antigo main→main que a busca pelo upstream achava):
+        // desfaz o link e — se ela virou "integrada" por ele e o conteúdo NÃO está na base — volta pra revisão
+        if let Ok(Some(p)) = &found {
+            if !pr_url.is_empty() && pr_real::link_bogus(&p.head, &branch, &heads) {
+                web_log(format!("[pr] {task_id}: PR #{} (head {}) não é da branch {branch} — link desfeito", p.number, p.head));
+                task_unset_pr(&state, &task_id);
+                if status == "merged" && flag != "closed" {
+                    let (gst, _) = pr_real::git_verdict(&repo, &branch, &base, since, false);
+                    if gst != "MERGED" && task_unmerge(&state, &task_id) { ended = false; }
+                }
+                found = pr_real::gh_find_any_account(&gh, &repo, &slug, "", &heads, false);
+            }
+        }
+        match found {
             Ok(Some(p)) => {
                 out.source = "gh".into();
                 out.account = gh_contas::query_account(&repo).unwrap_or_default();
@@ -8988,6 +9028,32 @@ fn reopen_pr(state: State<AppState>, task_id: String) -> Result<String, String> 
     if err.to_lowercase().contains("already open") { return Ok("o PR já estava aberto".into()); }
     if let Some(r) = gh_no_repo_access(&err) { return Err(format!("GH_NO_ACCESS: nenhuma conta logada no gh enxerga {r}")); }
     Err(err)
+}
+
+#[cfg(test)]
+mod pr_head_tests {
+    use super::pr_head_cands;
+    use std::process::Command;
+    fn g(d: &std::path::Path, a: &[&str]) { assert!(Command::new("git").arg("-C").arg(d).args(a).status().unwrap().success(), "git {a:?}"); }
+    #[test]
+    fn upstream_main_nao_vira_head_do_pr() {
+        let d = std::env::temp_dir().join(format!("sf-prhead-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let (o, r) = (d.join("origem"), d.join("loja"));
+        std::fs::create_dir_all(&o).unwrap();
+        g(&o, &["init", "-q", "-b", "main"]);
+        g(&o, &["-c", "user.email=a@b.c", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base"]);
+        assert!(Command::new("git").args(["clone", "-q"]).arg(&o).arg(&r).status().unwrap().success());
+        // o caso real: a branch da tarefa nasce de origin/main → upstream = origin/main
+        g(&r, &["branch", "-q", "--track", "feat/LW-1-cupom", "origin/main"]);
+        assert_eq!(pr_head_cands(&r, "feat/LW-1-cupom"), vec!["feat/LW-1-cupom".to_string()]);
+        // renomeada depois do push: o nome remoto antigo continua valendo
+        g(&r, &["push", "-q", "origin", "main:agent/cupom"]);
+        g(&r, &["fetch", "-q"]);
+        g(&r, &["branch", "-q", "--set-upstream-to", "origin/agent/cupom", "feat/LW-1-cupom"]);
+        assert_eq!(pr_head_cands(&r, "feat/LW-1-cupom"), vec!["feat/LW-1-cupom".to_string(), "agent/cupom".to_string()]);
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }
 
 #[cfg(test)]
