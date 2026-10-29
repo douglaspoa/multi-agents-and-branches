@@ -11,6 +11,10 @@ const P = new Function(cut(JS, '// @prr-puro-inicio', '// @prr-puro-fim') + '\nr
 test('candidatas: só em revisão / PR aberto — nunca rascunho, rodando ou encerrada', () => {
   assert.equal(P.prrCandidata({ status: 'review' }), true, 'a tarefa do relato: review, sem prUrl');
   assert.equal(P.prrCandidata({ status: 'running', prUrl: 'https://github.com/loja/web/pull/3' }), true, 'PR aberto');
+  // integrada há pouco COM link: confere 1× (o link pode ser o PR main→main da busca antiga pelo upstream)
+  assert.equal(P.prrCandidata({ id: 'a', status: 'merged', prUrl: 'https://github.com/loja/web/pull/3', finishedAt: Date.now() - 86400000 }), true, 'integrada ontem com link');
+  assert.equal(P.prrCandidata({ id: 'b', status: 'merged', prUrl: 'https://github.com/loja/web/pull/3', finishedAt: Date.now() - 30 * 86400000 }), false, 'integrada há um mês: não');
+  assert.equal(P.prrCandidata({ id: 'c', status: 'merged', finishedAt: Date.now() }), false, 'integrada sem link: não');
   assert.equal(P.prrCandidata({ status: 'running' }), false);
   assert.equal(P.prrCandidata({ status: 'draft' }), false);
   for (const st of ['merged', 'done', 'cancelled']) assert.equal(P.prrCandidata({ status: st, prUrl: 'x' }), false, st);
