@@ -282,4 +282,6 @@ test('a IA bateu na regra do .env → a faixa oferece liberar (texto real do Cla
   assert.ok(P.termEnvBlocked('\u25cf Ainda bloqueado por regra de deny em qualquer .env, então não consigo obter os valores.'));
   assert.ok(!P.termEnvBlocked('Criei o .env.example com as variáveis.'));
   assert.ok(!P.termEnvBlocked("Error: Bash(sudo ls) was blocked by a deny rule."));
+  assert.ok(P.termEnvBlocked('Error: Permission to use Bash with command ls -la .cardume/tmp/gw.key 2>&1 has been denied.'));
+  assert.ok(P.termEnvBlocked("Error: Read from '/proj/certs/api.pem' was blocked by a deny rule."));
 });

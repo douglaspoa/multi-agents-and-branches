@@ -48,10 +48,10 @@ test("ler o .env liberado: só some a LEITURA do .env — editar e as chaves con
   assert.equal(envReadEnabled({}), false);
   assert.equal(envReadEnabled({ CARDUME_ENV_READ: "1" }), true);
   const r = denyRules(true);
-  for (const gone of ["Read(**/.env)", "Read(**/.env.local)", "Read(**/.env.production*)", "Bash(cat *.env)", "Bash(cat *.env.local)"]) assert.ok(!r.includes(gone), gone);
-  for (const must of ["Edit(**/.env)", "Edit(**/.env.local)", "Read(**/*.pem)", "Read(~/.ssh/**)", "Bash(cat *.pem)", "Bash(sudo *)", "Bash(git push --force*)"]) assert.ok(r.includes(must), must);
+  for (const gone of ["Read(**/.env)", "Read(**/.env.local)", "Read(**/.env.production*)", "Read(**/*.key)", "Read(**/*.pem)", "Bash(cat *.env)", "Bash(cat *.env.local)", "Bash(cat *.pem)"]) assert.ok(!r.includes(gone), gone);
+  for (const must of ["Edit(**/.env)", "Edit(**/*.key)", "Edit(**/*.pem)", "Read(**/id_rsa*)", "Read(~/.ssh/**)", "Read(**/.ssh/**)", "Read(~/.aws/**)", "Read(~/.cardume/guard.key)", "Bash(cat *id_rsa*)", "Bash(sudo *)", "Bash(git push --force*)"]) assert.ok(r.includes(must), must);
   assert.deepEqual(protectArgs(true, true).slice(1), r);
   assert.deepEqual(protectArgs(false, true), []);
-  assert.ok(protectRule(true).includes("deixa LER o .env") && !protectRule(true).includes("(.env,"));
+  assert.ok(protectRule(true).includes("deixa LER os segredos do projeto") && !protectRule(true).includes("(.env,"));
   assert.equal(protectRule(false), PROTECT_RULE);
 });
