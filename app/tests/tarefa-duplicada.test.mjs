@@ -18,3 +18,11 @@ test('mesma demanda aberta (título igual, sem ligar pra acento/pontuação) →
   assert.equal(P.trkDupOf({ title: 'Outra coisa' }, tasks), null);
   assert.equal(P.trkDupOf({ title: '' }, tasks), null);
 });
+
+test('só pergunta quando é a pessoa criando (ask); o caminho automático não pergunta e o cartão religa a tarefa que já existe', () => {
+  assert.match(JS, /async function trkBeforeNewTask\(payload, o\)\{\n  if\(o&&o\.ask\)\{ const d=trkDupOf/);
+  const planner = readFileSync(new URL('../src/js/32-planner.js', import.meta.url), 'utf8');
+  assert.equal((planner.match(/trkBeforeNewTask\(payload\)\)/g) || []).length, 0, 'toda criação pela tela pergunta');
+  const times = readFileSync(new URL('../src/js/43-espaco-times.js', import.meta.url), 'utf8');
+  assert.match(times, /const localId=ja \? ja\.id : await invoke\('new_task'/);
+});

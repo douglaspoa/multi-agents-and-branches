@@ -434,8 +434,10 @@ function trkDupOf(payload, tasks){
   const k=trkTitleKey(payload&&payload.title); if(!k) return null;
   return (tasks||[]).find(t=>t && trkTitleKey(t.title)===k && !['merged','done','cancelled'].includes(t.status) && t.flag!=='closed')||null;
 }
-async function trkBeforeNewTask(payload){
-  { const d=trkDupOf(payload, (typeof state!=='undefined'&&state.tasks)||[]);
+// o = { ask:true } SÓ quando é a pessoa criando pela tela. Caminho automático (início do épico, celular, fábrica…) nunca
+// pergunta: o aviso em loop (03/11) era o épico tentando de novo a cada volta — esses religam a tarefa existente (teamClaimStart).
+async function trkBeforeNewTask(payload, o){
+  if(o&&o.ask){ const d=trkDupOf(payload, (typeof state!=='undefined'&&state.tasks)||[]);
     if(d && !(await askYes(`Já existe uma tarefa aberta com esse título${d.branch&&/[A-Z][A-Z0-9]+-\d+/.test(d.branch)?' ('+d.branch.match(/[A-Z][A-Z0-9]+-\d+/)[0]+')':''}: “${String(d.title).slice(0,80)}”. Criar outra igual mesmo assim?`, 'Criar outra igual'))){
       const e=new Error('criação cancelada: já existe uma tarefa igual'); e.shown=true;
       if(typeof openWorkspace==='function') openWorkspace(d.id); // leva pra que já existe

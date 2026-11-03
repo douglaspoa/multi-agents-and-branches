@@ -916,7 +916,7 @@ async function plCreateInner(){
       return row;
     }
     if(plFields.protoId && typeof protoPayloadRef==='function') await protoPayloadRef(plFields.protoId, payload); // 85: o protótipo rascunhado vai junto
-    const nid=await invoke('new_task', await trkBeforeNewTask(payload)); if(plFields.protoId && typeof protoLinkTask==='function') protoLinkTask(plFields.protoId, nid); if(typeof budgetApply==='function') await budgetApply(nid); if(typeof estSaveFor==='function') await estSaveFor(nid); await plClearDraft(); closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
+    const nid=await invoke('new_task', await trkBeforeNewTask(payload, { ask:true })); if(plFields.protoId && typeof protoLinkTask==='function') protoLinkTask(plFields.protoId, nid); if(typeof budgetApply==='function') await budgetApply(nid); if(typeof estSaveFor==='function') await estSaveFor(nid); await plClearDraft(); closePlanner(); lastSig=''; // BUG-8: o formulário (outra aba) fica intacto
   await refresh(); }
   catch(e){ showErr(e, 'Falha ao criar'); const b2=$id('plCreate')||b; if(b2){ b2.disabled=false; b2.innerHTML=bHtml||(IC.cright+' criar e rodar'); } }
 }
@@ -943,7 +943,7 @@ async function ntApplyShare(payload){
   const share=($id("ntShareRow").dataset.cloud==='1')?$id("ntShare").value:'local';
   if(share==='team'){ payload.start=false; const who=ntWho||null; await cloudShareTask(payload, { assignee:who }); ntWho='';
     toast('“'+String(payload.title||'').slice(0,60)+'” foi pro quadro do time'+(who?(who===cloudUserId()?', no seu nome':' com '+tmName(who)):', livre')+'. Ninguém começou a rodar.','ok'); return true; }
-  const localId=await invoke('new_task', await trkBeforeNewTask(payload));
+  const localId=await invoke('new_task', await trkBeforeNewTask(payload, { ask:true }));
   if(typeof protoAfterTaskCreated==='function') await protoAfterTaskCreated(localId, ntSubmitCtx.tab); // 85: Formulário montado pelo Protótipo → liga e copia
   if(typeof budgetApply==='function') await budgetApply(localId); // teto escolhido no "Como executar?"
   if(share==='self') cloudPublishSelf(localId, payload).catch(e=>console.error('sync self:', e));
@@ -1108,7 +1108,7 @@ async function submitNewTaskInner(start=true){
     } else {
       if(window.trfApply) await trfApply(payload);
       if(payload.advisor===undefined && typeof aiFormAdvisor==='function') payload.advisor=aiFormAdvisor();
-      await invoke('new_task', await trkBeforeNewTask(payload));
+      await invoke('new_task', await trkBeforeNewTask(payload, { ask:true }));
       ntSubmitDone(); lastSig=""; await refresh();
     }
   }
