@@ -446,7 +446,12 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     if(opts.payload) Object.assign(payload, opts.payload); // "Assumir e resolver" (80: conflitoAssumir) — parte da branch do PR, objetivo = o pedido do conflito
     if(ct.epic_id && typeof epFlowFor==='function' && epFlowFor(ct.epic_id).plan) payload.planApproval='review'; // chave do épico: "eu aprovo o plano de cada tarefa"
     if(ct.epic_id && window.epicAttachRef) await epicAttachRef(payload, ct.epic_id, ct); // EPIC.md compilado vai como referência
-    const localId=await invoke('new_task', await trkBeforeNewTask(payload));
+    // já existe tarefa ABERTA desta máquina com o título do cartão e sem outro cartão ligado = a mesma (o vínculo se perdeu):
+    // religa em vez de criar outra (antes: o início automático do épico tentava criar a cada volta)
+    const tm=(typeof tmap==='function')?tmap():{}, livres=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!tm[t.id] || tm[t.id]===ct.id); // ligada a OUTRO cartão não conta
+    const ja=(typeof trkDupOf==='function')?trkDupOf({ title:payload.title||ct.title }, livres):null;
+    const localId=ja ? ja.id : await invoke('new_task', await trkBeforeNewTask(payload));
+    if(ja) console.info('cartão religado à tarefa que já existia:', ja.id);
     tmapSet(localId, ct.id);
     if(+((ct.spec||{}).budgetUsd)>0) invoke('patch_task_spec',{ taskId:String(localId), patch:{ budgetUsd:+ct.spec.budgetUsd } }).catch(e=>console.error('teto do cartão', e)); // teto escolhido por quem mandou pro time
     await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });

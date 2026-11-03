@@ -60,7 +60,7 @@ test('o Grátis nunca toca na rede: sem sessão orgPolGet volta null antes de qu
   assert.ok(get.indexOf('if(!orgSessOk()){ ORGP.pol=null; return null; }') >= 0 && get.indexOf('if(!orgSessOk())') < get.indexOf('sbGet('), 'sessão conferida antes da rede (e a política antiga sai)');
   assert.match(get, /setTimeout\(\(\)=>rej\(new Error\('sem resposta da nuvem'\)\), 3000\)/);
   assert.match(get, /orgPlanOf\(org, Date\.now\(\)\)!=='empresa'/);
-  const hook = cut(iss, 'async function trkBeforeNewTask(payload){', '\n}\n');
+  const hook = cut(iss, 'async function trkBeforeNewTask(payload, o){', '\n}\n');
   assert.ok(hook.indexOf('orgPolBeforeNewTask') < hook.indexOf('try{'), 'fora do try: a recusa da política sobe pra quem chamou');
   assert.match(pol, /payload\.orgPolicy=p;/);
 });
