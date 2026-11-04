@@ -454,7 +454,12 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     if(ja) console.info('cartão religado à tarefa que já existia:', ja.id);
     tmapSet(localId, ct.id);
     if(+((ct.spec||{}).budgetUsd)>0) invoke('patch_task_spec',{ taskId:String(localId), patch:{ budgetUsd:+ct.spec.budgetUsd } }).catch(e=>console.error('teto do cartão', e)); // teto escolhido por quem mandou pro time
-    await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) });
+    // a tarefa JÁ nasceu e está rodando: daqui pra baixo nada pode virar "erro ao iniciar" — antes uma falha ao marcar o
+    // cartão (rede/servidor) dava erro, o cartão ficava "na fila" e cada novo clique criava OUTRA tarefa (3 cópias, 04/11)
+    if(!ja){ try{ lastSig=''; await refresh(); }catch(_){ } } // o próximo clique já enxerga esta e religa
+    let cardErr=null;
+    try{ await sbFetch('/rest/v1/tasks?id=eq.'+ct.id, { method:'PATCH', body: JSON.stringify({ status:'running', local_id: localId }) }); }
+    catch(e){ cardErr=e; console.error('iniciar: a tarefa começou, mas o cartão do time não atualizou:', (e&&e.message)||e); }
     if(ct.epic_id && window.epicMarkInProgress) epicMarkInProgress(ct.epic_id); // 1ª tarefa rodando → épico em andamento
     sbPost('task_activity',{ task_id:ct.id, user_id:cloudUserId(), kind:'started', body:'' }).catch(()=>{});
     // some da fila dos épicos NA HORA (o tick da nuvem só volta em até 20 s) e aparece na MINHA Execução
@@ -462,6 +467,7 @@ async function teamClaimStart(ct, btn, opts){ opts=opts||{};
     teamTasks=null; lastSig=''; allTasksAt=0; await refresh();
     // A8: "assumir" LEVA pra sua Execução (a aba Central, com a tarefa selecionada) e diz o que aconteceu — antes só
     // trocava o #viewSeg escondido e a aba continuava no Time, sem retorno
+    if(cardErr && !opts.silent){ toast('“'+String(ct.title||'a tarefa').slice(0,60)+'” começou nesta máquina, mas o cartão do time não atualizou agora ('+((typeof humanErr==='function'?humanErr(cardErr).msg:String(cardErr)).slice(0,90))+'). Ele se ajeita sozinho — não precisa clicar de novo.','warn'); return localId; }
     if(!opts.silent){ const cl=tsClaimShow(localId);
       toast('Você assumiu “'+String(ct.title||'a tarefa').slice(0,60)+'” — ela está na sua Execução.'+(cl.length?' Limpei '+(cl.length===1?'o filtro':'os filtros')+' de '+cl.join(', ')+' que a escondia'+(cl.length===1?'':'m')+'.':''),'ok'); }
     return localId;
