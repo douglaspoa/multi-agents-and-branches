@@ -133,7 +133,7 @@
   --fs-ini:9.5px;
 }
 *{box-sizing:border-box}
-html,body{margin:0;height:100%}
+html,body{margin:0;height:100%;overflow:hidden} /* a raiz nunca rola: um focus()/scrollIntoView rolava a página por trás das telas fixas (a barra de abas sumia e a lista vazava por cima) */
 body{
   background:var(--bg); color:var(--text);
   font-family:var(--ui);

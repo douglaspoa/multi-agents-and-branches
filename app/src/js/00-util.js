@@ -115,6 +115,10 @@ function osKind(){
 }
 // base da barra de abas → --chrome-h (as views-aba são position:fixed a partir daí).
 // Chamar sempre que o topo mudar de altura: render das abas, recolher/expandir sidebar.
+// a raiz nunca rola (CSS overflow:hidden não impede rolagem por código: focus() do terminal, scrollIntoView). Rolada,
+// a barra de abas saía da janela e a lista de trás aparecia no lugar, com a tarefa (fixa) parada embaixo.
+function rootScrollReset(){ try{ const se=document.scrollingElement||document.documentElement; if(se && (se.scrollTop||se.scrollLeft)){ se.scrollTop=0; se.scrollLeft=0; } if(document.body && (document.body.scrollTop||document.body.scrollLeft)){ document.body.scrollTop=0; document.body.scrollLeft=0; } }catch(_){ } }
+if(typeof window!=='undefined' && window.addEventListener) window.addEventListener('scroll', e=>{ if(e.target===document || e.target===document.documentElement || e.target===document.body) rootScrollReset(); }, true);
 function syncChromeH(){ const tb=$id('tabBar'); if(tb && tb.style.display!=='none') document.documentElement.style.setProperty('--chrome-h', Math.round(tb.getBoundingClientRect().bottom)+'px'); }
 // Esc: digitando num campo ou com um modal aberto por cima, o Esc é DELES — não fecha a aba de trás
 // @puro-dialogos-inicio (testado em app/tests/acessibilidade.test.mjs)
