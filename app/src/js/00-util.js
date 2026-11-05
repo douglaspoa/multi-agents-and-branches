@@ -174,7 +174,9 @@ const STATUS_META={
   cancelled:    { pt:'cancelada',         short:'cancelada',c:'var(--muted)',     ic:'stX' },
   waiting:      { pt:'na espera',         short:'espera',   c:'var(--muted)',     ic:'stQueue' },
   // aprovar (80-aprovar, 15/10): estados DERIVADOS do painel de provas — a fila, a Central e o Meu trabalho leem daqui
-  'para-aprovar':  { pt:'pronta pra aprovar', short:'pra aprovar', c:'var(--info)',  ic:'stReview' },
+  'para-aprovar':  { pt:'pronta pra integrar', short:'pra integrar', c:'var(--info)',  ic:'stReview' },
+  // crítica 05/11: com prova faltando o selo não diz "pronta" (o portão, o selo e a legenda saem do MESMO apDecide)
+  'falta-prova':   { pt:'falta prova', short:'falta prova', c:'var(--warn)', ic:'stBlock' },
   integrando:      { pt:'integrando',          short:'integrando',  c:'var(--accent)', ic:'stRun' },
   'mudanca-pedida':{ pt:'revisor pediu mudança', short:'mudança pedida', c:'var(--crit)', ic:'stErr' },
 };

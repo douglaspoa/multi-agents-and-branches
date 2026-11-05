@@ -1,7 +1,7 @@
 /* Starfork — 99-kanban: o QUADRO único (72-kanban) — Central, Quadro do Time e Colunas do painel de Issues.
    Bandejas calmas por situação, cartão compacto em papel (o trabalho é o herói; o cromo recua). Só tokens existentes. */
 .kb-host{flex:1;min-width:0}
-.kb-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(212px,1fr);gap:10px;min-width:0;max-width:100%;
+.kb-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(max(128px,min(212px,calc((100% - 40px)/5))),1fr);gap:10px;min-width:0;max-width:100%;
   overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:2px;padding:2px 2px 10px;margin-top:4px;
   scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}
 .kb-board::-webkit-scrollbar{height:8px}

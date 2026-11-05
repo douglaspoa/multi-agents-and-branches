@@ -72,7 +72,7 @@ function teStepMeta(k, o){
   }
   if(k==='revisao') return o.reqTot>0 ? o.reqOk+' de '+o.reqTot+' com prova' : 'sem requisitos';
   if(k==='previa') return o.prevChanged ? 'mudou · comparar' : 'navegador, iPhone, Android';
-  if(k==='entrega') return o.done ? 'comprovante' : 'ainda não';
+  if(k==='entrega') return o.done ? 'comprovante' : o.pr ? 'PR aberto · falta integrar' : 'ainda não';
   return '';
 }
 /** "foi pro agente" (cabeçalho da Conversa): o que a tarefa REGISTROU que rodou — spec.roleRuns (motor, P10) e as
@@ -130,7 +130,7 @@ function teMetaCtx(t){
   const cx=(typeof cxCounts==='function')?cxCounts(t.id):{ hunks:0, threads:0 };
   return { done:typeof taskIsDone==='function' && taskIsDone(t), stLabel:m.pt, stColor:m.c, running:['running','thinking'].includes(t.status)||!!t.busy,
     turn:(typeof cxTurnCount==='function')?cxTurnCount(t.id):0, files, hunks:cx.hunks, threads:cx.threads,
-    reqOk:rows.filter(r=>r.st==='ok').length, reqTot:rows.length, prevChanged:typeof mrChanged==='function' && mrChanged(t.id), nonCode:teNonCode(t) };
+    reqOk:rows.filter(r=>r.st==='ok').length, reqTot:rows.length, prevChanged:typeof mrChanged==='function' && mrChanged(t.id), nonCode:teNonCode(t), pr:!!(t.prUrl && t.status!=='merged') };
 }
 function teNeedMeCount(){
   const L=(typeof state!=='undefined' && state.tasks)||[];

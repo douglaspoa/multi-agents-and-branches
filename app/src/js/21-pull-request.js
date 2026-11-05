@@ -387,7 +387,8 @@ async function approveGateRun(t){
   try{ await chkEnsure(t); }catch(_){ }
   await chkApproveClick(t);
 }
-async function approveNoProof(t){ if(await proofOverride(t)){ if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===t.id) renderWorkspace(); await approveGate(t); } }
+// legado: o "sem prova" agora é o motivo do painel de provas (20 fwIntegrarSemProva → 80 aprovarTarefa)
+async function approveNoProof(t){ if(typeof fwIntegrarSemProva==='function'){ fwIntegrarSemProva(t); return; } if(await proofOverride(t)){ if(typeof renderWorkspace==='function' && typeof fwTask!=='undefined' && fwTask===t.id) renderWorkspace(); await approveGate(t); } }
 // ---- "Preparando o PR" (redesign p13): verificação real → push → criar ----
 let prepTaskId='';
 function prPrepOpen(taskId, base){
@@ -577,17 +578,14 @@ async function reworkFromPr(taskId, btnEl){
   }
   catch(e){ showErr(e, 'Falha ao mandar corrigir'); if(btn){ btn.disabled=false; btn.innerHTML=orig; } return false; }
 }
-// merge SEMPRE squash (mesmo método em todas as telas do desktop)
+// merge SEMPRE squash. Crítica 05/11: a aba PR tinha OUTRA régua (o aceite por requisito) e um sim/não com jargão.
+// Agora "Integrar na main" de qualquer tela é o mesmo: aprovarTarefa (80) — portões do apDecide, 4 s com Desfazer, merge
+// — mostrado no painel de provas da Revisão (onde aparecem o porquê de um bloqueio e a contagem).
 async function mergePr(taskId){
-  // portões da aba PR (63-revisao-pr: prova, seu aceite por requisito, revisor, checagens, conflito) — mesma régua do botão
-  const t=(state.tasks||[]).find(x=>x.id===taskId);
-  // a régua completa precisa dos arquivos DESTA tarefa (fwFiles é da tarefa aberta) — fora dela, não integra por aqui
-  if(typeof prvMergeWhy==='function' && t && (typeof fwTask==='undefined' || fwTask!==taskId)){ toast('Abra a aba PR da tarefa pra integrar: os portões são conferidos lá','warn'); return false; }
-  const why=(typeof prvMergeWhy==='function' && t) ? prvMergeWhy(t, prCache[taskId]) : prMergeBlock(prCache[taskId]);
-  if(prCache[taskId] && why){ toast('Não dá pra integrar agora. '+capFirst(why),'warn'); return false; }
-  if(!await askYes('Integrar o PR na base pelo GitHub (squash + apaga a branch remota)?')) return false;
-  try{ await mergePrRun(taskId); toast('PR mergeado','ok'); return true; }
-  catch(e){ showErr(e, 'Merge do PR falhou'); return false; }
+  const t=(state.tasks||[]).find(x=>x.id===taskId); if(!t) return false;
+  if(typeof aprovarTarefa!=='function'){ try{ await mergePrRun(taskId); toast('Integrada na main.','ok'); return true; }catch(e){ showErr(e, 'Não consegui integrar'); return false; } }
+  if(typeof fwTask!=='undefined' && fwTask===taskId && typeof fwIrPraRevisao==='function') fwIrPraRevisao(t);
+  return aprovarTarefa(taskId);
 }
 // o merge em si (squash + apaga a branch remota) — o mergePr acima (com a confirmação) e o "Aprovar" do painel de provas
 // (80-aprovar: a confirmação é a janela de 4 s com Desfazer, depois de conferir os mesmos portões) passam por aqui

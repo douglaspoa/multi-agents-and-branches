@@ -118,8 +118,8 @@ test('portões: bloqueado diz o que falta; tudo verde libera; sem revisor/checag
   assert.equal(run(c, `rvMissingText(${JSON.stringify(green)})`), '');
   assert.equal(run(c, `rvMissingText(${JSON.stringify(green)}, 'o PR está em rascunho')`), 'Falta: o PR está em rascunho.');
   const na = run(c, `rvGatesOf({ proof:{ st:'none', n:0 }, acc:{ n:0, done:0 }, rev:{ has:false, rounds:[] }, pr:{ checksTotal:2, checksFail:0, checksPending:1, mergeable:'UNKNOWN' } })`);
-  assert.deepEqual(na.map(g => g.st), ['na', 'na', 'na', 'run', 'run']);
-  assert.equal(run(c, `rvMissingText(${JSON.stringify(na)})`), '', 'andando/não se aplica não bloqueia');
+  assert.deepEqual(na.map(g => g.st), ['bad', 'na', 'na', 'run', 'run'], 'crítica 05/11: sem requisito, integrar pede motivo');
+  assert.equal(run(c, `rvMissingText(${JSON.stringify(na.slice(1))})`), '', 'andando/não se aplica não bloqueia');
   const ov = run(c, `rvGatesOf({ proof:{ st:'override', n:2, missing:1 }, acc:{ n:2, done:1, stale:1 }, rev:{ has:true, rounds:[{ round:2, verdict:'muda', items:['x'] }], override:true }, pr:{ mergeable:'MERGEABLE' } })`);
   assert.equal(ov[0].st, 'ok'); assert.equal(ov[2].st, 'ok', 'seguir sem nova revisão (com motivo) libera');
   assert.match(ov[1].val, /1 mudou depois/);
@@ -142,7 +142,7 @@ test('fiação: script e css no index, despacho da Revisão, merge passa pelos p
   assert.match(ws, /rvViewOf\(t\.id\)!=='diff'\) rvRender\(t, main\); else fwRenderDiff\(t, main\)/, '"ver diff completo" mantém o diff de antes');
   assert.match(ws, /prvRender\(t, main, info\)/);
   const pr = rd('../src/js/21-pull-request.js');
-  assert.match(pr, /async function mergePr\(taskId\)\{[\s\S]{0,900}prvMergeWhy\(t, prCache\[taskId\]\)/);
+  assert.match(pr, /async function mergePr\(taskId\)\{[\s\S]{0,900}return aprovarTarefa\(taskId\);/);
   assert.doesNotMatch(src, /window\.confirm|[^.\w]confirm\(/);
   assert.match(rd('../src-tauri/src/lib.rs'), /#\[tauri::command\(async\)\]\nfn review_state_set/);
   assert.match(rd('../src-tauri/src/lib.rs'), /#\[tauri::command\(async\)\]\nfn review_state_get/);

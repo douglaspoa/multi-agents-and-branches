@@ -374,7 +374,8 @@
 .meudet-st{margin:0;color:var(--text-2)}
 .meudet-a{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 18px;border-top:1px solid var(--border);background:var(--surface-2);border-radius:0 0 12px 12px}
 .meudet-a .grow{flex:1}
-.meu-enc{color:var(--st-err);border-color:color-mix(in srgb,var(--st-err) 45%,var(--border))}
+.meu-enc{color:var(--st-err);border-color:transparent;background:none} /* crítica 05/11: quieto — o principal é o que pesa */
+.meu-enc:hover{background:color-mix(in srgb,var(--st-err) 10%,transparent)}
 .sempop-o.sempop-d{color:var(--st-err)}
 @container (max-width:900px){ .meugrid{grid-template-columns:1fr} .meudet{position:static} .meulist .mcvs,.meudet-b{max-height:none} }
 /* 05/11 redesenho da Central: a busca é larga (código, título ou issue) — antes 170 px cortava o texto */

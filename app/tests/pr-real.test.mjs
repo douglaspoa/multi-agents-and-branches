@@ -56,12 +56,12 @@ test('frases: PR aberto por fora → "falta integrar"; fechado → "fechado sem 
 
 test('ligações: Aprovar some quando o PR foi integrado/fechado; Integrar no lugar de Aprovar com PR aberto; Já integrei em 2 lugares', () => {
   assert.match(AP, /prrVis\(t\.id\)\.kind; if\(k==='merged'\|\|k==='closed'\) return false;/, 'apAprovavel lê o estado real');
-  assert.match(AP, /l:prAberto\?'Integrar':'Aprovar'/, 'PR aberto: o botão integra');
+  assert.match(AP, /l:'Integrar na main', pri:true, ap:'aprovar'/, 'um verbo só: Integrar na main');
   assert.match(AP, /if\(!t\.prUrl && typeof prrConferir==='function'\)/, 'Aprovar confere no GitHub antes de abrir outro PR');
   assert.match(AP, /prrJaIntegrei\(id, b\)/, '"Já integrei" no Precisa de mim');
   assert.match(AP, /prrAvisoHtml\(v\.id\)/, 'aviso discreto no painel de provas (fila, Central, Meu trabalho, Revisão da tarefa)');
   assert.match(SEM, /prrEventoFechado\(x, meta\(x, x\.mod\)\)/, 'PR fechado tem frase própria no Precisa de mim');
-  assert.match(MENU, /já integrei · colar link do PR…/, '"Já integrei" no menu ⋯');
+  assert.match(MENU, /PR feito fora do app\?…/, '"PR feito fora do app?" no menu ⋯');
   const i80 = HTML.indexOf('js/80-aprovar.js'), i86 = HTML.indexOf('js/86-pr-real.js'), i99 = HTML.indexOf('js/99-e2e.js');
   assert.ok(i80 > 0 && i86 > i80 && i99 > i86, 'carrega depois do 80 e antes do 99');
   assert.doesNotMatch(JS, /invoke\(['"]gh_switch_account/, 'nunca troca a conta ativa');

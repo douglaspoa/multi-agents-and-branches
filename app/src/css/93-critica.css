@@ -21,12 +21,13 @@
 html.sfpane .fwhead #fwTaskName,html.sfpane .fwhead #fwClose{display:none}
 html.sfpane .fwhead.narrow #fwPhases{display:flex}
 
-/* cabeçalho apertado (≈420 px): a ação principal vira só o ícone (aria-label tem o nome), o secundário vai pro ⋯ */
+/* cabeçalho apertado (≈420 px): o secundário vai pro ⋯ */
 .fwhead.tight{gap:6px;padding-left:10px;padding-right:8px}
 .fwhead.tight .fwnoproof,.fwhead.tight #fwTaskProt,.fwhead.tight #fwTaskEpic{display:none}
-.fwhead.tight #fwReviewBar .btn .fwal{display:none}
-.fwhead.tight #fwReviewBar .btn{padding-left:8px;padding-right:8px}
-.fwhead.tight #fwReviewBar .btn svg{margin-right:0}
+/* crítica 05/11: a ação PRINCIPAL nunca perde o texto — quem sai primeiro são os secundários (Pedir alteração, Chamar
+   agente), que continuam no ⋯ */
+.fwhead.tight .fwrqbtn{display:none}
+.fwhead.tight #fwReviewBar .btn{padding-left:9px;padding-right:9px}
 .fwhead.tight .fwtname{min-width:32px}
 .fwhead.narrow .fwnoproof{display:none}
 

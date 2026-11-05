@@ -634,13 +634,13 @@ function openTaskMenu(taskId, anchor){
     pop.appendChild(b); };
   const ty=taskType(t);
     // CONCLUIR/ARQUIVAR no topo: é o que tira as investigações/entregas prontas da fila
-  if(t.flag!=='closed') item('concluir · sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}), false, IC.stDone);
+  // crítica 05/11: DUAS saídas (Integrar na main · Encerrar sem entregar). "Concluir" só pra quem não tem código (investigação/design)
+  if(t.flag!=='closed' && !taskOffersMerge(t)) item('concluir · sai da fila', ()=>invoke('set_task_flag',{taskId,flag:'closed'}), false, IC.stDone);
   if(t.status!=='draft' && !['merged','done'].includes(t.status) && t.flag!=='closed') item('trocar modelo · '+modelFriendly(t.model), ()=>openModelMenu(taskId, anchor), false, '', { stay:true, title:t.model||'' });
   if(t.flag==='closed') item('reabrir (volta pra fila)', ()=>invoke('set_task_flag',{taskId,flag:null}));
   if(!['review','delivered'].includes(t.status) && t.status!=='merged') item('marcar pronta pra revisar', ()=>invoke('mark_task_status',{taskId,status:'review'}), false, stIcon('review'));
-  if(t.status!=='merged' && taskOffersMerge(t)) item('marcar como integrada (merge feito)', ()=>invoke('mark_task_status',{taskId,status:'merged'}), false, icEm(IC.merge));
   // 86-pr-real: PR aberto/integrado por fora — cola o link e o app confere (ou marca integrada sem link)
-  if(typeof prrJaIntegrei==='function' && !taskEncerrada(t) && t.status!=='draft') item('já integrei · colar link do PR…', ()=>prrJaIntegrei(taskId, anchor), false, icEm(IC.merge), { stay:true, title:'grava o link do PR e confere no GitHub agora' });
+  if(typeof prrJaIntegrei==='function' && !taskEncerrada(t) && t.status!=='draft') item('PR feito fora do app?…', ()=>prrJaIntegrei(taskId, anchor), false, icEm(IC.merge), { stay:true, title:'integrou ou abriu o PR por fora: cola o link e o app confere no GitHub · grava o link do PR e confere no GitHub agora' });
   // E9 (bug #19): "em andamento" sem processo deixava um card "rodando" fantasma — agora o agente volta a trabalhar (pergunta antes)
   // pronta pra revisar: a MESMA caixa do cabeçalho da tarefa (71-revisao-alteracao) — cartões e linha da Central
   if(typeof rqCanAsk==='function' && rqCanAsk(t)){
@@ -659,7 +659,7 @@ function openTaskMenu(taskId, anchor){
   // e passa pelo abortTask(), que confirma antes
   if(ACTIVE_ST.has(t.status)||t.status==='paused'||t.status==='plan-review'||t.status==='asking'||t.busy) item('interromper agora', ()=>abortTask(taskId), true, stIcon('aborted'));
   // "não vai pra frente" (dono 28/10): cancela, fecha o PR (a branch fica) e a issue ligada, com 4 s pra desfazer (80-aprovar)
-  if(typeof encerrarTarefa==='function' && !taskEncerrada(t)) item('Encerrar — não quero mais…', ()=>encerrarTarefa(taskId, { anchor }), true, stIcon('cancelled'), { stay:true, title:'cancela a tarefa, fecha o PR e a issue no painel; pede um motivo opcional' });
+  if(typeof encerrarTarefa==='function' && !taskEncerrada(t)) item('Encerrar sem entregar…', ()=>encerrarTarefa(taskId, { anchor }), true, stIcon('cancelled'), { stay:true, title:'cancela a tarefa, fecha o PR e a issue no painel; pede um motivo opcional' });
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
   pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
@@ -708,9 +708,9 @@ function openStatusMenu(taskId, anchor){
     // E9: "em andamento" chama o agente de novo (pergunta antes); marcar só o status deixava um card "rodando" sem processo
     { key:'running', ic:stIcon('running'), label:'Em andamento',        col:stColor('running'), act:async()=>{ if(!await taskBackToRunning(taskId)) throw null; } },
     { key:'review',  ic:stIcon('review'), label:'Pronta pra revisar',  col:stColor('review'),  act:setSt('review') },
-    { key:'merged',  ic:stIcon('merged'), label:'Integrada (merge feito)',            col:stColor('merged'),  act:setSt('merged') },
-    { key:'finished',ic:stIcon('done'), label:'Concluir · sai da fila', col:stColor('done'), act:()=>invoke('set_task_flag',{taskId,flag:'closed'}) },
-    { key:'cancelled',ic:stIcon('cancelled'), label:'Cancelar · para e sai da fila', col:'var(--crit)', act:async()=>{ await invoke('mark_task_status',{taskId,status:'cancelled'}); await invoke('set_task_flag',{taskId,flag:'closed'}); } },
+    ...(taskOffersMerge(t)?[]:[{ key:'finished',ic:stIcon('done'), label:'Concluir · sai da fila', col:stColor('done'), act:()=>invoke('set_task_flag',{taskId,flag:'closed'}) }]), // código só termina integrando (ou encerrando)
+    // o MESMO encerrar de toda tela (80): diz o que vai fechar, pede o motivo e dá 4 s pra desfazer (antes cancelava na hora e deixava o PR aberto)
+    { key:'cancelled',ic:stIcon('cancelled'), label:'Encerrar sem entregar…', col:'var(--crit)', act:async()=>{ if(typeof encerrarTarefa==='function') await encerrarTarefa(taskId, { anchor }); else { await invoke('mark_task_status',{taskId,status:'cancelled'}); await invoke('set_task_flag',{taskId,flag:'closed'}); } } },
     // "Rascunho" NÃO entra: rebaixar uma task já iniciada pra draft a tornava
     // não-abrível (o clique ia pro editor) — footgun. Rascunho é só na criação.
   ];
