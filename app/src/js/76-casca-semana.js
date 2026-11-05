@@ -234,13 +234,13 @@ function semItemCard(t){
   const esp=!done && !trav && bucket==='aguardando';
   let motivo=''; if(trav||esp){ try{ motivo=typeof entTravaTx==='function'?entTravaTx(t):''; }catch(_){ } if(!motivo) motivo=stLabel(st); }
   return { id:'c:'+t.id, card:t, local, titulo:t.title||'tarefa', who:t.assignee||'', by:t.created_by||'', st, bucket, done, trav, esp, motivo,
-    mod:(typeof entModTs==='function'?entModTs(t):modTs(t.updated_at)), code:semCode(t) };
+    mod:(typeof entModTs==='function'?entModTs(t):modTs(t.updated_at)), ini:modMs(local&&local.createdAt)||modMs(t.created_at), code:semCode(t) };
 }
 function semItemLocal(t){
   const st=taskSt(t), bucket=flowBucket(t), done=taskIsDone(t);
   const trav=!done && (SEM_TRAV_ST.has(st) || t.flag==='blocked'), esp=!done && !trav && bucket==='aguardando';
   return { id:'l:'+t.id, card:null, local:t, titulo:t.title||'tarefa', who:semMe()||'eu', by:semMe()||'eu', st, bucket, done, trav, esp,
-    motivo:(trav||esp)?stLabel(st):'', mod:modTs(t.finishedAt, t.updatedAt, t.createdAt), code:semCode(t) };
+    motivo:(trav||esp)?stLabel(st):'', mod:modTs(t.finishedAt, t.updatedAt, t.createdAt), ini:modMs(t.createdAt), code:semCode(t) };
 }
 // tudo que a Semana/Meu trabalho enxergam: cartões do time (cancelados fora) + demandas desta máquina que NÃO estão no time
 // memória pela IDENTIDADE das fontes (o snapshot e o teamFetch trocam o array quando algo muda): o render() roda a cada
@@ -473,7 +473,9 @@ function semDiasMinha(list, now){
     const g=nome(ts||now); if(!out.has(g.key)) out.set(g.key, { ...g, abertas:[], fim:[] });
     out.get(g.key)[fim?'fim':'abertas'].push(x);
   }
-  const by=(a,b)=>(b.mod||0)-(a.mod||0);
+  // dentro do dia: a que COMEÇOU por último primeiro (05/11: a sincronização mexe no updated_at das antigas a toda hora e a
+  // recém-iniciada ia pro fim); sem início conhecido, a última mudança
+  const by=(a,b)=>((b.ini||b.mod||0)-(a.ini||a.mod||0)) || ((b.mod||0)-(a.mod||0));
   return [...out.values()].sort((a,b)=>a.ord-b.ord).map(d=>({ ...d, abertas:d.abertas.sort(by), fim:d.fim.sort(by) }));
 }
 // @mws-puro-fim
