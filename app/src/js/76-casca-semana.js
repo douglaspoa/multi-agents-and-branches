@@ -17,6 +17,7 @@
 
 // ---------- ícones (traço de linha 16px, o mesmo do IC) ----------
 const SEM_IC={
+  arrowR:'<path d="M3 8h10M9.5 4.5 13 8l-3.5 3.5"/>', x:'<path d="m4.5 4.5 7 7m0-7-7 7"/>',
   home:'<path d="M2.6 7.4 8 2.9l5.4 4.5V13a.6.6 0 0 1-.6.6H9.6V10H6.4v3.6H3.2a.6.6 0 0 1-.6-.6z" stroke-linejoin="round"/>',
   cal:'<rect x="2.5" y="3.4" width="11" height="10.1" rx="1.4"/><path d="M2.5 6.6h11M5.4 2v2.6M10.6 2v2.6" stroke-linecap="round"/>',
   box:'<path d="M2.6 5 8 2.4 13.4 5v6L8 13.6 2.6 11z" stroke-linejoin="round"/><path d="M2.6 5 8 7.6 13.4 5M8 7.6v6" stroke-linejoin="round"/>',
@@ -392,8 +393,11 @@ function semPaint(k){
   try{ html=k==='meu'?meuHtml():k==='semana'?semanaHtml():k==='entregas'?entHtml2():mapaHtml(); }
   catch(e){ console.error('semana '+k, e); html=`<div class="pgbody">${emptyHtml({ icon:'alert', title:'Não consegui montar esta tela', help:String(e&&e.message||e) })}</div>`; }
   if(pg.__html===html) return; // nada mudou: mantém o DOM (foco, rolagem e handlers)
+  // a busca do Meu trabalho repinta a cada tecla: devolve o foco e o cursor (antes o innerHTML levava o foco embora)
+  const ae=document.activeElement, keep=ae&&pg.contains(ae)&&ae.id?{ id:ae.id, a:ae.selectionStart, b:ae.selectionEnd }:null;
   const sc=pg.scrollTop; pg.__html=html; pg.innerHTML=html; pg.scrollTop=sc;
   semWire(pg, k);
+  if(keep){ const n=$id(keep.id); if(n){ try{ n.focus({ preventScroll:true }); if(keep.a!=null && n.setSelectionRange) n.setSelectionRange(keep.a, keep.b); }catch(_){ } } }
   semGuiaRealce();
 }
 
@@ -481,33 +485,126 @@ function semDiasMinha(list, now){
 // @mws-puro-fim
 const semMwsOpen={};
 let meuEvAtual=[];
+// ---------- Meu trabalho (redesenho 05/11, mock 8PqZkMp5): busca no topo · 4 abas fixas · uma linha por tarefa ·
+// a tarefa aberta ao lado com a ação principal e "Encerrar…" sempre à mão. Antes: "Precisa de mim" + "Minha semana"
+// por dia + "Mandei pro time" empilhados, e encerrar só existia em alguns avisos.
+let meuTab=lsGet('meu:tab')||'voce', meuSel='', meuQ='';
+// @meu-puro-inicio (testado em app/tests/casca-semana.test.mjs)
+// em que aba a tarefa mora: tem novidade pra você → "voce"; senão pela etapa. x = item da Semana; temConversa = está no cv
+function meuAbaDe(x, temConversa){
+  if(!x) return '';
+  if(semFimMeu(x)) return 'feita';
+  if(temConversa) return 'voce';
+  if(x.bucket==='fila') return 'fila';
+  return 'rodando';
+}
+function semFimMeu(x){ return !!x && (!!x.done || x.st==='done' || x.st==='closed' || x.st==='merged' || x.st==='cancelled'); }
+// busca: código, título ou issue (sem acento, sem caixa)
+function meuBate(x, q){
+  const n=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const t=n(q).trim(); if(!t) return true;
+  return n([x.code, x.titulo, x.issue, x.local&&x.local.issueCode, x.card&&x.card.spec&&x.card.spec.issueCode].join(' ')).includes(t);
+}
+const MEU_ABAS=[['voce','Precisa de você'],['rodando','Rodando'],['fila','Na fila'],['feita','Entregues']];
+// @meu-puro-fim
+function meuChave(x){ return (x.local&&x.local.id)?'l:'+x.local.id:x.id; }
+function meuModelo(){
+  const me=semMe(), its=semItens(), ev=meuEventos(), cv=meuConversas(ev);
+  const cvBy=new Map(cv.map(c=>[c.k, c]));
+  const DIA=86400000, now=Date.now();
+  const mine=its.filter(x=>(x.who===me || !x.card) && !(semFimMeu(x) && (x.mod||0) < now-7*DIA));
+  const seen=new Set(), rows=[];
+  for(const c of cv){ if(!c.x) continue; seen.add(c.k); rows.push({ k:c.k, x:c.x, cv:c, aba:'voce', ms:c.ms }); }
+  for(const x of mine){ const k=meuChave(x); if(seen.has(k)) continue; seen.add(k); rows.push({ k, x, cv:null, aba:meuAbaDe(x, false), ms:(x.ini||x.mod||0) }); }
+  const sent=semCards().filter(c=>c.created_by===me && c.assignee && c.assignee!==me && !semDelivered(c) && c.status!=='cancelled').map(semItemCard)
+    .map(x=>({ k:meuChave(x), x, cv:null, aba:'time', ms:x.mod||0 }));
+  const all=rows.concat(sent.filter(r=>!seen.has(r.k)));
+  const vis=all.filter(r=>meuBate(r.x, meuQ));
+  const abas=MEU_ABAS.concat(sent.length?[['time','Mandei pro time']]:[]).map(([k,l])=>({ k, l, n:vis.filter(r=>r.aba===k).length }));
+  return { all, vis, abas, cv };
+}
+function meuQuando(ms){ if(!ms) return ''; const a=agoShort(ms); return a==='agora'?'agora':a; }
+function meuLinhaHtml(r){
+  const x=r.x, c=r.cv, l=c&&c.last, on=r.k===meuSel;
+  const prev=c?meuPrevia(l.s):(x.trav||x.esp)&&x.motivo?x.motivo:'';
+  const av=c?(l.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(l.av,{ decor:true })):(x.card&&x.who?personAv(x.who,{ decor:true }):`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`);
+  return `<div class="mcv${on?' sel':''}${c?' unread':''}${c&&l.blk?' blk':''}" role="option" aria-selected="${on}" tabindex="${on?0:-1}" data-meusel="${escA(r.k)}"${c&&c.tid?` data-aptid="${escA(c.tid)}"`:''}>
+    <span class="mcv-av">${av}</span>
+    <div class="mcv-tx"><div class="mcv-l1">${x.code?`<span class="mcv-code">${esc(x.code)}</span>`:''}<span class="mcv-t">${esc(mdTitle(x.titulo||''))}</span><span class="mcv-h">${esc(meuQuando(r.ms))}</span></div>
+    <div class="mcv-l2"><span class="mcv-p">${esc(prev)}</span>${c?`<span class="mcv-n" aria-label="${c.n} ${c.n===1?'novidade':'novidades'}">${c.n}</span>`:semChip(x)}</div></div>
+    <button type="button" class="mcv-more" data-meumais="${escA(r.k)}" aria-label="mais ações" aria-haspopup="menu" tabindex="-1">${IC.more||'⋯'}</button></div>`;
+}
+function meuPodeEncerrar(x){ return !!(x && x.local && !semFimMeu(x) && (x.who===semMe() || !x.card)); }
+function meuDetHtml(r){
+  if(!r) return `<section class="meudet meudet-vazio" aria-label="tarefa aberta">${emptyHtml({ icon:'inbox', title:'Escolha uma tarefa na lista', help:'Ela abre aqui, com a conversa e o que fazer.' })}</section>`;
+  const x=r.x, c=r.cv, ep=x.local&&x.local.epic&&x.local.epic.epicId&&typeof epNameOf==='function'?epNameOf(x.local.epic.epicId):'';
+  const evs=c?c.evs.slice().sort((a,b)=>(a.ms||0)-(b.ms||0)):[];
+  const bub=e=>`<div class="meumsg"><span class="mcv-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="meubub">${esc(meuPrevia(e.s))}<small>${esc(meuQuando(e.ms))}</small></div></div>`;
+  const corpo=evs.length?evs.map(bub).join('')
+    :`<p class="meudet-st">${x.trav?esc('Parou: '+(x.motivo||'travada')):x.esp?esc(x.motivo||'esperando você'):semFimMeu(x)?'Entregue.':x.bucket==='fila'?'Ainda não começou.':'A IA está trabalhando nela.'}</p>`;
+  const acts=(c&&c.last.a)||[], pri=acts.find(a=>a.pri), outras=acts.filter(a=>a!==pri && !a.menu && !/^Encerrar/.test(a.l||'')).slice(0,2); // o Encerrar é o fixo da direita
+  const apProva=c&&c.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(c.tid):'';
+  return `<section class="meudet" aria-label="tarefa aberta">
+    <div class="meudet-h"><div class="meudet-ti"><h2>${esc(mdTitle(x.titulo||''))}</h2><div class="meudet-m">${x.code?`<span class="mono">${esc(x.code)}</span>`:''}${semChip(x)}${ep?`<span class="meudet-ep">${IC.epic||''} ${esc(ep)}</span>`:''}${x.card&&x.who&&x.who!==semMe()?`<span>com ${esc(personName(x.who,{ noYou:true }))}</span>`:''}<span>${esc(meuQuando(x.mod)?'mexida '+meuQuando(x.mod):'')}</span></div></div>
+      <button type="button" class="btn sm quiet" data-meuabrir="1">Abrir a tarefa ${semIc('arrowR')}</button></div>
+    <div class="meudet-b">${corpo}${apProva}</div>
+    <div class="meudet-a" id="meuDetA">${pri?`<button type="button" class="btn primary" data-meuact="${acts.indexOf(pri)}">${esc(pri.l)}</button>`:`<button type="button" class="btn primary" data-meuabrir="1">Abrir a conversa</button>`}${outras.map(a=>`<button type="button" class="btn" data-meuact="${acts.indexOf(a)}">${esc(a.l)}</button>`).join('')}<span class="grow"></span>${meuPodeEncerrar(x)?`<button type="button" class="btn meu-enc" data-meuenc="1">Encerrar…</button>`:''}</div>
+  </section>`;
+}
 function meuHtml(){
-  const me=semMe(), its=semItens(), ev=meuEventos();
+  const M=meuModelo(); meuEvAtual=M.cv;
+  if(!M.abas.some(a=>a.k===meuTab)) meuTab='voce';
+  // buscando e a aba atual não tem nada: vai pra primeira que tem
+  if(meuQ && !M.abas.find(a=>a.k===meuTab).n){ const a=M.abas.find(y=>y.n); if(a) meuTab=a.k; }
+  const list=M.vis.filter(r=>r.aba===meuTab).sort((a,b)=>(b.ms||0)-(a.ms||0));
+  if(!list.some(r=>r.k===meuSel)) meuSel=list[0]?list[0].k:'';
+  const sel=list.find(r=>r.k===meuSel)||null;
   const proj=(typeof state!=='undefined'&&state.repo)?pathBase(state.repo):'';
-  const apSel=typeof apMeuSel==='function'?apMeuSel():'';
-  const cv=meuConversas(ev); meuEvAtual=cv;
-  const hora=ms=>{ if(!ms) return ''; const a=agoShort(ms); return a==='agora'?'agora':a; };
-  const evH=cv.length?cv.map((e,i)=>{ const x=e.x||{}, l=e.last;
-    return `<div class="mcv${e.tid&&e.tid===apSel?' sel':''}${l.blk?' blk':''}" role="button" tabindex="0" data-mcv="${i}"${e.tid?` data-aptid="${escA(e.tid)}"`:''} title="abrir a tarefa"><span class="mcv-av">${l.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(l.av,{ decor:true })}</span><div class="mcv-tx"><div class="mcv-l1">${x.code?`<span class="mcv-code">${esc(x.code)}</span>`:''}<span class="mcv-t">${esc(mdTitle(x.titulo||''))}</span><span class="mcv-h">${esc(hora(e.ms))}</span></div><div class="mcv-l2"><span class="mcv-p"${l.live?' role="status"':''}>${esc(meuPrevia(l.s))}</span><span class="mcv-n" aria-label="${e.n} ${e.n===1?'novidade':'novidades'}">${e.n}</span></div></div></div>${e.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(e.tid):''}`; }).join('')
-    :`<div class="mev-vazio">${semIc('check')} Nada esperando por você agora.</div>`;
-  // Minha semana (28/10, dono: "diz Hoje mas aparecem tarefas de outros dias"): cada tarefa no DIA da última mudança
-  // dela (Hoje, Ontem, e os dias da semana), abertas primeiro; concluídas ficam recolhidas no dia em que terminaram;
-  // mais antigas que 7 dias vão pra "Antes"; a fila (ainda não começou) continua no fim. Devolver só em aberta.
-  const mine=its.filter(x=>x.who===me || (!x.card));
-  const fila=mine.filter(x=>!semFim(x) && x.bucket==='fila');
-  const linha=x=>`<div class="mws-it${semFim(x)?' fim':''}" role="button" tabindex="0" data-semopen="${escA(x.id)}"><span class="mws-code">${esc(x.code||'')}</span><span class="mws-t">${esc(mdTitle(x.titulo))}</span>${semChip(x)}${x.card&&!semFim(x)&&x.card.assignee===me?`<button type="button" class="btn sm quiet mws-dev" data-semdev="${escA(x.id)}" title="devolver pro time (pede o motivo)">${semIc('undo')}Devolver</button>`:''}</div>`;
-  const dias=semDiasMinha(mine.filter(x=>x.bucket!=='fila' || semFim(x)), Date.now());
-  const diaH=d=>{ const ab=d.abertas, fe=d.fim, key='mws:'+d.key, open=!!semMwsOpen[key];
-    return `<div class="mws-day"><div class="mws-d">${esc(d.l)}<span>${esc(d.s)}</span></div><div>${ab.map(linha).join('')}${fe.length?`<button type="button" class="mws-fim" data-mwsfim="${escA(key)}" aria-expanded="${open}">${semIc('check')}${fe.length} ${fe.length===1?'concluída':'concluídas'} ${open?'▾':'▸'}</button>${open?fe.map(linha).join(''):''}`:''}${!ab.length&&!fe.length?'<div class="mws-nada">Nada.</div>':''}</div></div>`; };
-  const sent=semCards().filter(c=>c.created_by===me && c.assignee && c.assignee!==me && !semDelivered(c) && c.status!=='cancelled').map(semItemCard).sort((a,b)=>b.mod-a.mod);
-  const sentH=sent.length?sent.map(x=>`<div class="mmd" role="button" tabindex="0" data-semopen="${escA(x.id)}">${personAv(x.who,{ decor:true })}<span class="mmd-t">${esc(mdTitle(x.titulo))}</span><span></span><span class="mmd-s" style="color:${x.trav?'var(--st-err)':stColor(x.st)}">${esc(personName(x.who,{ noYou:true }))} · ${esc(x.trav?'travada':stLabel(x.st))}</span></div>`).join('')
-    :`<div class="mws-nada">${semTemTime()?'Nada que você mandou está aberto.':'Entre num time pra mandar demandas pra outras pessoas.'}</div>`;
-  return `<div class="sempg">${semHead('Meu trabalho', semHojeTx()+(proj?' · '+proj:''))}
-    <div class="semsec-h"><h2>Precisa de mim</h2><span class="n">${cv.length} ${cv.length===1?'tarefa':'tarefas'} · sai daqui quando você age</span></div>
-    <section class="mcvs" aria-label="Precisa de mim">${evH}</section>
-    <div class="mw2"><section class="mws" aria-label="Minha semana"><div class="semsec-h"><h2>Minha semana</h2></div>
-      ${dias.length?dias.map(diaH).join(''):'<div class="mws-nada">Nada com você nesta semana.</div>'}${fila.length?diaH({ key:'fila', l:'Na fila', s:'ainda não começou', abertas:fila, fim:[] }):''}</section>
-    <aside class="mmds" aria-label="Mandei pro time"><div class="semsec-h"><h2>Mandei pro time</h2><span class="n">${sent.length}</span></div>${sentH}</aside></div></div>`;
+  const vazio={ voce:'Nada esperando por você agora.', rodando:'Nenhuma tarefa sua rodando.', fila:'Nada na fila.', feita:'Nada entregue nos últimos 7 dias.', time:'Nada que você mandou está aberto.' };
+  return `<div class="sempg meupg">${semHead('Meu trabalho', semHojeTx()+(proj?' · '+proj:''),
+      `<label class="meuq">${semIc('search')}<input id="meuQ" type="search" placeholder="Buscar tarefa, código ou issue" value="${escA(meuQ)}" aria-label="buscar nas minhas tarefas" autocomplete="off" spellcheck="false"><kbd>⌘K</kbd></label><button type="button" class="btn primary" data-meunova="1">${semIc('plus')}Nova demanda</button>`)}
+    <div class="meugrid">
+      <section class="meulist" aria-label="minhas tarefas">
+        <div class="meutabs" role="tablist" aria-label="etapas">${M.abas.map(a=>`<button type="button" role="tab" data-meutab="${a.k}" aria-selected="${a.k===meuTab}">${esc(a.l)}<span class="c">${a.n}</span></button>`).join('')}</div>
+        <div class="mcvs" role="listbox" aria-label="${escA((M.abas.find(a=>a.k===meuTab)||{}).l||'')}">${list.length?list.map(meuLinhaHtml).join(''):`<div class="mev-vazio">${semIc('check')} ${esc(meuQ?'Nada com “'+meuQ+'”.':vazio[meuTab]||'Nada aqui.')}</div>`}</div>
+      </section>
+      ${meuDetHtml(sel)}
+    </div></div>`;
+}
+function meuRowOf(k){ return meuModelo().all.find(r=>r.k===k)||null; }
+function meuWire(pg){
+  const q=pg.querySelector('#meuQ');
+  if(q){ q.oninput=()=>{ meuQ=q.value; semPaint('meu'); };
+    q.onkeydown=e=>{ if(e.key==='Escape' && meuQ){ e.preventDefault(); meuQ=''; semPaint('meu'); } else if(e.key==='ArrowDown'){ e.preventDefault(); const f=pg.querySelector('.mcv'); if(f) f.focus(); } }; }
+  pg.querySelectorAll('[data-meutab]').forEach(b=>b.onclick=()=>{ meuTab=b.dataset.meutab; lsSet('meu:tab', meuTab); meuSel=''; semPaint('meu'); });
+  pg.querySelectorAll('[data-meusel]').forEach(el=>{
+    el.onclick=e=>{ if(e.target.closest('[data-meumais]')) return; meuSel=el.dataset.meusel; semPaint('meu'); const n=pg.querySelector('.mcv.sel'); if(n) n.focus(); };
+    el.ondblclick=()=>{ const r=meuRowOf(el.dataset.meusel); if(r) semAbrir(r.x); };
+    el.onkeydown=e=>{
+      if(e.key==='Enter'){ e.preventDefault(); const r=meuRowOf(el.dataset.meusel); if(r) semAbrir(r.x); }
+      else if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); const all=[...pg.querySelectorAll('.mcv')], n=all[all.indexOf(el)+(e.key==='ArrowDown'?1:-1)]; if(n){ meuSel=n.dataset.meusel; semPaint('meu'); const s=pg.querySelector('.mcv.sel'); if(s) s.focus(); } }
+    };
+  });
+  pg.querySelectorAll('[data-meumais]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const r=meuRowOf(b.dataset.meumais); if(r) meuMenu(b, r); });
+  const sel=()=>meuRowOf(meuSel);
+  pg.querySelectorAll('[data-meuabrir]').forEach(b=>b.onclick=()=>{ const r=sel(); if(r) semAbrir(r.x); });
+  pg.querySelectorAll('[data-meuact]').forEach(b=>b.onclick=()=>{ const r=sel(); const a=r&&r.cv&&(r.cv.last.a||[])[Number(b.dataset.meuact)]; if(a&&a.act) a.act(b); });
+  pg.querySelectorAll('[data-meuenc]').forEach(b=>b.onclick=()=>{ const r=sel(); if(r) meuEncerrar(r, b); });
+  pg.querySelectorAll('[data-meunova]').forEach(b=>b.onclick=()=>{ if(typeof openTab==='function') openTab('nova'); });
+}
+function meuMenu(anchor, r){
+  const x=r.x, tit=(x.code?x.code+' · ':'')+String(mdTitle(x.titulo||'')).slice(0,40);
+  const html=`<div class="sempop-h">${esc(tit)}</div>`
+    +`<button type="button" role="menuitem" class="sempop-o" data-mm="abrir"><span class="k"></span>${semIc('arrowR')}<span class="sempop-n">Abrir a tarefa</span></button>`
+    +(x.card&&!semFimMeu(x)?`<button type="button" role="menuitem" class="sempop-o" data-mm="passar"><span class="k"></span>${semIc('people')}<span class="sempop-n">Passar pra alguém…</span></button>`:'')
+    +(meuPodeEncerrar(x)?`<button type="button" role="menuitem" class="sempop-o sempop-d" data-mm="enc"><span class="k"></span>${semIc('x')}<span class="sempop-n">Encerrar — não quero mais</span></button>`:'');
+  semPop(anchor, html, p=>p.querySelectorAll('[data-mm]').forEach(b=>b.onclick=()=>{ const v=b.dataset.mm; semPopClose();
+    if(v==='abrir') semAbrir(x); else if(v==='passar') semMenu(anchor, x); else if(v==='enc') meuEncerrar(r, anchor); }), { label:'Ações de '+tit });
+}
+async function meuEncerrar(r, anchor){
+  if(!r || !r.x || !r.x.local || typeof encerrarTarefa!=='function') return;
+  const ok=await encerrarTarefa(r.x.local.id, { anchor });
+  if(ok){ meuSel=''; semPaint('meu'); }
 }
 function semChip(x){
   const lab=x.done?'entregue':x.trav?'travada':stShort(x.st), cor=x.done?'var(--st-done)':x.trav?'var(--st-err)':stColor(x.st);
@@ -822,8 +919,7 @@ function semWire(pg, k){
     const dd=ms=>perFmtDay(ms); relGerar(b, { all, members:semPessoas(), f:{}, per:{ key:'custom', from:dd(r.from), to:dd(r.to-1) }, range:r, pe:all, escopo:(typeof entEscopo==='function'?entEscopo(false):'') }); });
   pg.querySelectorAll('[data-semgo]').forEach(b=>b.onclick=()=>semIr(b.dataset.semgo));
   pg.querySelectorAll('[data-semguia]').forEach(b=>b.onclick=()=>semGuiaIniciar(b.dataset.semguia));
-  if(k==='meu') pg.querySelectorAll('[data-mcv]').forEach(b=>{ const go=()=>{ const c=meuEvAtual[Number(b.dataset.mcv)]; if(!c) return; if(c.x) semAbrir(c.x); else { const a=(c.last.a||[]).find(y=>y.pri)||(c.last.a||[])[0]; if(a&&a.act) a.act(b); } };
-    b.onclick=go; b.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); } }; });
+  if(k==='meu') meuWire(pg);
   // arrastar entre pessoas (o teclado tem o Passar ▾ com os números)
   pg.querySelectorAll('[data-semdrag][draggable="true"]').forEach(el=>el.addEventListener('dragstart', ev=>{ ev.dataTransfer.setData('text/plain', el.dataset.semdrag); ev.dataTransfer.effectAllowed='move'; }));
   pg.querySelectorAll('[data-semdrop]').forEach(el=>{

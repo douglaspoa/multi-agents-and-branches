@@ -131,7 +131,7 @@ test('Minha semana: cada tarefa no dia da última mudança; concluídas recolhid
   assert.ok(!r.some((d) => [...d.abertas, ...d.fim].some((x) => x.id === 'e')), 'concluída há mais de 7 dias sai da semana');
   assert.deepEqual(r.at(-1).abertas.map((x) => x.id), ['f'], 'aberta antiga vai pra "Antes", não pra Hoje');
   assert.equal(M.semFim({ st: 'closed' }), true);
-  assert.match(src, /x\.card&&!semFim\(x\)&&x\.card\.assignee===me/, 'Devolver só em aberta');
+  assert.match(src, /x\.card&&!semFimMeu\(x\)\?`<button type="button" role="menuitem" class="sempop-o" data-mm="passar"/, 'Passar/Devolver só em aberta');
 });
 
 test('a mesma demanda não aparece 2×: cartão do time sem local_id com a issue de uma tarefa local some (fica a local)', () => {
@@ -158,7 +158,7 @@ test('Precisa de mim vira lista de conversas: 1 linha por tarefa, contador, pré
   assert.equal(M.meuPrevia(ev[1].s), 'A IA terminou e abriu o PR #12 — falta você revisar.');
   assert.equal(M.meuPrevia(ev[0].s), 'A IA perguntou: “qual "limite"?”');
   assert.equal(M.meuPrevia(ev[2].s), 'Parou: pergunta pendente.');
-  assert.match(src, /data-mcv="\$\{i\}"/);
+  assert.match(src, /data-meusel="\$\{escA\(r\.k\)\}"/);
   assert.doesNotMatch(src, /data-meva=/, 'os botões por alerta saíram');
 });
 
@@ -174,4 +174,19 @@ test('Minha semana: dentro do dia, a que começou por último vem primeiro (05/1
     { id: 'nova', mod: now - 600000, ini: now - 600000, st: 'running' }, // iniciada há 10 min
   ], now);
   assert.deepEqual(d[0].abertas.map(x => x.id), ['nova', 'velha']);
+});
+
+test('Meu trabalho redesenhado: aba de cada tarefa, busca por código/título/issue, Encerrar à mão (05/11)', () => {
+  const src = read('js/76-casca-semana.js');
+  const pure = src.slice(src.indexOf('// @meu-puro-inicio'), src.indexOf('// @meu-puro-fim'));
+  const M = new Function(pure + '\nreturn { meuAbaDe, meuBate, MEU_ABAS };')();
+  assert.deepEqual(M.MEU_ABAS.map((a) => a[0]), ['voce', 'rodando', 'fila', 'feita']);
+  assert.equal(M.meuAbaDe({ st: 'review', bucket: 'prontas' }, true), 'voce');
+  assert.equal(M.meuAbaDe({ st: 'running', bucket: 'andamento' }, false), 'rodando');
+  assert.equal(M.meuAbaDe({ st: 'backlog', bucket: 'fila' }, false), 'fila');
+  assert.equal(M.meuAbaDe({ st: 'merged', done: true }, true), 'feita', 'entregue não volta pra "Precisa de você"');
+  const x = { code: 'LW-41', titulo: 'Checkout lento no cartão', local: { issueCode: 'GH-77' } };
+  assert.ok(M.meuBate(x, 'lw-41')); assert.ok(M.meuBate(x, 'cartao')); assert.ok(M.meuBate(x, 'gh-77')); assert.ok(!M.meuBate(x, 'frete'));
+  assert.match(src, /data-meuenc="1">Encerrar…/); assert.match(src, /Encerrar — não quero mais/);
+  assert.match(read('js/10-core.js'), /semAtiva\(\)==='meu'\)\{ const q=\$id\('meuQ'\)/, '⌘K foca a busca do Meu trabalho');
 });

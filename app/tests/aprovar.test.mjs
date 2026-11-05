@@ -135,7 +135,7 @@ test('Central: filtro "Para aprovar", a linha aberta é o painel compacto, A/P/J
 });
 test('Meu trabalho e Revisão ⌘3 usam o mesmo painel (compact / task) — a revisão por requisito continua a um clique', () => {
   const sem = read('js/76-casca-semana.js'), ws = read('js/20-workspace-tarefa.js'), te = read('js/77-tarefa-etapas.js');
-  assert.match(sem, /apMeuEvento\(x, meta\(x, x\.mod\)\)/); assert.match(sem, /apMeuExpHtml\(e\.tid\)/);
+  assert.match(sem, /apMeuEvento\(x, meta\(x, x\.mod\)\)/); assert.match(sem, /apMeuExpHtml\(c\.tid\)/);
   assert.match(JS, /l:prAberto\?'Integrar':'Aprovar', pri:true/); assert.match(JS, /'Esconder provas':'Ver provas'/); // PR já aberto (86-pr-real): o mesmo botão integra
   assert.match(ws, /rvViewOf\(t\.id\)==='provas'\) apRenderTask\(t, main\)/);
   assert.match(te, /data-v="provas"/); assert.match(te, />Por requisito</);
@@ -213,7 +213,7 @@ test('aprovar: o Meu trabalho mostra o andamento e o bloqueio na própria linha 
   const f = cut(JS, 'function apMeuEvento(', 'window.apMeuEvento');
   assert.match(f, /data-apcd/); assert.match(f, /Desfazer \(Z\)/); assert.match(f, /Ainda não aprovei/); assert.match(f, /Encerrar…/);
   const S = read('js/76-casca-semana.js');
-  assert.match(S, /a\.act\(b\)/); assert.match(S, /data-mcv=/); // 05/11: Meu trabalho = conversas; as ações ficam dentro da tarefa
+  assert.match(S, /a\.act\(b\)/); assert.match(S, /data-meuact=/); assert.match(S, /encerrarTarefa\(r\.x\.local\.id/); // 05/11: as ações e o Encerrar ficam na tarefa aberta ao lado
 });
 test('encerrar: o plano diz o que acontece (PR fecha e a branch fica, issue fecha ou link, cartão, 4 s)', () => {
   const L = P.apEncerrarPlano({ pr: 12, issue: 'LOJA-12', painel: 'fecha', time: true, rodando: true }).join('\n');
@@ -231,7 +231,7 @@ test('encerrar: usa o status que o app já tem (cancelled + flag closed), close_
   assert.match(JS, /if\(AP\.pending && AP\.pending\.id===t\.id && AP\.pending\.kind!=='enc'\) return true;/, 'encerrando não prende a tarefa na fila');
   // em todo lugar: painel de provas (fila, Central, épico, Revisão), Meu trabalho e o ⋯ da tarefa
   assert.match(JS, /data-ap="encerrar"/); assert.match(JS, /if\(k==='encerrar'\) return void encerrarTarefa/);
-  assert.match(read('js/22-quadro-fluxo.js'), /item\('encerrar sem entregar…', \(\)=>encerrarTarefa\(taskId/);
+  assert.match(read('js/22-quadro-fluxo.js'), /item\('Encerrar — não quero mais…', \(\)=>encerrarTarefa\(taskId/);
   const RS = readFileSync(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
   assert.match(RS, /fn close_pr\(/); assert.match(RS, /"pr", "close", &branch\]/); assert.ok(!/fn close_pr[\s\S]{0,600}--delete-branch/.test(RS));
   assert.match(RS, /\n\s+close_pr,\n/);

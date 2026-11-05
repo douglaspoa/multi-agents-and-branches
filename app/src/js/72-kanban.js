@@ -206,12 +206,19 @@ function kbIssueCard(i, o){ return kbCardHtml(kbIssueVm(i, o), KB_IC()); }
 // ---------------------------------------------------------------------------------------------------------------------
 // QUADRO DA CENTRAL — botão ao lado da Lista, lembrado POR PESSOA
 function kbCentralKey(){ return userKey('kb:central', (typeof cloudUserId==='function'&&cloudUserId())||''); }
-function kbCentralOn(){ try{ return lsGet(kbCentralKey())==='1'; }catch(_){ return false; } }
+// redesenho 05/11: o QUADRO é o padrão da Central — só fica em lista quem escolheu a lista ('0')
+function kbCentralOn(){ try{ return lsGet(kbCentralKey())!=='0'; }catch(_){ return true; } }
 function kbCentralSet(on){ lsSet(kbCentralKey(), on?'1':'0'); try{ lastSig=''; if(typeof renderFlow==='function') renderFlow(); }catch(_){ } }
 // o quadro vale na Execução ("Em aberto") e na aba Tarefas do alcance; Concluídas/"por dia" continuam lista
 function kbCentralNow(team){ return kbCentralOn() && (team || (flowScope!=='done' && flowGroupBy!=='day')); }
-const KB_CENTRAL_COLS=['rascunho','fila','aguardando','andamento','prontas','praberto'];
-const KB_TEAM_COLS=['fila','aguardando','andamento','prontas','praberto','concluidas'];
+// redesenho 05/11 (mock 8PqZkMp5): as MESMAS 5 etapas do Meu trabalho, na ordem do trabalho — Na fila → Rodando →
+// Precisa de você/alguém → Pra revisar → Entregues. Rascunho entra em "Na fila"; PR aberto em "Pra revisar".
+const KB_CENTRAL_COLS=['fila','andamento','aguardando','prontas','concluidas'];
+const KB_TEAM_COLS=KB_CENTRAL_COLS;
+const KB_REMAP={ rascunho:'fila', praberto:'prontas', hoje:'concluidas', anteriores:'concluidas' };
+const KB_LABEL={ fila:'Na fila', andamento:'Rodando', aguardando:'Precisa de você', prontas:'Pra revisar', concluidas:'Entregues' };
+function kbColsDe(team){ return KB_CENTRAL_COLS.map(k=>kbCol(k, { label:(team&&k==='aguardando')?'Precisa de alguém':KB_LABEL[k], cap:k==='concluidas'?12:0 })); }
+function kbRemap(vms){ (vms||[]).forEach(v=>{ if(v && KB_REMAP[v.col]) v.col=KB_REMAP[v.col]; }); return vms; }
 // botões Lista | Quadro (a barra da Central e a do alcance usam o mesmo par)
 function kbToggleHtml(team){
   const on=kbCentralNow(team);
@@ -226,24 +233,28 @@ function kbCentralMinhasHtml(tasks){
   if(typeof caOn==='function' && caOn() && caScope()==='minhas' && mSrc){
     const q=String(flowQuery||'').trim().toLowerCase(), fe=flowEpic;
     const m=caMinhas(mSrc, caMe(), caMyTeams(), CA_FN, t=>!!caLocalOf(t), caInQueue), multi=typeof taMultiTeam==='function'&&taMultiTeam();
-    const ok=t=>(!q||String(t.title||'').toLowerCase().includes(q)) && (fe==='all'||t.epic_id===fe) && (flowStatus==='all'||kbColOf(tsBucket(t), { concluidas:'prontas', rascunho:'fila' })===flowStatus);
+    const ok=t=>(!q||String(t.title||'').toLowerCase().includes(q)) && (fe==='all'||t.epic_id===fe) && true; // quadro: as colunas são as etapas (sem filtro de etapa)
     m.comigo.concat(m.livres).filter(ok).forEach(t=>vms.push(kbTeamVm(t, { me:caMe(), colMap:{ concluidas:'prontas' }, tag:multi })));
   }
-  const cols=kbGroup(vms, KB_CENTRAL_COLS.map(k=>kbCol(k)));
+  // "Entregues": as desta máquina concluídas nos últimos 7 dias (a Execução só traz as abertas)
+  { const ids=new Set(vms.map(v=>v.id)), lim=Date.now()-7*86400000, q=String((typeof flowQuery!=='undefined'&&flowQuery)||'').trim().toLowerCase();
+    ((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!ids.has(t.id) && typeof taskIsDone==='function' && taskIsDone(t) && t.status!=='cancelled' && modTs(t.finishedAt, t.updatedAt)>=lim && (!q || String(t.title||'').toLowerCase().includes(q) || String(t.issueCode||'').toLowerCase().includes(q)))
+      .forEach(t=>{ const v=kbLocalVm(t); v.col='concluidas'; vms.push(v); }); }
+  const cols=kbGroup(kbRemap(vms), kbColsDe(false));
   return { n:cols.reduce((a,c)=>a+c.n, 0), html:kbBoardHtml({ id:'central', label:'quadro da Central', cols, card:vm=>kbCardHtml(vm, KB_IC()), empty:kbEmpty, more:kbMore }), vms };
 }
 // Do time / Org toda: o alcance + os chips/projeto/pessoa da barra do 71
 function kbCentralTeamHtml(list, scope){
   const org=scope==='org', me=caMe();
   const vms=(list||[]).map(t=>kbTeamVm(t, { me, org }));
-  return { n:vms.length, html:kbBoardHtml({ id:'central-'+scope, label:'quadro do alcance', cols:kbGroup(vms, KB_TEAM_COLS.map(k=>kbCol(k, { label:k==='aguardando'?'Aguardando alguém':'', cap:k==='concluidas'?12:0 }))), card:vm=>kbCardHtml(vm, KB_IC()), empty:kbEmpty, more:kbMore }), vms };
+  return { n:vms.length, html:kbBoardHtml({ id:'central-'+scope, label:'quadro do alcance', cols:kbGroup(kbRemap(vms), kbColsDe(true)), card:vm=>kbCardHtml(vm, KB_IC()), empty:kbEmpty, more:kbMore }), vms };
 }
 // Quadro do Time (43, tmView==='board')
 function kbTeamBoardHtml(list){
   const me=cloudUserId(), org=typeof tsOrgScope==='function'&&tsOrgScope();
   { const all=(typeof teamTasks!=='undefined'&&teamTasks)||list; if(all.length && typeof entProvasLoad==='function') entProvasLoad(all.map(t=>t.id)); } // um lote por conjunto (o mesmo da aba Entregas)
   const vms=list.map(t=>kbTeamVm(t, { me, org }));
-  return { html:kbBoardHtml({ id:'time', label:'quadro do time', cols:kbGroup(vms, KB_TEAM_COLS.map(k=>kbCol(k, { label:k==='aguardando'?'Aguardando alguém':'', cap:k==='concluidas'?12:0 }))), card:vm=>kbCardHtml(vm, KB_IC()), empty:kbEmpty, more:kbMore }), vms };
+  return { html:kbBoardHtml({ id:'time', label:'quadro do time', cols:kbGroup(kbRemap(vms), kbColsDe(true)), card:vm=>kbCardHtml(vm, KB_IC()), empty:kbEmpty, more:kbMore }), vms };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
