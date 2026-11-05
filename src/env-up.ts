@@ -25,6 +25,7 @@ export interface EnvPlan {
   cwd: string;             // pasta relativa à worktree
   cmd?: string;            // comando (shell) — ausente no estático (o próprio supervisor serve)
   install?: string;        // instalação quando faltam as dependências
+  down?: string;           // como desligar de verdade (compose: os containers não morrem junto com o `up`)
   framework?: string;      // vite | next | astro | nuxt | angular | cra | gatsby | remix | sveltekit
   pm?: string;             // npm | pnpm | yarn | bun
   script?: string;         // dev | start | serve
@@ -114,7 +115,7 @@ export function detectEnv(wt: string): EnvPlan {
   for (const f of ["compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"]) {
     if (!isFile(join(wt, f))) continue;
     const port = composePort(readFileSync(join(wt, f), "utf8"));
-    return { kind: "compose", web: port != null, cwd: ".", cmd: `docker compose -f ${f} up`, port, label: `docker compose (${f})` };
+    return { kind: "compose", web: port != null, cwd: ".", cmd: `docker compose -f ${f} up`, down: `docker compose -f ${f} stop`, port, label: `docker compose (${f})` };
   }
   // 5) python óbvio (o mesmo palpite do preview antigo)
   const py = process.platform === "win32" ? "python" : "python3";
@@ -254,9 +255,14 @@ export async function envStart(o: UpOpts): Promise<EnvRun> {
     if (dying) { done(); return; } dying = true; note(`[starfork] parando (${why})`); clean();
     try { srv?.close(); } catch { /* */ }
     const c = child; killSite("SIGTERM");
-    if (!c || c.exitCode !== null || c.signalCode) { log.end(); done(); return; }
+    // compose: matar o `up` (SIGKILL em 1,2 s) deixava os containers LIGADOS comendo memória — desliga de verdade
+    const down = plan.down ? new Promise<void>((ok) => {
+      try { const d = spawn(plan.down!, { cwd: dir, shell: true, stdio: "ignore", detached: true }); d.unref(); // grupo próprio: sobrevive se o supervisor sair antes (quit força em 2,5 s) const k = setTimeout(() => { try { d.kill("SIGKILL"); } catch { /* */ } ok(); }, 30000);
+        d.once("close", () => { clearTimeout(k); ok(); }); d.once("error", () => { clearTimeout(k); ok(); }); } catch { ok(); }
+    }) : Promise.resolve();
+    if (!c || c.exitCode !== null || c.signalCode) { down.then(() => { log.end(); done(); }); return; }
     const t = setTimeout(() => { killSite("SIGKILL"); }, 1200);
-    c.once("close", () => { clearTimeout(t); log.end(); done(); });
+    c.once("close", () => { clearTimeout(t); down.then(() => { log.end(); done(); }); });
   });
   if (o.ctl) o.ctl.stop = stop;
   const sh = (cmd: string, env: Record<string, string>) => {

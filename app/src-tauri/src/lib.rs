@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 /// matar). No Unix são os SIGxxx reais entregues ao GRUPO. No Windows não existe
 /// grupo de processo POSIX nem pause/resume nativo pra árvore arbitrária — CONT/
 /// STOP viram no-op e TERM/KILL derrubam a árvore inteira via `taskkill /T /F`.
+mod docker_mem;
 mod agent_edits;
 mod agent_versions;
 mod agent_stats;
@@ -11728,6 +11729,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_repo,
+            docker_mem::docker_usage,
+            docker_mem::docker_stop_project,
             relatorio::relatorio_salvar,
             relatorio::relatorio_pdf,
             relatorio::relatorio_mostrar,
