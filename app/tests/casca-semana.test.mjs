@@ -140,3 +140,24 @@ test('a mesma demanda não aparece 2×: cartão do time sem local_id com a issue
   const locs = [{ id: 'tracer', code: 'LW-41' }, { id: 'sem-issue' }];
   assert.deepEqual(S.semJuntaPorCodigo(cards, locs, code).map((c) => c.id), ['c2', 'c3', 'c4']);
 });
+
+test('Precisa de mim vira lista de conversas: 1 linha por tarefa, contador, prévia sem o título (05/11)', () => {
+  const src = read('js/76-casca-semana.js');
+  const pure = src.slice(src.indexOf('// @mcv-puro-inicio'), src.indexOf('// @mcv-puro-fim'));
+  const M = new Function(pure + '\nreturn { meuConversas, meuPrevia };')();
+  const tt = '<span class="tt">Checkout lento</span>';
+  const ev = [
+    { k: 'l:a', x: { id: 'l:a' }, ms: 10, s: `<b>A IA</b> perguntou em ${tt}: “qual &quot;limite&quot;?”` },
+    { k: 'l:b', x: { id: 'l:b' }, ms: 30, s: `<b>A IA</b> terminou ${tt} e abriu o PR #12 — falta você revisar.` },
+    { k: 'l:a', x: { id: 'l:a' }, ms: 20, s: `${tt} parou: pergunta pendente.`, tid: 'a' },
+  ];
+  const c = M.meuConversas(ev);
+  assert.equal(c.length, 2);
+  assert.equal(c[0].k, 'l:b');
+  assert.equal(c[1].n, 2); assert.equal(c[1].ms, 20); assert.equal(c[1].tid, 'a');
+  assert.equal(M.meuPrevia(ev[1].s), 'A IA terminou e abriu o PR #12 — falta você revisar.');
+  assert.equal(M.meuPrevia(ev[0].s), 'A IA perguntou: “qual "limite"?”');
+  assert.equal(M.meuPrevia(ev[2].s), 'Parou: pergunta pendente.');
+  assert.match(src, /data-mcv="\$\{i\}"/);
+  assert.doesNotMatch(src, /data-meva=/, 'os botões por alerta saíram');
+});

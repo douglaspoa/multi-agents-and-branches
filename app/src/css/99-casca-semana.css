@@ -317,3 +317,18 @@
 .mws-it .mws-dev{opacity:0;transition:opacity .12s}
 .mws-it:hover .mws-dev,.mws-it:focus-within .mws-dev{opacity:1}
 @media (hover:none){.mws-it .mws-dev{opacity:1}}
+/* 05/11 Precisa de mim = lista de conversas (uma linha por tarefa, contador como no WhatsApp) */
+.mcvs{display:flex;flex-direction:column;margin-bottom:24px;border-radius:12px;box-shadow:inset 0 0 0 1px var(--border);overflow:hidden;background:var(--surface)}
+.mcv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center;padding:10px 14px;cursor:pointer;border-top:1px solid var(--border)}
+.mcv:first-child{border-top:0}
+.mcv:hover,.mcv.sel{background:var(--surface-2)}
+.mcv:focus-visible{outline:2px solid transparent;box-shadow:var(--ring-inset)}
+.mcv-av .tsav{width:34px;height:34px}
+.mcv-tx{min-width:0;display:flex;flex-direction:column;gap:2px}
+.mcv-l1,.mcv-l2{display:flex;align-items:baseline;gap:8px;min-width:0}
+.mcv-code{font-family:var(--mono);font-size:var(--fs-xs);color:var(--muted);flex:none}
+.mcv-t{font-weight:600;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mcv-h{font-size:var(--fs-xs);color:var(--accent);flex:none;font-variant-numeric:tabular-nums}
+.mcv-p{flex:1;min-width:0;color:var(--muted);font-size:var(--fs-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mcv-n{flex:none;min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:var(--accent);color:var(--on-accent);font-size:var(--fs-xs);font-weight:700;display:inline-flex;align-items:center;justify-content:center;font-variant-numeric:tabular-nums}
+.mcv.blk .mcv-n{background:var(--st-err)}

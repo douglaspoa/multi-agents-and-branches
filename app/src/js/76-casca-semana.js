@@ -403,42 +403,60 @@ function semPaint(k){
 // devolvidas sem dono e PRs do time esperando revisão. Mais recente primeiro.
 function meuEventos(){
   const me=semMe(), out=[], its=semItens();
+  const add=(x, e)=>{ if(e){ e.k=(x.local&&x.local.id)?'l:'+x.local.id:x.id; e.x=x; out.push(e); } }; // cada aviso sabe de que TAREFA é (a lista agrupa por tarefa)
   const tt=s=>`<span class="tt">${esc(mdTitle(String(s||'')))}</span>`;
   const quando=ms=>ms?(agoShort(ms)==='agora'?'agora':'há '+agoShort(ms).replace('min',' min').replace(/(\d)h$/,'$1 h').replace(/^1d$/,'1 dia').replace(/(\d)d$/,'$1 dias')):'';
   const meta=(x, ms, extra)=>[x.code, quando(ms), extra].filter(Boolean).join(' · ');
   for(const p of ((typeof state!=='undefined'&&state.pending)||[])){
     const t=(state.tasks||[]).find(y=>y.id===p.taskId); if(!t) continue; const x=semItemLocal(t);
-    out.push({ ms:modTs(p.ts, t.updatedAt)||Date.now(), av:'ia', s:`<b>A IA</b> perguntou em ${tt(t.title)}: “${esc(String(p.prompt||'').replace(/\s+/g,' ').slice(0,140))}”`, m:meta(x, modTs(p.ts)),
+    add(x, { ms:modTs(p.ts, t.updatedAt)||Date.now(), av:'ia', s:`<b>A IA</b> perguntou em ${tt(t.title)}: “${esc(String(p.prompt||'').replace(/\s+/g,' ').slice(0,140))}”`, m:meta(x, modTs(p.ts)),
       a:[{ l:'Responder', pri:true, act:()=>{ if(typeof openAsk==='function') openAsk(p.id); else semAbrir(x); } }] });
   }
   for(const x of its){
     if(x.done) continue;
     const mine=x.who===me || (!x.card);
-    if(mine && x.st==='plan-review') out.push({ ms:x.mod, av:'ia', s:`O plano de ${tt(x.titulo)} espera sua aprovação.`, m:meta(x, x.mod), a:[{ l:'Ver o plano', pri:true, act:()=>semAbrir(x) }] });
+    if(mine && x.st==='plan-review') add(x, { ms:x.mod, av:'ia', s:`O plano de ${tt(x.titulo)} espera sua aprovação.`, m:meta(x, x.mod), a:[{ l:'Ver o plano', pri:true, act:()=>semAbrir(x) }] });
     // 86-pr-real: o PR desta branch foi FECHADO sem integrar no GitHub → Reabrir / Encerrar (nunca "Aprovar")
-    else if(mine && x.local && typeof prrEventoFechado==='function' && prrEventoFechado(x, '')) out.push(prrEventoFechado(x, meta(x, x.mod)));
+    else if(mine && x.local && typeof prrEventoFechado==='function' && prrEventoFechado(x, '')) add(x, prrEventoFechado(x, meta(x, x.mod)));
     // 80-aprovar: terminou com as provas (ou o revisor pediu mudança) → Aprovar direto na frase e "Ver provas" abre o painel aqui
-    else if(mine && x.local && typeof apMeuEvento==='function' && typeof apAprovavel==='function' && apAprovavel(x.local)) out.push(apMeuEvento(x, meta(x, x.mod)));
+    else if(mine && x.local && typeof apMeuEvento==='function' && typeof apAprovavel==='function' && apAprovavel(x.local)) add(x, apMeuEvento(x, meta(x, x.mod)));
     else if(mine && x.bucket==='prontas' && x.local){ const r=(x.local.requirements||[]).length; const ok=(typeof reqProvadas==='function')?reqProvadas(x.local):null;
-      out.push({ ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${r?(ok!=null?` com ${ok} de ${r} requisitos provados`:` (${r} requisitos)`):''}.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
+      add(x, { ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${r?(ok!=null?` com ${ok} de ${r} requisitos provados`:` (${r} requisitos)`):''}.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
     else if(mine && x.bucket==='praberto' && x.local){ const pr=semPrNum(x.local);
-      out.push({ ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${pr?` e abriu o PR #${esc(pr)}`:''} — falta você revisar.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
-    else if(mine && x.trav && x.local) out.push({ ms:x.mod, av:'ia', s:`${tt(x.titulo)} parou: ${esc(x.motivo)}.`, m:meta(x, x.mod),
+      add(x, { ms:x.mod, av:'ia', s:`<b>A IA</b> terminou ${tt(x.titulo)}${pr?` e abriu o PR #${esc(pr)}`:''} — falta você revisar.`, m:meta(x, x.mod), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] }); }
+    else if(mine && x.trav && x.local) add(x, { ms:x.mod, av:'ia', s:`${tt(x.titulo)} parou: ${esc(x.motivo)}.`, m:meta(x, x.mod),
       a:(typeof conflitoDe==='function' && conflitoDe(x.local))?[{ l:'Resolver conflito', pri:true, act:()=>resolverConflito(x.local.id) }, { l:'ver o que houve', act:()=>semAbrir(x) }]:[{ l:'Abrir', act:()=>semAbrir(x) }] });
     if(!x.card) continue;
     const c=x.card;
     if(c.assignee===me && c.created_by && c.created_by!==me && x.bucket==='fila')
-      out.push({ ms:x.mod, av:c.created_by, s:`<b>${esc(personName(c.created_by,{ noYou:true }))}</b> te mandou ${tt(x.titulo)}. Nada roda até você iniciar.`, m:meta(x, x.mod), a:[{ l:'Abrir', pri:true, act:()=>semAbrir(x) }] });
+      add(x, { ms:x.mod, av:c.created_by, s:`<b>${esc(personName(c.created_by,{ noYou:true }))}</b> te mandou ${tt(x.titulo)}. Nada roda até você iniciar.`, m:meta(x, x.mod), a:[{ l:'Abrir', pri:true, act:()=>semAbrir(x) }] });
     if(c.created_by===me && c.assignee && c.assignee!==me && x.trav)
-      out.push({ ms:x.mod, av:c.assignee, s:`<b>${esc(personName(c.assignee,{ noYou:true }))}</b> travou em ${tt(x.titulo)}: ${esc(x.motivo)}. Você criou essa demanda.`, m:meta(x, x.mod), a:(typeof entConflito==='function' && entConflito(c) && typeof conflitoPedirA==='function')?[{ l:'Pedir a '+personShort(c.assignee,{ noYou:true })+' pra resolver', pri:true, act:()=>conflitoPedirA(c) }, { l:'ver o que houve', act:()=>semAbrir(x) }]:[{ l:'Ajudar', act:()=>semAbrir(x) }] });
+      add(x, { ms:x.mod, av:c.assignee, s:`<b>${esc(personName(c.assignee,{ noYou:true }))}</b> travou em ${tt(x.titulo)}: ${esc(x.motivo)}. Você criou essa demanda.`, m:meta(x, x.mod), a:(typeof entConflito==='function' && entConflito(c) && typeof conflitoPedirA==='function')?[{ l:'Pedir a '+personShort(c.assignee,{ noYou:true })+' pra resolver', pri:true, act:()=>conflitoPedirA(c) }, { l:'ver o que houve', act:()=>semAbrir(x) }]:[{ l:'Ajudar', act:()=>semAbrir(x) }] });
     if(!c.assignee && x.bucket==='fila'){ const dv=semDevolvidaPor(c);
-      if(dv && dv.by!==me) out.push({ ms:dv.at, av:dv.by, s:`<b>${esc(personName(dv.by,{ noYou:true }))}</b> devolveu ${tt(x.titulo)}${dv.why?`: “${esc(dv.why.slice(0,120))}”`:''}.`, m:meta(x, dv.at, 'está sem dono'),
+      if(dv && dv.by!==me) add(x, { ms:dv.at, av:dv.by, s:`<b>${esc(personName(dv.by,{ noYou:true }))}</b> devolveu ${tt(x.titulo)}${dv.why?`: “${esc(dv.why.slice(0,120))}”`:''}.`, m:meta(x, dv.at, 'está sem dono'),
         a:[{ l:'Assumir', act:()=>semPassar(x, me) }, { l:'Passar', menu:true, x }] }); }
     if(c.pr_url && c.assignee && c.assignee!==me && x.bucket==='praberto' && c.created_by===me)
-      out.push({ ms:x.mod, av:c.assignee, s:`<b>${esc(personName(c.assignee,{ noYou:true }))}</b> abriu o PR de ${tt(x.titulo)} — falta revisar.`, m:meta(x, x.mod, x.card&&semPrNum(c)?'PR #'+semPrNum(c):''), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] });
+      add(x, { ms:x.mod, av:c.assignee, s:`<b>${esc(personName(c.assignee,{ noYou:true }))}</b> abriu o PR de ${tt(x.titulo)} — falta revisar.`, m:meta(x, x.mod, x.card&&semPrNum(c)?'PR #'+semPrNum(c):''), a:[{ l:'Revisar', pri:true, act:()=>semAbrir(x) }] });
   }
   return out.sort((a,b)=>(b.ms||0)-(a.ms||0));
 }
+// @mcv-puro-inicio — Precisa de mim como lista de conversas (testado em app/tests/casca-semana.test.mjs)
+// 05/11 (dono: "muito confuso esse monte de alertas… só as tarefas com uma notificação, como conversa no WhatsApp"):
+// UMA linha por tarefa — a última novidade como prévia, a hora e um contador; clicar abre a tarefa.
+function meuConversas(ev){
+  const by=new Map();
+  (ev||[]).forEach((e, i)=>{ const k=e.k||e.tid||('ev'+i); if(!by.has(k)) by.set(k, { k, x:e.x||null, evs:[] }); by.get(k).evs.push(e); });
+  return [...by.values()].map(c=>{ c.evs.sort((a,b)=>(b.ms||0)-(a.ms||0)); const t=c.evs.find(e=>e.tid);
+    return Object.assign(c, { last:c.evs[0], n:c.evs.length, ms:c.evs[0].ms||0, tid:t?t.tid:'' }); }).sort((a,b)=>b.ms-a.ms);
+}
+// a frase do aviso sem o título da tarefa (o título já é o nome da conversa) e sem HTML
+function meuPrevia(s){
+  let t=String(s||'').replace(/\s*(?:em|de)?\s*<span class="tt">[\s\S]*?<\/span>/, '').replace(/<[^>]+>/g, '');
+  t=t.replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+  t=t.replace(/\s+/g,' ').replace(/\s+([:.,])/g,'$1').trim();
+  return t.charAt(0).toUpperCase()+t.slice(1);
+}
+// @mcv-puro-fim
 // @mws-puro-inicio — Minha semana por dia (testado em app/tests/casca-semana.test.mjs)
 // "acabou do meu lado": entregue OU concluída (mesmo com PR ainda aberto) — sai das abertas e não tem Devolver
 function semFim(x){ return !!x && (!!x.done || x.st==='done' || x.st==='closed'); }
@@ -462,10 +480,13 @@ function semDiasMinha(list, now){
 const semMwsOpen={};
 let meuEvAtual=[];
 function meuHtml(){
-  const me=semMe(), its=semItens(), ev=meuEventos(); meuEvAtual=ev;
+  const me=semMe(), its=semItens(), ev=meuEventos();
   const proj=(typeof state!=='undefined'&&state.repo)?pathBase(state.repo):'';
   const apSel=typeof apMeuSel==='function'?apMeuSel():'';
-  const evH=ev.length?ev.map((e,i)=>`<div class="mev${e.tid&&e.tid===apSel?' sel':''}${e.blk?' blk':''}"${e.tid?` data-aptid="${escA(e.tid)}"`:''}><span class="mev-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="mev-tx"><div class="mev-s"${e.live?' role="status"':''}>${e.s}</div>${e.m?`<div class="mev-m">${esc(e.m)}</div>`:''}</div><div class="mev-a">${e.a.map((a,j)=>a.menu?`<button type="button" class="btn sm quiet" data-meva="${i}:${j}" aria-haspopup="menu">${esc(a.l)} ${semIc('chev')}</button>`:`<button type="button" class="btn sm${a.pri?' primary':a.q?' quiet':''}" data-meva="${i}:${j}">${esc(a.l)}</button>`).join('')}</div></div>${e.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(e.tid):''}`).join('')
+  const cv=meuConversas(ev); meuEvAtual=cv;
+  const hora=ms=>{ if(!ms) return ''; const a=agoShort(ms); return a==='agora'?'agora':a; };
+  const evH=cv.length?cv.map((e,i)=>{ const x=e.x||{}, l=e.last;
+    return `<div class="mcv${e.tid&&e.tid===apSel?' sel':''}${l.blk?' blk':''}" role="button" tabindex="0" data-mcv="${i}"${e.tid?` data-aptid="${escA(e.tid)}"`:''} title="abrir a tarefa"><span class="mcv-av">${l.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(l.av,{ decor:true })}</span><div class="mcv-tx"><div class="mcv-l1">${x.code?`<span class="mcv-code">${esc(x.code)}</span>`:''}<span class="mcv-t">${esc(mdTitle(x.titulo||''))}</span><span class="mcv-h">${esc(hora(e.ms))}</span></div><div class="mcv-l2"><span class="mcv-p"${l.live?' role="status"':''}>${esc(meuPrevia(l.s))}</span><span class="mcv-n" aria-label="${e.n} ${e.n===1?'novidade':'novidades'}">${e.n}</span></div></div></div>${e.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(e.tid):''}`; }).join('')
     :`<div class="mev-vazio">${semIc('check')} Nada esperando por você agora.</div>`;
   // Minha semana (28/10, dono: "diz Hoje mas aparecem tarefas de outros dias"): cada tarefa no DIA da última mudança
   // dela (Hoje, Ontem, e os dias da semana), abertas primeiro; concluídas ficam recolhidas no dia em que terminaram;
@@ -480,8 +501,8 @@ function meuHtml(){
   const sentH=sent.length?sent.map(x=>`<div class="mmd" role="button" tabindex="0" data-semopen="${escA(x.id)}">${personAv(x.who,{ decor:true })}<span class="mmd-t">${esc(mdTitle(x.titulo))}</span><span></span><span class="mmd-s" style="color:${x.trav?'var(--st-err)':stColor(x.st)}">${esc(personName(x.who,{ noYou:true }))} · ${esc(x.trav?'travada':stLabel(x.st))}</span></div>`).join('')
     :`<div class="mws-nada">${semTemTime()?'Nada que você mandou está aberto.':'Entre num time pra mandar demandas pra outras pessoas.'}</div>`;
   return `<div class="sempg">${semHead('Meu trabalho', semHojeTx()+(proj?' · '+proj:''))}
-    <div class="semsec-h"><h2>Precisa de mim</h2><span class="n">${ev.length} · sai daqui quando você age${ev.some(e=>e.tid)?' · J/K troca, Espaço mostra as provas, A aprova, P pede alteração':''}</span></div>
-    <section class="mevs" aria-label="Precisa de mim">${evH}</section>
+    <div class="semsec-h"><h2>Precisa de mim</h2><span class="n">${cv.length} ${cv.length===1?'tarefa':'tarefas'} · sai daqui quando você age</span></div>
+    <section class="mcvs" aria-label="Precisa de mim">${evH}</section>
     <div class="mw2"><section class="mws" aria-label="Minha semana"><div class="semsec-h"><h2>Minha semana</h2></div>
       ${dias.length?dias.map(diaH).join(''):'<div class="mws-nada">Nada com você nesta semana.</div>'}${fila.length?diaH({ key:'fila', l:'Na fila', s:'ainda não começou', abertas:fila, fim:[] }):''}</section>
     <aside class="mmds" aria-label="Mandei pro time"><div class="semsec-h"><h2>Mandei pro time</h2><span class="n">${sent.length}</span></div>${sentH}</aside></div></div>`;
@@ -799,7 +820,8 @@ function semWire(pg, k){
     const dd=ms=>perFmtDay(ms); relGerar(b, { all, members:semPessoas(), f:{}, per:{ key:'custom', from:dd(r.from), to:dd(r.to-1) }, range:r, pe:all, escopo:(typeof entEscopo==='function'?entEscopo(false):'') }); });
   pg.querySelectorAll('[data-semgo]').forEach(b=>b.onclick=()=>semIr(b.dataset.semgo));
   pg.querySelectorAll('[data-semguia]').forEach(b=>b.onclick=()=>semGuiaIniciar(b.dataset.semguia));
-  if(k==='meu') pg.querySelectorAll('[data-meva]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const [i,j]=b.dataset.meva.split(':').map(Number); const a=((meuEvAtual[i]||{}).a||[])[j]; if(!a) return; if(a.menu) semMenu(b, a.x); else a.act(b); });
+  if(k==='meu') pg.querySelectorAll('[data-mcv]').forEach(b=>{ const go=()=>{ const c=meuEvAtual[Number(b.dataset.mcv)]; if(!c) return; if(c.x) semAbrir(c.x); else { const a=(c.last.a||[]).find(y=>y.pri)||(c.last.a||[])[0]; if(a&&a.act) a.act(b); } };
+    b.onclick=go; b.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); } }; });
   // arrastar entre pessoas (o teclado tem o Passar ▾ com os números)
   pg.querySelectorAll('[data-semdrag][draggable="true"]').forEach(el=>el.addEventListener('dragstart', ev=>{ ev.dataTransfer.setData('text/plain', el.dataset.semdrag); ev.dataTransfer.effectAllowed='move'; }));
   pg.querySelectorAll('[data-semdrop]').forEach(el=>{
