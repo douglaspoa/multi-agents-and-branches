@@ -30,7 +30,7 @@ test("detecção na ordem: env.json → package.json → Procfile → compose �
   const { "package.json": _p, ...noPkg } = all;
   const p3 = detectEnv(tmp(noPkg)); assert.equal(p3.kind, "procfile"); assert.equal(p3.cmd, "node app.js $PORT");
   const { Procfile: _f, ...noProc } = noPkg;
-  const p4 = detectEnv(tmp(noProc)); assert.equal(p4.kind, "compose"); assert.equal(p4.port, 8080); assert.match(p4.cmd || "", /docker compose -f compose\.yaml up/);
+  const p4 = detectEnv(tmp(noProc)); assert.equal(p4.kind, "compose"); assert.equal(p4.port, 8080); assert.match(p4.cmd || "", /docker compose -f compose\.yaml up/); assert.equal(p4.down, "docker compose -f compose.yaml stop", "parar desliga os containers de verdade");
   const p5 = detectEnv(tmp({ "index.html": "x" })); assert.equal(p5.kind, "static"); assert.equal(p5.web, true);
   const p6 = detectEnv(tmp({ "src/lib.rs": "fn main(){}", "README.md": "# lib" })); assert.equal(p6.kind, "none"); assert.equal(p6.web, false, "sem página: o painel Meu app nem aparece");
   assert.equal(detectEnv(tmp({ "manage.py": "" })).kind, "python");

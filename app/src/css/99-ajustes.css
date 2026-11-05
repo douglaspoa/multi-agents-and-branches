@@ -380,3 +380,12 @@
 .uso-ttab{margin-top:4px}
 .uso-loose{margin-bottom:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-sm);background:var(--surface-3)}
 .ajreach{border:1px solid var(--border-strong);border-radius:var(--r-sm);background:var(--surface);padding:12px 14px}
+
+/* Docker e memória (05/11) */
+.dkbar{height:8px;border-radius:4px;background:var(--surface-3);overflow:hidden;margin:4px 0 8px}
+.dkbar i{display:block;height:100%;background:var(--st-done)}
+.dkbar.medio i{background:var(--warn)}
+.dkbar.alto i{background:var(--st-err)}
+.dktot{margin:0 0 14px;font-size:var(--fs-sm);color:var(--text-2)}
+.dkmb{font-variant-numeric:tabular-nums;font-weight:600;color:var(--text)}
+#ajDkList .ajli{grid-template-columns:auto minmax(0,1fr) auto auto}

@@ -19,6 +19,7 @@ const AJ_SECTIONS=[
   { id:'notificacoes', grp:'pc', label:'Notificações', scope:'computador', kw:'notificações avisos macos sistema' },
   { id:'versao', grp:'pc', label:'Versão', scope:'computador', kw:'versão atualizar atualização build publicar release canal' },
   { id:'disco', grp:'pc', label:'Disco', scope:'computador', kw:'disco espaço pasta de trabalho limpar liberar cópias entregáveis' },
+  { id:'docker', grp:'pc', label:'Docker e memória', scope:'computador', kw:'docker memória ram containers supabase compose ambiente parar lento pesado limite' },
   { id:'sistema', grp:'pc', label:'Sistema', scope:'computador', kw:'sistema primeiros passos tour atalhos teclado servidor da conta avançado' },
   { id:'perfil', grp:'conta', label:'Perfil e segurança', scope:'conta', kw:'perfil nome e-mail email senha trocar sair conta' },
   { id:'org', grp:'conta', label:'Organização', scope:'org', kw:'organização plano enterprise assentos licença papel dono visão' },
@@ -551,6 +552,32 @@ async function ajRenderDisco(host){
   const t=$id('ajDiskTot'); if(t && u) t.innerHTML=`Neste projeto: <b>${esc(fmtBytes(u.total))}</b>, dos quais <b>${esc(fmtBytes(free))}</b> dá pra liberar agora (cópias de trabalho de tarefas finalizadas e temporários).`;
   el.querySelectorAll('[data-ajdisk]').forEach(b=>b.onclick=async()=>{ const r=b.dataset.ajdisk; if(r!==cur && typeof window.switchProject==='function'){ try{ await window.switchProject(r); }catch(_){ } } ajGoElsewhere('projeto-disco'); });
 }
+// Docker e memória (05/11): quanto cada projeto ocupa no Docker e "parar" por projeto. Parado à mão não religa sozinho
+// quando o Docker abre; os dados ficam guardados (religar: `supabase start` / `docker compose up` no projeto).
+// @docker-puro-inicio (testado em app/tests/docker-memoria.test.mjs)
+const DK_KIND={ supabase:'Supabase local', compose:'docker compose', avulso:'container' };
+function dkMb(mb){ mb=Number(mb)||0; return mb>=1024?(mb/1024).toFixed(1).replace('.',',')+' GB':Math.round(mb)+' MB'; }
+function dkNivel(total, limit){ if(!(limit>0)) return 'ok'; const r=total/limit; return r>=0.75?'alto':r>=0.5?'medio':'ok'; }
+// @docker-puro-fim
+async function ajRenderDocker(host){
+  host.innerHTML=ajSecHead('docker', 'Quanto cada projeto ocupa de memória no Docker. Parar não apaga nada: os dados ficam guardados e o projeto só volta quando você ligar de novo.')
+    +`<div id="ajDkTop"></div><div class="ajlist" id="ajDkList">${skeletonHtml('lista',{ n:3, compact:true, inline:true, label:'medindo' })}</div><p class="ajhint" id="ajDkHint"></p>`;
+  let u=null; try{ u=await invoke('docker_usage'); }catch(e){ u={ ok:false, why:humanErr(e,'Não consegui falar com o Docker').msg }; }
+  if(AJ.sec!=='docker') return;
+  const el=$id('ajDkList'), top=$id('ajDkTop'), hint=$id('ajDkHint'); if(!el) return;
+  if(!u || !u.ok){ el.innerHTML=`<div class="ajli"><div class="l"><b>${esc((u&&u.why)||'O Docker não respondeu.')}</b><small>Nada pra medir agora.</small></div></div>`; return; }
+  const nv=dkNivel(u.totalMb, u.limitMb), pct=u.limitMb>0?Math.min(100, Math.round(100*u.totalMb/u.limitMb)):0;
+  top.innerHTML=`<div class="dkbar ${nv}" role="img" aria-label="${escA(dkMb(u.totalMb)+' de '+dkMb(u.limitMb))}"><i style="width:${pct}%"></i></div><p class="dktot"><b>${esc(dkMb(u.totalMb))}</b> em uso${u.limitMb>0?` de <b>${esc(dkMb(u.limitMb))}</b> reservados pro Docker`:''}${nv==='alto'?' — está pesado: pare o que não estiver usando.':''}</p>`;
+  el.innerHTML=u.projects.length?u.projects.map((p,i)=>`<div class="ajli"><span class="ajav">${esc(String(p.name||'?').slice(0,1).toUpperCase())}</span><div class="l"><b>${esc(p.name)}</b><small>${esc(DK_KIND[p.kind]||p.kind)} · ${p.containers} ${p.containers===1?'container':'containers'}${p.dir?' · '+esc(pathBase(p.dir)):''}</small></div><span class="dkmb">${esc(dkMb(p.mb))}</span><button type="button" class="btn sm" data-dkstop="${i}">parar</button></div>`).join('')
+    :'<div class="ajli"><div class="l"><b>Nada rodando no Docker.</b><small>Memória livre.</small></div></div>';
+  if(hint) hint.innerHTML=u.limitMb>0?`Pra limitar o máximo que o Docker pode usar: Docker Desktop › Settings › Resources › Memory (hoje ${esc(dkMb(u.limitMb))}). O Docker reinicia ao aplicar.`:'';
+  el.querySelectorAll('[data-dkstop]').forEach(b=>b.onclick=async()=>{ const p=u.projects[Number(b.dataset.dkstop)]; if(!p) return;
+    if(!await askYes(`Parar ${p.name} (${p.containers} ${p.containers===1?'container':'containers'}, ${dkMb(p.mb)})? Os dados ficam guardados; quem estiver usando esse banco ou serviço local perde a conexão até religar.`, 'Parar no Docker')) return;
+    b.disabled=true; b.textContent='parando…';
+    try{ await invoke('docker_stop_project', { name:p.name }); toast(`${p.name} parado — ${dkMb(p.mb)} liberados.`, 'ok'); }
+    catch(e){ showErr(e, 'Não consegui parar no Docker'); }
+    if(AJ.sec==='docker') ajRenderDocker(host); });
+}
 function ajRenderSistema(host){
   const unconf=typeof SB!=='undefined' && !SB.configured(); // sem servidor configurado, qualquer pessoa precisa do formulário
   const dev=unconf||(typeof canSeeDevTools==='function'&&canSeeDevTools())||!!lsGet('sb:url');
@@ -783,7 +810,7 @@ async function ajRenderAssinatura(host){
   bindClick('ajSupport', ()=>{ if(typeof openExternal==='function') openExternal('mailto:suporte@starfork.com.br?subject=Assinatura%20Starfork'); });
 }
 const AJ_RENDER={ motores:ajRenderMotores, custo:ajRenderCusto, modo:ajRenderModo, aparencia:ajRenderAparencia, aprendizado:ajRenderAprendizado, github:ajRenderGithub,
-  verificacao:ajRenderVerificacao, notificacoes:ajRenderNotif, versao:ajRenderVersao, disco:ajRenderDisco, sistema:ajRenderSistema,
+  verificacao:ajRenderVerificacao, notificacoes:ajRenderNotif, versao:ajRenderVersao, disco:ajRenderDisco, docker:ajRenderDocker, sistema:ajRenderSistema,
   perfil:ajRenderPerfil, org:ajRenderOrg, times:ajRenderTimes, convites:ajRenderConvites, regras:ajRenderRegras, assinatura:ajRenderAssinatura };
 // a conta mudou (renderCloud antigo, login, sair): redesenha só se Ajustes estiver numa seção da conta
 function ajustesRefreshConta(){ if(ajSec(AJ.sec).grp==='conta' && $id('ajContent')) ajSectionPaint(); }
