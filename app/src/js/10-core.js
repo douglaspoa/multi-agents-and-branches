@@ -449,6 +449,8 @@ window.addEventListener('focus', ()=>{
 window.addEventListener('keydown', e=>{
   if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){
     e.preventDefault();
+    // no Meu trabalho a busca é a dele (redesenho 05/11)
+    if(typeof semAtiva==='function' && semAtiva()==='meu'){ const q=$id('meuQ'); if(q){ q.focus(); q.select(); return; } }
     if(window.openTab && typeof activeTab!=='undefined' && activeTab!=='flow') window.openTab('flow');
     const b=document.querySelector('#viewSeg button[data-v="flow"]'); if(b && !activeIs('flow')) b.click();
     setTimeout(()=>{ const s=$id('ffSearch'); if(s){ s.focus(); s.select(); } }, 60);

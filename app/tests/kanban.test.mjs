@@ -140,8 +140,8 @@ test('quadro da Central: lembrado POR PESSOA; Concluídas e "por dia" voltam pra
   const src = cut(S72, 'function kbCentralKey(){', 'const KB_CENTRAL_COLS');
   const mk = (scope, group) => new Function(...Object.keys(env), src.replace(/flowScope/g, JSON.stringify(scope)).replace(/flowGroupBy/g, JSON.stringify(group)) + '\nreturn { kbCentralOn, kbCentralSet, kbCentralNow };')(...Object.values(env));
   const F = mk('exec', 'none');
-  assert.equal(F.kbCentralOn(), false); F.kbCentralSet(true); assert.equal(F.kbCentralNow(), true);
-  uid = 'u2'; assert.equal(F.kbCentralOn(), false, 'outra pessoa no mesmo computador: a escolha é dela'); uid = 'u1';
+  assert.equal(F.kbCentralOn(), true, 'redesenho 05/11: quadro é o padrão'); F.kbCentralSet(true); assert.equal(F.kbCentralNow(), true);
+  F.kbCentralSet(false); uid = 'u2'; assert.equal(F.kbCentralOn(), true, 'outra pessoa no mesmo computador: a escolha é dela'); uid = 'u1'; F.kbCentralSet(true);
   assert.equal(mk('done', 'none').kbCentralNow(), false); assert.equal(mk('exec', 'day').kbCentralNow(), false);
   F.kbCentralSet(false); assert.equal(F.kbCentralOn(), false);
 });

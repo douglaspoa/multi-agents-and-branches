@@ -168,7 +168,7 @@ function flowVisible(tasks){
   return tasks.filter(t=>
     flowScopeOk(t) &&
     // chips de status = as MESMAS seções da lista (flowBucket); em Concluídas não há chips, então não filtra
-    (flowScope==='done'||flowStatus==='all'||(flowStatus==='aprovar'?(typeof apAprovavel==='function'&&apAprovavel(t)):flowBucket(t)===flowStatus)) && // 'aprovar' = a fila do 80-aprovar
+    (flowScope==='done'||flowStatus==='all'||(typeof kbCentralNow==='function'&&kbCentralNow())||(flowStatus==='aprovar'?(typeof apAprovavel==='function'&&apAprovavel(t)):flowBucket(t)===flowStatus)) && // 'aprovar' = a fila do 80-aprovar
     flowOtherFiltersOk(t)
   );
 }
@@ -181,7 +181,7 @@ function flowOtherFiltersOk(t, skip){
     (skip==='type'||flowType==='all'||taskType(t)===flowType) &&
     inPeriod(t) &&
     (flowAgent==='all'||taskAgents(t).includes(flowAgent)) &&
-    (!q || (t.title||'').toLowerCase().includes(q));
+    (!q || [t.title, t.issueCode, typeof taskCodeOf==='function'?taskCodeOf(t):''].join(' ').toLowerCase().includes(q));
 }
 function renderFlowFilters(){
   const el=$id('flowFilters'); if(!el) return;
@@ -272,11 +272,11 @@ function renderFlowFilters(){
   // SEMPRE visível: status + busca + projeto/épico/tipo (selects compactos)
   const isDone=flowScope==='done';
   const filterRow=`<div class="ffrow" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px">`+
-    (isDone?`<div class="seg2 cdseg" role="tablist" aria-label="Concluídas"><button role="tab" class="${centralDoneSub==='ent'?'on':''}" aria-selected="${centralDoneSub==='ent'}" data-cdsub="ent">Entregas</button><button role="tab" class="${centralDoneSub==='res'?'on':''}" aria-selected="${centralDoneSub==='res'}" data-cdsub="res" title="um dia do projeto aberto — o que os agentes fizeram (troque o dia no seletor)">Resumo do dia</button></div>`+(centralDoneSub==='res'?'':`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`):`<div class="ffchips">${stChips}</div>`)+
+    (isDone?`<div class="seg2 cdseg" role="tablist" aria-label="Concluídas"><button role="tab" class="${centralDoneSub==='ent'?'on':''}" aria-selected="${centralDoneSub==='ent'}" data-cdsub="ent">Entregas</button><button role="tab" class="${centralDoneSub==='res'?'on':''}" aria-selected="${centralDoneSub==='res'}" data-cdsub="res" title="um dia do projeto aberto — o que os agentes fizeram (troque o dia no seletor)">Resumo do dia</button></div>`+(centralDoneSub==='res'?'':`<select class="sel" id="ffPeriod2">${peOpts}</select><button class="btn sm" id="flowPeriodRep" title="a IA escreve um relatório com todas as entregas concluídas deste filtro">${ic('doc')}relatório do período</button>`):(kbOn?'':`<div class="ffchips">${stChips}</div>`))+
     `<span style="flex:1"></span>`+
     // busca por nome SEMPRE visível (antes ficava escondida nos filtros avançados)
     `<div class="ffsearchwrap"><svg class="ffic" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="7" cy="7" r="4.2"/><path d="M10.4 10.4L14 14" stroke-linecap="round"/></svg>`+
-    `<input class="ffsearch" id="ffSearch" type="text" placeholder="buscar tarefa pelo nome…" value="${escA(flowQuery)}"></div>`+
+    `<input class="ffsearch" id="ffSearch" type="text" placeholder="Buscar tarefa, código ou issue" value="${escA(flowQuery)}"></div>`+
     projSel+epicSel+
     `<select class="sel ffsel" id="ffType" title="filtrar por tipo (feature/fix/docs/investigação…)">${tyOpts}</select></div>`+
     (activeChip?`<div class="ffactrow">${activeChip}</div>`:'');
@@ -659,7 +659,7 @@ function openTaskMenu(taskId, anchor){
   // e passa pelo abortTask(), que confirma antes
   if(ACTIVE_ST.has(t.status)||t.status==='paused'||t.status==='plan-review'||t.status==='asking'||t.busy) item('interromper agora', ()=>abortTask(taskId), true, stIcon('aborted'));
   // "não vai pra frente" (dono 28/10): cancela, fecha o PR (a branch fica) e a issue ligada, com 4 s pra desfazer (80-aprovar)
-  if(typeof encerrarTarefa==='function' && !taskEncerrada(t)) item('encerrar sem entregar…', ()=>encerrarTarefa(taskId, { anchor }), true, stIcon('cancelled'), { stay:true, title:'cancela a tarefa, fecha o PR e a issue no painel; pede um motivo opcional' });
+  if(typeof encerrarTarefa==='function' && !taskEncerrada(t)) item('Encerrar — não quero mais…', ()=>encerrarTarefa(taskId, { anchor }), true, stIcon('cancelled'), { stay:true, title:'cancela a tarefa, fecha o PR e a issue no painel; pede um motivo opcional' });
   document.body.appendChild(pop);
   const r=anchor.getBoundingClientRect();
   pop.style.top=Math.min(window.innerHeight-pop.offsetHeight-10, r.bottom+6)+'px';
