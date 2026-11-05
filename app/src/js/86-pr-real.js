@@ -109,7 +109,7 @@ async function prrJaIntegrei(taskId, anchor){
   const t=((typeof state!=='undefined'&&state.tasks)||[]).find(x=>x.id===taskId); if(!t) return false;
   const r=typeof sheetAsk==='function'
     ? await sheetAsk({ title:'Já integrou esta tarefa?', text:'Cole o link do PR que você abriu (ou integrou) no GitHub e eu confiro agora. Sem link, ela fica marcada como integrada.', field:{ placeholder:'https://github.com/dono/repo/pull/12' }, allowEmpty:true, ok:'Conferir', anchor:anchor||null })
-    : (await askYes('Marcar esta tarefa como integrada (merge feito no GitHub)?', 'Já integrei') ? '' : null);
+    : (await askYes('Marcar esta tarefa como integrada (merge feito no GitHub)?', 'PR feito fora do app') ? '' : null);
   if(r==null || r===false) return false;
   const link=String(r||'').trim();
   if(link){
@@ -155,7 +155,7 @@ function prrAvisoHtml(taskId){
   const d=prrVis(taskId); if(d.kind!=='unknown') return '';
   return `<div class="prr-aviso" role="status">${typeof apIc==='function'?apIc('alert'):''}<span>${esc(d.aviso.charAt(0).toUpperCase()+d.aviso.slice(1))}.</span>`
     +`<button type="button" class="lnk" data-prr="denovo" data-id="${escA(taskId)}">Conferir de novo</button>`
-    +`<button type="button" class="lnk" data-prr="ja" data-id="${escA(taskId)}">Já integrei</button></div>`;
+    +`<button type="button" class="lnk" data-prr="ja" data-id="${escA(taskId)}">PR feito fora do app?</button></div>`;
 }
 window.prrAvisoHtml=prrAvisoHtml;
 document.addEventListener('click', e=>{
@@ -173,6 +173,6 @@ function prrEventoFechado(x, meta){
   return { ms:x.mod, av:'ia', s:prrFrase(d, tt), m:meta, tid:t.id,
     a:[{ l:'Reabrir o PR', pri:true, act:()=>prrReabrir(t.id) },
        { l:'Encerrar…', act:(b)=>typeof encerrarTarefa==='function'?encerrarTarefa(t.id, { anchor:b }):null },
-       { l:'Já integrei', q:true, act:(b)=>prrJaIntegrei(t.id, b) }] };
+       { l:'PR feito fora do app?', q:true, act:(b)=>prrJaIntegrei(t.id, b) }] };
 }
 window.prrEventoFechado=prrEventoFechado;

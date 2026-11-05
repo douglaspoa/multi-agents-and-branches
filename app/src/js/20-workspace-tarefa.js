@@ -260,8 +260,11 @@ async function fwOpenInner(taskId, path){
     fwMode = (tab&&tab.mode) ? tab.mode
       : path ? 'codigo'
       : (t&&pendingOf(t.id).length) ? 'conversa' // pergunta aberta: a resposta é na conversa
-      : (t&&(taskIsDone(t)||['review','delivered'].includes(t.status))) ? 'entrega'
-      : (t&&t.prUrl&&t.status!=='draft') ? 'pr'
+      : (t&&taskIsDone(t)) ? 'entrega'
+      // crítica 05/11: pronta pra revisar (com ou sem PR) abre na REVISÃO — o lugar da decisão (provas + Integrar na main);
+      // antes abria na Entrega, um comprovante com quadros vazios antes de qualquer entrega
+      : (t&&['review','delivered'].includes(t.status)&&fwArtOnly(t)) ? 'entrega' // investigação/design: o fim é salvar os entregáveis
+      : (t&&(['review','delivered'].includes(t.status)||(t.prUrl&&t.status!=='draft'))) ? 'revisao'
       // erro, abortada, pausada, conflito, rascunho, plano: a ação e a explicação estão na CONVERSA (antes abria
       // em Código — uma coluna vazia "nenhum arquivo alterado ainda" no meio da tela)
       : 'conversa'; }
@@ -499,9 +502,15 @@ function fwPrimaryAction(t){
   if(t.status==='paused') return { id:'fwResume', html:`${IC.play} continuar`, title:'retoma a tarefa de onde parou' };
   if(t.status==='plan-review') return { id:'fwApprovePlan', html:`${IC.play} aprovar plano`, title:'o plano está pronto — aprovar deixa o time começar a construir' };
   // PR aberto: o atalho "PR #n" fica SEMPRE à mão (na aba PR ele abre o GitHub)
+  // crítica 05/11: UM botão de integrar (o do painel de provas, na Revisão). O cabeçalho só LEVA até lá; na própria
+  // Revisão ele some (antes: "aprovar e abrir PR" aqui, "Aprovar/Integrar" no painel e "Integrar na main" no PR —
+  // três botões, duas regras de portão)
+  const naRevisao=fwMode==='revisao' && typeof rvViewOf==='function' && rvViewOf(t.id)==='provas';
+  const fwRev={ id:'fwRevisar', html:`${IC.merge} Revisar e integrar`, title:'abre a Revisão: as provas de cada requisito e o botão Integrar na main' };
   if(t.prUrl){ const n=fwPrNum(t);
-    return fwMode==='pr' ? { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n}`, title:'abrir o PR no GitHub' }
-      : { id:'fwPrGo', html:`${IC.merge} ver PR #${n}`, title:'comentários, checagens e merge do PR' }; }
+    if(fwMode==='pr') return { id:'fwPrGh', cls:'btn sm', html:`${IC.extlink} PR #${n}`, title:'abrir o PR no GitHub' };
+    if(['review','delivered'].includes(t.status) && !taskIsDone(t)) return naRevisao?null:fwRev;
+    return { id:'fwPrGo', html:`${IC.merge} ver PR #${n}`, title:'comentários, checagens e merge do PR' }; }
   if(taskIsDone(t)) return null;
   if(['review','delivered'].includes(t.status)){
     const rev=reviewOf(t.id);
@@ -510,21 +519,29 @@ function fwPrimaryAction(t){
         ? { id:'fwArchive', html:`${IC.check} salvar e concluir`, title:'salva os arquivos entregues numa pasta sua e conclui (investigação/design não abrem PR)' }
         : { id:'fwArchive', html:`${IC.check} concluir`, title:'conclui e tira da fila (investigação/design não abrem PR)' })
       // portão de prova (21: proofGate): requisito sem prova → o verde é PEDIR a prova; aprovar fica no secundário
+      : naRevisao ? null // na Revisão a decisão é o painel de provas (Pedir alteração · Integrar…) — o cabeçalho não repete
       : (typeof proofGate==='function' && proofGate(t).st==='unproven')
-        ? { id:'fwAskProof', html:`${IC.ai} pedir a prova ao agente`, title:proofMissingTip(proofGate(t))+' — manda a lista no chat' }
-      : { id:'fwApprove', html:`${IC.check} aprovar e abrir PR`, title:rev?(rev.summary||'').slice(0,160):'checagens do repo, depois commit & push e cria o PR' };
+        ? { id:'fwAskProof', html:`${IC.ai} Pedir a prova`, title:proofMissingTip(proofGate(t))+' — manda a lista pro agente no chat' }
+      : (naRevisao?null:fwRev);
   }
   return null;
 }
 // R8: o "push" VISÍVEL no topo (R7) saiu a pedido do dono — "commit & push" fica só no ⋯ (fwMoreItems).
+// leva pra Revisão › Provas, onde mora o ÚNICO "Integrar na main" (80-aprovar: portões, 4 s com Desfazer, merge)
+function fwIrPraRevisao(t){ if(!t) return; if(typeof rvViewM!=='undefined') rvViewM[t.id]='provas'; fwMode='revisao'; if(typeof fwRememberTab==='function') fwRememberTab(); renderWorkspace(); }
+// "Integrar sem prova…": o MESMO caminho do painel (pede o motivo lá) — antes era outro (approveNoProof → approveGate)
+function fwIntegrarSemProva(t){ fwIrPraRevisao(t); if(typeof AP!=='undefined'){ AP.ui[t.id]={ mode:'why' }; if(typeof apRefresh==='function') apRefresh(); } }
 function fwActionHtml(t){
   const a=fwPrimaryAction(t);
   // sem prova: o "aprovar sem prova…" fica à vista ao lado (some no cabeçalho estreito — continua no ⋯)
-  const sec=(a&&a.id==='fwAskProof')?`<button class="btn sm ghost fwnoproof" id="fwNoProof" title="exige um motivo — vai na descrição do PR e fica registrado">aprovar sem prova…</button>`:'';
+  let sec=(a&&a.id==='fwAskProof')?`<button class="btn sm ghost fwnoproof" id="fwNoProof" title="exige um motivo — vai na descrição do PR e fica registrado">Integrar sem prova…</button>`:'';
   // pronta pra revisar: "Pedir alteração" SEMPRE à vista (mesa 09/10 — antes era só "pedir ajuste" escondido no ⋯) e
   // "Chamar agente…" ao lado; os dois abrem o MESMO painel (71-revisao-alteracao)
-  const rq=(typeof rqCanAsk==='function' && rqCanAsk(t))
+  let rq=(typeof rqCanAsk==='function' && rqCanAsk(t))
     ? `<button class="btn sm fwrqbtn" id="fwChange" title="o agente desta tarefa continua na mesma branch — texto, prints e requisitos afetados">Pedir alteração</button><button class="btn sm ghost fwrqbtn fwrqag" id="fwCallAgent" title="chama outro agente do time (design, revisor, testes…) como etapa extra">Chamar agente…</button>` : '';
+  // na Revisão › Provas o painel já tem Pedir alteração e Integrar: o cabeçalho fica só com o estado e o ⋯ (crítica 05/11: 3 CTAs competindo)
+  const solo=fwMode==='revisao' && typeof rvViewOf==='function' && rvViewOf(t.id)==='provas' && ['review','delivered'].includes(t.status);
+  if(solo){ rq=''; sec=''; }
   if(!a) return rq+sec;
   const lbl=String(a.html).replace(/<[^>]*>/g,'').trim();
   const html=String(a.html).replace(/([^>]*)$/, (m)=>m.trim()?`<span class="fwal">${m}</span>`:m);
@@ -539,7 +556,7 @@ function fwMoreItems(t){
   // Quadro ao vivo (87): a IA explica DESENHANDO como resolveu (ou, sem código ainda, o que entendeu da demanda)
   if(typeof qdFromTask==='function') it.push({ k:'quadro', label:'desenhar · a IA explica num quadro', hint:['draft','queued'].includes(t.status)?'o que ela entendeu da demanda':'como ela resolveu, traço a traço' });
   if(t.status==='draft' && typeof editDraft==='function') it.push({ k:'editdraft', label:'editar o rascunho', hint:'reabre a Nova demanda preenchida' });
-  if(prim==='fwAskProof') it.push({ k:'noproof', label:'aprovar sem prova…', hint:'exige um motivo — vai no PR' });
+  if(prim==='fwAskProof') it.push({ k:'noproof', label:'Integrar sem prova…', hint:'exige um motivo — vai no PR' });
   if(typeof rqCanAsk==='function' && rqCanAsk(t)){ it.push({ k:'askfix', label:'pedir alteração', hint:'o agente continua na mesma branch' }); it.push({ k:'callagent', label:'chamar outro agente…', hint:'design, revisor, testes… como etapa extra' }); }
   if(t.prUrl){ const n=fwPrNum(t);
     if(prim!=='fwPrGo' && fwMode!=='pr') it.push({ k:'prgo', label:`ver PR #${n} aqui` });
@@ -603,7 +620,7 @@ async function fwMoreDo(t, k, anchor){
   else if(k==='quadro'){ if(typeof qdFromTask==='function') await qdFromTask(t.id); }
   else if(k==='askfix') rqOpen(t.id);
   else if(k==='callagent') rqOpen(t.id, { mode:'agente' });
-  else if(k==='noproof') await approveNoProof(t);
+  else if(k==='noproof') fwIntegrarSemProva(t);
   else if(k==='editdraft') await editDraft(t);
   else if(k==='prgo'){ fwMode='pr'; fwRememberTab(); renderWorkspace(); }
   else if(k==='prgh') openExternal(t.prUrl);
@@ -819,7 +836,8 @@ function renderWorkspace(){
       if(typeof chkDecorateApprove==='function') chkDecorateApprove($id('fwApprove'), t);
       bindClick('fwApprove', ()=>approveGate(t));
       bindClick('fwAskProof', (e)=>proofAsk(t, e.currentTarget));
-      bindClick('fwNoProof', ()=>approveNoProof(t));
+      bindClick('fwNoProof', ()=>fwIntegrarSemProva(t));
+      bindClick('fwRevisar', ()=>fwIrPraRevisao(t));
       bindClick('fwArchive', async(e)=>{ const b=e.currentTarget;
         // E11a: com entregáveis ainda não salvos, leva pra Entrega com a barra "Salvar entregáveis na pasta" (salva e conclui lá)
         if(fwArchiveNeedsSave(t)){ fwMode='entrega'; fwRememberTab(); renderWorkspace();

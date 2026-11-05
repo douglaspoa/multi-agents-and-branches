@@ -493,11 +493,13 @@ let meuTab=lsGet('meu:tab')||'voce', meuSel='', meuQ='';
 // em que aba a tarefa mora: tem novidade pra você → "voce"; senão pela etapa. x = item da Semana; temConversa = está no cv
 function meuAbaDe(x, temConversa){
   if(!x) return '';
-  if(semFimMeu(x)) return 'feita';
+  if(semFimMeu(x)) return meuEntregue(x)?'feita':''; // encerrada sem entregar NÃO é entrega (crítica 05/11): sai das abas
   if(temConversa) return 'voce';
   if(x.bucket==='fila') return 'fila';
   return 'rodando';
 }
+// entregue de verdade = integrada/concluída com entrega; cancelada/encerrada sem entregar fica de fora
+function meuEntregue(x){ return !!x && x.st!=='cancelled' && !(x.local&&x.local.status==='cancelled') && (!!x.done || x.st==='done' || x.st==='merged'); }
 function semFimMeu(x){ return !!x && (!!x.done || x.st==='done' || x.st==='closed' || x.st==='merged' || x.st==='cancelled'); }
 // busca: código, título ou issue (sem acento, sem caixa)
 function meuBate(x, q){
@@ -515,7 +517,7 @@ function meuModelo(){
   const mine=its.filter(x=>(x.who===me || !x.card) && !(semFimMeu(x) && (x.mod||0) < now-7*DIA));
   const seen=new Set(), rows=[];
   for(const c of cv){ if(!c.x) continue; seen.add(c.k); rows.push({ k:c.k, x:c.x, cv:c, aba:'voce', ms:c.ms }); }
-  for(const x of mine){ const k=meuChave(x); if(seen.has(k)) continue; seen.add(k); rows.push({ k, x, cv:null, aba:meuAbaDe(x, false), ms:(x.ini||x.mod||0) }); }
+  for(const x of mine){ const k=meuChave(x); if(seen.has(k)) continue; seen.add(k); const aba=meuAbaDe(x, false); if(aba) rows.push({ k, x, cv:null, aba, ms:(x.ini||x.mod||0) }); }
   const sent=semCards().filter(c=>c.created_by===me && c.assignee && c.assignee!==me && !semDelivered(c) && c.status!=='cancelled').map(semItemCard)
     .map(x=>({ k:meuChave(x), x, cv:null, aba:'time', ms:x.mod||0 }));
   const all=rows.concat(sent.filter(r=>!seen.has(r.k)));
@@ -532,7 +534,7 @@ function meuLinhaHtml(r){
     <span class="mcv-av">${av}</span>
     <div class="mcv-tx"><div class="mcv-l1">${x.code?`<span class="mcv-code">${esc(x.code)}</span>`:''}<span class="mcv-t">${esc(mdTitle(x.titulo||''))}</span><span class="mcv-h">${esc(meuQuando(r.ms))}</span></div>
     <div class="mcv-l2"><span class="mcv-p">${esc(prev)}</span>${c?`<span class="mcv-n" aria-label="${c.n} ${c.n===1?'novidade':'novidades'}">${c.n}</span>`:semChip(x)}</div></div>
-    <button type="button" class="mcv-more" data-meumais="${escA(r.k)}" aria-label="mais ações" aria-haspopup="menu" tabindex="-1">${IC.more||'⋯'}</button></div>`;
+    <button type="button" class="mcv-more" data-meumais="${escA(r.k)}" aria-label="mais ações de ${escA(x.code||mdTitle(x.titulo||''))}" aria-haspopup="menu">${IC.more||'⋯'}</button></div>`;
 }
 function meuPodeEncerrar(x){ return !!(x && x.local && !semFimMeu(x) && (x.who===semMe() || !x.card)); }
 function meuDetHtml(r){
@@ -541,14 +543,14 @@ function meuDetHtml(r){
   const evs=c?c.evs.slice().sort((a,b)=>(a.ms||0)-(b.ms||0)):[];
   const bub=e=>`<div class="meumsg"><span class="mcv-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="meubub">${esc(meuPrevia(e.s))}<small>${esc(meuQuando(e.ms))}</small></div></div>`;
   const corpo=evs.length?evs.map(bub).join('')
-    :`<p class="meudet-st">${x.trav?esc('Parou: '+(x.motivo||'travada')):x.esp?esc(x.motivo||'esperando você'):semFimMeu(x)?'Entregue.':x.bucket==='fila'?'Ainda não começou.':'A IA está trabalhando nela.'}</p>`;
+    :`<p class="meudet-st">${x.trav?esc('Parou: '+(x.motivo||'travada')):x.esp?esc(x.motivo||'esperando você'):meuEntregue(x)?'Entregue.':semFimMeu(x)?'Encerrada sem entregar.':x.bucket==='fila'?'Ainda não começou.':'A IA está trabalhando nela.'}</p>`;
   const acts=(c&&c.last.a)||[], pri=acts.find(a=>a.pri), outras=acts.filter(a=>a!==pri && !a.menu && !/^Encerrar/.test(a.l||'')).slice(0,2); // o Encerrar é o fixo da direita
   const apProva=c&&c.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(c.tid):'';
   return `<section class="meudet" aria-label="tarefa aberta">
     <div class="meudet-h"><div class="meudet-ti"><h2>${esc(mdTitle(x.titulo||''))}</h2><div class="meudet-m">${x.code?`<span class="mono">${esc(x.code)}</span>`:''}${semChip(x)}${ep?`<span class="meudet-ep">${IC.epic||''} ${esc(ep)}</span>`:''}${x.card&&x.who&&x.who!==semMe()?`<span>com ${esc(personName(x.who,{ noYou:true }))}</span>`:''}<span>${esc(meuQuando(x.mod)?'mexida '+meuQuando(x.mod):'')}</span></div></div>
       <button type="button" class="btn sm quiet" data-meuabrir="1">Abrir a tarefa ${semIc('arrowR')}</button></div>
     <div class="meudet-b">${corpo}${apProva}</div>
-    <div class="meudet-a" id="meuDetA">${pri?`<button type="button" class="btn primary" data-meuact="${acts.indexOf(pri)}">${esc(pri.l)}</button>`:`<button type="button" class="btn primary" data-meuabrir="1">Abrir a conversa</button>`}${outras.map(a=>`<button type="button" class="btn" data-meuact="${acts.indexOf(a)}">${esc(a.l)}</button>`).join('')}<span class="grow"></span>${meuPodeEncerrar(x)?`<button type="button" class="btn meu-enc" data-meuenc="1">Encerrar…</button>`:''}</div>
+    <div class="meudet-a" id="meuDetA">${pri?`<button type="button" class="btn primary" data-meuact="${acts.indexOf(pri)}">${esc(pri.l)}</button>`:`<button type="button" class="btn primary" data-meuabrir="1">Abrir a conversa</button>`}${outras.map(a=>`<button type="button" class="btn" data-meuact="${acts.indexOf(a)}">${esc(a.l)}</button>`).join('')}<span class="grow"></span>${meuPodeEncerrar(x)?`<button type="button" class="btn meu-enc" data-meuenc="1">Encerrar sem entregar…</button>`:''}</div>
   </section>`;
 }
 function meuHtml(){
@@ -572,6 +574,10 @@ function meuHtml(){
     </div></div>`;
 }
 function meuRowOf(k){ return meuModelo().all.find(r=>r.k===k)||null; }
+// a tarefa da linha SELECIONADA (o que A/P/E/espaço do 80-aprovar usam) — crítica 05/11 P0: os atalhos liam outra
+// seleção (AP.meuSel, a 1ª da lista) e o A aprovava uma tarefa que não era a que estava na tela
+function meuSelId(){ const r=meuSel?meuRowOf(meuSel):null; if(!r) return ''; return (r.cv&&r.cv.tid)||(r.x.local&&r.x.local.id)||''; }
+window.meuSelId=meuSelId;
 function meuWire(pg){
   const q=pg.querySelector('#meuQ');
   if(q){ q.oninput=()=>{ meuQ=q.value; semPaint('meu'); };
@@ -582,7 +588,7 @@ function meuWire(pg){
     el.ondblclick=()=>{ const r=meuRowOf(el.dataset.meusel); if(r) semAbrir(r.x); };
     el.onkeydown=e=>{
       if(e.key==='Enter'){ e.preventDefault(); const r=meuRowOf(el.dataset.meusel); if(r) semAbrir(r.x); }
-      else if(e.key==='ArrowDown'||e.key==='ArrowUp'){ e.preventDefault(); const all=[...pg.querySelectorAll('.mcv')], n=all[all.indexOf(el)+(e.key==='ArrowDown'?1:-1)]; if(n){ meuSel=n.dataset.meusel; semPaint('meu'); const s=pg.querySelector('.mcv.sel'); if(s) s.focus(); } }
+      else if(e.key==='ArrowDown'||e.key==='ArrowUp'||e.key==='j'||e.key==='k'){ e.preventDefault(); const dn=e.key==='ArrowDown'||e.key==='j', all=[...pg.querySelectorAll('.mcv')], n=all[all.indexOf(el)+(dn?1:-1)]; if(n){ meuSel=n.dataset.meusel; semPaint('meu'); const s=pg.querySelector('.mcv.sel'); if(s) s.focus(); } }
     };
   });
   pg.querySelectorAll('[data-meumais]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); const r=meuRowOf(b.dataset.meumais); if(r) meuMenu(b, r); });
@@ -597,7 +603,7 @@ function meuMenu(anchor, r){
   const html=`<div class="sempop-h">${esc(tit)}</div>`
     +`<button type="button" role="menuitem" class="sempop-o" data-mm="abrir"><span class="k"></span>${semIc('arrowR')}<span class="sempop-n">Abrir a tarefa</span></button>`
     +(x.card&&!semFimMeu(x)?`<button type="button" role="menuitem" class="sempop-o" data-mm="passar"><span class="k"></span>${semIc('people')}<span class="sempop-n">Passar pra alguém…</span></button>`:'')
-    +(meuPodeEncerrar(x)?`<button type="button" role="menuitem" class="sempop-o sempop-d" data-mm="enc"><span class="k"></span>${semIc('x')}<span class="sempop-n">Encerrar — não quero mais</span></button>`:'');
+    +(meuPodeEncerrar(x)?`<button type="button" role="menuitem" class="sempop-o sempop-d" data-mm="enc"><span class="k"></span>${semIc('x')}<span class="sempop-n">Encerrar sem entregar…</span></button>`:'');
   semPop(anchor, html, p=>p.querySelectorAll('[data-mm]').forEach(b=>b.onclick=()=>{ const v=b.dataset.mm; semPopClose();
     if(v==='abrir') semAbrir(x); else if(v==='passar') semMenu(anchor, x); else if(v==='enc') meuEncerrar(r, anchor); }), { label:'Ações de '+tit });
 }

@@ -111,7 +111,7 @@ test('não duplica regra: portões do rvGatesOf, PR pelo prCreateRun (a criaçã
   assert.match(JS, /checks_override_log/); assert.match(JS, /proofOverride\(t, motivo\)/); assert.match(JS, /rqChangeText\(/); assert.match(JS, /fwSendText\(taskId, msg\)/);
   const PR = read('js/21-pull-request.js');
   assert.match(PR, /async function mergePrRun\(taskId\)\{ await invoke\('merge_pr',\{ taskId, method:'squash' \}\)/);
-  assert.match(PR, /try\{ await mergePrRun\(taskId\); toast\('PR mergeado','ok'\)/, 'o merge com confirmação usa o mesmo caminho');
+  assert.match(PR, /async function mergePr\(taskId\)\{[\s\S]{0,600}return aprovarTarefa\(taskId\);/, 'crítica 05/11: Integrar na main da aba PR = o mesmo aprovarTarefa (uma régua, 4 s com Desfazer)');
   assert.match(PR, /async function proofOverride\(t, motivo\)/);
 });
 test('4 s com Desfazer antes do merge; Z desfaz; teclas de uma letra não roubam campo nem terminal', () => {
@@ -136,7 +136,7 @@ test('Central: filtro "Para aprovar", a linha aberta é o painel compacto, A/P/J
 test('Meu trabalho e Revisão ⌘3 usam o mesmo painel (compact / task) — a revisão por requisito continua a um clique', () => {
   const sem = read('js/76-casca-semana.js'), ws = read('js/20-workspace-tarefa.js'), te = read('js/77-tarefa-etapas.js');
   assert.match(sem, /apMeuEvento\(x, meta\(x, x\.mod\)\)/); assert.match(sem, /apMeuExpHtml\(c\.tid\)/);
-  assert.match(JS, /l:prAberto\?'Integrar':'Aprovar', pri:true/); assert.match(JS, /'Esconder provas':'Ver provas'/); // PR já aberto (86-pr-real): o mesmo botão integra
+  assert.match(JS, /l:'Integrar na main', pri:true/); assert.match(JS, /'Esconder provas':'Ver provas'/); // PR já aberto (86-pr-real): o mesmo botão integra
   assert.match(ws, /rvViewOf\(t\.id\)==='provas'\) apRenderTask\(t, main\)/);
   assert.match(te, /data-v="provas"/); assert.match(te, />Por requisito</);
   assert.match(RV, /function rvViewOf\(taskId\)\{ const v=rvViewM\[taskId\]; return v==='diff'\?'diff':v==='req'\|\|typeof apRenderTask!=='function'\?'req':'provas'; \}/);
@@ -231,7 +231,7 @@ test('encerrar: usa o status que o app já tem (cancelled + flag closed), close_
   assert.match(JS, /if\(AP\.pending && AP\.pending\.id===t\.id && AP\.pending\.kind!=='enc'\) return true;/, 'encerrando não prende a tarefa na fila');
   // em todo lugar: painel de provas (fila, Central, épico, Revisão), Meu trabalho e o ⋯ da tarefa
   assert.match(JS, /data-ap="encerrar"/); assert.match(JS, /if\(k==='encerrar'\) return void encerrarTarefa/);
-  assert.match(read('js/22-quadro-fluxo.js'), /item\('Encerrar — não quero mais…', \(\)=>encerrarTarefa\(taskId/);
+  assert.match(read('js/22-quadro-fluxo.js'), /item\('Encerrar sem entregar…', \(\)=>encerrarTarefa\(taskId/);
   const RS = readFileSync(new URL('../src-tauri/src/lib.rs', import.meta.url), 'utf8');
   assert.match(RS, /fn close_pr\(/); assert.match(RS, /"pr", "close", &branch\]/); assert.ok(!/fn close_pr[\s\S]{0,600}--delete-branch/.test(RS));
   assert.match(RS, /\n\s+close_pr,\n/);

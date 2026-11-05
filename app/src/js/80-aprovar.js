@@ -247,6 +247,7 @@ function apStKey(t, dec){
   if(!apAprovavel(t)) return typeof taskSt==='function'?taskSt(t):t.status;
   if(dec.kind==='conflito') return 'conflict';
   if(dec.precisa.includes('revisor')) return 'mudanca-pedida';
+  if(dec.precisa.includes('prova')) return 'falta-prova';
   return 'para-aprovar';
 }
 function apEpicoVm(t){
@@ -335,7 +336,7 @@ function apAlertHtml(v){
     const rv=d.precisa.includes('revisor'), pv=d.precisa.includes('prova');
     const parts=[]; if(rv) parts.push(`<b>O revisor pediu mudança${v.rev&&v.rev.n>1?' '+v.rev.n+' vezes':''}</b>${v.t.status==='needs-you'?' e a IA não conseguiu resolver sozinha':''}`);
     if(pv){ const m=v.rows.filter(r=>!(r.st==='ok'&&(r.evidence||[]).length)).length; parts.push(`<b>${m} requisito${m===1?'':'s'} sem prova</b>`); }
-    return `<div class="apv-after r">${apIc('alert')}<span>${parts.join(' e ')}. Peça a alteração (já vem preenchida) ou aprove mesmo assim dizendo por quê.</span></div>`;
+    return `<div class="apv-after r">${apIc('alert')}<span>${parts.join(' e ')}. Peça a alteração (já vem preenchida) ou integre sem prova dizendo por quê.</span></div>`;
   }
   return `<div class="apv-after ${v.after.c}">${apIc(v.after.c?'clock':'merge')}<span><b>Ao aprovar:</b> ${v.after.h}</span></div>`;
 }
@@ -359,9 +360,9 @@ function apFootHtml(v, mode){
   if(ui && ui.mode==='why'){
     const rv=v.dec.precisa.includes('revisor');
     const oque=ui.chk?(ui.chk==='fail'?'com a verificação do projeto falhando':'sem a verificação do projeto'):rv?'com o revisor pedindo mudança':'sem a prova de todos os requisitos';
-    return `<div class="apv-ask"><label for="apTa-${id}" class="apv-askl">Aprovar mesmo ${oque}. Por quê? <span class="apv-dim">fica registrado no PR, na entrega e na Semana do time</span></label>`
+    return `<div class="apv-ask"><label for="apTa-${id}" class="apv-askl">Integrar mesmo ${oque}. Por quê? <span class="apv-dim">fica registrado no PR, na entrega e na Semana do time</span></label>`
       +`<textarea id="apTa-${id}" class="apv-ta" rows="2" data-apta="why" data-id="${id}" placeholder="Ex.: os R$ 0,02 viram uma tarefa separada; o aviso no celular já está na LOJA-27"></textarea>`
-      +`<div class="apv-row"><button type="button" class="btn primary sm" data-ap="motivo" data-id="${id}">${apIc('check')}Aprovar com motivo ${apKbd('⌘↵')}</button><button type="button" class="btn ghost sm" data-ap="cancelar" data-id="${id}">Cancelar ${apKbd('Esc')}</button></div></div>`;
+      +`<div class="apv-row"><button type="button" class="btn primary sm" data-ap="motivo" data-id="${id}">${apIc('check')}Integrar com motivo ${apKbd('⌘↵')}</button><button type="button" class="btn ghost sm" data-ap="cancelar" data-id="${id}">Cancelar ${apKbd('Esc')}</button></div></div>`;
   }
   if(!v.pode) return `<div class="apv-acts"><span class="apv-dim">aprova: <b>${esc(apWhoName(v.quem))}</b></span><button type="button" class="btn sm" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><span class="apv-sp"></span>${open}</div>`;
   const enc=`<button type="button" class="btn ghost sm apv-enc" data-ap="encerrar" data-id="${id}" title="a tarefa não vai pra frente: cancela, fecha o PR e a issue">${apIc('x')}Encerrar sem entregar… ${apKbd('E')}</button>`;
@@ -369,17 +370,17 @@ function apFootHtml(v, mode){
   const bk=AP.blk[v.id];
   if(bk) return `<div class="apv-blkrow" role="alert"><div class="apv-after w">${apIc('alert')}<span><b>Ainda não aprovei.</b> ${esc(bk.why)}</span></div><div class="apv-acts">${apBlkBtns(v.id, bk.acts, 'btn')}<span class="apv-sp"></span>${enc}${open}</div></div>`;
   const d=v.dec; let prim;
-  if(d.kind==='conflito') prim=`<button type="button" class="btn primary" data-ap="conflito" data-id="${id}">${apIc('spark')}Resolver conflito</button><button type="button" class="btn" disabled aria-disabled="true" title="Resolva o conflito primeiro">${apIc('check')}Aprovar</button>`;
-  else if(d.kind==='motivo') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" data-ap="aprovar" data-id="${id}">Aprovar mesmo assim… ${apKbd('A')}</button>`;
-  else if(d.kind==='bloqueado') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" disabled aria-disabled="true" title="${escA(d.why)}">${apIc('check')}Aprovar</button>`;
-  else prim=`<button type="button" class="btn primary" data-ap="aprovar" data-id="${id}">${apIc('check')}${v.info&&v.info.state==='OPEN'?'Integrar':'Aprovar'} ${apKbd('A')}</button><button type="button" class="btn" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button>`;
+  if(d.kind==='conflito') prim=`<button type="button" class="btn primary" data-ap="conflito" data-id="${id}">${apIc('spark')}Resolver conflito</button><button type="button" class="btn" disabled aria-disabled="true" title="Resolva o conflito primeiro">${apIc('check')}Integrar na main</button>`;
+  else if(d.kind==='motivo') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" data-ap="aprovar" data-id="${id}">Integrar sem prova… ${apKbd('A')}</button>`;
+  else if(d.kind==='bloqueado') prim=`<button type="button" class="btn primary" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button><button type="button" class="btn" disabled aria-disabled="true" title="${escA(d.why)}">${apIc('check')}Integrar na main</button>`;
+  else prim=`<button type="button" class="btn primary" data-ap="aprovar" data-id="${id}">${apIc('check')}Integrar na main ${apKbd('A')}</button><button type="button" class="btn" data-ap="pedir" data-id="${id}">${apIc('msg')}Pedir alteração ${apKbd('P')}</button>`;
   return `<div class="apv-acts">${prim}<span class="apv-sp"></span>${enc}${open}</div>`;
 }
 // os botões da ação certa pra cada bloqueio (o 1º é o principal). cls: 'btn' (painel) · 'btn sm' (linha do Meu trabalho)
 const AP_BLK_ACT={
   verif:{ l:'Rodar a verificação', ic:'spark', tip:'roda os testes e as checagens do projeto e, se passar, segue aprovando' },
-  naorodou:{ l:'Aprovar sem essa checagem', ic:'check', tip:'pede só uma confirmação — fica anotado na descrição do PR' },
-  chkwhy:{ l:'Aprovar mesmo assim…', ic:'check', tip:'pede um motivo — vai na descrição do PR e fica registrado' },
+  naorodou:{ l:'Integrar sem essa checagem', ic:'check', tip:'pede só uma confirmação — fica anotado na descrição do PR' },
+  chkwhy:{ l:'Integrar mesmo assim…', ic:'check', tip:'pede um motivo — vai na descrição do PR e fica registrado' },
   pedir:{ l:'Pedir alteração', ic:'msg' }, retry:{ l:'Tentar de novo', ic:'undo' }, conflito:{ l:'Resolver conflito', ic:'spark' },
   publicar:{ l:'Publicar no GitHub', ic:'arrow' }, prweb:{ l:'Criar o PR no navegador', ic:'arrow' }, entrega:{ l:'Abrir os entregáveis', ic:'arrow' }, pr:{ l:'Ver o PR ↗', ic:'merge' },
 };
@@ -917,13 +918,13 @@ function apMeuEvento(x, meta){
   else if(prAberto) s=prrFrase({ kind:'open', pr:prN }, tt);
   else s=`<b>A IA</b> terminou ${tt}${n?` com ${ok} de ${n} requisitos provados`:''}${espera}.`;
   const a=[];
-  if(v.pode && v.dec.kind==='ok') a.push({ l:prAberto?'Integrar':'Aprovar', pri:true, ap:'aprovar', act:()=>aprovarTarefa(id) });
+  if(v.pode && v.dec.kind==='ok') a.push({ l:'Integrar na main', pri:true, ap:'aprovar', act:()=>aprovarTarefa(id) }); // crítica 05/11: um verbo só (prAberto ou não, o fim é o mesmo)
   a.push(Object.assign(verProvas, { pri:!(v.pode&&v.dec.kind==='ok') }));
   if(v.pode) a.push(encerrar);
   // não deu pra conferir o PR (sem gh, sem acesso, sem rede): diz, em vez de ficar calado, com as duas saídas
   let mm=m;
   if(pd.kind==='unknown'){ mm=[m, 'não consegui conferir o PR no GitHub — o motivo está em Ver provas'].filter(Boolean).join(' · '); a.push({ l:'Conferir de novo', q:true, act:()=>prrDeNovo(id) }); }
-  if(v.pode && typeof prrJaIntegrei==='function') a.push({ l:'Já integrei', q:true, act:(b)=>prrJaIntegrei(id, b) });
+  if(v.pode && typeof prrJaIntegrei==='function') a.push({ l:'PR feito fora do app?', q:true, act:(b)=>prrJaIntegrei(id, b) });
   return { ms:apMod(t), av:'ia', s, m:mm, a, tid:id };
 }
 window.apMeuEvento=apMeuEvento;
@@ -999,9 +1000,9 @@ document.addEventListener('keydown', (e)=>{
     return;
   }
   if(c==='meu'){
-    const L=apMeuIds(); if(!L.length) return; let i=L.indexOf(AP.meuSel); if(i<0) i=0;
-    if(k==='j'||k==='k'){ e.preventDefault(); AP.meuSel=L[apNav(L.length, i, k==='k'?-1:1)]; if(AP.meuExp) AP.meuExp=AP.meuSel; apRefresh(); const el=document.querySelector(`#meuPage [data-aptid="${CSS.escape(AP.meuSel)}"]`); if(el) el.scrollIntoView({ block:'nearest' }); return; }
-    const cur=L[i];
+    // UMA seleção: a linha que está selecionada no Meu trabalho (76 meuSelId). Sem linha selecionada, nada acontece.
+    // (antes J/K e A/P/E andavam num cursor próprio, AP.meuSel, e o A aprovava a 1ª tarefa da lista — crítica 05/11 P0)
+    const cur=(typeof meuSelId==='function')?meuSelId():''; if(!cur) return;
     if(k===' ' && !(e.target.closest && e.target.closest('button,[role=button]'))){ e.preventDefault(); AP.meuSel=cur; AP.meuExp=AP.meuExp===cur?'':cur; apRefresh(); return; }
     if(k==='a'){ e.preventDefault(); AP.meuSel=cur; aprovarTarefa(cur); return; }
     if(k==='p'){ e.preventDefault(); AP.meuSel=cur; AP.meuExp=cur; apPedirAbrir(cur); return; }

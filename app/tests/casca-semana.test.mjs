@@ -187,6 +187,6 @@ test('Meu trabalho redesenhado: aba de cada tarefa, busca por código/título/is
   assert.equal(M.meuAbaDe({ st: 'merged', done: true }, true), 'feita', 'entregue não volta pra "Precisa de você"');
   const x = { code: 'LW-41', titulo: 'Checkout lento no cartão', local: { issueCode: 'GH-77' } };
   assert.ok(M.meuBate(x, 'lw-41')); assert.ok(M.meuBate(x, 'cartao')); assert.ok(M.meuBate(x, 'gh-77')); assert.ok(!M.meuBate(x, 'frete'));
-  assert.match(src, /data-meuenc="1">Encerrar…/); assert.match(src, /Encerrar — não quero mais/);
+  assert.match(src, /data-meuenc="1">Encerrar sem entregar…/); assert.match(src, /sempop-n">Encerrar sem entregar…/);
   assert.match(read('js/10-core.js'), /semAtiva\(\)==='meu'\)\{ const q=\$id\('meuQ'\)/, '⌘K foca a busca do Meu trabalho');
 });

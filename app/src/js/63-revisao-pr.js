@@ -94,7 +94,8 @@ function rvPinItems(items, files){
 function rvGatesOf(x){
   const G=[];
   const p=x.proof||{};
-  G.push(p.st==='none'||!p.n ? { id:'prova', label:'Requisitos com prova', st:'na', val:'tarefa sem requisitos' }
+  // crítica 05/11 (dono: "pede motivo"): sem requisito não há o que provar — integrar pede o motivo, igual a prova faltando
+  G.push(p.st==='none'||!p.n ? { id:'prova', label:'Requisitos com prova', st:'bad', val:'tarefa sem requisitos', why:'requisitos com prova (esta tarefa não tem nenhum)' }
     : p.st==='loading' ? { id:'prova', label:'Requisitos com prova', st:'wn', val:'conferindo as provas…', why:'conferir as provas' }
     : p.st==='proven' ? { id:'prova', label:'Requisitos com prova', st:'ok', val:`${p.n}/${p.n} com prova` }
     : p.st==='override' ? { id:'prova', label:'Requisitos com prova', st:'ok', val:`${p.n-p.missing}/${p.n} · liberado com motivo` }
@@ -432,7 +433,7 @@ function prvRender(t, main, info){
   const { m, gates, first }=prvGates(t, info);
   const open=info.state==='OPEN';
   const extra=open?prvExtraBlock(info):'';
-  const why=open?rvMissingText(gates, extra):'';
+  const why=open?(extra||(gates.some(g=>g.id==='conflito'&&g.st==='bad')?'a branch conflita com a main — resolva o conflito antes':'')):''; // a régua de integrar é a do painel (80 apDecide); aqui só o que o GitHub impede
   const openCm=prvOpenComments(t, info).length;
   const fixable=openCm>0 || gates.some(g=>g.st==='bad' && ['prova','revisor','checks','conflito'].includes(g.id));
   const gHtml=gates.map(g=>`<div class="prvg ${g.st}"><span class="prvst">${g.st==='ok'?'ok':g.st==='bad'?'falhou':g.st==='wn'?'falta':g.st==='run'?'andando':'não se aplica'}</span><b>${esc(g.label)}</b><small>${esc(g.val)}</small>${prvGateExit(g, first)}</div>`).join('');

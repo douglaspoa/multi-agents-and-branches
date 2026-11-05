@@ -42,10 +42,10 @@ test('portão de prova vale em TODA porta de aprovação (cabeçalho, card da Ce
   const gate = cut(pr, 'async function approveGateRun(t){', '\n}\n'); // approveGate = trava contra duplo clique + approveGateRun
   assert.match(gate, /proofGate\(t\)[\s\S]*st==='unproven'[\s\S]*approveShowEntrega[\s\S]*chkEnsure\(t\)[\s\S]*chkApproveClick\(t\)/);
   // cabeçalho: sem prova o verde é "pedir a prova ao agente"; "aprovar sem prova…" é secundário (e está no ⋯)
-  assert.match(ws, /proofGate\(t\)\.st==='unproven'\)\s*\? \{ id:'fwAskProof', html:`\$\{IC\.ai\} pedir a prova ao agente`/);
-  assert.match(ws, /id="fwNoProof"[^`]*>aprovar sem prova…<\/button>/);
-  assert.match(ws, /if\(prim==='fwAskProof'\) it\.push\(\{ k:'noproof', label:'aprovar sem prova…'/);
-  assert.match(ws, /bindClick\('fwApprove', \(\)=>approveGate\(t\)\);/);
+  assert.match(ws, /proofGate\(t\)\.st==='unproven'\)\s*\? \{ id:'fwAskProof', html:`\$\{IC\.ai\} Pedir a prova`/);
+  assert.match(ws, /id="fwNoProof"[^`]*>Integrar sem prova…<\/button>/);
+  assert.match(ws, /if\(prim==='fwAskProof'\) it\.push\(\{ k:'noproof', label:'Integrar sem prova…'/);
+  assert.match(ws, /bindClick\('fwRevisar', \(\)=>fwIrPraRevisao\(t\)\);/); // crítica 05/11: o cabeçalho leva ao ÚNICO Integrar (Revisão)
   assert.match(ws, /bindClick\('prPgCreate', \(\)=>approveGate\(t\)\);/);
   // card da Central: não pula mais direto pro prPrepOpen
   assert.match(qf, /data-rowpr[\s\S]{0,200}crossRun\(id, \(\)=>approveGate\(taskOfId\(id\)\)\)/);
@@ -94,7 +94,7 @@ test('cabeçalho: no painel sem título/×, UMA pílula de estado, Dispositivo n
   assert.ok(!/class="pd/.test(ph), 'sem os 5 pontos'); assert.match(ph, /class="fwstpill"/); assert.match(ph, /fase '\+/);
   assert.ok(!/id="fwDevBtn"/.test(html));
   { const ah = cut(ws, 'function fwActionHtml(t){', '\n}\n'); assert.match(ah, /aria-label="\$\{escA\(lbl\)\}"/); assert.match(ah, /class="fwal"/); }
-  assert.match(css, /\.fwhead\.tight #fwReviewBar \.btn \.fwal\{display:none\}/);
+  assert.doesNotMatch(css, /\.fwal\{display:none\}/, 'crítica 05/11: a ação principal nunca perde o texto'); assert.match(css, /\.fwhead\.tight \.fwrqbtn\{display:none\}/, 'quem sai primeiro é o secundário');
   assert.match(ws, /head\.scrollWidth>head\.clientWidth\+1\) head\.classList\.add\('tight'\)/, 'mede o próprio cabeçalho (ResizeObserver), sem laço');
   assert.match(css, /\.cmsg \.cbub\{min-width:0;overflow-wrap:anywhere\}/, 'mensagem do chat quebra');
   assert.match(css, /\.bus #clock\{flex:0 1 auto;min-width:0;overflow:hidden/, 'relógio não empurra a Central');

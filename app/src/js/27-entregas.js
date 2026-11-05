@@ -24,7 +24,7 @@ function reqRows(t){
   const c=reqProofCache[t.id];
   const m=matchReqProofs(reqs, c&&c.list);
   // did/code/tests: o mapa requisito→trechos que o agente registra (Revisão por requisito, 63-revisao-pr); "pending" = mapeado, ainda sem prova
-  return reqs.map((r,i)=>{ const p=m[i]; const st=p?(p.status==='done'?'ok':p.status==='pending'?'na':'blk'):'na'; return { text:r, st, status:(p&&p.status)||'', evidence:(p&&Array.isArray(p.evidence))?p.evidence:[], note:(p&&p.note)||'',
+  return reqs.map((r,i)=>{ const p=m[i]; const st=p?(p.status==='done'?'ok':p.status==='pending'?'na':'blk'):'na'; return { text:(typeof r==='string'?r:String((r&&(r.text||r.title))||'')), st, status:(p&&p.status)||'', evidence:(p&&Array.isArray(p.evidence))?p.evidence:[], note:(p&&p.note)||'',
     did:(p&&typeof p.did==='string')?p.did:'', code:(p&&Array.isArray(p.code))?p.code:null, tests:(p&&Array.isArray(p.tests))?p.tests:[] }; });
 }
 // nome AMIGÁVEL do modelo pros cards do quadro: "claude-sonnet-4-5" → "Sonnet 4.5"; id que não dá pra
@@ -263,7 +263,7 @@ function enVerifHtml(t){
   return `<section class="en-sec en-verif vf-${done&&['notrun','stale'].includes(g.st)?'done':g.st}" id="enVerif">
     <div class="seclbl2">Verificação <span class="dim">· testes e checagens automáticas, rodadas de verdade, com o resultado de cada uma</span><span style="flex:1"></span>
       <span class="vf-pill ${pillShown[1]}">${pillShown[0]}</span>${runBtn}<button class="btn sm ghost" data-encfg="1" title="quais checagens rodam neste projeto (fica em .cardume/checks.json)">${IC.wrench||''} checagens</button></div>
-    ${gl.on?`<div class="vf-sum vf-gate">${IC.check||''}<span>${gl.html}</span></div>`:''}
+    ${gl.on?`<div class="vf-sum vf-gate ${pg0.st==='proven'||pg0.st==='override'?'ok':'falta'}">${pg0.st==='proven'||pg0.st==='override'?(IC.check||''):(IC.warn||'')}<span>${gl.html}</span></div>`:''}
     <div class="vf-sum">${sum}</div>
     ${rows?`<div class="vf-rows">${rows}</div>`:''}
     ${cfgOpen?`<div class="vf-cfg" id="enChkCfg"></div>`:''}

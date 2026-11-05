@@ -117,7 +117,9 @@ test('integrada (merge) só quando dá pra saber que a tarefa tem código; os do
   assert.equal(offers({ id: 'b', status: 'review', type: 'invest', prUrl: 'x' }), false, 'investigação nunca');
   assert.equal(offers({ id: 'c', status: 'review', prUrl: 'https://x/pull/1' }), true, 'com PR: aparece');
   assert.equal(offers({ id: 'd', status: 'merged', type: 'design' }), true, 'já integrada: mantém (é o estado atual)');
-  assert.match(fn(q, 'openTaskMenu'), /if\(t\.status!=='merged' && taskOffersMerge\(t\)\) item\('marcar como integrada/);
+  // crítica 05/11: "marcar como integrada" saiu do ⋯ (virou "PR feito fora do app?…"); concluir só pra quem não tem código
+  assert.match(fn(q, 'openTaskMenu'), /if\(t\.flag!=='closed' && !taskOffersMerge\(t\)\) item\('concluir · sai da fila'/);
+  assert.doesNotMatch(fn(q, 'openTaskMenu'), /marcar como integrada/);
   assert.match(fn(q, 'openStatusMenu'), /if\(!taskOffersMerge\(t\)\)\{ const i=opts\.findIndex\(o=>o\.key==='merged'\)/);
 });
 
