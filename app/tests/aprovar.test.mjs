@@ -213,7 +213,7 @@ test('aprovar: o Meu trabalho mostra o andamento e o bloqueio na própria linha 
   const f = cut(JS, 'function apMeuEvento(', 'window.apMeuEvento');
   assert.match(f, /data-apcd/); assert.match(f, /Desfazer \(Z\)/); assert.match(f, /Ainda não aprovei/); assert.match(f, /Encerrar…/);
   const S = read('js/76-casca-semana.js');
-  assert.match(S, /a\.act\(b\)/); assert.match(S, /a\.q\?' quiet'/);
+  assert.match(S, /a\.act\(b\)/); assert.match(S, /data-mcv=/); // 05/11: Meu trabalho = conversas; as ações ficam dentro da tarefa
 });
 test('encerrar: o plano diz o que acontece (PR fecha e a branch fica, issue fecha ou link, cartão, 4 s)', () => {
   const L = P.apEncerrarPlano({ pr: 12, issue: 'LOJA-12', painel: 'fecha', time: true, rodando: true }).join('\n');
