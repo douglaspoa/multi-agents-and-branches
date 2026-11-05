@@ -161,3 +161,17 @@ test('Precisa de mim vira lista de conversas: 1 linha por tarefa, contador, pré
   assert.match(src, /data-mcv="\$\{i\}"/);
   assert.doesNotMatch(src, /data-meva=/, 'os botões por alerta saíram');
 });
+
+test('Minha semana: dentro do dia, a que começou por último vem primeiro (05/11)', () => {
+  const src = read('js/76-casca-semana.js');
+  const pure = src.slice(src.indexOf('// @mws-puro-inicio'), src.indexOf('// @mws-puro-fim'));
+  const dia0 = src.match(/function semDia0\(ms\)\{[^\n]*\n/)[0];
+  const consts = src.match(/const SEM_DIAS_LONGO=[^\n]*\n/)[0] + src.match(/const SEM_MESES=[^\n]*\n/)[0];
+  const M = new Function('semEntregueEm', consts + dia0 + pure + '\nreturn { semDiasMinha };')(() => 0);
+  const now = new Date(2026, 10, 5, 15, 0).getTime(), D = 86400000;
+  const d = M.semDiasMinha([
+    { id: 'velha', mod: now - 60000, ini: now - 3 * D, st: 'review' },  // sincronizada há 1 min
+    { id: 'nova', mod: now - 600000, ini: now - 600000, st: 'running' }, // iniciada há 10 min
+  ], now);
+  assert.deepEqual(d[0].abertas.map(x => x.id), ['nova', 'velha']);
+});
