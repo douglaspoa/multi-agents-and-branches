@@ -245,7 +245,64 @@ pub(crate) fn set_repo_account(repo: &Path, gh: &str, account: &str) -> Result<(
             return Err(format!("git config: {}", String::from_utf8_lossy(&o.stderr).trim()));
         }
     }
+    // o autor dos commits acompanha a conta do push (se a pessoa não escolheu outro à mão)
+    let _ = ensure_repo_identity(repo, gh);
     Ok(())
+}
+
+/// Config local que diz "a identidade dos commits deste repo foi gravada pelo app, pra esta conta".
+pub(crate) const IDENTITY_KEY: &str = "starfork.identity";
+
+/// E-mail do commit a partir do que o GitHub devolve (`gh api user` e, se der, `gh api user/emails`):
+/// o primário verificado › o público do perfil › o noreply da conta (`<id>+<login>@users.noreply.github.com`).
+/// O noreply é o que o GitHub usa quando o e-mail é privado — o commit continua sendo atribuído à conta.
+pub(crate) fn pick_commit_email(user: &serde_json::Value, emails: Option<&serde_json::Value>) -> Option<String> {
+    let ok = |e: &str| e.contains('@') && !e.contains(char::is_whitespace);
+    if let Some(list) = emails.and_then(|v| v.as_array()) {
+        if let Some(e) = list.iter().find(|e| e["primary"].as_bool() == Some(true) && e["verified"].as_bool() == Some(true)).and_then(|e| e["email"].as_str()) {
+            if ok(e) { return Some(e.to_string()); }
+        }
+    }
+    if let Some(e) = user["email"].as_str().filter(|e| ok(e)) { return Some(e.to_string()); }
+    let login = user["login"].as_str()?;
+    let id = user["id"].as_u64()?;
+    Some(format!("{id}+{login}@users.noreply.github.com"))
+}
+
+/// Nome e e-mail do autor pra `account` (consulta o GitHub como ela; token só no ambiente do filho).
+pub(crate) fn account_identity(gh: &str, account: &str) -> Option<(String, String)> {
+    if !valid_account(account) { return None; }
+    let get = |path: &str| -> Option<serde_json::Value> {
+        let mut c = gh_as(gh, account);
+        c.args(["api", path]);
+        let o = output_timeout(c, 12).ok().filter(|o| o.status.success())?;
+        serde_json::from_slice(&o.stdout).ok()
+    };
+    let user = get("user")?;
+    if user["login"].as_str().map(|l| !l.eq_ignore_ascii_case(account)).unwrap_or(true) { return None; } // token de outra conta: não grava nada
+    let emails = get("user/emails"); // precisa do escopo user:email — sem ele, cai no público/noreply
+    let email = pick_commit_email(&user, emails.as_ref())?;
+    let name = user["name"].as_str().map(str::trim).filter(|n| !n.is_empty()).unwrap_or(account).to_string();
+    Some((name, email))
+}
+
+/// Os commits deste repo (e das worktrees das tarefas, que leem o mesmo config local) saem como a conta do PUSH.
+/// Antes o push ia como a conta certa (ex.: a do trabalho), mas o autor vinha do ~/.gitconfig (a pessoal).
+/// Não mexe se a pessoa gravou user.email à mão no repo (sem a marca IDENTITY_KEY). → Some(email) se gravou agora.
+pub(crate) fn ensure_repo_identity(repo: &Path, gh: &str) -> Option<String> {
+    let acc = repo_account(repo)?;
+    let mine = Command::new("git").arg("-C").arg(repo).args(["config", "--local", "--get", IDENTITY_KEY]).output().ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+    let local_email = Command::new("git").arg("-C").arg(repo).args(["config", "--local", "--get", "user.email"]).output().ok()
+        .filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).unwrap_or_default();
+    if !local_email.is_empty() && mine.is_empty() { return None; } // escolha da pessoa
+    if mine == acc && !local_email.is_empty() { return None; } // já está certo
+    let (name, email) = account_identity(gh, &acc)?;
+    for args in [vec!["user.name", name.as_str()], vec!["user.email", email.as_str()], vec![IDENTITY_KEY, acc.as_str()]] {
+        let o = git_cfg(repo, &args).ok()?;
+        if !o.status.success() { return None; }
+    }
+    Some(email)
 }
 
 /// Mensagem pro usuário quando o app escolheu a conta do push sozinho.
@@ -344,6 +401,30 @@ pub(crate) fn git_push_any_account(dir: &Path, args: &[&str]) -> Result<(Output,
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn email_do_commit_primario_publico_ou_noreply() {
+        let u = serde_json::json!({ "login": "loja-dev", "id": 42, "email": null });
+        assert_eq!(pick_commit_email(&u, None).as_deref(), Some("42+loja-dev@users.noreply.github.com"));
+        let pub_ = serde_json::json!({ "login": "loja-dev", "id": 42, "email": "dev@loja.example" });
+        assert_eq!(pick_commit_email(&pub_, None).as_deref(), Some("dev@loja.example"));
+        let em = serde_json::json!([{ "email": "outro@x.example", "primary": false, "verified": true }, { "email": "dev@empresa.example", "primary": true, "verified": true }]);
+        assert_eq!(pick_commit_email(&u, Some(&em)).as_deref(), Some("dev@empresa.example"));
+        let nao_verif = serde_json::json!([{ "email": "dev@empresa.example", "primary": true, "verified": false }]);
+        assert_eq!(pick_commit_email(&u, Some(&nao_verif)).as_deref(), Some("42+loja-dev@users.noreply.github.com"));
+        assert_eq!(pick_commit_email(&serde_json::json!({}), None), None);
+    }
+    #[test]
+    fn identidade_nao_sobrescreve_a_escolha_da_pessoa() {
+        let d = std::env::temp_dir().join(format!("sf-ident-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d); std::fs::create_dir_all(&d).unwrap();
+        Command::new("git").arg("-C").arg(&d).arg("init").arg("-q").output().unwrap();
+        Command::new("git").arg("-C").arg(&d).args(["config", "--local", CRED_USER_KEY, "loja-dev"]).output().unwrap();
+        Command::new("git").arg("-C").arg(&d).args(["config", "--local", "user.email", "escolhi@mao.example"]).output().unwrap();
+        assert_eq!(ensure_repo_identity(&d, "/bin/false"), None, "e-mail local sem a marca do app: não mexe");
+        let o = Command::new("git").arg("-C").arg(&d).args(["config", "--local", "--get", "user.email"]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&o.stdout).trim(), "escolhi@mao.example");
+        let _ = std::fs::remove_dir_all(&d);
+    }
     use std::path::PathBuf;
 
     fn tmpdir(tag: &str) -> PathBuf {

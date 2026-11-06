@@ -2467,6 +2467,8 @@ fn git_init_repo(state: State<AppState>) -> Result<String, String> {
 
 fn open_project_at(state: &AppState, path: &str) -> Result<String, String> {
     let repo = PathBuf::from(path);
+    // autor dos commits = a conta do push deste repo (o ~/.gitconfig pode ser de outra conta) — em segundo plano
+    { let r = repo.clone(); std::thread::spawn(move || { let _ = gh_contas::ensure_repo_identity(&r, &gh_bin()); }); }
     let is_git = Command::new("git")
         .arg("-C")
         .arg(&repo)
