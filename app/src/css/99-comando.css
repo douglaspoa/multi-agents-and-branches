@@ -71,4 +71,16 @@
 .cmdask{border:1px solid var(--st-ask);border-radius:var(--r);overflow:hidden}
 .cmdinst{display:flex;gap:8px;position:sticky;bottom:-26px;background:var(--bg);padding:10px 0 26px;margin-bottom:-26px}
 .cmdinst .in{flex:1;min-width:0;height:36px}
+/* issue do painel: começar daqui */
+.cmdisss{display:flex;flex-direction:column;gap:8px}
+.cmdiss{border:1px solid var(--border);border-radius:var(--r);background:var(--surface);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.cmdiss-h{display:flex;gap:10px;align-items:baseline;min-width:0}
+.cmdiss-h b{font-weight:500;min-width:0;overflow-wrap:anywhere}
+.cmdiss-a{display:flex;gap:8px;flex-wrap:wrap}
+/* conversa por voz */
+.cmdmic{display:inline-flex;align-items:center;gap:6px;flex:none}
+.cmdmic.on{border-color:var(--st-ask);color:var(--st-ask)}
+.cmdmic.on svg{animation:cmdmic 1.4s ease-in-out infinite}
+@keyframes cmdmic{50%{opacity:.4}}
+@media (prefers-reduced-motion:reduce){ .cmdmic.on svg{animation:none} }
 @media (max-width:980px){ .cmdpg{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr)} .cmdchat{border-right:0;border-bottom:1px solid var(--border)} }

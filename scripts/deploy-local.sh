@@ -57,10 +57,16 @@ echo "→ marca dev: $(git rev-parse --short HEAD) ($(git rev-parse --abbrev-ref
 # Developer ID quando existir (identidade definitiva); senão ad-hoc.
 # NUNCA usar "Apple Development" aqui: sem provisioning profile o Gatekeeper
 # marca o app como malware e move pro Lixo (aconteceu — não repetir).
+# Comando por voz: o macOS só pergunta do microfone/fala se o app disser pra que quer (sem isso, nega calado)
+ENT="app/src-tauri/Entitlements.plist"
+for kv in "NSMicrophoneUsageDescription|O Starfork ouve você na conversa por voz da aba Comando." "NSSpeechRecognitionUsageDescription|O Starfork transforma sua fala em texto na conversa por voz da aba Comando."; do
+  k="${kv%%|*}"; v="${kv#*|}"
+  /usr/libexec/PlistBuddy -c "Set :$k $v" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :$k string $v" "$PL"
+done
 DEVID=$( (security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"') || true )
 if [ -n "$DEVID" ]; then
   echo "→ assinando com: $DEVID"
-  codesign --force --deep --options runtime --timestamp --sign "$DEVID" "$APP"
+  codesign --force --deep --options runtime --timestamp --entitlements "$ENT" --sign "$DEVID" "$APP"
 else
   echo "→ sem Developer ID — assinatura ad-hoc (o macOS pode re-pedir permissões)"
   codesign --force --deep --sign - "$APP"
