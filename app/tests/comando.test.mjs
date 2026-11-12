@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -120,5 +120,14 @@ test('assistente: avisa o que é novo, uma vez; resolveu e voltou, avisa de novo
   const p3 = C.cmdNovos(C.cmdNeeds([{ id:'a', st:'running' }]), p2.seen);
   assert.deepEqual(p3.seen, [], 'o que se resolveu sai da lista');
   assert.deepEqual(C.cmdNovos(C.cmdNeeds([{ id:'a', st:'review' }]), p3.seen).novos.map(x => x.id), ['a'], 'terminou de novo: avisa de novo');
-  assert.ok(HTML.includes('id="comandoCnt"') && /Precisamos conversar sobre/.test(JS) && /cmdWatch\(\); if\(cmdAtiva\(\)\)/.test(JS), 'contador na lateral e vigia a cada atualização, com a aba aberta ou não');
+  assert.ok(HTML.includes('id="comandoCnt"') && /Precisamos conversar sobre/.test(JS) && /cmdWatch\(\); cmdWatchOutros\(\); if\(cmdAtiva\(\)\)/.test(JS), 'contador na lateral e vigia a cada atualização, com a aba aberta ou não');
+});
+
+test('assistente: sugestão vem com a instrução pronta; outros projetos entram na vigia', () => {
+  assert.deepEqual(C.cmdSugestaoDe('SUGESTAO: O teste falha por fuso. Eu trocaria pra UTC.\nINSTRUCAO: Use UTC na virada do dia e rode os testes.'),
+    { sug:'O teste falha por fuso. Eu trocaria pra UTC.', ins:'Use UTC na virada do dia e rode os testes.' });
+  assert.deepEqual(C.cmdSugestaoDe('Sugestão: Está tudo provado; é só aprovar.\nInstrução: vazio'), { sug:'Está tudo provado; é só aprovar.', ins:'' });
+  assert.deepEqual(C.cmdSugestaoDe('texto solto sem formato'), { sug:'texto solto sem formato', ins:'' });
+  assert.ok(/t\.repo!==repo/.test(JS) && /pushNotif\(/.test(JS) && /cmdseen:outros/.test(JS), 'outros projetos: aviso + notificação do sistema, lembrados à parte');
+  assert.ok(/data-cmdmandar/.test(JS) && /m\.sent=true/.test(JS), 'a instrução sugerida só vai pro agente com o clique');
 });

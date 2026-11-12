@@ -91,6 +91,12 @@
 .cmdagora{border-left:2px solid var(--accent);padding-left:10px;display:flex;flex-direction:column;gap:2px}
 .cmdagora small{color:var(--muted);font-size:var(--fs-sm)}
 .cmdfacts{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:2px;color:var(--ink-2,var(--muted))}
+.cmdresumo{border:1px solid var(--border);border-radius:var(--r);background:var(--surface);padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.cmdresumo-h{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.cmdresumo-h span{font-size:var(--fs-sm)}
+.cmdresumo p{font-size:var(--fs-sm);color:var(--ink-2,var(--muted));overflow-wrap:anywhere}
+.cmdins{border:1px dashed var(--border-strong);border-radius:var(--r);padding:8px 10px;display:flex;flex-direction:column;gap:4px}
+.cmdins p{font-size:var(--fs-sm);white-space:pre-wrap;overflow-wrap:anywhere}
 /* conversa por voz */
 .cmdmic{display:inline-flex;align-items:center;gap:6px;flex:none}
 .cmdmic.on{border-color:var(--st-ask);color:var(--st-ask)}

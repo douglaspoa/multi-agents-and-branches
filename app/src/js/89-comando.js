@@ -116,10 +116,16 @@ function cmdNovos(needs, seen){
   if(!Array.isArray(seen)) return { novos:[], seen:keys };
   const had=new Set(seen); return { novos:(needs||[]).filter(n=>!had.has(n.key)), seen:keys };
 }
+/** A sugestão que a IA devolve: "SUGESTAO: …" e, se couber, "INSTRUCAO: …" (o texto pra mandar ao agente). */
+function cmdSugestaoDe(text){
+  const t=String(text||''), s=/SUGEST[AÃ]O:\s*([\s\S]*?)(?=\n\s*INSTRU[CÇ][AÃ]O:|$)/i.exec(t), i=/INSTRU[CÇ][AÃ]O:\s*([\s\S]*)$/i.exec(t);
+  const ins=i?i[1].trim().replace(/^["“]|["”]$/g,''):'';
+  return { sug:(s?s[1]:t).trim(), ins:/^(vazio|nenhuma|-|—|n\/a)?\.?$/i.test(ins)?'':ins };
+}
 const CMD_TIPO={ ask:'tem uma pergunta pra você', bad:'parou com erro', rev:'terminou e espera a sua revisão' };
 // @comando-puro-fim
 
-const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', asking:'', spoken:0, unread:0, logHtml:'', sideHtml:'', mounted:false };
+const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', asking:'', sugerindo:'', spoken:0, unread:0, outrosAt:0, logHtml:'', sideHtml:'', mounted:false };
 function cmdRepo(){ return (typeof state!=='undefined'&&state.repo)||''; }
 function cmdMsgs(){ const k=cmdRepo(); return CMD.msgs[k]||(CMD.msgs[k]=[]); }
 function cmdTasks(){ let l=[]; try{ l=flowLiveTasks(); }catch(_){ l=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!taskEncerrada(t)); }
@@ -298,16 +304,68 @@ function cmdWatch(){
   if(!Array.isArray(seen) || r.seen.length!==seen.length || r.novos.length || r.seen.some((k,i)=>k!==seen[i])) lsSet(cmdSeenKey(), JSON.stringify(r.seen.slice(0,400)));
   if(!r.novos.length) return;
   cmdMsgs().push({ r:'bot', k:'aviso', ids:r.novos.map(n=>n.id), tipos:r.novos.map(n=>n.tipo) });
+  r.novos.slice(0,5).forEach(n=>cmdHistFetch(n.id).then(()=>{ if(cmdAtiva()) cmdPaint(); }).catch(()=>{})); // o resumo do aviso sai do que a IA fez
   if(!cmdAtiva()){ CMD.unread+=r.novos.length; cmdBadge(); }
   else if(!CMD.sel && r.novos.length===1){ CMD.sel=r.novos[0].id; cmdHistLoad(CMD.sel); } // uma só e o painel livre: já abre ela ao lado
+}
+// OUTROS PROJETOS: a mesma vigia sobre a lista de todos os projetos (a da Central). Aviso na conversa + notificação do
+// macOS (o projeto aberto já notifica pelo detectNotifs; aqui só o que está fora dele).
+function cmdWatchOutros(){
+  if(Date.now()-CMD.outrosAt<20000) return; CMD.outrosAt=Date.now();
+  Promise.resolve(typeof loadAllTasks==='function'?loadAllTasks():null).then(()=>{
+    const repo=cmdRepo(), L=((typeof allTasksCache!=='undefined'&&allTasksCache)||[]).filter(t=>t && t.repo && t.repo!==repo && !taskEncerrada(t) && t.flag!=='blocked');
+    const needs=cmdNeeds(L.map(t=>({ id:t.repo+'::'+t.id, st:t.status, ask:'' })));
+    let seen=null; try{ const v=lsGet('cmdseen:outros'); seen=v?JSON.parse(v):null; }catch(_){ seen=null; }
+    const r=cmdNovos(needs, seen); lsSet('cmdseen:outros', JSON.stringify(r.seen.slice(0,600)));
+    if(!r.novos.length) return;
+    const its=r.novos.map(n=>{ const t=L.find(x=>x.repo+'::'+x.id===n.id); return t?{ repo:t.repo, id:t.id, title:mdTitle(t.title||''), code:(typeof issueCodeOf==='function'&&issueCodeOf(t))||'', tipo:n.tipo, st:t.status }:null; }).filter(Boolean);
+    if(!its.length) return;
+    cmdMsgs().push({ r:'bot', k:'aviso-outros', its });
+    if(!cmdAtiva()){ CMD.unread+=its.length; cmdBadge(); } else cmdPaint(true);
+    try{ const a=its[0]; pushNotif(its.length===1?'Precisamos conversar · '+pathBase(a.repo):'Precisamos conversar sobre '+its.length+' tarefas', its.length===1?(a.code?a.code+' ':'')+a.title+' — '+CMD_TIPO[a.tipo]:its.slice(0,3).map(x=>(x.code||x.title.slice(0,24))+' ('+pathBase(x.repo)+')').join(', '), null); }catch(_){ }
+  }).catch(()=>{});
+}
+function cmdAvisoOutrosHtml(m){ const its=m.its||[];
+  return `<p>Em outros projetos, precisamos conversar sobre <b>${nPl(its.length,'tarefa','tarefas')}</b>.</p><div class="cmdrows">${its.map(x=>`<button type="button" class="cmdrow" data-cmdcross="${escA(x.repo)}" data-id="${escA(x.id)}"><span class="cmddot" style="background:${stColor(x.st)}"></span><span class="cmdcode">${esc(x.code)}</span><span class="cmdtt">${esc(x.title)}<small>${esc(pathBase(x.repo))} · ${CMD_TIPO[x.tipo]}</small></span><span class="cmdst" style="color:${stColor(x.st)}">${esc(stShort(x.st))}</span></button>`).join('')}</div><p class="cmdhint">Clicar troca pro projeto e abre a tarefa.</p>`; }
+// o RESUMO do aviso: o que aconteceu, lido da tarefa (sem IA) — e o que dá pra fazer agora
+function cmdFrase1(s){ s=String(s||'').replace(/[*_`#>]/g,'').replace(/\s+/g,' ').trim(); const m=/^(.{20,260}?[.!?])(\s|$)/.exec(s); return m?m[1]:(s.length>260?s.slice(0,259)+'…':s); }
+function cmdAvisoResumo(t, tipo){
+  const h=CMD.hist[t.id], it=(h&&h.items)||null, out=[], acts=[], id=escA(t.id);
+  if(tipo==='ask'){ const g=cmdAsk(t), p=g&&g.rows&&g.rows[0]; const q=cmdAskTitle(t);
+    if(q) out.push('Ela pergunta: “'+q+'”'+(p&&p.options&&p.options.length?' Opções: '+p.options.slice(0,4).join(' · ')+'.':''));
+    acts.push(`<button type="button" class="btn sm primary" data-cmdsel="${id}">Responder ao lado</button>`); }
+  else if(tipo==='bad'){ const er=it?cmdLastErr(it):null;
+    if(er) out.push(`Parou em ${er.name} ${cmdUma(er.arg)}${er.out?': '+er.out:''}.`);
+    acts.push(`<button type="button" class="btn sm primary" data-cmdsug="${id}">O que você sugere?</button>`, `<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Perguntar ao agente</button>`); }
+  else { const rq=cmdReqs(t), ok=rq.filter(r=>r.ok).length;
+    out.push(rq.length?`${ok} de ${nPl(rq.length,'requisito','requisitos')} com prova${ok<rq.length?' — faltam '+(rq.length-ok):''}.`:'Sem requisitos cadastrados.'); out.push(t.prUrl?'PR aberto.':'Ainda sem PR.');
+    acts.push(`<button type="button" class="btn sm primary" data-cmddo="provas" data-id="${id}">Ver as provas</button>`, `<button type="button" class="btn sm quiet" data-cmdsug="${id}">O que você sugere?</button>`); }
+  const say=it?cmdLastSay(it):''; if(say) out.push('O agente disse: “'+cmdFrase1(say)+'”');
+  if(!it) out.push('lendo o que a IA fez…');
+  return `<div class="cmdresumo"><div class="cmdresumo-h"><b>${esc(cmdCode(t)||mdTitle(t.title||'').slice(0,40))}</b><span style="color:${stColor(taskSt(t))}">${CMD_TIPO[tipo]}</span></div>${out.map(x=>`<p>${esc(x)}</p>`).join('')}<div class="cmdiss-a">${acts.join('')}<button type="button" class="btn sm quiet" data-cmdsel="${id}">Ver a tarefa</button></div></div>`;
+}
+// SUGESTÃO sob demanda: a IA lê a tarefa em foco e propõe UMA coisa; se for instrução pro agente, vem pronta pra mandar
+async function cmdSuggest(id){
+  const t=cmdTask(id), ms=cmdMsgs(); if(!t) return;
+  if(CMD.busy || CMD.sugerindo){ toast('espere a resposta — ou pare','warn'); return; }
+  if(typeof pcBusy!=='undefined' && pcBusy){ ms.push({ r:'sys', text:'o Chat do projeto está respondendo outra pergunta — espere terminar' }); return cmdPaint(true); }
+  CMD.sel=id; CMD.sugerindo=id; CMD.busy=true; CMD.stopping=false; cmdPaint(true);
+  const repo=cmdRepo(), out=CMD.msgs[repo]||ms;
+  try{ await cmdHistFetch(id);
+    const pr=`[TAREFA]\n${cmdTaskContext(t)}\n[FIM DA TAREFA]\nVocê é o assistente de quem coordena esta tarefa no Starfork. Leia o que aconteceu (pode abrir os arquivos da pasta da tarefa pra conferir) e proponha UMA próxima ação concreta. Responda EXATAMENTE neste formato, em português:\nSUGESTAO: <uma ou duas frases: o que está acontecendo de verdade e o que você faria>\nINSTRUCAO: <o texto pronto pra mandar ao agente da tarefa executar isso — ou "vazio" se a ação é da pessoa (aprovar, responder, decidir)>`;
+    const r=await invoke('project_chat',{ prompt:pr, sessionId:'', model:aiClaudeModel() });
+    const g=cmdSugestaoDe((r&&r.text)||''); out.push({ r:'bot', k:'sugestao', id, text:g.sug||'(sem sugestão)', ins:g.ins });
+  }catch(e){ const msg=String((e&&e.message)||e||'');
+    if(CMD.stopping||/PROJECT_CHAT_STOPPED/.test(msg)) out.push({ r:'sys', text:'parado' });
+    else { const h=humanErr(msg); out.push({ r:'sys', text:'Não consegui sugerir: '+(h&&h.msg?h.msg:msg.slice(0,240)) }); } }
+  CMD.busy=false; CMD.sugerindo=''; CMD.stopping=false; cmdPaint(true);
 }
 function cmdBadge(){ const c=$id('comandoCnt'); if(!c) return; c.hidden=!CMD.unread; c.textContent=CMD.unread>9?'9+':String(CMD.unread||''); c.title=CMD.unread?nPl(CMD.unread,'tarefa quer','tarefas querem')+' conversar com você':''; }
 function cmdAvisoHtml(m){
   const its=(m.ids||[]).map((id,i)=>({ t:cmdTask(id), tipo:(m.tipos||[])[i]||'ask' })).filter(x=>x.t);
   if(!its.length) return '<p class="cmdhint">Um aviso antigo: a tarefa não está mais aberta.</p>';
-  const frase=its.length===1?`Precisamos conversar sobre a <b>${esc(cmdCode(its[0].t)||mdTitle(its[0].t.title||''))}</b>: ${CMD_TIPO[its[0].tipo]}.`
-    :`Precisamos conversar sobre <b>${its.length} tarefas</b>: ${its.map(x=>`${esc(cmdCode(x.t)||mdTitle(x.t.title||'').slice(0,24))} ${CMD_TIPO[x.tipo]}`).join('; ')}.`;
-  return `<p>${frase}</p>${cmdRows(its.map(x=>x.t))}<p class="cmdhint">Clique pra tratar ao lado: responder, ver por que parou ou ver as provas.</p>`;
+  const frase=its.length===1?`Precisamos conversar sobre a <b>${esc(cmdCode(its[0].t)||mdTitle(its[0].t.title||''))}</b>.`:`Precisamos conversar sobre <b>${its.length} tarefas</b>.`;
+  return `<p>${frase}</p>${its.slice(0,5).map(x=>cmdAvisoResumo(x.t, x.tipo)).join('')}${its.length>5?cmdRows(its.slice(5).map(x=>x.t)):''}`;
 }
 // a abertura da conversa: o que precisa de você AGORA, em ordem de urgência (e não só uma contagem)
 function cmdAberturaHtml(){
@@ -350,6 +408,9 @@ function cmdBotHtml(m){
       return typeof proofPanel==='function'?`<p>Provas da <b>${esc(cmdCode(t)||mdTitle(t.title||''))}</b>. Clique num print pra ampliar.</p><div class="cmdproof">${proofPanel(t.id, 'compact')}</div>`:'<p>O painel de provas não está disponível.</p>'; }
     let f=[]; try{ f=apFila(); }catch(_){ } return f.length?`<p>${nPl(f.length,'tarefa terminou','tarefas terminaram')} com provas pra ver. Clique numa e peça "provas", ou abra Para aprovar.</p>${cmdRows(f)}<div class="cmdiss-a"><button type="button" class="btn sm" data-cmdgo="aprovar">Abrir Para aprovar</button></div>`:'<p>Nenhuma tarefa com provas esperando agora.</p>'; }
   if(m.k==='aviso') return cmdAvisoHtml(m);
+  if(m.k==='aviso-outros') return cmdAvisoOutrosHtml(m);
+  if(m.k==='sugestao'){ const t=cmdTask(m.id); return `<span class="cmdeye">Sugestão${t?' · '+esc(cmdCode(t)||''):''}</span><div class="cmdquote">${mdToHtml(m.text||'')}</div>`
+    +(m.ins?`<div class="cmdins"><span class="cmdhint">Pra mandar ao agente:</span><p>${esc(m.ins)}</p></div><div class="cmdiss-a">${m.sent?'<span class="cmdhint">enviada ao agente</span>':`<button type="button" class="btn sm primary" data-cmdmandar="${cmdMsgs().indexOf(m)}">Mandar pro agente</button>`}<button type="button" class="btn sm quiet" data-cmdsug="${escA(m.id)}">Outra ideia</button></div>`:`<div class="cmdiss-a"><button type="button" class="btn sm quiet" data-cmdsel="${escA(m.id)}">Ver a tarefa</button></div>`); }
   if(m.k==='md') return mdToHtml(m.text||'');
   return `<p>${esc(m.text||'')}</p>`;
 }
@@ -463,7 +524,11 @@ function cmdMount(){
     const id=f.dataset.cmdinst; i.value=''; Promise.resolve(typeof tiSend==='function'?tiSend(id, v):false).then(ok=>{ if(ok!==false){ toast('instrução enviada — a IA continua','ok'); const h=CMD.hist[id]; if(h) h.at=0; cmdHistLoad(id); } else i.value=v; }).catch(e2=>{ i.value=v; showErr(e2,'Não consegui enviar a instrução'); }); });
 }
 function cmdClick(e){
-  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo],[data-cmdstart],[data-cmdform],[data-cmdlk],[data-cmdcopy],[data-cmdepic],[data-cmdepopen],[data-cmddo],[data-cmdepact]'); if(!b) return;
+  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo],[data-cmdstart],[data-cmdform],[data-cmdlk],[data-cmdcopy],[data-cmdepic],[data-cmdepopen],[data-cmddo],[data-cmdepact],[data-cmdsug],[data-cmdmandar],[data-cmdcross]'); if(!b) return;
+  if(b.dataset.cmdsug) return cmdSuggest(b.dataset.cmdsug);
+  if(b.dataset.cmdcross) return (typeof switchToProjectTask==='function')?switchToProjectTask(b.dataset.cmdcross, b.dataset.id):undefined;
+  if(b.dataset.cmdmandar){ const m=cmdMsgs()[+b.dataset.cmdmandar]; if(!m||!m.ins||m.sent) return; b.disabled=true;
+    return Promise.resolve(tiSend(m.id, m.ins)).then(ok=>{ if(ok!==false){ m.sent=true; toast('enviado ao agente — ele continua','ok'); const h=CMD.hist[m.id]; if(h) h.at=0; cmdHistLoad(m.id); } cmdPaint(true); }).catch(e=>{ showErr(e,'Não consegui mandar pro agente'); cmdPaint(true); }); }
   if(b.dataset.cmdepact) return cmdEpicAct(b.dataset.id, b.dataset.cmdepact, b.dataset.wave);
   if(b.dataset.cmdlk) return openExternal(b.dataset.cmdlk);
   if(b.dataset.cmdcopy){ try{ navigator.clipboard.writeText(b.dataset.cmdcopy); toast('copiado','ok'); }catch(_){ toast('não consegui copiar','warn'); } return; }
@@ -562,6 +627,6 @@ if(typeof VIEW_META!=='undefined'){ VIEW_META.comando={ title:'Comando', icon:(t
 if(typeof viewOpen==='function' && !viewOpen.__cmd){ const vo=viewOpen; viewOpen=function(kind){ if(kind==='comando') return cmdOpen(); return vo.apply(this, arguments); }; viewOpen.__cmd=true; }
 if(typeof SEM_NAV!=='undefined') SEM_NAV.comando='comandoBtn';
 bindClick('comandoBtn', ()=>openTab('comando'));
-if(typeof render==='function' && !render.__cmd){ const r0=render; render=function(){ const out=r0.apply(this, arguments); try{ cmdWatch(); if(cmdAtiva()){ if(CMD.unread){ CMD.unread=0; cmdBadge(); } if(CMD.sel) cmdHistLoad(CMD.sel); cmdPaint(); } else if(CMDV.on) cmdVoiceToggle(); }catch(e){ console.warn('comando render', e); } return out; }; render.__cmd=true; }
+if(typeof render==='function' && !render.__cmd){ const r0=render; render=function(){ const out=r0.apply(this, arguments); try{ cmdWatch(); cmdWatchOutros(); if(cmdAtiva()){ if(CMD.unread){ CMD.unread=0; cmdBadge(); } if(CMD.sel) cmdHistLoad(CMD.sel); cmdPaint(); } else if(CMDV.on) cmdVoiceToggle(); }catch(e){ console.warn('comando render', e); } return out; }; render.__cmd=true; }
 document.addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase()==='j'){ e.preventDefault(); openTab('comando'); } });
 window.cmdOpen=cmdOpen;
