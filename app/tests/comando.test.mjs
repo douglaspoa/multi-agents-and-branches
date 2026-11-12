@@ -211,7 +211,7 @@ test('caso real 12/11 (4): "No response requested." não é resposta; o assisten
   assert.equal(C.cmdFalaUtil('Não está pronta: nenhum dos 26 requisitos tem prova registrada e não abri PR.'), true);
   const pr = C.cmdPlanPrompt({ refs:[{ ref:'FND-1228', code:'FND-1228', title:'NCM Intel Pro', st:'pronta pra revisar', fatos:'0 de 26 requisitos com prova, sem PR', foco:true }], pedido:'acredito que ela não esteja pronta, pode conferir com o agente?' });
   assert.match(pr, /FATOS: 0 de 26 requisitos com prova, sem PR/);
-  assert.match(pr, /O SELO .* é só o rótulo do app/); assert.match(pr, /DIGA ISSO em "fala", com os números/); assert.match(pr, /diga o que conferir, de forma específica/);
+  assert.match(pr, /O SELO .* é só o rótulo do app/); assert.match(pr, /DIGA ISSO em "fala", com os números/); assert.match(pr, /ponha a pergunta, de forma específica/);
   const ask = JS.slice(JS.indexOf('async function cmdAskAgent'), JS.indexOf('function cmdPerguntaHtml'));
   assert.ok(!/const pedido=`[^`]*\\n/.test(ask), 'a pergunta vai em UMA linha (quebra de linha no terminal envia pela metade)');
   assert.ok(/interno:\(m\.text\?/.test(ask) && /semPerguntar:true/.test(ask) && /cmdFalaUtil\(x\.text\)/.test(ask), 'depois da resposta útil, o assistente lê com os fatos e propõe o próximo passo (sem perguntar de novo)');
@@ -221,9 +221,11 @@ test('caso real 12/11 (4): "No response requested." não é resposta; o assisten
 test('caso real 12/11 (5): conferir NÃO escreve no terminal do agente; erro de API não é resposta', () => {
   for (const s of ['API Error: The response stopped arriving. The response above may be incomplete.', 'Error: overloaded', 'Request timed out after 60s, try again']) assert.equal(C.cmdFalaUtil(s), false, s);
   const conf = JS.slice(JS.indexOf('async function cmdConferir'), JS.indexOf('async function cmdAskAgent'));
-  assert.ok(/invoke\('comando_conferir'/.test(conf) && !/tiSend\(/.test(conf), 'a conferência é uma leitura à parte: nada vai pro terminal da tarefa');
+  assert.ok(/invoke\('comando_portavoz'/.test(conf) && !/tiSend\(/.test(conf), 'o porta-voz responde à parte: nada vai pro terminal do executor');
+  assert.ok(/lsGet\(key\)/.test(conf) && /aiKeepSid\(r, x=>lsSet\(key, x\)\)/.test(conf) && /function cmdPvKey\(id\)\{ return 'pvsid:'\+cmdRepo\(\)\+':'\+id; \}/.test(JS), 'sessão própria por tarefa: lembra das conversas anteriores');
   assert.ok(/case 'perguntar': cmdConferir\(it\.id, it\.text\)/.test(JS) && /case 'perguntar-direto': cmdAskAgent/.test(JS), 'perguntar = conferir; escrever no terminal só pelo botão "Perguntar direto ao agente"');
-  assert.match(C.cmdPlanPrompt({ refs:[], pedido:'x' }), /não interrompe o agente, não precisa de confirmação/);
+  assert.match(C.cmdPlanPrompt({ refs:[], pedido:'x' }), /DOIS agentes: o executor \(trabalha\) e o porta-voz \(só lê e responde\)/);
   const RS = read('../src-tauri/src/lib.rs');
-  assert.ok(/fn comando_conferir\(/.test(RS) && /comando_conferir,/.test(RS) && /Read,Grep,Glob,LS,Bash\(git log:\*\)/.test(RS.slice(RS.indexOf('fn comando_conferir('), RS.indexOf('fn comando_conferir(') + 1800)), 'só ferramentas de leitura, na pasta da tarefa');
+  const pv = RS.slice(RS.indexOf('fn comando_portavoz_inner('), RS.indexOf('fn comando_portavoz_inner(') + 2600);
+  assert.ok(/comando_portavoz,/.test(RS) && /comando_portavoz_stop,/.test(RS) && /Read,Grep,Glob,LS,Bash\(git log:\*\)/.test(pv) && /current_dir\(&wt\)/.test(pv) && /--resume/.test(pv) && !/Edit|Write/.test(pv), 'porta-voz: só leitura, na pasta da tarefa, retomando a própria sessão');
 });

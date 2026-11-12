@@ -5403,20 +5403,44 @@ fn comando_plan(state: State<AppState>, prompt: String) -> Result<String, String
     ai_once::ai_once_as("comando", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &p, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 120 })
 }
 
-/// COMANDO · CONFERIR: uma IA só de LEITURA olha a pasta da branch da tarefa (arquivos, git status/diff/log) e responde
-/// como a tarefa está de verdade — sem escrever no terminal do agente (que pode estar no meio do trabalho).
+/// COMANDO · PORTA-VOZ: o SEGUNDO agente da tarefa. Mora na pasta da branch, só LÊ (arquivos, git) e responde a quem
+/// coordena — com sessão própria (lembra das conversas anteriores) e acionado só quando o Comando precisa. O agente que
+/// executa nunca é interrompido: nada é escrito no terminal dele.
+static PORTAVOZ_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+const PORTAVOZ_SYS: &str = "Você é o PORTA-VOZ desta tarefa no Starfork: o segundo agente dela. Outro agente (o executor) trabalha nesta mesma pasta, talvez agora mesmo. Você NÃO altera nada: só lê (arquivos, git status/log/diff/show) e responde a quem coordena a tarefa, em português. A cada pergunta você recebe o que o app sabe (pedido, requisitos com prova, plano, últimos passos e falas do executor). Confira no código e no git antes de afirmar; só afirme o que viu e diga quando não conseguiu conferir. Seja curto: Markdown, no máximo 12 linhas. Quando a pergunta for sobre estado ou prontidão, use: **Veredito** (uma frase) · **Feito** (com arquivos) · **Falta** (agrupe e conte) · **Impede a entrega**. Nas outras, responda direto.";
 #[tauri::command(async)]
-fn comando_conferir(state: State<AppState>, task_id: String, prompt: String) -> Result<String, String> {
-    let p: String = prompt.trim().chars().take(24000).collect();
-    if p.is_empty() { return Err("sem pergunta".to_string()); }
+fn comando_portavoz_stop() -> Result<bool, String> { Ok(stop_slot(&PORTAVOZ_PID)) }
+#[tauri::command(async)]
+fn comando_portavoz(app: tauri::AppHandle, state: State<AppState>, task_id: String, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
+    chat_logged("comando_portavoz", comando_portavoz_inner(app, state, task_id, prompt, session_id, model))
+}
+fn comando_portavoz_inner(app: tauri::AppHandle, state: State<AppState>, task_id: String, prompt: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
+    let prompt: String = prompt.trim().chars().take(24000).collect();
+    if prompt.is_empty() { return Err("sem pergunta".to_string()); }
     let wt: String = {
         let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
         let conn = open(&db)?;
         conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, Option<String>>(0)).map_err(|e| e.to_string())?.unwrap_or_default()
     };
-    if wt.trim().is_empty() || !Path::new(&wt).is_dir() { return Err("a pasta desta tarefa não está mais nesta máquina".to_string()); }
-    ai_once::ai_once_as("comando", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &p, tier: ai_once::Tier::Capaz, claude_model: None,
-        claude_extra: &["--allowedTools".to_string(), "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*)".to_string()], cwd: Some(Path::new(&wt)), secs: 300 })
+    let wt = PathBuf::from(wt.trim());
+    if wt.as_os_str().is_empty() || !wt.is_dir() { return Err("a pasta desta tarefa não está mais nesta máquina".to_string()); }
+    let session_id = session_id.filter(|s| !s.trim().is_empty());
+    let eng = chat_pick(&session_id).map_err(|e| repo_acesso::step("escolher a IA", e))?;
+    if eng != ai_once::AiEngine::Claude {
+        return chat_other("comando", eng, PORTAVOZ_SYS, &prompt, &session_id, &wt, 300, ChatStop::Slot(&PORTAVOZ_PID), "PORTAVOZ_STOPPED", &emit_activity(&app, "portavoz-activity"));
+    }
+    let claude = claude_bin();
+    let mut args: Vec<String> = vec![
+        "-p".to_string(), prompt,
+        "--output-format".to_string(), "stream-json".to_string(), "--verbose".to_string(),
+        "--append-system-prompt".to_string(), PORTAVOZ_SYS.to_string(),
+        "--allowedTools".to_string(), "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*)".to_string(),
+    ];
+    if let Some(sid) = &session_id { args.push("--resume".to_string()); args.push(sid.clone()); }
+    push_model(&mut args, &model);
+    let mut cmd = claude_cmd(&claude);
+    cmd.args(&args).current_dir(&wt);
+    run_claude_stream(&app, cmd, &PORTAVOZ_PID, "PORTAVOZ_STOPPED", 300, "portavoz-activity", usage_ledger::Tag::new("comando", &wt, &model, &session_id))
 }
 
 /// Gera um título curto de tarefa a partir da descrição (Haiku — rápido/barato).
@@ -12025,7 +12049,8 @@ pub fn run() {
             read_artifact_raw,
             ai_decompose,
             comando_plan,
-            comando_conferir,
+            comando_portavoz,
+            comando_portavoz_stop,
             daily_digest,
             ai_daily,
             ai_daily_report,

@@ -144,13 +144,13 @@ const CMD_ACOES={
   fila_issues:'mostrar as issues do painel que não viraram tarefa', epicos:'listar os épicos', epico:'mostrar um épico (alvo = nome)', epico_acao:'agir no épico (alvo = nome; texto = comecar | liberar | verificar | entregar)',
   tarefa:'mostrar o estado real de tarefas', porque:'dizer por que tarefas pararam', feito:'mostrar o que foi feito em tarefas', provas:'mostrar as provas/prints de tarefas', link:'pegar links (issue, PR, branch) de tarefas', abrir:'abrir a tela de UMA tarefa',
   parar:'parar tarefas que estão rodando (tarefas = ["todas"] pra todas)', continuar:'mandar tarefas paradas continuarem', encerrar:'encerrar tarefas sem entregar', ambiente_subir:'subir o ambiente/prévia de tarefas', ambiente_desligar:'desligar o ambiente de tarefas',
-  instruir:'mandar uma instrução pro agente de tarefas (texto = a instrução, com as palavras da pessoa)', perguntar_agente:'CONFERIR como tarefas estão de verdade: uma leitura à parte da sessão e do código da branch, sem interromper o agente (texto = o que conferir)',
+  instruir:'mandar uma instrução pro agente de tarefas (texto = a instrução, com as palavras da pessoa)', perguntar_agente:'perguntar ao PORTA-VOZ de tarefas — o segundo agente de cada tarefa, que só lê a sessão e o código da branch e responde sem interromper o agente que trabalha (texto = a pergunta ou o que conferir)',
   comecar_issue:'criar e iniciar a tarefa de uma issue do painel (alvo = código da issue)', tela:'abrir uma tela (alvo = issues | central | entregas | semana | aprovar | meu trabalho | projetos | nova demanda)',
   ler_codigo:'responder uma pergunta que exige LER O CÓDIGO do projeto (texto = a pergunta)' };
 const CMD_MUTA=new Set(['parar','continuar','encerrar','ambiente_subir','instruir','comecar_issue','epico_acao']);
 const CMD_ACAO_TX={ status:'Mostrar como estão os agentes', abertas:'Mostrar as tarefas abertas', esperando:'Mostrar o que espera você', erros:'Mostrar as que pararam', fila_issues:'Mostrar a fila de issues', epicos:'Mostrar os épicos', epico:'Mostrar o épico', epico_acao:'No épico',
   tarefa:'Mostrar o estado de', porque:'Ver por que parou', feito:'Mostrar o que foi feito em', provas:'Mostrar as provas de', link:'Pegar os links de', abrir:'Abrir', parar:'Parar', continuar:'Mandar continuar', encerrar:'Encerrar sem entregar',
-  ambiente_subir:'Subir o ambiente de', ambiente_desligar:'Desligar o ambiente de', instruir:'Mandar instrução pro agente de', perguntar_agente:'Conferir como está de verdade', comecar_issue:'Começar a issue', tela:'Abrir a tela', ler_codigo:'Ler o código pra responder' };
+  ambiente_subir:'Subir o ambiente de', ambiente_desligar:'Desligar o ambiente de', instruir:'Mandar instrução pro agente de', perguntar_agente:'Perguntar ao porta-voz de', comecar_issue:'Começar a issue', tela:'Abrir a tela', ler_codigo:'Ler o código pra responder' };
 /** Acha a tarefa que a pessoa (ou a IA) citou. `refs`: [{ id, ref, code, title }]. Aceita "FND-1168", "fnd 1168", "1168", o ref ("T3") ou um pedaço do título. null = não achou ou ficou ambíguo. */
 function cmdRefTask(q, refs){
   const s=cmdNorm(q).replace(/[\s_]+/g,' ').trim(); if(!s) return null; const L=refs||[];
@@ -193,7 +193,7 @@ REGRAS:
 - A tarefa aberta ao lado só vale quando a pessoa disser "essa", "ela", "a task" sem dar outra pista. Se ela disser que não é essa, não use.
 - O SELO ("pronta pra revisar") é só o rótulo do app. O estado de verdade está nos FATOS da tarefa (requisitos com prova, PR, plano, última fala). Se os fatos já respondem — ex.: "0 de 26 requisitos com prova", "sem PR" — DIGA ISSO em "fala", com os números, em vez de devolver só uma pergunta pro agente.
 - Quando a pessoa DITA o texto de uma instrução ou pergunta, use as palavras dela, sem acrescentar passos. Quando é VOCÊ que propõe o próximo passo (ela pediu pra conferir, resolver, ou você viu que falta algo), escreva a instrução ou a pergunta de forma específica, citando o que os fatos mostram que falta (ex.: "Nenhum dos 26 requisitos tem prova registrada e não há PR. Registre a prova de cada requisito e abra o PR; se algum não estiver implementado, diga qual."). A pessoa confirma antes de qualquer envio.
-- "perguntar_agente" CONFERE a tarefa lendo a sessão e o código da branch (não interrompe o agente, não precisa de confirmação). Use quando a pessoa duvidar do estado ou pedir pra conferir; em "texto" diga o que conferir, de forma específica.
+- Cada tarefa tem DOIS agentes: o executor (trabalha) e o porta-voz (só lê e responde). "perguntar_agente" fala com o porta-voz: não interrompe o executor e não precisa de confirmação. Use quando a pessoa duvidar do estado, pedir pra conferir, ou perguntar algo sobre o que foi feito que os FATOS não respondem; em "texto" ponha a pergunta, de forma específica.
 - Pra MOSTRAR tarefas (quais estão abertas, o que espera a pessoa, como está tal tarefa) use um passo ("abertas", "status", "esperando", "erros", "tarefa"…): o app desenha a lista. NUNCA liste tarefas em texto corrido dentro de "fala".
 - "fala" tem no máximo 2 frases curtas. Se precisar enumerar algo que não é tarefa, use lista markdown (uma linha "- item" por item). Nunca escreva os identificadores T1, T2… em "fala" ou "duvida": cite o título.
 - "fala" é o que você diz pra pessoa, curto, em português. Se o pedido for uma pergunta sobre as tarefas que dá pra responder com o que está acima, responda em "fala" e deixe "passos" vazio. Se exigir ler o código, use "ler_codigo".
@@ -299,26 +299,29 @@ function cmdPropostaHtml(m){ const it=m.it||{}, t=it.id?cmdTask(it.id):null, i=c
     :`<button type="button" class="btn sm primary" data-cmdprop="${i}" data-ok="1">Sim, fazer</button><button type="button" class="btn sm quiet" data-cmdprop="${i}" data-ok="">Não é isso</button>`;
   return `<div class="cmdqa${m.done?'':' wait'}"><div class="cmdqa-h"><span class="cmdqa-who"><b>Entendi assim — confirma?</b></span></div><div class="cmdqa-w">${oque} ${alvo}${corpo?':':'.'}</div>${corpo?`<div style="margin:0 12px 12px">${corpo}</div>`:''}<div class="cmdiss-a">${pe}</div></div>`; }
 function cmdDur(ms){ const sg=Math.max(0, Math.round(ms/1000)); return Math.floor(sg/60)+':'+String(sg%60).padStart(2,'0'); }
-/** CONFERIR a tarefa: uma IA só de leitura olha a pasta da branch (arquivos, git) com o contexto da sessão e responde
- *  como ela está de verdade. Não escreve no terminal do agente — ele pode estar no meio do trabalho. */
+/** PORTA-VOZ: o segundo agente da tarefa. Só lê (sessão do executor, arquivos, git), tem sessão própria (lembra do que
+ *  já conversou sobre a tarefa) e só roda quando o Comando precisa. Nada é escrito no terminal do executor. */
+function cmdPvKey(id){ return 'pvsid:'+cmdRepo()+':'+id; }
 async function cmdConferir(id, texto, o){
   const t=cmdTask(id), ms=cmdMsgs(), say=(text)=>{ ms.push({ r:'bot', k:'txt', text }); cmdPaint(true); };
   if(!t) return say('Essa tarefa não está nesta máquina.');
-  if(CMD.asking) return say('Já tem uma conferência em andamento.');
+  if(CMD.asking) return say('O porta-voz já está respondendo outra pergunta.');
   texto=String(texto||'').replace(/\s+/g,' ').trim()||'Como esta tarefa está de verdade agora?';
   CMD.sel=id; const m={ r:'bot', k:'pergunta', modo:'conferir', id, q:texto, state:'wait', t0:Date.now(), t1:0, text:'', agora:'' };
-  CMD.asking=id; ms.push(m); cmdPaint(true);
+  CMD.asking=id; CMD.pv=m; ms.push(m); cmdPaint(true);
   const tick=setInterval(()=>{ m.t1=Date.now(); if(cmdAtiva()) cmdPaint(); }, 2000);
   try{
     await cmdHistFetch(id); try{ if(typeof reqProofCache!=='undefined' && reqProofCache[id]===undefined && typeof loadReqProofs==='function') await Promise.race([loadReqProofs(id), new Promise(r=>setTimeout(r, 2500))]); }catch(_){ }
-    const pr=`Você confere, só lendo, uma tarefa tocada por um agente de IA. Você está na pasta da branch dela${t.base?' (base: '+t.base+')':''}. NÃO altere nada.\n\n[O QUE O APP SABE]\n${cmdTaskContext(t)}\n[FIM]\n\nPERGUNTA DE QUEM COORDENA: ${texto}\n\n`
-      +'Confira no código e no git (git status, git log, git diff contra a base, leia os arquivos que importam) e responda em português, em Markdown curto (no máximo 12 linhas):\n**Veredito** — uma frase: está pronta pra entregar ou não.\n**Feito** — o que já existe no código, citando arquivos.\n**Falta** — o que os requisitos pedem e não achou (agrupe; diga quantos).\n**Impede a entrega** — o que precisa acontecer antes (provas, testes, PR, commit pendente).\nSó afirme o que você viu. Se não conseguiu conferir algo, diga.';
-    const r=await invoke('comando_conferir',{ taskId:id, prompt:pr });
-    m.text=String(r||'').trim(); m.state=cmdFalaUtil(m.text)?'ok':'timeout'; if(m.state!=='ok') m.text='';
-  }catch(e){ const msg=String((e&&e.message)||e||''); const h=humanErr(msg); m.state='timeout'; m.erro=(h&&h.msg)||msg.slice(0,200); }
-  clearInterval(tick); CMD.asking=''; m.t1=Date.now(); cmdPaint(true); if(m.text && CMDV.on) cmdSpeak(cmdFrase1(m.text));
-  if(m.text && !(o&&o.semLeitura)) await cmdPlanejar('', { interno:`Você conferiu a ${cmdCode(t)||'tarefa'} (pergunta: «${texto}») e achou:\n«${m.text.slice(0,2500)}»\nNão repita a conferência. Em "fala", diga só a conclusão em UMA frase. Se faltar algo que o agente deve fazer, proponha o passo "instruir" com um texto específico baseado no que você achou.`, semPerguntar:true });
+    const key=cmdPvKey(id), pr=`[O QUE O APP SABE AGORA${t.base?' · base: '+t.base:''}]\n${cmdTaskContext(t)}\n[FIM]\n\nPERGUNTA DE QUEM COORDENA: ${texto}`;
+    const r=await aiCallResumeSafe((p2,sid)=>invoke('comando_portavoz',{ taskId:id, prompt:p2, sessionId:sid||'', model:aiClaudeModel() }), lsGet(key)||'', pr, []);
+    aiKeepSid(r, x=>lsSet(key, x));
+    m.text=String((r&&r.text)||'').trim(); m.state=cmdFalaUtil(m.text)?'ok':'timeout'; if(m.state!=='ok') m.text='';
+  }catch(e){ const msg=String((e&&e.message)||e||''); m.state='timeout'; m.erro=/PORTAVOZ_STOPPED/.test(msg)?'Parado.':((humanErr(msg)||{}).msg||msg.slice(0,200)); }
+  clearInterval(tick); CMD.asking=''; CMD.pv=null; m.t1=Date.now(); cmdPaint(true); if(m.text && CMDV.on) cmdSpeak(cmdFrase1(m.text));
+  if(m.text && !(o&&o.semLeitura)) await cmdPlanejar('', { interno:`O porta-voz da ${cmdCode(t)||'tarefa'} respondeu à pergunta «${texto}»:\n«${m.text.slice(0,2500)}»\nNão repita a pergunta. Em "fala", diga só a conclusão em UMA frase. Se faltar algo que o executor deve fazer, proponha o passo "instruir" com um texto específico baseado nessa resposta.`, semPerguntar:true });
 }
+// o que o porta-voz está fazendo agora ("lendo X", "git diff…") — evento do Rust
+try{ window.__TAURI__.event.listen('portavoz-activity', ev=>{ const m=CMD.pv; if(!m) return; const l=String((ev&&ev.payload&&ev.payload.line)||'').trim(); if(!l) return; m.agora=l; if(cmdAtiva()) cmdPaint(); }); }catch(_){ }
 async function cmdAskAgent(id, texto, o){
   const t=cmdTask(id), ms=cmdMsgs(), say=(text)=>{ ms.push({ r:'bot', k:'txt', text }); cmdPaint(true); };
   if(!t) return say('Essa tarefa não está nesta máquina.');
@@ -348,12 +351,12 @@ async function cmdAskAgent(id, texto, o){
     +'Com isso e com os FATOS da tarefa aberta ao lado, diga a conclusão em até 2 frases (com os números) e proponha o próximo passo como plano. Não use perguntar_agente de novo.', semPerguntar:true });
 }
 function cmdPerguntaHtml(m){ const t=cmdTask(m.id), el=cmdDur((m.t1||Date.now())-m.t0), id=escA(m.id), conf=m.modo==='conferir';
-  const st=m.state==='wait'?`<span class="cmdqa-st wait"><span class="pltyping"><i></i><i></i><i></i></span>${conf?'conferindo':'aguardando'} · ${el}</span>`:m.state==='ok'?`<span class="cmdqa-st ok">${conf?'conferido':'respondeu'} em ${el}</span>`:`<span class="cmdqa-st to">${conf?'não consegui conferir':'sem resposta em '+el}</span>`;
-  const direto=`<button type="button" class="btn sm quiet" data-cmddo="perguntar-direto" data-id="${id}" title="Escreve a pergunta no terminal da tarefa. Se o agente estiver trabalhando, ela entra na fila dele.">Perguntar direto ao agente</button>`;
-  const corpo=m.state==='wait'?`<div class="cmdqa-w">${conf?'Lendo a sessão e o código da branch. O agente não é interrompido.':m.agora?'O agente agora: <span class="mono">'+esc(m.agora)+'</span>':'A pergunta chegou no terminal da tarefa. Ele responde sem alterar arquivos.'}</div>`
-    :m.state==='ok'?`<div class="cmdqa-a cmdmd">${mdToHtml(m.text||'')}</div><div class="cmdiss-a"><button type="button" class="btn sm" data-cmdsug="${id}">O que você sugere?</button>${conf?direto:`<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Conferir pelo código</button>`}<button type="button" class="btn sm quiet" data-cmdsel="${id}">Ver a tarefa</button></div>`
-    :`<div class="cmdqa-w">${conf?esc(m.erro||'A conferência não devolveu uma resposta.'):'O agente não deu uma resposta útil. Se ele estava trabalhando, a pergunta entrou na fila dele.'}</div><div class="cmdiss-a">${conf?direto:`<button type="button" class="btn sm" data-cmddo="perguntar" data-id="${id}">Conferir pelo código</button>`}<button type="button" class="btn sm quiet" data-cmdopen="${id}">Abrir a tarefa</button></div>`;
-  return `<div class="cmdqa ${m.state}"><div class="cmdqa-h"><span class="cmdqa-who">${IC.stAsk||''}<b>${conf?'Conferência da tarefa':'Pergunta ao agente'}</b>${t?' · '+esc(cmdCode(t)||mdTitle(t.title||'').slice(0,30)):''}</span>${st}</div><div class="cmdqa-q">${esc(m.q||'')}</div>${corpo}</div>`; }
+  const st=m.state==='wait'?`<span class="cmdqa-st wait"><span class="pltyping"><i></i><i></i><i></i></span>${conf?'porta-voz lendo':'aguardando'} · ${el}</span>`:m.state==='ok'?`<span class="cmdqa-st ok">respondeu em ${el}</span>`:`<span class="cmdqa-st to">${conf?'sem resposta':'sem resposta em '+el}</span>`;
+  const direto=`<button type="button" class="btn sm quiet" data-cmddo="perguntar-direto" data-id="${id}" title="Escreve a pergunta no terminal do executor. Se ele estiver trabalhando, ela entra na fila dele.">Perguntar direto ao executor</button>`;
+  const corpo=m.state==='wait'?`<div class="cmdqa-w">${conf?(m.agora?'Agora: <span class="mono">'+esc(m.agora)+'</span>':'Lendo a sessão do executor e o código da branch. O executor não é interrompido.'):m.agora?'O agente agora: <span class="mono">'+esc(m.agora)+'</span>':'A pergunta chegou no terminal da tarefa. Ele responde sem alterar arquivos.'}</div>`
+    :m.state==='ok'?`<div class="cmdqa-a cmdmd">${mdToHtml(m.text||'')}</div><div class="cmdiss-a"><button type="button" class="btn sm" data-cmdsug="${id}">O que você sugere?</button>${conf?direto:`<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`}<button type="button" class="btn sm quiet" data-cmdsel="${id}">Ver a tarefa</button></div>`
+    :`<div class="cmdqa-w">${conf?esc(m.erro||'O porta-voz não devolveu uma resposta.'):'O agente não deu uma resposta útil. Se ele estava trabalhando, a pergunta entrou na fila dele.'}</div><div class="cmdiss-a">${conf?direto:`<button type="button" class="btn sm" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`}<button type="button" class="btn sm quiet" data-cmdopen="${id}">Abrir a tarefa</button></div>`;
+  return `<div class="cmdqa ${m.state}"><div class="cmdqa-h"><span class="cmdqa-who">${IC.stAsk||''}<b>${conf?'Porta-voz da tarefa':'Pergunta direta ao executor'}</b>${t?' · '+esc(cmdCode(t)||mdTitle(t.title||'').slice(0,30)):''}</span>${st}</div><div class="cmdqa-q">${esc(m.q||'')}</div>${corpo}</div>`; }
 
 // ---------- ambiente da tarefa (a mesma Prévia: env_up/env_down) e encerrar ----------
 function cmdEnvHtml(m){ const t=cmdTask(m.id); if(!t) return '<p>Essa tarefa não está nesta máquina.</p>';
@@ -485,7 +488,7 @@ function cmdAvisoResumo(t, tipo){
     acts.push(`<button type="button" class="btn sm primary" data-cmdsel="${id}">Responder ao lado</button>`); }
   else if(tipo==='bad'){ const er=it?cmdLastErr(it):null;
     if(er) out.push(`Parou em ${er.name} ${cmdUma(er.arg)}${er.out?': '+er.out:''}.`);
-    acts.push(`<button type="button" class="btn sm primary" data-cmdsug="${id}">O que você sugere?</button>`, `<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Conferir a tarefa</button>`); }
+    acts.push(`<button type="button" class="btn sm primary" data-cmdsug="${id}">O que você sugere?</button>`, `<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`); }
   else { const rq=cmdReqs(t), ok=rq.filter(r=>r.ok).length;
     out.push(rq.length?`${ok} de ${nPl(rq.length,'requisito','requisitos')} com prova${ok<rq.length?' — faltam '+(rq.length-ok):''}.`:'Sem requisitos cadastrados.'); out.push(t.prUrl?'PR aberto.':'Ainda sem PR.');
     acts.push(`<button type="button" class="btn sm primary" data-cmddo="provas" data-id="${id}">Ver as provas</button>`, `<button type="button" class="btn sm quiet" data-cmdsug="${id}">O que você sugere?</button>`); }
@@ -545,7 +548,7 @@ function cmdBotHtml(m){
       partes.push(`<ul class="cmdfacts">${cmdFacts(t).map(f=>`<li>${esc(f)}</li>`).join('')}</ul>`);
       if(say) partes.push(`<span class="cmdeye">Última fala do agente</span><div class="cmdquote">${mdToHtml(say.length>1200?say.slice(0,1200)+'…':say)}</div>`);
     }
-    return partes.join('')+`<div class="cmdiss-a"><button type="button" class="btn sm primary" data-cmddo="perguntar" data-id="${escA(t.id)}">Conferir como está de verdade</button><button type="button" class="btn sm quiet" data-cmddo="provas" data-id="${escA(t.id)}">Provas</button><button type="button" class="btn sm quiet" data-cmdopen="${escA(t.id)}">Abrir a tarefa</button></div>`; }
+    return partes.join('')+`<div class="cmdiss-a"><button type="button" class="btn sm primary" data-cmddo="perguntar" data-id="${escA(t.id)}">Perguntar ao porta-voz como está de verdade</button><button type="button" class="btn sm quiet" data-cmddo="provas" data-id="${escA(t.id)}">Provas</button><button type="button" class="btn sm quiet" data-cmdopen="${escA(t.id)}">Abrir a tarefa</button></div>`; }
   if(m.k==='plano') return cmdPlanoHtml(m);
   if(m.k==='proposta') return cmdPropostaHtml(m);
   if(m.k==='pergunta') return cmdPerguntaHtml(m);
@@ -600,6 +603,7 @@ function cmdTaskHtml(t){
   return `<button type="button" class="cmdback" data-cmdsel="">${semIc('arrowR','rev')}todos os agentes</button>
     <div class="cmdside-h"><div class="cmdpills">${cmdCode(t)?`<span class="cmdpill mono">${esc(cmdCode(t))}</span>`:''}${stBadge(st)}${t.branch?`<span class="cmdpill mono" title="branch">${esc(t.branch)}</span>`:''}</div><h2>${esc(mdTitle(t.title||''))}</h2>
       <div class="cmdacts"><button type="button" class="btn sm primary" data-cmdopen="${escA(t.id)}">Abrir a tarefa ${semIc('arrowR')}</button>${cmdIsRun(t)?`<button type="button" class="btn sm" data-cmdstop="${escA(t.id)}">Parar</button>`:''}<button type="button" class="btn sm quiet" data-cmddo="provas" data-id="${escA(t.id)}">Provas</button><button type="button" class="btn sm quiet" data-cmddo="feito" data-id="${escA(t.id)}">O que foi feito</button><button type="button" class="btn sm quiet" data-cmddo="ambiente" data-on="1" data-id="${escA(t.id)}">Subir ambiente</button><button type="button" class="btn sm quiet cmddanger" data-cmddo="encerrar" data-id="${escA(t.id)}">Encerrar…</button>${cmdLinks(t).filter(l=>!l[2]).map(l=>`<button type="button" class="btn sm quiet" data-cmdlk="${escA(l[1])}">${esc(l[0])} ↗</button>`).join('')}</div></div>
+    <div class="cmdduo"><span><i class="cmddot" style="background:${stColor(st)}"></i><b>Executor</b> ${esc(stShort(st))}</span><span><i class="cmddot" style="background:${CMD.asking===t.id?'var(--st-ask)':'var(--muted)'}"></i><b>Porta-voz</b> ${CMD.asking===t.id?'respondendo':'só responde quando você pergunta'}</span><button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${escA(t.id)}">Perguntar ao porta-voz</button></div>
     ${ask?cmdSec('Precisa de você', `<div class="cmdask" data-tlinline="${escA(t.id)}"></div>`):''}
     ${cmdSec('Pedido', (obj?`<div class="cmdobj">${mdToHtml(obj.length>900?obj.slice(0,900)+'…':obj)}</div>`:'<p class="cmdmuted">Esta tarefa não tem descrição além do título.</p>')
       +(reqs.length?`<div class="cmdcks">${reqs.map(r=>ck(r.status==='done', false, r.text||r.title, r.status==='done'?'':'sem prova ainda')).join('')}</div>`:''))}
@@ -679,7 +683,7 @@ function cmdMount(){
   const cmdEnvia=()=>{ const q=$id('cmdQ'); const v=q.value; q.value=''; cmdGrow(); cmdSay(v); };
   $id('cmdForm').addEventListener('submit', e=>{ e.preventDefault(); cmdEnvia(); });
   { const q=$id('cmdQ'); q.addEventListener('input', cmdGrow); q.addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); cmdEnvia(); } }); }
-  $id('cmdStop').onclick=()=>{ if(!CMD.busy) return; CMD.stopping=true; invoke('project_chat_stop').catch(()=>{}); };
+  $id('cmdStop').onclick=()=>{ if(CMD.asking && CMD.pv){ invoke('comando_portavoz_stop').catch(()=>{}); return; } if(!CMD.busy) return; CMD.stopping=true; invoke('project_chat_stop').catch(()=>{}); };
   $id('cmdMic').onclick=cmdVoiceToggle; cmdVoicePaint();
   pg.addEventListener('click', cmdClick);
   pg.addEventListener('submit', e=>{ const f=e.target.closest&&e.target.closest('[data-cmdinst]'); if(!f) return; e.preventDefault(); const i=f.querySelector('input'), v=i.value.trim(); if(!v) return;
@@ -868,7 +872,7 @@ function cmdPaint(down){
   if(CMD.sideHtml!==b){ const i=$id('cmdInst'), keep=i?{ v:i.value, f:document.activeElement===i, a:i.selectionStart }:null, sc=side.scrollTop;
     CMD.sideHtml=b; side.innerHTML=b; side.scrollTop=sc;
     const n=$id('cmdInst'); if(n && keep){ n.value=keep.v; if(keep.f){ try{ n.focus({ preventScroll:true }); n.setSelectionRange(keep.a, keep.a); }catch(_){ } } } }
-  const st=$id('cmdStop'), sd=$id('cmdSend'); if(st) st.style.display=CMD.busy?'':'none'; if(sd) sd.disabled=CMD.busy;
+  const st=$id('cmdStop'), sd=$id('cmdSend'); if(st) st.style.display=(CMD.busy||(CMD.asking&&CMD.pv))?'':'none'; if(sd) sd.disabled=CMD.busy;
   // a pergunta aberta da tarefa selecionada: a MESMA folha do terminal, encaixada no painel
   const slot=side.querySelector('[data-tlinline]'); if(slot && typeof tlAskPaint==='function'){ const t=cmdTask(slot.dataset.tlinline); if(t) try{ tlAskPaint(t); }catch(e){ console.warn('comando ask', e); } }
 }
