@@ -141,6 +141,10 @@
 .cmdproof .apv-h{padding:12px 14px}
 .cmdproof .apv-b{padding:12px 14px;gap:10px}
 .cmdproof .apv{border:0;border-radius:0;box-shadow:none}
+.cmdduo{display:flex;gap:14px;align-items:center;flex-wrap:wrap;font-size:var(--fs-sm);color:var(--muted);border:1px solid var(--border);border-radius:var(--r);padding:8px 12px;background:var(--surface)}
+.cmdduo span{display:inline-flex;gap:6px;align-items:center}
+.cmdduo b{color:var(--ink-1);font-weight:500}
+.cmdduo .btn{margin-left:auto}
 /* conversa por voz */
 .cmdmic{display:inline-flex;align-items:center;gap:6px;flex:none}
 .cmdmic.on{border-color:var(--st-ask);color:var(--st-ask)}
