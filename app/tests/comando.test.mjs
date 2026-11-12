@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, cmdSlash, cmdToken, CMD_PERIGO, CMD_SEM_TAREFA, CMD_PLAN_SYS, CMD_SLASH, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -158,7 +158,7 @@ test('caso real 12/11 (2): conversa não é comando; "para" não é parar; o que
   // vindas da IA: instrução, pergunta ao agente, continuar, subir ambiente e começar issue pedem confirmação; ler não
   for (const it of [{ k:'instruir' }, { k:'perguntar' }, { k:'continuar' }, { k:'ambiente', on:true }, { k:'issue', go:true }]) assert.equal(C.cmdPrecisaOk(it), true, it.k);
   for (const it of [{ k:'status' }, { k:'tarefa' }, { k:'provas' }, { k:'feito' }, { k:'link' }, { k:'issue', go:false }, { k:'ambiente', on:false }]) assert.equal(C.cmdPrecisaOk(it), false, it.k);
-  assert.ok(/if\(cmdDireto\(text\)\)\{ const it=cmdResolve\(text\)/.test(JS) && /return cmdPlanejar\(text\)/.test(JS), 'só comando curto e direto sai sem IA; o resto vira plano');
+  assert.ok(/if\(chip\)\{ const it=cmdResolve\(text\)/.test(JS) && !/if\(cmdDireto\(text\)\)\{ const it=cmdResolve/.test(JS) && /return cmdPlanejar\(text\)/.test(JS), 'texto digitado nunca é adivinhado por palavra: só o botão de sugestão responde na hora');
   const s = C.cmdSnapshot([{ code:'LW-97', title:'Prévia', st:'rodando', criada:'hoje 10:12', mexida:'há 5 min', foco:true }], 'loja', []);
   assert.match(s, /criada hoje 10:12 · mexida há 5 min/); assert.match(s, /\[ABERTA AO LADO\]/); assert.match(s, /pergunte qual em vez de escolher/);
 });
@@ -222,10 +222,34 @@ test('caso real 12/11 (5): conferir NÃO escreve no terminal do agente; erro de 
   for (const s of ['API Error: The response stopped arriving. The response above may be incomplete.', 'Error: overloaded', 'Request timed out after 60s, try again']) assert.equal(C.cmdFalaUtil(s), false, s);
   const conf = JS.slice(JS.indexOf('async function cmdConferir'), JS.indexOf('async function cmdAskAgent'));
   assert.ok(/invoke\('comando_portavoz'/.test(conf) && !/tiSend\(/.test(conf), 'o porta-voz responde à parte: nada vai pro terminal do executor');
-  assert.ok(/lsGet\(key\)/.test(conf) && /aiKeepSid\(r, x=>lsSet\(key, x\)\)/.test(conf) && /function cmdPvKey\(id\)\{ return 'pvsid:'\+cmdRepo\(\)\+':'\+id; \}/.test(JS), 'sessão própria por tarefa: lembra das conversas anteriores');
+  assert.ok(/O QUE VOCÊ JÁ RESPONDEU SOBRE ESTA TAREFA/.test(conf) && /lsSet\(cmdPvKey\(id\), JSON\.stringify\(mem\.slice\(-3\)\)\)/.test(conf) && !/--resume|aiCallResumeSafe/.test(conf), 'memória do porta-voz vai no pedido; ele não grava sessão');
   assert.ok(/case 'perguntar': cmdConferir\(it\.id, it\.text\)/.test(JS) && /case 'perguntar-direto': cmdAskAgent/.test(JS), 'perguntar = conferir; escrever no terminal só pelo botão "Perguntar direto ao agente"');
   assert.match(C.cmdPlanPrompt({ refs:[], pedido:'x' }), /DOIS agentes: o executor \(trabalha\) e o porta-voz \(só lê e responde\)/);
   const RS = read('../src-tauri/src/lib.rs');
   const pv = RS.slice(RS.indexOf('fn comando_portavoz_inner('), RS.indexOf('fn comando_portavoz_inner(') + 2600);
-  assert.ok(/comando_portavoz,/.test(RS) && /comando_portavoz_stop,/.test(RS) && /Read,Grep,Glob,LS,Bash\(git log:\*\)/.test(pv) && /current_dir\(&wt\)/.test(pv) && /--resume/.test(pv) && !/Edit|Write/.test(pv), 'porta-voz: só leitura, na pasta da tarefa, retomando a própria sessão');
+  assert.ok(/comando_portavoz,/.test(RS) && /comando_portavoz_stop,/.test(RS) && /Read,Grep,Glob,LS,Bash\(git log:\*\)/.test(pv) && /current_dir\(&wt\)/.test(pv) && !/"--resume"/.test(pv) && /--no-session-persistence/.test(pv) && /--setting-sources/.test(pv) && !/Edit|Write/.test(pv), 'porta-voz: só leitura, sem gravar sessão e sem os ganchos da pasta da tarefa');
+  const TR = read('../src-tauri/src/term.rs');
+  assert.ok(/fn is_portavoz_transcript/.test(TR) && /fn executor_transcript_near/.test(TR) && /UPDATE term_session SET session_id=\?2/.test(TR), 'reparo: sessão do porta-voz gravada como a da tarefa volta pra sessão de verdade');
+});
+
+test('comando direto "/" e "@": sem IA, na hora; perigo ainda pede o sim', () => {
+  const R = [{ id:'a', ref:'FND-1168', code:'FND-1168', title:'Tracer' }, { id:'b', ref:'FND-1195', code:'FND-1195', title:'Auditoria' }, { id:'e', ref:'T1', code:'', title:'Central de ajuda' }];
+  assert.deepEqual(C.cmdSlash('/encerrar @FND-1168 1195 e @T1', R).passos, [{ acao:'encerrar', tarefas:['FND-1168', '1195', 'T1'], texto:'', alvo:'' }]);
+  assert.deepEqual(C.cmdSlash('/instruir @FND-1168 usa UTC na virada do dia', R).passos[0], { acao:'instruir', tarefas:['FND-1168'], texto:'usa UTC na virada do dia', alvo:'' });
+  assert.deepEqual(C.cmdSlash('/nova Exportar pedidos em CSV', R).passos[0], { acao:'criar_demanda', tarefas:[], texto:'Exportar pedidos em CSV', alvo:'Exportar pedidos em CSV' });
+  assert.deepEqual(C.cmdSlash('/parar todas', R).passos[0].tarefas, ['todas']);
+  assert.equal(C.cmdSlash('/pr @FND-1195', R).passos[0].acao, 'abrir_pr'); assert.equal(C.cmdSlash('/status', R).passos[0].acao, 'status');
+  assert.equal(C.cmdSlash('/naoexiste x', R), null); assert.equal(C.cmdSlash('encerrar a 1168', R), null, 'sem barra não é comando direto');
+  assert.deepEqual(C.cmdToken('/enc', 4), { tipo:'acao', q:'enc', ini:0 });
+  assert.deepEqual(C.cmdToken('/encerrar @fnd', 14), { tipo:'tarefa', q:'fnd', ini:10 });
+  assert.equal(C.cmdToken('olha a @', 8).tipo, 'tarefa'); assert.equal(C.cmdToken('texto normal', 12), null); assert.equal(C.cmdToken('a/b', 3), null);
+  assert.equal((C.cmdRefTask('@FND-1195', R) || {}).id, 'b', '@ na frente não atrapalha');
+  for (const a of ['encerrar', 'aprovar', 'epico_acao']) assert.ok(C.CMD_PERIGO.has(a), a);
+  for (const a of Object.values(C.CMD_SLASH)) assert.ok(C.CMD_ACOES[a], 'apelido aponta pra ação que existe: ' + a);
+  for (const a of ['aprovar', 'pedir_alteracao', 'abrir_pr', 'responder', 'criar_demanda', 'trocar_projeto']) assert.ok(C.CMD_ACOES[a], a);
+  assert.ok(C.CMD_SEM_TAREFA.has('criar_demanda') && C.CMD_SEM_TAREFA.has('trocar_projeto') && /SOMENTE com o objeto JSON/.test(C.CMD_PLAN_SYS));
+  const RS = read('../src-tauri/src/lib.rs'), pl = RS.slice(RS.indexOf('fn comando_plan('), RS.indexOf('fn comando_plan(') + 1900);
+  assert.ok(/--strict-mcp-config/.test(pl) && /"--tools", ""/.test(pl) && /--system-prompt/.test(pl) && /--no-session-persistence/.test(pl) && /claude-sonnet-5/.test(pl), 'plano no modo enxuto: sem ferramentas, sem MCP, modelo médio');
+  assert.ok(/fn comando_log\(/.test(RS) && /comando\.jsonl/.test(RS) && /invokeQuiet\('comando_log'/.test(JS) && /via:'decisao'/.test(JS), 'diário: pedido, plano e a decisão da pessoa');
+  assert.ok(/id="cmdVoz"/.test(JS) && /lsGet\('cmdvoz'\)/.test(JS), 'voz: escolhe entre as instaladas no sistema');
 });

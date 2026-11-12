@@ -607,7 +607,23 @@ pub fn history_for(db: &Path, repo: &Path, cfg: Option<&Path>, task_id: &str, si
     // mesma precedência do term-prep (src/terminal.ts): a sessão da tarefa, depois a do terminal
     let sid = t.session_id.clone().filter(|s| !s.is_empty()).or(t.term_sid.clone().filter(|s| !s.is_empty()));
     h.session_id = sid.clone();
-    let tr = sid.as_deref().and_then(|s| cfg.and_then(|d| crate::term_hist::find_transcript(d, &t.worktree, s)));
+    let mut tr = sid.as_deref().and_then(|s| cfg.and_then(|d| crate::term_hist::find_transcript(d, &t.worktree, s)));
+    // REPARO (12/11): o porta-voz do Comando rodou na pasta da tarefa e os ganchos da worktree gravaram a sessão DELE
+    // como a da tarefa — o painel ficava cego (sem plano, decisões, arquivos) e o `--resume` retomaria a conversa errada.
+    // Sessão que começa com o pedido do porta-voz não é a da tarefa: volta pra sessão de verdade mais recente da pasta.
+    if let Some(p) = tr.as_ref().filter(|p| is_portavoz_transcript(p)) {
+        match executor_transcript_near(p) {
+            Some((good, good_sid)) => {
+                if let Ok(c) = open_rw(db) {
+                    let _ = c.execute("UPDATE term_session SET session_id=?2, updated_at=?3 WHERE task_id=?1 AND session_id=?4", params![task_id, good_sid, now_ms(), sid.clone().unwrap_or_default()]);
+                    let _ = c.execute("UPDATE task SET session_id=?2 WHERE id=?1 AND session_id=?3", params![task_id, good_sid, sid.clone().unwrap_or_default()]);
+                }
+                h.session_id = Some(good_sid);
+                tr = Some(good);
+            }
+            None => { tr = None; }
+        }
+    }
     if let Some(p) = tr {
         h.source = "transcript".into();
         h.stamp = stamp_of(&p);
@@ -627,6 +643,28 @@ pub fn history_for(db: &Path, repo: &Path, cfg: Option<&Path>, task_id: &str, si
     }
     h.source = "none".into();
     Ok(h)
+}
+/// A sessão é do PORTA-VOZ do Comando (não da tarefa)? O 1º pedido dele sempre começa com este marcador.
+pub fn is_portavoz_transcript(p: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(p) else { return false };
+    let mut buf = vec![0u8; 96 * 1024];
+    let n = f.read(&mut buf).unwrap_or(0);
+    String::from_utf8_lossy(&buf[..n]).contains("[O QUE O APP SABE AGORA")
+}
+/// A sessão de verdade mais recente na mesma pasta (qualquer .jsonl que não seja do porta-voz) → (arquivo, id).
+pub fn executor_transcript_near(p: &Path) -> Option<(PathBuf, String)> {
+    let dir = p.parent()?;
+    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    for e in std::fs::read_dir(dir).ok()?.flatten() {
+        let q = e.path();
+        if q == p || q.extension().and_then(|x| x.to_str()) != Some("jsonl") || is_portavoz_transcript(&q) { continue; }
+        let m = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+        if best.as_ref().map(|(bm, _)| m > *bm).unwrap_or(true) { best = Some((m, q)); }
+    }
+    let (_, q) = best?;
+    let sid = q.file_stem()?.to_str()?.to_string();
+    Some((q, sid))
 }
 /// Histórico da sessão pra tarefa SEM terminal vivo: transcript do Claude Code → log do PTY → nada (o front cai
 /// nos eventos do state.sqlite). `since` = carimbo da última leitura: arquivo igual não é relido (poll barato).

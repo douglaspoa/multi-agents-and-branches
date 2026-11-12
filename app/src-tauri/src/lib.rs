@@ -5396,11 +5396,29 @@ fn ai_decompose(state: State<AppState>, text: String, guide: Option<String>) -> 
 /// COMANDO (89-comando.js): traduz o pedido da pessoa num PLANO (JSON) de ações do app. Sem ferramentas e sem ler o
 /// repo — o estado vem inteiro no prompt —, pra responder em segundos. Quem valida e executa o plano é o front.
 #[tauri::command(async)]
-fn comando_plan(state: State<AppState>, prompt: String) -> Result<String, String> {
+fn comando_plan(state: State<AppState>, prompt: String, system: Option<String>) -> Result<String, String> {
     let p = prompt.trim();
     if p.is_empty() { return Err("sem pedido".to_string()); }
     let p: String = p.chars().take(24000).collect();
-    ai_once::ai_once_as("comando", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &p, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 120 })
+    let sys = system.map(|s| s.trim().chars().take(4000).collect::<String>()).filter(|s| !s.is_empty()).unwrap_or_else(|| "Você é o Comando do Starfork. Responda somente com o JSON pedido.".to_string());
+    // MODO ENXUTO (medido em 12/11: de ~18 s e ~46 mil tokens pra ~4,6 s e ~1,2 mil): sem ferramentas, sem os servidores
+    // conectados (MCP), sem ganchos/ajustes do usuário, instrução própria no lugar da padrão e sem gravar sessão.
+    // Modelo médio: escolher ações numa lista não precisa do maior. Roda numa pasta neutra (não carrega o CLAUDE.md do repo).
+    let extra: Vec<String> = ["--strict-mcp-config", "--tools", "", "--system-prompt", sys.as_str(), "--setting-sources", "", "--no-session-persistence"].iter().map(|x| x.to_string()).collect();
+    let tmp = std::env::temp_dir();
+    ai_once::ai_once_as("comando", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &p, tier: ai_once::Tier::Capaz, claude_model: Some("claude-sonnet-5"), claude_extra: &extra, cwd: Some(tmp.as_path()), secs: 90 })
+}
+/// DIÁRIO DO COMANDO: cada pedido, o plano que saiu e se a pessoa confirmou ou disse "não é isso" — uma linha JSON por
+/// evento em ~/.constellation/comando.jsonl (só nesta máquina). É a matéria-prima pra medir a assertividade.
+#[tauri::command(async)]
+fn comando_log(line: String) -> Result<(), String> {
+    use std::io::Write;
+    let l: String = line.trim().replace('\n', " ").chars().take(6000).collect();
+    if l.is_empty() { return Ok(()); }
+    let f = constellation_home().join("comando.jsonl");
+    if let Ok(m) = std::fs::metadata(&f) { if m.len() > 2_000_000 { if let Ok(t) = std::fs::read_to_string(&f) { let keep: Vec<&str> = t.lines().rev().take(1500).collect(); let _ = std::fs::write(&f, keep.into_iter().rev().collect::<Vec<_>>().join("\n") + "\n"); } } }
+    let mut o = std::fs::OpenOptions::new().create(true).append(true).open(&f).map_err(|e| e.to_string())?;
+    writeln!(o, "{l}").map_err(|e| e.to_string())
 }
 
 /// COMANDO · PORTA-VOZ: o SEGUNDO agente da tarefa. Mora na pasta da branch, só LÊ (arquivos, git) e responde a quem
@@ -5424,7 +5442,10 @@ fn comando_portavoz_inner(app: tauri::AppHandle, state: State<AppState>, task_id
     };
     let wt = PathBuf::from(wt.trim());
     if wt.as_os_str().is_empty() || !wt.is_dir() { return Err("a pasta desta tarefa não está mais nesta máquina".to_string()); }
-    let session_id = session_id.filter(|s| !s.trim().is_empty());
+    // NUNCA grava sessão nem carrega os ajustes da pasta: os ganchos da worktree (.claude/settings.local.json) registram
+    // a sessão de quem roda ali como a DA TAREFA — foi o que cegou o painel em 12/11. A memória do porta-voz vem no pedido.
+    let _ = session_id;
+    let session_id: Option<String> = None;
     let eng = chat_pick(&session_id).map_err(|e| repo_acesso::step("escolher a IA", e))?;
     if eng != ai_once::AiEngine::Claude {
         return chat_other("comando", eng, PORTAVOZ_SYS, &prompt, &session_id, &wt, 300, ChatStop::Slot(&PORTAVOZ_PID), "PORTAVOZ_STOPPED", &emit_activity(&app, "portavoz-activity"));
@@ -5433,10 +5454,11 @@ fn comando_portavoz_inner(app: tauri::AppHandle, state: State<AppState>, task_id
     let mut args: Vec<String> = vec![
         "-p".to_string(), prompt,
         "--output-format".to_string(), "stream-json".to_string(), "--verbose".to_string(),
-        "--append-system-prompt".to_string(), PORTAVOZ_SYS.to_string(),
+        "--system-prompt".to_string(), PORTAVOZ_SYS.to_string(),
+        "--setting-sources".to_string(), "".to_string(), "--strict-mcp-config".to_string(), "--no-session-persistence".to_string(),
+        "--tools".to_string(), "Read,Grep,Glob,LS,Bash".to_string(),
         "--allowedTools".to_string(), "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*)".to_string(),
     ];
-    if let Some(sid) = &session_id { args.push("--resume".to_string()); args.push(sid.clone()); }
     push_model(&mut args, &model);
     let mut cmd = claude_cmd(&claude);
     cmd.args(&args).current_dir(&wt);
@@ -12049,6 +12071,7 @@ pub fn run() {
             read_artifact_raw,
             ai_decompose,
             comando_plan,
+            comando_log,
             comando_portavoz,
             comando_portavoz_stop,
             daily_digest,
