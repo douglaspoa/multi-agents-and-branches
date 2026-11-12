@@ -30,7 +30,8 @@ function cmdIntent(text, tasks, epics){
   // código que não é tarefa aberta = issue do painel (começar/ver); quem chama confere se ela existe lá
   if(m) return { k:'issue', code:m[1].toUpperCase(), go:/\b(comec\w*|inici\w*|peg[ao]\w*|faz\w*|roda\w*|toca\w*|resolv\w*|bora)\b/.test(s), link:quer.link };
   const ep=(epics||[]).filter(e=>{ const n=cmdNorm(e.name); return n.length>=4 && s.includes(n); });
-  if(ep.length===1) return { k:'epico', id:ep[0].id };
+  if(ep.length===1){ const act=/\b(entreg\w*)\b/.test(s)?'entregar':/\b(liber\w*|proxima onda|comec\w* a onda)\b/.test(s)?'liberar':/\b(verific\w*|confer\w*)\b/.test(s)?'verificar':/\b(comec\w*|inici\w*|roda\w*|bora)\b/.test(s)?'start':'';
+    return act?{ k:'epico', id:ep[0].id, act }:{ k:'epico', id:ep[0].id }; }
   if(/\bepicos?\b/.test(s)) return { k:'epicos' };
   if(/\b(pausa|pausar|para|parar|pare|interromp\w*)\b.*\b(tudo|todos|todas|agentes|rodando)\b/.test(s)) return { k:'parar' };
   if(quer.provas) return { k:'provas' };
@@ -90,7 +91,7 @@ function cmdSnapshot(rows, proj, epics){
   const E=(epics||[]).map(e=>`- épico "${e.name}" — ${e.done} de ${e.total} tarefas entregues`);
   return `[ESTADO DO STARFORK AGORA${proj?' · projeto '+proj:''}]\n${L.length?L.join('\n'):'(nenhuma tarefa aberta)'}${E.length?'\n'+E.join('\n'):''}\n[FIM DO ESTADO]\n`
     +`Você é o Comando do Starfork. Se o pedido da pessoa for uma AÇÃO do app, responda SOMENTE com uma linha "ACAO: <frase>" usando uma destas frases (troque o que está entre <>):\n`
-    +`status · esperando · erro · fila de issues · epicos · epico <nome> · tarefa <código> · por que <código> parou · provas <código> · link <código> · abrir <código> · parar <código> · parar tudo rodando · comecar <código da issue> · <código>: <instrução pra IA da tarefa> · abrir tela <issues|central|entregas|semana|aprovar|meu trabalho|projetos|nova demanda>\n`
+    +`status · esperando · erro · fila de issues · epicos · epico <nome> · comecar epico <nome> · liberar onda epico <nome> · verificar epico <nome> · entregar epico <nome> · tarefa <código> · por que <código> parou · provas <código> · link <código> · abrir <código> · parar <código> · parar tudo rodando · comecar <código da issue> · <código>: <instrução pra IA da tarefa> · abrir tela <issues|central|entregas|semana|aprovar|meu trabalho|projetos|nova demanda>\n`
     +`Se for uma pergunta (sobre o código ou sobre as tarefas), responda em português, curto e direto, citando as tarefas pelo código. Nunca invente código de tarefa.`;
 }
 // @comando-puro-fim
@@ -163,7 +164,37 @@ function cmdEpicHtml(eid){ const e=cmdEpics().find(x=>x.id===eid); if(!e) return
   const ondas=[...new Set(c.l.map(x=>x.wave||1))].sort((a,b)=>a-b);
   return `<p><b>${esc(e.name)}</b>: ${c.total?`${c.done} de ${nPl(c.total,'tarefa entregue','tarefas entregues')}`:'ainda sem tarefas'}.</p>`
     +ondas.map(w=>`${ondas.length>1?`<span class="cmdeye">Onda ${w}</span>`:''}<div class="cmdrows">${c.l.filter(x=>(x.wave||1)===w).map(row).join('')}</div>`).join('')
-    +`<div class="cmdiss-a"><button type="button" class="btn sm primary" data-cmdepopen="${escA(eid)}">Abrir o épico</button></div><p class="cmdhint">Começar, liberar a próxima onda e entregar o épico ficam na aba dele, com a ação do momento.</p>`; }
+    +cmdEpicAgoraHtml(eid); }
+// o "agora" do épico: a MESMA frase e a MESMA ação da aba do épico (81-epico-aba: epaModelOf), lidas da nuvem na hora
+const CMDE={};
+const CMD_EPACT={ start:'Começar o épico', liberar:'Liberar a onda', verificar:'Rodar a verificação final', entregar:'Entregar o épico' };
+async function cmdEpicLoad(eid){
+  try{ if(typeof epicPageLoad!=='function' || typeof epaModelOf!=='function') return null;
+    const c=await epicPageLoad(eid), ep=c.ep||((typeof teamEpics!=='undefined'&&teamEpics)||[]).find(e=>e.id===eid); if(!ep) return null;
+    const locOnly=(typeof epStartItems==='function'?epStartItems(eid):[]).filter(x=>x.kind==='local' && !(c.tasks||[]).some(ct=>ct.local_id===x.id || ((typeof tmap==='function')&&tmap()[x.id]===ct.id)))
+      .map(x=>({ ...x.t, _local:x.id, spec:{ wave:x.wave, verify:(x.t.epic||{}).verify, covers:(x.t.epic||{}).covers } }));
+    const tasks=(c.tasks||[]).concat(locOnly);
+    return (CMDE[eid]={ ep, c, tasks, R:epaModelOf(ep, c, tasks) }); }
+  catch(e){ console.warn('comando épico', e); return null; }
+}
+function cmdEpicAgoraHtml(eid){ const L=CMDE[eid]; if(!L) return '<p class="cmdhint">lendo o épico…</p>';
+  const a=L.R.m.agora||{}, act=a.act&&CMD_EPACT[a.act.k]?a.act:null;
+  return `<div class="cmdagora"><b>Agora:</b> ${esc(a.s||'')}${a.m?`<small>${esc(a.m)}</small>`:''}</div>`
+    +`<div class="cmdiss-a">${act?`<button type="button" class="btn sm primary" data-cmdepact="${escA(act.k)}" data-id="${escA(eid)}"${act.wave?` data-wave="${act.wave}"`:''}>${esc(act.label||CMD_EPACT[act.k])}</button>`:''}<button type="button" class="btn sm${act?' quiet':''}" data-cmdepopen="${escA(eid)}">Abrir o épico</button></div>`; }
+/** Executa a ação DO MOMENTO do épico (só a que a aba dele ofereceria agora), com confirmação. */
+async function cmdEpicAct(eid, k, wave){
+  const L=await cmdEpicLoad(eid), ms=cmdMsgs(), say=(text)=>{ ms.push({ r:'bot', k:'txt', text }); cmdPaint(true); };
+  if(!L) return say('Não consegui ler esse épico agora.');
+  const a=L.R.m.agora||{}, act=a.act||null, nome=L.ep.name||'épico';
+  if(!act || act.k!==k) return say(`Agora não dá pra ${String(CMD_EPACT[k]||k).toLowerCase()} em “${nome}”. ${a.s||''}`);
+  const w=+wave||act.wave||1;
+  if(!await askYes(`${act.label||CMD_EPACT[k]} — “${nome}”?\n\n${a.s||''}${k==='entregar'?'\n\nFecha o épico, gera o relatório e avisa quem pediu.':k==='start'?'\n\nAs tarefas da primeira onda começam a rodar.':''}`, CMD_EPACT[k])){ ms.push({ r:'sys', text:'cancelado — o épico ficou como estava' }); return cmdPaint(true); }
+  try{ EPA.last=L; EPA.eid=eid;
+    if(k==='start') await epaStart(L.ep, null); else if(k==='liberar') await epaRelease(L.ep, w); else if(k==='verificar') await epFinalRun(eid, { manual:true }); else if(k==='entregar') await epEntregar(L.ep, null);
+  }catch(e){ showErr(e, 'Não consegui '+String(CMD_EPACT[k]||k).toLowerCase()); }
+  try{ lastSig=''; }catch(_){ } try{ await refresh(); }catch(_){ }
+  await cmdEpicLoad(eid); ms.push({ r:'bot', k:'epico', id:eid }); cmdPaint(true);
+}
 function cmdLinks(t){ const code=cmdCode(t), iss=code?cmdIssue(code):null; const out=[];
   const iu=t.issueUrl||(iss&&iss.url)||''; if(iu) out.push(['Issue'+(code?' '+code:''), iu]);
   if(t.prUrl) out.push(['Pull request', t.prUrl]);
@@ -325,7 +356,8 @@ function cmdMount(){
     const id=f.dataset.cmdinst; i.value=''; Promise.resolve(typeof tiSend==='function'?tiSend(id, v):false).then(ok=>{ if(ok!==false){ toast('instrução enviada — a IA continua','ok'); const h=CMD.hist[id]; if(h) h.at=0; cmdHistLoad(id); } else i.value=v; }).catch(e2=>{ i.value=v; showErr(e2,'Não consegui enviar a instrução'); }); });
 }
 function cmdClick(e){
-  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo],[data-cmdstart],[data-cmdform],[data-cmdlk],[data-cmdcopy],[data-cmdepic],[data-cmdepopen],[data-cmddo]'); if(!b) return;
+  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo],[data-cmdstart],[data-cmdform],[data-cmdlk],[data-cmdcopy],[data-cmdepic],[data-cmdepopen],[data-cmddo],[data-cmdepact]'); if(!b) return;
+  if(b.dataset.cmdepact) return cmdEpicAct(b.dataset.id, b.dataset.cmdepact, b.dataset.wave);
   if(b.dataset.cmdlk) return openExternal(b.dataset.cmdlk);
   if(b.dataset.cmdcopy){ try{ navigator.clipboard.writeText(b.dataset.cmdcopy); toast('copiado','ok'); }catch(_){ toast('não consegui copiar','warn'); } return; }
   if(b.dataset.cmdepic) return cmdDo({ k:'epico', id:b.dataset.cmdepic });
@@ -353,7 +385,8 @@ async function cmdDo(it){
   const ms=cmdMsgs(), L=cmdTasks(), say=(text)=>{ ms.push({ r:'bot', k:'txt', text }); cmdPaint(true); return true; };
   switch(it.k){
     case 'status': case 'espera': case 'erro': case 'epicos': ms.push({ r:'bot', k:it.k }); cmdPaint(true); return true;
-    case 'epico': ms.push({ r:'bot', k:'epico', id:it.id }); cmdPaint(true); return true;
+    case 'epico': if(it.act){ cmdPaint(true); await cmdEpicAct(it.id, it.act); return true; }
+      ms.push({ r:'bot', k:'epico', id:it.id }); cmdPaint(true); cmdEpicLoad(it.id).then(()=>cmdPaint()); return true;
     case 'tarefa': case 'porque': CMD.sel=it.id; cmdHistLoad(it.id); ms.push({ r:'bot', k:it.k, id:it.id }); cmdPaint(true); return true;
     case 'link': ms.push({ r:'bot', k:'link', id:it.id }); cmdPaint(true); return true;
     case 'provas': { const t=it.id?cmdTask(it.id):null; if(t){ CMD.sel=t.id; cmdHistLoad(t.id); try{ apEnsure(t); }catch(_){ } } ms.push({ r:'bot', k:'provas', id:it.id||'' }); cmdPaint(true); return true; }
