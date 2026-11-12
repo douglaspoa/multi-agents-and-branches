@@ -77,6 +77,17 @@
 .cmdiss-h{display:flex;gap:10px;align-items:baseline;min-width:0}
 .cmdiss-h b{font-weight:500;min-width:0;overflow-wrap:anywhere}
 .cmdiss-a{display:flex;gap:8px;flex-wrap:wrap}
+/* links, provas e épicos na conversa */
+.cmdlks{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);overflow:hidden}
+.cmdlk{display:grid;grid-template-columns:110px minmax(0,1fr) auto auto;gap:8px;align-items:center;padding:7px 10px;border-top:1px solid var(--border)}
+.cmdlk:first-child{border-top:0}
+.cmdlk-l{color:var(--muted);font-size:var(--fs-sm)}
+.cmdlk-v{font-size:var(--fs-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;user-select:text}
+.cmdproof{border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--surface);min-width:0}
+.cmdrow.off{cursor:default}
+.cmdrow.off:hover{background:none}
+.cmdiss-h .cmdhint{margin-left:auto;white-space:nowrap}
+.cmdbub>.cmdeye{margin-top:4px}
 /* conversa por voz */
 .cmdmic{display:inline-flex;align-items:center;gap:6px;flex:none}
 .cmdmic.on{border-color:var(--st-ask);color:var(--st-ask)}
