@@ -1,0 +1,74 @@
+/* Starfork — Comando (89-comando.js): conversa central à esquerda, painel vivo à direita. Só tokens do tema. */
+.cmdpg{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);height:100%}
+.cmdchat{display:flex;flex-direction:column;min-height:0;min-width:0;border-right:1px solid var(--border)}
+.cmdlog{flex:1;min-height:0;overflow-y:auto;padding:22px 24px 12px;display:flex;flex-direction:column;gap:14px}
+.cmdmsg{display:flex;gap:10px;max-width:680px;width:100%;margin:0 auto;min-width:0}
+.cmdmsg.you{justify-content:flex-end}
+.cmdmsg.you .cmdbub{background:var(--surface-2);border:1px solid var(--border);border-radius:12px 12px 3px 12px;padding:8px 12px;max-width:85%;flex:none}
+.cmdmsg.sys{justify-content:center;font-size:var(--fs-xs);color:var(--muted)}
+.cmdav{width:22px;height:22px;flex:none;display:grid;place-items:center;color:var(--accent);margin-top:1px}
+.cmdav svg{width:16px;height:16px}
+.cmdbub{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px;font-size:var(--fs-md);line-height:1.5;overflow-wrap:anywhere}
+.cmdbub p{margin:0}
+.cmdhint,.cmdmuted{color:var(--muted);font-size:var(--fs-sm);margin:0}
+.cmdquote{border-left:2px solid var(--border-strong);padding:2px 0 2px 10px;color:var(--ink-2);font-size:var(--fs-sm)}
+.cmdquote>*:first-child{margin-top:0}.cmdquote>*:last-child{margin-bottom:0}
+.cmdrows{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:var(--r);overflow:hidden;background:var(--surface)}
+.cmdrow{display:grid;grid-template-columns:8px auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 12px;width:100%;text-align:left;background:none;border:0;border-top:1px solid var(--border);color:inherit;font:inherit;cursor:pointer}
+.cmdrow:first-child{border-top:0}
+.cmdrow:hover{background:var(--surface-2)}
+.cmdrow.on{background:var(--accent-soft)}
+.cmdrow:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
+.cmddot{width:8px;height:8px;border-radius:50%}
+.cmdcode{font:var(--fs-xs) var(--mono);color:var(--muted);min-width:44px}
+.cmdtt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-md)}
+.cmdtt small{display:block;color:var(--muted);font-size:var(--fs-xs);overflow:hidden;text-overflow:ellipsis}
+.cmdst{font-size:var(--fs-xs);white-space:nowrap}
+.cmdcomp{flex:none;border-top:1px solid var(--border);padding:12px 24px 16px;display:flex;flex-direction:column;gap:10px}
+.cmdchips{display:flex;gap:6px;flex-wrap:wrap;max-width:680px;width:100%;margin:0 auto}
+.cmdchip{font:inherit;font-size:var(--fs-sm);color:var(--muted);background:none;border:1px solid var(--border);border-radius:var(--r-pill);padding:4px 11px;cursor:pointer}
+.cmdchip:hover{color:var(--ink-1);border-color:var(--border-strong)}
+.cmdbar{display:flex;gap:8px;align-items:center;max-width:680px;width:100%;margin:0 auto}
+.cmdbar .in{flex:1;min-width:0;height:38px}
+.cmdside{min-height:0;min-width:0;overflow-y:auto;padding:22px 24px 26px;display:flex;flex-direction:column;gap:18px;background:var(--bg)}
+.cmdside-h{display:flex;flex-direction:column;gap:8px}
+.cmdside-h h2{margin:0;font-size:var(--fs-lg);font-weight:600;letter-spacing:-.01em;text-wrap:balance}
+.cmdeye{font:var(--fs-xs) var(--mono);color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.cmdns{display:flex;gap:16px;flex-wrap:wrap;font-size:var(--fs-sm);color:var(--muted)}
+.cmdn b{color:var(--ink-1);font-variant-numeric:tabular-nums;margin-right:5px}
+.cmdside-f,.cmdacts,.cmdpills{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.cmdpill{font-size:var(--fs-xs);border:1px solid var(--border);border-radius:var(--r-pill);padding:1px 8px;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmdback{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;background:none;border:0;color:var(--muted);font:inherit;font-size:var(--fs-sm);cursor:pointer;padding:0}
+.cmdback:hover{color:var(--ink-1)}
+.cmdback .rev{transform:rotate(180deg)}
+.cmdsec{display:flex;flex-direction:column;gap:8px;min-width:0}
+.cmdsec h3{margin:0;font:var(--fs-xs) var(--mono);font-weight:500;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;display:flex;gap:8px;align-items:baseline}
+.cmdsec h3 span{letter-spacing:0;text-transform:none;color:var(--dim,var(--muted))}
+.cmdobj{font-size:var(--fs-md);line-height:1.5;overflow-wrap:anywhere}
+.cmdobj>*:first-child{margin-top:0}.cmdobj>*:last-child{margin-bottom:0}
+.cmdcks{display:flex;flex-direction:column;gap:5px}
+.cmdck{display:grid;grid-template-columns:16px minmax(0,1fr);gap:8px;font-size:var(--fs-md);line-height:1.45}
+.cmdck i{width:14px;height:14px;margin-top:3px;border:1px solid var(--border-strong);border-radius:4px;display:grid;place-items:center;font-style:normal;font-size:10px;line-height:1}
+.cmdck small{color:var(--muted);font-size:var(--fs-xs);margin-left:8px}
+.cmdck.ok{color:var(--muted)}
+.cmdck.ok i{background:var(--ok);border-color:var(--ok);color:var(--on-accent)}
+.cmdck.now{font-weight:500}
+.cmdck.now i{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.cmdck.now small{color:var(--accent);font-weight:400}
+.cmddec{border-left:2px solid var(--border-strong);padding-left:10px;font-size:var(--fs-md);display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
+.cmddec.open{border-color:var(--st-ask)}
+.cmddec small{color:var(--muted);font-size:var(--fs-sm)}
+.cmdtl{display:flex;flex-direction:column;font:var(--fs-sm) var(--mono)}
+.cmdtl>div{display:grid;grid-template-columns:40px 72px minmax(0,1fr);gap:8px;padding:4px 0;border-top:1px dashed var(--border)}
+.cmdtl>div:first-child{border-top:0}
+.cmdtl time{color:var(--muted);font-variant-numeric:tabular-nums}
+.cmdtl em{font-style:normal;color:var(--muted)}
+.cmdtl span{overflow-wrap:anywhere;min-width:0}
+.cmdtl .k-edit em{color:var(--ok)}.cmdtl .k-ask em{color:var(--st-ask)}.cmdtl .k-you em{color:var(--info)}.cmdtl .k-plan em{color:var(--accent)}
+.cmdtl .err em,.cmdtl .err span{color:var(--st-err)}
+.cmdfiles{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:3px 12px;font:var(--fs-sm) var(--mono)}
+.cmdfiles .f{overflow-wrap:anywhere;min-width:0}.cmdfiles .a{color:var(--ok)}.cmdfiles .d{color:var(--st-err)}
+.cmdask{border:1px solid var(--st-ask);border-radius:var(--r);overflow:hidden}
+.cmdinst{display:flex;gap:8px;position:sticky;bottom:-26px;background:var(--bg);padding:10px 0 26px;margin-bottom:-26px}
+.cmdinst .in{flex:1;min-width:0;height:36px}
+@media (max-width:980px){ .cmdpg{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr)} .cmdchat{border-right:0;border-bottom:1px solid var(--border)} }
