@@ -29,7 +29,8 @@
 .cmdchip{font:inherit;font-size:var(--fs-sm);color:var(--muted);background:none;border:1px solid var(--border);border-radius:var(--r-pill);padding:4px 11px;cursor:pointer}
 .cmdchip:hover{color:var(--ink-1);border-color:var(--border-strong)}
 .cmdbar{display:flex;gap:8px;align-items:center;max-width:680px;width:100%;margin:0 auto}
-.cmdbar .in{flex:1;min-width:0;height:38px}
+.cmdbar{align-items:flex-end}
+.cmdbar .in{flex:1;min-width:0;min-height:38px;height:38px;max-height:200px;resize:none;line-height:1.45;padding:8px 12px;overflow-y:hidden;font:inherit;font-size:var(--fs-md)}
 .cmdside{min-height:0;min-width:0;overflow-y:auto;padding:22px 24px 26px;display:flex;flex-direction:column;gap:18px;background:var(--bg)}
 .cmdside-h{display:flex;flex-direction:column;gap:8px}
 .cmdside-h h2{margin:0;font-size:var(--fs-lg);font-weight:600;letter-spacing:-.01em;text-wrap:balance}
@@ -118,6 +119,21 @@
 .cmdplan-t{margin-top:3px;font-size:var(--fs-sm);color:var(--ink-2,var(--muted));line-height:1.6}
 .cmdplan-x{display:block;margin-top:3px;font-size:var(--fs-sm);color:var(--st-err)}
 .cmdplan .cmdins{margin-top:6px}
+.cmdmd{display:flex;flex-direction:column;gap:8px;line-height:1.55}
+.cmdmd>*{margin:0}
+.cmdmd ul,.cmdmd ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.cmdmd h1,.cmdmd h2,.cmdmd h3{font-size:var(--fs-md);font-weight:600;margin:4px 0 0}
+.cmdmd code{font:var(--fs-sm) var(--mono);background:var(--surface-2);border-radius:4px;padding:1px 5px}
+.cmdmd pre{background:var(--surface-2);border-radius:var(--r);padding:10px 12px;overflow-x:auto}
+.cmdchipc{font:var(--fs-sm) var(--mono);border:1px solid var(--border);border-radius:6px;padding:0 6px;background:var(--surface);color:inherit;cursor:pointer;line-height:1.5}
+.cmdchipc:hover{border-color:var(--accent);color:var(--accent)}
+.cmdres{display:flex;flex-direction:column}
+.cmdres>div{display:grid;grid-template-columns:16px auto minmax(0,1fr);gap:10px;align-items:baseline;padding:7px 12px;border-top:1px solid var(--border)}
+.cmdres>div:first-child{border-top:0}
+.cmdres i{font-style:normal;font-size:12px;color:var(--ok)}
+.cmdres .no i{color:var(--st-err)}
+.cmdres .cmdtt{white-space:normal}
+.cmdres small{color:var(--st-err)}
 /* conversa por voz */
 .cmdmic{display:inline-flex;align-items:center;gap:6px;flex:none}
 .cmdmic.on{border-color:var(--st-ask);color:var(--st-ask)}
