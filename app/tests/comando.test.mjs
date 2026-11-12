@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -104,4 +104,21 @@ test('entendimento: frase conversada não vira ação por palavra solta; "a task
   const s = C.cmdSnapshot([], 'loja', [], 'LW-47 "Avisos" — selo: pronta pra revisar');
   assert.match(s, /TAREFA EM FOCO/); assert.match(s, /perguntar <código>: <pergunta pro agente da tarefa>/);
   assert.ok(/NÃO altere nenhum arquivo/.test(JS) && /k:'resposta'/.test(JS), 'a pergunta pede só resposta e a fala do agente volta pra conversa');
+});
+
+test('assistente: avisa o que é novo, uma vez; resolveu e voltou, avisa de novo; 1ª vez não despeja tudo', () => {
+  const rows = [{ id:'a', st:'review' }, { id:'b', st:'asking', ask:'g:1' }, { id:'c', st:'running' }, { id:'d', st:'error' }];
+  const n = C.cmdNeeds(rows);
+  assert.deepEqual(n.map(x => x.tipo + ':' + x.id), ['ask:b', 'bad:d', 'rev:a'], 'pergunta, erro, revisão — rodando não pede conversa');
+  const p0 = C.cmdNovos(n, null);
+  assert.deepEqual(p0.novos, [], 'primeira vez: o resumo de abertura cobre');
+  assert.equal(p0.seen.length, 3);
+  assert.deepEqual(C.cmdNovos(n, p0.seen).novos, [], 'nada mudou: não repete');
+  const n2 = C.cmdNeeds([{ id:'a', st:'review' }, { id:'b', st:'asking', ask:'g:2' }, { id:'c', st:'asking', ask:'p:9' }]);
+  const p2 = C.cmdNovos(n2, p0.seen);
+  assert.deepEqual(p2.novos.map(x => x.id), ['b', 'c'], 'pergunta NOVA na mesma tarefa e pergunta em outra');
+  const p3 = C.cmdNovos(C.cmdNeeds([{ id:'a', st:'running' }]), p2.seen);
+  assert.deepEqual(p3.seen, [], 'o que se resolveu sai da lista');
+  assert.deepEqual(C.cmdNovos(C.cmdNeeds([{ id:'a', st:'review' }]), p3.seen).novos.map(x => x.id), ['a'], 'terminou de novo: avisa de novo');
+  assert.ok(HTML.includes('id="comandoCnt"') && /Precisamos conversar sobre/.test(JS) && /cmdWatch\(\); if\(cmdAtiva\(\)\)/.test(JS), 'contador na lateral e vigia a cada atualização, com a aba aberta ou não');
 });
