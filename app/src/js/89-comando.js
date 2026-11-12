@@ -99,9 +99,27 @@ function cmdSnapshot(rows, proj, epics, foco){
     +`status · esperando · erro · fila de issues · epicos · epico <nome> · comecar epico <nome> · liberar onda epico <nome> · verificar epico <nome> · entregar epico <nome> · tarefa <código> · por que <código> parou · provas <código> · link <código> · abrir <código> · parar <código> · parar tudo rodando · comecar <código da issue> · <código>: <instrução pra IA da tarefa> · perguntar <código>: <pergunta pro agente da tarefa> · abrir tela <issues|central|entregas|semana|aprovar|meu trabalho|projetos|nova demanda>\n`
     +`Se for uma pergunta (sobre o código ou sobre as tarefas), responda em português, curto e direto, citando as tarefas pelo código. Nunca invente código de tarefa. O selo de estado ("pronta pra revisar" etc.) é só o rótulo do app: pra dizer como a tarefa está de verdade, use os requisitos com prova, o plano, os últimos passos e a última fala do agente da TAREFA EM FOCO — e, se a pessoa duvidar do estado ou quiser a palavra do agente, use "perguntar <código>: …".`;
 }
+/** O que PEDE CONVERSA agora. `rows`: [{ id, st, ask }] (ask = chave da pergunta aberta). → [{ id, tipo:'ask'|'bad'|'rev', key }] na ordem de urgência */
+function cmdNeeds(rows){
+  const out=[];
+  for(const r of (rows||[])){ if(!r||!r.id) continue;
+    if(['asking','needs-you','plan-review'].includes(r.st)) out.push({ id:r.id, tipo:'ask', key:'ask:'+r.id+':'+(r.ask||r.st) });
+    else if(['error','conflict','mudanca-pedida'].includes(r.st)) out.push({ id:r.id, tipo:'bad', key:'bad:'+r.id+':'+r.st });
+    else if(['review','delivered','falta-prova','para-aprovar'].includes(r.st)) out.push({ id:r.id, tipo:'rev', key:'rev:'+r.id }); }
+  const o={ ask:0, bad:1, rev:2 }; return out.sort((a,b)=>o[a.tipo]-o[b.tipo]);
+}
+/** Dos que pedem conversa, quais são NOVOS (ainda não avisados). `seen` = chaves já avisadas; null = 1ª vez (nada é novo:
+ *  o resumo de abertura já cobre). Devolve { novos, seen } — seen novo = só as chaves que continuam valendo (o que se
+ *  resolveu sai, e avisa de novo se voltar). */
+function cmdNovos(needs, seen){
+  const keys=(needs||[]).map(n=>n.key);
+  if(!Array.isArray(seen)) return { novos:[], seen:keys };
+  const had=new Set(seen); return { novos:(needs||[]).filter(n=>!had.has(n.key)), seen:keys };
+}
+const CMD_TIPO={ ask:'tem uma pergunta pra você', bad:'parou com erro', rev:'terminou e espera a sua revisão' };
 // @comando-puro-fim
 
-const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', asking:'', spoken:0, logHtml:'', sideHtml:'', mounted:false };
+const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', asking:'', spoken:0, unread:0, logHtml:'', sideHtml:'', mounted:false };
 function cmdRepo(){ return (typeof state!=='undefined'&&state.repo)||''; }
 function cmdMsgs(){ const k=cmdRepo(); return CMD.msgs[k]||(CMD.msgs[k]=[]); }
 function cmdTasks(){ let l=[]; try{ l=flowLiveTasks(); }catch(_){ l=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!taskEncerrada(t)); }
@@ -109,8 +127,8 @@ function cmdTasks(){ let l=[]; try{ l=flowLiveTasks(); }catch(_){ l=((typeof sta
 function cmdCode(t){ return t.issueCode||(typeof issueCodeOf==='function'&&issueCodeOf(t))||''; }
 function cmdTask(id){ return ((typeof state!=='undefined'&&state.tasks)||[]).find(t=>t.id===id)||null; }
 function cmdAsk(t){ try{ return tlAskGroup(pendingOf(t.id)); }catch(_){ return null; } }
-function cmdAskTitle(t){ const g=cmdAsk(t); if(!g||!g.rows||!g.rows.length) return ''; const p=g.rows[0], m=(p.meta&&typeof p.meta==='object')?p.meta:{};
-  let ti=''; try{ ti=tlAskSplit(p.prompt||p.question||'', m.header, m.question).title; }catch(_){ ti=String(p.prompt||''); } return (g.rows.length>1?g.rows.length+' perguntas · ':'')+ti; }
+function cmdAskTitle(t){ const g=cmdAsk(t); if(!g||!g.rows||!g.rows.length) return ''; const p=g.rows[0];
+  let ti=''; try{ ti=tlAskSplit(p.prompt||'', p.header, p.q).title; }catch(_){ ti=String(p.prompt||''); } return (g.rows.length>1?g.rows.length+' perguntas · ':'')+ti; }
 function cmdIsRun(t){ return ['running','thinking','integrando'].includes(taskSt(t)); }
 function cmdIsBad(t){ const s=taskSt(t); return stIsBad(s)||s==='mudanca-pedida'; }
 function cmdIsAsk(t){ return ['asking','needs-you','plan-review'].includes(taskSt(t)); }
@@ -270,6 +288,36 @@ function cmdResumo(c){ if(!c.all) return 'Nenhuma tarefa aberta neste projeto.';
   const p=[]; if(c.ask) p.push(`<b>${nPl(c.ask,'espera','esperam')} você</b>`); if(c.bad) p.push(`<b>${nPl(c.bad,'parou','pararam')} com erro</b>`); if(c.run) p.push(nPl(c.run,'rodando','rodando')); if(c.rev) p.push(nPl(c.rev,'pronta pra revisar','prontas pra revisar')); if(c.pr) p.push(nPl(c.pr,'com PR aberto','com PR aberto'));
   return `${nPl(c.all,'tarefa aberta','tarefas abertas')}${p.length?': '+p.join(', '):''}.`; }
 
+// ---------- ASSISTENTE: vigia as tarefas e ABRE a conversa quando precisa de você ----------
+function cmdNeedsNow(){ return cmdNeeds(cmdTasks().map(t=>{ let ask=''; try{ const g=cmdAsk(t); ask=(g&&g.key)||''; }catch(_){ } return { id:t.id, st:taskSt(t), ask }; })); }
+function cmdSeenKey(){ return 'cmdseen:'+cmdRepo(); }
+function cmdWatch(){
+  if(!cmdRepo() || typeof state==='undefined' || !Array.isArray(state.tasks)) return;
+  let seen=null; try{ const v=lsGet(cmdSeenKey()); seen=v?JSON.parse(v):null; }catch(_){ seen=null; }
+  const needs=cmdNeedsNow(), r=cmdNovos(needs, seen);
+  if(!Array.isArray(seen) || r.seen.length!==seen.length || r.novos.length || r.seen.some((k,i)=>k!==seen[i])) lsSet(cmdSeenKey(), JSON.stringify(r.seen.slice(0,400)));
+  if(!r.novos.length) return;
+  cmdMsgs().push({ r:'bot', k:'aviso', ids:r.novos.map(n=>n.id), tipos:r.novos.map(n=>n.tipo) });
+  if(!cmdAtiva()){ CMD.unread+=r.novos.length; cmdBadge(); }
+  else if(!CMD.sel && r.novos.length===1){ CMD.sel=r.novos[0].id; cmdHistLoad(CMD.sel); } // uma só e o painel livre: já abre ela ao lado
+}
+function cmdBadge(){ const c=$id('comandoCnt'); if(!c) return; c.hidden=!CMD.unread; c.textContent=CMD.unread>9?'9+':String(CMD.unread||''); c.title=CMD.unread?nPl(CMD.unread,'tarefa quer','tarefas querem')+' conversar com você':''; }
+function cmdAvisoHtml(m){
+  const its=(m.ids||[]).map((id,i)=>({ t:cmdTask(id), tipo:(m.tipos||[])[i]||'ask' })).filter(x=>x.t);
+  if(!its.length) return '<p class="cmdhint">Um aviso antigo: a tarefa não está mais aberta.</p>';
+  const frase=its.length===1?`Precisamos conversar sobre a <b>${esc(cmdCode(its[0].t)||mdTitle(its[0].t.title||''))}</b>: ${CMD_TIPO[its[0].tipo]}.`
+    :`Precisamos conversar sobre <b>${its.length} tarefas</b>: ${its.map(x=>`${esc(cmdCode(x.t)||mdTitle(x.t.title||'').slice(0,24))} ${CMD_TIPO[x.tipo]}`).join('; ')}.`;
+  return `<p>${frase}</p>${cmdRows(its.map(x=>x.t))}<p class="cmdhint">Clique pra tratar ao lado: responder, ver por que parou ou ver as provas.</p>`;
+}
+// a abertura da conversa: o que precisa de você AGORA, em ordem de urgência (e não só uma contagem)
+function cmdAberturaHtml(){
+  const L=cmdTasks(), needs=cmdNeedsNow(), c=cmdCounts(L);
+  if(!L.length) return '<p>Nenhuma tarefa aberta neste projeto ainda. Diga o que quer fazer ou peça a fila de issues.</p>';
+  if(!needs.length) return `<p>Nada precisa de você agora. ${cmdResumo(c)}</p><p class="cmdhint">Eu aviso aqui quando uma tarefa perguntar algo, parar ou terminar.</p>`;
+  const por=k=>needs.filter(n=>n.tipo===k).map(n=>cmdTask(n.id)).filter(Boolean), blk=(k, tx)=>{ const l=por(k); return l.length?`<span class="cmdeye">${tx} · ${l.length}</span>${cmdRows(l.slice(0,6))}${l.length>6?`<p class="cmdhint">e mais ${l.length-6}</p>`:''}`:''; };
+  return `<p>Precisamos conversar sobre <b>${nPl(needs.length,'tarefa','tarefas')}</b>.${c.run?' '+nPl(c.run,'agente segue','agentes seguem')+' trabalhando.':''}</p>${blk('ask','Perguntaram algo')}${blk('bad','Pararam com erro')}${blk('rev','Terminaram e esperam revisão')}<p class="cmdhint">Eu aviso aqui quando aparecer mais alguma.</p>`;
+}
+
 // ---------- respostas (montadas dos dados na hora de pintar: a lista da conversa acompanha o estado) ----------
 function cmdBotHtml(m){
   const L=cmdTasks();
@@ -301,12 +349,13 @@ function cmdBotHtml(m){
   if(m.k==='provas'){ if(m.id){ const t=cmdTask(m.id); if(!t) return '<p>Essa tarefa não está nesta máquina.</p>';
       return typeof proofPanel==='function'?`<p>Provas da <b>${esc(cmdCode(t)||mdTitle(t.title||''))}</b>. Clique num print pra ampliar.</p><div class="cmdproof">${proofPanel(t.id, 'compact')}</div>`:'<p>O painel de provas não está disponível.</p>'; }
     let f=[]; try{ f=apFila(); }catch(_){ } return f.length?`<p>${nPl(f.length,'tarefa terminou','tarefas terminaram')} com provas pra ver. Clique numa e peça "provas", ou abra Para aprovar.</p>${cmdRows(f)}<div class="cmdiss-a"><button type="button" class="btn sm" data-cmdgo="aprovar">Abrir Para aprovar</button></div>`:'<p>Nenhuma tarefa com provas esperando agora.</p>'; }
+  if(m.k==='aviso') return cmdAvisoHtml(m);
   if(m.k==='md') return mdToHtml(m.text||'');
   return `<p>${esc(m.text||'')}</p>`;
 }
 function cmdLogHtml(){
-  const ms=cmdMsgs(), c=cmdCounts(cmdTasks());
-  const oi=`<div class="cmdmsg bot"><span class="cmdav">${IC.starfork||''}</span><div class="cmdbub"><p>${c.all?cmdResumo(c):'Nenhuma tarefa aberta neste projeto ainda.'} Pergunte qualquer coisa ou mande fazer.</p></div></div>`;
+  const ms=cmdMsgs();
+  const oi=`<div class="cmdmsg bot"><span class="cmdav">${IC.starfork||''}</span><div class="cmdbub">${cmdAberturaHtml()}</div></div>`;
   return oi+ms.map(m=>m.r==='you'?`<div class="cmdmsg you"><div class="cmdbub">${esc(m.text)}</div></div>`
     :m.r==='sys'?`<div class="cmdmsg sys">${esc(m.text)}</div>`
     :`<div class="cmdmsg bot"><span class="cmdav">${IC.starfork||''}</span><div class="cmdbub">${cmdBotHtml(m)}</div></div>`).join('')
@@ -505,7 +554,7 @@ function cmdPaint(down){
   // a pergunta aberta da tarefa selecionada: a MESMA folha do terminal, encaixada no painel
   const slot=side.querySelector('[data-tlinline]'); if(slot && typeof tlAskPaint==='function'){ const t=cmdTask(slot.dataset.tlinline); if(t) try{ tlAskPaint(t); }catch(e){ console.warn('comando ask', e); } }
 }
-function cmdOpen(){ cmdMount(); CMD.logHtml=''; CMD.sideHtml=''; cmdPaint(true); if(typeof ovShow==='function') ovShow('comandoOverlay'); if(CMD.sel) cmdHistLoad(CMD.sel); setTimeout(()=>{ const q=$id('cmdQ'); if(q) q.focus(); }, 60); }
+function cmdOpen(){ cmdMount(); CMD.unread=0; cmdBadge(); CMD.logHtml=''; CMD.sideHtml=''; cmdPaint(true); if(typeof ovShow==='function') ovShow('comandoOverlay'); if(CMD.sel) cmdHistLoad(CMD.sel); setTimeout(()=>{ const q=$id('cmdQ'); if(q) q.focus(); }, 60); }
 function cmdAtiva(){ const t=(typeof tabById==='function')?tabById(activeTab):null; return !!(t && t.kind==='comando'); }
 
 // ---------- registro: aba, lateral, atalho ⌘J, repintura a cada refresh ----------
@@ -513,6 +562,6 @@ if(typeof VIEW_META!=='undefined'){ VIEW_META.comando={ title:'Comando', icon:(t
 if(typeof viewOpen==='function' && !viewOpen.__cmd){ const vo=viewOpen; viewOpen=function(kind){ if(kind==='comando') return cmdOpen(); return vo.apply(this, arguments); }; viewOpen.__cmd=true; }
 if(typeof SEM_NAV!=='undefined') SEM_NAV.comando='comandoBtn';
 bindClick('comandoBtn', ()=>openTab('comando'));
-if(typeof render==='function' && !render.__cmd){ const r0=render; render=function(){ const out=r0.apply(this, arguments); try{ if(cmdAtiva()){ if(CMD.sel) cmdHistLoad(CMD.sel); cmdPaint(); } else if(CMDV.on) cmdVoiceToggle(); }catch(e){ console.warn('comando render', e); } return out; }; render.__cmd=true; }
+if(typeof render==='function' && !render.__cmd){ const r0=render; render=function(){ const out=r0.apply(this, arguments); try{ cmdWatch(); if(cmdAtiva()){ if(CMD.unread){ CMD.unread=0; cmdBadge(); } if(CMD.sel) cmdHistLoad(CMD.sel); cmdPaint(); } else if(CMDV.on) cmdVoiceToggle(); }catch(e){ console.warn('comando render', e); } return out; }; render.__cmd=true; }
 document.addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase()==='j'){ e.preventDefault(); openTab('comando'); } });
 window.cmdOpen=cmdOpen;
