@@ -305,3 +305,17 @@ html.sfpane .enpage,html.sfpane .fwchat,html.sfpane .fwmain{overflow-wrap:anywhe
 html.sfpane .appmain>.bus{display:none!important}
 html.sfpane .en-kpis{min-width:0;max-width:100%}
 html.sfpane .en-kpi span{min-width:0}
+
+/* ---------- tela dividida (12/11): o painel é pra trabalhar — a corrente da tarefa sai e as barras encolhem ---------- */
+html.sfpane #fwChain{display:none!important}
+html.sfpane .fwhead{padding-top:5px;padding-bottom:5px;min-height:0}
+html.sfpane .tlsheethost{left:8px;right:8px}
+html.sfpane .tlsheethost:not(.tight) .tlsheet{max-height:min(calc(100% - 8px),68%)} /* o terminal continua à vista em cima da pergunta */
+html.sfpane .tiacts{flex-wrap:nowrap;overflow:hidden}
+html.sfpane .tiaipick{flex:0 1 auto;min-width:90px;overflow:hidden}
+@media (max-width:720px){
+  html.sfpane .tiact:not(.ticomp)>span{display:none} /* só o ícone (o nome fica no título): cabe tudo numa linha */
+  html.sfpane .tiact{padding:5px 8px}
+  html.sfpane .tiacts .tihint,html.sfpane .tisep{display:none}
+  html.sfpane .tiadv{display:none} /* o Conselheiro continua no seletor da IA */
+}

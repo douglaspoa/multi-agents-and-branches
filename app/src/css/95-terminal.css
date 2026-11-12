@@ -246,3 +246,28 @@ html.sfpane .fw:has(.fwchat.tl) .fwciclo{max-height:34vh;overflow:auto}
 .en-req.ad .en-adnote{color:var(--text-2)}
 .tlgr{flex-wrap:wrap;column-gap:10px}
 .tlgr b{white-space:nowrap}
+
+/* ---------- fluidez (12/11): a pergunta não é tapada, não quebra o rodapé e responde também no Meu trabalho ---------- */
+.tlsheethost{container-type:inline-size}
+.tlshk{display:inline-flex;align-items:center;gap:6px}
+.tlshk i{font-style:normal;font-weight:500;color:var(--muted);font-variant-numeric:tabular-nums}
+.tlsf{flex-wrap:nowrap}
+.tlopt{border-color:var(--border)}
+.tlopts{gap:4px;padding:4px 12px 10px}
+.tlopt:hover,.tlopt.cur{border-color:var(--border-strong)}
+@container (max-width:560px){ .tlkeys{display:none} .tlqtabs{display:none} .tlq{padding:10px 12px 4px} .tlctx{padding:0 12px 4px} .tlctxt{margin:0 12px 6px} .tlopts{padding:2px 8px 8px} .tlother{padding:0 12px 8px} .tlsf{padding:8px 10px} }
+@container (max-width:400px){ .tlsf .lnk{display:none} }
+/* o aviso (toast) sobe pro topo enquanto há pergunta aberta: antes caía em cima do "enviar" */
+body:has(.tlsheethost:not(.min):not(.inline) .tlsheet) .apptoast{bottom:auto;top:calc(var(--chrome-h,44px) + 12px)}
+/* dentro do Meu trabalho: a mesma folha, no fluxo da tarefa aberta ao lado */
+.tlsheethost.inline{position:static;display:block;pointer-events:auto;inset:auto}
+.tlsheethost.inline .tlsheet{width:100%;max-height:none;border:0;border-radius:0;box-shadow:none;background:transparent;animation:none}
+.tlsheethost.inline .tlsh{padding:10px 18px 6px;border-bottom:0}
+.tlsheethost.inline .tlmin,.tlsheethost.inline .lnk[data-tl="askterm"]{display:none}
+.tlsheethost.inline .tlq{padding:2px 18px 6px;max-height:none;background:none}
+.tlsheethost.inline .tlctx{padding:0 18px 4px;background:none}
+.tlsheethost.inline .tlctxt{margin:0 18px 6px}
+.tlsheethost.inline .tlopts{padding:4px 14px 10px;background:none;overflow:visible}
+.tlsheethost.inline .tlother{padding:0 18px 12px}
+.tlsheethost.inline .tlsf{padding:10px 18px;border-top:1px solid var(--border)}
+.tlsheethost.inline .tlpill{margin:10px 18px}

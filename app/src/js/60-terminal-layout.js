@@ -242,7 +242,8 @@ function tlCtxHtml(blocks){
 }
 function tlSheetHtml(g, st){
   const r=g.rows[st.q]||g.rows[0]; const many=g.rows.length>1; const last=st.q>=g.rows.length-1;
-  const done=(i)=>st.skip[i] || String(st.other[i]||'').trim() || (st.sel[i]||[]).length;
+  const seen=Math.max(st.seen|0, st.q|0); st.seen=seen; // até onde você já foi
+  const done=(i)=>st.skip[i] || String(st.other[i]||'').trim() || (i<=seen && (st.sel[i]||[]).length); // a 1ª opção vem marcada: só conta depois de vista
   const tabs=many?`<span class="tlqtabs" role="tablist" aria-label="perguntas">${g.rows.map((x,i)=>`<button type="button" role="tab" class="tlqt${i===st.q?' on':done(i)&&i!==st.q?' done':''}" data-tlq="${i}" aria-selected="${i===st.q}">${i+1}. ${esc(x.header||tlAskSplit(x.prompt, '', x.q).title.slice(0,28))}</button>`).join('')}</span>`:'';
   const cur=st.sel[st.q]||[]; const other=String(st.other[st.q]||'');
   const opts=r.options.map((o,i)=>{ const on=!other && cur.includes(i);
@@ -254,7 +255,7 @@ function tlSheetHtml(g, st){
     (fold?`<button type="button" class="tlctxt" data-tl="askctx" aria-expanded="${open}" aria-controls="tlCtx-${uid}">${open?'recolher contexto':'ver contexto completo'}</button>`:''):'';
   const n=r.options.length;
   return `<div class="tlsheet${st.sending?' sending':''}" role="dialog" aria-modal="false" aria-label="${escA('pergunta do agente'+(g.agent?' '+g.agent:''))}" tabindex="-1">`+
-    `<div class="tlsh"><span class="tlshk">${esc(g.agent||'O agente')} pergunta</span>${tabs}<span class="sp"></span><button type="button" class="tlmin" data-tl="askmin" title="esconder a pergunta (Esc) — ela continua esperando você" aria-label="esconder a pergunta">${TL_IC.fold}</button></div>`+
+    `<div class="tlsh"><span class="tlshk"><span class="tldot" style="--c:var(--st-ask)" aria-hidden="true"></span>${esc(g.agent||'O agente')} pergunta${many?` <i>${st.q+1} de ${g.rows.length}</i>`:''}</span>${tabs}<span class="sp"></span><button type="button" class="tlmin" data-tl="askmin" title="esconder a pergunta (Esc) — ela continua esperando você" aria-label="esconder a pergunta">${TL_IC.fold}</button></div>`+
     `<div class="tlq" id="tlQ-${uid}">${tlTitleHtml(sp.title)}${r.multi?' <span class="tlmulti">escolha uma ou mais</span>':''}</div>`+ctx+
     (n?`<div class="tlopts" role="${r.multi?'group':'radiogroup'}" aria-labelledby="tlQ-${uid}">${opts}</div>`:'')+
     `<div class="tlother"><input class="in" data-tl="other" placeholder="${n?'outra resposta…':'sua resposta…'}" aria-label="${n?'outra resposta':'sua resposta'}" value="${escA(other)}"></div>`+
@@ -417,7 +418,9 @@ function tlSheetEl(taskId){ let el=TL.sheets[taskId]; if(!el){ el=document.creat
 /** Antes de o renderWorkspace refazer a coluna: onde estava o foco da folha (o host sai do DOM e perde o foco). */
 function tlSheetFocusGrab(taskId){ const el=TL.sheets[taskId]; const ae=document.activeElement; if(!el || !ae || !el.contains(ae)) return null; return { other:ae.matches('[data-tl="other"]'), caret:ae.selectionStart!=null?ae.selectionStart:null }; }
 function tlAskPaint(t, focus, grab, termFocus){
-  const slot=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"] .tlcol`);
+  const col=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"] .tlcol`), inl=document.querySelector(`[data-tlinline="${CSS.escape(t.id)}"]`);
+  const vis=(n)=>!!(n && n.offsetParent!==null);
+  const slot=vis(col)?col:vis(inl)?inl:(col||inl); const inline=!!slot && slot===inl; // Meu trabalho: a folha mora na tarefa aberta ao lado
   const a=tlAskOf(t);
   const host=TL.sheets[t.id];
   // o "pergunta aberta" do agente sem folha (escondida) → pílula pra reabrir
@@ -427,7 +430,8 @@ function tlAskPaint(t, focus, grab, termFocus){
   const caret=grab?grab.caret:(inOther?document.activeElement.selectionStart:null);
   const fresh=el.parentNode!==slot;
   if(fresh) slot.appendChild(el);
-  tlSheetPlace(slot, el);
+  el.classList.toggle('inline', inline);
+  if(inline){ el.style.bottom=''; el.classList.remove('tight'); } else tlSheetPlace(slot, el);
   const html=a.st.min ? `<button type="button" class="tlpill" data-tl="askmax"><span class="tldot" style="--c:var(--st-ask)"></span>${esc(a.g.agent||'O agente')} está esperando sua resposta · <b>responder</b></button>` : tlSheetHtml(a.g, a.st);
   // rolagem: o innerHTML zera e mover o host pra coluna nova (renderWorkspace) também — volta pela última posição vista
   { const qk=a.g.key+'|'+a.st.q, same=el.__qk===qk;
@@ -439,7 +443,7 @@ function tlAskPaint(t, focus, grab, termFocus){
   // (digitando NO TERMINAL não é estar livre: a pergunta roubava o foco e o "1"+Enter de lá respondia sem querer.
   // termFocus vem do renderWorkspace: o innerHTML tira o xterm do DOM e o foco cai no body ANTES desta pintura)
   const ae=document.activeElement, tf=!!termFocus || !!(TERM[t.id] && TERM[t.id].host.contains(ae));
-  if(tlAskTakesFocus({ hadFocus, focus, fresh, min:a.st.min, termFocus:tf, onBody:!ae || ae===document.body })) tlAskFocus(el, inOther, caret);
+  if(tlAskTakesFocus({ hadFocus, focus, fresh:fresh && !inline, min:a.st.min, termFocus:tf, onBody:!ae || ae===document.body })) tlAskFocus(el, inOther, caret);
 }
 // rolagem da folha entre repinturas (o innerHTML zera): mesma pergunta = volta onde estava; pergunta NOVA = abre no TOPO —
 // o título já é a frase que pergunta (tlAskSplit) e o contexto vem recolhido logo abaixo, com as opções à vista
