@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -188,4 +188,19 @@ test('caso real 12/11 (3): vários encerramentos e uma listagem numa frase só v
   assert.match(pr, /PEDIDO DA PESSOA: Encerre a FND 1168/); assert.match(pr, /VÁRIAS tarefas no mesmo passo/); assert.match(pr, /NÃO escolha/); assert.match(pr, /CONVERSA ATÉ AQUI:\nPessoa: oi/);
   assert.ok(/invoke\('comando_plan'/.test(JS) && /k:'plano', plan:P/.test(JS) && /motivo:''/.test(JS), 'plano que mexe em algo vira cartão de confirmação; encerrar em lote não abre uma folha por tarefa');
   assert.ok(/await cmdProjeto\(x\.repo\)/.test(JS) && /if\(cmdRepo\(\)!==home\) await cmdProjeto\(home\)/.test(JS), 'tarefa de outro projeto: troca, age e volta');
+});
+
+test('a caixa do chat cresce com a mensagem', () => {
+  assert.ok(/<textarea class="in" id="cmdQ" rows="1"/.test(JS) && /function cmdGrow\(\)/.test(JS), 'textarea que cresce');
+  assert.ok(/e\.key==='Enter' && !e\.shiftKey && !e\.isComposing/.test(JS), 'Enter envia, Shift+Enter quebra linha');
+});
+
+test('formatação: lista é do app, identificador interno não vaza, código vira atalho, lote vira um resultado', () => {
+  const refs = [{ ref:'T1', code:'', title:'MCP use_cases T5 — Compras internacionais' }, { ref:'FND-1208', code:'FND-1208', title:'Mock navegável' }];
+  assert.equal(C.cmdSemRefs('Abertas: FND-1208 e T1. T9 não existe.', refs), 'Abertas: FND-1208 e “MCP use_cases T5 — Compras internaciona…”. T9 não existe.');
+  assert.equal(C.cmdLinkCodes('<p>Veja a FND-1208 e a XX-1.</p><a href="FND-1208">x</a>', { 'FND-1208':'id1' }),
+    '<p>Veja a <button type="button" class="cmdchipc" data-cmdsel="id1">FND-1208</button> e a XX-1.</p><a href="FND-1208">x</a>', 'só fora das tags e só tarefa conhecida');
+  const pr = C.cmdPlanPrompt({ refs:[], pedido:'x' });
+  assert.match(pr, /NUNCA liste tarefas em texto corrido/); assert.match(pr, /no máximo 2 frases/);
+  assert.ok(/k:'resultado', titulo:LOTE\[p\.acao\]/.test(JS) && /quiet:true/.test(JS), 'encerrar/parar/continuar em lote: uma lista de resultado, não uma fala por tarefa');
 });
