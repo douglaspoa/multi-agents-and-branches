@@ -5403,6 +5403,22 @@ fn comando_plan(state: State<AppState>, prompt: String) -> Result<String, String
     ai_once::ai_once_as("comando", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &p, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 120 })
 }
 
+/// COMANDO · CONFERIR: uma IA só de LEITURA olha a pasta da branch da tarefa (arquivos, git status/diff/log) e responde
+/// como a tarefa está de verdade — sem escrever no terminal do agente (que pode estar no meio do trabalho).
+#[tauri::command(async)]
+fn comando_conferir(state: State<AppState>, task_id: String, prompt: String) -> Result<String, String> {
+    let p: String = prompt.trim().chars().take(24000).collect();
+    if p.is_empty() { return Err("sem pergunta".to_string()); }
+    let wt: String = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        let conn = open(&db)?;
+        conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, Option<String>>(0)).map_err(|e| e.to_string())?.unwrap_or_default()
+    };
+    if wt.trim().is_empty() || !Path::new(&wt).is_dir() { return Err("a pasta desta tarefa não está mais nesta máquina".to_string()); }
+    ai_once::ai_once_as("comando", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &p, tier: ai_once::Tier::Capaz, claude_model: None,
+        claude_extra: &["--allowedTools".to_string(), "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*)".to_string()], cwd: Some(Path::new(&wt)), secs: 300 })
+}
+
 /// Gera um título curto de tarefa a partir da descrição (Haiku — rápido/barato).
 #[tauri::command(async)]
 fn ai_title(state: State<AppState>, text: String) -> Result<String, String> {
@@ -12009,6 +12025,7 @@ pub fn run() {
             read_artifact_raw,
             ai_decompose,
             comando_plan,
+            comando_conferir,
             daily_digest,
             ai_daily,
             ai_daily_report,
