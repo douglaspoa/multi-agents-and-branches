@@ -18,20 +18,21 @@ function cmdIntent(text, tasks, epics, sel){
   let t=m?(tasks||[]).find(x=>cmdNorm(x.code)===m[1]):null;
   if(!t){ const hit=(tasks||[]).filter(x=>{ const ti=cmdNorm(x.title); return ti.length>=6 && s.includes(ti); }); if(hit.length===1) t=hit[0]; }
   // "a task", "essa tarefa", "o agente dela": fala da tarefa que está aberta ao lado
-  if(!t && sel && /\b(a task|essa task|esta task|da task|na task|a tarefa|essa tarefa|esta tarefa|dessa tarefa|da tarefa|na tarefa|o agente|ao agente|pro agente|dela|nela|o ambiente|ambiente|servidor|previa|encerr\w*|o que foi feito|o que mudou)\b/.test(s)) t=(tasks||[]).find(x=>x.id===sel)||null;
+  if(!t && sel && s.split(/\s+/).length<=6 && /\b(a task|essa task|esta task|da task|na task|a tarefa|essa tarefa|esta tarefa|dessa tarefa|da tarefa|na tarefa|o agente|ao agente|pro agente|dela|nela|o ambiente|ambiente|servidor|previa|encerr\w*|o que foi feito|o que mudou)\b/.test(s)) t=(tasks||[]).find(x=>x.id===sel)||null;
   const quer={ provas:/\b(prova|provas|print|prints|imagem|imagens|screenshot|evidencia|evidencias|foto|fotos)\b/.test(s), link:/\b(link|links|url|endereco|pull request|pr)\b/.test(s) };
   if(t){
     const ins=/^\s*[a-z]{2,10}-\d+\s*:\s*(.{3,})$/i.exec(raw); if(ins) return { k:'instruir', id:t.id, text:ins[1].trim() };
     // perguntar AO AGENTE da tarefa (a palavra dele, não o selo): "pergunta pro agente…", "confirma com a IA…", "perguntar FND-1: …"
     if(/\b(pergunt\w*|consult\w*|confirm\w*|checa\w*|verific\w*)\b.*\b(agente|ia|ele|ela)\b/.test(s) || /^perguntar\b/.test(s)){ const q=/:\s*(.{3,})$/.exec(raw); return { k:'perguntar', id:t.id, text:(q?q[1]:raw).trim() }; }
-    if(/\b(ambiente|servidor|site|previa|preview|localhost)\b/.test(s)){ if(/\b(deslig\w*|derrub\w*|par[ae]\w*|mata\w*|fech\w*)\b/.test(s)) return { k:'ambiente', id:t.id, on:false }; if(/\b(sob[ea]\w*|subir|lig\w*|inici\w*|roda\w*|abr\w*|levant\w*)\b/.test(s)) return { k:'ambiente', id:t.id, on:true }; }
+    if(/\b(ambiente|servidor|site|previa|preview|localhost)\b/.test(s)){ if(/\b(deslig\w*|derrub\w*|pare|parar|mata\w*|fech\w*)\b/.test(s)) return { k:'ambiente', id:t.id, on:false }; if(/\b(sob[ea]\w*|subir|lig\w*|inici\w*|roda\w*|abr\w*|levant\w*)\b/.test(s)) return { k:'ambiente', id:t.id, on:true }; }
     if(/\b(encerr\w*|finaliz\w*|descart\w*|cancel\w*|arquiv\w*)\b/.test(s)) return { k:'encerrar', id:t.id };
     if(/(o que (foi feito|ela fez|ele fez|a ia fez|o agente fez|mudou|foi alterado)|\b(mudancas|alteracoes|resumo do que)\b)/.test(s)) return { k:'feito', id:t.id };
     if(quer.provas) return { k:'provas', id:t.id };
     if(quer.link) return { k:'link', id:t.id };
     if(/\b(por ?que|parou|erro|falh|travou|travad)/.test(s)) return { k:'porque', id:t.id };
     if(/\b(abr[ea]|abrir|entra|entrar|mostra|ver)\b/.test(s)) return { k:'abrir', id:t.id };
-    if(/\b(par[ae]|parar|pausa|pausar|interromp)/.test(s)) return { k:'parar', id:t.id };
+    if(/\b(continu\w*|retom\w*|volt\w* a rodar|segu\w* rodando)\b/.test(s)) return { k:'continuar', id:t.id };
+    if(/\b(pare|parar|pausa|pausar|pause|interromp\w*)\b/.test(s)) return { k:'parar', id:t.id };
     return { k:'tarefa', id:t.id };
   }
   // código que não é tarefa aberta = issue do painel (começar/ver); quem chama confere se ela existe lá
@@ -50,6 +51,14 @@ function cmdIntent(text, tasks, epics, sel){
   if(/(como (esta|estao|anda|andam|vai|vao)|status|andamento|resumo|situacao|o que (esta|ta) (rodando|acontecendo)|agentes|tarefas abertas|tudo bem)/.test(s)) return { k:'status' };
   return { k:'ia' };
 }
+/** Frase CURTA e DIRETA (comando), que dá pra resolver sem IA. Conversa, negação, referência ("a última", "hoje",
+ *  "não é essa") NUNCA é adivinhada por palavra: vai pra IA, que tem a lista das tarefas e o que foi dito antes. */
+function cmdDireto(text){
+  const s=cmdNorm(text).trim(); if(!s || s.split(/\s+/).length>8) return false;
+  return !/\b(nao|mas|falo|falando|estou|sei|acho|acredito|parece|poderia|precisamos|preciso|queria|gostaria|sera|errad\w*|estranh\w*|outra|outro|ultim[ao]|hoje|ontem|aquela|aquele|sobre)\b/.test(s);
+}
+/** Ações que ESCREVEM no terminal de uma tarefa ou criam coisa: vindas da IA, viram PROPOSTA (a pessoa confirma). */
+function cmdPrecisaOk(it){ return !!it && (['instruir','perguntar','continuar'].includes(it.k) || (it.k==='ambiente' && it.on!==false) || (it.k==='issue' && it.go)); }
 /** A linha "ACAO: …" que a IA devolve quando o pedido é uma ação do app ('' = respondeu em texto). */
 function cmdAcaoDe(text){ const m=/^\s*ACAO:\s*(.+?)\s*$/im.exec(String(text||'')); return m?m[1]:''; }
 /** Plano da IA = o último TodoWrite da sessão. → [{ st:'ok'|'now'|'', tx }] */
@@ -95,12 +104,12 @@ function cmdLastErr(items){ for(let i=(items||[]).length-1;i>=0;i--){ const it=i
 /** O estado inteiro em texto + o catálogo de ações, pra IA responder pergunta livre OU devolver a ação certa.
  *  `rows`: [{ code, title, st, branch, q }] · `epics`: [{ name, done, total }] */
 function cmdSnapshot(rows, proj, epics, foco){
-  const L=(rows||[]).map(r=>`- ${r.code?r.code+' ':''}"${r.title}" — ${r.st}${r.branch?' · branch '+r.branch:''}${r.q?' · pergunta aberta: '+cmdUma(r.q):''}`);
+  const L=(rows||[]).map(r=>`- ${r.code?r.code+' ':''}"${r.title}" — ${r.st}${r.criada?' · criada '+r.criada:''}${r.mexida?' · mexida '+r.mexida:''}${r.branch?' · branch '+r.branch:''}${r.q?' · pergunta aberta: '+cmdUma(r.q):''}${r.foco?' · [ABERTA AO LADO]':''}`);
   const E=(epics||[]).map(e=>`- épico "${e.name}" — ${e.done} de ${e.total} tarefas entregues`);
   return `[ESTADO DO STARFORK AGORA${proj?' · projeto '+proj:''}]\n${L.length?L.join('\n'):'(nenhuma tarefa aberta)'}${E.length?'\n'+E.join('\n'):''}\n[FIM DO ESTADO]\n${foco?'[TAREFA EM FOCO — a que está aberta ao lado; "a task", "ela", "o agente" falam dela]\n'+foco+'\n[FIM DA TAREFA EM FOCO]\n':''}`
     +`Você é o Comando do Starfork. Se o pedido da pessoa for uma AÇÃO do app, responda SOMENTE com uma linha "ACAO: <frase>" usando uma destas frases (troque o que está entre <>):\n`
-    +`status · esperando · erro · fila de issues · epicos · epico <nome> · comecar epico <nome> · liberar onda epico <nome> · verificar epico <nome> · entregar epico <nome> · tarefa <código> · por que <código> parou · provas <código> · link <código> · abrir <código> · parar <código> · parar tudo rodando · comecar <código da issue> · <código>: <instrução pra IA da tarefa> · perguntar <código>: <pergunta pro agente da tarefa> · o que foi feito <código> · subir ambiente <código> · desligar ambiente <código> · encerrar <código> · abrir tela <issues|central|entregas|semana|aprovar|meu trabalho|projetos|nova demanda>\n`
-    +`Se for uma pergunta (sobre o código ou sobre as tarefas), responda em português, curto e direto, citando as tarefas pelo código. Nunca invente código de tarefa. O selo de estado ("pronta pra revisar" etc.) é só o rótulo do app: pra dizer como a tarefa está de verdade, use os requisitos com prova, o plano, os últimos passos e a última fala do agente da TAREFA EM FOCO — e, se a pessoa duvidar do estado ou quiser a palavra do agente, use "perguntar <código>: …".`;
+    +`status · esperando · erro · fila de issues · epicos · epico <nome> · comecar epico <nome> · liberar onda epico <nome> · verificar epico <nome> · entregar epico <nome> · tarefa <código> · por que <código> parou · provas <código> · link <código> · abrir <código> · parar <código> · parar tudo rodando · comecar <código da issue> · <código>: <instrução pra IA da tarefa> · perguntar <código>: <pergunta pro agente da tarefa> · o que foi feito <código> · subir ambiente <código> · desligar ambiente <código> · continuar <código> · encerrar <código> · abrir tela <issues|central|entregas|semana|aprovar|meu trabalho|projetos|nova demanda>\n`
+    +`Se for uma pergunta (sobre o código ou sobre as tarefas), responda em português, curto e direto, citando as tarefas pelo código. Nunca invente código de tarefa. QUAL TAREFA: a pessoa pode estar falando de outra que não a aberta ao lado — se ela descrever ("a última que abrimos hoje", "a do NCM", "não é essa"), ache na lista pelo título e pela data de criação e use o código DELA; se ficar em dúvida entre duas, pergunte qual em vez de escolher. Em "<código>: <instrução>" e em "perguntar", escreva SÓ o que a pessoa pediu, com as palavras dela — não acrescente passos, comandos nem decisões que ela não disse. "Continuar rodando" = continuar <código>. O selo de estado ("pronta pra revisar" etc.) é só o rótulo do app: pra dizer como a tarefa está de verdade, use os requisitos com prova, o plano, os últimos passos e a última fala do agente da TAREFA EM FOCO — e, se a pessoa duvidar do estado ou quiser a palavra do agente, use "perguntar <código>: …".`;
 }
 /** O que PEDE CONVERSA agora. `rows`: [{ id, st, ask }] (ask = chave da pergunta aberta). → [{ id, tipo:'ask'|'bad'|'rev', key }] na ordem de urgência */
 function cmdNeeds(rows){
@@ -206,6 +215,17 @@ function cmdTaskContext(t){
 }
 // PERGUNTAR AO AGENTE da tarefa: manda a pergunta pro terminal dela e traz a resposta pra conversa
 function cmdHistFetch(id){ return invokeQuiet('term_history',{ taskId:id, since:null }).then(r=>{ const items=(r&&Array.isArray(r.items))?r.items:null; if(items){ const cur=CMD.hist[id]||(CMD.hist[id]={}); cur.items=items; cur.stamp=r.stamp||''; cur.at=Date.now(); } return items||((CMD.hist[id]||{}).items)||[]; }).catch(()=>((CMD.hist[id]||{}).items)||[]); }
+function cmdDia(ts){ if(!ts) return ''; const d=new Date(ts), h=new Date(), hm=String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  const dias=Math.round((new Date(h.getFullYear(),h.getMonth(),h.getDate())-new Date(d.getFullYear(),d.getMonth(),d.getDate()))/86400000);
+  return dias===0?'hoje '+hm:dias===1?'ontem '+hm:String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0'); }
+// PROPOSTA: o que a IA entendeu de um pedido que mexe numa tarefa — a pessoa vê a tarefa e o texto e confirma
+function cmdPropostaHtml(m){ const it=m.it||{}, t=it.id?cmdTask(it.id):null, i=cmdMsgs().indexOf(m);
+  const alvo=t?`<b>${esc(cmdCode(t)||'')}</b> ${esc(mdTitle(t.title||''))}`:it.code?`a issue <b>${esc(it.code)}</b>`:'';
+  const oque=it.k==='instruir'?'Mandar esta instrução pro agente da':it.k==='perguntar'?'Perguntar ao agente da':it.k==='continuar'?'Mandar continuar a':it.k==='ambiente'?'Subir o ambiente da':it.k==='issue'?'Começar':'Fazer na';
+  const corpo=(it.k==='instruir'||it.k==='perguntar')&&it.text?`<div class="cmdins"><p>${esc(it.text)}</p></div>`:'';
+  const pe=m.done==='sim'?'<span class="cmdhint">feito</span>':m.done==='nao'?'<span class="cmdhint">não fiz — me diga de outro jeito qual tarefa e o quê</span>'
+    :`<button type="button" class="btn sm primary" data-cmdprop="${i}" data-ok="1">Sim, fazer</button><button type="button" class="btn sm quiet" data-cmdprop="${i}" data-ok="">Não é isso</button>`;
+  return `<div class="cmdqa${m.done?'':' wait'}"><div class="cmdqa-h"><span class="cmdqa-who"><b>Entendi assim — confirma?</b></span></div><div class="cmdqa-w">${oque} ${alvo}${corpo?':':'.'}</div>${corpo?`<div style="margin:0 12px 12px">${corpo}</div>`:''}<div class="cmdiss-a">${pe}</div></div>`; }
 function cmdDur(ms){ const sg=Math.max(0, Math.round(ms/1000)); return Math.floor(sg/60)+':'+String(sg%60).padStart(2,'0'); }
 async function cmdAskAgent(id, texto){
   const t=cmdTask(id), ms=cmdMsgs(), say=(text)=>{ ms.push({ r:'bot', k:'txt', text }); cmdPaint(true); };
@@ -423,6 +443,7 @@ function cmdBotHtml(m){
       if(say) partes.push(`<span class="cmdeye">Última fala do agente</span><div class="cmdquote">${mdToHtml(say.length>1200?say.slice(0,1200)+'…':say)}</div>`);
     }
     return partes.join('')+`<div class="cmdiss-a"><button type="button" class="btn sm primary" data-cmddo="perguntar" data-id="${escA(t.id)}">Perguntar ao agente como está de verdade</button><button type="button" class="btn sm quiet" data-cmddo="provas" data-id="${escA(t.id)}">Provas</button><button type="button" class="btn sm quiet" data-cmdopen="${escA(t.id)}">Abrir a tarefa</button></div>`; }
+  if(m.k==='proposta') return cmdPropostaHtml(m);
   if(m.k==='pergunta') return cmdPerguntaHtml(m);
   if(m.k==='ambiente') return cmdEnvHtml(m);
   if(m.k==='feito') return cmdFeitoHtml(m);
@@ -557,7 +578,8 @@ function cmdMount(){
     const id=f.dataset.cmdinst; i.value=''; Promise.resolve(typeof tiSend==='function'?tiSend(id, v):false).then(ok=>{ if(ok!==false){ toast('instrução enviada — a IA continua','ok'); const h=CMD.hist[id]; if(h) h.at=0; cmdHistLoad(id); } else i.value=v; }).catch(e2=>{ i.value=v; showErr(e2,'Não consegui enviar a instrução'); }); });
 }
 function cmdClick(e){
-  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo],[data-cmdstart],[data-cmdform],[data-cmdlk],[data-cmdcopy],[data-cmdepic],[data-cmdepopen],[data-cmddo],[data-cmdepact],[data-cmdsug],[data-cmdmandar],[data-cmdcross],[data-cmdia]'); if(!b) return;
+  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo],[data-cmdstart],[data-cmdform],[data-cmdlk],[data-cmdcopy],[data-cmdepic],[data-cmdepopen],[data-cmddo],[data-cmdepact],[data-cmdsug],[data-cmdmandar],[data-cmdcross],[data-cmdia],[data-cmdprop]'); if(!b) return;
+  if(b.dataset.cmdprop){ const m=cmdMsgs()[+b.dataset.cmdprop]; if(!m||m.done) return; m.done=b.dataset.ok?'sim':'nao'; cmdPaint(true); if(m.done==='sim') cmdDo(m.it); return; }
   if(b.dataset.cmdia){ CMD.sel=b.dataset.id||CMD.sel; return cmdSay(b.dataset.cmdia, true); }
   if(b.dataset.cmdsug) return cmdSuggest(b.dataset.cmdsug);
   if(b.dataset.cmdcross) return (typeof switchToProjectTask==='function')?switchToProjectTask(b.dataset.cmdcross, b.dataset.id):undefined;
@@ -603,6 +625,9 @@ async function cmdDo(it){
       if(it.on===false){ await envDown(it.id); return say(`Desliguei o ambiente da ${cmdCode(t)||'tarefa'}.`); }
       CMD.sel=it.id; ms.push({ r:'bot', k:'ambiente', id:it.id }); cmdPaint(true);
       { const tick=setInterval(()=>{ if(cmdAtiva()) cmdPaint(); }, 1500); envUp(it.id).catch(()=>{}).finally(()=>{ clearInterval(tick); cmdPaint(true); }); } return true; }
+    case 'continuar': { const t=cmdTask(it.id); if(!t) return say('Essa tarefa não está nesta máquina.'); if(cmdIsRun(t)) return say(`A ${cmdCode(t)||'tarefa'} já está rodando.`);
+      let ok=false; try{ ok=(await tiSend(it.id, 'Continue de onde parou.'))!==false; }catch(e){ showErr(e, 'Não consegui retomar a tarefa'); }
+      if(ok){ CMD.sel=it.id; const h=CMD.hist[it.id]; if(h) h.at=0; cmdHistLoad(it.id); } return say(ok?`Mandei a ${cmdCode(t)||'tarefa'} continuar de onde parou.`:'Não consegui retomar a tarefa.'); }
     case 'perguntar': cmdAskAgent(it.id, it.text||'Como esta tarefa está de verdade agora?'); return true;
     case 'provas': { const t=it.id?cmdTask(it.id):null; if(t){ CMD.sel=t.id; cmdHistLoad(t.id); try{ apEnsure(t); }catch(_){ } } ms.push({ r:'bot', k:'provas', id:it.id||'' }); cmdPaint(true); return true; }
     case 'abrir': say('Abrindo a tarefa.'); openTaskById(it.id); return true;
@@ -624,15 +649,15 @@ async function cmdDo(it){
 async function cmdSay(text, soIA){
   text=String(text||'').trim(); if(!text) return; if(CMD.busy){ toast('espere a resposta — ou pare','warn'); return; }
   const ms=cmdMsgs(), L=cmdTasks(); ms.push({ r:'you', text }); cmdPaint(true);
-  const it=cmdResolve(text);
-  if(!soIA && it.k!=='ia' && await cmdDo(it)) return;
+  const it=(!soIA && cmdDireto(text))?cmdResolve(text):{ k:'ia' }; // só comando curto e direto sai sem IA
+  if(it.k!=='ia' && await cmdDo(it)) return;
   // pergunta livre: a IA do chat do projeto (lê o código de verdade), com o estado junto. Se o pedido era uma ação
   // dita de outro jeito, ela devolve "ACAO: …" e o app executa (as que mexem em algo pedem confirmação como sempre).
   if(typeof pcBusy!=='undefined' && pcBusy){ ms.push({ r:'sys', text:'o Chat do projeto está respondendo outra pergunta — espere terminar' }); return cmdPaint(true); }
   CMD.busy=true; CMD.stopping=false; cmdPaint(true);
   const repo=cmdRepo(), sidKey='cmdsid:'+repo, out=CMD.msgs[repo]||ms;
   let foco=''; { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft){ if(!cmdHistReady(ft.id)) await cmdHistFetch(ft.id); try{ foco=cmdTaskContext(ft); }catch(_){ } } }
-  const snap=cmdSnapshot(L.map(t=>({ code:cmdCode(t), title:mdTitle(t.title||''), st:stLabel(taskSt(t)), branch:t.branch||'', q:cmdIsAsk(t)?cmdAskTitle(t):'' })), pathBase(repo),
+  const snap=cmdSnapshot(L.map(t=>({ code:cmdCode(t), title:mdTitle(t.title||''), st:stLabel(taskSt(t)), branch:t.branch||'', q:cmdIsAsk(t)?cmdAskTitle(t):'', criada:cmdDia(t.createdAt), mexida:cmdHa(t.updatedAt), foco:t.id===CMD.sel })), pathBase(repo),
     cmdEpics().map(e=>{ const c=cmdEpicStat(e.id); return { name:e.name, done:c.done, total:c.total }; }), foco);
   let acao='';
   try{
@@ -645,7 +670,11 @@ async function cmdSay(text, soIA){
     if(CMD.stopping||/PROJECT_CHAT_STOPPED/.test(msg)) out.push({ r:'sys', text:'parado' });
     else { const h=humanErr(msg); out.push({ r:'sys', text:'Não consegui responder: '+(h&&h.msg?h.msg:msg.slice(0,240)) }); if(h&&h.action) showErr(e); } }
   CMD.busy=false; CMD.stopping=false;
-  if(acao){ const it2=cmdResolve(acao); if(it2.k==='ia' || !it2.k || !(await cmdDo(it2))) out.push({ r:'bot', k:'txt', text:'Entendi o pedido como “'+acao+'”, mas não achei como fazer isso daqui.' }); }
+  if(acao){ const it2=cmdResolve(acao);
+    if(it2.k==='ia' || !it2.k) out.push({ r:'bot', k:'txt', text:'Entendi o pedido como “'+acao+'”, mas não achei como fazer isso daqui.' });
+    // o que ESCREVE numa tarefa nunca sai direto da interpretação da IA: vira proposta, com a tarefa e o texto à vista
+    else if(cmdPrecisaOk(it2)) out.push({ r:'bot', k:'proposta', it:it2 });
+    else if(!(await cmdDo(it2))) out.push({ r:'bot', k:'txt', text:'Entendi o pedido como “'+acao+'”, mas não achei como fazer isso daqui.' }); }
   cmdPaint(true);
 }
 function cmdPaint(down){
