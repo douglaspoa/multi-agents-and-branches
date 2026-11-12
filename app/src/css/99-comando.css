@@ -111,6 +111,13 @@
 .cmdqa>.cmdiss-a,.cmdqa>.cmdlks{margin:0 12px 12px}
 .cmdqa>.cmdlks{margin-top:12px}
 .cmddanger:hover{color:var(--st-err);border-color:var(--st-err)}
+.cmdplan{margin:0;padding:10px 12px 10px 32px;display:flex;flex-direction:column;gap:8px;font-size:var(--fs-md)}
+.cmdplan li{padding-left:2px}
+.cmdplan-a{font-weight:500}
+.cmdplan-a.m{color:var(--st-ask)}
+.cmdplan-t{margin-top:3px;font-size:var(--fs-sm);color:var(--ink-2,var(--muted));line-height:1.6}
+.cmdplan-x{display:block;margin-top:3px;font-size:var(--fs-sm);color:var(--st-err)}
+.cmdplan .cmdins{margin-top:6px}
 /* conversa por voz */
 .cmdmic{display:inline-flex;align-items:center;gap:6px;flex:none}
 .cmdmic.on{border-color:var(--st-ask);color:var(--st-ask)}

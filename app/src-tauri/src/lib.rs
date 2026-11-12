@@ -5393,6 +5393,16 @@ fn ai_decompose(state: State<AppState>, text: String, guide: Option<String>) -> 
     ai_once::ai_once_as("nova-tarefa", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &prompt, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 600 })
 }
 
+/// COMANDO (89-comando.js): traduz o pedido da pessoa num PLANO (JSON) de ações do app. Sem ferramentas e sem ler o
+/// repo — o estado vem inteiro no prompt —, pra responder em segundos. Quem valida e executa o plano é o front.
+#[tauri::command(async)]
+fn comando_plan(state: State<AppState>, prompt: String) -> Result<String, String> {
+    let p = prompt.trim();
+    if p.is_empty() { return Err("sem pedido".to_string()); }
+    let p: String = p.chars().take(24000).collect();
+    ai_once::ai_once_as("comando", repo_of(&state).ok().as_deref(), ai_once::AiOnce { prompt: &p, tier: ai_once::Tier::Capaz, claude_model: None, claude_extra: &[], cwd: None, secs: 120 })
+}
+
 /// Gera um título curto de tarefa a partir da descrição (Haiku — rápido/barato).
 #[tauri::command(async)]
 fn ai_title(state: State<AppState>, text: String) -> Result<String, String> {
@@ -11998,6 +12008,7 @@ pub fn run() {
             ai_test,
             read_artifact_raw,
             ai_decompose,
+            comando_plan,
             daily_digest,
             ai_daily,
             ai_daily_report,
