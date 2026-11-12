@@ -103,7 +103,7 @@ test('entendimento: frase conversada não vira ação por palavra solta; "a task
   assert.equal(C.cmdIntent('o que está me esperando?', T, [], '').k, 'espera');
   const s = C.cmdSnapshot([], 'loja', [], 'LW-47 "Avisos" — selo: pronta pra revisar');
   assert.match(s, /TAREFA EM FOCO/); assert.match(s, /perguntar <código>: <pergunta pro agente da tarefa>/);
-  assert.ok(/NÃO altere nenhum arquivo/.test(JS) && /k:'resposta'/.test(JS), 'a pergunta pede só resposta e a fala do agente volta pra conversa');
+  assert.ok(/NÃO altere nenhum arquivo/.test(JS) && /k:'pergunta'/.test(JS), 'a pergunta pede só resposta e a fala do agente volta pra conversa');
 });
 
 test('assistente: avisa o que é novo, uma vez; resolveu e voltou, avisa de novo; 1ª vez não despeja tudo', () => {
@@ -130,4 +130,17 @@ test('assistente: sugestão vem com a instrução pronta; outros projetos entram
   assert.deepEqual(C.cmdSugestaoDe('texto solto sem formato'), { sug:'texto solto sem formato', ins:'' });
   assert.ok(/t\.repo!==repo/.test(JS) && /pushNotif\(/.test(JS) && /cmdseen:outros/.test(JS), 'outros projetos: aviso + notificação do sistema, lembrados à parte');
   assert.ok(/data-cmdmandar/.test(JS) && /m\.sent=true/.test(JS), 'a instrução sugerida só vai pro agente com o clique');
+});
+
+test('encerrar, ambiente e o que foi feito pelo chat; pergunta ao agente num cartão só', () => {
+  assert.deepEqual(C.cmdIntent('pode encerrar a LW-47', T, [], ''), { k:'encerrar', id:'a' });
+  assert.deepEqual(C.cmdIntent('sobe o ambiente da LW-97', T, [], ''), { k:'ambiente', id:'b', on:true });
+  assert.deepEqual(C.cmdIntent('desliga o servidor da LW-97', T, [], ''), { k:'ambiente', id:'b', on:false });
+  assert.deepEqual(C.cmdIntent('sobe o ambiente', T, [], 'a'), { k:'ambiente', id:'a', on:true }, 'sem citar a tarefa, vale a que está aberta ao lado');
+  assert.deepEqual(C.cmdIntent('o que foi feito na LW-47?', T, [], ''), { k:'feito', id:'a' });
+  assert.deepEqual(C.cmdIntent('encerra', T, [], 'b'), { k:'encerrar', id:'b' });
+  assert.equal(C.cmdIntent('sobe o ambiente', T, [], '').k, 'ia', 'sem tarefa em foco não adivinha qual');
+  for (const f of ['o que foi feito LW-97', 'subir ambiente LW-97', 'desligar ambiente LW-97', 'encerrar LW-97']) assert.notEqual(C.cmdIntent(f, T, [], '').k, 'ia', f);
+  assert.ok(/encerrarTarefa\(it\.id/.test(JS) && /envUp\(it\.id\)/.test(JS) && /envDown\(it\.id\)/.test(JS), 'usa o encerrar (com motivo e desfazer) e a Prévia do app');
+  assert.ok(/state:'wait'/.test(JS) && /cmdqa-q/.test(JS) && /respondeu em/.test(JS), 'pergunta ao agente: um cartão com a pergunta, o andamento e a resposta');
 });
