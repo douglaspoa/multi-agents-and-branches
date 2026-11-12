@@ -18,7 +18,10 @@ test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
   assert.deepEqual(C.cmdIntent('pausa a LW-97', T), { k:'parar', id:'b' });
   assert.equal(C.cmdIntent('pausa tudo que está rodando', T).k, 'parar');
   assert.equal(C.cmdIntent('onde fica a validação do CEP no código?', T).k, 'ia');
-  assert.equal(C.cmdIntent('LW-999 como está', T).k, 'status', 'código que não existe não vira tarefa');
+  assert.deepEqual(C.cmdIntent('LW-999 como está', T), { k:'issue', code:'LW-999', go:false }, 'código que não é tarefa = issue do painel');
+  assert.deepEqual(C.cmdIntent('pega a lw-102 e começa', T), { k:'issue', code:'LW-102', go:true });
+  assert.equal(C.cmdIntent('o que tem na fila de issues?', T).k, 'fila');
+  assert.equal(C.cmdIntent('qual a próxima?', T).k, 'fila');
   assert.equal(C.cmdIntent('  ', T).k, '');
 });
 
@@ -51,5 +54,8 @@ test('estado pra IA e ligação da aba', () => {
   assert.match(C.cmdSnapshot([], ''), /nenhuma tarefa aberta/);
   assert.ok(HTML.includes('id="comandoOverlay"') && HTML.includes('id="comandoBtn"') && HTML.includes('js/89-comando.js') && HTML.includes('css/99-comando.css'));
   assert.ok(HTML.indexOf('js/89-comando.js') > HTML.indexOf('js/76-casca-semana.js'), 'carrega depois da casca');
+  assert.ok(/invoke\('new_task', await trkBeforeNewTask\(payload, \{ ask:true \}\)\)/.test(JS), 'começar issue = a mesma criação da Nova demanda (com aviso de duplicada)');
+  assert.ok(/issue:i\.code/.test(JS) && /minRequirements/.test(JS), 'leva o código da issue e respeita a política de requisitos');
+  assert.ok(/SpeechSynthesisUtterance/.test(JS) && /not-allowed/.test(JS) && HTML.includes('js/89-comando.js'), 'voz: fala a resposta e explica quando o microfone é negado');
   assert.ok(/askYes\(/.test(JS) && !/window\.confirm|[^a-zA-Z]confirm\(/.test(JS), 'parar pede confirmação pelo askYes');
 });

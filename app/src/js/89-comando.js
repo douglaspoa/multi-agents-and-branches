@@ -20,7 +20,10 @@ function cmdIntent(text, tasks){
     if(/\b(par[ae]|parar|pausa|pausar|interromp)/.test(s)) return { k:'parar', id:t.id };
     return { k:'tarefa', id:t.id };
   }
+  // código que não é tarefa aberta = issue do painel (começar/ver); quem chama confere se ela existe lá
+  if(m) return { k:'issue', code:m[1].toUpperCase(), go:/\b(comec\w*|inici\w*|peg[ao]\w*|faz\w*|roda\w*|toca\w*|resolv\w*|bora)\b/.test(s) };
   if(/\b(pausa|pausar|para|parar|pare|interromp\w*)\b.*\b(tudo|todos|todas|agentes|rodando)\b/.test(s)) return { k:'parar' };
+  if(/\b(issues?|fila|backlog|painel|proxima(s)?|o que (tem|falta|ha) (pra|para) (fazer|pegar|comecar))\b/.test(s)) return { k:'fila' };
   if(/(esperando|precisa(m)? de mim|precisando de mim|pendente|pergunt|minha vez|me esperando)/.test(s)) return { k:'espera' };
   if(/\b(erro|erros|falh\w*|travad\w*|parou|pararam|quebr\w*)\b/.test(s)) return { k:'erro' };
   if(/(como (esta|estao|anda|andam|vai|vao)|status|andamento|resumo|situacao|o que (esta|ta) (rodando|acontecendo)|agentes|tarefas abertas|tudo bem)/.test(s)) return { k:'status' };
@@ -73,7 +76,7 @@ function cmdSnapshot(rows, proj){
 }
 // @comando-puro-fim
 
-const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, logHtml:'', sideHtml:'', mounted:false };
+const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', spoken:0, logHtml:'', sideHtml:'', mounted:false };
 function cmdRepo(){ return (typeof state!=='undefined'&&state.repo)||''; }
 function cmdMsgs(){ const k=cmdRepo(); return CMD.msgs[k]||(CMD.msgs[k]=[]); }
 function cmdTasks(){ let l=[]; try{ l=flowLiveTasks(); }catch(_){ l=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!taskEncerrada(t)); }
@@ -86,6 +89,41 @@ function cmdAskTitle(t){ const g=cmdAsk(t); if(!g||!g.rows||!g.rows.length) retu
 function cmdIsRun(t){ return ['running','thinking','integrando'].includes(taskSt(t)); }
 function cmdIsBad(t){ const s=taskSt(t); return stIsBad(s)||s==='mudanca-pedida'; }
 function cmdIsAsk(t){ return ['asking','needs-you','plan-review'].includes(taskSt(t)); }
+
+// ---------- issues do painel: ver a fila e COMEÇAR daqui (mesma criação da Nova demanda, com os padrões da pessoa) ----------
+function cmdTrkOn(){ try{ return typeof trkReady==='function' && trkReady(); }catch(_){ return false; } }
+async function cmdIssuesEnsure(){
+  if(typeof trkLoad!=='function') return false;
+  try{ if(!cmdTrkOn()) await trkLoad(); if(!cmdTrkOn()) return false;
+    if(!trkIssues.length || Date.now()-trkIssuesAt>120000){ await trkFetchIssues(); trkIdxMemo=null; } return true; }
+  catch(e){ console.warn('comando issues', e); return cmdTrkOn(); }
+}
+function cmdIssue(code){ try{ return (trkIssues||[]).find(i=>String(i.code).toLowerCase()===String(code).toLowerCase())||null; }catch(_){ return null; } }
+function cmdIssueTask(code){ try{ return trkTasksFor(code).find(t=>!taskEncerrada(t))||null; }catch(_){ return null; } }
+// issues que ainda não viraram tarefa e não estão concluídas no painel
+function cmdFila(){ try{ const sts=(trk.connector||{}).statuses||[]; return trkTriFila(trkRowsNow()).map(r=>r.i).filter(i=>trkKindOfStatus(sts, i.status)!=='done'); }catch(_){ return []; } }
+function cmdIssueCard(i){ const busy=CMD.starting===i.code;
+  return `<div class="cmdiss"><div class="cmdiss-h"><span class="cmdcode">${esc(i.code)}</span><b>${esc(i.title)}</b></div><div class="cmdiss-a"><button type="button" class="btn sm primary" data-cmdstart="${escA(i.code)}"${CMD.starting?' disabled':''}>${busy?'começando…':'Começar agora'}</button><button type="button" class="btn sm quiet" data-cmdform="${escA(i.code)}">Ajustar antes</button></div></div>`; }
+async function cmdStartIssue(code){
+  const i=cmdIssue(code); if(!i){ toast('Não achei a '+code+' no painel de issues','warn'); return; }
+  if(CMD.starting) return;
+  const ja=cmdIssueTask(code); if(ja){ CMD.sel=ja.id; cmdHistLoad(ja.id); return cmdPaint(); }
+  const sp=trkIssueSpec(i), reqs=[...new Set(sp.reqs)], pol=(typeof ntPolicy!=='undefined'&&ntPolicy)||{};
+  // a política do time pede requisitos e a issue não tem: completa no formulário (já preenchido), não cria pela metade
+  if(reqs.length<(+pol.minRequirements||0)){ cmdMsgs().push({ r:'bot', k:'txt', text:`A ${i.code} tem menos requisitos do que o time exige. Abri o formulário já preenchido pra você completar.` }); cmdPaint(true); return trkIssueToTask(i, 'run'); }
+  CMD.starting=i.code; cmdPaint();
+  try{
+    const d=aiDefaults(), cr=ndKindCreate(sp.bug?'fix':'build');
+    const payload={ start:true, title:String(sp.title||i.code).slice(0,90), workflow:null, agents:null, engine:defaultAiEngine(), model:d.model||null, advisor:d.advisor, approval:'auto',
+      owns:cr.owns||null, off:null, objective:sp.objective||sp.title, deliverables:sp.goal?[sp.goal]:[], requirements:reqs, doc:cr.doc||null,
+      proof:true, tests:!!pol.testsRequired, autoPr:cr.autoPr, prBase:null, planApproval:'auto', refs:[], branchType:cr.branchType, issue:i.code, issueUrl:i.url||undefined };
+    const nid=await invoke('new_task', await trkBeforeNewTask(payload, { ask:true }));
+    if(typeof budgetApply==='function') await budgetApply(nid);
+    try{ lastSig=''; }catch(_){ } await refresh(); trkIdxMemo=null;
+    CMD.sel=nid; cmdMsgs().push({ r:'bot', k:'txt', text:`Comecei a ${i.code}. A IA já está trabalhando; a tarefa está aberta ao lado.` });
+  }catch(e){ if(!(e&&e.shown)) showErr(e, 'Não consegui começar a '+i.code); cmdMsgs().push({ r:'sys', text:'a '+i.code+' não foi iniciada' }); }
+  CMD.starting=''; cmdPaint(true);
+}
 
 // ---------- peças ----------
 function cmdRow(t){ const st=taskSt(t), q=cmdIsAsk(t)?cmdAskTitle(t):'';
@@ -114,7 +152,11 @@ function cmdBotHtml(m){
       if(say) partes.push(`<div class="cmdquote">${mdToHtml(say.length>600?say.slice(0,600)+'…':say)}</div>`);
     }
     return partes.join('')+cmdRows([t]); }
-  if(m.k==='issue') return `<p><b>${esc(m.code)}</b> ${esc(m.text)} está no painel de issues e ainda não virou tarefa.</p><div><button type="button" class="btn sm primary" data-cmdgo="issues">Abrir em Issues pra começar</button></div>`;
+  if(m.k==='issue'){ const t=cmdIssueTask(m.code); if(t) return `<p><b>${esc(m.code)}</b> já é uma tarefa aberta.</p>${cmdRows([t])}`;
+    const i=cmdIssue(m.code); if(!i) return `<p>Não achei a <b>${esc(m.code)}</b> nas tarefas nem no painel de issues.</p>`;
+    return `<p>A <b>${esc(m.code)}</b> está no painel e ainda não virou tarefa. Começo com a sua IA padrão, numa branch nova?</p>${cmdIssueCard(i)}`; }
+  if(m.k==='fila'){ if(!cmdTrkOn()) return `<p>O painel de issues ainda não está conectado neste projeto.</p><div><button type="button" class="btn sm" data-cmdgo="issues">Conectar em Issues</button></div>`;
+    const f=cmdFila(); return f.length?`<p>${nPl(f.length,'issue do painel ainda não virou tarefa','issues do painel ainda não viraram tarefa')}.${f.length>8?' As 8 mais recentes:':''}</p><div class="cmdisss">${f.slice(0,8).map(cmdIssueCard).join('')}</div>`:'<p>Nenhuma issue do painel esperando pra começar.</p>'; }
   if(m.k==='md') return mdToHtml(m.text||'');
   return `<p>${esc(m.text||'')}</p>`;
 }
@@ -165,23 +207,72 @@ function cmdHistLoad(id){ const h=CMD.hist[id]; if(h && h.busy) return; const at
 // a "visão" só conta como carregada depois da 1ª leitura
 function cmdHistReady(id){ const h=CMD.hist[id]; return !!(h && h.items); }
 
+// ---------- voz: conversa falada (você fala, eu respondo em voz alta e volto a ouvir) ----------
+// Ouvir = reconhecimento de fala do sistema (quando o WebView oferece); falar = speechSynthesis. Sem reconhecimento,
+// o modo ainda LÊ as respostas e a pessoa dita pelo ditado do macOS.
+const CMDV={ on:false, rec:null, live:false, speaking:false };
+const CMD_MIC='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="6" y="1.8" width="4" height="7.4" rx="2"/><path d="M3.4 7.4a4.6 4.6 0 0 0 9.2 0M8 12v2.2"/></svg>';
+function cmdVoiceApi(){ return window.SpeechRecognition||window.webkitSpeechRecognition||null; }
+function cmdVoicePaint(){ const b=$id('cmdMic'); if(!b) return; b.classList.toggle('on', CMDV.on); b.setAttribute('aria-pressed', String(CMDV.on));
+  b.innerHTML=CMD_MIC+(CMDV.on?`<span>${CMDV.speaking?'falando…':CMDV.live?'ouvindo…':'voz ligada'}</span>`:''); b.title=CMDV.on?'Desligar a conversa por voz':'Conversar por voz: você fala, eu respondo em voz alta'; }
+function cmdVoiceListen(on){
+  const R=cmdVoiceApi(); if(!R) return;
+  if(!on){ CMDV.live=false; try{ if(CMDV.rec) CMDV.rec.abort(); }catch(_){ } CMDV.rec=null; return cmdVoicePaint(); }
+  if(CMDV.live || !CMDV.on || CMDV.speaking || CMD.busy) return;
+  const r=new R(); r.lang='pt-BR'; r.interimResults=true; r.continuous=false; r.maxAlternatives=1;
+  r.onresult=(e)=>{ let fin='', mid=''; for(let k=e.resultIndex;k<e.results.length;k++){ const x=e.results[k]; if(x.isFinal) fin+=x[0].transcript; else mid+=x[0].transcript; }
+    const q=$id('cmdQ'); if(q) q.value=(fin||mid).trim(); if(fin.trim()){ if(q) q.value=''; cmdSay(fin.trim()); } };
+  r.onerror=(e)=>{ CMDV.live=false; const k=String(e&&e.error||'');
+    if(k==='not-allowed'||k==='service-not-allowed'||k==='audio-capture'){ CMDV.on=false; toast('O macOS não liberou o microfone pro Starfork. Libere em Ajustes do Sistema › Privacidade e Segurança › Microfone e Reconhecimento de Fala.','warn'); } cmdVoicePaint(); };
+  r.onend=()=>{ CMDV.live=false; if(CMDV.rec===r) CMDV.rec=null; cmdVoicePaint(); if(CMDV.on && !CMDV.speaking && !CMD.busy) setTimeout(()=>cmdVoiceListen(true), 300); };
+  CMDV.rec=r; try{ r.start(); CMDV.live=true; }catch(_){ CMDV.rec=null; } cmdVoicePaint();
+}
+function cmdSpeak(text){
+  text=String(text||'').replace(/\s+/g,' ').trim(); if(!CMDV.on) return;
+  if(!text || !window.speechSynthesis){ cmdVoiceListen(true); return; }
+  try{ speechSynthesis.cancel(); cmdVoiceListen(false);
+    const u=new SpeechSynthesisUtterance(text.length>500?text.slice(0,500):text); u.lang='pt-BR'; u.rate=1.05;
+    const v=speechSynthesis.getVoices().find(x=>/^pt[-_]BR/i.test(x.lang)); if(v) u.voice=v;
+    CMDV.speaking=true; const fim=()=>{ if(!CMDV.speaking) return; CMDV.speaking=false; cmdVoicePaint(); if(CMDV.on) cmdVoiceListen(true); };
+    u.onend=fim; u.onerror=fim; speechSynthesis.speak(u); cmdVoicePaint();
+  }catch(_){ CMDV.speaking=false; cmdVoiceListen(true); }
+}
+function cmdVoiceToggle(){
+  CMDV.on=!CMDV.on;
+  if(!CMDV.on){ CMDV.speaking=false; cmdVoiceListen(false); try{ speechSynthesis.cancel(); }catch(_){ } return cmdVoicePaint(); }
+  CMD.spoken=cmdMsgs().length; // só fala o que vier a partir de agora
+  if(cmdVoiceApi()) cmdVoiceListen(true);
+  else toast('Vou ler as respostas em voz alta. Pra falar, use o ditado do macOS neste campo (tecla do microfone, ou Fn duas vezes).','info');
+  cmdVoicePaint();
+}
+// a fala de uma resposta = os parágrafos dela (listas e botões ficam na tela)
+function cmdSpeakNew(log){
+  const ms=cmdMsgs(); if(!CMDV.on || CMD.busy || ms.length<=CMD.spoken) return; const m=ms[ms.length-1]; CMD.spoken=ms.length; if(!m || m.r!=='bot'){ if(m && m.r==='sys') cmdVoiceListen(true); return; }
+  const bubs=log.querySelectorAll('.cmdmsg.bot .cmdbub'), bub=bubs[bubs.length-1]; if(!bub) return;
+  const ps=[...bub.querySelectorAll(':scope > p:not(.cmdhint), :scope > .cmdquote')].map(n=>n.textContent).join(' ');
+  cmdSpeak(ps||bub.textContent);
+}
+
 // ---------- página ----------
-const CMD_CHIPS=['Como estão os agentes?','O que está me esperando?','Alguma tarefa parou?'];
+const CMD_CHIPS=['Como estão os agentes?','O que está me esperando?','Alguma tarefa parou?','O que tem na fila de issues?'];
 function cmdMount(){
   const pg=$id('comandoPage'); if(!pg || CMD.mounted) return; CMD.mounted=true;
   pg.innerHTML=`<div class="cmdpg"><section class="cmdchat" aria-label="Comando">
       <div class="cmdlog" id="cmdLog" aria-live="polite"></div>
       <div class="cmdcomp"><div class="cmdchips">${CMD_CHIPS.map(c=>`<button type="button" class="cmdchip" data-cmdchip="${escA(c)}">${esc(c)}</button>`).join('')}</div>
-        <form class="cmdbar" id="cmdForm"><input class="in" id="cmdQ" placeholder="Pergunte ou mande fazer — ex.: como estão os agentes?" autocomplete="off" spellcheck="false" aria-label="comando"><button type="button" class="btn sm" id="cmdStop" style="display:none">${IC.stop||''} parar</button><button class="btn primary sm" id="cmdSend">enviar</button></form></div>
+        <form class="cmdbar" id="cmdForm"><input class="in" id="cmdQ" placeholder="Pergunte ou mande fazer — ex.: como estão os agentes?" autocomplete="off" spellcheck="false" aria-label="comando"><button type="button" class="btn sm cmdmic" id="cmdMic" aria-pressed="false"></button><button type="button" class="btn sm" id="cmdStop" style="display:none">${IC.stop||''} parar</button><button class="btn primary sm" id="cmdSend">enviar</button></form></div>
     </section><aside class="cmdside" id="cmdSide" aria-label="painel dos agentes"></aside></div>`;
   $id('cmdForm').addEventListener('submit', e=>{ e.preventDefault(); const q=$id('cmdQ'); const v=q.value; q.value=''; cmdSay(v); });
   $id('cmdStop').onclick=()=>{ if(!CMD.busy) return; CMD.stopping=true; invoke('project_chat_stop').catch(()=>{}); };
+  $id('cmdMic').onclick=cmdVoiceToggle; cmdVoicePaint();
   pg.addEventListener('click', cmdClick);
   pg.addEventListener('submit', e=>{ const f=e.target.closest&&e.target.closest('[data-cmdinst]'); if(!f) return; e.preventDefault(); const i=f.querySelector('input'), v=i.value.trim(); if(!v) return;
     const id=f.dataset.cmdinst; i.value=''; Promise.resolve(typeof tiSend==='function'?tiSend(id, v):false).then(ok=>{ if(ok!==false){ toast('instrução enviada — a IA continua','ok'); const h=CMD.hist[id]; if(h) h.at=0; cmdHistLoad(id); } else i.value=v; }).catch(e2=>{ i.value=v; showErr(e2,'Não consegui enviar a instrução'); }); });
 }
 function cmdClick(e){
-  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo]'); if(!b) return;
+  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo],[data-cmdstart],[data-cmdform]'); if(!b) return;
+  if(b.dataset.cmdstart) return cmdStartIssue(b.dataset.cmdstart);
+  if(b.dataset.cmdform){ const i=cmdIssue(b.dataset.cmdform); return i?trkIssueToTask(i, 'run'):undefined; }
   if(b.dataset.cmdchip!==undefined) return cmdSay(b.dataset.cmdchip);
   if(b.dataset.cmdsel!==undefined){ CMD.sel=b.dataset.cmdsel; if(CMD.sel) cmdHistLoad(CMD.sel); cmdPaint(); const s=$id('cmdSide'); if(s) s.scrollTop=0; return; }
   if(b.dataset.cmdopen) return openTaskById(b.dataset.cmdopen);
@@ -198,9 +289,10 @@ async function cmdSay(text){
   text=String(text||'').trim(); if(!text) return; if(CMD.busy){ toast('espere a resposta — ou pare','warn'); return; }
   const ms=cmdMsgs(), L=cmdTasks(); ms.push({ r:'you', text });
   const it=cmdIntent(text, L.map(t=>({ id:t.id, code:cmdCode(t), title:mdTitle(t.title||'') })));
-  // código de issue do painel que ainda não virou tarefa: mostra e leva pra aba Issues (começar é lá, com a escolha da IA)
-  { const mc=/\b([A-Za-z]{2,10}-\d+)\b/.exec(text), iss=(mc && !it.id && typeof trkIssues!=='undefined')?(trkIssues||[]).find(i=>String(i.code||'').toLowerCase()===mc[1].toLowerCase()):null;
-    if(iss){ ms.push({ r:'bot', k:'issue', code:String(iss.code), text:String(iss.title||'') }); return cmdPaint(true); } }
+  if(it.k==='issue'||it.k==='fila'){ cmdPaint(true); await cmdIssuesEnsure();
+    // "EAN-13", "UTF-8"… parecem código mas não são issue: sem pedido de começar e sem achar no painel, é pergunta livre
+    if(it.k==='issue' && !it.go && !cmdIssue(it.code) && !cmdIssueTask(it.code)) it.k='ia';
+    else { ms.push(it.k==='fila'?{ r:'bot', k:'fila' }:{ r:'bot', k:'issue', code:it.code }); return cmdPaint(true); } }
   if(it.k==='status'||it.k==='espera'||it.k==='erro'){ ms.push({ r:'bot', k:it.k }); return cmdPaint(true); }
   if(it.k==='tarefa'||it.k==='porque'){ CMD.sel=it.id; cmdHistLoad(it.id); ms.push({ r:'bot', k:it.k, id:it.id }); return cmdPaint(true); }
   if(it.k==='abrir'){ ms.push({ r:'bot', k:'txt', text:'Abrindo a tarefa.' }); cmdPaint(true); return openTaskById(it.id); }
@@ -227,7 +319,7 @@ function cmdPaint(down){
   const log=$id('cmdLog'), side=$id('cmdSide'); if(!log||!side) return;
   let a='', b='';
   try{ a=cmdLogHtml(); b=cmdSideHtml(); }catch(e){ console.error('comando', e); b=emptyHtml({ icon:'alert', title:'Não consegui montar esta tela', help:String(e&&e.message||e) }); }
-  if(CMD.logHtml!==a){ const fim=down || log.scrollHeight-log.scrollTop-log.clientHeight<60; CMD.logHtml=a; log.innerHTML=a; if(fim) log.scrollTop=log.scrollHeight; }
+  if(CMD.logHtml!==a){ const fim=down || log.scrollHeight-log.scrollTop-log.clientHeight<60; CMD.logHtml=a; log.innerHTML=a; if(fim) log.scrollTop=log.scrollHeight; cmdSpeakNew(log); }
   if(CMD.sideHtml!==b){ const i=$id('cmdInst'), keep=i?{ v:i.value, f:document.activeElement===i, a:i.selectionStart }:null, sc=side.scrollTop;
     CMD.sideHtml=b; side.innerHTML=b; side.scrollTop=sc;
     const n=$id('cmdInst'); if(n && keep){ n.value=keep.v; if(keep.f){ try{ n.focus({ preventScroll:true }); n.setSelectionRange(keep.a, keep.a); }catch(_){ } } } }
@@ -243,6 +335,6 @@ if(typeof VIEW_META!=='undefined'){ VIEW_META.comando={ title:'Comando', icon:(t
 if(typeof viewOpen==='function' && !viewOpen.__cmd){ const vo=viewOpen; viewOpen=function(kind){ if(kind==='comando') return cmdOpen(); return vo.apply(this, arguments); }; viewOpen.__cmd=true; }
 if(typeof SEM_NAV!=='undefined') SEM_NAV.comando='comandoBtn';
 bindClick('comandoBtn', ()=>openTab('comando'));
-if(typeof render==='function' && !render.__cmd){ const r0=render; render=function(){ const out=r0.apply(this, arguments); try{ if(cmdAtiva()){ if(CMD.sel) cmdHistLoad(CMD.sel); cmdPaint(); } }catch(e){ console.warn('comando render', e); } return out; }; render.__cmd=true; }
+if(typeof render==='function' && !render.__cmd){ const r0=render; render=function(){ const out=r0.apply(this, arguments); try{ if(cmdAtiva()){ if(CMD.sel) cmdHistLoad(CMD.sel); cmdPaint(); } else if(CMDV.on) cmdVoiceToggle(); }catch(e){ console.warn('comando render', e); } return out; }; render.__cmd=true; }
 document.addEventListener('keydown', e=>{ if((e.metaKey||e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase()==='j'){ e.preventDefault(); openTab('comando'); } });
 window.cmdOpen=cmdOpen;

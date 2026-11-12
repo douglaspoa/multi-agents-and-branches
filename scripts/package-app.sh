@@ -59,10 +59,16 @@ strip_dev_mark "$PORT"
 # Assinatura: usa o Developer ID quando existir (conta Apple paga) — identidade
 # ESTÁVEL: o macOS lembra as permissões (TCC) entre releases e o app pode ser
 # notarizado (fim do "Abrir Mesmo Assim"). Sem o certificado, cai no ad-hoc.
+# Comando por voz: o macOS só pergunta do microfone/fala se o app disser pra que quer (sem isso, nega calado)
+ENT="app/src-tauri/Entitlements.plist"
+for kv in "NSMicrophoneUsageDescription|O Starfork ouve você na conversa por voz da aba Comando." "NSSpeechRecognitionUsageDescription|O Starfork transforma sua fala em texto na conversa por voz da aba Comando."; do
+  k="${kv%%|*}"; v="${kv#*|}"
+  /usr/libexec/PlistBuddy -c "Set :$k $v" "$PORT/Contents/Info.plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :$k string $v" "$PORT/Contents/Info.plist"
+done
 DEVID=$( (security find-identity -v -p codesigning 2>/dev/null | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"') || true )
 if [ -n "$DEVID" ]; then
   echo "→ assinando com: $DEVID (hardened runtime)"
-  codesign --force --deep --options runtime --timestamp --sign "$DEVID" "$PORT"
+  codesign --force --deep --options runtime --timestamp --entitlements "$ENT" --sign "$DEVID" "$PORT"
   # Notariza se houver um profile 'constellation'. Procura PRIMEIRO no chaveiro de LOGIN (arquivo explícito):
   # o chaveiro "Itens locais" desta máquina some com itens ("Chaves Não Encontradas") e o perfil já
   # desapareceu 2x (28/09 e 02/10). Crie uma vez com:
