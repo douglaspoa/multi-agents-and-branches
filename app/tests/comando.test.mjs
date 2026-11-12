@@ -181,7 +181,8 @@ test('caso real 12/11 (3): vários encerramentos e uma listagem numa frase só v
   assert.equal(C.cmdPlanParse('não sei'), null); assert.equal(C.cmdPlanParse('{quebrado'), null);
   assert.deepEqual(C.cmdPlanParse('{"passos":[{"acao":"instruir","tarefas":"FND-1168","texto":" usa UTC "}]}').passos[0], { acao:'instruir', tarefas:['FND-1168'], texto:'usa UTC', alvo:'' });
   // o que mexe em algo espera confirmação; ler não
-  for (const a of ['encerrar', 'parar', 'continuar', 'instruir', 'perguntar_agente', 'ambiente_subir', 'comecar_issue', 'epico_acao']) assert.ok(C.CMD_MUTA.has(a), a);
+  for (const a of ['encerrar', 'parar', 'continuar', 'instruir', 'ambiente_subir', 'comecar_issue', 'epico_acao']) assert.ok(C.CMD_MUTA.has(a), a);
+  assert.ok(!C.CMD_MUTA.has('perguntar_agente'), 'conferir é leitura: não pede confirmação');
   for (const a of ['status', 'abertas', 'tarefa', 'feito', 'provas', 'link', 'epicos', 'ler_codigo']) assert.ok(!C.CMD_MUTA.has(a) && C.CMD_ACOES[a], a);
   const pr = C.cmdPlanPrompt({ proj:'loja', refs:[{ ref:'FND-1168', code:'FND-1168', title:'Tracer', st:'pronta pra revisar', proj:'relay', criada:'ontem 10:00', foco:true }], epics:[], foco:'', conversa:['Pessoa: oi'], pedido:frase });
   assert.match(pr, /- FND-1168 "Tracer" — pronta pra revisar · projeto relay · criada ontem 10:00 · \[ABERTA AO LADO\]/);
@@ -210,9 +211,19 @@ test('caso real 12/11 (4): "No response requested." não é resposta; o assisten
   assert.equal(C.cmdFalaUtil('Não está pronta: nenhum dos 26 requisitos tem prova registrada e não abri PR.'), true);
   const pr = C.cmdPlanPrompt({ refs:[{ ref:'FND-1228', code:'FND-1228', title:'NCM Intel Pro', st:'pronta pra revisar', fatos:'0 de 26 requisitos com prova, sem PR', foco:true }], pedido:'acredito que ela não esteja pronta, pode conferir com o agente?' });
   assert.match(pr, /FATOS: 0 de 26 requisitos com prova, sem PR/);
-  assert.match(pr, /O SELO .* é só o rótulo do app/); assert.match(pr, /DIGA ISSO em "fala", com os números/); assert.match(pr, /pergunta específica, nunca genérica/);
+  assert.match(pr, /O SELO .* é só o rótulo do app/); assert.match(pr, /DIGA ISSO em "fala", com os números/); assert.match(pr, /diga o que conferir, de forma específica/);
   const ask = JS.slice(JS.indexOf('async function cmdAskAgent'), JS.indexOf('function cmdPerguntaHtml'));
   assert.ok(!/const pedido=`[^`]*\\n/.test(ask), 'a pergunta vai em UMA linha (quebra de linha no terminal envia pela metade)');
   assert.ok(/interno:\(m\.text\?/.test(ask) && /semPerguntar:true/.test(ask) && /cmdFalaUtil\(x\.text\)/.test(ask), 'depois da resposta útil, o assistente lê com os fatos e propõe o próximo passo (sem perguntar de novo)');
   assert.ok(/\.cmdproof \.apv-g2\{grid-template-columns:minmax\(0,1fr\)\}/.test(read('css/99-comando.css')), 'provas na conversa: uma coluna');
+});
+
+test('caso real 12/11 (5): conferir NÃO escreve no terminal do agente; erro de API não é resposta', () => {
+  for (const s of ['API Error: The response stopped arriving. The response above may be incomplete.', 'Error: overloaded', 'Request timed out after 60s, try again']) assert.equal(C.cmdFalaUtil(s), false, s);
+  const conf = JS.slice(JS.indexOf('async function cmdConferir'), JS.indexOf('async function cmdAskAgent'));
+  assert.ok(/invoke\('comando_conferir'/.test(conf) && !/tiSend\(/.test(conf), 'a conferência é uma leitura à parte: nada vai pro terminal da tarefa');
+  assert.ok(/case 'perguntar': cmdConferir\(it\.id, it\.text\)/.test(JS) && /case 'perguntar-direto': cmdAskAgent/.test(JS), 'perguntar = conferir; escrever no terminal só pelo botão "Perguntar direto ao agente"');
+  assert.match(C.cmdPlanPrompt({ refs:[], pedido:'x' }), /não interrompe o agente, não precisa de confirmação/);
+  const RS = read('../src-tauri/src/lib.rs');
+  assert.ok(/fn comando_conferir\(/.test(RS) && /comando_conferir,/.test(RS) && /Read,Grep,Glob,LS,Bash\(git log:\*\)/.test(RS.slice(RS.indexOf('fn comando_conferir('), RS.indexOf('fn comando_conferir(') + 1800)), 'só ferramentas de leitura, na pasta da tarefa');
 });
