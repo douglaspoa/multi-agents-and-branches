@@ -117,6 +117,13 @@ fn tool_summary(name: &str, input: &Value, cwd: &str) -> (String, String, usize,
         _ => (name.into(), compact_json(input, 140), 0, 0),
     }
 }
+/// Itens do TodoWrite → "estado\tconteúdo" por linha (estado: pending | in_progress | completed), no máximo 30.
+fn todo_lines(input: &Value) -> String {
+    input.get("todos").and_then(|v| v.as_array()).into_iter().flatten().take(30)
+        .filter_map(|t| { let c = t.get("content").and_then(|v| v.as_str())?.trim(); if c.is_empty() { return None; }
+            Some(format!("{}\t{}", t.get("status").and_then(|v| v.as_str()).unwrap_or("pending"), clip(first_line(c), 160))) })
+        .collect::<Vec<_>>().join("\n")
+}
 /// Conteúdo do tool_result → (texto, tem imagem)
 fn result_text(c: &Value) -> (String, bool) {
     match c {
@@ -201,7 +208,9 @@ pub fn parse_transcript(text: &str, cwd: &str) -> Vec<HistItem> {
                             } else {
                                 let (label, arg, add, del) = tool_summary(name, &input, cwd);
                                 let k = if label == "Update" || label == "Write" { "edit" } else { "tool" };
-                                HistItem { k: k.into(), ts, name: label, arg, add, del, ..Default::default() }
+                                // Plano (TodoWrite): os itens vão em `text` ("estado\tconteúdo" por linha) — o Comando mostra o plano da IA
+                                let text = if name == "TodoWrite" { todo_lines(&input) } else { String::new() };
+                                HistItem { k: k.into(), ts, name: label, arg, add, del, text, ..Default::default() }
                             };
                             if !id.is_empty() { by_tool.insert(id, out.len()); }
                             out.push(it);
@@ -303,5 +312,13 @@ mod tests {
         assert_eq!(find_transcript(&d, "/w/t", "../etc"), None, "id com barra/ponto não vira caminho");
         assert_eq!(find_transcript(&d, "/w/t", "nao-existe"), None);
         let _ = std::fs::remove_dir_all(&d);
+    }
+    #[test]
+    fn plano_do_todowrite_vai_com_os_itens() {
+        let line = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"TodoWrite","input":{"todos":[{"content":"Ler o carrinho","status":"completed"},{"content":"Montar a previa","status":"in_progress"},{"content":"  ","status":"pending"}]}}]}}"#;
+        let it = parse_transcript(line, CWD);
+        assert_eq!(it.len(), 1);
+        assert_eq!(it[0].name, "Plano");
+        assert_eq!(it[0].text, "completed\tLer o carrinho\nin_progress\tMontar a previa");
     }
 }

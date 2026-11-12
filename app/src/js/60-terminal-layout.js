@@ -418,8 +418,9 @@ function tlSheetEl(taskId){ let el=TL.sheets[taskId]; if(!el){ el=document.creat
 /** Antes de o renderWorkspace refazer a coluna: onde estava o foco da folha (o host sai do DOM e perde o foco). */
 function tlSheetFocusGrab(taskId){ const el=TL.sheets[taskId]; const ae=document.activeElement; if(!el || !ae || !el.contains(ae)) return null; return { other:ae.matches('[data-tl="other"]'), caret:ae.selectionStart!=null?ae.selectionStart:null }; }
 function tlAskPaint(t, focus, grab, termFocus){
-  const col=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"] .tlcol`), inl=document.querySelector(`[data-tlinline="${CSS.escape(t.id)}"]`);
+  const col=document.querySelector(`[data-tlwrap="${CSS.escape(t.id)}"] .tlcol`), inls=[...document.querySelectorAll(`[data-tlinline="${CSS.escape(t.id)}"]`)];
   const vis=(n)=>!!(n && n.offsetParent!==null);
+  const inl=inls.find(vis)||inls[0]||null; // Meu trabalho e Comando podem ter o encaixe da mesma tarefa: vale o que está na tela
   const slot=vis(col)?col:vis(inl)?inl:(col||inl); const inline=!!slot && slot===inl; // Meu trabalho: a folha mora na tarefa aberta ao lado
   const a=tlAskOf(t);
   const host=TL.sheets[t.id];
