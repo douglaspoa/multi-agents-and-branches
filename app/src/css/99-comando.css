@@ -88,6 +88,8 @@
 .cmdrow.off:hover{background:none}
 .cmdiss-h .cmdhint{margin-left:auto;white-space:nowrap}
 .cmdbub>.cmdeye{margin-top:4px}
+.cmdagora{border-left:2px solid var(--accent);padding-left:10px;display:flex;flex-direction:column;gap:2px}
+.cmdagora small{color:var(--muted);font-size:var(--fs-sm)}
 /* conversa por voz */
 .cmdmic{display:inline-flex;align-items:center;gap:6px;flex:none}
 .cmdmic.on{border-color:var(--st-ask);color:var(--st-ask)}

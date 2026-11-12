@@ -72,6 +72,11 @@ test('épicos, provas, links, instrução e telas — e a linha ACAO da IA cai n
   assert.deepEqual(C.cmdIntent('LW-97: usa só prazo e valor', T, E), { k:'instruir', id:'b', text:'usa só prazo e valor' });
   assert.deepEqual(C.cmdIntent('abre a tela de issues', T, E), { k:'tela', tela:'issues' });
   assert.deepEqual(C.cmdIntent('vai pra central', T, E), { k:'tela', tela:'flow' });
+  assert.deepEqual(C.cmdIntent('começa o épico checkout novo', T, E), { k:'epico', id:'e1', act:'start' });
+  assert.deepEqual(C.cmdIntent('libera a próxima onda do relatórios', T, E), { k:'epico', id:'e2', act:'liberar' });
+  assert.deepEqual(C.cmdIntent('pode entregar o épico relatórios', T, E), { k:'epico', id:'e2', act:'entregar' });
+  assert.deepEqual(C.cmdIntent('verificar epico Relatórios', T, E), { k:'epico', id:'e2', act:'verificar' });
+  assert.ok(/act\.k!==k/.test(JS) && /askYes\(`\$\{act\.label/.test(JS), 'ação do épico: só a do momento, e com confirmação');
   assert.equal(C.cmdAcaoDe('ACAO: provas LW-97'), 'provas LW-97');
   assert.equal(C.cmdAcaoDe('Claro.\nacao:  epico Relatórios \n'), 'epico Relatórios');
   assert.equal(C.cmdAcaoDe('A validação fica em src/cep.ts'), '');
