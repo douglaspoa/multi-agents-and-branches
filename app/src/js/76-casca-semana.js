@@ -41,6 +41,7 @@ const SEM_IC={
   undo:'<path d="M5.6 3.6 2.6 6.6l3 3" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.8 6.6h6.4a3.6 3.6 0 0 1 0 7.2H7" stroke-linecap="round"/>',
   play:'<path d="M5 3.4v9.2L12.4 8z" stroke-linejoin="round"/>',
   copy:'<rect x="5.2" y="5.2" width="8" height="8.4" rx="1.4"/><path d="M10.6 5.2V3.6c0-.6-.4-1-1-1H3.8c-.6 0-1 .4-1 1v6.2c0 .6.4 1 1 1h1.4" stroke-linejoin="round"/>',
+  ask:'<path d="M6 6.3a2 2 0 1 1 2.9 1.8c-.6.3-.9.7-.9 1.4" stroke-linecap="round"/><path d="M8 11.9v.1" stroke-linecap="round"/>',
   spark:'<path d="M8 2.2 9.3 6.7 13.8 8 9.3 9.3 8 13.8 6.7 9.3 2.2 8 6.7 6.7z" stroke-linejoin="round"/>',
   arrowR:'<path d="M3 8h9.4M8.8 4.4 12.4 8l-3.6 3.6" stroke-linecap="round" stroke-linejoin="round"/>',
 };
@@ -392,11 +393,12 @@ function semPaint(k){
   let html='';
   try{ html=k==='meu'?meuHtml():k==='semana'?semanaHtml():k==='entregas'?entHtml2():mapaHtml(); }
   catch(e){ console.error('semana '+k, e); html=`<div class="pgbody">${emptyHtml({ icon:'alert', title:'Não consegui montar esta tela', help:String(e&&e.message||e) })}</div>`; }
-  if(pg.__html===html) return; // nada mudou: mantém o DOM (foco, rolagem e handlers)
+  if(pg.__html===html){ if(k==='meu') meuAskMount(pg); return; } // nada mudou: mantém o DOM (foco, rolagem e handlers)
   // a busca do Meu trabalho repinta a cada tecla: devolve o foco e o cursor (antes o innerHTML levava o foco embora)
   const ae=document.activeElement, keep=ae&&pg.contains(ae)&&ae.id?{ id:ae.id, a:ae.selectionStart, b:ae.selectionEnd }:null;
   const sc=pg.scrollTop; pg.__html=html; pg.innerHTML=html; pg.scrollTop=sc;
   semWire(pg, k);
+  if(k==='meu') meuAskMount(pg); // a pergunta aberta da tarefa selecionada: responde aqui, sem abrir a tarefa
   if(keep){ const n=$id(keep.id); if(n){ try{ n.focus({ preventScroll:true }); if(keep.a!=null && n.setSelectionRange) n.setSelectionRange(keep.a, keep.b); }catch(_){ } } }
   semGuiaRealce();
 }
@@ -528,29 +530,40 @@ function meuModelo(){
 function meuQuando(ms){ if(!ms) return ''; const a=agoShort(ms); return a==='agora'?'agora':a; }
 function meuLinhaHtml(r){
   const x=r.x, c=r.cv, l=c&&c.last, on=r.k===meuSel;
-  const prev=c?meuPrevia(l.s):(x.trav||x.esp)&&x.motivo?x.motivo:'';
-  const av=c?(l.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(l.av,{ decor:true })):(x.card&&x.who?personAv(x.who,{ decor:true }):`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`);
-  return `<div class="mcv${on?' sel':''}${c?' unread':''}${c&&l.blk?' blk':''}" role="option" aria-selected="${on}" tabindex="${on?0:-1}" data-meusel="${escA(r.k)}"${c&&c.tid?` data-aptid="${escA(c.tid)}"`:''}>
+  const tp=meuTipo(r), g=tp==='ask'?meuAsk(r):null; // pergunta · parou · terminou: cada um com a sua cara (antes eram todos a mesma estrela)
+  // pergunta: a linha mostra A PERGUNTA (não o contexto que veio antes dela)
+  const q=g&&g.rows[0]&&typeof tlAskSplit==='function'?tlAskSplit(g.rows[0].prompt, g.rows[0].header, g.rows[0].q).title:'';
+  const prev=q?(g.rows.length>1?g.rows.length+' perguntas · ':'')+q:c?meuPrevia(l.s):(x.trav||x.esp)&&x.motivo?x.motivo:'';
+  const av=c?(l.av==='ia'?`<span class="tsav semia${tp?' mt-'+tp:''}" aria-hidden="true">${semIc(tp==='ask'?'ask':tp==='err'?'alert':tp==='ok'?'check':'spark')}</span>`:personAv(l.av,{ decor:true })):(x.card&&x.who?personAv(x.who,{ decor:true }):`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`);
+  return `<div class="mcv${on?' sel':''}${c?' unread':''}${c&&l.blk?' blk':''}${tp?' mt-'+tp:''}" role="option" aria-selected="${on}" tabindex="${on?0:-1}" data-meusel="${escA(r.k)}"${c&&c.tid?` data-aptid="${escA(c.tid)}"`:''}>
     <span class="mcv-av">${av}</span>
     <div class="mcv-tx"><div class="mcv-l1">${x.code?`<span class="mcv-code">${esc(x.code)}</span>`:''}<span class="mcv-t">${esc(mdTitle(x.titulo||''))}</span><span class="mcv-h">${esc(meuQuando(r.ms))}</span></div>
     <div class="mcv-l2"><span class="mcv-p">${esc(prev)}</span>${c?`<span class="mcv-n" aria-label="${c.n} ${c.n===1?'novidade':'novidades'}">${c.n}</span>`:semChip(x)}</div></div>
     <button type="button" class="mcv-more" data-meumais="${escA(r.k)}" aria-label="mais ações de ${escA(x.code||mdTitle(x.titulo||''))}" aria-haspopup="menu">${IC.more||'⋯'}</button></div>`;
 }
+function meuTid(r){ return (r&&r.cv&&r.cv.tid)||(r&&r.x&&r.x.local&&r.x.local.id)||''; }
+// a pergunta aberta da tarefa (o mesmo grupo da folha do terminal) — o Meu trabalho responde ali mesmo
+function meuAsk(r){ const tid=meuTid(r); if(!tid || typeof tlAskGroup!=='function' || typeof pendingOf!=='function') return null; try{ return tlAskGroup(pendingOf(tid)); }catch(_){ return null; } }
+function meuTipo(r){ const c=r.cv; if(!c) return ''; if(meuAsk(r)) return 'ask'; if((c.last&&c.last.blk) || r.x.trav) return 'err'; return 'ok'; }
+function meuAskMount(pg){ const n=pg&&pg.querySelector('[data-tlinline]'); if(!n || typeof tlAskPaint!=='function') return; const t=((typeof state!=='undefined'&&state.tasks)||[]).find(y=>y.id===n.dataset.tlinline); if(t) try{ tlAskPaint(t); }catch(e){ console.warn('meuAskMount', e); } }
 function meuPodeEncerrar(x){ return !!(x && x.local && !semFimMeu(x) && (x.who===semMe() || !x.card)); }
 function meuDetHtml(r){
   if(!r) return `<section class="meudet meudet-vazio" aria-label="tarefa aberta">${emptyHtml({ icon:'inbox', title:'Escolha uma tarefa na lista', help:'Ela abre aqui, com a conversa e o que fazer.' })}</section>`;
   const x=r.x, c=r.cv, ep=x.local&&x.local.epic&&x.local.epic.epicId&&typeof epNameOf==='function'?epNameOf(x.local.epic.epicId):'';
   const evs=c?c.evs.slice().sort((a,b)=>(a.ms||0)-(b.ms||0)):[];
   const bub=e=>`<div class="meumsg"><span class="mcv-av">${e.av==='ia'?`<span class="tsav semia" aria-hidden="true">${semIc('spark')}</span>`:personAv(e.av,{ decor:true })}</span><div class="meubub">${esc(meuPrevia(e.s))}<small>${esc(meuQuando(e.ms))}</small></div></div>`;
-  const corpo=evs.length?evs.map(bub).join('')
+  const ask=meuAsk(r), tid=meuTid(r);
+  if(ask) for(let i=evs.length-1;i>=0;i--){ if(/pergunt/i.test(String(evs[i].s||''))) evs.splice(i,1); } // a pergunta aparece inteira logo abaixo, com as opções
+  const corpo=evs.length?evs.map(bub).join(''):ask?''
     :`<p class="meudet-st">${x.trav?esc('Parou: '+(x.motivo||'travada')):x.esp?esc(x.motivo||'esperando você'):meuEntregue(x)?'Entregue.':semFimMeu(x)?'Encerrada sem entregar.':x.bucket==='fila'?'Ainda não começou.':'A IA está trabalhando nela.'}</p>`;
-  const acts=(c&&c.last.a)||[], pri=acts.find(a=>a.pri), outras=acts.filter(a=>a!==pri && !a.menu && !/^Encerrar/.test(a.l||'')).slice(0,2); // o Encerrar é o fixo da direita
+  const acts=(c&&c.last.a)||[], pri0=acts.find(a=>a.pri), pri=ask&&pri0&&/^Responder/i.test(pri0.l||'')?null:pri0, outras=acts.filter(a=>a!==pri && a!==pri0 && !a.menu && !/^Encerrar/.test(a.l||'')).slice(0,2); // o Encerrar é o fixo da direita
   const apProva=c&&c.tid&&typeof apMeuExpHtml==='function'?apMeuExpHtml(c.tid):'';
   return `<section class="meudet" aria-label="tarefa aberta">
     <div class="meudet-h"><div class="meudet-ti"><h2>${esc(mdTitle(x.titulo||''))}</h2><div class="meudet-m">${x.code?`<span class="mono">${esc(x.code)}</span>`:''}${semChip(x)}${ep?`<span class="meudet-ep">${IC.epic||''} ${esc(ep)}</span>`:''}${x.card&&x.who&&x.who!==semMe()?`<span>com ${esc(personName(x.who,{ noYou:true }))}</span>`:''}<span>${esc(meuQuando(x.mod)?'mexida '+meuQuando(x.mod):'')}</span></div></div>
       <button type="button" class="btn sm quiet" data-meuabrir="1">Abrir a tarefa ${semIc('arrowR')}</button></div>
-    <div class="meudet-b">${corpo}${apProva}</div>
-    <div class="meudet-a" id="meuDetA">${pri?`<button type="button" class="btn primary" data-meuact="${acts.indexOf(pri)}">${esc(pri.l)}</button>`:`<button type="button" class="btn primary" data-meuabrir="1">Abrir a conversa</button>`}${outras.map(a=>`<button type="button" class="btn" data-meuact="${acts.indexOf(a)}">${esc(a.l)}</button>`).join('')}<span class="grow"></span>${meuPodeEncerrar(x)?`<button type="button" class="btn meu-enc" data-meuenc="1">Encerrar sem entregar…</button>`:''}</div>
+    ${corpo||apProva?`<div class="meudet-b">${corpo}${apProva}</div>`:''}
+    ${ask?`<div class="meuask" data-tlinline="${escA(tid)}"></div>`:''}
+    <div class="meudet-a" id="meuDetA">${pri?`<button type="button" class="btn primary" data-meuact="${acts.indexOf(pri)}">${esc(pri.l)}</button>`:`<button type="button" class="btn${ask?'':' primary'}" data-meuabrir="1">Abrir a conversa</button>`}${outras.map(a=>`<button type="button" class="btn" data-meuact="${acts.indexOf(a)}">${esc(a.l)}</button>`).join('')}<span class="grow"></span>${meuPodeEncerrar(x)?`<button type="button" class="btn meu-enc" data-meuenc="1">Encerrar sem entregar…</button>`:''}</div>
   </section>`;
 }
 function meuHtml(){

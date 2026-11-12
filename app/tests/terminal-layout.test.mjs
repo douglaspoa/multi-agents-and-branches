@@ -186,3 +186,27 @@ test('tela de Configurações mostra o mesmo modo que o term.rs usa (TS≡Rust) 
   const rs = read('../src-tauri/src/term.rs');
   for (const c of ['mode_default(None, None), "terminal"', 'mode_default(Some("auto"), None), "terminal"', 'mode_default(Some("auto"), Some("2")), "auto"', 'mode_default(Some("terminal"), Some("2")), "terminal"']) assert.ok(rs.includes(c), 'caso espelhado no Rust: ' + c);
 });
+
+// ---------------- fluidez (12/11) ----------------
+test('folha: a aba só fica "feita" depois de vista (a 1ª opção vem marcada e não é resposta) · passo "1 de 2"', () => {
+  const pend = [0, 1].map((i) => ({ id: 10 + i, kind: 'question', prompt: 'Pergunta ' + i + '?', options: ['a', 'b'], meta: { group: 'g', n: 2, idx: i, src: 'auq', header: 'P' + i } }));
+  const g = TL.tlAskGroup(pend), st = TL.tlAskNew(g);
+  const h0 = TL.tlSheetHtml(g, st);
+  assert.match(h0, /1 de 2/);
+  assert.ok(!/class="tlqt done"/.test(h0), 'a 2ª pergunta ainda não foi vista: não pode aparecer como respondida');
+  st.q = 1; const h1 = TL.tlSheetHtml(g, st);
+  assert.match(h1, /2 de 2/);
+  assert.match(h1, /class="tlqt done" data-tlq="0"/);
+  st.q = 0; assert.match(TL.tlSheetHtml(g, st), /class="tlqt done" data-tlq="1"/); // voltou: a 2ª já foi vista
+});
+test('fluidez: rodapé da folha numa linha, aviso fora de cima do "enviar", painel dividido sem a corrente, folha dentro do Meu trabalho', () => {
+  const t = read('css/95-terminal.css'), c = read('css/92-canvas.css'), m = read('js/76-casca-semana.js'), l = read('js/60-terminal-layout.js');
+  assert.match(t, /\.tlsf\{flex-wrap:nowrap\}/);
+  assert.match(t, /body:has\(\.tlsheethost:not\(\.min\):not\(\.inline\) \.tlsheet\) \.apptoast\{bottom:auto/);
+  assert.match(t, /\.tlsheethost\.inline\{position:static/);
+  assert.match(c, /html\.sfpane #fwChain\{display:none!important\}/);
+  assert.match(c, /html\.sfpane \.tiacts\{flex-wrap:nowrap/);
+  assert.match(m, /data-tlinline=/);
+  assert.match(m, /function meuAskMount\(/);
+  assert.match(l, /\[data-tlinline="\$\{CSS\.escape\(t\.id\)\}"\]/);
+});

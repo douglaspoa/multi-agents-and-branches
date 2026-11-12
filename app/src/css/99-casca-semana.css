@@ -381,3 +381,15 @@
 /* 05/11 redesenho da Central: a busca é larga (código, título ou issue) — antes 170 px cortava o texto */
 .ffrow .ffsearchwrap{flex:1 1 280px;max-width:440px;min-width:0}
 .ffrow .ffsearchwrap .ffsearch{width:100%;padding-block:7px}
+
+/* ---------- Precisa de você (12/11): cada aviso com a sua cara + a pergunta responde ali mesmo ---------- */
+.tsav.semia.mt-ask{background:color-mix(in srgb,var(--st-ask) 22%,var(--surface))!important;color:var(--st-ask)}
+.tsav.semia.mt-err{background:color-mix(in srgb,var(--st-err) 20%,var(--surface))!important;color:var(--st-err)}
+.tsav.semia.mt-ok{background:color-mix(in srgb,var(--accent) 18%,var(--surface))!important;color:var(--accent)}
+.mcv-av .tsav.semia .semi{width:15px;height:15px}
+.mcv.mt-ask .mcv-n{background:var(--st-ask)}
+.mcv.mt-ask.unread .mcv-h{color:var(--st-ask)}
+.mcv.mt-err.unread .mcv-h{color:var(--st-err)}
+.mcv.mt-ask .mcv-p,.mcv.mt-err .mcv-p{color:var(--text-2)}
+.meuask{border-top:1px solid var(--border)}
+.meudet-h + .meuask{border-top:0}
