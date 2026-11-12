@@ -114,6 +114,7 @@ function cmdBotHtml(m){
       if(say) partes.push(`<div class="cmdquote">${mdToHtml(say.length>600?say.slice(0,600)+'…':say)}</div>`);
     }
     return partes.join('')+cmdRows([t]); }
+  if(m.k==='issue') return `<p><b>${esc(m.code)}</b> ${esc(m.text)} está no painel de issues e ainda não virou tarefa.</p><div><button type="button" class="btn sm primary" data-cmdgo="issues">Abrir em Issues pra começar</button></div>`;
   if(m.k==='md') return mdToHtml(m.text||'');
   return `<p>${esc(m.text||'')}</p>`;
 }
@@ -197,6 +198,9 @@ async function cmdSay(text){
   text=String(text||'').trim(); if(!text) return; if(CMD.busy){ toast('espere a resposta — ou pare','warn'); return; }
   const ms=cmdMsgs(), L=cmdTasks(); ms.push({ r:'you', text });
   const it=cmdIntent(text, L.map(t=>({ id:t.id, code:cmdCode(t), title:mdTitle(t.title||'') })));
+  // código de issue do painel que ainda não virou tarefa: mostra e leva pra aba Issues (começar é lá, com a escolha da IA)
+  { const mc=/\b([A-Za-z]{2,10}-\d+)\b/.exec(text), iss=(mc && !it.id && typeof trkIssues!=='undefined')?(trkIssues||[]).find(i=>String(i.code||'').toLowerCase()===mc[1].toLowerCase()):null;
+    if(iss){ ms.push({ r:'bot', k:'issue', code:String(iss.code), text:String(iss.title||'') }); return cmdPaint(true); } }
   if(it.k==='status'||it.k==='espera'||it.k==='erro'){ ms.push({ r:'bot', k:it.k }); return cmdPaint(true); }
   if(it.k==='tarefa'||it.k==='porque'){ CMD.sel=it.id; cmdHistLoad(it.id); ms.push({ r:'bot', k:it.k, id:it.id }); return cmdPaint(true); }
   if(it.k==='abrir'){ ms.push({ r:'bot', k:'txt', text:'Abrindo a tarefa.' }); cmdPaint(true); return openTaskById(it.id); }
