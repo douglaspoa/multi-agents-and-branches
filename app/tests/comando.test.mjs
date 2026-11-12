@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -93,8 +93,9 @@ test('entendimento: frase conversada não vira ação por palavra solta; "a task
   // o caso real (12/11): isto virou "Nada esperando por você agora"
   const f = 'poderia perguntar para o agente da task? acredito que esse status não reflita o cenário real';
   assert.equal(C.cmdIntent(f, T, [], '').k, 'ia', 'sem tarefa em foco vai pra IA');
-  const r = C.cmdIntent(f, T, [], 'b');
-  assert.equal(r.k, 'perguntar'); assert.equal(r.id, 'b'); assert.equal(r.text, f);
+  assert.equal(C.cmdIntent(f, T, [], 'b').k, 'ia', 'frase longa não se apoia na tarefa ao lado: a IA resolve e propõe');
+  const r = C.cmdIntent('pergunta pro agente da task', T, [], 'b');
+  assert.equal(r.k, 'perguntar'); assert.equal(r.id, 'b');
   assert.deepEqual(C.cmdIntent('perguntar LW-47: os testes passam?', T, [], ''), { k:'perguntar', id:'a', text:'os testes passam?' });
   assert.deepEqual(C.cmdIntent('como está a task?', T, [], 'a'), { k:'tarefa', id:'a' });
   assert.equal(C.cmdIntent('acho que tem algo errado com os agentes', T, [], '').k, 'ia');
@@ -143,4 +144,22 @@ test('encerrar, ambiente e o que foi feito pelo chat; pergunta ao agente num car
   for (const f of ['o que foi feito LW-97', 'subir ambiente LW-97', 'desligar ambiente LW-97', 'encerrar LW-97']) assert.notEqual(C.cmdIntent(f, T, [], '').k, 'ia', f);
   assert.ok(/encerrarTarefa\(it\.id/.test(JS) && /envUp\(it\.id\)/.test(JS) && /envDown\(it\.id\)/.test(JS), 'usa o encerrar (com motivo e desfazer) e a Prévia do app');
   assert.ok(/state:'wait'/.test(JS) && /cmdqa-q/.test(JS) && /respondeu em/.test(JS), 'pergunta ao agente: um cartão com a pergunta, o andamento e a resposta');
+});
+
+test('caso real 12/11 (2): conversa não é comando; "para" não é parar; o que escreve numa tarefa vira proposta', () => {
+  const f1 = 'não estou falando dessa tarefa falo da ultima tarefa que abrimos hoje é sobre criar um use cases para o ncm intel pro';
+  const f2 = 'eu sei precisamos continuar rodando ela';
+  assert.equal(C.cmdDireto(f1), false); assert.equal(C.cmdDireto(f2), false);
+  assert.notEqual(C.cmdIntent(f1, T, [], 'b').k, 'parar', '"para o ncm" não é "parar"; frase longa não usa a tarefa ao lado');
+  assert.equal(C.cmdIntent('quero um resumo para a LW-97', T, [], '').k, 'tarefa', 'a preposição "para" não para tarefa');
+  for (const f of ['como estão os agentes?', 'o que está me esperando?', 'pega a LW-102 e começa', 'como esta a task LW-47', 'sobe o ambiente', 'encerra a LW-47']) assert.equal(C.cmdDireto(f), true, f);
+  for (const f of ['não é essa tarefa', 'acho que tem algo errado', 'a última de hoje', 'precisamos continuar ela']) assert.equal(C.cmdDireto(f), false, f);
+  assert.deepEqual(C.cmdIntent('continuar LW-47', T, [], ''), { k:'continuar', id:'a' });
+  // vindas da IA: instrução, pergunta ao agente, continuar, subir ambiente e começar issue pedem confirmação; ler não
+  for (const it of [{ k:'instruir' }, { k:'perguntar' }, { k:'continuar' }, { k:'ambiente', on:true }, { k:'issue', go:true }]) assert.equal(C.cmdPrecisaOk(it), true, it.k);
+  for (const it of [{ k:'status' }, { k:'tarefa' }, { k:'provas' }, { k:'feito' }, { k:'link' }, { k:'issue', go:false }, { k:'ambiente', on:false }]) assert.equal(C.cmdPrecisaOk(it), false, it.k);
+  assert.ok(/else if\(cmdPrecisaOk\(it2\)\) out\.push\(\{ r:'bot', k:'proposta', it:it2 \}\)/.test(JS), 'a ação da IA que escreve numa tarefa não é executada: vira proposta');
+  assert.ok(/cmdDireto\(text\)\)\?cmdResolve\(text\):\{ k:'ia' \}/.test(JS), 'só comando curto e direto sai sem IA');
+  const s = C.cmdSnapshot([{ code:'LW-97', title:'Prévia', st:'rodando', criada:'hoje 10:12', mexida:'há 5 min', foco:true }], 'loja', []);
+  assert.match(s, /criada hoje 10:12 · mexida há 5 min/); assert.match(s, /\[ABERTA AO LADO\]/); assert.match(s, /pergunte qual em vez de escolher/);
 });
