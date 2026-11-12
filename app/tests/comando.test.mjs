@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -104,7 +104,7 @@ test('entendimento: frase conversada não vira ação por palavra solta; "a task
   assert.equal(C.cmdIntent('o que está me esperando?', T, [], '').k, 'espera');
   const s = C.cmdSnapshot([], 'loja', [], 'LW-47 "Avisos" — selo: pronta pra revisar');
   assert.match(s, /TAREFA EM FOCO/); assert.match(s, /perguntar <código>: <pergunta pro agente da tarefa>/);
-  assert.ok(/NÃO altere nenhum arquivo/.test(JS) && /k:'pergunta'/.test(JS), 'a pergunta pede só resposta e a fala do agente volta pra conversa');
+  assert.ok(/sem alterar nenhum arquivo/.test(JS) && /k:'pergunta'/.test(JS), 'a pergunta pede só resposta e a fala do agente volta pra conversa');
 });
 
 test('assistente: avisa o que é novo, uma vez; resolveu e voltou, avisa de novo; 1ª vez não despeja tudo', () => {
@@ -203,4 +203,16 @@ test('formatação: lista é do app, identificador interno não vaza, código vi
   const pr = C.cmdPlanPrompt({ refs:[], pedido:'x' });
   assert.match(pr, /NUNCA liste tarefas em texto corrido/); assert.match(pr, /no máximo 2 frases/);
   assert.ok(/k:'resultado', titulo:LOTE\[p\.acao\]/.test(JS) && /quiet:true/.test(JS), 'encerrar/parar/continuar em lote: uma lista de resultado, não uma fala por tarefa');
+});
+
+test('caso real 12/11 (4): "No response requested." não é resposta; o assistente usa os fatos e lê a resposta do agente', () => {
+  for (const s of ['No response requested.', 'no response requested', 'ok', 'Entendido.', '', '   ']) assert.equal(C.cmdFalaUtil(s), false, JSON.stringify(s));
+  assert.equal(C.cmdFalaUtil('Não está pronta: nenhum dos 26 requisitos tem prova registrada e não abri PR.'), true);
+  const pr = C.cmdPlanPrompt({ refs:[{ ref:'FND-1228', code:'FND-1228', title:'NCM Intel Pro', st:'pronta pra revisar', fatos:'0 de 26 requisitos com prova, sem PR', foco:true }], pedido:'acredito que ela não esteja pronta, pode conferir com o agente?' });
+  assert.match(pr, /FATOS: 0 de 26 requisitos com prova, sem PR/);
+  assert.match(pr, /O SELO .* é só o rótulo do app/); assert.match(pr, /DIGA ISSO em "fala", com os números/); assert.match(pr, /pergunta específica, nunca genérica/);
+  const ask = JS.slice(JS.indexOf('async function cmdAskAgent'), JS.indexOf('function cmdPerguntaHtml'));
+  assert.ok(!/const pedido=`[^`]*\\n/.test(ask), 'a pergunta vai em UMA linha (quebra de linha no terminal envia pela metade)');
+  assert.ok(/interno:\(m\.text\?/.test(ask) && /semPerguntar:true/.test(ask) && /cmdFalaUtil\(x\.text\)/.test(ask), 'depois da resposta útil, o assistente lê com os fatos e propõe o próximo passo (sem perguntar de novo)');
+  assert.ok(/\.cmdproof \.apv-g2\{grid-template-columns:minmax\(0,1fr\)\}/.test(read('css/99-comando.css')), 'provas na conversa: uma coluna');
 });

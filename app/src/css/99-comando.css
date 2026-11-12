@@ -134,6 +134,13 @@
 .cmdres .no i{color:var(--st-err)}
 .cmdres .cmdtt{white-space:normal}
 .cmdres small{color:var(--st-err)}
+/* painel de provas DENTRO da conversa: uma coluna, requisitos numa lista que rola */
+.cmdproof .apv-g2{grid-template-columns:minmax(0,1fr)}
+.cmdproof .apv-col:first-child .apv-blk{max-height:320px;overflow-y:auto}
+.cmdproof .apv-rq{grid-template-columns:28px minmax(0,1fr) auto;gap:10px}
+.cmdproof .apv-h{padding:12px 14px}
+.cmdproof .apv-b{padding:12px 14px;gap:10px}
+.cmdproof .apv{border:0;border-radius:0;box-shadow:none}
 /* conversa por voz */
 .cmdmic{display:inline-flex;align-items:center;gap:6px;flex:none}
 .cmdmic.on{border-color:var(--st-ask);color:var(--st-ask)}
