@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -158,8 +158,34 @@ test('caso real 12/11 (2): conversa não é comando; "para" não é parar; o que
   // vindas da IA: instrução, pergunta ao agente, continuar, subir ambiente e começar issue pedem confirmação; ler não
   for (const it of [{ k:'instruir' }, { k:'perguntar' }, { k:'continuar' }, { k:'ambiente', on:true }, { k:'issue', go:true }]) assert.equal(C.cmdPrecisaOk(it), true, it.k);
   for (const it of [{ k:'status' }, { k:'tarefa' }, { k:'provas' }, { k:'feito' }, { k:'link' }, { k:'issue', go:false }, { k:'ambiente', on:false }]) assert.equal(C.cmdPrecisaOk(it), false, it.k);
-  assert.ok(/else if\(cmdPrecisaOk\(it2\)\) out\.push\(\{ r:'bot', k:'proposta', it:it2 \}\)/.test(JS), 'a ação da IA que escreve numa tarefa não é executada: vira proposta');
-  assert.ok(/cmdDireto\(text\)\)\?cmdResolve\(text\):\{ k:'ia' \}/.test(JS), 'só comando curto e direto sai sem IA');
+  assert.ok(/if\(cmdDireto\(text\)\)\{ const it=cmdResolve\(text\)/.test(JS) && /return cmdPlanejar\(text\)/.test(JS), 'só comando curto e direto sai sem IA; o resto vira plano');
   const s = C.cmdSnapshot([{ code:'LW-97', title:'Prévia', st:'rodando', criada:'hoje 10:12', mexida:'há 5 min', foco:true }], 'loja', []);
   assert.match(s, /criada hoje 10:12 · mexida há 5 min/); assert.match(s, /\[ABERTA AO LADO\]/); assert.match(s, /pergunte qual em vez de escolher/);
+});
+
+test('caso real 12/11 (3): vários encerramentos e uma listagem numa frase só viram UM plano', () => {
+  const frase = 'Encerre a FND 1168 a 1195 a 1173 e a 1174 e depois me mostre as em aberto';
+  assert.equal(C.cmdDireto(frase), false, 'mais de uma tarefa / mais de um passo nunca é atalho');
+  assert.equal(C.cmdDireto('encerra a 1168 e a 1195'), false);
+  const R = [{ id:'a', ref:'FND-1168', code:'FND-1168', title:'Tracer: escala de risco' }, { id:'b', ref:'FND-1195', code:'FND-1195', title:'Auditoria de segurança' },
+    { id:'c', ref:'FND-1173', code:'FND-1173', title:'Lentidão no Fast após troca' }, { id:'d', ref:'FND-1174', code:'FND-1174', title:'Lentidão no Fast após troca (2)' }, { id:'e', ref:'T1', code:'', title:'Central de ajuda do use_cases em inglês' }];
+  // a pessoa escreve o código de vários jeitos
+  for (const [q, id] of [['FND-1168', 'a'], ['fnd 1168', 'a'], ['FND1168', 'a'], ['1195', 'b'], ['T1', 'e'], ['central de ajuda', 'e'], ['Auditoria de segurança', 'b']]) assert.equal((C.cmdRefTask(q, R) || {}).id, id, q);
+  assert.equal(C.cmdRefTask('lentidão no fast', R), null, 'título que bate em duas não escolhe');
+  assert.equal(C.cmdRefTask('9999', R), null); assert.equal(C.cmdRefTask('68', R), 'a' && C.cmdRefTask('68', R), 'sufixo curto só vale se for único');
+  // o plano que a IA devolve
+  const P = C.cmdPlanParse('Claro!\n{"fala":"Vou encerrar as quatro e listar o que sobra.","passos":[{"acao":"encerrar","tarefas":["FND-1168","FND-1195","FND-1173","FND-1174"]},{"acao":"abertas"},{"acao":"apagar_tudo"}],"duvida":""}\nfim');
+  assert.equal(P.fala, 'Vou encerrar as quatro e listar o que sobra.');
+  assert.deepEqual(P.passos.map(p => p.acao), ['encerrar', 'abertas'], 'ação desconhecida é descartada');
+  assert.deepEqual(P.passos[0].tarefas, ['FND-1168', 'FND-1195', 'FND-1173', 'FND-1174']);
+  assert.equal(C.cmdPlanParse('não sei'), null); assert.equal(C.cmdPlanParse('{quebrado'), null);
+  assert.deepEqual(C.cmdPlanParse('{"passos":[{"acao":"instruir","tarefas":"FND-1168","texto":" usa UTC "}]}').passos[0], { acao:'instruir', tarefas:['FND-1168'], texto:'usa UTC', alvo:'' });
+  // o que mexe em algo espera confirmação; ler não
+  for (const a of ['encerrar', 'parar', 'continuar', 'instruir', 'perguntar_agente', 'ambiente_subir', 'comecar_issue', 'epico_acao']) assert.ok(C.CMD_MUTA.has(a), a);
+  for (const a of ['status', 'abertas', 'tarefa', 'feito', 'provas', 'link', 'epicos', 'ler_codigo']) assert.ok(!C.CMD_MUTA.has(a) && C.CMD_ACOES[a], a);
+  const pr = C.cmdPlanPrompt({ proj:'loja', refs:[{ ref:'FND-1168', code:'FND-1168', title:'Tracer', st:'pronta pra revisar', proj:'relay', criada:'ontem 10:00', foco:true }], epics:[], foco:'', conversa:['Pessoa: oi'], pedido:frase });
+  assert.match(pr, /- FND-1168 "Tracer" — pronta pra revisar · projeto relay · criada ontem 10:00 · \[ABERTA AO LADO\]/);
+  assert.match(pr, /PEDIDO DA PESSOA: Encerre a FND 1168/); assert.match(pr, /VÁRIAS tarefas no mesmo passo/); assert.match(pr, /NÃO escolha/); assert.match(pr, /CONVERSA ATÉ AQUI:\nPessoa: oi/);
+  assert.ok(/invoke\('comando_plan'/.test(JS) && /k:'plano', plan:P/.test(JS) && /motivo:''/.test(JS), 'plano que mexe em algo vira cartão de confirmação; encerrar em lote não abre uma folha por tarefa');
+  assert.ok(/await cmdProjeto\(x\.repo\)/.test(JS) && /if\(cmdRepo\(\)!==home\) await cmdProjeto\(home\)/.test(JS), 'tarefa de outro projeto: troca, age e volta');
 });
