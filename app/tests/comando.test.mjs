@@ -88,3 +88,20 @@ test('épicos, provas, links, instrução e telas — e a linha ACAO da IA cai n
   assert.match(s, /ACAO: <frase>/);
   assert.ok(/proofPanel\(t\.id, 'compact'\)/.test(JS) && /openExternal\(b\.dataset\.cmdlk\)/.test(JS) && /epOpenById/.test(JS), 'provas = o painel de provas do app; link abre fora; épico abre a aba dele');
 });
+
+test('entendimento: frase conversada não vira ação por palavra solta; "a task" é a que está aberta; perguntar ao agente', () => {
+  // o caso real (12/11): isto virou "Nada esperando por você agora"
+  const f = 'poderia perguntar para o agente da task? acredito que esse status não reflita o cenário real';
+  assert.equal(C.cmdIntent(f, T, [], '').k, 'ia', 'sem tarefa em foco vai pra IA');
+  const r = C.cmdIntent(f, T, [], 'b');
+  assert.equal(r.k, 'perguntar'); assert.equal(r.id, 'b'); assert.equal(r.text, f);
+  assert.deepEqual(C.cmdIntent('perguntar LW-47: os testes passam?', T, [], ''), { k:'perguntar', id:'a', text:'os testes passam?' });
+  assert.deepEqual(C.cmdIntent('como está a task?', T, [], 'a'), { k:'tarefa', id:'a' });
+  assert.equal(C.cmdIntent('acho que tem algo errado com os agentes', T, [], '').k, 'ia');
+  assert.equal(C.cmdIntent('me explica com calma o que cada agente fez hoje de manhã e o que falta', T, [], '').k, 'ia', 'frase longa vai pra IA');
+  assert.equal(C.cmdIntent('quantas perguntas o cliente fez no chat?', T, [], '').k, 'ia', '"pergunta" solta não é "esperando você"');
+  assert.equal(C.cmdIntent('o que está me esperando?', T, [], '').k, 'espera');
+  const s = C.cmdSnapshot([], 'loja', [], 'LW-47 "Avisos" — selo: pronta pra revisar');
+  assert.match(s, /TAREFA EM FOCO/); assert.match(s, /perguntar <código>: <pergunta pro agente da tarefa>/);
+  assert.ok(/NÃO altere nenhum arquivo/.test(JS) && /k:'resposta'/.test(JS), 'a pergunta pede só resposta e a fala do agente volta pra conversa');
+});
