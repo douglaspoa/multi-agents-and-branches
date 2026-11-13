@@ -38,6 +38,8 @@ const CASOS = [
   { nome:'resposta curta à pergunta aberta', foco:{ id:'a' }, conversa:['Comando avisou: LW-1168 — tem uma pergunta pra você. Pergunta dela: «O login expirou; posso rodar o login neste terminal?»'], pedido:'pode sim', tem:[['responder', 'LW-1168']], quer:[], texto:/pode/i },
   { nome:'escolhe a opção pelo número', foco:{ id:'a' }, conversa:['Comando avisou: LW-1168 — tem uma pergunta pra você. Pergunta dela: «O login expirou; posso rodar o login neste terminal?»'], pedido:'a segunda', tem:[['responder', 'LW-1168']], quer:[], texto:/^Não, eu mesmo faço o login$/ },
   { nome:'responde ao que o executor disse (sem pergunta formal)', foco:{ id:'f' }, conversa:['Comando avisou: LW-1208 — parou. O executor disse: «Montei o replay. Uso dados reais do cliente ou fictícios?»'], pedido:'ficticios, sempre', tem:[['instruir|responder', 'LW-1208']], quer:[], texto:/^fict[ií]cios, sempre\.?$/i },
+  { nome:'abrir o preview', pedido:'abre o preview da 1208 pra mim', tem:[['ambiente_subir', 'LW-1208']], quer:[], semMuta:true },
+  { nome:'me passa a url', foco:{ id:'e', ctx:FOCO_1228 }, pedido:'quero ver ela rodando, me passa a url', tem:[['ambiente_subir', 'LW-1228']], quer:[], semMuta:true },
 ];
 const args = (sys) => ['--strict-mcp-config', '--tools', '', '--system-prompt', sys, '--setting-sources', '', '--no-session-persistence', '--model', process.env.CMD_MODEL || 'claude-sonnet-5', '--output-format', 'json'];
 let ok = 0, tempo = 0, custo = 0; const falhas = [];
