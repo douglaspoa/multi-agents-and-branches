@@ -278,3 +278,8 @@ button.cmdrad-r:hover{background:var(--surface-2)}
 .cmdside{padding:18px 18px 22px;gap:14px}
 .cmdresumo .cmdask .tlsheet:not(:has(.tlopts)) .tlsf{display:none}
 @media (max-width:980px){ .cmdpg{grid-template-columns:minmax(0,1fr)} }
+/* só o chat (13/11): o painel abre apenas pra diff, provas e radar */
+.cmdpg.solo{grid-template-columns:minmax(0,1fr)}
+.cmdpg.solo .cmdchat{border-right:0}
+.cmdside[hidden]{display:none}
+.cmdpg.solo .cmdmsg,.cmdpg.solo .cmdchips,.cmdpg.solo .cmdbar,.cmdpg.solo .cmdac{max-width:820px}
