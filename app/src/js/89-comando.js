@@ -242,6 +242,7 @@ REGRAS:
 - Você é um assistente: se o pedido for vago ("resolve isso", "toca pra frente"), use os FATOS e a conversa pra propor os passos concretos que fazem sentido, em vez de pedir pra pessoa repetir.
 - Pra VER o que uma tarefa alterou no código (arquivos, diff, "estilo git") use "arquivos". Pra ver o que dá pra aprovar use "prontas". Pra saber se duas tarefas mexem no mesmo arquivo use "radar".
 - "perguntar_agente" com VÁRIAS tarefas no mesmo passo vira uma conversa só, com uma conclusão no fim: não crie um passo por tarefa.
+- REPASSE: quando a CONVERSA mostra que o agente de uma tarefa perguntou ou disse algo e a pessoa está RESPONDENDO a ele (uma decisão, um "pode", um "faz assim"), entregue a resposta ao agente: "responder" se a tarefa tem pergunta aberta, senão "instruir", com "texto" = as palavras da pessoa, EXATAMENTE como ela escreveu, sem resumir nem acrescentar. Não peça pra ela responder em outro lugar.
 - Nunca invente tarefa, código ou fato.`;
 }
 /** Troca os identificadores internos (T1, T2…) pelo título, no texto que a IA escreveu. `refs`: [{ ref, code, title }] */
@@ -250,9 +251,21 @@ function cmdSemRefs(text, refs){ return String(text||'').replace(/\bT(\d{1,3})\b
 function cmdLinkCodes(html, ids){
   return String(html||'').split(/(<[^>]+>)/).map(seg=>seg.startsWith('<')?seg:seg.replace(/\b([A-Z][A-Z0-9]{1,9}-\d+)\b/g, (m)=>ids&&ids[m]?`<button type="button" class="cmdchipc" data-cmdsel="${ids[m]}">${m}</button>`:m)).join('');
 }
+/** REPASSE: a pessoa respondeu, no chat, ao agente de uma tarefa. Vai direto (sem "confirma?") só quando o plano é UM envio
+ *  (responder/instruir) pra UMA tarefa que está na conversa e o texto é o que a pessoa escreveu — a IA não acrescentou nada. */
+function cmdRepasse(P, pedido, emFoco){
+  if(!P || !Array.isArray(P.passos)) return null;
+  const mut=P.passos.filter(p=>CMD_MUTA.has(p.acao)); if(mut.length!==1) return null;
+  const p=mut[0]; if(p.acao!=='responder' && p.acao!=='instruir') return null;
+  if(!p.alvos || p.alvos.length!==1 || (p.faltam&&p.faltam.length)) return null;
+  if(!(emFoco||[]).includes(p.alvos[0].id)) return null;
+  const n=x=>cmdNorm(x).replace(/[^a-z0-9]+/g,' ').trim(), tx=n(p.texto), ped=n(pedido);
+  if(tx.length<2 || !ped.includes(tx)) return null;
+  return p;
+}
 // @comando-puro-fim
 
-const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', asking:'', sugerindo:'', spoken:0, unread:0, outrosAt:0, logHtml:'', sideHtml:'', mounted:false };
+const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', asking:'', sugerindo:'', alvo:null, spoken:0, unread:0, outrosAt:0, logHtml:'', sideHtml:'', mounted:false };
 function cmdRepo(){ return (typeof state!=='undefined'&&state.repo)||''; }
 function cmdMsgs(){ return CMD.all||(CMD.all=[]); } // UMA conversa, mesmo quando um passo troca de projeto
 function cmdTasks(){ let l=[]; try{ l=flowLiveTasks(); }catch(_){ l=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!taskEncerrada(t)); }
@@ -307,9 +320,52 @@ async function cmdStartIssue(code){
 function cmdHa(ts){ if(!ts) return ''; const m=Math.round((Date.now()-ts)/60000); return m<1?'agora':m<60?'há '+m+' min':m<1440?'há '+Math.round(m/60)+' h':'há '+Math.round(m/1440)+' d'; }
 function cmdReqs(t){ try{ if(typeof reqRows==='function') return reqRows(t).filter(r=>r.status!=='deferred').map(r=>({ tx:r.text, ok:r.st==='ok' })); }catch(_){ }
   return (Array.isArray(t.requirements)?t.requirements:[]).map(r=>typeof r==='string'?{ tx:r, ok:false }:{ tx:r.text||r.title||'', ok:r.status==='done' }).filter(r=>r.tx); }
+// as provas são um arquivo que o agente vai escrevendo: lê de novo se a leitura é velha, e "não li" nunca vira "0 com prova"
+const CMDPROVA={};
+function cmdProvasLidas(id){ return typeof reqProofCache==='undefined' || reqProofCache[id]!==undefined; }
+function cmdProvasFrescas(id, ttl){ if(typeof loadReqProofs!=='function' || typeof reqProofCache==='undefined' || !id) return Promise.resolve(false);
+  if(reqProofCache[id]!==undefined && Date.now()-(CMDPROVA[id]||0)<(ttl||20000)) return Promise.resolve(false);
+  CMDPROVA[id]=Date.now(); return Promise.race([loadReqProofs(id), new Promise(r=>setTimeout(r, 2500))]).then(()=>true).catch(()=>false); }
+/** Entrega ao EXECUTOR o que a pessoa escreveu: responde a pergunta aberta (se for uma só) ou vai como mensagem no terminal dele. */
+async function cmdEntregar(id, texto){
+  const t=cmdTask(id); if(!t) return { ok:false, nota:'essa tarefa não está nesta máquina' };
+  texto=String(texto||'').replace(/\s+/g,' ').trim(); if(!texto) return { ok:false, nota:'faltou o texto' };
+  const g=cmdAsk(t), rows=(g&&g.rows)||[];
+  if(rows.length>1){ CMD.sel=id; return { ok:false, nota:'ela tem '+rows.length+' perguntas abertas: escolha as respostas no painel ao lado' }; }
+  const antes=(await cmdHistFetch(id)).length;
+  if(rows.length===1){ await invoke('resolve_pending', { id:rows[0].id, answer:texto }); state.pending=(state.pending||[]).filter(q=>q.id!==rows[0].id); try{ lastSig=''; }catch(_){ } refresh().catch(()=>{}); return { ok:true, via:'resposta', antes }; }
+  const ok=(await tiSend(id, texto))!==false; return ok?{ ok:true, via:'mensagem', antes }:{ ok:false, nota:'não consegui escrever no terminal dela' };
+}
+// as tarefas de que a conversa está falando agora: a aberta ao lado e as dos últimos avisos e conversas
+function cmdEmConversa(){ const ids=new Set(); if(CMD.sel) ids.add(CMD.sel); cmdMsgs().slice(-7).forEach(m=>{ if(m.k==='pergunta' && m.id) ids.add(m.id); if(m.k==='aviso') (m.ids||[]).forEach(x=>ids.add(x)); }); return [...ids]; }
+/** REPASSAR: o chat principal fala com o agente da tarefa pela pessoa. executor = entrega a resposta/instrução e acompanha ao vivo;
+ *  porta-voz = pergunta (só leitura), continuando a mesma conversa. */
+async function cmdRepassar(id, quem, texto){
+  const t=cmdTask(id), ms=cmdMsgs(), code=t?(cmdCode(t)||'tarefa'):'';
+  if(!t){ ms.push({ r:'bot', k:'txt', text:'Essa tarefa não está nesta máquina.' }); return cmdPaint(true); }
+  CMD.sel=id; CMD.view='';
+  if(quem==='portavoz'){ const th=typeof cmdThreadDe==='function'?cmdThreadDe(id):null, segue=th && th.modo==='conferir' && th.state!=='wait';
+    if(segue){ const i=ms.indexOf(th); if(i>=0){ ms.splice(i,1); ms.push(th); } } // a conversa continua embaixo, onde a pessoa está
+    cmdLog({ via:'repasse', pedido:texto, plano:[{ a:'perguntar_agente', t:[code] }] });
+    return cmdConferir(id, texto, segue?{ thread:th }:undefined); }
+  let r; try{ r=await cmdEntregar(id, texto); }catch(e){ r={ ok:false, nota:String((e&&e.message)||e).slice(0,160) }; }
+  cmdLog({ via:'repasse', pedido:texto, plano:[{ a:'entregar', t:[code] }], res:r.ok?(r.via||'ok'):'falhou' });
+  if(!r.ok){ ms.push({ r:'bot', k:'txt', text:`Não entreguei ao executor da ${code}: ${r.nota}.` }); return cmdPaint(true); }
+  const h=CMD.hist[id]; if(h) h.at=0; cmdHistLoad(id);
+  if(typeof cmdAcompanhar==='function') cmdAcompanhar(id, String(texto).replace(/\s+/g,' ').trim(), r.antes); // a conversa com o executor segue no chat, ao vivo
+  else ms.push({ r:'bot', k:'txt', text:`Entreguei ao executor da ${code}.` });
+  cmdPaint(true);
+}
+function cmdFalarCom(id, quem, pre){ CMD.alvo=id?{ id, quem:quem==='portavoz'?'portavoz':'executor' }:null; if(id){ CMD.sel=id; CMD.view=''; cmdHistLoad(id); } cmdPaint(); const q=$id('cmdQ'); if(q){ if(pre && !q.value.trim()){ q.value=pre; cmdGrow(); } q.focus(); try{ q.setSelectionRange(q.value.length, q.value.length); }catch(_){ } } }
+const CMD_PH='Pergunte ou mande fazer · / para comandos · @ para citar uma tarefa';
+function cmdAlvoPaint(){ const el=$id('cmdAlvo'), q=$id('cmdQ'); if(!el||!q) return; let a=CMD.alvo; const t=a?cmdTask(a.id):null; if(a && !t){ CMD.alvo=a=null; }
+  const code=t?(cmdCode(t)||mdTitle(t.title||'').slice(0,30)):'', pv=a&&a.quem==='portavoz';
+  const html=!a?'':`<span>${pv?'Perguntando ao <b>porta-voz</b>':'Respondendo ao <b>executor</b>'} da <b>${esc(code)}</b><small>${pv?'ele só lê e responde; o trabalho não para':'o que você escrever vai direto pro agente que trabalha nela'}</small></span><button type="button" class="lnk" data-cmdfalar="">voltar pro Comando</button>`;
+  if(el.dataset.h!==html){ el.dataset.h=html; el.innerHTML=html; el.hidden=!a; q.placeholder=!a?CMD_PH:pv?'Pergunte ao porta-voz da '+code:'Escreva pro executor da '+code; } }
 function cmdFacts(t){
   const out=[], rq=cmdReqs(t), h=CMD.hist[t.id], it=(h&&h.items)||[], st=TERM&&TERM[t.id];
-  if(rq.length) out.push(`${rq.filter(r=>r.ok).length} de ${nPl(rq.length,'requisito','requisitos')} com prova`); else out.push('sem requisitos cadastrados');
+  if(rq.length && !cmdProvasLidas(t.id)){ out.push(nPl(rq.length,'requisito','requisitos')+' — provas ainda não lidas'); cmdProvasFrescas(t.id).then(()=>{ CMD.logHtml=''; if(cmdAtiva()) cmdPaint(); }); }
+  else if(rq.length) out.push(`${rq.filter(r=>r.ok).length} de ${nPl(rq.length,'requisito','requisitos')} com prova`); else out.push('sem requisitos cadastrados');
   try{ if(typeof apVm==='function' && ['review','delivered','pr-open','falta-prova','para-aprovar','mudanca-pedida'].includes(taskSt(t))){ const v=apVm(t); const ruins=(v.chips||[]).filter(c=>c.st!=='ok').map(c=>c.tx); if(ruins.length) out.push('portões pendentes: '+ruins.join(', ')); else if((v.chips||[]).length) out.push('todos os portões ok'); if(v.rev) out.push('revisor: '+(v.rev.verdict==='aprova'?'aprovou':'pediu mudança')); } }catch(_){ }
   out.push(t.prUrl?'PR aberto':'sem PR');
   const pl=cmdPlan(it); if(pl.length) out.push(`plano: ${pl.filter(x=>x.st==='ok').length} de ${pl.length} passos feitos`+(pl.find(x=>x.st==='now')?` (em “${pl.find(x=>x.st==='now').tx}”)`:''));
@@ -406,7 +462,7 @@ function cmdPerguntaHtml(m){ const t=cmdTask(m.id), el=cmdDur((m.t1||Date.now())
   const quem=conf?'porta-voz':'executor', vivo=m.state==='wait'?{ de:quem, acts:m.acts, t0:m.t0, dica:conf?'':ins?'recebeu a instrução no terminal da tarefa':'a pergunta chegou no terminal da tarefa; ele responde sem alterar arquivos' }:null;
   // a conversa inteira (Comando ↔ agente), turno a turno; sem o módulo da conversa, cai na pergunta + resposta
   const conversa=typeof cmdTurnosHtml==='function'?cmdTurnosHtml(m, { vivo }):`<div class="cmdqa-q">${esc(m.q||'')}</div>${m.text?`<div class="cmdqa-a cmdmd">${mdToHtml(m.text)}</div>`:''}`;
-  const pe=m.state==='wait'?'':m.state==='ok'?`<div class="cmdiss-a"><button type="button" class="btn sm" data-cmdsug="${id}">O que você sugere?</button>${conf?direto:`<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`}<button type="button" class="btn sm quiet" data-cmdsel="${id}">Continuar a conversa ao lado</button></div>`
+  const pe=m.state==='wait'?'':m.state==='ok'?`<div class="cmdiss-a"><button type="button" class="btn sm" data-cmdsug="${id}">O que você sugere?</button>${conf?direto:`<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`}<button type="button" class="btn sm quiet" data-cmdfalar="${id}" data-quem="${conf?'portavoz':'executor'}">${conf?'Continuar a conversa aqui':'Responder ao executor aqui'}</button></div>`
     :`<div class="cmdqa-w">${conf?'':ins?'Ele segue com a instrução; a tarefa ao lado mostra o andamento.':'Se ele estava trabalhando, a pergunta entrou na fila dele.'}</div><div class="cmdiss-a">${conf?direto:`<button type="button" class="btn sm" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`}<button type="button" class="btn sm quiet" data-cmdopen="${id}">Abrir a tarefa</button></div>`;
   return `<div class="cmdqa ${m.state}"><div class="cmdqa-h"><span class="cmdqa-who">${IC.stAsk||''}<b>${conf?'Conversa com o porta-voz':'Conversa com o executor'}</b>${t?' · '+esc(cmdCode(t)||mdTitle(t.title||'').slice(0,30)):''}</span>${st}</div>${conversa}${pe}</div>`; }
 
@@ -537,16 +593,19 @@ function cmdAvisoResumo(t, tipo){
   const h=CMD.hist[t.id], it=(h&&h.items)||null, out=[], acts=[], id=escA(t.id);
   if(tipo==='ask'){ const g=cmdAsk(t), p=g&&g.rows&&g.rows[0]; const q=cmdAskTitle(t);
     if(q) out.push('Ela pergunta: “'+q+'”'+(p&&p.options&&p.options.length?' Opções: '+p.options.slice(0,4).join(' · ')+'.':''));
-    acts.push(`<button type="button" class="btn sm primary" data-cmdsel="${id}">Responder ao lado</button>`); }
+    acts.push(`<button type="button" class="btn sm primary" data-cmdfalar="${id}" data-quem="executor">Responder aqui</button>`, `<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`); }
   else if(tipo==='bad'){ const er=it?cmdLastErr(it):null;
     if(er) out.push(`Parou em ${er.name} ${cmdUma(er.arg)}${er.out?': '+er.out:''}.`);
     acts.push(`<button type="button" class="btn sm primary" data-cmdsug="${id}">O que você sugere?</button>`, `<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`); }
   else { const rq=cmdReqs(t), ok=rq.filter(r=>r.ok).length;
-    out.push(rq.length?`${ok} de ${nPl(rq.length,'requisito','requisitos')} com prova${ok<rq.length?' — faltam '+(rq.length-ok):''}.`:'Sem requisitos cadastrados.'); out.push(t.prUrl?'PR aberto.':'Ainda sem PR.');
+    if(rq.length && !cmdProvasLidas(t.id)){ out.push('lendo as provas…'); cmdProvasFrescas(t.id).then(()=>{ CMD.logHtml=''; if(cmdAtiva()) cmdPaint(); }); }
+    else out.push(rq.length?`${ok} de ${nPl(rq.length,'requisito','requisitos')} com prova${ok<rq.length?' — faltam '+(rq.length-ok):''}.`:'Sem requisitos cadastrados.'); out.push(t.prUrl?'PR aberto.':'Ainda sem PR.');
     acts.push(`<button type="button" class="btn sm primary" data-cmddo="provas" data-id="${id}">Ver as provas</button>`, `<button type="button" class="btn sm quiet" data-cmdsug="${id}">O que você sugere?</button>`); }
-  const say=it?cmdLastSay(it):''; if(say) out.push('O agente disse: “'+cmdFrase1(say)+'”');
+  const say=it?cmdLastSay(it):''; let bloco='';
+  if(say && tipo==='ask') bloco=`<span class="cmdeye">O que o executor disse</span><div class="cmdquote cmdmd">${mdToHtml(say.length>1400?say.slice(0,1400)+'…':say)}</div>`; // a pergunta costuma estar no fim da fala: mostra inteira
+  else if(say) out.push('O agente disse: “'+cmdFrase1(say)+'”');
   if(!it) out.push('lendo o que a IA fez…');
-  return `<div class="cmdresumo"><div class="cmdresumo-h"><b>${esc(cmdCode(t)||mdTitle(t.title||'').slice(0,40))}</b><span style="color:${stColor(taskSt(t))}">${CMD_TIPO[tipo]}</span></div>${out.map(x=>`<p>${esc(x)}</p>`).join('')}<div class="cmdiss-a">${acts.join('')}<button type="button" class="btn sm quiet" data-cmdsel="${id}">Ver a tarefa</button></div></div>`;
+  return `<div class="cmdresumo"><div class="cmdresumo-h"><b>${esc(cmdCode(t)||mdTitle(t.title||'').slice(0,40))}</b><span style="color:${stColor(taskSt(t))}">${CMD_TIPO[tipo]}</span></div>${out.map(x=>`<p>${esc(x)}</p>`).join('')}${bloco}<div class="cmdiss-a">${acts.join('')}<button type="button" class="btn sm quiet" data-cmdsel="${id}">Ver a tarefa</button></div></div>`;
 }
 // SUGESTÃO sob demanda: a IA lê a tarefa em foco e propõe UMA coisa; se for instrução pro agente, vem pronta pra mandar
 async function cmdSuggest(id){
@@ -588,7 +647,7 @@ function cmdResultadoHtml(m){ const ok=m.itens.filter(x=>x.ok).length;
 function cmdBotHtml(m){
   const L=cmdTasks();
   if(m.k==='status') return `<p>${cmdResumo(cmdCounts(L))}</p>${cmdRows(L)}${L.length?'<p class="cmdhint">Clique numa tarefa pra ver ela inteira ao lado.</p>':''}`;
-  if(m.k==='espera'){ const l=L.filter(cmdIsAsk); return l.length?`<p>${nPl(l.length,'tarefa parada esperando','tarefas paradas esperando')} você. Clique pra responder ao lado, sem abrir a tarefa.</p>${cmdRows(l)}`:'<p>Nada esperando por você agora.</p>'; }
+  if(m.k==='espera'){ const l=L.filter(cmdIsAsk); return l.length?`<p>${nPl(l.length,'tarefa parada esperando','tarefas paradas esperando')} você. Pra responder, escreva aqui no chat: eu entrego pro agente dela.</p>${cmdRows(l)}`:'<p>Nada esperando por você agora.</p>'; }
   if(m.k==='erro'){ const l=L.filter(cmdIsBad); return l.length?`<p>${nPl(l.length,'tarefa parou','tarefas pararam')} com erro. Clique pra ver o que aconteceu.</p>${cmdRows(l)}`:'<p>Nenhuma tarefa parada com erro.</p>'; }
   if(m.k==='tarefa'||m.k==='porque'){ const t=cmdTask(m.id); if(!t) return '<p>Essa tarefa não está mais aberta.</p>';
     const h=CMD.hist[t.id], it=(h&&h.items)||[], st=taskSt(t), say=cmdLastSay(it), er=cmdLastErr(it), q=cmdAskTitle(t);
@@ -663,12 +722,12 @@ function cmdTaskHtml(t){
     ${typeof cmdConvSec==='function'?cmdConvSec(t):''}
     ${ask?cmdSec('Precisa de você', `<div class="cmdask" data-tlinline="${escA(t.id)}"></div>`):''}
     ${cmdSec('Pedido', (obj?`<div class="cmdobj">${mdToHtml(obj.length>900?obj.slice(0,900)+'…':obj)}</div>`:'<p class="cmdmuted">Esta tarefa não tem descrição além do título.</p>')
-      +(reqs.length?`<div class="cmdcks">${reqs.map(r=>ck(r.status==='done', false, r.text||r.title, r.status==='done'?'':'sem prova ainda')).join('')}</div>`:''))}
+      +(reqs.length?`<div class="cmdcks">${cmdReqs(t).map(r=>ck(r.ok, false, r.tx, r.ok?'':cmdProvasLidas(t.id)?'sem prova ainda':'')).join('')}</div>`:''))}
     ${cmdSec('Plano da IA', !h?carregando:pl.length?`<div class="cmdcks">${pl.map(p=>ck(p.st==='ok', p.st==='now', p.tx, p.st==='now'?'agora':'')).join('')}</div>`:'<p class="cmdmuted">A IA não declarou um plano nesta sessão.</p>', pl.length?`<span>${pl.filter(p=>p.st==='ok').length} de ${pl.length}</span>`:'')}
     ${cmdSec('Decisões', !h?carregando:dec.length?dec.map(d=>`<div class="cmddec${d.a?'':' open'}"><span>${esc(d.q)}</span><small>${d.a?'você respondeu: '+esc(d.a):'esperando sua resposta'}</small></div>`).join(''):'<p class="cmdmuted">A IA não perguntou nada até aqui.</p>')}
     ${cmdSec('Caminho', !h?carregando:path.length?`<div class="cmdtl">${path.map(p=>`<div class="k-${p.k}${p.err?' err':''}"><time>${cmdHora(p.ts)}</time><em>${esc(p.v)}</em><span>${esc(p.tx)}</span></div>`).join('')}</div>`:'<p class="cmdmuted">Nada registrado nesta sessão ainda.</p>', it.length>path.length?'<span>últimos passos</span>':'')}
     ${cmdSec('Arquivos mexidos', !h?carregando:fs.length?`<div class="cmdfiles">${fs.slice(0,14).map(f=>`<span class="f">${esc(f.f)}</span><span class="a">+${f.add}</span><span class="d">−${f.del}</span>`).join('')}</div>`:'<p class="cmdmuted">Nenhum arquivo mudou ainda.</p>', fs.length?`<span>${fs.length}</span><button type="button" class="lnk" data-cmddo="arquivos" data-id="${escA(t.id)}">ver o diff</button>`:'')}
-    <form class="cmdinst" data-cmdinst="${escA(t.id)}"><input class="in" id="cmdInst" placeholder="Diga à IA o que mudar nesta tarefa" autocomplete="off" aria-label="instrução para esta tarefa"><button class="btn primary sm">enviar</button></form>`;
+    <div class="cmdinst"><button type="button" class="btn primary sm" data-cmdfalar="${escA(t.id)}" data-quem="executor">Falar com o executor</button><button type="button" class="btn sm" data-cmdfalar="${escA(t.id)}" data-quem="portavoz">Perguntar ao porta-voz</button><span class="cmdhint">você escreve no chat; o Comando entrega</span></div>`;
 }
 function cmdSideHtml(){ const t=CMD.sel?cmdTask(CMD.sel):null; if(CMD.sel && !t) CMD.sel='';
   const x=typeof cmdSideExtra==='function'?cmdSideExtra(t):''; // diff de um arquivo, provas ou radar (89-comando-poderes)
@@ -742,7 +801,7 @@ function cmdMount(){
   pg.innerHTML=`<div class="cmdpg"><section class="cmdchat" aria-label="Comando">
       <div class="cmdlog" id="cmdLog" aria-live="polite"></div>
       <div class="cmdcomp"><div class="cmdchips">${CMD_CHIPS.map(c=>`<button type="button" class="cmdchip" data-cmdchip="${escA(c)}">${esc(c)}</button>`).join('')}</div>
-        <div class="cmdac" id="cmdAc" role="listbox" aria-label="sugestões" hidden></div><form class="cmdbar" id="cmdForm"><textarea class="in" id="cmdQ" rows="1" placeholder="Pergunte ou mande fazer · / para comandos · @ para citar uma tarefa" autocomplete="off" spellcheck="false" aria-label="comando"></textarea><select class="in cmdvoz" id="cmdVoz" hidden aria-label="voz que lê as respostas" title="Voz que lê as respostas — as que você baixa em Ajustes do Sistema › Acessibilidade › Conteúdo Falado aparecem aqui"></select><button type="button" class="btn sm cmdmic" id="cmdMic" aria-pressed="false"></button><button type="button" class="btn sm" id="cmdStop" style="display:none">${IC.stop||''} parar</button><button class="btn primary sm" id="cmdSend">enviar</button></form></div>
+        <div class="cmdac" id="cmdAc" role="listbox" aria-label="sugestões" hidden></div><div class="cmdalvo" id="cmdAlvo" hidden></div><form class="cmdbar" id="cmdForm"><textarea class="in" id="cmdQ" rows="1" placeholder="${CMD_PH}" autocomplete="off" spellcheck="false" aria-label="comando"></textarea><select class="in cmdvoz" id="cmdVoz" hidden aria-label="voz que lê as respostas" title="Voz que lê as respostas — as que você baixa em Ajustes do Sistema › Acessibilidade › Conteúdo Falado aparecem aqui"></select><button type="button" class="btn sm cmdmic" id="cmdMic" aria-pressed="false"></button><button type="button" class="btn sm" id="cmdStop" style="display:none">${IC.stop||''} parar</button><button class="btn primary sm" id="cmdSend">enviar</button></form></div>
     </section><aside class="cmdside" id="cmdSide" aria-label="painel dos agentes"></aside></div>`;
   // a caixa cresce com a mensagem (até ~8 linhas, depois rola): Enter envia, Shift+Enter quebra linha
   const cmdEnvia=()=>{ const q=$id('cmdQ'); const v=q.value; q.value=''; cmdGrow(); cmdSay(v); };
@@ -774,7 +833,8 @@ function cmdAcPaint(){ const box=$id('cmdAc'), q=$id('cmdQ'); if(!box||!q) retur
 function cmdAcPick(i){ const q=$id('cmdQ'), x=CMDAC.itens[i], tok=CMDAC.tok; if(!q||!x||!tok) return; const pos=q.selectionStart, v=q.value; q.value=v.slice(0, tok.ini)+x.ins+v.slice(pos); const c=tok.ini+x.ins.length; q.focus(); try{ q.setSelectionRange(c,c); }catch(_){ } cmdGrow(); cmdAcPaint(); }
 function cmdGrow(){ const q=$id('cmdQ'); if(!q) return; q.style.height='auto'; const h=Math.min(q.scrollHeight+2, 200); q.style.height=h+'px'; q.style.overflowY=q.scrollHeight>200?'auto':'hidden'; }
 function cmdClick(e){
-  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo],[data-cmdstart],[data-cmdform],[data-cmdlk],[data-cmdcopy],[data-cmdepic],[data-cmdepopen],[data-cmddo],[data-cmdepact],[data-cmdsug],[data-cmdmandar],[data-cmdcross],[data-cmdia],[data-cmdprop],[data-cmdplano],[data-cmdx]'); if(!b) return;
+  const b=e.target.closest('[data-cmdsel],[data-cmdchip],[data-cmdopen],[data-cmdstop],[data-cmdgo],[data-cmdstart],[data-cmdform],[data-cmdlk],[data-cmdcopy],[data-cmdepic],[data-cmdepopen],[data-cmddo],[data-cmdepact],[data-cmdsug],[data-cmdmandar],[data-cmdcross],[data-cmdia],[data-cmdprop],[data-cmdplano],[data-cmdx],[data-cmdfalar]'); if(!b) return;
+  if(b.dataset.cmdfalar!==undefined) return cmdFalarCom(b.dataset.cmdfalar, b.dataset.quem, b.dataset.pre);
   if(b.dataset.cmdx) return cmdPoder(b); // diff, provas, aprovar, radar (89-comando-poderes)
   if(b.dataset.cmdplano){ const m=cmdMsgs()[+b.dataset.cmdplano]; if(!m||m.done) return; cmdLog({ via:'decisao', pedido:m.plan.pedido||'', plano:cmdPlanoCurto(m.plan), res:b.dataset.ok?'sim':'nao' }); if(!b.dataset.ok){ m.done='nao'; return cmdPaint(true); } m.done='run'; cmdPaint(true); return cmdRunPlan(m.plan).then(()=>{ m.done='sim'; cmdPaint(true); }); }
   if(b.dataset.cmdprop){ const m=cmdMsgs()[+b.dataset.cmdprop]; if(!m||m.done) return; m.done=b.dataset.ok?'sim':'nao'; cmdPaint(true); if(m.done==='sim') cmdDo(m.it); return; }
@@ -808,6 +868,7 @@ function cmdResolve(text){ const all=cmdTasks().concat(cmdAllTasks().filter(task
   return cmdIntent(text, all.map(t=>({ id:t.id, code:cmdCode(t), title:mdTitle(t.title||'') })), cmdEpics(), CMD.sel||''); }
 /** Executa UMA ação (vinda da frase da pessoa, de um botão ou da linha "ACAO:" da IA). true = tratou. */
 async function cmdDo(it){
+  if(it && it.id && ['tarefa','porque','feito','provas'].includes(it.k)) await cmdProvasFrescas(it.id, 5000); // os números da tarefa, lidos agora
   const ms=cmdMsgs(), L=cmdTasks(), say=(text)=>{ if(it.quiet){ it.out=text; return true; } ms.push({ r:'bot', k:'txt', text }); cmdPaint(true); return true; };
   if(it.id && it.k!=='arquivos') CMD.view=''; // agir numa tarefa volta o painel pra ela (sai do diff, das provas e do radar)
   switch(it.k){
@@ -864,7 +925,10 @@ function cmdRefs(){ let n=0; const home=cmdRepo(); return cmdTasks().map(t=>{ co
 function cmdFatosCurtos(t){ if(t._cross || !cmdTask(t.id)) return ''; const out=[]; try{ if(typeof reqProofCache!=='undefined' && reqProofCache[t.id]!==undefined){ const rq=cmdReqs(t); if(rq.length) out.push(`${rq.filter(r=>r.ok).length} de ${rq.length} requisitos com prova`); } else if(typeof apEnsure==='function') apEnsure(t); }catch(_){ } out.push(t.prUrl?'PR aberto':'sem PR'); return out.join(', '); }
 function cmdConversa(tudo){ return cmdMsgs().slice(-9, tudo?undefined:-1).map(m=>m.r==='you'?'Pessoa: '+cmdUma(m.text):m.r==='sys'?'':(m.k==='md'||m.k==='txt')?'Comando: '+cmdUma(m.text)
   :m.k==='plano'?'Comando propôs: '+(m.plan.passos||[]).map(p=>p.acao+(p.tarefas.length?' '+p.tarefas.join(', '):'')).join(' → ')+(m.done==='sim'?' (feito)':m.done==='nao'?' (a pessoa disse que não era isso)':'')
-  :m.k==='pergunta'&&m.text?'Agente da tarefa respondeu: '+cmdUma(m.text):m.k==='aviso'?'':'[Comando mostrou: '+m.k+(m.id&&cmdTaskAny(m.id)?' de '+(cmdCode(cmdTaskAny(m.id))||''):'')+']').filter(Boolean); }
+  :m.k==='pergunta'&&!m.text?'Comando '+(m.modo==='conferir'?'perguntou ao porta-voz':'entregou ao executor')+' da '+((cmdTaskAny(m.id)&&cmdCode(cmdTaskAny(m.id)))||'tarefa')+': «'+cmdUma(m.q)+'» (ainda sem resposta)'
+  :m.k==='pergunta'&&m.text?(m.modo==='conferir'?'Porta-voz':'Executor')+' da '+((cmdTaskAny(m.id)&&cmdCode(cmdTaskAny(m.id)))||'tarefa')+' disse: '+String(m.text).replace(/\s+/g,' ').trim().slice(0,600)
+  :m.k==='aviso'?(m.ids||[]).map((id,i)=>{ const t=cmdTask(id); if(!t) return ''; const h=CMD.hist[id], say=h&&h.items?cmdLastSay(h.items):'', q=(m.tipos||[])[i]==='ask'?cmdAskTitle(t):'';
+      return 'Comando avisou: '+(cmdCode(t)||mdTitle(t.title||''))+' — '+(CMD_TIPO[(m.tipos||[])[i]]||'')+(q?'. Pergunta dela: «'+cmdUma(q)+'»':'')+(say?'. O executor disse: «'+String(say).replace(/\s+/g,' ').trim().slice(0,600)+'»':''); }).filter(Boolean).join('\n'):'[Comando mostrou: '+m.k+(m.id&&cmdTaskAny(m.id)?' de '+(cmdCode(cmdTaskAny(m.id))||''):'')+']').filter(Boolean); }
 async function cmdProjeto(repo){ if(!repo || repo===cmdRepo()) return true; if(!window.switchProject) return false; try{ await window.switchProject(repo); }catch(_){ return false; } return cmdRepo()===repo; }
 function cmdPlanoHtml(m){ const P=m.plan, i=cmdMsgs().indexOf(m);
   const linha=(p, n)=>{ const ts=(p.alvos||[]).map(x=>`<b>${esc(x.code||x.ref)}</b> ${esc(x.title.length>46?x.title.slice(0,45)+'…':x.title)}${x.proj?` <span class="cmdhint">(${esc(x.proj)})</span>`:''}`);
@@ -905,8 +969,7 @@ async function cmdRunPlan(P){
         if(res && ['aprovar','pedir_alteracao','responder'].includes(p.acao)){ let ok=false, nota='';
           try{ if(p.acao==='aprovar'){ ok=!!(await aprovarTarefa(x.id)); if(!ok) nota='não está pronta pra aprovar (veja o aviso do app)'; }
             else if(p.acao==='pedir_alteracao'){ if(!p.texto) nota='faltou dizer o que mudar'; else { ok=!!(await pedirAlteracao(x.id, String(p.texto).replace(/\s+/g,' ').trim())); if(!ok) nota='o pedido não foi enviado'; } }
-            else { const g=cmdAsk(cmdTask(x.id)), rows=(g&&g.rows)||[]; if(!rows.length) nota='não tem pergunta aberta'; else if(rows.length>1){ nota='tem '+rows.length+' perguntas: responda ao lado'; CMD.sel=x.id; } else if(!p.texto) nota='faltou a resposta';
-              else { await invoke('resolve_pending', { id:rows[0].id, answer:String(p.texto) }); state.pending=(state.pending||[]).filter(q=>q.id!==rows[0].id); try{ lastSig=''; }catch(_){ } refresh().catch(()=>{}); ok=true; } }
+            else { const r=await cmdEntregar(x.id, p.texto); ok=r.ok; nota=r.nota||''; }
           }catch(e){ nota=String((e&&e.message)||e).slice(0,120); }
           res.itens.push({ code:x.code||x.ref, title:tit, ok, nota }); cmdPaint(true); continue; }
         if(p.acao==='abrir_pr'){ if(typeof prPrepOpen==='function'){ prPrepOpen(x.id, lsGet('prBase:'+x.id)||'main'); say(`Abri a preparação do PR da ${x.code||x.ref}.`); } else say('Abrir PR não está disponível nesta versão.'); continue; }
@@ -933,7 +996,7 @@ async function cmdPlanejar(text, o){
   const ms=cmdMsgs(); CMD.busy=true; CMD.stopping=false; cmdPaint(true);
   let P=null, raw='';
   try{
-    { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft && typeof reqProofCache!=='undefined' && reqProofCache[ft.id]===undefined && typeof loadReqProofs==='function') try{ await Promise.race([loadReqProofs(ft.id), new Promise(r=>setTimeout(r, 2500))]); }catch(_){ } } // os fatos da tarefa em foco, de verdade
+    { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft) await cmdProvasFrescas(ft.id, 8000); } // os fatos da tarefa em foco, de verdade
     const refs=cmdRefs(); let foco=''; { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft){ if(!cmdHistReady(ft.id)) await cmdHistFetch(ft.id); try{ foco=cmdTaskContext(ft); }catch(_){ } } }
     const t0=Date.now(); CMD.planMs=0;
     raw=await invoke('comando_plan',{ system:CMD_PLAN_SYS, prompt:cmdPlanPrompt({ proj:pathBase(cmdRepo()), refs, epics:cmdEpics().map(e=>{ const c=cmdEpicStat(e.id); return { name:e.name, done:c.done, total:c.total }; }), foco, conversa:cmdConversa(!!(o&&o.interno)), pedido:(o&&o.interno)||text }) });
@@ -952,6 +1015,7 @@ async function cmdPlanejar(text, o){
   P.passos=uteis;
   if(!P.passos.length){ if(!P.fala && !P.duvida && !semAlvo.length) ms.push({ r:'bot', k:'txt', text:'Não entendi o que fazer. Pode dizer de outro jeito?' }); return cmdPaint(true); }
   cmdLog({ via:(o&&o.interno)?'leitura':'ia', pedido:text||'(interno)', ms:CMD.planMs, plano:cmdPlanoCurto(P), fala:!!P.fala, duvida:!!P.duvida, confirma:P.passos.some(p=>CMD_MUTA.has(p.acao)) });
+  { const rp=(o&&o.interno)?null:cmdRepasse(P, text, cmdEmConversa()); if(rp) return cmdRepassar(rp.alvos[0].id, 'executor', rp.texto); } // a pessoa respondeu ao agente: entrega, sem "confirma?"
   if(P.passos.some(p=>CMD_MUTA.has(p.acao))){ ms.push({ r:'bot', k:'plano', plan:P }); return cmdPaint(true); } // mexe em algo: mostra o plano e espera o sim
   await cmdRunPlan(P);
 }
@@ -974,6 +1038,7 @@ async function cmdSay(text, modo){ const soIA=modo===true, chip=modo==='chip';
   text=String(text||'').trim(); if(!text) return; if(CMD.busy){ toast('espere a resposta — ou pare','warn'); return; }
   cmdMsgs().push({ r:'you', text }); cmdPaint(true);
   if(soIA) return cmdCodigo(text);
+  if(CMD.alvo && !/^\s*\//.test(text)){ const a=CMD.alvo; if(a.quem!=='portavoz') CMD.alvo=null; return cmdRepassar(a.id, a.quem, text); } // a pessoa escolheu com quem falar: vai direto
   // COMANDO DIRETO ("/encerrar @FND-1 @FND-2"): sem IA, na hora; só o que não tem volta fácil pede o "sim"
   if(/^\s*\//.test(text)){ const refs=cmdRefs(), P=cmdSlash(text, refs), ms=cmdMsgs();
     if(!P){ ms.push({ r:'bot', k:'txt', text:'Não conheço esse comando. Digite / pra ver a lista.' }); return cmdPaint(true); }
@@ -1002,6 +1067,7 @@ function cmdPaint(down){
     CMD.sideHtml=b; side.innerHTML=b; side.scrollTop=sc;
     keep.forEach(x=>{ const n=$id(x.k); if(!n) return; n.value=x.v; if(x.f){ try{ n.focus({ preventScroll:true }); n.setSelectionRange(x.a, x.a); }catch(_){ } } });
     try{ if(typeof apRestore==='function') apRestore(side); }catch(_){ } }
+  cmdAlvoPaint();
   const st=$id('cmdStop'), sd=$id('cmdSend'); if(st) st.style.display=(CMD.busy||(CMD.asking&&CMD.pv))?'':'none'; if(sd) sd.disabled=CMD.busy;
   // a pergunta aberta da tarefa selecionada: a MESMA folha do terminal, encaixada no painel
   const slot=side.querySelector('[data-tlinline]'); if(slot && typeof tlAskPaint==='function'){ const t=cmdTask(slot.dataset.tlinline); if(t) try{ tlAskPaint(t); }catch(e){ console.warn('comando ask', e); } }

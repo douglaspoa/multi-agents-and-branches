@@ -252,3 +252,9 @@ button.cmdrad-r:hover{background:var(--surface-2)}
 .cmdver-h span:nth-child(2){flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
 /* o painel é uma coluna flex que rola: estas caixas não encolhem pra caber */
 .cmdside>.cmdrad,.cmdside>.cmddiff,.cmdside>.cmdarqs,.cmdside>.cmdproof,.cmdside .cmdver{flex:none}
+
+/* com quem a pessoa está falando: uma caixa só, o destino aparece em cima dela */
+.cmdalvo{max-width:680px;width:100%;margin:0 auto;display:flex;gap:10px;align-items:baseline;justify-content:space-between;flex-wrap:wrap;padding:7px 12px;border:1px solid var(--accent);border-radius:var(--r);background:var(--accent-soft);font-size:var(--fs-sm)}
+.cmdalvo span{min-width:0}
+.cmdalvo small{color:var(--muted);margin-left:8px}
+.cmdinst{align-items:center;flex-wrap:wrap}
