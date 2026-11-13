@@ -74,6 +74,29 @@ function cmdConvSec(t){
   const n=(m.turns||[]).filter(x=>x.w==='cmd').length;
   return cmdSec(m.state==='wait'?'Conversa ao vivo':'Conversa com o '+(conf?'porta-voz':'executor'), cmdTurnosHtml(m, { vivo })+form, n?`<span>${nPl(n,'pergunta','perguntas')}</span>`:'');
 }
+/** INSTRUÇÃO ao executor: a conversa abre no chat e acompanha o terminal dele — o que está fazendo agora e cada fala,
+ *  até o turno acabar ou ele perguntar algo. Não trava o Comando (dá pra seguir conversando) e não gasta IA. */
+async function cmdAcompanhar(id, texto, antes){
+  const t=cmdTask(id); if(!t) return;
+  const ms=cmdMsgs(), m={ r:'bot', k:'pergunta', modo:'instruir', id, q:texto, state:'wait', t0:Date.now(), t1:0, text:'', agora:'', fim:'', acts:[], turns:[{ w:'cmd', tx:texto, ts:Date.now() }] };
+  CMD.view=''; ms.push(m); cmdPaint(true);
+  let visto=-1, parado=0, nSay=0, perguntou=false; const falas=[];
+  while(Date.now()-m.t0<1500000 && cmdMsgs().includes(m)){
+    await new Promise(r=>setTimeout(r, 3000));
+    const it=await cmdHistFetch(id), novo=it.slice(antes||0).filter(x=>x && x.k!=='you'), says=novo.filter(x=>x.k==='say' && cmdFalaUtil(x.text));
+    for(const s of says.slice(nSay)){ m.turns.push({ w:'ag', de:'executor', tx:String(s.text), ts:s.ts||Date.now() }); falas.push(String(s.text)); } nSay=says.length;
+    const ult=cmdPath(novo.filter(x=>x.k!=='say'), 1)[0], agora=ult?ult.v+' '+ult.tx:''; if(agora && m.acts[m.acts.length-1]!==agora){ m.acts.push(agora); if(m.acts.length>4) m.acts.shift(); }
+    const cur=cmdTask(id); if(!cur) break;
+    if(it.length===visto) parado++; else { parado=0; visto=it.length; }
+    if(cmdIsAsk(cur) && novo.length){ perguntou=true; m.turns.push({ w:'ag', de:'executor', tx:'Preciso de uma resposta sua pra continuar: **'+(cmdAskTitle(cur)||'tem uma pergunta aberta')+'**', ts:Date.now() }); break; }
+    if(!cmdIsRun(cur) && parado>=2 && (novo.length || Date.now()-m.t0>45000)) break;
+    m.t1=Date.now(); if(cmdAtiva()) cmdPaint();
+  }
+  const cur=cmdTask(id), roda=!!(cur && cmdIsRun(cur)); m.t1=Date.now(); m.text=falas.join('\n\n');
+  m.state=(falas.length||perguntou)?'ok':'timeout';
+  m.fim=perguntou?'parou pra perguntar · '+cmdDur(m.t1-m.t0):roda?'segue trabalhando · '+cmdDur(m.t1-m.t0):falas.length?'terminou em '+cmdDur(m.t1-m.t0):'sem fala em '+cmdDur(m.t1-m.t0);
+  if(cmdMsgs().includes(m)){ cmdPaint(true); if(m.text && CMDV.on) cmdSpeak(cmdFrase1(falas[falas.length-1])); }
+}
 /** O porta-voz de UMA tarefa responde UMA pergunta (só leitura). `alvo` recebe o andamento (agora/acts). → { text, erro, parado } */
 async function cmdPvCore(id, texto, alvo, extra){
   const t=cmdTask(id); if(!t) return { text:'', erro:'essa tarefa não está nesta máquina' };

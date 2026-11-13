@@ -80,3 +80,13 @@ test('arquivos e diff: os mesmos comandos e o mesmo renderer da Revisão; aprova
   assert.ok(HTML.indexOf('js/89-comando.js') < HTML.indexOf('js/89-comando-poderes.js') && HTML.indexOf('js/89-comando-poderes.js') < HTML.indexOf('js/99-e2e.js'));
   assert.ok(/\[data-cmdx\]/.test(JS) && /cmdPoder\(b\)/.test(JS) && /cmdSideExtra\(t\)/.test(JS));
 });
+
+test('caso real 12/11 (6): "faça as provas no 1228" virou instrução e NADA apareceu — instruir também abre a conversa com o executor', () => {
+  const ins = JS.slice(JS.indexOf("case 'instruir':"), JS.indexOf("case 'parar':"));
+  assert.ok(/cmdAcompanhar\(it\.id, it\.text, antes\)/.test(ins) && /const antes=\(await cmdHistFetch\(it\.id\)\)\.length/.test(ins), 'depois de enviar, o cartão da conversa abre e acompanha o terminal a partir daquele ponto');
+  assert.ok(/cmdAcompanhar\(it\.id, 'Continue de onde parou\.', antes\)/.test(JS) && /cmdAcompanhar\(id, \(f\.dataset\.pre\|\|''\)\+v, antes\)/.test(JS), 'continuar e a instrução dada ao lado também');
+  const ac = PJ.slice(PJ.indexOf('async function cmdAcompanhar'), PJ.indexOf('/** O porta-voz de UMA tarefa'));
+  assert.ok(/modo:'instruir'/.test(ac) && /w:'ag', de:'executor'/.test(ac) && /cmdFalaUtil\(x\.text\)/.test(ac), 'cada fala útil do executor vira um turno');
+  assert.ok(!/CMD\.asking=/.test(ac) && !/invoke\('comando_|project_chat/.test(ac), 'acompanhar não trava o Comando nem gasta IA: só lê o histórico do terminal');
+  assert.ok(/cmdIsAsk\(cur\)/.test(ac) && /parou pra perguntar/.test(ac) && /segue trabalhando/.test(ac) && /terminou em/.test(ac), 'o fim diz o que aconteceu');
+});
