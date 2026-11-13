@@ -263,11 +263,23 @@ function cmdRepasse(P, pedido, emFoco){
   if(tx.length<2 || !ped.includes(tx)) return null;
   return p;
 }
+/** A conversa guardada volta ao reabrir o app. O que estava no meio (agente respondendo, plano esperando o sim) não continua
+ *  sozinho: vira "interrompido", pra ninguém confirmar hoje um plano de ontem. */
+function cmdRestaura(arr, max){
+  if(!Array.isArray(arr)) return [];
+  return arr.filter(m=>m && typeof m==='object' && (m.r==='you'||m.r==='bot'||m.r==='sys')).slice(-(max||120)).map(m=>{
+    if(m.k==='pergunta' && m.state==='wait'){ m.state='timeout'; m.fim='interrompida ao fechar o app'; m.t1=m.t1||m.t0; (m.turns||(m.turns=[])).push({ w:'x', de:m.modo==='conferir'?'porta-voz':'executor', tx:'o app fechou antes da resposta', ts:m.t1 }); }
+    if((m.k==='plano'||m.k==='proposta') && (!m.done || m.done==='run')) m.done='nao';
+    return m; });
+}
 // @comando-puro-fim
 
 const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', asking:'', sugerindo:'', alvo:null, spoken:0, unread:0, outrosAt:0, logHtml:'', sideHtml:'', mounted:false };
 function cmdRepo(){ return (typeof state!=='undefined'&&state.repo)||''; }
-function cmdMsgs(){ return CMD.all||(CMD.all=[]); } // UMA conversa, mesmo quando um passo troca de projeto
+function cmdMsgs(){ if(!CMD.all){ let v=[]; try{ v=cmdRestaura(JSON.parse(lsGet('cmdchat')||'[]')); }catch(_){ v=[]; } CMD.all=v; CMD.spoken=v.length; } return CMD.all; }
+// guarda a conversa (as últimas 120 mensagens) pra ela não sumir quando o app reinicia
+let cmdSaveT=0;
+function cmdSalvar(){ clearTimeout(cmdSaveT); cmdSaveT=setTimeout(()=>{ try{ let ms=cmdMsgs().slice(-120), tx=JSON.stringify(ms); while(tx.length>600000 && ms.length>10){ ms=ms.slice(Math.ceil(ms.length/4)); tx=JSON.stringify(ms); } lsSet('cmdchat', tx); }catch(e){ console.warn('comando: não guardei a conversa', e); } }, 400); } // UMA conversa, mesmo quando um passo troca de projeto
 function cmdTasks(){ let l=[]; try{ l=flowLiveTasks(); }catch(_){ l=((typeof state!=='undefined'&&state.tasks)||[]).filter(t=>!taskEncerrada(t)); }
   return l.slice().sort((a,b)=>{ const oa=CMD_ORDEM[taskSt(a)]??5, ob=CMD_ORDEM[taskSt(b)]??5; return oa-ob || (b.updatedAt||0)-(a.updatedAt||0); }); }
 function cmdCode(t){ return t.issueCode||(typeof issueCodeOf==='function'&&issueCodeOf(t))||''; }
@@ -1062,7 +1074,7 @@ function cmdPaint(down){
   const log=$id('cmdLog'), side=$id('cmdSide'); if(!log||!side) return;
   let a='', b='';
   try{ a=cmdLogHtml(); b=cmdSideHtml(); }catch(e){ console.error('comando', e); b=emptyHtml({ icon:'alert', title:'Não consegui montar esta tela', help:String(e&&e.message||e) }); }
-  if(CMD.logHtml!==a){ const fim=down || log.scrollHeight-log.scrollTop-log.clientHeight<60; CMD.logHtml=a; log.innerHTML=a; if(fim) log.scrollTop=log.scrollHeight; cmdSpeakNew(log); }
+  if(CMD.logHtml!==a){ const fim=down || log.scrollHeight-log.scrollTop-log.clientHeight<60; CMD.logHtml=a; log.innerHTML=a; cmdSalvar(); if(fim) log.scrollTop=log.scrollHeight; cmdSpeakNew(log); }
   if(CMD.sideHtml!==b){ const keep=['cmdInst','cmdConv'].map(k=>{ const i=$id(k); return i?{ k, v:i.value, f:document.activeElement===i, a:i.selectionStart }:null; }).filter(Boolean), sc=side.scrollTop;
     CMD.sideHtml=b; side.innerHTML=b; side.scrollTop=sc;
     keep.forEach(x=>{ const n=$id(x.k); if(!n) return; n.value=x.v; if(x.f){ try{ n.focus({ preventScroll:true }); n.setSelectionRange(x.a, x.a); }catch(_){ } } });

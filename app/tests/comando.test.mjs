@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, cmdSlash, cmdToken, cmdRepasse, CMD_PERIGO, CMD_SEM_TAREFA, CMD_PLAN_SYS, CMD_SLASH, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, cmdSlash, cmdToken, cmdRepasse, cmdRestaura, CMD_PERIGO, CMD_SEM_TAREFA, CMD_PLAN_SYS, CMD_SLASH, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -270,4 +270,14 @@ test('uma caixa só: o painel ao lado não tem caixa de texto própria', () => {
   assert.ok(!/id="cmdInst"|id="cmdConv"/.test(JS + read('js/89-comando-poderes.js')), 'sem input ao lado');
   assert.ok(/data-cmdfalar/.test(JS) && /id="cmdAlvo"/.test(JS));
   assert.ok(!/Responder ao lado|conversa ao lado/.test(JS), 'nada manda responder ao lado');
+});
+
+test('a conversa volta ao reabrir o app; o que estava no meio vira interrompido', () => {
+  const v = C.cmdRestaura([{ r:'you', text:'oi' }, null, { r:'x' }, { r:'bot', k:'pergunta', modo:'conferir', state:'wait', t0:5, turns:[] }, { r:'bot', k:'plano', plan:{ passos:[] } }, { r:'bot', k:'plano', plan:{ passos:[] }, done:'sim' }, { r:'bot', k:'md', text:'ok' }]);
+  assert.equal(v.length, 5);
+  assert.equal(v[1].state, 'timeout'); assert.equal(v[1].turns[0].w, 'x');
+  assert.equal(v[2].done, 'nao', 'plano de antes não fica esperando o sim'); assert.equal(v[3].done, 'sim');
+  assert.deepEqual(C.cmdRestaura('lixo'), []);
+  assert.equal(C.cmdRestaura(Array.from({ length:300 }, () => ({ r:'you', text:'x' }))).length, 120);
+  assert.ok(/lsGet\('cmdchat'\)/.test(JS) && /lsSet\('cmdchat'/.test(JS));
 });
