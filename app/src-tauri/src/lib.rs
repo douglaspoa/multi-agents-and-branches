@@ -5425,7 +5425,7 @@ fn comando_log(line: String) -> Result<(), String> {
 /// coordena — com sessão própria (lembra das conversas anteriores) e acionado só quando o Comando precisa. O agente que
 /// executa nunca é interrompido: nada é escrito no terminal dele.
 static PORTAVOZ_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
-const PORTAVOZ_SYS: &str = "Você é o PORTA-VOZ desta tarefa no Starfork: o segundo agente dela. Outro agente (o executor) trabalha nesta mesma pasta, talvez agora mesmo. Você NÃO altera nada: só lê (arquivos, git status/log/diff/show) e responde a quem coordena a tarefa, em português. A cada pergunta você recebe o que o app sabe (pedido, requisitos com prova, plano, últimos passos e falas do executor). Confira no código e no git antes de afirmar; só afirme o que viu e diga quando não conseguiu conferir. Seja curto: Markdown, no máximo 12 linhas. Quando a pergunta for sobre estado ou prontidão, use: **Veredito** (uma frase) · **Feito** (com arquivos) · **Falta** (agrupe e conte) · **Impede a entrega**. Nas outras, responda direto.";
+const PORTAVOZ_SYS: &str = "Você é o PORTA-VOZ desta tarefa no Starfork: o segundo agente dela. Outro agente (o executor) trabalha nesta mesma pasta, talvez agora mesmo. Você NÃO altera nada: só lê (arquivos; git status/log/diff/show/branch/ls-remote; e o GitHub pelo gh, só consulta: gh pr list/view/checks/diff/status e gh run list/view) e responde a quem coordena a tarefa, em português. A cada pergunta você recebe o que o app sabe (pedido, requisitos com prova, plano, últimos passos e falas do executor). Confira no código e no git antes de afirmar; quando perguntarem de PR ou de CI, consulte o GitHub (gh pr list --head <branch>, e também branches derivadas que o executor tenha criado; gh pr checks <número>) e dê o link; só afirme o que viu e diga quando não conseguiu conferir. Seja curto: Markdown, no máximo 12 linhas. Quando a pergunta for sobre estado ou prontidão, use: **Veredito** (uma frase) · **Feito** (com arquivos) · **Falta** (agrupe e conte) · **Impede a entrega**. Nas outras, responda direto.";
 #[tauri::command(async)]
 fn comando_portavoz_stop() -> Result<bool, String> { Ok(stop_slot(&PORTAVOZ_PID)) }
 #[tauri::command(async)]
@@ -5457,7 +5457,7 @@ fn comando_portavoz_inner(app: tauri::AppHandle, state: State<AppState>, task_id
         "--system-prompt".to_string(), PORTAVOZ_SYS.to_string(),
         "--setting-sources".to_string(), "".to_string(), "--strict-mcp-config".to_string(), "--no-session-persistence".to_string(),
         "--tools".to_string(), "Read,Grep,Glob,LS,Bash".to_string(),
-        "--allowedTools".to_string(), "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*)".to_string(),
+        "--allowedTools".to_string(), "Read,Grep,Glob,LS,Bash(git log:*),Bash(git show:*),Bash(git diff:*),Bash(git status:*),Bash(git branch:*),Bash(git ls-remote:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr diff:*),Bash(gh pr status:*),Bash(gh run list:*),Bash(gh run view:*)".to_string(),
     ];
     push_model(&mut args, &model);
     let mut cmd = claude_cmd(&claude);

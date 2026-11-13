@@ -258,3 +258,23 @@ button.cmdrad-r:hover{background:var(--surface-2)}
 .cmdalvo span{min-width:0}
 .cmdalvo small{color:var(--muted);margin-left:8px}
 .cmdinst{align-items:center;flex-wrap:wrap}
+
+/* uma tela só (13/11): a pergunta do agente mora no chat; o painel ao lado é leitura */
+.cmdalvo[hidden]{display:none}
+.cmdchips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.cmdchips::-webkit-scrollbar{display:none}
+.cmdchips .cmdchip{flex:none;white-space:nowrap}
+.cmdbar .in{white-space:pre-wrap}
+.cmdbar .in::placeholder{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cmdresumo .cmdask{margin-top:4px;min-width:0}
+.cmdduo-b{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.cmdbub,.cmdbub>*{min-width:0;max-width:100%}
+.cmdbub pre,.cmdbub code{overflow-wrap:anywhere;white-space:pre-wrap}
+.cmdbub img{max-width:100%;height:auto}
+.cmdresumo .cmdask .tlother,.cmdresumo .cmdask .tlmin{display:none}
+/* o chat é o principal: fica com a maior parte; o painel é apoio */
+.cmdpg{grid-template-columns:minmax(0,1.55fr) minmax(300px,1fr)}
+@media (min-width:1500px){ .cmdpg{grid-template-columns:minmax(0,1.7fr) minmax(360px,520px)} }
+.cmdside{padding:18px 18px 22px;gap:14px}
+.cmdresumo .cmdask .tlsheet:not(:has(.tlopts)) .tlsf{display:none}
+@media (max-width:980px){ .cmdpg{grid-template-columns:minmax(0,1fr)} }

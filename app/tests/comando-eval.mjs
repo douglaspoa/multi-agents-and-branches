@@ -8,7 +8,7 @@ const JS = readFileSync(new URL('../src/js/89-comando.js', import.meta.url), 'ut
 const i = JS.indexOf('// @comando-puro-inicio'), j = JS.indexOf('// @comando-puro-fim', i);
 const C = new Function(JS.slice(i, j) + '\nreturn { cmdPlanPrompt, cmdPlanParse, cmdRefTask, CMD_PLAN_SYS, CMD_MUTA };')();
 const REFS = [
-  { id:'a', ref:'LW-1168', code:'LW-1168', title:'Tracer: escala de risco, formato e premissas', st:'aguardando você', proj:'relay', criada:'ontem 09:10', mexida:'há 2 h', q:'O login expirou; posso rodar o login neste terminal?', fatos:'sem PR' },
+  { id:'a', ref:'LW-1168', code:'LW-1168', title:'Tracer: escala de risco, formato e premissas', st:'aguardando você', proj:'relay', criada:'ontem 09:10', mexida:'há 2 h', q:'O login expirou; posso rodar o login neste terminal?', ops:['Pode rodar o login', 'Não, eu mesmo faço o login'], fatos:'sem PR' },
   { id:'b', ref:'LW-1195', code:'LW-1195', title:'Auditoria de segurança do painel', st:'pronta pra revisar', criada:'ontem 14:00', mexida:'há 5 h', fatos:'3 de 3 requisitos com prova, PR aberto' },
   { id:'c', ref:'LW-1173', code:'LW-1173', title:'Lentidão no Fast após troca de roteador', st:'pronta pra revisar', proj:'relay', criada:'10/11', mexida:'há 1 d', fatos:'sem PR' },
   { id:'d', ref:'LW-1174', code:'LW-1174', title:'Lentidão no Fast após troca de roteador (parte 2)', st:'pronta pra revisar', proj:'relay', criada:'10/11', mexida:'há 1 d', fatos:'sem PR' },
@@ -31,10 +31,17 @@ const CASOS = [
   { nome:'código → ler_codigo', pedido:'onde no código fica a validação do limite de itens por plano?', quer:[['ler_codigo', []]], semMuta:true },
   { nome:'pergunta sobre a tarefa ao lado (caso real: foi pra outra tarefa)', foco:{ id:'e', ctx:FOCO_1228 }, conversa:['Pessoa: me mostra as provas da 1228', 'Comando: [Comando mostrou: provas de LW-1228]'], pedido:'O que falta para começar as provas?', quer:[], naoPode:['LW-1208', 'LW-1195', 'LW-1168'], fala:/prova|requisito|teste|PR/i },
   { nome:'vago → propõe com os fatos', foco:{ id:'e', ctx:FOCO_1228 }, pedido:'resolve isso pra mim, quero ela entregue', tem:[['instruir|continuar', 'LW-1228']], quer:[] },
+  // 12–13/11: perguntou e levou uma proposta de instrução; respondeu no chat e nada foi entregue ao agente
+  { nome:'pergunta de estado não vira instrução', pedido:'como esta a task 1228?', tem:[['tarefa', 'LW-1228']], quer:[], semMuta:true },
+  { nome:'PR aberto pelo agente conta', foco:{ id:'e', ctx:'LW-1228 "Catálogo Pro" — selo: rodando\nfatos: 23 de 26 requisitos com prova; PR aberto pelo agente: https://github.com/acme/loja/pull/77; a IA está trabalhando agora' }, pedido:'abriu o pr de homol?', quer:[], semMuta:true, fala:/77|aberto|sim/i },
+  { nome:'pedido de ação continua virando instrução', foco:{ id:'e', ctx:FOCO_1228 }, pedido:'preciso do pr de homol', tem:[['instruir', 'LW-1228']], quer:[] },
+  { nome:'resposta curta à pergunta aberta', foco:{ id:'a' }, conversa:['Comando avisou: LW-1168 — tem uma pergunta pra você. Pergunta dela: «O login expirou; posso rodar o login neste terminal?»'], pedido:'pode sim', tem:[['responder', 'LW-1168']], quer:[], texto:/pode/i },
+  { nome:'escolhe a opção pelo número', foco:{ id:'a' }, conversa:['Comando avisou: LW-1168 — tem uma pergunta pra você. Pergunta dela: «O login expirou; posso rodar o login neste terminal?»'], pedido:'a segunda', tem:[['responder', 'LW-1168']], quer:[], texto:/^Não, eu mesmo faço o login$/ },
+  { nome:'responde ao que o executor disse (sem pergunta formal)', foco:{ id:'f' }, conversa:['Comando avisou: LW-1208 — parou. O executor disse: «Montei o replay. Uso dados reais do cliente ou fictícios?»'], pedido:'ficticios, sempre', tem:[['instruir|responder', 'LW-1208']], quer:[], texto:/^fict[ií]cios, sempre\.?$/i },
 ];
 const args = (sys) => ['--strict-mcp-config', '--tools', '', '--system-prompt', sys, '--setting-sources', '', '--no-session-persistence', '--model', process.env.CMD_MODEL || 'claude-sonnet-5', '--output-format', 'json'];
 let ok = 0, tempo = 0, custo = 0; const falhas = [];
-for (const c of CASOS) {
+for (const c of CASOS.filter(x => !process.env.CMD_SO || process.env.CMD_SO.split('|').some(k => x.nome.includes(k)))) {
   const refs = REFS.map(r => ({ ...r, foco: !!(c.foco && c.foco.id === r.id) }));
   const prompt = C.cmdPlanPrompt({ proj:'loja-web', refs, epics:[], foco:(c.foco && c.foco.ctx) || '', conversa:c.conversa || [], pedido:c.pedido });
   const t0 = Date.now();
