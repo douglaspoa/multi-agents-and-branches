@@ -160,7 +160,7 @@ test('caso real 12/11 (2): conversa não é comando; "para" não é parar; o que
   for (const it of [{ k:'status' }, { k:'tarefa' }, { k:'provas' }, { k:'feito' }, { k:'link' }, { k:'issue', go:false }, { k:'ambiente', on:false }]) assert.equal(C.cmdPrecisaOk(it), false, it.k);
   assert.ok(/if\(chip\)\{ const it=cmdResolve\(text\)/.test(JS) && !/if\(cmdDireto\(text\)\)\{ const it=cmdResolve/.test(JS) && /return cmdPlanejar\(text\)/.test(JS), 'texto digitado nunca é adivinhado por palavra: só o botão de sugestão responde na hora');
   const s = C.cmdSnapshot([{ code:'LW-97', title:'Prévia', st:'rodando', criada:'hoje 10:12', mexida:'há 5 min', foco:true }], 'loja', []);
-  assert.match(s, /criada hoje 10:12 · mexida há 5 min/); assert.match(s, /\[ABERTA AO LADO\]/); assert.match(s, /pergunte qual em vez de escolher/);
+  assert.match(s, /criada hoje 10:12 · mexida há 5 min/); assert.match(s, /\[EM FOCO\]/); assert.match(s, /pergunte qual em vez de escolher/);
 });
 
 test('caso real 12/11 (3): vários encerramentos e uma listagem numa frase só viram UM plano', () => {
@@ -185,7 +185,7 @@ test('caso real 12/11 (3): vários encerramentos e uma listagem numa frase só v
   assert.ok(!C.CMD_MUTA.has('perguntar_agente'), 'conferir é leitura: não pede confirmação');
   for (const a of ['status', 'abertas', 'tarefa', 'feito', 'provas', 'link', 'epicos', 'ler_codigo']) assert.ok(!C.CMD_MUTA.has(a) && C.CMD_ACOES[a], a);
   const pr = C.cmdPlanPrompt({ proj:'loja', refs:[{ ref:'FND-1168', code:'FND-1168', title:'Tracer', st:'pronta pra revisar', proj:'relay', criada:'ontem 10:00', foco:true }], epics:[], foco:'', conversa:['Pessoa: oi'], pedido:frase });
-  assert.match(pr, /- FND-1168 "Tracer" — pronta pra revisar · projeto relay · criada ontem 10:00 · \[ABERTA AO LADO\]/);
+  assert.match(pr, /- FND-1168 "Tracer" — pronta pra revisar · projeto relay · criada ontem 10:00 · \[EM FOCO\]/);
   assert.match(pr, /PEDIDO DA PESSOA: Encerre a FND 1168/); assert.match(pr, /VÁRIAS tarefas no mesmo passo/); assert.match(pr, /NÃO escolha/); assert.match(pr, /CONVERSA ATÉ AQUI:\nPessoa: oi/);
   assert.ok(/invoke\('comando_plan'/.test(JS) && /k:'plano', plan:P/.test(JS) && /motivo:''/.test(JS), 'plano que mexe em algo vira cartão de confirmação; encerrar em lote não abre uma folha por tarefa');
   assert.ok(/await cmdProjeto\(x\.repo\)/.test(JS) && /if\(cmdRepo\(\)!==home\) await cmdProjeto\(home\)/.test(JS), 'tarefa de outro projeto: troca, age e volta');

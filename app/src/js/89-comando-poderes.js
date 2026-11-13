@@ -182,7 +182,7 @@ function cmdDifBody(id, path, max){
 }
 function cmdDiffSideHtml(t){
   const a=cmdArq(t.id), fs=(a&&a.files)||[], i=Math.max(0, fs.findIndex(f=>f.path===CMD.dpath)), f=fs[i], id=escA(t.id);
-  const volta=`<button type="button" class="cmdback" data-cmdx="view" data-v="">${semIc('arrowR','rev')}a tarefa</button>`;
+  const volta=`<button type="button" class="cmdback" data-cmdx="view" data-v="">${semIc('arrowR','rev')}fechar</button>`;
   if(!f) return `${volta}<p class="cmdmuted">${a&&a.loading?'lendo os arquivos…':'Nenhum arquivo alterado.'}</p>`;
   return `${volta}<div class="cmdside-h"><span class="cmdeye">Arquivo ${i+1} de ${fs.length} · ${esc(cmdCode(t)||mdTitle(t.title||'').slice(0,30))}</span><h2 class="cmdpath">${esc(f.path)}</h2>
       <div class="cmdacts"><span class="cmdpill mono"><span class="cmdadd">+${f.add}</span>&nbsp;<span class="cmddel">−${f.del}</span></span>${t.branch?`<span class="cmdpill mono" title="branch">${esc(t.branch)}</span>`:''}<button type="button" class="btn sm" data-cmdx="arqnav" data-d="-1"${i<=0?' disabled':''}>Arquivo anterior</button><button type="button" class="btn sm" data-cmdx="arqnav" data-d="1"${i>=fs.length-1?' disabled':''}>Próximo arquivo</button></div></div>
@@ -223,7 +223,7 @@ function cmdProntasHtml(m){
   return `<p>${abertas.length?`<b>${nPl(abertas.length,'tarefa espera','tarefas esperam')}</b> a sua aprovação. As provas ficam ao lado; aprovar tem alguns segundos pra desfazer.`:'Tudo o que estava pronto já foi decidido.'}</p><div class="cmdapvs">${todos.slice(0,6).map(cmdApvCard).join('')}</div>${todos.length>6?`<p class="cmdhint">e mais ${todos.length-6} em Para aprovar</p>`:''}<div class="cmdiss-a"><button type="button" class="btn sm quiet" data-cmdgo="aprovar">Abrir Para aprovar</button></div>`;
 }
 function cmdProvasSideHtml(t){
-  return `<button type="button" class="cmdback" data-cmdx="view" data-v="">${semIc('arrowR','rev')}a tarefa</button><span class="cmdeye">Provas · ${esc(cmdCode(t)||mdTitle(t.title||'').slice(0,30))}</span><div class="cmdproof cmdproof-side">${typeof proofPanel==='function'?proofPanel(t.id, 'compact'):'<p class="cmdmuted">O painel de provas não está disponível.</p>'}</div>`;
+  return `<button type="button" class="cmdback" data-cmdx="view" data-v="">${semIc('arrowR','rev')}fechar</button><span class="cmdeye">Provas · ${esc(cmdCode(t)||mdTitle(t.title||'').slice(0,30))}</span><div class="cmdproof cmdproof-side">${typeof proofPanel==='function'?proofPanel(t.id, 'compact'):'<p class="cmdmuted">O painel de provas não está disponível.</p>'}</div>`;
 }
 
 // ============================================================ RADAR DE CONFLITO
@@ -257,7 +257,7 @@ function cmdRadarHtml(){
   return `<p><b>${nPl(R.conf.length,'arquivo está sendo mexido','arquivos estão sendo mexidos')}</b> por mais de uma tarefa${hot?` — ${nPl(hot,'no mesmo trecho','no mesmo trecho')}`:''}. Olhei ${nPl(R.nTar,'tarefa','tarefas')}.</p>${R.conf.slice(0,5).map(card).join('')}${R.conf.length>5?`<p class="cmdhint">e mais ${R.conf.length-5} — a lista inteira está ao lado</p>`:''}`;
 }
 function cmdRadarSideHtml(){
-  const R=CMD.radar, proj=pathBase(cmdRepo()), volta=`<button type="button" class="cmdback" data-cmdsel="">${semIc('arrowR','rev')}todos os agentes</button>`;
+  const R=CMD.radar, proj=pathBase(cmdRepo()), volta=`<button type="button" class="cmdback" data-cmdx="view" data-v="">${semIc('arrowR','rev')}fechar</button>`;
   const cab=`<div class="cmdside-h"><span class="cmdeye">Radar${proj?' · '+esc(proj):''}</span><h2>Quem está mexendo em quê</h2>`;
   if(!R || R.loading) return `${volta}${cab}</div><p class="cmdmuted">lendo o que cada tarefa alterou…</p>`;
   const n=(v,l,cor)=>`<span class="cmdn"><b${cor&&v?` style="color:${cor}"`:''}>${v}</b>${l}</span>`, hot=R.conf.filter(r=>R.tr[r.path]==='mesmo').length;
