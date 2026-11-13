@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, cmdSlash, cmdToken, CMD_PERIGO, CMD_SEM_TAREFA, CMD_PLAN_SYS, CMD_SLASH, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, cmdSlash, cmdToken, cmdRepasse, CMD_PERIGO, CMD_SEM_TAREFA, CMD_PLAN_SYS, CMD_SLASH, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -252,4 +252,22 @@ test('comando direto "/" e "@": sem IA, na hora; perigo ainda pede o sim', () =>
   assert.ok(/--strict-mcp-config/.test(pl) && /"--tools", ""/.test(pl) && /--system-prompt/.test(pl) && /--no-session-persistence/.test(pl) && /claude-sonnet-5/.test(pl), 'plano no modo enxuto: sem ferramentas, sem MCP, modelo médio');
   assert.ok(/fn comando_log\(/.test(RS) && /comando\.jsonl/.test(RS) && /invokeQuiet\('comando_log'/.test(JS) && /via:'decisao'/.test(JS), 'diário: pedido, plano e a decisão da pessoa');
   assert.ok(/id="cmdVoz"/.test(JS) && /lsGet\('cmdvoz'\)/.test(JS), 'voz: escolhe entre as instaladas no sistema');
+});
+
+test('repasse: responder ao agente pelo chat vai direto só com as palavras da pessoa e pra tarefa da conversa', () => {
+  const alvo = { id:'a', code:'LW-47', title:'Avisos de estoque baixo' };
+  const P = (acao, texto, extra) => ({ passos:[{ acao:'tarefa', alvos:[alvo] }, Object.assign({ acao, texto, alvos:[alvo], faltam:[] }, extra||{})] });
+  const dito = 'pode resolver os conflitos ficando com a versão da main';
+  assert.ok(C.cmdRepasse(P('responder', dito), dito, ['a']), 'resposta dela, tarefa da conversa');
+  assert.ok(C.cmdRepasse(P('instruir', 'Pode resolver os conflitos ficando com a versão da MAIN.'), 'diz pra ele: ' + dito, ['a']), 'caixa e pontuação não contam');
+  assert.equal(C.cmdRepasse(P('instruir', dito + ' e depois abra o PR e registre as provas'), dito, ['a']), null, 'a IA acrescentou passos: pede o sim');
+  assert.equal(C.cmdRepasse(P('instruir', dito), dito, ['b']), null, 'tarefa fora da conversa: pede o sim');
+  assert.equal(C.cmdRepasse(P('encerrar', dito), dito, ['a']), null, 'só resposta e instrução são repasse');
+  assert.equal(C.cmdRepasse(P('instruir', dito, { alvos:[alvo, { id:'b' }] }), dito, ['a', 'b']), null, 'uma tarefa só');
+  assert.equal(C.cmdRepasse({ passos:[{ acao:'instruir', texto:dito, alvos:[alvo] }, { acao:'encerrar', texto:'', alvos:[alvo] }] }, dito, ['a']), null, 'junto com outra ação que mexe: pede o sim');
+});
+test('uma caixa só: o painel ao lado não tem caixa de texto própria', () => {
+  assert.ok(!/id="cmdInst"|id="cmdConv"/.test(JS + read('js/89-comando-poderes.js')), 'sem input ao lado');
+  assert.ok(/data-cmdfalar/.test(JS) && /id="cmdAlvo"/.test(JS));
+  assert.ok(!/Responder ao lado|conversa ao lado/.test(JS), 'nada manda responder ao lado');
 });

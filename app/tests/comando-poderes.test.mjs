@@ -67,8 +67,8 @@ test('conversa entre agentes: o Comando pergunta a um, leva a resposta ao outro 
 test('a conversa aparece em turnos (no chat e ao lado) e continua no mesmo cartão', () => {
   assert.ok(/turns\|\|\(m\.turns=\[\]\)\)\.push\(\{ w:'cmd'/.test(JS) && /w:'ag', de:'porta-voz'/.test(JS) && /w:'ag', de:'executor'/.test(JS), 'cada pergunta e cada resposta é um turno');
   assert.ok(/\(o&&o\.thread\)\|\|\{ r:'bot', k:'pergunta'/.test(JS) && /if\(!\(o&&o\.thread\)\) ms\.push\(m\)/.test(JS), 'continuar não abre outro cartão');
-  assert.ok(/data-cmdconv/.test(PJ) && /closest\('\[data-cmdconv\]'\)/.test(JS) && /cmdConvSec\(t\)/.test(JS), 'ao lado, a conversa da tarefa com o campo pra continuar');
-  assert.ok(/\['cmdInst','cmdConv'\]/.test(JS), 'o que a pessoa está digitando ao lado não se perde quando o painel repinta');
+  assert.ok(/data-cmdfalar="\$\{escA\(t\.id\)\}" data-quem="portavoz"/.test(PJ) && /cmdConvSec\(t\)/.test(JS), 'ao lado, a conversa da tarefa; continuar leva pro chat (uma caixa só)');
+  assert.ok(/ms\.splice\(i,1\); ms\.push\(th\)/.test(JS), 'a conversa continuada desce pro fim do chat, onde a pessoa está');
   assert.ok(/\.cmdturn\.a\{background:var\(--term-bg\)/.test(CSS) && /\.cmdturn\.c\{background:var\(--surface-2\)/.test(CSS), 'agente em tinta de terminal, Comando na faixa clara');
 });
 

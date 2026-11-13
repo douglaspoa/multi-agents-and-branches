@@ -68,7 +68,7 @@ function cmdTurnosHtml(m, o){
 function cmdThreadDe(id){ const ms=cmdMsgs(); for(let i=ms.length-1;i>=0;i--){ const m=ms[i]; if(m && m.k==='pergunta' && m.id===id) return m; } return null; }
 function cmdConvSec(t){
   const m=cmdThreadDe(t.id), ocup=!!CMD.asking;
-  const form=`<form class="cmdconv" data-cmdconv="${escA(t.id)}"><input class="in" id="cmdConv" placeholder="${m?'Continue a conversa com o porta-voz':'Pergunte ao porta-voz desta tarefa'}" autocomplete="off" aria-label="pergunta ao porta-voz"${ocup?' disabled':''}><button class="btn sm"${ocup?' disabled':''}>perguntar</button></form>`;
+  const form=`<div class="cmdconv"><button type="button" class="btn sm" data-cmdfalar="${escA(t.id)}" data-quem="portavoz"${ocup?' disabled':''}>${m?'Continuar no chat':'Perguntar ao porta-voz no chat'}</button></div>`;
   if(!m) return cmdSec('Conversa com o porta-voz', `<p class="cmdmuted">Ele lê a sessão do executor e o código da branch e responde aqui, sem interromper o trabalho.</p>${form}`);
   const conf=m.modo==='conferir', vivo=m.state==='wait'?{ de:conf?'porta-voz':'executor', acts:m.acts, t0:m.t0, dica:conf?'':'a pergunta chegou no terminal da tarefa' }:null;
   const n=(m.turns||[]).filter(x=>x.w==='cmd').length;
@@ -195,7 +195,7 @@ function cmdDiffSideHtml(t){
       <div class="cmdacts"><span class="cmdpill mono"><span class="cmdadd">+${f.add}</span>&nbsp;<span class="cmddel">−${f.del}</span></span>${t.branch?`<span class="cmdpill mono" title="branch">${esc(t.branch)}</span>`:''}<button type="button" class="btn sm" data-cmdx="arqnav" data-d="-1"${i<=0?' disabled':''}>Arquivo anterior</button><button type="button" class="btn sm" data-cmdx="arqnav" data-d="1"${i>=fs.length-1?' disabled':''}>Próximo arquivo</button></div></div>
     ${fs.length>1?`<div class="cmdarqs side">${fs.map(x=>`<button type="button" class="cmdarq${x.path===f.path?' on':''}" data-cmdx="arq" data-id="${id}" data-path="${escA(x.path)}"><span class="f">${esc(x.path)}</span><span class="cmdadd">+${x.add}</span><span class="cmddel">−${x.del}</span></button>`).join('')}</div>`:''}
     ${cmdDifBody(t.id, f.path)}
-    <form class="cmdinst" data-cmdinst="${id}" data-pre="${escA('No arquivo '+f.path+': ')}"><input class="in" id="cmdInst" placeholder="Diga à IA o que mudar neste arquivo" autocomplete="off" aria-label="instrução sobre este arquivo"><button class="btn primary sm">enviar</button></form>`;
+    <div class="cmdinst"><button type="button" class="btn primary sm" data-cmdfalar="${id}" data-quem="executor" data-pre="${escA('No arquivo '+f.path+': ')}">Pedir mudança neste arquivo</button><span class="cmdhint">você escreve no chat; o Comando entrega ao executor</span></div>`;
 }
 
 // ============================================================ APROVAR (cartões no chat, provas ao lado)
