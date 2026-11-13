@@ -400,14 +400,14 @@ async function cmdAskAgent(id, texto, o){
   if(!(o&&o.semLeitura)) await cmdPlanejar('', { interno:(m.text?`O agente da ${cmdCode(t)||'tarefa'} respondeu à pergunta «${texto}»:\n«${m.text.slice(0,2500)}»\n`:`O agente da ${cmdCode(t)||'tarefa'} NÃO deu resposta útil à pergunta «${texto}».\n`)
     +'Com isso e com os FATOS da tarefa aberta ao lado, diga a conclusão em até 2 frases (com os números) e proponha o próximo passo como plano. Não use perguntar_agente de novo.', semPerguntar:true });
 }
-function cmdPerguntaHtml(m){ const t=cmdTask(m.id), el=cmdDur((m.t1||Date.now())-m.t0), id=escA(m.id), conf=m.modo==='conferir';
-  const st=m.state==='wait'?`<span class="cmdqa-st wait"><span class="pltyping"><i></i><i></i><i></i></span>${conf?'porta-voz lendo':'aguardando'} · ${el}</span>`:m.state==='ok'?`<span class="cmdqa-st ok">respondeu em ${el}</span>`:`<span class="cmdqa-st to">${conf?'sem resposta':'sem resposta em '+el}</span>`;
+function cmdPerguntaHtml(m){ const t=cmdTask(m.id), el=cmdDur((m.t1||Date.now())-m.t0), id=escA(m.id), conf=m.modo==='conferir', ins=m.modo==='instruir';
+  const st=m.state==='wait'?`<span class="cmdqa-st wait"><span class="pltyping"><i></i><i></i><i></i></span>${conf?'porta-voz lendo':ins?'executor trabalhando':'aguardando'} · ${el}</span>`:m.state==='ok'?`<span class="cmdqa-st ok">${m.fim||'respondeu em '+el}</span>`:`<span class="cmdqa-st to">${m.fim||(conf?'sem resposta':'sem resposta em '+el)}</span>`;
   const direto=`<button type="button" class="btn sm quiet" data-cmddo="perguntar-direto" data-id="${id}" title="Escreve a pergunta no terminal do executor. Se ele estiver trabalhando, ela entra na fila dele.">Perguntar direto ao executor</button>`;
-  const quem=conf?'porta-voz':'executor', vivo=m.state==='wait'?{ de:quem, acts:m.acts, t0:m.t0, dica:conf?'':'a pergunta chegou no terminal da tarefa; ele responde sem alterar arquivos' }:null;
+  const quem=conf?'porta-voz':'executor', vivo=m.state==='wait'?{ de:quem, acts:m.acts, t0:m.t0, dica:conf?'':ins?'recebeu a instrução no terminal da tarefa':'a pergunta chegou no terminal da tarefa; ele responde sem alterar arquivos' }:null;
   // a conversa inteira (Comando ↔ agente), turno a turno; sem o módulo da conversa, cai na pergunta + resposta
   const conversa=typeof cmdTurnosHtml==='function'?cmdTurnosHtml(m, { vivo }):`<div class="cmdqa-q">${esc(m.q||'')}</div>${m.text?`<div class="cmdqa-a cmdmd">${mdToHtml(m.text)}</div>`:''}`;
   const pe=m.state==='wait'?'':m.state==='ok'?`<div class="cmdiss-a"><button type="button" class="btn sm" data-cmdsug="${id}">O que você sugere?</button>${conf?direto:`<button type="button" class="btn sm quiet" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`}<button type="button" class="btn sm quiet" data-cmdsel="${id}">Continuar a conversa ao lado</button></div>`
-    :`<div class="cmdqa-w">${conf?'':'Se ele estava trabalhando, a pergunta entrou na fila dele.'}</div><div class="cmdiss-a">${conf?direto:`<button type="button" class="btn sm" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`}<button type="button" class="btn sm quiet" data-cmdopen="${id}">Abrir a tarefa</button></div>`;
+    :`<div class="cmdqa-w">${conf?'':ins?'Ele segue com a instrução; a tarefa ao lado mostra o andamento.':'Se ele estava trabalhando, a pergunta entrou na fila dele.'}</div><div class="cmdiss-a">${conf?direto:`<button type="button" class="btn sm" data-cmddo="perguntar" data-id="${id}">Perguntar ao porta-voz</button>`}<button type="button" class="btn sm quiet" data-cmdopen="${id}">Abrir a tarefa</button></div>`;
   return `<div class="cmdqa ${m.state}"><div class="cmdqa-h"><span class="cmdqa-who">${IC.stAsk||''}<b>${conf?'Conversa com o porta-voz':'Conversa com o executor'}</b>${t?' · '+esc(cmdCode(t)||mdTitle(t.title||'').slice(0,30)):''}</span>${st}</div>${conversa}${pe}</div>`; }
 
 // ---------- ambiente da tarefa (a mesma Prévia: env_up/env_down) e encerrar ----------
@@ -760,7 +760,7 @@ function cmdMount(){
   pg.addEventListener('submit', e=>{
     { const c=e.target.closest&&e.target.closest('[data-cmdconv]'); if(c){ e.preventDefault(); const i=c.querySelector('input'), v=i.value.trim(); if(!v || CMD.asking) return; i.value=''; const th=typeof cmdThreadDe==='function'?cmdThreadDe(c.dataset.cmdconv):null; cmdConferir(c.dataset.cmdconv, v, th&&th.modo==='conferir'&&th.state!=='wait'?{ thread:th }:undefined); return; } } // continuar a conversa com o porta-voz, no mesmo cartão
     const f=e.target.closest&&e.target.closest('[data-cmdinst]'); if(!f) return; e.preventDefault(); const i=f.querySelector('input'), v=i.value.trim(); if(!v) return;
-    const id=f.dataset.cmdinst; i.value=''; Promise.resolve(typeof tiSend==='function'?tiSend(id, (f.dataset.pre||'')+v):false).then(ok=>{ if(ok!==false){ toast('instrução enviada — a IA continua','ok'); const h=CMD.hist[id]; if(h) h.at=0; cmdHistLoad(id); } else i.value=v; }).catch(e2=>{ i.value=v; showErr(e2,'Não consegui enviar a instrução'); }); });
+    const id=f.dataset.cmdinst; i.value=''; Promise.resolve(typeof tiSend==='function'?tiSend(id, (f.dataset.pre||'')+v):false).then(ok=>{ if(ok!==false){ toast('instrução enviada — a IA continua','ok'); const h=CMD.hist[id], antes=((h&&h.items)||[]).length; if(h) h.at=0; cmdHistLoad(id); if(typeof cmdAcompanhar==='function') cmdAcompanhar(id, (f.dataset.pre||'')+v, antes); } else i.value=v; }).catch(e2=>{ i.value=v; showErr(e2,'Não consegui enviar a instrução'); }); });
 }
 // AUTOCOMPLETAR: "/" lista as ações, "@" lista as tarefas. Setas escolhem, Enter/Tab completa, Esc fecha.
 const CMDAC={ on:false, itens:[], sel:0, tok:null };
@@ -826,8 +826,9 @@ async function cmdDo(it){
       CMD.sel=it.id; ms.push({ r:'bot', k:'ambiente', id:it.id }); cmdPaint(true);
       { const tick=setInterval(()=>{ if(cmdAtiva()) cmdPaint(); }, 1500); envUp(it.id).catch(()=>{}).finally(()=>{ clearInterval(tick); cmdPaint(true); }); } return true; }
     case 'continuar': { const t=cmdTask(it.id); if(!t) return say('Essa tarefa não está nesta máquina.'); if(cmdIsRun(t)) return say(`A ${cmdCode(t)||'tarefa'} já está rodando.`);
+      const antes=(await cmdHistFetch(it.id)).length;
       let ok=false; try{ ok=(await tiSend(it.id, 'Continue de onde parou.'))!==false; }catch(e){ showErr(e, 'Não consegui retomar a tarefa'); }
-      if(ok){ CMD.sel=it.id; const h=CMD.hist[it.id]; if(h) h.at=0; cmdHistLoad(it.id); } return say(ok?`Mandei a ${cmdCode(t)||'tarefa'} continuar de onde parou.`:'Não consegui retomar a tarefa.'); }
+      if(ok){ CMD.sel=it.id; const h=CMD.hist[it.id]; if(h) h.at=0; cmdHistLoad(it.id); if(typeof cmdAcompanhar==='function'){ cmdAcompanhar(it.id, 'Continue de onde parou.', antes); it.out='enviada'; return true; } } return say(ok?`Mandei a ${cmdCode(t)||'tarefa'} continuar de onde parou.`:'Não consegui retomar a tarefa.'); }
     case 'arquivos': return cmdArquivos(it.id);
     case 'prontas': return cmdProntas();
     case 'radar': cmdRadarAbrir(); return true;
@@ -838,8 +839,10 @@ async function cmdDo(it){
     case 'tela': say('Abrindo.'); cmdTela(it.tela); return true;
     case 'instruir': { const t=cmdTask(it.id); if(!t) return say('Essa tarefa não está nesta máquina.');
       it.text=String(it.text||'').replace(/\s+/g,' ').trim(); // uma linha só: quebra de linha no terminal envia pela metade
+      const antes=(await cmdHistFetch(it.id)).length;
       let ok=false; try{ ok=(await tiSend(it.id, it.text))!==false; }catch(e){ showErr(e, 'Não consegui enviar a instrução'); }
-      if(ok){ CMD.sel=it.id; const h=CMD.hist[it.id]; if(h) h.at=0; cmdHistLoad(it.id); }
+      if(ok){ CMD.sel=it.id; const h=CMD.hist[it.id]; if(h) h.at=0; cmdHistLoad(it.id);
+        if(typeof cmdAcompanhar==='function'){ cmdAcompanhar(it.id, it.text, antes); it.out='enviada'; return true; } } // a conversa com o executor aparece no chat, ao vivo
       return say(ok?`Mandei pra IA da ${cmdCode(t)||'tarefa'}: “${it.text}”.`:'A instrução não foi enviada.'); }
     case 'parar': { const alvo=it.id?[it.id]:L.filter(cmdIsRun).map(t=>t.id);
       if(!alvo.length || (it.id && !cmdIsRun(cmdTask(it.id)))) return say(it.id?'Essa tarefa não está rodando agora.':'Nenhum agente rodando agora.');
@@ -910,6 +913,7 @@ async function cmdRunPlan(P){
         if(res){ const it={ quiet:true, id:x.id, k:p.acao==='ambiente_desligar'?'ambiente':p.acao, on:false, sem:true, motivo:'', text:p.texto };
           const estava=p.acao==='parar'?cmdIsRun(cmdTask(x.id)):true; await cmdDo(it);
           const ok=p.acao==='encerrar'?!!it.ok:p.acao==='parar'?estava:!/^(N[aã]o|Essa|A instru)/.test(String(it.out||''));
+          if(ok && it.out==='enviada') it.out='';
           res.itens.push({ code:x.code||x.ref, title:tit, ok, nota:ok?'':(p.acao==='parar'&&!estava?'não estava rodando':String(it.out||'').replace(/\.$/,'')) }); cmdPaint(true); continue; }
         if(p.acao==='perguntar_agente') await cmdConferir(x.id, p.texto);
         else if(p.acao==='parar') await cmdDo({ k:'parar', id:x.id, sem:true });
