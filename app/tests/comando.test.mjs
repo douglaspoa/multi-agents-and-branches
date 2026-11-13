@@ -181,7 +181,8 @@ test('caso real 12/11 (3): vários encerramentos e uma listagem numa frase só v
   assert.equal(C.cmdPlanParse('não sei'), null); assert.equal(C.cmdPlanParse('{quebrado'), null);
   assert.deepEqual(C.cmdPlanParse('{"passos":[{"acao":"instruir","tarefas":"FND-1168","texto":" usa UTC "}]}').passos[0], { acao:'instruir', tarefas:['FND-1168'], texto:'usa UTC', alvo:'' });
   // o que mexe em algo espera confirmação; ler não
-  for (const a of ['encerrar', 'parar', 'continuar', 'instruir', 'ambiente_subir', 'comecar_issue', 'epico_acao']) assert.ok(C.CMD_MUTA.has(a), a);
+  for (const a of ['encerrar', 'parar', 'continuar', 'instruir', 'comecar_issue', 'epico_acao']) assert.ok(C.CMD_MUTA.has(a), a);
+  assert.ok(!C.CMD_MUTA.has('ambiente_subir'), 'abrir o preview roda direto e devolve o endereço');
   assert.ok(!C.CMD_MUTA.has('perguntar_agente'), 'conferir é leitura: não pede confirmação');
   for (const a of ['status', 'abertas', 'tarefa', 'feito', 'provas', 'link', 'epicos', 'ler_codigo']) assert.ok(!C.CMD_MUTA.has(a) && C.CMD_ACOES[a], a);
   const pr = C.cmdPlanPrompt({ proj:'loja', refs:[{ ref:'FND-1168', code:'FND-1168', title:'Tracer', st:'pronta pra revisar', proj:'relay', criada:'ontem 10:00', foco:true }], epics:[], foco:'', conversa:['Pessoa: oi'], pedido:frase });

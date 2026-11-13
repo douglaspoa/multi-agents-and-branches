@@ -146,7 +146,7 @@ const CMD_ACOES={
   status:'mostrar como estão todos os agentes', abertas:'mostrar só as tarefas abertas', esperando:'mostrar o que espera a pessoa', erros:'mostrar as que pararam com erro',
   fila_issues:'mostrar as issues do painel que não viraram tarefa', epicos:'listar os épicos', epico:'mostrar um épico (alvo = nome)', epico_acao:'agir no épico (alvo = nome; texto = comecar | liberar | verificar | entregar)',
   tarefa:'mostrar o estado real de tarefas', porque:'dizer por que tarefas pararam', feito:'mostrar o que foi feito em tarefas', provas:'mostrar as provas/prints de tarefas', link:'pegar links (issue, PR, branch) de tarefas', abrir:'abrir a tela de UMA tarefa',
-  parar:'parar tarefas que estão rodando (tarefas = ["todas"] pra todas)', continuar:'mandar tarefas paradas continuarem', encerrar:'encerrar tarefas sem entregar', ambiente_subir:'subir o ambiente/prévia de tarefas', ambiente_desligar:'desligar o ambiente de tarefas',
+  parar:'parar tarefas que estão rodando (tarefas = ["todas"] pra todas)', continuar:'mandar tarefas paradas continuarem', encerrar:'encerrar tarefas sem entregar', ambiente_subir:'subir o ambiente (preview / prévia / site rodando) de uma tarefa e devolver o endereço — use quando pedirem pra abrir, ver ou subir o preview, a prévia, o ambiente ou a URL da tarefa; roda direto, sem confirmação', ambiente_desligar:'desligar o ambiente de tarefas',
   instruir:'mandar uma instrução pro agente de tarefas (texto = a instrução, com as palavras da pessoa)', perguntar_agente:'perguntar ao PORTA-VOZ de tarefas — o segundo agente de cada tarefa, que só lê a sessão e o código da branch e responde sem interromper o agente que trabalha (texto = a pergunta ou o que conferir)',
   comecar_issue:'criar e iniciar a tarefa de uma issue do painel (alvo = código da issue)', tela:'abrir uma tela (alvo = issues | central | entregas | semana | aprovar | meu trabalho | projetos | nova demanda)',
   ler_codigo:'responder uma pergunta que exige LER O CÓDIGO do projeto (texto = a pergunta)',
@@ -154,7 +154,7 @@ const CMD_ACOES={
   radar:'radar de conflito: mostrar quais arquivos estão sendo mexidos por mais de uma tarefa aberta e se é no mesmo trecho',
   aprovar:'aprovar e integrar tarefas que terminaram', pedir_alteracao:'devolver tarefas terminadas pro agente com um pedido de mudança (texto = o que mudar)', abrir_pr:'abrir a preparação do pull request de tarefas',
   responder:'responder a pergunta aberta de uma tarefa (texto = a resposta)', criar_demanda:'criar e iniciar uma tarefa nova a partir de um pedido (texto = o que fazer)', trocar_projeto:'trocar o projeto aberto (alvo = nome do projeto)' };
-const CMD_MUTA=new Set(['parar','continuar','encerrar','ambiente_subir','instruir','comecar_issue','epico_acao','aprovar','pedir_alteracao','responder','criar_demanda']);
+const CMD_MUTA=new Set(['parar','continuar','encerrar','instruir','comecar_issue','epico_acao','aprovar','pedir_alteracao','responder','criar_demanda']);
 // no comando direto ("/"), a pessoa já disse exatamente o quê: só o que não tem volta fácil ainda pede o "sim"
 const CMD_PERIGO=new Set(['encerrar','aprovar','epico_acao']);
 // de quem é cada ação: das tarefas citadas, de um alvo (nome) ou de nada
@@ -908,6 +908,7 @@ async function cmdDo(it){
     case 'ambiente': { const t=cmdTask(it.id); if(!t) return say('Essa tarefa não está nesta máquina.'); if(typeof envUp!=='function') return say('A prévia não está disponível nesta versão.');
       if(it.on===false){ await envDown(it.id); return say(`Desliguei o ambiente da ${cmdCode(t)||'tarefa'}.`); }
       CMD.sel=it.id; ms.push({ r:'bot', k:'ambiente', id:it.id }); cmdPaint(true);
+      { const s0=(typeof envSt==='function')?envSt(it.id):null; if(s0 && s0.view && s0.view.ready && s0.view.url) return true; } // já está no ar: só devolve o endereço
       { const tick=setInterval(()=>{ if(cmdAtiva()) cmdPaint(); }, 1500); envUp(it.id).catch(()=>{}).finally(()=>{ clearInterval(tick); cmdPaint(true); }); } return true; }
     case 'continuar': { const t=cmdTask(it.id); if(!t) return say('Essa tarefa não está nesta máquina.'); if(cmdIsRun(t)) return say(`A ${cmdCode(t)||'tarefa'} já está rodando.`);
       const antes=(await cmdHistFetch(it.id)).length;
