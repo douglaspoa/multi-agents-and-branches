@@ -67,14 +67,14 @@ test('conversa entre agentes: o Comando pergunta a um, leva a resposta ao outro 
 test('a conversa aparece em turnos (no chat e ao lado) e continua no mesmo cartão', () => {
   assert.ok(/turns\|\|\(m\.turns=\[\]\)\)\.push\(\{ w:'cmd'/.test(JS) && /w:'ag', de:'porta-voz'/.test(JS) && /w:'ag', de:'executor'/.test(JS), 'cada pergunta e cada resposta é um turno');
   assert.ok(/\(o&&o\.thread\)\|\|\{ r:'bot', k:'pergunta'/.test(JS) && /if\(!\(o&&o\.thread\)\) ms\.push\(m\)/.test(JS), 'continuar não abre outro cartão');
-  assert.ok(/data-cmdfalar="\$\{escA\(t\.id\)\}" data-quem="portavoz"/.test(PJ) && /cmdConvSec\(t\)/.test(JS), 'ao lado, a conversa da tarefa; continuar leva pro chat (uma caixa só)');
+  assert.ok(/cmdRepassar\(x\.id, 'portavoz', p\.texto\)/.test(JS), 'perguntar de novo ao porta-voz continua a mesma conversa');
   assert.ok(/ms\.splice\(i,1\); ms\.push\(th\)/.test(JS), 'a conversa continuada desce pro fim do chat, onde a pessoa está');
   assert.ok(/\.cmdturn\.a\{background:var\(--term-bg\)/.test(CSS) && /\.cmdturn\.c\{background:var\(--surface-2\)/.test(CSS), 'agente em tinta de terminal, Comando na faixa clara');
 });
 
 test('arquivos e diff: os mesmos comandos e o mesmo renderer da Revisão; aprovar usa o painel de provas do app', () => {
   assert.ok(/invoke\('task_files',\{ taskId:id \}\)/.test(PJ) && /invoke\('file_diff',\{ taskId:id, path \}\)/.test(PJ) && /diffViewHtml\(diffHunks\(d\), \{\}\)/.test(PJ));
-  assert.ok(/data-pre="\$\{escA\('No arquivo '\+f\.path\+': '\)\}"/.test(PJ) && /\(f\.dataset\.pre\|\|''\)\+v/.test(JS), 'a instrução dada no diff já diz de qual arquivo é');
+  assert.ok(/data-cmdpre="\$\{escA\('Peça ao executor: no arquivo '\+f\.path\+', '\)\}"/.test(PJ) && /b\.dataset\.cmdpre!==undefined/.test(JS), 'pedir mudança no diff começa a frase na caixa do chat, já com o arquivo');
   assert.ok(/proofPanel\(t\.id, 'compact'\)/.test(PJ) && /aprovarTarefa\(id\)/.test(PJ) && /apPedirAbrir\(id\)/.test(PJ) && /apFila\(\)/.test(PJ), 'aprovar, pedir alteração e desfazer são os do 80-aprovar');
   assert.ok(/v\.dec && v\.dec\.kind==='ok'/.test(PJ), 'o botão Aprovar do cartão só aparece quando não falta nada; senão, as provas decidem');
   assert.ok(HTML.indexOf('js/89-comando.js') < HTML.indexOf('js/89-comando-poderes.js') && HTML.indexOf('js/89-comando-poderes.js') < HTML.indexOf('js/99-e2e.js'));

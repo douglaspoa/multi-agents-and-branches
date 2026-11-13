@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, cmdSlash, cmdToken, cmdRepasse, cmdRestaura, CMD_PERIGO, CMD_SEM_TAREFA, CMD_PLAN_SYS, CMD_SLASH, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, cmdSlash, cmdToken, cmdRepasse, cmdRestaura, cmdPrAgente, CMD_PERIGO, CMD_SEM_TAREFA, CMD_PLAN_SYS, CMD_SLASH, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -268,7 +268,8 @@ test('repasse: responder ao agente pelo chat vai direto só com as palavras da p
 });
 test('uma caixa só: o painel ao lado não tem caixa de texto própria', () => {
   assert.ok(!/id="cmdInst"|id="cmdConv"/.test(JS + read('js/89-comando-poderes.js')), 'sem input ao lado');
-  assert.ok(/data-cmdfalar/.test(JS) && /id="cmdAlvo"/.test(JS));
+  assert.ok(!/data-cmdfalar|cmdAlvo/.test(JS + read('js/89-comando-poderes.js')), 'sem botão de "responder aqui" nem barra de destino: é um chat');
+  assert.ok(/log\.querySelectorAll\('\[data-tlinline\]'\)/.test(JS) && !/cmdSec\('Precisa de você'/.test(JS), 'a pergunta do agente (com as opções) mora no chat, não no painel');
   assert.ok(!/Responder ao lado|conversa ao lado/.test(JS), 'nada manda responder ao lado');
 });
 
@@ -280,4 +281,17 @@ test('a conversa volta ao reabrir o app; o que estava no meio vira interrompido'
   assert.deepEqual(C.cmdRestaura('lixo'), []);
   assert.equal(C.cmdRestaura(Array.from({ length:300 }, () => ({ r:'you', text:'x' }))).length, 120);
   assert.ok(/lsGet\('cmdchat'\)/.test(JS) && /lsSet\('cmdchat'/.test(JS));
+});
+
+test('responder escolhendo uma opção da pergunta aberta também é repasse', () => {
+  const alvo = { id:'a' }, P = { passos:[{ acao:'responder', texto:'Liguei a VPN', alvos:[alvo], faltam:[] }] };
+  assert.ok(C.cmdRepasse(P, 'a primeira', ['a'], ['Liguei a VPN', 'Eu rodo o SQL']), 'a IA devolveu o texto exato da opção');
+  assert.equal(C.cmdRepasse(P, 'a primeira', ['a'], ['Eu rodo o SQL']), null, 'texto que não é dela nem é opção: pede o sim');
+  assert.equal(C.cmdRepasse({ passos:[{ acao:'instruir', texto:'Liguei a VPN', alvos:[alvo], faltam:[] }] }, 'a primeira', ['a'], ['Liguei a VPN']), null, 'opção só vale pra responder');
+});
+test('PR que o agente abriu sozinho conta como PR', () => {
+  const it = [{ k:'tool', name:'Bash', arg:'git push -u origin feat/x-homol', out:'To https://github.com/acme/loja.git' }, { k:'tool', name:'Bash', arg:"cat > body.md <<'EOF' ... EOF\ngh pr create --base homol --title x --body-file body.md", out:'https://github.com/acme/loja/pull/77' }, { k:'tool', name:'Bash', arg:'gh pr checks 77', out:'ok' }];
+  assert.equal(C.cmdPrAgente(it), 'https://github.com/acme/loja/pull/77');
+  assert.equal(C.cmdPrAgente([{ arg:'gh pr create', out:'error: no commits', err:true }]), '');
+  assert.equal(C.cmdPrAgente([]), '');
 });

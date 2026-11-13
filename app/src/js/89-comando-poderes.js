@@ -66,14 +66,6 @@ function cmdTurnosHtml(m, o){
 }
 // a última conversa com o agente desta tarefa (a do cartão do chat): aparece também ao lado, e dá pra continuar dali
 function cmdThreadDe(id){ const ms=cmdMsgs(); for(let i=ms.length-1;i>=0;i--){ const m=ms[i]; if(m && m.k==='pergunta' && m.id===id) return m; } return null; }
-function cmdConvSec(t){
-  const m=cmdThreadDe(t.id), ocup=!!CMD.asking;
-  const form=`<div class="cmdconv"><button type="button" class="btn sm" data-cmdfalar="${escA(t.id)}" data-quem="portavoz"${ocup?' disabled':''}>${m?'Continuar no chat':'Perguntar ao porta-voz no chat'}</button></div>`;
-  if(!m) return cmdSec('Conversa com o porta-voz', `<p class="cmdmuted">Ele lê a sessão do executor e o código da branch e responde aqui, sem interromper o trabalho.</p>${form}`);
-  const conf=m.modo==='conferir', vivo=m.state==='wait'?{ de:conf?'porta-voz':'executor', acts:m.acts, t0:m.t0, dica:conf?'':'a pergunta chegou no terminal da tarefa' }:null;
-  const n=(m.turns||[]).filter(x=>x.w==='cmd').length;
-  return cmdSec(m.state==='wait'?'Conversa ao vivo':'Conversa com o '+(conf?'porta-voz':'executor'), cmdTurnosHtml(m, { vivo })+form, n?`<span>${nPl(n,'pergunta','perguntas')}</span>`:'');
-}
 /** INSTRUÇÃO ao executor: a conversa abre no chat e acompanha o terminal dele — o que está fazendo agora e cada fala,
  *  até o turno acabar ou ele perguntar algo. Não trava o Comando (dá pra seguir conversando) e não gasta IA. */
 async function cmdAcompanhar(id, texto, antes){
@@ -88,13 +80,14 @@ async function cmdAcompanhar(id, texto, antes){
     const ult=cmdPath(novo.filter(x=>x.k!=='say'), 1)[0], agora=ult?ult.v+' '+ult.tx:''; if(agora && m.acts[m.acts.length-1]!==agora){ m.acts.push(agora); if(m.acts.length>4) m.acts.shift(); }
     const cur=cmdTask(id); if(!cur) break;
     if(it.length===visto) parado++; else { parado=0; visto=it.length; }
-    if(cmdIsAsk(cur) && novo.length){ perguntou=true; m.turns.push({ w:'ag', de:'executor', tx:'Preciso de uma resposta sua pra continuar: **'+(cmdAskTitle(cur)||'tem uma pergunta aberta')+'**', ts:Date.now() }); break; }
+    if(cmdIsAsk(cur) && novo.length){ perguntou=true; break; } // a pergunta entra logo abaixo, no aviso (um lugar só)
     if(!cmdIsRun(cur) && parado>=2 && (novo.length || Date.now()-m.t0>45000)) break;
     m.t1=Date.now(); if(cmdAtiva()) cmdPaint();
   }
   const cur=cmdTask(id), roda=!!(cur && cmdIsRun(cur)); m.t1=Date.now(); m.text=falas.join('\n\n');
   m.state=(falas.length||perguntou)?'ok':'timeout';
-  m.fim=perguntou?'parou pra perguntar · '+cmdDur(m.t1-m.t0):roda?'segue trabalhando · '+cmdDur(m.t1-m.t0):falas.length?'terminou em '+cmdDur(m.t1-m.t0):'sem fala em '+cmdDur(m.t1-m.t0);
+  m.fim=perguntou?'parou pra perguntar (veja abaixo) · '+cmdDur(m.t1-m.t0):roda?'segue trabalhando · '+cmdDur(m.t1-m.t0):falas.length?'terminou em '+cmdDur(m.t1-m.t0):'sem fala em '+cmdDur(m.t1-m.t0);
+  if(perguntou) try{ cmdWatch(); }catch(_){ }
   if(cmdMsgs().includes(m)){ cmdPaint(true); if(m.text && CMDV.on) cmdSpeak(cmdFrase1(falas[falas.length-1])); }
 }
 /** O porta-voz de UMA tarefa responde UMA pergunta (só leitura). `alvo` recebe o andamento (agora/acts). → { text, erro, parado } */
@@ -195,7 +188,7 @@ function cmdDiffSideHtml(t){
       <div class="cmdacts"><span class="cmdpill mono"><span class="cmdadd">+${f.add}</span>&nbsp;<span class="cmddel">−${f.del}</span></span>${t.branch?`<span class="cmdpill mono" title="branch">${esc(t.branch)}</span>`:''}<button type="button" class="btn sm" data-cmdx="arqnav" data-d="-1"${i<=0?' disabled':''}>Arquivo anterior</button><button type="button" class="btn sm" data-cmdx="arqnav" data-d="1"${i>=fs.length-1?' disabled':''}>Próximo arquivo</button></div></div>
     ${fs.length>1?`<div class="cmdarqs side">${fs.map(x=>`<button type="button" class="cmdarq${x.path===f.path?' on':''}" data-cmdx="arq" data-id="${id}" data-path="${escA(x.path)}"><span class="f">${esc(x.path)}</span><span class="cmdadd">+${x.add}</span><span class="cmddel">−${x.del}</span></button>`).join('')}</div>`:''}
     ${cmdDifBody(t.id, f.path)}
-    <div class="cmdinst"><button type="button" class="btn primary sm" data-cmdfalar="${id}" data-quem="executor" data-pre="${escA('No arquivo '+f.path+': ')}">Pedir mudança neste arquivo</button><span class="cmdhint">você escreve no chat; o Comando entrega ao executor</span></div>`;
+    <div class="cmdinst"><button type="button" class="btn primary sm" data-cmdpre="${escA('Peça ao executor: no arquivo '+f.path+', ')}" data-id="${id}">Pedir mudança neste arquivo</button><span class="cmdhint">a frase começa na caixa do chat</span></div>`;
 }
 
 // ============================================================ APROVAR (cartões no chat, provas ao lado)
