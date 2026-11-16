@@ -154,6 +154,17 @@ setTimeout(()=>{ try{ invoke('web_log',{ line:'[boot] webview vivo · sess='+(!!
   window.addEventListener('error', e=>{ try{ invoke('web_log',{ line:'[onerror] '+e.message+' @'+(e.filename||'')+':'+e.lineno }); }catch(_){ } });
   window.addEventListener('unhandledrejection', e=>{ try{ invoke('web_log',{ line:'[reject] '+String(e.reason&&e.reason.message||e.reason) }); }catch(_){ } });
 }
+// AUTODIAGNÓSTICO DA JANELA: o que está de fato visível 4 s e 12 s depois de abrir. "Janela vazia" deixa de ser
+// adivinhação: o log diz o tamanho da casca, quais telas cobrem a janela e se o WebKit acha que está visível.
+function bootTela(){ try{ const r=e=>{ const b=e.getBoundingClientRect(); return Math.round(b.left)+','+Math.round(b.top)+' '+Math.round(b.width)+'x'+Math.round(b.height); };
+  const app=document.querySelector('.app'), cs=app?getComputedStyle(app):null;
+  const cob=[...document.body.children].filter(e=>e!==app && getComputedStyle(e).display!=='none' && e.offsetWidth>innerWidth*0.6 && e.offsetHeight>innerHeight*0.6)
+    .map(e=>(e.id||e.tagName)+'['+String(e.className).replace(/\s+/g,'.')+'] '+r(e)+' texto='+(e.innerText||'').trim().length);
+  const mid=document.elementFromPoint(innerWidth/2, innerHeight/2), topo=document.elementFromPoint(innerWidth/2, 20);
+  const nome=e=>e?(e.id||e.tagName)+'.'+String(e.className).split(' ')[0]:'nada';
+  return 'janela='+innerWidth+'x'+innerHeight+' vis='+document.visibilityState+' tema='+(localStorage.getItem('theme')||'—')+' casca='+(app?r(app)+' op='+cs.opacity+' vis='+cs.visibility+' texto='+(app.innerText||'').trim().length:'SEM')
+    +' meio='+nome(mid)+' topo='+nome(topo)+' cobrem='+(cob.length?cob.join(' | '):'nada'); }catch(e){ return 'falhou: '+(e&&e.message||e); } }
+[4000, 12000].forEach(ms=>setTimeout(()=>{ try{ invoke('web_log',{ line:'[tela] '+bootTela() }); }catch(_){ } }, ms));
 const IC = {
   globe:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><circle cx="8" cy="8" r="5.6"/><path d="M2.4 8h11.2M8 2.4c1.7 1.5 2.6 3.4 2.6 5.6S9.7 12.1 8 13.6C6.3 12.1 5.4 10.2 5.4 8S6.3 3.9 8 2.4z" stroke-linejoin="round"/></svg>',
   brush:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25"><path d="M13.2 2.8c.6.6.6 1.5 0 2.1L8 10.1 5.9 8 11.1 2.8c.6-.6 1.5-.6 2.1 0z" stroke-linejoin="round"/><path d="M5.6 8.4c-1.2.3-2 1-2.3 2.3-.2 1-.1 1.9-1 2.5 1.3.6 3.4.5 4.4-.5.8-.8 1-1.7.9-2.5" stroke-linejoin="round"/></svg>',
