@@ -178,6 +178,8 @@ test('caso real 12/11 (3): vários encerramentos e uma listagem numa frase só v
   assert.equal(P.fala, 'Vou encerrar as quatro e listar o que sobra.');
   assert.deepEqual(P.passos.map(p => p.acao), ['encerrar', 'abertas'], 'ação desconhecida é descartada');
   assert.deepEqual(P.passos[0].tarefas, ['FND-1168', 'FND-1195', 'FND-1173', 'FND-1174']);
+  { const N = C.cmdPlanParse('{"fala":"","passos":[{"acao":"criar_demanda","titulo":"Replay real","texto":"Implementar o replay de verdade.","requisitos":["Abre a sessão gravada","  ","Mostra o comparativo"],"tarefas":["LW-99"]},{"acao":"abertas","requisitos":["x y z"]}]}');
+    assert.deepEqual(N.passos[0].requisitos, ['Abre a sessão gravada', 'Mostra o comparativo']); assert.equal(N.passos[0].titulo, 'Replay real'); assert.equal(N.passos[1].requisitos, undefined); }
   assert.equal(C.cmdPlanParse('não sei'), null); assert.equal(C.cmdPlanParse('{quebrado'), null);
   assert.deepEqual(C.cmdPlanParse('{"passos":[{"acao":"instruir","tarefas":"FND-1168","texto":" usa UTC "}]}').passos[0], { acao:'instruir', tarefas:['FND-1168'], texto:'usa UTC', alvo:'' });
   // o que mexe em algo espera confirmação; ler não

@@ -27,6 +27,7 @@ const CASOS = [
   { nome:'provas por descrição', pedido:'me mostra as provas da auditoria de segurança', quer:[['provas', ['LW-1195']]], semMuta:true },
   { nome:'ambíguo → pergunta, não escolhe', pedido:'encerra a da lentidão no fast', quer:[], duvida:true },
   { nome:'instrução ditada', pedido:'fala pro agente da 1208 usar dados fictícios no replay', tem:[['instruir', 'LW-1208']], quer:[], texto:/fict/i },
+  { nome:'mock pronto → criar a versão real', minReq:3, conversa:['Pessoa: como está a 1208?', 'Comando: [Comando mostrou: tarefa de LW-1208]', 'Comando: LW-1208 está pronta pra revisar: 13 de 13 requisitos com prova, sem PR. O executor disse: «O replay em janela real com anotação guiada e o comparativo original × re-executado estão prontos como protótipo com dados simulados; o registro de eventos de uso já existe e pode servir de base.»'], pedido:'Sei que ela esta pronta, mas ela é um mock preciso agora fazer a versão real', quer:[], nova:{ req:3, origem:'1208' } },
   { nome:'aprovar', pedido:'pode aprovar a auditoria, tá tudo provado', tem:[['aprovar', 'LW-1195']], quer:[] },
   { nome:'código → ler_codigo', pedido:'onde no código fica a validação do limite de itens por plano?', quer:[['ler_codigo', []]], semMuta:true },
   { nome:'pergunta sobre a tarefa ao lado (caso real: foi pra outra tarefa)', foco:{ id:'e', ctx:FOCO_1228 }, conversa:['Pessoa: me mostra as provas da 1228', 'Comando: [Comando mostrou: provas de LW-1228]'], pedido:'O que falta para começar as provas?', quer:[], naoPode:['LW-1208', 'LW-1195', 'LW-1168'], fala:/prova|requisito|teste|PR/i },
@@ -45,7 +46,7 @@ const args = (sys) => ['--strict-mcp-config', '--tools', '', '--system-prompt', 
 let ok = 0, tempo = 0, custo = 0; const falhas = [];
 for (const c of CASOS.filter(x => !process.env.CMD_SO || process.env.CMD_SO.split('|').some(k => x.nome.includes(k)))) {
   const refs = REFS.map(r => ({ ...r, foco: !!(c.foco && c.foco.id === r.id) }));
-  const prompt = C.cmdPlanPrompt({ proj:'loja-web', refs, epics:[], foco:(c.foco && c.foco.ctx) || '', conversa:c.conversa || [], pedido:c.pedido });
+  const prompt = C.cmdPlanPrompt({ proj:'loja-web', refs, epics:[], foco:(c.foco && c.foco.ctx) || '', conversa:c.conversa || [], pedido:c.pedido, minReq:c.minReq || 0 });
   const t0 = Date.now();
   const r = spawnSync('claude', ['-p', prompt, ...args(C.CMD_PLAN_SYS)], { cwd: tmpdir(), encoding:'utf8', stdio:['ignore', 'pipe', 'pipe'], env:{ ...process.env, ANTHROPIC_API_KEY:'' } });
   const s = (Date.now() - t0) / 1000; tempo += s;
@@ -65,6 +66,7 @@ for (const c of CASOS.filter(x => !process.env.CMD_SO || process.env.CMD_SO.spli
     if (c.semMuta && got.some(g => C.CMD_MUTA.has(g[0]))) erros.push('propôs mexer em algo: ' + got.map(g => g[0]).join(','));
     if (c.naoPode && got.some(g => g[1].some(x => c.naoPode.includes(x)))) erros.push('usou a tarefa errada: ' + c.naoPode.join(','));
     if (c.fala && !c.fala.test(P.fala)) erros.push('a fala não citou os fatos: "' + P.fala.slice(0, 100) + '"');
+    if (c.nova) { const n = P.passos.find(p => p.acao === 'criar_demanda'); if (!n) erros.push('não propôs criar a tarefa'); else { if ((n.requisitos || []).length < c.nova.req) erros.push(`só ${(n.requisitos || []).length} requisitos`); if (!n.titulo) erros.push('sem título'); if (n.texto.length < 80) erros.push('objetivo curto demais'); if (c.nova.origem && !n.tarefas.some(t => t.replace(/\D/g, '') === c.nova.origem)) erros.push('não citou a tarefa de origem'); console.log('   título: ' + n.titulo + '\n   objetivo: ' + n.texto.slice(0, 300) + '\n   requisitos:\n     - ' + n.requisitos.join('\n     - ')); } }
     if (c.falaMax && P.fala.length > c.falaMax) erros.push(`fala longa (${P.fala.length} caracteres)`);
     if (c.texto && !P.passos.some(p => c.texto.test(p.texto))) erros.push('o texto da instrução não levou o que a pessoa disse');
     if (/\bT\d+\b/.test(P.fala + P.duvida)) erros.push('vazou identificador interno (T1…)');

@@ -285,3 +285,8 @@ button.cmdrad-r:hover{background:var(--surface-2)}
 
 /* hidden vence o display dos componentes do Comando (menu do "/", painel, barras) */
 .cmdpg [hidden]{display:none!important}
+
+/* cartão "criar a tarefa": mostra título, objetivo e requisitos antes do sim */
+.cmdnova{margin:6px 0 2px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);display:flex;flex-direction:column;gap:6px;min-width:0}
+.cmdnova p{margin:0;color:var(--muted);font-size:var(--fs-sm);white-space:pre-wrap;overflow-wrap:anywhere}
+.cmdnova ul{margin:0;padding-left:18px;font-size:var(--fs-sm);display:flex;flex-direction:column;gap:2px}

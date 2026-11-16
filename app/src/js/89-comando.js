@@ -153,7 +153,7 @@ const CMD_ACOES={
   arquivos:'mostrar os arquivos que tarefas alteraram, com o diff de cada um ao lado (estilo git)', prontas:'mostrar o que está pronto pra aprovar: um cartão por tarefa, com as provas ao lado e os botões de aprovar e pedir alteração',
   radar:'radar de conflito: mostrar quais arquivos estão sendo mexidos por mais de uma tarefa aberta e se é no mesmo trecho',
   aprovar:'aprovar e integrar tarefas que terminaram', pedir_alteracao:'devolver tarefas terminadas pro agente com um pedido de mudança (texto = o que mudar)', abrir_pr:'abrir a preparação do pull request de tarefas',
-  responder:'responder a pergunta aberta de uma tarefa (texto = a resposta)', criar_demanda:'criar e iniciar uma tarefa nova a partir de um pedido (texto = o que fazer)', trocar_projeto:'trocar o projeto aberto (alvo = nome do projeto)' };
+  responder:'responder a pergunta aberta de uma tarefa (texto = a resposta)', criar_demanda:'criar e iniciar uma tarefa nova (titulo = nome curto; texto = objetivo completo; requisitos = lista de critérios verificáveis; tarefas = a tarefa de origem, se houver)', trocar_projeto:'trocar o projeto aberto (alvo = nome do projeto)' };
 const CMD_MUTA=new Set(['parar','continuar','encerrar','instruir','comecar_issue','epico_acao','aprovar','pedir_alteracao','responder','criar_demanda']);
 // no comando direto ("/"), a pessoa já disse exatamente o quê: só o que não tem volta fácil ainda pede o "sim"
 const CMD_PERIGO=new Set(['encerrar','aprovar','epico_acao']);
@@ -205,7 +205,8 @@ function cmdPlanParse(text){
   if(!o || typeof o!=='object') return null;
   const passos=(Array.isArray(o.passos)?o.passos:[]).map(p=>{ if(!p || typeof p!=='object') return null; const acao=String(p.acao||'').trim().toLowerCase(); if(!CMD_ACOES[acao]) return null;
     const tarefas=(Array.isArray(p.tarefas)?p.tarefas:(p.tarefas?[p.tarefas]:[])).map(x=>String(x||'').trim()).filter(Boolean);
-    return { acao, tarefas, texto:String(p.texto||'').trim(), alvo:String(p.alvo||'').trim() }; }).filter(Boolean);
+    const requisitos=(Array.isArray(p.requisitos)?p.requisitos:[]).map(x=>String(x||'').replace(/\s+/g,' ').trim()).filter(x=>x.length>3).slice(0,12);
+    const o2={ acao, tarefas, texto:String(p.texto||'').trim(), alvo:String(p.alvo||'').trim() }; if(acao==='criar_demanda'){ o2.titulo=String(p.titulo||'').replace(/\s+/g,' ').trim().slice(0,90); o2.requisitos=requisitos; } return o2; }).filter(Boolean);
   return { fala:String(o.fala||'').trim(), duvida:String(o.duvida||'').trim(), passos };
 }
 /** O pedido pra IA planejar. o: { proj, refs:[{ ref, code, title, st, criada, mexida, proj, foco, q }], epics:[{ name, done, total }], foco, conversa:[texto], pedido } */
@@ -224,6 +225,7 @@ PEDIDO DA PESSOA: ${o.pedido}
 
 Responda SOMENTE com um objeto JSON, sem texto antes ou depois:
 {"fala":"...","passos":[{"acao":"...","tarefas":["..."],"texto":"...","alvo":"..."}],"duvida":""}
+(só no passo criar_demanda, acrescente também "titulo":"..." e "requisitos":["...","..."])
 
 REGRAS:
 - Um pedido pode ter VÁRIOS passos ("faça X e depois Y") e VÁRIAS tarefas no mesmo passo ("encerre a 1168, a 1195 e a 1173" = um passo "encerrar" com as três). Ponha os passos na ordem pedida.
@@ -234,6 +236,7 @@ REGRAS:
 - Cada tarefa tem DOIS agentes: o executor (trabalha) e o porta-voz (só lê e responde). "perguntar_agente" fala com o porta-voz: não interrompe o executor e não precisa de confirmação. Use quando a pessoa duvidar do estado, pedir pra conferir, ou perguntar algo sobre o que foi feito que os FATOS não respondem; em "texto" ponha a pergunta, de forma específica.
 - Pra MOSTRAR tarefas (quais estão abertas, o que espera a pessoa, como está tal tarefa) use um passo ("abertas", "status", "esperando", "erros", "tarefa"…): o app desenha a lista. NUNCA liste tarefas em texto corrido dentro de "fala".
 - "fala" tem no máximo 2 frases curtas. Se precisar enumerar algo que não é tarefa, use lista markdown (uma linha "- item" por item). Nunca escreva os identificadores T1, T2… em "fala" ou "duvida": cite o título.
+- CRIAR TAREFA (criar_demanda): monte a tarefa INTEIRA você mesmo, com o que a conversa e os FATOS já dizem — a pessoa não vai preencher formulário. "titulo": nome curto do que será feito. "texto": o objetivo completo e autossuficiente (o que fazer, por quê, o que já existe e deve ser reaproveitado, o que NÃO é pra fazer), escrito pra um agente que não viu esta conversa. "requisitos": de ${Math.max(3, +o.minReq||0)} a 8 critérios VERIFICÁVEIS de pronto, concretos (comportamento observável, não "funcionar bem"). "tarefas": o código da tarefa de origem quando a nova continua ou substitui outra (ex.: "a 1208 é um mock, agora a versão real" → tarefas:["FND-1208"]); ela vira referência da nova. Se a pessoa já disse o que quer, NÃO pergunte "posso abrir?" em "fala" nem em "duvida": devolva o passo, o cartão de confirmação mostra tudo. Só use "duvida" se faltar saber O QUE construir.
 - "fala" é o que você diz pra pessoa, curto, em português. Se o pedido for uma pergunta sobre as tarefas que dá pra responder com o que está acima, responda em "fala" e deixe "passos" vazio. Se exigir ler o código, use "ler_codigo".
 - "@CÓDIGO" no pedido é uma tarefa que a pessoa escolheu da lista: use exatamente ela.
 - Sempre que a resposta for sobre UMA tarefa específica, inclua o passo "tarefa" com ela (o app mostra o estado dela na conversa), além da "fala".
@@ -954,10 +957,12 @@ function cmdConversa(tudo){ return cmdMsgs().slice(-9, tudo?undefined:-1).map(m=
   :m.k==='aviso'?(m.ids||[]).map((id,i)=>{ const t=cmdTask(id); if(!t) return ''; const h=CMD.hist[id], say=h&&h.items?cmdLastSay(h.items):'', q=(m.tipos||[])[i]==='ask'?cmdAskTitle(t):'';
       return 'Comando avisou: '+(cmdCode(t)||mdTitle(t.title||''))+' — '+(CMD_TIPO[(m.tipos||[])[i]]||'')+(q?'. Pergunta dela: «'+cmdUma(q)+'»':'')+(say?'. O executor disse: «'+String(say).replace(/\s+/g,' ').trim().slice(0,600)+'»':''); }).filter(Boolean).join('\n'):'[Comando mostrou: '+m.k+(m.id&&cmdTaskAny(m.id)?' de '+(cmdCode(cmdTaskAny(m.id))||''):'')+']').filter(Boolean); }
 async function cmdProjeto(repo){ if(!repo || repo===cmdRepo()) return true; if(!window.switchProject) return false; try{ await window.switchProject(repo); }catch(_){ return false; } return cmdRepo()===repo; }
+function cmdNovaHtml(p){ const o=(p.origem||[]).map(x=>esc(x.code||x.ref)).join(', ');
+  return `<div class="cmdnova"><b>${esc(p.titulo||cmdUma(String(p.texto||'').split(/[.\n]/)[0]).slice(0,80))}</b>${p.texto?`<p>${esc(p.texto)}</p>`:''}${(p.requisitos||[]).length?`<div class="cmdhint">Pronto quando:</div><ul>${p.requisitos.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>`:''}${o?`<div class="cmdhint">Referência: ${o}</div>`:''}</div>`; }
 function cmdPlanoHtml(m){ const P=m.plan, i=cmdMsgs().indexOf(m);
   const linha=(p, n)=>{ const ts=(p.alvos||[]).map(x=>`<b>${esc(x.code||x.ref)}</b> ${esc(x.title.length>46?x.title.slice(0,45)+'…':x.title)}${x.proj?` <span class="cmdhint">(${esc(x.proj)})</span>`:''}`);
     const falta=(p.faltam||[]).length?`<span class="cmdplan-x">não achei: ${esc(p.faltam.join(', '))}</span>`:'';
-    return `<li><span class="cmdplan-a${CMD_MUTA.has(p.acao)?' m':''}">${esc(CMD_ACAO_TX[p.acao]||p.acao)}${p.alvo?' '+esc(p.alvo):''}${p.acao==='epico_acao'&&p.texto?': '+esc(p.texto):''}</span>${ts.length?`<div class="cmdplan-t">${ts.join('<br>')}</div>`:''}${(p.acao==='instruir'||p.acao==='perguntar_agente'||p.acao==='ler_codigo')&&p.texto?`<div class="cmdins"><p>${esc(p.texto)}</p></div>`:''}${falta}</li>`; };
+    return `<li><span class="cmdplan-a${CMD_MUTA.has(p.acao)?' m':''}">${esc(CMD_ACAO_TX[p.acao]||p.acao)}${p.alvo?' '+esc(p.alvo):''}${p.acao==='epico_acao'&&p.texto?': '+esc(p.texto):''}</span>${ts.length?`<div class="cmdplan-t">${ts.join('<br>')}</div>`:''}${(p.acao==='instruir'||p.acao==='perguntar_agente'||p.acao==='ler_codigo')&&p.texto?`<div class="cmdins"><p>${esc(p.texto)}</p></div>`:''}${p.acao==='criar_demanda'?cmdNovaHtml(p):''}${falta}</li>`; };
   const pe=m.done==='sim'?'<span class="cmdhint">feito</span>':m.done==='run'?'<span class="cmdhint"><span class="pltyping"><i></i><i></i><i></i></span> fazendo…</span>':m.done==='nao'?'<span class="cmdhint">não fiz — me diga o que mudar</span>'
     :`<button type="button" class="btn sm primary" data-cmdplano="${i}" data-ok="1">Sim, fazer${P.passos.length>1?' tudo':''}</button><button type="button" class="btn sm quiet" data-cmdplano="${i}" data-ok="">Não é isso</button>`;
   return `<div class="cmdqa${m.done?'':' wait'}"><div class="cmdqa-h"><span class="cmdqa-who"><b>Entendi assim — confirma?</b></span></div><ol class="cmdplan">${P.passos.map(linha).join('')}</ol><div class="cmdiss-a">${pe}</div></div>`; }
@@ -975,8 +980,11 @@ async function cmdRunPlan(P){
         const d=aiDefaults(), cr=ndKindCreate('build'), pol=(typeof ntPolicy!=='undefined'&&ntPolicy)||{};
         const payload={ start:true, title:cmdUma(tx.split(/[.\n]/)[0]).slice(0,80), workflow:null, agents:null, engine:defaultAiEngine(), model:d.model||null, advisor:d.advisor, approval:'auto', owns:cr.owns||null, off:null, objective:tx, deliverables:[], requirements:[], doc:cr.doc||null,
           proof:true, tests:!!pol.testsRequired, autoPr:cr.autoPr, prBase:null, planApproval:'auto', refs:[], branchType:cr.branchType, issue:null };
-        if((+pol.minRequirements||0)>0){ say('O time exige requisitos na tarefa: abri a Nova demanda pra você completar.'); if(typeof semIr==='function') semIr('nova'); continue; }
-        const nid=await invoke('new_task', await trkBeforeNewTask(payload, { ask:true })); if(typeof budgetApply==='function') await budgetApply(nid); try{ lastSig=''; }catch(_){ } await refresh(); CMD.sel=nid; say('Criei a tarefa “'+payload.title+'” e a IA já começou.'); continue; }
+        const min=+pol.minRequirements||0, rq=(p.requisitos||[]).slice(); payload.requirements=rq; if(p.titulo) payload.title=p.titulo.slice(0,80);
+        if(rq.length<min){ say(`O time exige pelo menos ${nPl(min,'requisito','requisitos')} e eu só tirei ${rq.length} do que você disse. Me diga como conferir que ficou pronto e eu crio.`); continue; }
+        let pay=payload; try{ const ids=(p.origem||[]).map(x=>x.id).filter(Boolean); if(ids.length && typeof trfApply==='function') pay=await trfApply(payload, ids.map(id=>'[tarefa #'+id+': referência]').join(' '))||payload; }catch(_){ }
+        const nid=await invoke('new_task', await trkBeforeNewTask(pay, { ask:true })); if(typeof budgetApply==='function') await budgetApply(nid); try{ lastSig=''; }catch(_){ } await refresh(); CMD.sel=nid;
+        say('Criei a tarefa “'+payload.title+'”'+(rq.length?' com '+nPl(rq.length,'requisito','requisitos'):'')+' e a IA já começou.'); if(typeof openTaskById==='function') try{ openTaskById(nid); }catch(_){ } continue; }
       if(p.acao==='comecar_issue'){ await cmdIssuesEnsure(); const c=String(p.alvo||p.tarefas[0]||'').toUpperCase().replace(/\s+/g,'-'); if(cmdIssue(c)) await cmdStartIssue(c); else say('Não achei a issue '+c+' no painel.'); continue; }
       if(p.acao==='epico' || p.acao==='epico_acao'){ const E=cmdEpics(), e=E.find(x=>cmdNorm(x.name)===cmdNorm(p.alvo))||E.find(x=>cmdNorm(x.name).includes(cmdNorm(p.alvo))&&p.alvo.length>=3);
         if(!e){ say('Não achei o épico “'+p.alvo+'”.'); continue; }
@@ -1023,10 +1031,10 @@ async function cmdPlanejar(text, o){
     { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft) await cmdProvasFrescas(ft.id, 8000); } // os fatos da tarefa em foco, de verdade
     const refs=cmdRefs(); let foco=''; { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft){ if(!cmdHistReady(ft.id)) await cmdHistFetch(ft.id); try{ foco=cmdTaskContext(ft); }catch(_){ } } }
     const t0=Date.now(); CMD.planMs=0;
-    raw=await invoke('comando_plan',{ system:CMD_PLAN_SYS, prompt:cmdPlanPrompt({ proj:pathBase(cmdRepo()), refs, epics:cmdEpics().map(e=>{ const c=cmdEpicStat(e.id); return { name:e.name, done:c.done, total:c.total }; }), foco, conversa:cmdConversa(!!(o&&o.interno)), pedido:(o&&o.interno)||text }) });
+    raw=await invoke('comando_plan',{ system:CMD_PLAN_SYS, prompt:cmdPlanPrompt({ proj:pathBase(cmdRepo()), refs, epics:cmdEpics().map(e=>{ const c=cmdEpicStat(e.id); return { name:e.name, done:c.done, total:c.total }; }), foco, conversa:cmdConversa(!!(o&&o.interno)), pedido:(o&&o.interno)||text, minReq:+(((typeof ntPolicy!=='undefined'&&ntPolicy)||{}).minRequirements)||0 }) });
     CMD.planMs=Date.now()-t0; P=cmdPlanParse(raw);
     if(P && o && o.semPerguntar) P.passos=P.passos.filter(p=>p.acao!=='perguntar_agente');
-    if(P){ P.pedido=text; P.refs=refs.map(r=>({ ref:r.ref, code:r.code, title:r.title })); P.passos.forEach(p=>{ p.alvos=[]; p.faltam=[]; if(CMD_SEM_TAREFA.has(p.acao)) return;
+    if(P){ P.pedido=text; P.refs=refs.map(r=>({ ref:r.ref, code:r.code, title:r.title })); P.passos.forEach(p=>{ p.alvos=[]; p.faltam=[]; if(p.acao==='criar_demanda') p.origem=(p.tarefas||[]).map(q=>cmdRefTask(q, refs)).filter(Boolean); if(CMD_SEM_TAREFA.has(p.acao)) return;
       p.tarefas.forEach(q=>{ if(/^(todas|tudo)$/i.test(q)) return; const r=cmdRefTask(q, refs); if(r && !p.alvos.some(a=>a.id===r.id)) p.alvos.push(r); else if(!r) p.faltam.push(q); }); }); }
   }catch(e){ const msg=String((e&&e.message)||e||''); const h=humanErr(msg); ms.push({ r:'sys', text:'Não consegui entender agora: '+(h&&h.msg?h.msg:msg.slice(0,240)) }); if(h&&h.action) showErr(e); CMD.busy=false; return cmdPaint(true); }
   CMD.busy=false;
@@ -1065,7 +1073,7 @@ async function cmdSay(text, modo){ const soIA=modo===true, chip=modo==='chip';
   // COMANDO DIRETO ("/encerrar @FND-1 @FND-2"): sem IA, na hora; só o que não tem volta fácil pede o "sim"
   if(/^\s*\//.test(text)){ const refs=cmdRefs(), P=cmdSlash(text, refs), ms=cmdMsgs();
     if(!P){ ms.push({ r:'bot', k:'txt', text:'Não conheço esse comando. Digite / pra ver a lista.' }); return cmdPaint(true); }
-    P.pedido=text; P.refs=refs.map(r=>({ ref:r.ref, code:r.code, title:r.title })); P.passos.forEach(p=>{ p.alvos=[]; p.faltam=[]; if(CMD_SEM_TAREFA.has(p.acao)) return;
+    P.pedido=text; P.refs=refs.map(r=>({ ref:r.ref, code:r.code, title:r.title })); P.passos.forEach(p=>{ p.alvos=[]; p.faltam=[]; if(p.acao==='criar_demanda') p.origem=(p.tarefas||[]).map(q=>cmdRefTask(q, refs)).filter(Boolean); if(CMD_SEM_TAREFA.has(p.acao)) return;
       p.tarefas.forEach(q=>{ if(/^(todas|tudo)$/i.test(q)) return; const r=cmdRefTask(q, refs); if(r && !p.alvos.some(a=>a.id===r.id)) p.alvos.push(r); else if(!r) p.faltam.push(q); });
       if(!p.alvos.length && !p.tarefas.length && CMD.sel){ const r=refs.find(x=>x.id===CMD.sel); if(r) p.alvos.push(r); } }); // sem citar tarefa: a que está aberta ao lado
     const p0=P.passos[0], falta=p0.faltam&&p0.faltam.length, semAlvo=!CMD_SEM_TAREFA.has(p0.acao) && !p0.alvos.length && p0.acao!=='provas' && !(p0.acao==='parar'&&p0.tarefas.includes('todas'));
