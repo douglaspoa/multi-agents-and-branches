@@ -260,7 +260,6 @@ button.cmdrad-r:hover{background:var(--surface-2)}
 .cmdinst{align-items:center;flex-wrap:wrap}
 
 /* uma tela só (13/11): a pergunta do agente mora no chat; o painel ao lado é leitura */
-.cmdalvo[hidden]{display:none}
 .cmdchips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 .cmdchips::-webkit-scrollbar{display:none}
 .cmdchips .cmdchip{flex:none;white-space:nowrap}
@@ -283,3 +282,6 @@ button.cmdrad-r:hover{background:var(--surface-2)}
 .cmdpg.solo .cmdchat{border-right:0}
 .cmdside[hidden]{display:none}
 .cmdpg.solo .cmdmsg,.cmdpg.solo .cmdchips,.cmdpg.solo .cmdbar,.cmdpg.solo .cmdac{max-width:820px}
+
+/* hidden vence o display dos componentes do Comando (menu do "/", painel, barras) */
+.cmdpg [hidden]{display:none!important}
