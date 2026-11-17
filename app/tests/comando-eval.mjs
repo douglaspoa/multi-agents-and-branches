@@ -34,6 +34,11 @@ const CASOS = [
   { nome:'ciclo: roda os testes', pedido:'roda os testes da auditoria de segurança', tem:[['checks', 'LW-1195']], quer:[], semMuta:true },
   { nome:'ciclo: faça as provas', foco:{ id:'e', ctx:FOCO_1228 }, pedido:'faça as provas no 1228', tem:[['pedir_prova|instruir', 'LW-1228']], quer:[] },
   { nome:'ciclo: corrige o CI', pedido:'o ci da 1195 quebrou, manda corrigir', tem:[['corrigir_ci', 'LW-1195']], quer:[] },
+  { nome:'issues: mover', issues:[{ code:'LW-300', title:'Frete grátis acima de 200', st:'Backlog', who:'' }, { code:'LW-301', title:'Exportar pedidos em CSV', st:'Backlog', who:'ana lima' }], pedido:'move a LW-300 pra em andamento', quer:[['mover_issue', []]], alvo:/LW-?300/i },
+  { nome:'issues: atribuir pra mim', pedido:'a LW-300 fica comigo', quer:[['atribuir_issue', []]], alvo:/LW-?300/i },
+  { nome:'issues: comentar', pedido:'comenta na LW-300: aguardando retorno do cliente', quer:[['comentar_issue', []]], alvo:/LW-?300/i, texto:/aguardando retorno/i },
+  { nome:'issues: criar sem começar', pedido:'cria uma issue pra trocar o cálculo do frete: grátis acima de 200 reais e fixo de 15 abaixo disso', quer:[['criar_issue', []]] },
+  { nome:'issues: mandar pro time', pedido:'manda a LW-300 pro time, pro Bruno fazer', quer:[['mandar_time', []]], alvo:/LW-?300/i, texto:/bruno/i },
   { nome:'aprovar', pedido:'pode aprovar a auditoria, tá tudo provado', tem:[['aprovar', 'LW-1195']], quer:[] },
   { nome:'código → ler_codigo', pedido:'onde no código fica a validação do limite de itens por plano?', quer:[['ler_codigo', []]], semMuta:true },
   { nome:'pergunta sobre a tarefa ao lado (caso real: foi pra outra tarefa)', foco:{ id:'e', ctx:FOCO_1228 }, conversa:['Pessoa: me mostra as provas da 1228', 'Comando: [Comando mostrou: provas de LW-1228]'], pedido:'O que falta para começar as provas?', quer:[], naoPode:['LW-1208', 'LW-1195', 'LW-1168'], fala:/prova|requisito|teste|PR/i },
@@ -52,7 +57,7 @@ const args = (sys) => ['--strict-mcp-config', '--tools', '', '--system-prompt', 
 let ok = 0, tempo = 0, custo = 0; const falhas = [];
 for (const c of CASOS.filter(x => !process.env.CMD_SO || process.env.CMD_SO.split('|').some(k => x.nome.includes(k)))) {
   const refs = REFS.map(r => ({ ...r, foco: !!(c.foco && c.foco.id === r.id) }));
-  const prompt = C.cmdPlanPrompt({ proj:'loja-web', refs, epics:[], foco:(c.foco && c.foco.ctx) || '', conversa:c.conversa || [], pedido:c.pedido, minReq:c.minReq || 0 });
+  const prompt = C.cmdPlanPrompt({ proj:'loja-web', refs, epics:[], foco:(c.foco && c.foco.ctx) || '', conversa:c.conversa || [], pedido:c.pedido, minReq:c.minReq || 0, issues:c.issues || [] });
   const t0 = Date.now();
   const r = spawnSync('claude', ['-p', prompt, ...args(C.CMD_PLAN_SYS)], { cwd: tmpdir(), encoding:'utf8', stdio:['ignore', 'pipe', 'pipe'], env:{ ...process.env, ANTHROPIC_API_KEY:'' } });
   const s = (Date.now() - t0) / 1000; tempo += s;
