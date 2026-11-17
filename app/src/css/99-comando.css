@@ -297,3 +297,6 @@ button.cmdrad-r:hover{background:var(--surface-2)}
 .cmdciclo-l{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:var(--fs-sm)}
 .cmdciclo-l li.bad{color:var(--danger,#c0392b)} .cmdciclo-l li.ok{color:var(--muted)}
 .cmdciclo-md{max-height:340px;overflow:auto;border-top:1px solid var(--border);padding-top:8px;font-size:var(--fs-sm);overflow-wrap:anywhere}
+
+.cmdtime-g{display:flex;flex-direction:column;gap:3px;padding-top:6px;border-top:1px solid var(--border)}
+.cmdtime-n{font-size:var(--fs-sm)}
