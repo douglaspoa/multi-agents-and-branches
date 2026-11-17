@@ -28,6 +28,12 @@ const CASOS = [
   { nome:'ambíguo → pergunta, não escolhe', pedido:'encerra a da lentidão no fast', quer:[], duvida:true },
   { nome:'instrução ditada', pedido:'fala pro agente da 1208 usar dados fictícios no replay', tem:[['instruir', 'LW-1208']], quer:[], texto:/fict/i },
   { nome:'mock pronto → criar a versão real', minReq:3, conversa:['Pessoa: como está a 1208?', 'Comando: [Comando mostrou: tarefa de LW-1208]', 'Comando: LW-1208 está pronta pra revisar: 13 de 13 requisitos com prova, sem PR. O executor disse: «O replay em janela real com anotação guiada e o comparativo original × re-executado estão prontos como protótipo com dados simulados; o registro de eventos de uso já existe e pode servir de base.»'], pedido:'Sei que ela esta pronta, mas ela é um mock preciso agora fazer a versão real', quer:[], nova:{ req:3, origem:'1208' } },
+  { nome:'ciclo: PR pra homol vai direto', foco:{ id:'e', ctx:FOCO_1228 }, pedido:'preciso do pr de homol', tem:[['abrir_pr', 'LW-1228']], quer:[], alvo:/homol/i },
+  { nome:'ciclo: abriu o PR?', foco:{ id:'e', ctx:FOCO_1228 }, pedido:'abriu o pr de homol?', tem:[['ci', 'LW-1228']], quer:[], semMuta:true },
+  { nome:'ciclo: aprova o plano', pedido:'pode seguir com o plano da 1208', tem:[['aprovar_plano', 'LW-1208']], quer:[] },
+  { nome:'ciclo: roda os testes', pedido:'roda os testes da auditoria de segurança', tem:[['checks', 'LW-1195']], quer:[], semMuta:true },
+  { nome:'ciclo: faça as provas', foco:{ id:'e', ctx:FOCO_1228 }, pedido:'faça as provas no 1228', tem:[['pedir_prova|instruir', 'LW-1228']], quer:[] },
+  { nome:'ciclo: corrige o CI', pedido:'o ci da 1195 quebrou, manda corrigir', tem:[['corrigir_ci', 'LW-1195']], quer:[] },
   { nome:'aprovar', pedido:'pode aprovar a auditoria, tá tudo provado', tem:[['aprovar', 'LW-1195']], quer:[] },
   { nome:'código → ler_codigo', pedido:'onde no código fica a validação do limite de itens por plano?', quer:[['ler_codigo', []]], semMuta:true },
   { nome:'pergunta sobre a tarefa ao lado (caso real: foi pra outra tarefa)', foco:{ id:'e', ctx:FOCO_1228 }, conversa:['Pessoa: me mostra as provas da 1228', 'Comando: [Comando mostrou: provas de LW-1228]'], pedido:'O que falta para começar as provas?', quer:[], naoPode:['LW-1208', 'LW-1195', 'LW-1168'], fala:/prova|requisito|teste|PR/i },
@@ -67,6 +73,7 @@ for (const c of CASOS.filter(x => !process.env.CMD_SO || process.env.CMD_SO.spli
     if (c.naoPode && got.some(g => g[1].some(x => c.naoPode.includes(x)))) erros.push('usou a tarefa errada: ' + c.naoPode.join(','));
     if (c.fala && !c.fala.test(P.fala)) erros.push('a fala não citou os fatos: "' + P.fala.slice(0, 100) + '"');
     if (c.nova) { const n = P.passos.find(p => p.acao === 'criar_demanda'); if (!n) erros.push('não propôs criar a tarefa'); else { if ((n.requisitos || []).length < c.nova.req) erros.push(`só ${(n.requisitos || []).length} requisitos`); if (!n.titulo) erros.push('sem título'); if (n.texto.length < 80) erros.push('objetivo curto demais'); if (c.nova.origem && !n.tarefas.some(t => t.replace(/\D/g, '') === c.nova.origem)) erros.push('não citou a tarefa de origem'); console.log('   título: ' + n.titulo + '\n   objetivo: ' + n.texto.slice(0, 300) + '\n   requisitos:\n     - ' + n.requisitos.join('\n     - ')); } }
+    if (c.alvo && !P.passos.some(p => c.alvo.test(p.alvo))) erros.push('não levou o destino em alvo: ' + JSON.stringify(P.passos.map(p => p.alvo)));
     if (c.falaMax && P.fala.length > c.falaMax) erros.push(`fala longa (${P.fala.length} caracteres)`);
     if (c.texto && !P.passos.some(p => c.texto.test(p.texto))) erros.push('o texto da instrução não levou o que a pessoa disse');
     if (/\bT\d+\b/.test(P.fala + P.duvida)) erros.push('vazou identificador interno (T1…)');

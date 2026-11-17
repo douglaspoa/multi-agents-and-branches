@@ -152,9 +152,14 @@ const CMD_ACOES={
   ler_codigo:'responder uma pergunta que exige LER O CÓDIGO do projeto (texto = a pergunta)',
   arquivos:'mostrar os arquivos que tarefas alteraram, com o diff de cada um ao lado (estilo git)', prontas:'mostrar o que está pronto pra aprovar: um cartão por tarefa, com as provas ao lado e os botões de aprovar e pedir alteração',
   radar:'radar de conflito: mostrar quais arquivos estão sendo mexidos por mais de uma tarefa aberta e se é no mesmo trecho',
-  aprovar:'aprovar e integrar tarefas que terminaram', pedir_alteracao:'devolver tarefas terminadas pro agente com um pedido de mudança (texto = o que mudar)', abrir_pr:'abrir a preparação do pull request de tarefas',
+  aprovar:'aprovar e integrar tarefas que terminaram', pedir_alteracao:'devolver tarefas terminadas pro agente com um pedido de mudança (texto = o que mudar)',
+  abrir_pr:'abrir o pull request de tarefas AGORA, sem integrar (alvo = branch de destino quando a pessoa disser: homol, develop, main…; texto = motivo, só se ela mandar abrir mesmo com a verificação falhando)',
+  plano:'mostrar o plano que uma tarefa propôs e espera aprovação', aprovar_plano:'aprovar o plano de tarefas que esperam aprovação de plano (o agente começa a implementar)',
+  checks:'rodar a verificação do projeto (testes, lint, build) na tarefa e mostrar o resultado', pedir_prova:'pedir ao agente as provas dos requisitos que ainda não têm',
+  ci:'mostrar como está o PR e o CI de tarefas (aberto, checagens, revisão, conflito)', corrigir_ci:'devolver a tarefa ao agente pra corrigir as checagens do CI que falharam', resolver_conflito:'mandar o agente resolver o conflito da tarefa com a base',
+  iniciar:'iniciar tarefas que estão em rascunho ou pausadas', refazer:'refazer uma tarefa do zero (descarta o trabalho parcial)', liberar_teto:'liberar mais teto de custo numa tarefa (alvo = valor em dólares; texto = motivo)',
   responder:'responder a pergunta aberta de uma tarefa (texto = a resposta)', criar_demanda:'criar e iniciar uma tarefa nova (titulo = nome curto; texto = objetivo completo; requisitos = lista de critérios verificáveis; tarefas = a tarefa de origem, se houver)', trocar_projeto:'trocar o projeto aberto (alvo = nome do projeto)' };
-const CMD_MUTA=new Set(['parar','continuar','encerrar','instruir','comecar_issue','epico_acao','aprovar','pedir_alteracao','responder','criar_demanda']);
+const CMD_MUTA=new Set(['parar','continuar','encerrar','instruir','comecar_issue','epico_acao','aprovar','pedir_alteracao','responder','criar_demanda','abrir_pr','aprovar_plano','pedir_prova','corrigir_ci','resolver_conflito','iniciar','refazer','liberar_teto']);
 // no comando direto ("/"), a pessoa já disse exatamente o quê: só o que não tem volta fácil ainda pede o "sim"
 const CMD_PERIGO=new Set(['encerrar','aprovar','epico_acao']);
 // de quem é cada ação: das tarefas citadas, de um alvo (nome) ou de nada
@@ -186,7 +191,7 @@ function cmdToken(text, pos){
 }
 const CMD_ACAO_TX={ status:'Mostrar como estão os agentes', abertas:'Mostrar as tarefas abertas', esperando:'Mostrar o que espera você', erros:'Mostrar as que pararam', fila_issues:'Mostrar a fila de issues', epicos:'Mostrar os épicos', epico:'Mostrar o épico', epico_acao:'No épico',
   tarefa:'Mostrar o estado de', porque:'Ver por que parou', feito:'Mostrar o que foi feito em', provas:'Mostrar as provas de', link:'Pegar os links de', abrir:'Abrir', parar:'Parar', continuar:'Mandar continuar', encerrar:'Encerrar sem entregar',
-  aprovar:'Aprovar e integrar', pedir_alteracao:'Pedir alteração em', abrir_pr:'Abrir o PR de', responder:'Responder a pergunta de', criar_demanda:'Criar a tarefa', trocar_projeto:'Trocar pro projeto',
+  aprovar:'Aprovar e integrar', pedir_alteracao:'Pedir alteração em', abrir_pr:'Abrir o PR de', plano:'Mostrar o plano de', aprovar_plano:'Aprovar o plano de', checks:'Rodar a verificação de', pedir_prova:'Pedir as provas que faltam em', ci:'Ver o PR e o CI de', corrigir_ci:'Mandar corrigir o CI de', resolver_conflito:'Mandar resolver o conflito de', iniciar:'Iniciar', refazer:'Refazer do zero', liberar_teto:'Liberar teto em', responder:'Responder a pergunta de', criar_demanda:'Criar a tarefa', trocar_projeto:'Trocar pro projeto',
   ambiente_subir:'Subir o ambiente de', ambiente_desligar:'Desligar o ambiente de', instruir:'Mandar instrução pro agente de', perguntar_agente:'Perguntar ao porta-voz de', comecar_issue:'Começar a issue', tela:'Abrir a tela', ler_codigo:'Ler o código pra responder',
   arquivos:'Mostrar os arquivos editados de', prontas:'Mostrar o que está pronto pra aprovar', radar:'Mostrar o radar de conflito entre tarefas' };
 /** Acha a tarefa que a pessoa (ou a IA) citou. `refs`: [{ id, ref, code, title }]. Aceita "FND-1168", "fnd 1168", "1168", o ref ("T3") ou um pedaço do título. null = não achou ou ficou ambíguo. */
@@ -236,14 +241,15 @@ REGRAS:
 - Cada tarefa tem DOIS agentes: o executor (trabalha) e o porta-voz (só lê e responde). "perguntar_agente" fala com o porta-voz: não interrompe o executor e não precisa de confirmação. Use quando a pessoa duvidar do estado, pedir pra conferir, ou perguntar algo sobre o que foi feito que os FATOS não respondem; em "texto" ponha a pergunta, de forma específica.
 - Pra MOSTRAR tarefas (quais estão abertas, o que espera a pessoa, como está tal tarefa) use um passo ("abertas", "status", "esperando", "erros", "tarefa"…): o app desenha a lista. NUNCA liste tarefas em texto corrido dentro de "fala".
 - "fala" tem no máximo 2 frases curtas. Se precisar enumerar algo que não é tarefa, use lista markdown (uma linha "- item" por item). Nunca escreva os identificadores T1, T2… em "fala" ou "duvida": cite o título.
+- PR, PLANO, VERIFICAÇÃO E CI SÃO FEITOS AQUI, sem abrir outra tela: "abre o PR", "preciso do PR de homol", "PR pra develop" → abrir_pr com alvo = a branch de destino dita (sem destino dito, deixe alvo vazio). NUNCA use "instruir" pra pedir PR ao agente — o app abre. "aprova o plano" / "pode seguir com o plano" → aprovar_plano; "qual o plano dela?" → plano; mudar o plano = instruir com o ajuste. "roda os testes / a verificação" → checks. "como está o PR / o CI / abriu o PR?" → ci. "corrige o CI" → corrigir_ci. "faz as provas / faltam provas" → pedir_prova. "resolve o conflito" → resolver_conflito. "começa / inicia a tarefa X" (rascunho) → iniciar.
 - CRIAR TAREFA (criar_demanda): monte a tarefa INTEIRA você mesmo, com o que a conversa e os FATOS já dizem — a pessoa não vai preencher formulário. "titulo": nome curto do que será feito. "texto": o objetivo completo e autossuficiente (o que fazer, por quê, o que já existe e deve ser reaproveitado, o que NÃO é pra fazer), escrito pra um agente que não viu esta conversa. "requisitos": de ${Math.max(3, +o.minReq||0)} a 8 critérios VERIFICÁVEIS de pronto, concretos (comportamento observável, não "funcionar bem"). "tarefas": o código da tarefa de origem quando a nova continua ou substitui outra (ex.: "a 1208 é um mock, agora a versão real" → tarefas:["FND-1208"]); ela vira referência da nova. Se a pessoa já disse o que quer, NÃO pergunte "posso abrir?" em "fala" nem em "duvida": devolva o passo, o cartão de confirmação mostra tudo. Só use "duvida" se faltar saber O QUE construir.
 - "fala" é o que você diz pra pessoa, curto, em português. Se o pedido for uma pergunta sobre as tarefas que dá pra responder com o que está acima, responda em "fala" e deixe "passos" vazio. Se exigir ler o código, use "ler_codigo".
 - "@CÓDIGO" no pedido é uma tarefa que a pessoa escolheu da lista: use exatamente ela.
 - Sempre que a resposta for sobre UMA tarefa específica, inclua o passo "tarefa" com ela (o app mostra o estado dela na conversa), além da "fala".
 - PERGUNTA recebe RESPOSTA: se a pessoa só perguntou ("como está?", "abriu o PR?", "o que falta?"), responda com os fatos e PARE — não proponha "instruir". Só proponha "instruir" quando ela pedir uma ação ("faça", "resolve", "manda ele…", "toca") ou disser que quer o que falta feito. Nunca repita uma instrução que a conversa mostra que ela recusou ou que já foi enviada.
 - Se a pessoa pedir pra conferir, checar ou perguntar "com o agente", SEMPRE inclua "perguntar_agente" (com uma pergunta específica), mesmo que os FATOS já sugiram a resposta: diga os fatos em "fala" e mande conferir.
-- "abrir_pr" só serve pro PR padrão do app. Se ela pedir um PR com destino ou branch específica (homol, staging, outra base), use "instruir" com as palavras dela.
-- PR e CI: "PR aberto pelo agente" nos FATOS conta como PR aberto (cite o link). Pra saber de checks/CI, ou se os FATOS dizem "sem PR" e a pessoa pergunta do PR, use "perguntar_agente": o porta-voz consegue consultar o GitHub.
+- Se o agente da tarefa JÁ abriu um PR por conta própria ("PR aberto pelo agente" nos FATOS), não abra outro: responda com o link e ofereça "ci".
+- PR e CI: "PR aberto pelo agente" nos FATOS conta como PR aberto (cite o link). Pra saber do PR, das checagens ou do CI use "ci" (o app consulta o GitHub na hora); "perguntar_agente" só quando a dúvida for sobre O QUE o agente fez, não sobre o estado do PR.
 - Não presuma o gênero de quem fala: use formas neutras ("você tem razão").
 - Você é um assistente: se o pedido for vago ("resolve isso", "toca pra frente"), use os FATOS e a conversa pra propor os passos concretos que fazem sentido, em vez de pedir pra pessoa repetir.
 - Pra VER o que uma tarefa alterou no código (arquivos, diff, "estilo git") use "arquivos". Pra ver o que dá pra aprovar use "prontas". Pra saber se duas tarefas mexem no mesmo arquivo use "radar".
@@ -284,6 +290,7 @@ function cmdRestaura(arr, max){
   return arr.filter(m=>m && typeof m==='object' && (m.r==='you'||m.r==='bot'||m.r==='sys')).slice(-(max||120)).map(m=>{
     if(m.k==='pergunta' && m.state==='wait'){ m.state='timeout'; m.fim='interrompida ao fechar o app'; m.t1=m.t1||m.t0; (m.turns||(m.turns=[])).push({ w:'x', de:m.modo==='conferir'?'porta-voz':'executor', tx:'o app fechou antes da resposta', ts:m.t1 }); }
     if((m.k==='plano'||m.k==='proposta') && (!m.done || m.done==='run')) m.done='nao';
+    if(m.k==='ciclo' && m.busy){ m.busy=''; m.tx=m.tx||'Interrompido quando o app fechou — peça de novo.'; }
     return m; });
 }
 // @comando-puro-fim
@@ -688,6 +695,7 @@ function cmdBotHtml(m){
     }
     return partes.join('')+`<div class="cmdiss-a"><button type="button" class="btn sm primary" data-cmddo="perguntar" data-id="${escA(t.id)}">Perguntar ao porta-voz como está de verdade</button><button type="button" class="btn sm quiet" data-cmddo="provas" data-id="${escA(t.id)}">Provas</button><button type="button" class="btn sm quiet" data-cmdopen="${escA(t.id)}">Abrir a tarefa</button></div>`; }
   if(m.k==='plano') return cmdPlanoHtml(m);
+  if(m.k==='ciclo') return typeof cmdCicloHtml==='function'?cmdCicloHtml(m):'';
   if(m.k==='proposta') return cmdPropostaHtml(m);
   if(m.k==='pergunta') return cmdPerguntaHtml(m);
   if(m.k==='ambiente') return cmdEnvHtml(m);
@@ -954,6 +962,7 @@ function cmdConversa(tudo){ return cmdMsgs().slice(-9, tudo?undefined:-1).map(m=
   :m.k==='plano'?'Comando propôs: '+(m.plan.passos||[]).map(p=>p.acao+(p.tarefas.length?' '+p.tarefas.join(', '):'')).join(' → ')+(m.done==='sim'?' (feito)':m.done==='nao'?' (a pessoa disse que não era isso)':'')
   :m.k==='pergunta'&&!m.text?'Comando '+(m.modo==='conferir'?'perguntou ao porta-voz':'entregou ao executor')+' da '+((cmdTaskAny(m.id)&&cmdCode(cmdTaskAny(m.id)))||'tarefa')+': «'+cmdUma(m.q)+'» (ainda sem resposta)'
   :m.k==='pergunta'&&m.text?(m.modo==='conferir'?'Porta-voz':'Executor')+' da '+((cmdTaskAny(m.id)&&cmdCode(cmdTaskAny(m.id)))||'tarefa')+' disse: '+String(m.text).replace(/\s+/g,' ').trim().slice(0,600)
+  :m.k==='ciclo'?'Comando mostrou ('+(m.titulo||'')+(m.code?' de '+m.code:'')+'): '+String(m.tx||m.busy||'').slice(0,300)+((m.linhas||[]).some(l=>l.ok===false)?' — falhando: '+m.linhas.filter(l=>l.ok===false).map(l=>l.label).join(', '):'')
   :m.k==='aviso'?(m.ids||[]).map((id,i)=>{ const t=cmdTask(id); if(!t) return ''; const h=CMD.hist[id], say=h&&h.items?cmdLastSay(h.items):'', q=(m.tipos||[])[i]==='ask'?cmdAskTitle(t):'';
       return 'Comando avisou: '+(cmdCode(t)||mdTitle(t.title||''))+' — '+(CMD_TIPO[(m.tipos||[])[i]]||'')+(q?'. Pergunta dela: «'+cmdUma(q)+'»':'')+(say?'. O executor disse: «'+String(say).replace(/\s+/g,' ').trim().slice(0,600)+'»':''); }).filter(Boolean).join('\n'):'[Comando mostrou: '+m.k+(m.id&&cmdTaskAny(m.id)?' de '+(cmdCode(cmdTaskAny(m.id))||''):'')+']').filter(Boolean); }
 async function cmdProjeto(repo){ if(!repo || repo===cmdRepo()) return true; if(!window.switchProject) return false; try{ await window.switchProject(repo); }catch(_){ return false; } return cmdRepo()===repo; }
@@ -984,12 +993,13 @@ async function cmdRunPlan(P){
         if(rq.length<min){ say(`O time exige pelo menos ${nPl(min,'requisito','requisitos')} e eu só tirei ${rq.length} do que você disse. Me diga como conferir que ficou pronto e eu crio.`); continue; }
         let pay=payload; try{ const ids=(p.origem||[]).map(x=>x.id).filter(Boolean); if(ids.length && typeof trfApply==='function') pay=await trfApply(payload, ids.map(id=>'[tarefa #'+id+': referência]').join(' '))||payload; }catch(_){ }
         const nid=await invoke('new_task', await trkBeforeNewTask(pay, { ask:true })); if(typeof budgetApply==='function') await budgetApply(nid); try{ lastSig=''; }catch(_){ } await refresh(); CMD.sel=nid;
-        say('Criei a tarefa “'+payload.title+'”'+(rq.length?' com '+nPl(rq.length,'requisito','requisitos'):'')+' e a IA já começou.'); if(typeof openTaskById==='function') try{ openTaskById(nid); }catch(_){ } continue; }
+        say('Criei a tarefa “'+payload.title+'”'+(rq.length?' com '+nPl(rq.length,'requisito','requisitos'):'')+' e a IA já começou. Acompanhe aqui.'); if(typeof cmdAcompanhar==='function') try{ cmdAcompanhar(nid, 'Tarefa criada: '+payload.title, 0); }catch(_){ } continue; }
       if(p.acao==='comecar_issue'){ await cmdIssuesEnsure(); const c=String(p.alvo||p.tarefas[0]||'').toUpperCase().replace(/\s+/g,'-'); if(cmdIssue(c)) await cmdStartIssue(c); else say('Não achei a issue '+c+' no painel.'); continue; }
       if(p.acao==='epico' || p.acao==='epico_acao'){ const E=cmdEpics(), e=E.find(x=>cmdNorm(x.name)===cmdNorm(p.alvo))||E.find(x=>cmdNorm(x.name).includes(cmdNorm(p.alvo))&&p.alvo.length>=3);
         if(!e){ say('Não achei o épico “'+p.alvo+'”.'); continue; }
         const act=p.acao==='epico_acao'?({ comecar:'start', liberar:'liberar', verificar:'verificar', entregar:'entregar' })[cmdNorm(p.texto)]:''; await cmdDo(act?{ k:'epico', id:e.id, act, sem:true }:{ k:'epico', id:e.id }); continue; }
       if(p.acao==='parar' && (!p.alvos.length) && p.tarefas.some(x=>/todas|tudo/i.test(x))){ await cmdDo({ k:'parar', sem:true }); continue; }
+      if((!p.alvos || !p.alvos.length) && typeof CMD_CICLO!=='undefined' && CMD_CICLO.has(p.acao)){ say('Diga de qual tarefa — pelo código ou por parte do título.'); continue; }
       if(!p.alvos || !p.alvos.length){ if(MAP[p.acao] && !['tarefa','porque','feito','provas','link','abrir','continuar','encerrar','instruir','arquivos'].includes(p.acao)) await cmdDo({ k:MAP[p.acao] }); else if(p.acao==='provas') await cmdDo({ k:'provas' }); continue; }
       // a mesma pergunta pra várias tarefas: UMA conversa (um cartão, um porta-voz por vez) e uma leitura só no fim
       if(p.acao==='perguntar_agente' && p.alvos.length>1 && p.alvos.every(x=>(x.repo||home)===home)){ await cmdGrupo({ modo:'varios', alvos:p.alvos, texto:p.texto }); continue; }
@@ -1004,7 +1014,7 @@ async function cmdRunPlan(P){
             else { const r=await cmdEntregar(x.id, p.texto); ok=r.ok; nota=r.nota||''; }
           }catch(e){ nota=String((e&&e.message)||e).slice(0,120); }
           res.itens.push({ code:x.code||x.ref, title:tit, ok, nota }); cmdPaint(true); continue; }
-        if(p.acao==='abrir_pr'){ if(typeof prPrepOpen==='function'){ prPrepOpen(x.id, lsGet('prBase:'+x.id)||'main'); say(`Abri a preparação do PR da ${x.code||x.ref}.`); } else say('Abrir PR não está disponível nesta versão.'); continue; }
+        if(typeof CMD_CICLO!=='undefined' && CMD_CICLO.has(p.acao)){ await cmdCiclo(p, x, say); continue; }
         if(res){ const it={ quiet:true, id:x.id, k:p.acao==='ambiente_desligar'?'ambiente':p.acao, on:false, sem:true, motivo:'', text:p.texto };
           const estava=p.acao==='parar'?cmdIsRun(cmdTask(x.id)):true; await cmdDo(it);
           const ok=p.acao==='encerrar'?!!it.ok:p.acao==='parar'?estava:!/^(N[aã]o|Essa|A instru)/.test(String(it.out||''));
