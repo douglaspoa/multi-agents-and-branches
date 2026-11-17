@@ -157,13 +157,15 @@ const CMD_ACOES={
   plano:'mostrar o plano que uma tarefa propôs e espera aprovação', aprovar_plano:'aprovar o plano de tarefas que esperam aprovação de plano (o agente começa a implementar)',
   checks:'rodar a verificação do projeto (testes, lint, build) na tarefa e mostrar o resultado', pedir_prova:'pedir ao agente as provas dos requisitos que ainda não têm',
   ci:'mostrar como está o PR e o CI de tarefas (aberto, checagens, revisão, conflito)', corrigir_ci:'devolver a tarefa ao agente pra corrigir as checagens do CI que falharam', resolver_conflito:'mandar o agente resolver o conflito da tarefa com a base',
+  issue:'mostrar UMA issue do painel em detalhe (alvo = código)', mover_issue:'mudar o status de uma issue do painel (alvo = código; texto = o status dito: em andamento, feito, bloqueada…)', atribuir_issue:'trocar o responsável de uma issue (alvo = código; texto = a pessoa, ou "eu")', comentar_issue:'comentar numa issue (alvo = código; texto = o comentário)',
+  criar_issue:'criar uma issue nova no painel SEM iniciar tarefa (titulo, texto = descrição, requisitos = critérios; alvo = responsável, se dito)', mandar_time:'mandar uma issue pro quadro do time como cartão (alvo = código; texto = a pessoa responsável, se dita)',
   iniciar:'iniciar tarefas que estão em rascunho ou pausadas', refazer:'refazer uma tarefa do zero (descarta o trabalho parcial)', liberar_teto:'liberar mais teto de custo numa tarefa (alvo = valor em dólares; texto = motivo)',
   responder:'responder a pergunta aberta de uma tarefa (texto = a resposta)', criar_demanda:'criar e iniciar uma tarefa nova (titulo = nome curto; texto = objetivo completo; requisitos = lista de critérios verificáveis; tarefas = a tarefa de origem, se houver)', trocar_projeto:'trocar o projeto aberto (alvo = nome do projeto)' };
-const CMD_MUTA=new Set(['parar','continuar','encerrar','instruir','comecar_issue','epico_acao','aprovar','pedir_alteracao','responder','criar_demanda','abrir_pr','aprovar_plano','pedir_prova','corrigir_ci','resolver_conflito','iniciar','refazer','liberar_teto']);
+const CMD_MUTA=new Set(['parar','continuar','encerrar','instruir','comecar_issue','epico_acao','aprovar','pedir_alteracao','responder','criar_demanda','abrir_pr','aprovar_plano','pedir_prova','corrigir_ci','resolver_conflito','iniciar','refazer','liberar_teto','mover_issue','atribuir_issue','comentar_issue','criar_issue','mandar_time']);
 // no comando direto ("/"), a pessoa já disse exatamente o quê: só o que não tem volta fácil ainda pede o "sim"
 const CMD_PERIGO=new Set(['encerrar','aprovar','epico_acao']);
 // de quem é cada ação: das tarefas citadas, de um alvo (nome) ou de nada
-const CMD_SEM_TAREFA=new Set(['status','abertas','esperando','erros','fila_issues','epicos','epico','epico_acao','comecar_issue','tela','ler_codigo','criar_demanda','trocar_projeto','prontas','radar']);
+const CMD_SEM_TAREFA=new Set(['issue','mover_issue','atribuir_issue','comentar_issue','criar_issue','mandar_time','status','abertas','esperando','erros','fila_issues','epicos','epico','epico_acao','comecar_issue','tela','ler_codigo','criar_demanda','trocar_projeto','prontas','radar']);
 const CMD_PLAN_SYS='Você é o Comando do Starfork: o assistente de quem coordena várias tarefas tocadas por agentes de IA. Você transforma o pedido da pessoa num plano de ações do app e responde SOMENTE com o objeto JSON pedido, sem texto antes ou depois e sem cercas de código.';
 // apelidos do comando direto: "/encerrar", "/pr", "/nova"…
 const CMD_SLASH={ status:'status', abertas:'abertas', esperando:'esperando', erros:'erros', issues:'fila_issues', fila:'fila_issues', epicos:'epicos', epico:'epico', tarefa:'tarefa', porque:'porque', feito:'feito', provas:'provas', link:'link', links:'link', abrir:'abrir',
@@ -191,7 +193,7 @@ function cmdToken(text, pos){
 }
 const CMD_ACAO_TX={ status:'Mostrar como estão os agentes', abertas:'Mostrar as tarefas abertas', esperando:'Mostrar o que espera você', erros:'Mostrar as que pararam', fila_issues:'Mostrar a fila de issues', epicos:'Mostrar os épicos', epico:'Mostrar o épico', epico_acao:'No épico',
   tarefa:'Mostrar o estado de', porque:'Ver por que parou', feito:'Mostrar o que foi feito em', provas:'Mostrar as provas de', link:'Pegar os links de', abrir:'Abrir', parar:'Parar', continuar:'Mandar continuar', encerrar:'Encerrar sem entregar',
-  aprovar:'Aprovar e integrar', pedir_alteracao:'Pedir alteração em', abrir_pr:'Abrir o PR de', plano:'Mostrar o plano de', aprovar_plano:'Aprovar o plano de', checks:'Rodar a verificação de', pedir_prova:'Pedir as provas que faltam em', ci:'Ver o PR e o CI de', corrigir_ci:'Mandar corrigir o CI de', resolver_conflito:'Mandar resolver o conflito de', iniciar:'Iniciar', refazer:'Refazer do zero', liberar_teto:'Liberar teto em', responder:'Responder a pergunta de', criar_demanda:'Criar a tarefa', trocar_projeto:'Trocar pro projeto',
+  aprovar:'Aprovar e integrar', pedir_alteracao:'Pedir alteração em', abrir_pr:'Abrir o PR de', plano:'Mostrar o plano de', aprovar_plano:'Aprovar o plano de', checks:'Rodar a verificação de', pedir_prova:'Pedir as provas que faltam em', ci:'Ver o PR e o CI de', corrigir_ci:'Mandar corrigir o CI de', resolver_conflito:'Mandar resolver o conflito de', iniciar:'Iniciar', refazer:'Refazer do zero', liberar_teto:'Liberar teto em', issue:'Mostrar a issue', mover_issue:'Mover a issue', atribuir_issue:'Trocar o responsável da issue', comentar_issue:'Comentar na issue', criar_issue:'Criar a issue', mandar_time:'Mandar pro time a issue', responder:'Responder a pergunta de', criar_demanda:'Criar a tarefa', trocar_projeto:'Trocar pro projeto',
   ambiente_subir:'Subir o ambiente de', ambiente_desligar:'Desligar o ambiente de', instruir:'Mandar instrução pro agente de', perguntar_agente:'Perguntar ao porta-voz de', comecar_issue:'Começar a issue', tela:'Abrir a tela', ler_codigo:'Ler o código pra responder',
   arquivos:'Mostrar os arquivos editados de', prontas:'Mostrar o que está pronto pra aprovar', radar:'Mostrar o radar de conflito entre tarefas' };
 /** Acha a tarefa que a pessoa (ou a IA) citou. `refs`: [{ id, ref, code, title }]. Aceita "FND-1168", "fnd 1168", "1168", o ref ("T3") ou um pedaço do título. null = não achou ou ficou ambíguo. */
@@ -211,7 +213,7 @@ function cmdPlanParse(text){
   const passos=(Array.isArray(o.passos)?o.passos:[]).map(p=>{ if(!p || typeof p!=='object') return null; const acao=String(p.acao||'').trim().toLowerCase(); if(!CMD_ACOES[acao]) return null;
     const tarefas=(Array.isArray(p.tarefas)?p.tarefas:(p.tarefas?[p.tarefas]:[])).map(x=>String(x||'').trim()).filter(Boolean);
     const requisitos=(Array.isArray(p.requisitos)?p.requisitos:[]).map(x=>String(x||'').replace(/\s+/g,' ').trim()).filter(x=>x.length>3).slice(0,12);
-    const o2={ acao, tarefas, texto:String(p.texto||'').trim(), alvo:String(p.alvo||'').trim() }; if(acao==='criar_demanda'){ o2.titulo=String(p.titulo||'').replace(/\s+/g,' ').trim().slice(0,90); o2.requisitos=requisitos; } return o2; }).filter(Boolean);
+    const o2={ acao, tarefas, texto:String(p.texto||'').trim(), alvo:String(p.alvo||'').trim() }; if(acao==='criar_demanda' || acao==='criar_issue'){ o2.titulo=String(p.titulo||'').replace(/\s+/g,' ').trim().slice(0,90); o2.requisitos=requisitos; } return o2; }).filter(Boolean);
   return { fala:String(o.fala||'').trim(), duvida:String(o.duvida||'').trim(), passos };
 }
 /** O pedido pra IA planejar. o: { proj, refs:[{ ref, code, title, st, criada, mexida, proj, foco, q }], epics:[{ name, done, total }], foco, conversa:[texto], pedido } */
@@ -225,7 +227,7 @@ ${Object.keys(CMD_ACOES).map(k=>'- '+k+': '+CMD_ACOES[k]).join('\n')}
 
 TAREFAS${o.proj?' (projeto aberto: '+o.proj+')':''}:
 ${T.length?T.join('\n'):'(nenhuma tarefa aberta)'}
-${E.length?'\nÉPICOS:\n'+E.join('\n')+'\n':''}${o.foco?'\nTAREFA EM FOCO (a última de que a conversa tratou), em detalhe:\n'+o.foco+'\n':''}${(o.conversa||[]).length?'\nCONVERSA ATÉ AQUI:\n'+o.conversa.join('\n')+'\n':''}
+${E.length?'\nÉPICOS:\n'+E.join('\n')+'\n':''}${(o.issues||[]).length?'\nISSUES DO PAINEL que ainda não são tarefa (código "título" — status · responsável):\n'+o.issues.map(i=>`- ${i.code} "${i.title}" — ${i.st||'?'}${i.who?' · '+i.who:''}`).join('\n')+'\n':''}${o.foco?'\nTAREFA EM FOCO (a última de que a conversa tratou), em detalhe:\n'+o.foco+'\n':''}${(o.conversa||[]).length?'\nCONVERSA ATÉ AQUI:\n'+o.conversa.join('\n')+'\n':''}
 PEDIDO DA PESSOA: ${o.pedido}
 
 Responda SOMENTE com um objeto JSON, sem texto antes ou depois:
@@ -242,6 +244,7 @@ REGRAS:
 - Pra MOSTRAR tarefas (quais estão abertas, o que espera a pessoa, como está tal tarefa) use um passo ("abertas", "status", "esperando", "erros", "tarefa"…): o app desenha a lista. NUNCA liste tarefas em texto corrido dentro de "fala".
 - "fala" tem no máximo 2 frases curtas. Se precisar enumerar algo que não é tarefa, use lista markdown (uma linha "- item" por item). Nunca escreva os identificadores T1, T2… em "fala" ou "duvida": cite o título.
 - PR, PLANO, VERIFICAÇÃO E CI SÃO FEITOS AQUI, sem abrir outra tela: "abre o PR", "preciso do PR de homol", "PR pra develop" → abrir_pr com alvo = a branch de destino dita (sem destino dito, deixe alvo vazio). NUNCA use "instruir" pra pedir PR ao agente — o app abre. "aprova o plano" / "pode seguir com o plano" → aprovar_plano; "qual o plano dela?" → plano; mudar o plano = instruir com o ajuste. "roda os testes / a verificação" → checks. "como está o PR / o CI / abriu o PR?" → ci. "corrige o CI" → corrigir_ci. "faz as provas / faltam provas" → pedir_prova. "resolve o conflito" → resolver_conflito. "começa / inicia a tarefa X" (rascunho) → iniciar.
+- ISSUES DO PAINEL são feitas aqui: "move a FND-12 pra em andamento" → mover_issue; "passa a FND-12 pro João" / "fica comigo" → atribuir_issue; "comenta na FND-12: …" → comentar_issue; "cria uma issue pra …" (sem começar agora) → criar_issue com titulo, texto e requisitos; "manda a FND-12 pro time / pro João fazer" → mandar_time; "o que diz a FND-12?" (issue que ainda não é tarefa) → issue. Em todas, alvo = o código da issue, do jeito que a pessoa disse. Um código que não está na lista de TAREFAS pode ser uma issue do painel: nas ações de issue NÃO pergunte se o código existe — devolva o passo, o app confere no painel e avisa se não achar. Uma issue que JÁ é tarefa aberta segue as ações de tarefa.
 - CRIAR TAREFA (criar_demanda): monte a tarefa INTEIRA você mesmo, com o que a conversa e os FATOS já dizem — a pessoa não vai preencher formulário. "titulo": nome curto do que será feito. "texto": o objetivo completo e autossuficiente (o que fazer, por quê, o que já existe e deve ser reaproveitado, o que NÃO é pra fazer), escrito pra um agente que não viu esta conversa. "requisitos": de ${Math.max(3, +o.minReq||0)} a 8 critérios VERIFICÁVEIS de pronto, concretos (comportamento observável, não "funcionar bem"). "tarefas": o código da tarefa de origem quando a nova continua ou substitui outra (ex.: "a 1208 é um mock, agora a versão real" → tarefas:["FND-1208"]); ela vira referência da nova. Se a pessoa já disse o que quer, NÃO pergunte "posso abrir?" em "fala" nem em "duvida": devolva o passo, o cartão de confirmação mostra tudo. Só use "duvida" se faltar saber O QUE construir.
 - "fala" é o que você diz pra pessoa, curto, em português. Se o pedido for uma pergunta sobre as tarefas que dá pra responder com o que está acima, responda em "fala" e deixe "passos" vazio. Se exigir ler o código, use "ler_codigo".
 - "@CÓDIGO" no pedido é uma tarefa que a pessoa escolheu da lista: use exatamente ela.
@@ -334,7 +337,7 @@ async function cmdStartIssue(code){
   const ja=cmdIssueTask(code); if(ja){ CMD.sel=ja.id; cmdHistLoad(ja.id); return cmdPaint(); }
   const sp=trkIssueSpec(i), reqs=[...new Set(sp.reqs)], pol=(typeof ntPolicy!=='undefined'&&ntPolicy)||{};
   // a política do time pede requisitos e a issue não tem: completa no formulário (já preenchido), não cria pela metade
-  if(reqs.length<(+pol.minRequirements||0)){ cmdMsgs().push({ r:'bot', k:'txt', text:`A ${i.code} tem menos requisitos do que o time exige. Abri o formulário já preenchido pra você completar.` }); cmdPaint(true); return trkIssueToTask(i, 'run'); }
+  if(reqs.length<(+pol.minRequirements||0)){ if(typeof cmdIssueCompleta==='function') return cmdIssueCompleta(i, +pol.minRequirements); return trkIssueToTask(i, 'run'); }
   CMD.starting=i.code; cmdPaint();
   try{
     const d=aiDefaults(), cr=ndKindCreate(sp.bug?'fix':'build');
@@ -695,6 +698,8 @@ function cmdBotHtml(m){
     }
     return partes.join('')+`<div class="cmdiss-a"><button type="button" class="btn sm primary" data-cmddo="perguntar" data-id="${escA(t.id)}">Perguntar ao porta-voz como está de verdade</button><button type="button" class="btn sm quiet" data-cmddo="provas" data-id="${escA(t.id)}">Provas</button><button type="button" class="btn sm quiet" data-cmdopen="${escA(t.id)}">Abrir a tarefa</button></div>`; }
   if(m.k==='plano') return cmdPlanoHtml(m);
+  if(m.k==='issdet') return typeof cmdIssDetHtml==='function'?cmdIssDetHtml(m):'';
+  if(m.k==='issok') return typeof cmdIssOkHtml==='function'?cmdIssOkHtml(m):'';
   if(m.k==='ciclo') return typeof cmdCicloHtml==='function'?cmdCicloHtml(m):'';
   if(m.k==='proposta') return cmdPropostaHtml(m);
   if(m.k==='pergunta') return cmdPerguntaHtml(m);
@@ -968,10 +973,11 @@ function cmdConversa(tudo){ return cmdMsgs().slice(-9, tudo?undefined:-1).map(m=
 async function cmdProjeto(repo){ if(!repo || repo===cmdRepo()) return true; if(!window.switchProject) return false; try{ await window.switchProject(repo); }catch(_){ return false; } return cmdRepo()===repo; }
 function cmdNovaHtml(p){ const o=(p.origem||[]).map(x=>esc(x.code||x.ref)).join(', ');
   return `<div class="cmdnova"><b>${esc(p.titulo||cmdUma(String(p.texto||'').split(/[.\n]/)[0]).slice(0,80))}</b>${p.texto?`<p>${esc(p.texto)}</p>`:''}${(p.requisitos||[]).length?`<div class="cmdhint">Pronto quando:</div><ul>${p.requisitos.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>`:''}${o?`<div class="cmdhint">Referência: ${o}</div>`:''}</div>`; }
+function cmdIssuesPrompt(){ try{ if(!cmdTrkOn()) return []; const sts=(trk.connector||{}).statuses||[]; return cmdFila().slice(0,30).map(i=>({ code:i.code, title:cmdUma(i.title||'').slice(0,80), st:((sts.find(x=>x.id===i.status)||{}).label)||i.status||'', who:i.assignee?trkPretty(i.assignee):'' })); }catch(_){ return []; } }
 function cmdPlanoHtml(m){ const P=m.plan, i=cmdMsgs().indexOf(m);
   const linha=(p, n)=>{ const ts=(p.alvos||[]).map(x=>`<b>${esc(x.code||x.ref)}</b> ${esc(x.title.length>46?x.title.slice(0,45)+'…':x.title)}${x.proj?` <span class="cmdhint">(${esc(x.proj)})</span>`:''}`);
     const falta=(p.faltam||[]).length?`<span class="cmdplan-x">não achei: ${esc(p.faltam.join(', '))}</span>`:'';
-    return `<li><span class="cmdplan-a${CMD_MUTA.has(p.acao)?' m':''}">${esc(CMD_ACAO_TX[p.acao]||p.acao)}${p.alvo?' '+esc(p.alvo):''}${p.acao==='epico_acao'&&p.texto?': '+esc(p.texto):''}</span>${ts.length?`<div class="cmdplan-t">${ts.join('<br>')}</div>`:''}${(p.acao==='instruir'||p.acao==='perguntar_agente'||p.acao==='ler_codigo')&&p.texto?`<div class="cmdins"><p>${esc(p.texto)}</p></div>`:''}${p.acao==='criar_demanda'?cmdNovaHtml(p):''}${falta}</li>`; };
+    return `<li><span class="cmdplan-a${CMD_MUTA.has(p.acao)?' m':''}">${esc(CMD_ACAO_TX[p.acao]||p.acao)}${p.alvo?' '+esc(p.alvo):''}${p.acao==='epico_acao'&&p.texto?': '+esc(p.texto):''}</span>${ts.length?`<div class="cmdplan-t">${ts.join('<br>')}</div>`:''}${(p.acao==='instruir'||p.acao==='perguntar_agente'||p.acao==='ler_codigo')&&p.texto?`<div class="cmdins"><p>${esc(p.texto)}</p></div>`:''}${(p.acao==='criar_demanda'||p.acao==='criar_issue')?cmdNovaHtml(p):''}${['mover_issue','atribuir_issue','comentar_issue','mandar_time'].includes(p.acao)&&p.texto?`<div class="cmdins"><p>${esc(p.texto)}</p></div>`:''}${falta}</li>`; };
   const pe=m.done==='sim'?'<span class="cmdhint">feito</span>':m.done==='run'?'<span class="cmdhint"><span class="pltyping"><i></i><i></i><i></i></span> fazendo…</span>':m.done==='nao'?'<span class="cmdhint">não fiz — me diga o que mudar</span>'
     :`<button type="button" class="btn sm primary" data-cmdplano="${i}" data-ok="1">Sim, fazer${P.passos.length>1?' tudo':''}</button><button type="button" class="btn sm quiet" data-cmdplano="${i}" data-ok="">Não é isso</button>`;
   return `<div class="cmdqa${m.done?'':' wait'}"><div class="cmdqa-h"><span class="cmdqa-who"><b>Entendi assim — confirma?</b></span></div><ol class="cmdplan">${P.passos.map(linha).join('')}</ol><div class="cmdiss-a">${pe}</div></div>`; }
@@ -986,14 +992,15 @@ async function cmdRunPlan(P){
       if(p.acao==='trocar_projeto'){ const L=(typeof projects!=='undefined'&&projects)||[], q=cmdNorm(p.alvo||p.texto), pj=L.find(x=>cmdNorm(x.name||pathBase(x.path))===q)||L.find(x=>q.length>=2&&cmdNorm(x.name||pathBase(x.path)).includes(q));
         if(!pj){ say('Não achei o projeto “'+(p.alvo||p.texto)+'”.'); continue; } if(await cmdProjeto(pj.path)){ home=pj.path; say('Projeto aberto: '+(pj.name||pathBase(pj.path))+'.'); } else say('Não consegui abrir esse projeto.'); continue; }
       if(p.acao==='criar_demanda'){ const tx=String(p.texto||'').trim(); if(tx.length<8){ say('Diga em uma frase o que a tarefa nova deve fazer.'); continue; }
-        const d=aiDefaults(), cr=ndKindCreate('build'), pol=(typeof ntPolicy!=='undefined'&&ntPolicy)||{};
+        const d=aiDefaults(), cr=ndKindCreate(p.bug?'fix':'build'), pol=(typeof ntPolicy!=='undefined'&&ntPolicy)||{};
         const payload={ start:true, title:cmdUma(tx.split(/[.\n]/)[0]).slice(0,80), workflow:null, agents:null, engine:defaultAiEngine(), model:d.model||null, advisor:d.advisor, approval:'auto', owns:cr.owns||null, off:null, objective:tx, deliverables:[], requirements:[], doc:cr.doc||null,
-          proof:true, tests:!!pol.testsRequired, autoPr:cr.autoPr, prBase:null, planApproval:'auto', refs:[], branchType:cr.branchType, issue:null };
+          proof:true, tests:!!pol.testsRequired, autoPr:cr.autoPr, prBase:null, planApproval:'auto', refs:[], branchType:cr.branchType, issue:p.issue||null }; if(p.issueUrl) payload.issueUrl=p.issueUrl; if(p.entrega) payload.deliverables=[p.entrega];
         const min=+pol.minRequirements||0, rq=(p.requisitos||[]).slice(); payload.requirements=rq; if(p.titulo) payload.title=p.titulo.slice(0,80);
         if(rq.length<min){ say(`O time exige pelo menos ${nPl(min,'requisito','requisitos')} e eu só tirei ${rq.length} do que você disse. Me diga como conferir que ficou pronto e eu crio.`); continue; }
         let pay=payload; try{ const ids=(p.origem||[]).map(x=>x.id).filter(Boolean); if(ids.length && typeof trfApply==='function') pay=await trfApply(payload, ids.map(id=>'[tarefa #'+id+': referência]').join(' '))||payload; }catch(_){ }
         const nid=await invoke('new_task', await trkBeforeNewTask(pay, { ask:true })); if(typeof budgetApply==='function') await budgetApply(nid); try{ lastSig=''; }catch(_){ } await refresh(); CMD.sel=nid;
         say('Criei a tarefa “'+payload.title+'”'+(rq.length?' com '+nPl(rq.length,'requisito','requisitos'):'')+' e a IA já começou. Acompanhe aqui.'); if(typeof cmdAcompanhar==='function') try{ cmdAcompanhar(nid, 'Tarefa criada: '+payload.title, 0); }catch(_){ } continue; }
+      if(typeof CMD_ISSUES!=='undefined' && CMD_ISSUES.has(p.acao)){ await cmdIssuesDo(p, say); continue; }
       if(p.acao==='comecar_issue'){ await cmdIssuesEnsure(); const c=String(p.alvo||p.tarefas[0]||'').toUpperCase().replace(/\s+/g,'-'); if(cmdIssue(c)) await cmdStartIssue(c); else say('Não achei a issue '+c+' no painel.'); continue; }
       if(p.acao==='epico' || p.acao==='epico_acao'){ const E=cmdEpics(), e=E.find(x=>cmdNorm(x.name)===cmdNorm(p.alvo))||E.find(x=>cmdNorm(x.name).includes(cmdNorm(p.alvo))&&p.alvo.length>=3);
         if(!e){ say('Não achei o épico “'+p.alvo+'”.'); continue; }
@@ -1041,7 +1048,7 @@ async function cmdPlanejar(text, o){
     { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft) await cmdProvasFrescas(ft.id, 8000); } // os fatos da tarefa em foco, de verdade
     const refs=cmdRefs(); let foco=''; { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft){ if(!cmdHistReady(ft.id)) await cmdHistFetch(ft.id); try{ foco=cmdTaskContext(ft); }catch(_){ } } }
     const t0=Date.now(); CMD.planMs=0;
-    raw=await invoke('comando_plan',{ system:CMD_PLAN_SYS, prompt:cmdPlanPrompt({ proj:pathBase(cmdRepo()), refs, epics:cmdEpics().map(e=>{ const c=cmdEpicStat(e.id); return { name:e.name, done:c.done, total:c.total }; }), foco, conversa:cmdConversa(!!(o&&o.interno)), pedido:(o&&o.interno)||text, minReq:+(((typeof ntPolicy!=='undefined'&&ntPolicy)||{}).minRequirements)||0 }) });
+    raw=await invoke('comando_plan',{ system:CMD_PLAN_SYS, prompt:cmdPlanPrompt({ proj:pathBase(cmdRepo()), refs, epics:cmdEpics().map(e=>{ const c=cmdEpicStat(e.id); return { name:e.name, done:c.done, total:c.total }; }), foco, conversa:cmdConversa(!!(o&&o.interno)), pedido:(o&&o.interno)||text, issues:cmdIssuesPrompt(), minReq:+(((typeof ntPolicy!=='undefined'&&ntPolicy)||{}).minRequirements)||0 }) });
     CMD.planMs=Date.now()-t0; P=cmdPlanParse(raw);
     if(P && o && o.semPerguntar) P.passos=P.passos.filter(p=>p.acao!=='perguntar_agente');
     if(P){ P.pedido=text; P.refs=refs.map(r=>({ ref:r.ref, code:r.code, title:r.title })); P.passos.forEach(p=>{ p.alvos=[]; p.faltam=[]; if(p.acao==='criar_demanda') p.origem=(p.tarefas||[]).map(q=>cmdRefTask(q, refs)).filter(Boolean); if(CMD_SEM_TAREFA.has(p.acao)) return;
