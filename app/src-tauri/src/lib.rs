@@ -5506,7 +5506,7 @@ fn comando_agente_inner(app: tauri::AppHandle, prompt: String, system: String, a
         "--setting-sources".to_string(), "".to_string(), "--strict-mcp-config".to_string(),
         "--mcp-config".to_string(), cfg_path.to_string_lossy().to_string(),
         "--tools".to_string(), "".to_string(),
-        "--allowedTools".to_string(), "mcp__starfork__buscar,mcp__starfork__ver,mcp__starfork__agir,mcp__starfork__perguntar_agente".to_string(),
+        "--allowedTools".to_string(), "mcp__starfork__buscar,mcp__starfork__ver,mcp__starfork__agir,mcp__starfork__perguntar_agente,mcp__starfork__olhar_pagina".to_string(),
     ];
     if let Some(sid) = &session_id { args.push("--resume".to_string()); args.push(sid.clone()); }
     push_model(&mut args, &model);
@@ -5514,6 +5514,62 @@ fn comando_agente_inner(app: tauri::AppHandle, prompt: String, system: String, a
     // pasta fixa e neutra: a sessão do claude é guardada por pasta (precisa ser a mesma pra retomar) e não carrega CLAUDE.md de repo nenhum
     cmd.args(&args).current_dir(&dir).env("MCP_TOOL_TIMEOUT", "900000").env("MCP_TIMEOUT", "20000");
     run_claude_stream(&app, cmd, &AGENTE_PID, "AGENTE_STOPPED", 1200, "comando-agente-activity", usage_ledger::Tag::new("comando", &dir, &model, &session_id))
+}
+/// OLHAR A PÁGINA (25/11): fotografa e lê o HTML renderizado de uma página do ambiente LOCAL da tarefa, com um navegador
+/// sem janela (Chrome/Edge/Brave/Chromium já instalado). A foto e o HTML ficam em <worktree>/.cardume/olhar/ pro
+/// porta-voz da tarefa abrir junto com o código. Só endereço local (o mesmo crivo da prévia).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PaginaFoto { png: String, html: String, navegador: String }
+fn navegador_sem_janela() -> Option<(String, String)> {
+    let cands: [(&str, &str); 5] = [
+        ("Chrome", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"), ("Edge", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"),
+        ("Brave", "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"), ("Chromium", "/Applications/Chromium.app/Contents/MacOS/Chromium"), ("Chrome", "/usr/bin/google-chrome"),
+    ];
+    if let Ok(p) = std::env::var("STARFORK_NAVEGADOR") { if PathBuf::from(&p).is_file() { return Some(("navegador".to_string(), p)); } }
+    cands.iter().find(|(_, p)| PathBuf::from(p).is_file()).map(|(n, p)| (n.to_string(), p.to_string()))
+}
+fn roda_com_teto(mut cmd: Command, secs: u64) -> Result<Vec<u8>, String> {
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let mut out = child.stdout.take();
+    let leitor = std::thread::spawn(move || { let mut b = Vec::new(); if let Some(o) = out.as_mut() { use std::io::Read; let _ = o.read_to_end(&mut b); } b });
+    let t0 = std::time::Instant::now();
+    loop {
+        match child.try_wait() { Ok(Some(_)) => break, Ok(None) => {}, Err(e) => return Err(e.to_string()) }
+        if t0.elapsed().as_secs() > secs { let _ = child.kill(); let _ = child.wait(); return Err("o navegador demorou demais pra carregar a página".to_string()); }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+    Ok(leitor.join().unwrap_or_default())
+}
+#[tauri::command(async)]
+fn comando_pagina_foto(state: State<AppState>, task_id: String, url: String) -> Result<PaginaFoto, String> {
+    let url = url.trim().to_string();
+    preview_host_port(&url).map_err(|_| "só olho páginas do ambiente local da tarefa (localhost)".to_string())?;
+    let wt: String = {
+        let db = state.db.lock().unwrap_or_else(|e| e.into_inner()).clone().ok_or("repo não definido")?;
+        let conn = open(&db)?;
+        conn.query_row("SELECT worktree FROM task WHERE id=?1", params![task_id], |r| r.get::<_, Option<String>>(0)).map_err(|e| e.to_string())?.unwrap_or_default()
+    };
+    let wt = PathBuf::from(wt.trim());
+    if wt.as_os_str().is_empty() || !wt.is_dir() { return Err("a pasta desta tarefa não está mais nesta máquina".to_string()); }
+    let (nome, bin) = navegador_sem_janela().ok_or("PAGINA_SEM_NAVEGADOR: não achei Chrome, Edge, Brave nem Chromium instalado pra abrir a página sem janela")?;
+    let dir = wt.join(".cardume").join("olhar");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    // só as 6 fotos mais novas ficam (cada olhada gera um par png+html)
+    if let Ok(rd) = std::fs::read_dir(&dir) { let mut fs: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect(); fs.sort(); let n = fs.len(); if n > 12 { for f in &fs[..n - 12] { let _ = std::fs::remove_file(f); } } }
+    let stamp = now_ms();
+    let png = dir.join(format!("pagina-{stamp}.png")); let html = dir.join(format!("pagina-{stamp}.html"));
+    let perfil = comando_agente_dir().join("navegador-perfil");
+    let base = |extra: &[String]| { let mut c = Command::new(&bin);
+        c.args(["--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--use-mock-keychain", "--password-store=basic", "--window-size=1440,1000", "--virtual-time-budget=8000"]) // sem chaveiro: não trava nem pede senha
+            .arg(format!("--user-data-dir={}", perfil.to_string_lossy())).args(extra).arg(&url); c };
+    roda_com_teto(base(&[format!("--screenshot={}", png.to_string_lossy())]), 45)?;
+    if !png.is_file() { return Err("o navegador não conseguiu fotografar a página (ela respondeu?)".to_string()); }
+    let dom = roda_com_teto(base(&["--dump-dom".to_string()]), 45).unwrap_or_default();
+    let dom: String = String::from_utf8_lossy(&dom).chars().take(400_000).collect();
+    std::fs::write(&html, dom).map_err(|e| e.to_string())?;
+    Ok(PaginaFoto { png: png.to_string_lossy().to_string(), html: html.to_string_lossy().to_string(), navegador: nome })
 }
 /// Pedidos de ferramenta que o agente fez e o app ainda não pegou. Pegar = renomear pra .run (ninguém pega duas vezes).
 #[tauri::command(async)]
@@ -12158,6 +12214,7 @@ pub fn run() {
             comando_agente_stop,
             comando_ponte_ler,
             comando_ponte_responder,
+            comando_pagina_foto,
             comando_portavoz_stop,
             daily_digest,
             ai_daily,

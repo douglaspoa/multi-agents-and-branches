@@ -31,6 +31,10 @@ if (argv.includes("--mcp-config")) {
   else if (/como est[aã]o/i.test(pedido)) texto = "GERAL: " + await ferramenta("ver", { o_que: "geral" });
   else if (/encerra/i.test(pedido)) texto = "RES: " + await ferramenta("agir", { acao: "encerrar", tarefas: ["t1"] });
   else if (/dois passos/i.test(pedido)) { const a = await ferramenta("buscar", { texto: "planilha financeiro" }); const b = await ferramenta("ver", { o_que: "issue", alvo: "LW-301" }); texto = "A: " + a.slice(0, 80) + " B: " + b.slice(0, 120); }
+  else if (/anota/i.test(pedido)) { const a1 = await ferramenta("agir", { acao: "anotar_memoria", titulo: "PR passa por homol", texto: "Todo PR vai pra homol antes da main.", alvo: "regra" }); const a2 = await ferramenta("ver", { o_que: "memoria", alvo: "homol antes da main" }); texto = "ANOTEI: " + a1 + " LI: " + a2; }
+  else if (/skills/i.test(pedido)) texto = "SKILLS: " + await ferramenta("ver", { o_que: "skills" });
+  else if (/olha a p[aá]gina/i.test(pedido)) texto = "OLHEI: " + await ferramenta("olhar_pagina", { tarefa: "t2", caminho: "/pedidos", pergunta: "o que o botão de exportar faz?" });
+  else if (/nome errado/i.test(pedido)) texto = "RES: " + await ferramenta("agir", { acao: "memorizar", texto: "x" });
   else if (/desconhecida/i.test(pedido)) texto = "RES: " + await ferramenta("agir", { acao: "voar", tarefas: [] });
   linha({ type: "assistant", message: { content: [{ type: "text", text: texto }] } });
   linha({ type: "result", subtype: "success", result: texto, session_id: "fake-ag-1", total_cost_usd: 0, usage: { input_tokens: 1, output_tokens: 1 } });
