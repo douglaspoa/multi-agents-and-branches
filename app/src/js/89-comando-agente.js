@@ -4,9 +4,9 @@
 // comando_ponte_ler/responder) e é executada aqui com as MESMAS funções das telas (cmdRunPlan e companhia).
 // @agente-puro-inicio
 /** Ações que pedem o "sim" da pessoa na tela antes de rodar: o que não tem volta fácil ou cria coisa nova. O resto vai direto. */
-const CMD_AG_CONFIRMA=new Set(['encerrar','aprovar','refazer','liberar_teto','abrir_pr','criar_demanda','criar_issue','mandar_time','devolver_cartao','epico_acao','comecar_issue']);
+const CMD_AG_CONFIRMA=new Set(['apagar_memoria','criar_skill','criar_epico','encerrar','aprovar','refazer','liberar_teto','abrir_pr','criar_demanda','criar_issue','mandar_time','devolver_cartao','epico_acao','comecar_issue']);
 /** O que a ferramenta "ver" aceita → a ação interna que desenha/le aquilo. */
-const CMD_AG_VER={ geral:'status', tarefa:'tarefa', issue:'issue', fila_issues:'fila_issues', epicos:'epicos', epico:'epico', plano:'plano', provas:'provas', arquivos:'arquivos', pr_ci:'ci', porque_parou:'porque', o_que_foi_feito:'feito', links:'link',
+const CMD_AG_VER={ geral:'status', tarefa:'tarefa', issue:'issue', fila_issues:'fila_issues', epicos:'epicos', epico:'epico', memoria:'memoria', aprendizados:'aprendizados', skills:'skills', plano:'plano', provas:'provas', arquivos:'arquivos', pr_ci:'ci', porque_parou:'porque', o_que_foi_feito:'feito', links:'link',
   time:'time', entregas:'entregas', uso:'uso', prontas_pra_aprovar:'prontas', conflitos:'radar', esperando_voce:'esperando' };
 /** As ações que entram na ferramenta "agir" (as de leitura ficam na "ver"; perguntar ao agente tem ferramenta própria). Puro. */
 function cmdAgenteAcoes(acoes){ const fora=new Set(Object.values(CMD_AG_VER).concat(['abertas','erros','perguntar_agente','tela','trocar_projeto_x']));
@@ -16,7 +16,7 @@ function cmdAgenteSys(o){ o=o||{};
   return `Você é o Comando do Starfork: o assistente pessoal de quem coordena várias tarefas de software tocadas por agentes de IA. A pessoa conversa com você como conversaria com um colega muito bom: você entende o que ela quer, descobre o que precisa, age e conta o que aconteceu. Ela NÃO deve precisar abrir outra tela, saber códigos de cor nem repetir o que já disse.
 
 COMO VOCÊ TRABALHA
-- Você tem ferramentas: buscar (achar tarefa, issue ou cartão pelo sentido), ver (ler o estado real de qualquer coisa), agir (executar uma ação no app) e perguntar_agente (falar com o porta-voz de uma tarefa). Use quantas precisar, na ordem que fizer sentido, e só responda quando tiver o resultado de verdade.
+- Você tem ferramentas: buscar (achar tarefa, issue ou cartão pelo sentido), ver (ler o estado real de qualquer coisa), agir (executar uma ação no app), perguntar_agente (falar com o porta-voz de uma tarefa) e olhar_pagina (ver uma página do sistema rodando: sobe o ambiente, fotografa a página e o porta-voz responde olhando a foto e o código). Use quantas precisar, na ordem que fizer sentido, e só responda quando tiver o resultado de verdade.
 - A pessoa quase nunca diz o código nem o título inteiro. "a do frete", "aquela do login com google", "a que parou ontem": use buscar com as palavras dela. Um resultado claramente melhor → siga com ele, dizendo qual é. Dois ou três plausíveis → pergunte qual, citando código e título. Só diga que não achou depois de buscar, e diga o que procurou.
 - Cada mensagem chega com um bloco [CONTEXTO DO APP AGORA]: o projeto, um resumo, a tarefa em foco e o que a busca já achou pro que ela disse. Use-o pra não chamar ferramenta à toa — mas nunca afirme um FATO (está pronto, tem PR, passou no CI, quantas provas) sem ter lido com "ver" nesta conversa ou visto no contexto.
 - O selo de uma tarefa ("pronta pra revisar") é só rótulo. O estado de verdade são os fatos: requisitos com prova, plano, PR, CI, última fala do agente. Se a pessoa duvidar ou os fatos não baterem com o selo, confira (ver tarefa, ver pr_ci, perguntar_agente).
@@ -26,10 +26,14 @@ COMO VOCÊ TRABALHA
 - Cada tarefa tem dois agentes: o EXECUTOR (trabalha; recebe "instruir", "responder", "continuar") e o PORTA-VOZ (só lê e responde; "perguntar_agente"). Pra saber, pergunte ao porta-voz. Pra mandar fazer, instrua o executor. Quando a pessoa ditar a instrução, use as palavras dela; quando for você que propõe, seja específico com o que os fatos mostram que falta.
 - Pergunta recebe resposta. Se ela só perguntou, responda com os fatos e pare — não saia mandando o agente fazer coisas que ela não pediu.
 - Só faça o que ela pediu. Se você enxerga um próximo passo útil que ela NÃO pediu (pedir as provas que faltam, corrigir o CI, abrir o PR), OFEREÇA numa pergunta curta no fim ("quer que eu peça as provas ao agente?") — não execute e não diga "vou fazer". E nunca termine dizendo que VAI fazer algo: ou você já fez nesta resposta, com a ferramenta, ou está perguntando se deve.
-- PR, plano, verificação, CI, provas, issues, time, entregas e uso são feitos e respondidos AQUI. Nunca mande a pessoa abrir outra tela; a ação "abrir" (abrir a aba da tarefa) só quando ela pedir pra abrir.
+- "O que o botão X faz na página Y?", "como está ficando a tela Z?", "como dá pra melhorar esse layout?", "sobe o ambiente e me diz…" → olhar_pagina, com o caminho da página (se ela não disser o caminho, deduza pelo nome da tela ou pergunte) e a pergunta com as palavras dela. Só pra subir o ambiente e passar o endereço: agir ambiente_subir.
+- PR, plano, verificação, CI, provas, issues, time, entregas, uso, memória e skills são feitos e respondidos AQUI. Nunca mande a pessoa abrir outra tela; a ação "abrir" (abrir a aba da tarefa) só quando ela pedir pra abrir.
 - "ver" com mostrar=true desenha o cartão no chat. Use quando ela pediu pra VER algo (uma lista, as provas, o diff, o time); o cartão já mostra os detalhes, então sua fala só destaca o que importa. Quando você está só conferindo pra decidir, deixe mostrar=false.
 - Criar tarefa ou issue: monte você o conteúdo inteiro (titulo curto; texto = objetivo completo e autossuficiente pra um agente que não viu a conversa; requisitos = 3 a 8 critérios verificáveis), com o que a conversa e os fatos já dizem. A pessoa confere no cartão.
 - Nunca invente tarefa, código, número ou fato. Se uma ferramenta falhar ou o app não responder, diga isso.
+- VOCÊ SÓ FEZ O QUE A FERRAMENTA CONFIRMOU. Se o resultado de "agir" for erro, "ação desconhecida", "não achei" ou "não deu", a ação NÃO aconteceu: corrija e tente de novo (com o nome certo da ação, que o próprio erro mostra) ou diga à pessoa que não conseguiu e por quê. Nunca responda "feito", "anotado", "enviado" sem um resultado de sucesso na mão.
+- Use os nomes das ações EXATAMENTE como estão na lista da ferramenta "agir" (ex.: anotar_memoria, ligar_skill, abrir_pr, mover_issue) — não invente variações.
+- RESPONDER x INSTRUIR: se a tarefa tem PERGUNTA ABERTA esperando a pessoa e o que ela disse responde a essa pergunta, use agir "responder" (texto = a resposta; com várias perguntas abertas, alvo = o número da pergunta que ela respondeu — uma chamada por pergunta). "instruir" é só pra mandar algo novo ao executor.
 
 COMO VOCÊ FALA
 - Português do Brasil, direto e natural, sem formalidade e sem jargão de sistema. Não presuma o gênero de quem fala.
@@ -49,12 +53,18 @@ function cmdAgenteTurno(o){ o=o||{};
 /** Os argumentos da ferramenta "agir" → um passo do plano que o executor do app entende. Puro. */
 function cmdAgentePasso(a){ a=a||{}; const arr=x=>(Array.isArray(x)?x:(x?[x]:[])).map(v=>String(v||'').trim()).filter(Boolean);
   const p={ acao:String(a.acao||'').trim().toLowerCase(), tarefas:arr(a.tarefas), texto:String(a.texto||'').trim(), alvo:String(a.alvo||'').trim() };
+  // "responder": alvo é o NÚMERO da pergunta. Se a IA pôs o código da tarefa em alvo, ele vai pro lugar certo.
+  if(p.acao==='responder' && !p.tarefas.length && p.alvo && !/^\d{1,2}$/.test(p.alvo)){ p.tarefas=[p.alvo]; p.alvo=''; }
   if(a.titulo) p.titulo=String(a.titulo).replace(/\s+/g,' ').trim().slice(0,90); const rq=arr(a.requisitos).map(x=>x.replace(/\s+/g,' ')).filter(x=>x.length>3).slice(0,12); if(rq.length || p.acao==='criar_demanda' || p.acao==='criar_issue') p.requisitos=rq;
   return p; }
 /** "sim"/"não" dito ou digitado enquanto um cartão de confirmação espera. Puro. → 'sim' | 'nao' | '' */
 function cmdAgenteSimNao(tx){ const s=String(tx||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z ]+/g,' ').replace(/\s+/g,' ').trim(); if(!s || s.split(' ').length>5) return '';
   if(/^(sim|pode|pode sim|pode fazer|pode ir|confirmo|confirma|confirmado|isso|isso mesmo|faz|faca|manda|manda ver|vai|ok|okay|beleza|fechado|certo|exato|claro|por favor)( sim| pode| faz| vai)?$/.test(s)) return 'sim';
   if(/^(nao|nao e isso|nao faz|nao faca|cancela|cancelar|para|espera|deixa|deixa pra la|negativo|errado)( nao| nao faz)?$/.test(s)) return 'nao'; return ''; }
+/** Nome de ação que não existe → mensagem que ENSINA o certo (as parecidas e a lista inteira), pra IA acertar na próxima em vez de chutar. Puro. */
+function cmdAgAcaoErrada(nome, acoes){ const n=String(nome||'').toLowerCase(), ks=Object.keys(acoes||{}).filter(k=>!Object.values(CMD_AG_VER).includes(k) || k==='plano'), toks=n.split(/[^a-z]+/).filter(w=>w.length>=4).map(w=>w.slice(0,5));
+  const per=ks.filter(k=>toks.some(w=>k.includes(w)) || toks.some(w=>String(acoes[k]).toLowerCase().includes(w))).slice(0,6);
+  return 'Ação desconhecida: “'+nome+'”. NADA foi feito.'+(per.length?' Você quis dizer: '+per.map(k=>k+' ('+String(acoes[k]).slice(0,70)+')').join('; ')+'?':'')+' Nomes válidos: '+ks.join(', ')+'.'; }
 // @agente-puro-fim
 
 const CMDAG={ on:false, laco:0, fila:Promise.resolve(), msg:null, espera:null, semFerramentas:false };
@@ -74,7 +84,8 @@ function cmdAgAlvos(p, incluiEncerradas){ const refs=cmdRefs(), todas=incluiEnce
   (p.tarefas||[]).forEach(q=>{ if(/^(todas|tudo)$/i.test(q)) return; let r=cmdRefTask(q, todas);
     if(!r){ const d=cmdBuscaDecide(cmdBusca(q, todas.map(x=>({ tipo:'tarefa', code:x.code||x.ref, id:x.id, title:x.title, text:'' })), 4)); if(d && d.um) r=todas.find(x=>x.id===d.um.id)||null; }
     if(r && !p.alvos.some(a=>a.id===r.id)) p.alvos.push(r); else if(!r) p.faltam.push(q); });
-  if(!p.alvos.length && !(p.tarefas||[]).length && p.alvo && !['abrir_pr','liberar_teto','epico','epico_acao'].includes(p.acao)){ const r=cmdRefTask(p.alvo, todas); if(r) p.alvos.push(r); } // "alvo" usado no lugar de "tarefas"
+  if(!p.alvos.length && !(p.tarefas||[]).length && p.alvo && !['abrir_pr','liberar_teto','epico','epico_acao','responder'].includes(p.acao)){ const r=cmdRefTask(p.alvo, todas); if(r) p.alvos.push(r); }
+  if(p.acao==='responder' && !p.alvos.length && !(p.tarefas||[]).length && CMD.sel){ const r=todas.find(x=>x.id===CMD.sel); if(r) p.alvos.push(r); } // respondeu sem repetir a tarefa: é a que está em foco // "alvo" usado no lugar de "tarefas"
   return p; }
 /** Roda um passo pelo MESMO executor dos planos e devolve, em texto, o que apareceu no chat por causa dele. */
 async function cmdAgRoda(p, o){ o=o||{}; const ms=cmdMsgs(), n0=ms.length;
@@ -103,26 +114,43 @@ async function cmdAgFerramenta(req){ const a=req.args||{}, t=req.tool;
       if(p.faltam.length) return 'Não achei a tarefa “'+p.faltam.join(', ')+'”. Use buscar pra achar o código.';
       if(acao==='tarefa' && p.alvos.length){ const tk=cmdTask(p.alvos[0].id)||cmdAllTasks().find(x=>x.id===p.alvos[0].id); if(!tk) return 'Essa tarefa não está nesta máquina.'; CMD.sel=tk.id;
         if(cmdTask(tk.id)){ try{ await cmdProvasFrescas(tk.id, 8000); }catch(_){ } if(!cmdHistReady(tk.id)){ try{ await cmdHistFetch(tk.id); }catch(_){ } } }
-        let ctx=''; try{ ctx=cmdTaskContext(tk); }catch(_){ } if(mostrar){ cmdMsgs().push({ r:'bot', k:'tarefa', id:tk.id }); cmdPaint(true); } return ctx||('Tarefa '+(cmdCode(tk)||tk.id)+': '+stLabel(taskSt(tk))); }
+        let ctx=''; try{ ctx=cmdTaskContext(tk); }catch(_){ } { const q=cmdTask(tk.id)?cmdPerguntasAbertas(tk):[]; if(q.length) ctx+='\nPERGUNTAS ABERTAS esperando a pessoa ('+q.length+'):\n'+q.join('\n'); } if(mostrar){ cmdMsgs().push({ r:'bot', k:'tarefa', id:tk.id }); cmdPaint(true); } return ctx||('Tarefa '+(cmdCode(tk)||tk.id)+': '+stLabel(taskSt(tk))); }
       if(!CMD_SEM_TAREFA.has(acao) && !p.alvos.length && ['plano','provas','arquivos','ci','porque','feito','link','tarefa'].includes(acao)) return 'Diga de qual tarefa (alvo = código). Use buscar se não souber o código.';
       return await cmdAgRoda(p, { silencio:!mostrar }); }
-    if(t==='agir'){ const p=cmdAgentePasso(a); if(!CMD_ACOES[p.acao]) return 'Ação desconhecida: “'+p.acao+'”. Veja a lista na descrição da ferramenta.';
+    if(t==='agir'){ const p=cmdAgentePasso(a); if(!CMD_ACOES[p.acao]) return cmdAgAcaoErrada(p.acao, CMD_ACOES);
       if(Object.values(CMD_AG_VER).includes(p.acao) && !['plano','checks'].includes(p.acao)) return 'Isso é leitura: use a ferramenta "ver".';
       cmdAgAlvos(p, false); if(p.faltam.length) return 'Não achei estas tarefas abertas: '+p.faltam.join(', ')+'. Use buscar pra achar o código certo (tarefa encerrada não aceita essa ação).';
       cmdAgAtividade((CMD_ACAO_TX[p.acao]||p.acao)+(p.alvos.length?' '+p.alvos.map(x=>x.code||x.ref).join(', '):p.alvo?' '+p.alvo:'')+'…');
+      if(p.acao==='ambiente_subir'){ if(!p.alvos.length) return 'Diga de qual tarefa subir o ambiente.'; const r=await cmdAgAmbiente(p.alvos[0].id); return r.url?`Ambiente da ${p.alvos[0].code||p.alvos[0].ref} ${r.jaEstava?'já estava':'está'} no ar: ${r.url}`:'Não consegui subir o ambiente: '+r.erro; }
       if(CMD_AG_CONFIRMA.has(p.acao)){ const ms=cmdMsgs(), m={ r:'bot', k:'plano', agente:true, plan:{ passos:[p], pedido:'', fala:'', duvida:'', refs:[] } }, n0=ms.length; ms.push(m); CMDAG.espera=m; cmdAgAtividade('esperando a sua confirmação…'); cmdPaint(true); if(typeof cmdAgFalaConfirma==='function') cmdAgFalaConfirma(p);
         const t0=Date.now(); while(m.done!=='sim' && m.done!=='nao' && CMDAG.on && Date.now()-t0<12*60000) await new Promise(r=>setTimeout(r, 200)); CMDAG.espera=null;
         if(m.done==='nao') return 'A pessoa RECUSOU no cartão de confirmação. Nada foi feito. Pergunte o que ela quer mudar.'; if(m.done!=='sim'){ m.done='nao'; cmdPaint(true); return 'A pessoa não confirmou a tempo. Nada foi feito.'; }
         return 'A pessoa confirmou. '+(ms.slice(n0+1).map(cmdAgMsgTx).filter(Boolean).join('\n')||'Feito.'); }
       return await cmdAgRoda(p); }
     if(t==='perguntar_agente'){ const p=cmdAgAlvos({ acao:'perguntar_agente', tarefas:[a.tarefa], texto:a.pergunta||'' }, false); if(!p.alvos.length) return 'Não achei a tarefa “'+(a.tarefa||'')+'” entre as abertas. Use buscar.';
-      const id=p.alvos[0].id; cmdAgAtividade('perguntando ao porta-voz da '+(p.alvos[0].code||p.alvos[0].ref)+'…'); const t0=Date.now(); while(CMD.asking && Date.now()-t0<30000) await new Promise(r=>setTimeout(r, 300));
-      const antes=cmdThreadDe(id), nAntes=antes&&antes.turns?antes.turns.length:0; await cmdConferir(id, String(a.pergunta||'Como esta tarefa está de verdade agora?'));
-      const th=cmdThreadDe(id); if(!th) return 'Não consegui falar com o porta-voz dessa tarefa.'; const t1=Date.now(); while(th.state==='wait' && CMDAG.on && Date.now()-t1<6*60000) await new Promise(r=>setTimeout(r, 400));
-      const falas=(th.turns||[]).slice(nAntes).filter(x=>x.w!=='cmd' && x.w!=='you').map(x=>x.tx).filter(Boolean); return (falas.length?falas.join('\n'):th.text)||'O porta-voz não respondeu.'; }
+      cmdAgAtividade('perguntando ao porta-voz da '+(p.alvos[0].code||p.alvos[0].ref)+'…'); return await cmdAgPortaVoz(p.alvos[0].id, String(a.pergunta||'Como esta tarefa está de verdade agora?')); }
+    if(t==='olhar_pagina'){ const p=cmdAgAlvos({ acao:'perguntar_agente', tarefas:[a.tarefa], texto:'' }, false); if(!p.alvos.length) return 'Não achei a tarefa “'+(a.tarefa||'')+'” entre as abertas. Use buscar.';
+      const id=p.alvos[0].id, code=p.alvos[0].code||p.alvos[0].ref; cmdAgAtividade('subindo o ambiente da '+code+'…'); const amb=await cmdAgAmbiente(id); if(!amb.url) return 'Não consegui subir o ambiente da '+code+': '+amb.erro;
+      let url; try{ url=new URL(String(a.caminho||'/').trim()||'/', amb.url).toString(); }catch(_){ url=amb.url; }
+      cmdAgAtividade('abrindo '+url.replace(/^https?:\/\//,'')+' e tirando a foto…'); let f; try{ f=await invoke('comando_pagina_foto',{ taskId:id, url }); }catch(e){ return 'O ambiente está no ar em '+amb.url+', mas não consegui fotografar a página '+url+': '+String((e&&e.message)||e).slice(0,240); }
+      cmdAgAtividade('o porta-voz da '+code+' está olhando a página e o código…');
+      const resp=await cmdAgPortaVoz(id, `A pessoa quer saber sobre a página ${url} do ambiente desta tarefa, que está rodando agora.\n- FOTO da página (abra com a ferramenta Read — é uma imagem PNG de 1440×1000): ${f.png}\n- HTML renderizado da página (depois do JavaScript): ${f.html}\nOlhe a foto, leia o HTML e ache no CÓDIGO desta branch o componente/rota que desenha essa página.\n\nPERGUNTA DA PESSOA: ${String(a.pergunta||'').trim()}\n\nResponda com o que você VIU na foto e no código (cite o arquivo). Se a foto mostrar tela de login, erro ou página em branco em vez da página pedida, diga isso primeiro e o que seria preciso pra chegar nela.`);
+      return `Página olhada: ${url} (ambiente em ${amb.url}).\n${resp}`; }
     return 'Ferramenta desconhecida.';
   }catch(e){ return 'Deu erro ao executar no app: '+String((e&&e.message)||e).slice(0,300); }
 }
+/** Pergunta ao porta-voz de uma tarefa e ESPERA a resposta (até 6 min). Devolve o texto dele. */
+async function cmdAgPortaVoz(id, pergunta){ const t0=Date.now(); while(CMD.asking && Date.now()-t0<30000) await new Promise(r=>setTimeout(r, 300));
+  const antes=cmdThreadDe(id), nAntes=antes&&antes.turns?antes.turns.length:0; await cmdConferir(id, pergunta);
+  const th=cmdThreadDe(id); if(!th) return 'Não consegui falar com o porta-voz dessa tarefa.'; const t1=Date.now(); while(th.state==='wait' && CMDAG.on && Date.now()-t1<6*60000) await new Promise(r=>setTimeout(r, 400));
+  const falas=(th.turns||[]).slice(nAntes).filter(x=>x.w!=='cmd' && x.w!=='you').map(x=>x.tx).filter(Boolean); return (falas.length?falas.join('\n'):th.text)||'O porta-voz não respondeu.'; }
+/** Sobe o ambiente (prévia) da tarefa e ESPERA ficar no ar. → { url } | { erro } — sem abrir aba nenhuma. */
+async function cmdAgAmbiente(id){ if(typeof envSt!=='function') return { erro:'a prévia não está disponível nesta versão' }; const s=envSt(id);
+  if(s.view && s.view.ready && s.view.url) return { url:s.view.url, jaEstava:true };
+  const t0=Date.now(); while(s.busy && Date.now()-t0<180000) await new Promise(r=>setTimeout(r, 500)); if(s.view && s.view.ready && s.view.url) return { url:s.view.url };
+  s.busy=true; try{ const v=await invoke('env_up',{ taskId:id, main:false }); s.view=Object.assign({}, s.view||{}, v||{}); if(v && v.ready && v.url){ if(!cmdMsgs().some(m=>m.k==='ambiente' && m.id===id)) cmdMsgs().push({ r:'bot', k:'ambiente', id }); cmdPaint(true); return { url:v.url }; }
+    return { erro:'o ambiente não ficou pronto'+(v&&v.fail?' ('+String(v.fail.msg||v.fail.code||'').slice(0,160)+')':'') }; }
+  catch(e){ return { erro:String((e&&e.message)||e).slice(0,300) }; } finally{ s.busy=false; try{ if(typeof envPaint==='function') envPaint(id); }catch(_){ } } }
 function cmdAgLaco(){ clearInterval(CMDAG.laco); CMDAG.laco=setInterval(()=>{ if(!CMDAG.on) return; invoke('comando_ponte_ler').then(L=>{ (L||[]).forEach(req=>{ CMDAG.fila=CMDAG.fila.then(async()=>{ const texto=await cmdAgFerramenta(req); try{ cmdLog({ via:'ferramenta', pedido:req.tool+' '+JSON.stringify(req.args||{}).slice(0,300), res:String(texto).slice(0,200) }); }catch(_){ }
       await invoke('comando_ponte_responder',{ id:req.id, texto:String(texto) }).catch(()=>{}); cmdAgAtividade('pensando…'); }); }); }).catch(()=>{}); }, 200); }
 /** Frase curta lida em voz alta quando um cartão de confirmação aparece (a pessoa pode responder "sim" falando). */

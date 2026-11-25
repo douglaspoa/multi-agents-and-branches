@@ -2,7 +2,7 @@
 import test from 'node:test'; import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const corta = (f, a, b) => { const s = readFileSync(new URL(f, import.meta.url), 'utf8'); return s.slice(s.indexOf(a), s.indexOf(b)); };
 const P = new Function(corta('../src/js/89-comando.js', '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { CMD_ACOES, CMD_MUTA };')();
-const A = new Function(corta('../src/js/89-comando-agente.js', '// @agente-puro-inicio', '// @agente-puro-fim') + '\nreturn { CMD_AG_CONFIRMA, CMD_AG_VER, cmdAgenteAcoes, cmdAgenteSys, cmdAgenteTurno, cmdAgentePasso, cmdAgenteSimNao };')();
+const A = new Function(corta('../src/js/89-comando-agente.js', '// @agente-puro-inicio', '// @agente-puro-fim') + '\nreturn { CMD_AG_CONFIRMA, CMD_AG_VER, cmdAgenteAcoes, cmdAgenteSys, cmdAgenteTurno, cmdAgentePasso, cmdAgenteSimNao, cmdAgAcaoErrada };')();
 
 test('toda leitura da ferramenta "ver" aponta pra uma ação que existe, e toda confirmação é de ação que mexe', () => {
   Object.values(A.CMD_AG_VER).forEach(a => assert.ok(P.CMD_ACOES[a], 'ação de leitura inexistente: ' + a));
@@ -23,10 +23,15 @@ test('modo voz muda só o jeito de falar', () => { assert.doesNotMatch(A.cmdAgen
 test('argumentos da ferramenta viram um passo limpo', () => {
   assert.deepEqual(A.cmdAgentePasso({ acao:' Instruir ', tarefas:'LW-1', texto:' use dados fictícios ' }), { acao:'instruir', tarefas:['LW-1'], texto:'use dados fictícios', alvo:'' });
   const c = A.cmdAgentePasso({ acao:'criar_issue', titulo:'Boleto  parcelado', requisitos:['Até 3 vezes', '', 'ok'] }); assert.equal(c.titulo, 'Boleto parcelado'); assert.deepEqual(c.requisitos, ['Até 3 vezes']);
+  assert.deepEqual(A.cmdAgentePasso({ acao:'responder', alvo:'LW-1168', texto:'pode' }).tarefas, ['LW-1168']); assert.equal(A.cmdAgentePasso({ acao:'responder', alvo:'2', texto:'homol' }).alvo, '2'); assert.deepEqual(A.cmdAgentePasso({ acao:'responder', alvo:'2', texto:'homol' }).tarefas, []);
   assert.deepEqual(A.cmdAgentePasso({ acao:'criar_demanda' }).requisitos, []); assert.equal(A.cmdAgentePasso({ acao:'parar' }).requisitos, undefined);
 });
 test('"sim" e "não" falados ou digitados valem como o clique — frase comprida não', () => {
   ['sim', 'Sim!', 'pode', 'pode fazer', 'isso mesmo', 'manda ver', 'ok', 'confirmo'].forEach(x => assert.equal(A.cmdAgenteSimNao(x), 'sim', x));
   ['não', 'nao', 'cancela', 'não é isso', 'deixa pra lá', 'espera'].forEach(x => assert.equal(A.cmdAgenteSimNao(x), 'nao', x));
   ['sim, mas troca o título pra outro', 'como está a 1228?', '', 'talvez'].forEach(x => assert.equal(A.cmdAgenteSimNao(x), '', x));
+});
+test('nome de ação errado ensina o certo', () => {
+  const e = A.cmdAgAcaoErrada('memorizar', P.CMD_ACOES); assert.match(e, /NADA foi feito/); assert.match(e, /anotar_memoria/); assert.match(e, /Nomes válidos: .*abrir_pr/);
+  assert.match(A.cmdAgAcaoErrada('voar', P.CMD_ACOES), /Nomes válidos/);
 });

@@ -56,6 +56,20 @@ try{
   await ok('agente: dois passos na mesma resposta (buscar → ver)', /A: \[issue\] LW-301/.test(fala(L)) && /B: Issue LW-301/.test(fala(L)), fala(L).slice(0,200));
   L=await pede('ação desconhecida');
   await ok('agente: ação que não existe volta como erro pro agente, sem executar nada', /RES: Ação desconhecida/.test(fala(L)), fala(L).slice(0,120));
+  L=await pede('anota isso na memória');
+  await ok('agente: anota na memória do projeto (grava de verdade) e lê de volta pelo assunto', /ANOTEI: .*Anotei na memória/.test(fala(L)) && /LI: .*PR passa por homol/.test(fala(L)) && /Todo PR vai pra homol/.test(fala(L)), fala(L).slice(0,260));
+  { let n=[]; try{ n=((await invoke('memory_list',{ repo:cmdRepo(), withBody:true }))||{}).notes||[]; }catch(_){ } await ok('agente: a nota está na memória do projeto, como regra', n.some(x=>x.title==='PR passa por homol' && x.type==='regra'), n.map(x=>x.title+'/'+x.type).join(', ')); }
+  L=await pede('quais skills?');
+  await ok('agente: "ver skills" responde (lista ou biblioteca vazia)', /SKILLS: (.*Skills \(|.*Nenhuma skill)/.test(fala(L)), fala(L).slice(0,140));
+  L=await pede('usa um nome errado');
+  await ok('agente: nome de ação errado volta ensinando o certo', /NADA foi feito/.test(fala(L)) && /anotar_memoria/.test(fala(L)), fala(L).slice(0,160));
+  L=await pede('olha a página de pedidos');
+  await ok('agente: olhar página sem ambiente disponível devolve o motivo, sem travar', /OLHEI: Não consegui subir o ambiente/.test(fala(L)), fala(L).slice(0,200));
+  { let e1=''; try{ await invoke('comando_pagina_foto',{ taskId:'t2', url:'https://example.com/' }); }catch(e){ e1=String((e&&e.message)||e); }
+    await ok('foto de página: recusa endereço que não é local', /local/.test(e1), e1.slice(0,90));
+    let f=null, e2=''; const t0=Date.now(); try{ f=await invoke('comando_pagina_foto',{ taskId:'t2', url:'http://127.0.0.1:4191/pedidos.html' }); }catch(e){ e2=String((e&&e.message)||e); }
+    await ok('foto de página: fotografa e lê uma página local de verdade, sem janela', !!(f && /\.png$/.test(f.png) && /\.html$/.test(f.html)), f?('em '+Math.round((Date.now()-t0)/1000)+' s com '+f.navegador):e2.slice(0,160));
+    if(f) await R('FOTO '+f.png+' '+f.html); }
   // confirmação: recusa DIGITANDO "não" (é o mesmo caminho da voz)
   { const n=cmdMsgs().length; const pr=cmdSay('encerra a t1'); const card=await until(()=>cmdMsgs().slice(n).find(m=>m.k==='plano' && m.agente && !m.done), 20000);
     await ok('agente: ação sem volta mostra o cartão e ESPERA', !!card && !taskEncerrada(T('t1')), card?'cartão na tela':'sem cartão');
