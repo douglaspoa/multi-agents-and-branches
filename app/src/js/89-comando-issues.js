@@ -25,9 +25,10 @@ function cmdPessoaDe(pessoas, txt, eu){
 function cmdIssueDesc(texto, requisitos){ const r=(requisitos||[]).map(x=>String(x||'').trim()).filter(Boolean); return String(texto||'').trim()+(r.length?'\n\nRequisitos:\n'+r.map(x=>'- '+x).join('\n'):''); }
 
 function cmdIssueAcha(alvo){ const q=String(alvo||'').trim(); if(!q) return null; let i=cmdIssue(q.toUpperCase().replace(/\s+/g,'-')); if(i) return i;
-  const n=cmdIsN(q), num=(q.match(/\d+/)||[])[0]; const L=(typeof trkIssues!=='undefined'&&trkIssues)||[];
+  const L=(typeof trkIssues!=='undefined'&&trkIssues)||[], num=(q.match(/\d+/)||[])[0];
   if(num){ const c=L.filter(x=>String(x.code).replace(/\D/g,'')===num); if(c.length===1) return c[0]; }
-  const c=L.filter(x=>n.length>=4 && cmdIsN(x.title).includes(n)); return c.length===1?c[0]:null; }
+  const R=cmdBusca(q, L.map(x=>({ tipo:'issue', code:x.code, title:x.title||'', text:String(x.description||'').slice(0,1200) })), 5), d=cmdBuscaDecide(R); if(!d) return null;
+  if(d.um) return cmdIssue(d.um.code); return { varios:d.varios.map(v=>cmdIssue(v.code)).filter(Boolean) }; }
 
 /** Executa UMA ação de issue. p: passo do plano; say: fala curta. */
 async function cmdIssuesDo(p, say){
@@ -39,7 +40,8 @@ async function cmdIssuesDo(p, say){
       let extra; if(p.alvo){ const eu=trkCtx().email, w=cmdPessoaDe(trkPeopleList(), p.alvo, eu); if(w && !w.varios) extra={ assignee:w.id }; }
       const i=await trkCreateIssue(tit, cmdIssueDesc(p.texto, p.requisitos), '', extra); try{ if(typeof issRender==='function') issRender(); }catch(_){ }
       cmdMsgs().push({ r:'bot', k:'issok', code:i.code||'', titulo:tit, url:i.url||'', tx:'Issue criada'+(extra?' e atribuída':'')+'.' }); return cmdPaint(true); }
-    const i=cmdIssueAcha(p.alvo||(p.tarefas||[])[0]); if(!i) return say('Não achei a issue “'+(p.alvo||(p.tarefas||[])[0]||'')+'” no painel. Me diga o código.');
+    const i=cmdIssueAcha(p.alvo||(p.tarefas||[])[0]); if(!i) return say('Procurei “'+(p.alvo||(p.tarefas||[])[0]||'')+'” no título e na descrição das '+((typeof trkIssues!=='undefined'&&trkIssues)||[]).length+' issues do painel e nada combinou. Me dê outra pista (uma palavra do título, o número, quem está com ela).');
+    if(i.varios){ cmdMsgs().push({ r:'bot', k:'issqual', acao:p.acao, texto:p.texto||'', itens:i.varios.map(x=>({ code:x.code, title:x.title||'' })) }); return cmdPaint(true); }
     if(p.acao==='issue'){ cmdMsgs().push({ r:'bot', k:'issdet', code:i.code }); return cmdPaint(true); }
     if(p.acao==='mover_issue'){ const s=cmdStatusDe(sts, p.texto); if(!s) return say('Não achei o status “'+(p.texto||'')+'”. Os do painel são: '+sts.map(x=>x.label||x.id).join(', ')+'.');
       if(i.status===s.id) return say(`A ${i.code} já está em ${s.label||s.id}.`); await trkMove(i.code, s.id);
@@ -64,6 +66,8 @@ function cmdIssDetHtml(m){ const i=cmdIssue(m.code); if(!i) return `<p>Não ache
   const desc=String(sp.objective||'').trim().slice(0,700);
   return `<div class="cmdciclo"><div class="cmdciclo-h"><b>${esc(i.title||i.code)}</b> <span class="mono cmdhint">${esc(i.code)}</span></div><p>${esc((s&&(s.label||s.id))||i.status||'—')} · ${esc(who)}${t?' · já é tarefa aberta':' · ainda não virou tarefa'}</p>${desc?`<p class="cmdhint" style="white-space:pre-wrap">${esc(desc)}</p>`:''}${(sp.reqs||[]).length?`<ul class="cmdciclo-l">${sp.reqs.slice(0,10).map(r=>`<li>· ${esc(r)}</li>`).join('')}</ul>`:''}
     <div class="cmdacts">${t?`<button type="button" class="btn sm primary" data-cmdchip="${escA('como está a '+i.code+'?')}">Ver a tarefa</button>`:`<button type="button" class="btn sm primary" data-cmdchip="${escA('começa a '+i.code)}">Começar agora</button>`}<button type="button" class="btn sm quiet" data-cmdpre="${escA('move a '+i.code+' pra ')}">Mover…</button><button type="button" class="btn sm quiet" data-cmdpre="${escA('atribui a '+i.code+' pra ')}">Atribuir…</button><button type="button" class="btn sm quiet" data-cmdpre="${escA('comenta na '+i.code+': ')}">Comentar…</button>${i.url?`<button type="button" class="btn sm quiet" data-cmdlk="${escA(i.url)}">Abrir no painel ↗</button>`:''}</div></div>`; }
+function cmdIssQualHtml(m){ const frase=c=>({ issue:'o que diz a '+c+'?', mover_issue:'move a '+c+' pra '+(m.texto||''), atribuir_issue:'atribui a '+c+' pra '+(m.texto||''), comentar_issue:'comenta na '+c+': '+(m.texto||''), mandar_time:'manda a '+c+' pro time'+(m.texto?' com '+m.texto:'') })[m.acao]||('o que diz a '+c+'?');
+  return `<div class="cmdciclo"><div class="cmdciclo-h"><b>Qual destas?</b></div><div class="cmdisss">${(m.itens||[]).map(i=>`<button type="button" class="btn sm quiet" style="justify-content:flex-start;text-align:left" data-cmdchip="${escA(frase(i.code))}"><span class="mono">${esc(i.code)}</span>&nbsp; ${esc(String(i.title).slice(0,80))}</button>`).join('')}</div></div>`; }
 function cmdIssOkHtml(m){ return `<div class="cmdciclo"><div class="cmdciclo-h"><b>${esc(m.titulo||'')}</b>${m.code?` <span class="mono cmdhint">${esc(m.code)}</span>`:''}</div><p>${esc(m.tx||'')}</p><div class="cmdacts">${m.code?`<button type="button" class="btn sm primary" data-cmdchip="${escA('começa a '+m.code)}">Começar agora</button><button type="button" class="btn sm quiet" data-cmdpre="${escA('manda a '+m.code+' pro time com ')}">Mandar pro time…</button>`:''}${m.url?`<button type="button" class="btn sm quiet" data-cmdlk="${escA(m.url)}">Abrir no painel ↗</button>`:''}</div></div>`; }
 
 /** Issue sem os requisitos que o time exige: a IA tira os critérios da descrição e o cartão de confirmação mostra a tarefa inteira. */
