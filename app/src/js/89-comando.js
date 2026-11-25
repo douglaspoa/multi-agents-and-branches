@@ -219,18 +219,12 @@ function cmdPlanParse(text){
   return { fala:String(o.fala||'').trim(), duvida:String(o.duvida||'').trim(), passos };
 }
 /** O pedido pra IA planejar. o: { proj, refs:[{ ref, code, title, st, criada, mexida, proj, foco, q }], epics:[{ name, done, total }], foco, conversa:[texto], pedido } */
-function cmdPlanPrompt(o){
-  const T=(o.refs||[]).map(r=>`- ${r.ref}${r.code&&r.code!==r.ref?' ('+r.code+')':''} "${r.title}" — ${r.st}${r.proj?' · projeto '+r.proj:''}${r.criada?' · criada '+r.criada:''}${r.mexida?' · mexida '+r.mexida:''}${r.fatos?' · FATOS: '+r.fatos:''}${r.q?' · PERGUNTA ABERTA esperando a pessoa: «'+cmdUma(r.q)+'»'+((r.ops||[]).length?' opções: '+r.ops.map((x,i)=>(i+1)+') '+cmdUma(x)).join(' | '):''):''}${r.foco?' · [EM FOCO]':''}`);
-  const E=(o.epics||[]).map(e=>`- épico "${e.name}" — ${e.done} de ${e.total} tarefas entregues`);
+/** As REGRAS do planejador (parte fixa: ações, formato e regras). Vai como instrução de sistema — nunca é cortada pelos dados. */
+function cmdPlanRegras(o){ o=o||{};
   return `Transforme o pedido da pessoa num PLANO de ações do app.
 
 AÇÕES (use exatamente estes nomes):
 ${Object.keys(CMD_ACOES).map(k=>'- '+k+': '+CMD_ACOES[k]).join('\n')}
-
-TAREFAS${o.proj?' (projeto aberto: '+o.proj+')':''}:
-${T.length?T.join('\n'):'(nenhuma tarefa aberta)'}
-${E.length?'\nÉPICOS:\n'+E.join('\n')+'\n':''}${(o.issues||[]).length?'\nISSUES DO PAINEL que ainda não são tarefa (código "título" — status · responsável):\n'+o.issues.map(i=>`- ${i.code} "${i.title}" — ${i.st||'?'}${i.who?' · '+i.who:''}`).join('\n')+'\n':''}${o.foco?'\nTAREFA EM FOCO (a última de que a conversa tratou), em detalhe:\n'+o.foco+'\n':''}${(o.conversa||[]).length?'\nCONVERSA ATÉ AQUI:\n'+o.conversa.join('\n')+'\n':''}
-PEDIDO DA PESSOA: ${o.pedido}
 
 Responda SOMENTE com um objeto JSON, sem texto antes ou depois:
 {"fala":"...","passos":[{"acao":"...","tarefas":["..."],"texto":"...","alvo":"..."}],"duvida":""}
@@ -246,7 +240,7 @@ REGRAS:
 - Pra MOSTRAR tarefas (quais estão abertas, o que espera a pessoa, como está tal tarefa) use um passo ("abertas", "status", "esperando", "erros", "tarefa"…): o app desenha a lista. NUNCA liste tarefas em texto corrido dentro de "fala".
 - "fala" tem no máximo 2 frases curtas. Se precisar enumerar algo que não é tarefa, use lista markdown (uma linha "- item" por item). Nunca escreva os identificadores T1, T2… em "fala" ou "duvida": cite o título.
 - PR, PLANO, VERIFICAÇÃO E CI SÃO FEITOS AQUI, sem abrir outra tela: "abre o PR", "preciso do PR de homol", "PR pra develop" → abrir_pr com alvo = a branch de destino dita (sem destino dito, deixe alvo vazio). NUNCA use "instruir" pra pedir PR ao agente — o app abre. Pedido de PR é SEMPRE o passo abrir_pr na tarefa em foco, mesmo que faltem provas ou a tarefa não esteja pronta: avise isso em "fala" e devolva o passo — não troque por pedir_prova, não pergunte se pode. "aprova o plano" / "pode seguir com o plano" → aprovar_plano; "qual o plano dela?" → plano; mudar o plano = instruir com o ajuste. "roda os testes / a verificação" → checks. "como está o PR / o CI / abriu o PR?" → ci. "corrige o CI" → corrigir_ci. "faz as provas / faltam provas" → pedir_prova. "resolve o conflito" → resolver_conflito. "começa / inicia a tarefa X" (rascunho) → iniciar.
-- TIME, ENTREGAS E USO são respondidos aqui, com cartão — NÃO use "tela" pra isso: "quem está com o quê / como está o time / o que o João está fazendo" → time; "o que foi entregue hoje / essa semana" → entregas com o período em texto; "quanto gastei / quanto custou essa semana" → uso. "passa o cartão X pro João" / "eu assumo a X" → passar_cartao; "devolve a X pro time porque …" → devolver_cartao com o motivo em texto.
+- TIME, ENTREGAS E USO são respondidos aqui, com cartão — NÃO use "tela" pra isso: "quem está com o quê / como está o time / o que o João está fazendo" → time; "o que foi entregue hoje / essa semana" → entregas com o período em texto; "quanto gastei / quanto custou essa semana" → uso. "passa o cartão X pro João" / "eu assumo a X" → passar_cartao; "devolve a X pro time porque …" → devolver_cartao com o motivo em texto. Em passar_cartao e devolver_cartao, alvo = o código do cartão se ele aparecer nos ACHADOS, senão as palavras da pessoa que identificam o cartão ("exportação em CSV"): NÃO pergunte se o cartão existe — devolva o passo, o app procura no quadro do time e avisa se não achar.
 - ISSUES DO PAINEL são feitas aqui: "move a ABC-12 pra em andamento" → mover_issue; "passa a ABC-12 pro João" / "fica comigo" → atribuir_issue; "comenta na ABC-12: …" → comentar_issue; "cria uma issue pra …" (sem começar agora) → criar_issue com titulo, texto e requisitos; "manda a ABC-12 pro time / pro João fazer" → mandar_time; "o que diz a ABC-12?" (issue que ainda não é tarefa) → issue. Em todas, alvo = o código da issue, do jeito que a pessoa disse. Um código que não está na lista de TAREFAS pode ser uma issue do painel: nas ações de issue NÃO pergunte se o código existe — devolva o passo, o app confere no painel e avisa se não achar. Uma issue que JÁ é tarefa aberta segue as ações de tarefa.
 - CRIAR TAREFA (criar_demanda): monte a tarefa INTEIRA você mesmo, com o que a conversa e os FATOS já dizem — a pessoa não vai preencher formulário. "titulo": nome curto do que será feito. "texto": o objetivo completo e autossuficiente (o que fazer, por quê, o que já existe e deve ser reaproveitado, o que NÃO é pra fazer), escrito pra um agente que não viu esta conversa. "requisitos": de ${Math.max(3, +o.minReq||0)} a 8 critérios VERIFICÁVEIS de pronto, concretos (comportamento observável, não "funcionar bem"). "tarefas": o código da tarefa de origem quando a nova continua ou substitui outra (ex.: "a 40 é um mock, agora a versão real" → tarefas:["ABC-40"]); ela vira referência da nova. Se a pessoa já disse o que quer, NÃO pergunte "posso abrir?" em "fala" nem em "duvida": devolva o passo, o cartão de confirmação mostra tudo. Só use "duvida" se faltar saber O QUE construir.
 - "fala" é o que você diz pra pessoa, curto, em português. Se o pedido for uma pergunta sobre as tarefas que dá pra responder com o que está acima, responda em "fala" e deixe "passos" vazio. Se exigir ler o código, use "ler_codigo".
@@ -262,8 +256,37 @@ REGRAS:
 - "perguntar_agente" com VÁRIAS tarefas no mesmo passo vira uma conversa só, com uma conclusão no fim: não crie um passo por tarefa.
 - RESPOSTA A PERGUNTA ABERTA: se uma tarefa tem "PERGUNTA ABERTA" e a mensagem da pessoa serve de resposta a ela — mesmo curta ("a primeira", "liguei a vpn", "sim", "a 2") — use "responder" nessa tarefa. "texto" = o texto EXATO da opção escolhida, quando ela escolheu uma; senão as palavras dela, exatamente.
 - REPASSE: quando a CONVERSA mostra que o agente de uma tarefa perguntou ou disse algo e a pessoa está RESPONDENDO a ele (uma decisão, um "pode", um "faz assim"), entregue a resposta ao agente: "responder" se a tarefa tem pergunta aberta, senão "instruir", com "texto" = as palavras da pessoa, EXATAMENTE como ela escreveu, sem resumir nem acrescentar. Não peça pra ela responder em outro lugar.
+- CONVERSA: você conversa como um assistente. Cumprimento, agradecimento, "o que você faz?", comentário solto ou pergunta geral → responda em "fala", natural e curto, com "passos" vazio. NÃO mostre cartão de tarefa pra quem só disse "oi".
+- ACHAR SEM O CÓDIGO: a pessoa quase nunca sabe o código nem o título inteiro. Quando ela descrever uma issue ou tarefa ("a do frete", "aquela da exportação", "a issue do login com google"), procure em ACHADOS PELA BUSCA, em TAREFAS e em ISSUES DO PAINEL pelo sentido, não pela frase exata. Um só combina → use o código dele e siga. Dois ou três combinam → pergunte qual em "duvida", citando código e título de cada um. Só diga que não achou depois de olhar os três blocos, e aí diga o que procurou.
 - Nunca invente tarefa, código ou fato.`;
 }
+/** Os DADOS de um pedido (tarefas, issues, achados, foco, conversa) + o pedido, dentro de um teto de caracteres.
+ *  Estourou o teto: corta primeiro os FATOS das tarefas que não estão em foco, depois a conversa antiga, depois as
+ *  tarefas mais antigas — o PEDIDO e os ACHADOS nunca saem. */
+function cmdPlanDados(o, max){ o=o||{}; max=max||40000;
+  const monta=(refs, conv, focoTx, semFatos)=>{ const o2=Object.assign({}, o, { refs:refs.map(r=>semFatos&&!r.foco?Object.assign({}, r, { fatos:'' }):r), conversa:conv, foco:focoTx });
+    return cmdPlanDadosTx(o2); };
+  let refs=(o.refs||[]).slice(), conv=(o.conversa||[]).slice(), foco=String(o.foco||''), semFatos=false, tx=monta(refs, conv, foco, semFatos);
+  if(tx.length>max){ semFatos=true; tx=monta(refs, conv, foco, semFatos); }
+  while(tx.length>max && conv.length>4){ conv=conv.slice(Math.ceil(conv.length/3)); tx=monta(refs, conv, foco, semFatos); }
+  if(tx.length>max && foco.length>2500){ foco=foco.slice(0,2500)+'…'; tx=monta(refs, conv, foco, semFatos); }
+  while(tx.length>max && refs.length>12){ const f=refs.filter(r=>r.foco||r.q), r2=refs.filter(r=>!(r.foco||r.q)); refs=f.concat(r2.slice(0, Math.max(8, Math.floor(r2.length*0.7)))); tx=monta(refs, conv, foco, semFatos); if(r2.length<=8) break; }
+  if(tx.length>max){ conv=conv.slice(-2).map(x=>String(x).slice(0,600)); tx=monta(refs, conv, foco.slice(0,1200), true); }
+  return tx.length>max?tx.slice(0, max-String(o.pedido||'').length-40)+'\n\nPEDIDO DA PESSOA: '+o.pedido:tx;
+}
+function cmdPlanDadosTx(o){
+  const T=(o.refs||[]).map(r=>`- ${r.ref}${r.code&&r.code!==r.ref?' ('+r.code+')':''} "${r.title}" — ${r.st}${r.proj?' · projeto '+r.proj:''}${r.criada?' · criada '+r.criada:''}${r.mexida?' · mexida '+r.mexida:''}${r.fatos?' · FATOS: '+r.fatos:''}${r.q?' · PERGUNTA ABERTA esperando a pessoa: «'+cmdUma(r.q)+'»'+((r.ops||[]).length?' opções: '+r.ops.map((x,i)=>(i+1)+') '+cmdUma(x)).join(' | '):''):''}${r.foco?' · [EM FOCO]':''}`);
+  const E=(o.epics||[]).map(e=>`- épico "${e.name}" — ${e.done} de ${e.total} tarefas entregues`);
+  const A=(o.achados||[]).map(a=>`- [${a.tipo}] ${a.code||'(sem código)'} "${a.title}"${a.st?' — '+a.st:''}${a.who?' · '+a.who:''}${a.trecho?' · «'+a.trecho+'»':''}`);
+  return `TAREFAS${o.proj?' (projeto aberto: '+o.proj+')':''}:
+${T.length?T.join('\n'):'(nenhuma tarefa aberta)'}
+${E.length?'\nÉPICOS:\n'+E.join('\n')+'\n':''}${A.length?'\nACHADOS PELA BUSCA (o que mais parece com o pedido, em TODAS as issues do painel e tarefas, inclusive encerradas — do mais parecido pro menos):\n'+A.join('\n')+'\n':''}${(o.issues||[]).length?'\nISSUES DO PAINEL que ainda não são tarefa (código "título" — status · responsável):\n'+o.issues.map(i=>`- ${i.code} "${i.title}" — ${i.st||'?'}${i.who?' · '+i.who:''}`).join('\n')+'\n':''}${o.foco?'\nTAREFA EM FOCO (a última de que a conversa tratou), em detalhe:\n'+o.foco+'\n':''}${(o.conversa||[]).length?'\nCONVERSA ATÉ AQUI:\n'+o.conversa.join('\n')+'\n':''}
+PEDIDO DA PESSOA: ${o.pedido}
+
+Responda SOMENTE com o objeto JSON do plano.`;
+}
+/** Regras + dados num texto só (testes e depuração). O app manda as regras como sistema e os dados como pedido. */
+function cmdPlanPrompt(o){ return cmdPlanRegras(o)+'\n\n'+cmdPlanDados(o, 1e9); }
 /** Troca os identificadores internos (T1, T2…) pelo título, no texto que a IA escreveu. `refs`: [{ ref, code, title }] */
 function cmdSemRefs(text, refs){ return String(text||'').replace(/\bT(\d{1,3})\b/g, (m)=>{ const r=(refs||[]).find(x=>x.ref===m && !x.code); return r?'“'+(r.title.length>40?r.title.slice(0,39)+'…':r.title)+'”':m; }); }
 /** No HTML já formatado, cada código de tarefa conhecido vira um atalho clicável (fora das tags). `ids`: { CODE: id } */
@@ -300,6 +323,27 @@ function cmdRestaura(arr, max){
     if(m.k==='ciclo' && m.busy){ m.busy=''; m.tx=m.tx||'Interrompido quando o app fechou — peça de novo.'; }
     return m; });
 }
+/** BUSCA POR SENTIDO (sem IA): acha issues e tarefas por pedaço de título, de descrição, número ou palavras fora de ordem.
+ *  docs:[{ tipo, code, title, text, st, who }] → os n mais parecidos, com nota; [] quando nada combina. Puro. */
+const CMD_STOP=new Set('a o as os um uma uns umas de do da dos das no na nos nas em por pra para pro com sem e ou que se eu me meu minha voce ele ela isso essa esse esta este aquela aquele la aqui ja nao sim mais menos como qual quais quando onde sobre task tarefa tarefas issue issues card cartao demanda fazer faz faca quero preciso gostaria pode poderia favor mostra mostrar me diz diga ver olha abre abrir esta estao ta foi ser tem ter the of to is'.split(' '));
+function cmdBuscaTok(x){ return String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().split(/[^a-z0-9]+/).filter(w=>w && (w.length>=3 || /^\d+$/.test(w)) && !CMD_STOP.has(w)); }
+function cmdBusca(pedido, docs, n){
+  const q=[...new Set(cmdBuscaTok(pedido))]; if(!q.length) return [];
+  const raiz=w=>w.length>5?w.slice(0, w.length-2):w.length>4?w.slice(0, w.length-1):w; // plural/gênero/conjugação: "exportar" ~ "exportação" ~ "exportados"
+  const bate=(w, T)=>T.has(w)?1:/^\d+$/.test(w)?0:[...T].some(t=>t.length>=4 && (t.startsWith(raiz(w)) || w.startsWith(raiz(t))))?0.8:0;
+  const out=(docs||[]).map(d=>{ const tt=new Set(cmdBuscaTok(d.title)), tx=new Set(cmdBuscaTok(d.text)), cod=String(d.code||'').toLowerCase(), num=cod.replace(/\D/g,'');
+    let s=0, hits=0; q.forEach(w=>{ if(/^\d+$/.test(w)){ if(num && (num===w || (w.length>=3 && num.endsWith(w)))){ s+=6; hits++; } return; }
+      const a=bate(w, tt), b=a?0:bate(w, tx); if(a){ s+=3*a; hits++; } else if(b){ s+=1*b; hits++; } });
+    if(cod && String(pedido||'').toLowerCase().replace(/\s+/g,'-').includes(cod)) s+=8;
+    return { d, s:s*(0.6+0.4*hits/q.length), hits }; }).filter(x=>x.s>=1.5).sort((a,b)=>b.s-a.s);
+  return out.slice(0, n||8).map(x=>Object.assign({}, x.d, { nota:+x.s.toFixed(2) }));
+}
+/** Dos achados, o que dá pra usar sem perguntar: um vencedor claro → { um }; vários parecidos → { varios }; nada → null. Puro. */
+function cmdBuscaDecide(achados){ const L=achados||[]; if(!L.length) return null; if(L.length===1 || L[0].nota>=L[1].nota*1.6) return { um:L[0] }; return { varios:L.filter(x=>x.nota>=L[0].nota*0.6).slice(0,4) }; }
+/** Os achados prontos pro planejador: com o trecho da descrição onde o pedido bateu (é o que deixa a IA ligar "a da planilha do financeiro" à issue certa). Puro. */
+function cmdAchar(pedido, docs, n){ const q=cmdBuscaTok(pedido);
+  return cmdBusca(pedido, docs, n||8).map(a=>{ const tx=String(a.text||''), low=tx.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(), k=q.map(w=>low.indexOf(w.length>5?w.slice(0,w.length-2):w)).filter(x=>x>=0).sort((x,y)=>x-y)[0];
+    return { tipo:a.tipo, code:a.code, id:a.id, title:a.title, st:a.st, who:a.who, nota:a.nota, trecho:k>=0?tx.slice(Math.max(0,k-50), k+140).replace(/\s+/g,' ').trim():'' }; }); }
 // @comando-puro-fim
 
 const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', asking:'', sugerindo:'', spoken:0, unread:0, outrosAt:0, logHtml:'', sideHtml:'', mounted:false };
@@ -703,6 +747,7 @@ function cmdBotHtml(m){
     return partes.join('')+`<div class="cmdiss-a"><button type="button" class="btn sm primary" data-cmddo="perguntar" data-id="${escA(t.id)}">Perguntar ao porta-voz como está de verdade</button><button type="button" class="btn sm quiet" data-cmddo="provas" data-id="${escA(t.id)}">Provas</button><button type="button" class="btn sm quiet" data-cmdopen="${escA(t.id)}">Abrir a tarefa</button></div>`; }
   if(m.k==='plano') return cmdPlanoHtml(m);
   if(m.k==='issdet') return typeof cmdIssDetHtml==='function'?cmdIssDetHtml(m):'';
+  if(m.k==='issqual') return typeof cmdIssQualHtml==='function'?cmdIssQualHtml(m):'';
   if(m.k==='issok') return typeof cmdIssOkHtml==='function'?cmdIssOkHtml(m):'';
   if(m.k==='time') return typeof cmdTimeHtml==='function'?cmdTimeHtml(m):'';
   if(m.k==='ciclo') return typeof cmdCicloHtml==='function'?cmdCicloHtml(m):'';
@@ -788,23 +833,43 @@ function cmdHistReady(id){ const h=CMD.hist[id]; return !!(h && h.items); }
 // ---------- voz: conversa falada (você fala, eu respondo em voz alta e volto a ouvir) ----------
 // Ouvir = reconhecimento de fala do sistema (quando o WebView oferece); falar = speechSynthesis. Sem reconhecimento,
 // o modo ainda LÊ as respostas e a pessoa dita pelo ditado do macOS.
-const CMDV={ on:false, rec:null, live:false, speaking:false };
+const CMDV={ on:false, rec:null, live:false, speaking:false, aviso:'', vazias:0, semInicio:0, fatal:false, cao:0 };
 const CMD_MIC='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="6" y="1.8" width="4" height="7.4" rx="2"/><path d="M3.4 7.4a4.6 4.6 0 0 0 9.2 0M8 12v2.2"/></svg>';
 function cmdVoiceApi(){ return window.SpeechRecognition||window.webkitSpeechRecognition||null; }
 function cmdVoicePaint(){ const b=$id('cmdMic'); if(!b) return; b.classList.toggle('on', CMDV.on); b.setAttribute('aria-pressed', String(CMDV.on));
   cmdVozPaint();
   b.innerHTML=CMD_MIC+(CMDV.on?`<span>${CMDV.speaking?'falando…':CMDV.live?'ouvindo…':'voz ligada'}</span>`:''); b.title=CMDV.on?'Desligar a conversa por voz':'Conversar por voz: você fala, eu respondo em voz alta'; }
+// VOZ COM DIAGNÓSTICO (25/11): "cliquei no microfone e nada aconteceu" — todo evento do reconhecimento vai pro log
+// ([voz] …) e todo erro vira uma frase na tela, em vez de reiniciar em silêncio.
+function cmdVozLog(tx){ try{ invoke('web_log',{ line:'[voz] '+tx }); }catch(_){ } }
+function cmdVozAviso(tx, tom){ CMDV.aviso=tx||''; const el=$id('cmdVozSt'); if(el){ el.hidden=!tx; el.textContent=tx||''; el.dataset.tom=tom||''; } }
+const CMD_VOZ_ERRO={ 'not-allowed':'O macOS não liberou o microfone pro Starfork. Libere em Ajustes do Sistema › Privacidade e Segurança › Microfone e também em Reconhecimento de Fala, e ligue a voz de novo.',
+  'service-not-allowed':'O reconhecimento de fala do macOS está desligado pro Starfork. Libere em Ajustes do Sistema › Privacidade e Segurança › Reconhecimento de Fala (e ligue o Ditado em Teclado › Ditado).',
+  'audio-capture':'Não achei um microfone funcionando. Confira a entrada de som em Ajustes do Sistema › Som.', 'network':'O reconhecimento de fala precisa de internet e não respondeu.',
+  'language-not-supported':'O reconhecimento de fala em português não está instalado neste Mac (Ajustes do Sistema › Teclado › Ditado › Idiomas).' };
 function cmdVoiceListen(on){
   const R=cmdVoiceApi(); if(!R) return;
-  if(!on){ CMDV.live=false; try{ if(CMDV.rec) CMDV.rec.abort(); }catch(_){ } CMDV.rec=null; return cmdVoicePaint(); }
+  if(!on){ CMDV.live=false; clearTimeout(CMDV.cao); try{ if(CMDV.rec) CMDV.rec.abort(); }catch(_){ } CMDV.rec=null; return cmdVoicePaint(); }
   if(CMDV.live || !CMDV.on || CMDV.speaking || CMD.busy) return;
-  const r=new R(); r.lang='pt-BR'; r.interimResults=true; r.continuous=false; r.maxAlternatives=1;
-  r.onresult=(e)=>{ let fin='', mid=''; for(let k=e.resultIndex;k<e.results.length;k++){ const x=e.results[k]; if(x.isFinal) fin+=x[0].transcript; else mid+=x[0].transcript; }
-    const q=$id('cmdQ'); if(q){ q.value=(fin||mid).trim(); cmdGrow(); } if(fin.trim()){ if(q){ q.value=''; cmdGrow(); } cmdSay(fin.trim()); } };
-  r.onerror=(e)=>{ CMDV.live=false; const k=String(e&&e.error||'');
-    if(k==='not-allowed'||k==='service-not-allowed'||k==='audio-capture'){ CMDV.on=false; toast('O macOS não liberou o microfone pro Starfork. Libere em Ajustes do Sistema › Privacidade e Segurança › Microfone e Reconhecimento de Fala.','warn'); } cmdVoicePaint(); };
-  r.onend=()=>{ CMDV.live=false; if(CMDV.rec===r) CMDV.rec=null; cmdVoicePaint(); if(CMDV.on && !CMDV.speaking && !CMD.busy) setTimeout(()=>cmdVoiceListen(true), 300); };
-  CMDV.rec=r; try{ r.start(); CMDV.live=true; }catch(_){ CMDV.rec=null; } cmdVoicePaint();
+  const r=new R(); r.lang='pt-BR'; r.interimResults=true; r.continuous=false; r.maxAlternatives=1; let ouviu=false, comecou=false;
+  r.onstart=()=>{ comecou=true; cmdVozLog('começou'); cmdVozAviso('Ouvindo… pode falar.', 'ok'); };
+  r.onaudiostart=()=>cmdVozLog('áudio chegando'); r.onspeechstart=()=>{ ouviu=true; cmdVozLog('fala detectada'); };
+  r.onresult=(e)=>{ ouviu=true; let fin='', mid=''; for(let k=e.resultIndex;k<e.results.length;k++){ const x=e.results[k]; if(x.isFinal) fin+=x[0].transcript; else mid+=x[0].transcript; }
+    const q=$id('cmdQ'); if(q){ q.value=(fin||mid).trim(); cmdGrow(); } if(fin.trim()){ cmdVozLog('entendeu '+fin.trim().length+' caracteres'); CMDV.vazias=0; cmdVozAviso(''); if(q){ q.value=''; cmdGrow(); } cmdSay(fin.trim()); } };
+  r.onerror=(e)=>{ CMDV.live=false; const k=String(e&&e.error||''); cmdVozLog('erro '+k+(e&&e.message?' · '+String(e.message).slice(0,120):''));
+    if(k==='no-speech'){ CMDV.vazias=(CMDV.vazias||0)+1; cmdVozAviso(CMDV.vazias>=3?'Não estou ouvindo nada. Confira se o microfone certo está escolhido em Ajustes do Sistema › Som › Entrada.':'Não ouvi nada — pode falar.', CMDV.vazias>=3?'warn':''); }
+    else if(k==='aborted'){ /* eu mesmo parei pra falar ou pra pensar */ }
+    else { CMDV.fatal=true; CMDV.on=false; cmdVozAviso(CMD_VOZ_ERRO[k]||('O reconhecimento de fala falhou ('+(k||'sem código')+').'), 'warn'); try{ speechSynthesis.cancel(); }catch(_){ } }
+    cmdVoicePaint(); };
+  r.onend=()=>{ clearTimeout(CMDV.cao); CMDV.live=false; if(CMDV.rec===r) CMDV.rec=null; cmdVozLog('terminou'+(comecou?'':' sem ter começado')+(ouviu?'':' sem fala'));
+    if(!comecou && !CMDV.fatal){ CMDV.semInicio=(CMDV.semInicio||0)+1; if(CMDV.semInicio>=2){ CMDV.on=false; cmdVozAviso('O reconhecimento de fala não iniciou neste Mac. Enquanto isso, use o ditado do macOS no campo (tecla do microfone, ou Fn duas vezes) — eu continuo lendo as respostas em voz alta se você ligar a voz.', 'warn'); } } else CMDV.semInicio=0;
+    cmdVoicePaint(); if(CMDV.on && !CMDV.speaking && !CMD.busy) setTimeout(()=>cmdVoiceListen(true), 300); };
+  CMDV.rec=r; CMDV.fatal=false;
+  try{ r.start(); CMDV.live=true; cmdVozLog('pedi pra ouvir'); }catch(e){ CMDV.rec=null; cmdVozLog('start falhou: '+String((e&&e.message)||e).slice(0,160)); cmdVozAviso('Não consegui ligar o microfone: '+String((e&&e.message)||e).slice(0,120), 'warn'); CMDV.on=false; }
+  // cão de guarda: pediu pra ouvir e o sistema não respondeu nada em 6 s (nem começou, nem deu erro)
+  clearTimeout(CMDV.cao); CMDV.cao=setTimeout(()=>{ if(CMDV.rec===r && !comecou){ cmdVozLog('sem resposta do sistema em 6 s'); try{ r.abort(); }catch(_){ } CMDV.live=false; CMDV.rec=null; CMDV.on=false;
+    cmdVozAviso('O macOS não respondeu ao pedido de ouvir. Veja se apareceu um pedido de permissão do Starfork, ou libere em Ajustes do Sistema › Privacidade e Segurança › Microfone e Reconhecimento de Fala.', 'warn'); cmdVoicePaint(); } }, 6000);
+  cmdVoicePaint();
 }
 function cmdSpeak(text){
   text=String(text||'').replace(/\s+/g,' ').trim(); if(!CMDV.on) return;
@@ -823,8 +888,9 @@ function cmdVozPaint(){ const sel=$id('cmdVoz'); if(!sel) return; const vs=cmdVo
 try{ if(window.speechSynthesis) speechSynthesis.addEventListener('voiceschanged', ()=>cmdVozPaint()); }catch(_){ }
 function cmdVoiceToggle(){
   CMDV.on=!CMDV.on;
-  if(!CMDV.on){ CMDV.speaking=false; cmdVoiceListen(false); try{ speechSynthesis.cancel(); }catch(_){ } return cmdVoicePaint(); }
+  if(!CMDV.on){ CMDV.speaking=false; cmdVoiceListen(false); try{ speechSynthesis.cancel(); }catch(_){ } cmdVozAviso(''); cmdVozLog('desligada'); return cmdVoicePaint(); }
   CMD.spoken=cmdMsgs().length; // só fala o que vier a partir de agora
+  CMDV.vazias=0; CMDV.semInicio=0; CMDV.fatal=false; cmdVozLog('ligada · reconhecimento '+(cmdVoiceApi()?'disponível':'INDISPONÍVEL')+' · vozes '+(()=>{ try{ return speechSynthesis.getVoices().length; }catch(_){ return '?'; } })());
   if(cmdVoiceApi()) cmdVoiceListen(true);
   else toast('Vou ler as respostas em voz alta. Pra falar, use o ditado do macOS neste campo (tecla do microfone, ou Fn duas vezes).','info');
   cmdVoicePaint();
@@ -844,7 +910,7 @@ function cmdMount(){
   pg.innerHTML=`<div class="cmdpg"><section class="cmdchat" aria-label="Comando">
       <div class="cmdlog" id="cmdLog" aria-live="polite"></div>
       <div class="cmdcomp"><div class="cmdchips">${CMD_CHIPS.map(c=>`<button type="button" class="cmdchip" data-cmdchip="${escA(c)}">${esc(c)}</button>`).join('')}</div>
-        <div class="cmdac" id="cmdAc" role="listbox" aria-label="sugestões" hidden></div><form class="cmdbar" id="cmdForm"><textarea class="in" id="cmdQ" rows="1" placeholder="${CMD_PH}" autocomplete="off" spellcheck="false" aria-label="comando"></textarea><select class="in cmdvoz" id="cmdVoz" hidden aria-label="voz que lê as respostas" title="Voz que lê as respostas — as que você baixa em Ajustes do Sistema › Acessibilidade › Conteúdo Falado aparecem aqui"></select><button type="button" class="btn sm cmdmic" id="cmdMic" aria-pressed="false"></button><button type="button" class="btn sm" id="cmdStop" style="display:none">${IC.stop||''} parar</button><button class="btn primary sm" id="cmdSend">enviar</button></form></div>
+        <div class="cmdvozst" id="cmdVozSt" role="status" aria-live="polite" hidden></div><div class="cmdac" id="cmdAc" role="listbox" aria-label="sugestões" hidden></div><form class="cmdbar" id="cmdForm"><textarea class="in" id="cmdQ" rows="1" placeholder="${CMD_PH}" autocomplete="off" spellcheck="false" aria-label="comando"></textarea><select class="in cmdvoz" id="cmdVoz" hidden aria-label="voz que lê as respostas" title="Voz que lê as respostas — as que você baixa em Ajustes do Sistema › Acessibilidade › Conteúdo Falado aparecem aqui"></select><button type="button" class="btn sm cmdmic" id="cmdMic" aria-pressed="false"></button><button type="button" class="btn sm" id="cmdStop" style="display:none">${IC.stop||''} parar</button><button class="btn primary sm" id="cmdSend">enviar</button></form></div>
     </section><aside class="cmdside" id="cmdSide" aria-label="painel dos agentes"></aside></div>`;
   // a caixa cresce com a mensagem (até ~8 linhas, depois rola): Enter envia, Shift+Enter quebra linha
   const cmdEnvia=()=>{ const q=$id('cmdQ'); const v=q.value; q.value=''; cmdGrow(); cmdSay(v); };
@@ -979,6 +1045,12 @@ function cmdConversa(tudo){ return cmdMsgs().slice(-9, tudo?undefined:-1).map(m=
 async function cmdProjeto(repo){ if(!repo || repo===cmdRepo()) return true; if(!window.switchProject) return false; try{ await window.switchProject(repo); }catch(_){ return false; } return cmdRepo()===repo; }
 function cmdNovaHtml(p){ const o=(p.origem||[]).map(x=>esc(x.code||x.ref)).join(', ');
   return `<div class="cmdnova"><b>${esc(p.titulo||cmdUma(String(p.texto||'').split(/[.\n]/)[0]).slice(0,80))}</b>${p.texto?`<p>${esc(p.texto)}</p>`:''}${(p.requisitos||[]).length?`<div class="cmdhint">Pronto quando:</div><ul>${p.requisitos.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>`:''}${o?`<div class="cmdhint">Referência: ${o}</div>`:''}</div>`; }
+/** Tudo o que dá pra achar pelo que a pessoa disse: TODAS as issues do painel (não só a fila) e TODAS as tarefas (inclusive encerradas). */
+function cmdDocs(){ const out=[]; try{ const sts=((typeof trk!=='undefined'&&trk&&trk.connector)||{}).statuses||[]; ((typeof trkIssues!=='undefined'&&trkIssues)||[]).forEach(i=>out.push({ tipo:'issue', code:i.code, title:cmdUma(i.title||'').slice(0,110), text:String(i.description||'').slice(0,1200), st:((sts.find(x=>x.id===i.status)||{}).label)||i.status||'', who:i.assignee?trkPretty(i.assignee):'' })); }catch(_){ }
+  try{ cmdAllTasks().forEach(t=>out.push({ tipo:taskEncerrada(t)?'tarefa encerrada':'tarefa', code:cmdCode(t)||t.id, id:t.id, title:cmdUma(mdTitle(t.title||'')).slice(0,110), text:String(t.objective||'').slice(0,1200)+' '+((t.requirements||[]).map(r=>r.text||r).join(' ')).slice(0,600), st:(typeof stLabel==='function'?stLabel(taskSt(t)):t.status)||'' })); }catch(_){ }
+  try{ if(typeof semItens==='function') semItens().filter(x=>x.card && !x.done).forEach(x=>out.push({ tipo:'cartão do time', code:x.code||'', title:cmdUma(x.titulo||'').slice(0,110), text:'', st:x.trav?'travado':x.esp?'esperando':'em andamento', who:x.who?(typeof personName==='function'?personName(x.who,{ noYou:false }):''):'sem dono' })); }catch(_){ }
+  return out; }
+function cmdAchados(pedido){ try{ return cmdAchar(pedido, cmdDocs(), 8); }catch(_){ return []; } }
 function cmdIssuesPrompt(){ try{ if(!cmdTrkOn()) return []; const sts=(trk.connector||{}).statuses||[]; return cmdFila().slice(0,30).map(i=>({ code:i.code, title:cmdUma(i.title||'').slice(0,80), st:((sts.find(x=>x.id===i.status)||{}).label)||i.status||'', who:i.assignee?trkPretty(i.assignee):'' })); }catch(_){ return []; } }
 function cmdPlanoHtml(m){ const P=m.plan, i=cmdMsgs().indexOf(m);
   const linha=(p, n)=>{ const ts=(p.alvos||[]).map(x=>`<b>${esc(x.code||x.ref)}</b> ${esc(x.title.length>46?x.title.slice(0,45)+'…':x.title)}${x.proj?` <span class="cmdhint">(${esc(x.proj)})</span>`:''}`);
@@ -1055,7 +1127,9 @@ async function cmdPlanejar(text, o){
     { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft) await cmdProvasFrescas(ft.id, 8000); } // os fatos da tarefa em foco, de verdade
     const refs=cmdRefs(); let foco=''; { const ft=CMD.sel?cmdTask(CMD.sel):null; if(ft){ if(!cmdHistReady(ft.id)) await cmdHistFetch(ft.id); try{ foco=cmdTaskContext(ft); }catch(_){ } } }
     const t0=Date.now(); CMD.planMs=0;
-    raw=await invoke('comando_plan',{ system:CMD_PLAN_SYS, prompt:cmdPlanPrompt({ proj:pathBase(cmdRepo()), refs, epics:cmdEpics().map(e=>{ const c=cmdEpicStat(e.id); return { name:e.name, done:c.done, total:c.total }; }), foco, conversa:cmdConversa(!!(o&&o.interno)), pedido:(o&&o.interno)||text, issues:cmdIssuesPrompt(), minReq:+(((typeof ntPolicy!=='undefined'&&ntPolicy)||{}).minRequirements)||0 }) });
+    try{ await Promise.race([cmdIssuesEnsure(), new Promise(r=>setTimeout(r, 2500))]); }catch(_){ }
+    const _pedido=(o&&o.interno)||text, _min=+(((typeof ntPolicy!=='undefined'&&ntPolicy)||{}).minRequirements)||0;
+    raw=await invoke('comando_plan',{ system:CMD_PLAN_SYS+'\n\n'+cmdPlanRegras({ minReq:_min }), prompt:cmdPlanDados({ achados:cmdAchados(_pedido), proj:pathBase(cmdRepo()), refs, epics:cmdEpics().map(e=>{ const c=cmdEpicStat(e.id); return { name:e.name, done:c.done, total:c.total }; }), foco, conversa:cmdConversa(!!(o&&o.interno)), pedido:(o&&o.interno)||text, issues:cmdIssuesPrompt(), minReq:_min }, 40000) });
     CMD.planMs=Date.now()-t0; P=cmdPlanParse(raw);
     if(P && o && o.semPerguntar) P.passos=P.passos.filter(p=>p.acao!=='perguntar_agente');
     if(P){ P.pedido=text; P.refs=refs.map(r=>({ ref:r.ref, code:r.code, title:r.title })); P.passos.forEach(p=>{ p.alvos=[]; p.faltam=[]; if(p.acao==='criar_demanda') p.origem=(p.tarefas||[]).map(q=>cmdRefTask(q, refs)).filter(Boolean); if(CMD_SEM_TAREFA.has(p.acao)) return;

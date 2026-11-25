@@ -300,3 +300,8 @@ button.cmdrad-r:hover{background:var(--surface-2)}
 
 .cmdtime-g{display:flex;flex-direction:column;gap:3px;padding-top:6px;border-top:1px solid var(--border)}
 .cmdtime-n{font-size:var(--fs-sm)}
+
+/* estado da conversa por voz: ouvindo, não ouvi, erro com o que fazer */
+.cmdvozst{max-width:820px;width:100%;margin:0 auto 6px;padding:6px 10px;border-radius:var(--r);font-size:var(--fs-sm);color:var(--muted);background:var(--surface);border:1px solid var(--border)}
+.cmdvozst[data-tom="warn"]{color:var(--fg,inherit);border-color:var(--warn,#c98a1a)}
+.cmdvozst[data-tom="ok"]{border-color:var(--st-ask)}

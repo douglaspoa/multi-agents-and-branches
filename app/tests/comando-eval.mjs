@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 const JS = readFileSync(new URL('../src/js/89-comando.js', import.meta.url), 'utf8');
 const i = JS.indexOf('// @comando-puro-inicio'), j = JS.indexOf('// @comando-puro-fim', i);
-const C = new Function(JS.slice(i, j) + '\nreturn { cmdPlanPrompt, cmdPlanParse, cmdRefTask, CMD_PLAN_SYS, CMD_MUTA };')();
+const C = new Function(JS.slice(i, j) + '\nreturn { cmdPlanPrompt, cmdPlanRegras, cmdPlanDados, cmdBusca, cmdAchar, cmdPlanParse, cmdRefTask, CMD_PLAN_SYS, CMD_MUTA };')();
 const REFS = [
   { id:'a', ref:'LW-1168', code:'LW-1168', title:'Tracer: escala de risco, formato e premissas', st:'aguardando você', proj:'relay', criada:'ontem 09:10', mexida:'há 2 h', q:'O login expirou; posso rodar o login neste terminal?', ops:['Pode rodar o login', 'Não, eu mesmo faço o login'], fatos:'sem PR' },
   { id:'b', ref:'LW-1195', code:'LW-1195', title:'Auditoria de segurança do painel', st:'pronta pra revisar', criada:'ontem 14:00', mexida:'há 5 h', fatos:'3 de 3 requisitos com prova, PR aberto' },
@@ -42,7 +42,16 @@ const CASOS = [
   { nome:'time: quem está com o quê', pedido:'como está o time? quem está com o quê?', quer:[['time', []]], semMuta:true },
   { nome:'time: entregas da semana', pedido:'o que foi entregue essa semana?', quer:[['entregas', []]], semMuta:true, texto:/semana/i },
   { nome:'time: quanto gastei', pedido:'quanto eu gastei de IA hoje?', quer:[['uso', []]], semMuta:true, texto:/hoje/i },
-  { nome:'time: passar cartão', pedido:'passa o cartão da exportação em CSV pro Bruno', quer:[['passar_cartao', []]], texto:/bruno/i },
+  { nome:'time: passar cartão', docs:[{ tipo:'cartão do time', code:'LW-77', title:'Exportação de pedidos em CSV', text:'', st:'em andamento', who:'ana lima' }], pedido:'passa o cartão da exportação em CSV pro Bruno', quer:[['passar_cartao', []]], texto:/bruno/i, alvo:/LW-?77|exporta/i },
+  { nome:'time: passar cartão que a busca não achou', pedido:'passa o cartão do boleto parcelado pro Bruno', quer:[['passar_cartao', []]], texto:/bruno/i, alvo:/boleto/i },
+  { nome:'real: olá não vira cartão', cheio:true, foco:{ id:'e', ctx:FOCO_1228 }, pedido:'ola', quer:[], semMuta:true, semPassos:true },
+  { nome:'real: obrigado', cheio:true, pedido:'valeu, obrigado', quer:[], semMuta:true, semPassos:true },
+  { nome:'real: acha issue por pedaço da descrição', cheio:true, pedido:'o que diz aquela issue de entrar com a conta do google?', quer:[['issue', []]], alvo:/LW-?302/i, semMuta:true },
+  { nome:'real: acha issue por assunto e move', cheio:true, pedido:'a do carrinho demorando pode ir pra em andamento', quer:[['mover_issue', []]], alvo:/LW-?305/i },
+  { nome:'real: começa issue descrita', cheio:true, pedido:'começa a da planilha de pedidos pro financeiro', quer:[['comecar_issue', []]], alvo:/LW-?301/i },
+  { nome:'real: tarefa por pedaço do título no meio de muitas', cheio:true, pedido:'como está a auditoria de segurança?', tem:[['tarefa', 'LW-1195']], quer:[], semMuta:true },
+  { nome:'real: PR de homol com tudo cheio', cheio:true, foco:{ id:'e', ctx:FOCO_1228 }, pedido:'preciso do pr de homol', tem:[['abrir_pr', 'LW-1228']], quer:[], alvo:/homol/i },
+  { nome:'real: ambígua pergunta qual', cheio:true, pedido:'move o ajuste de layout do rodapé pra feito', quer:[], duvida:true },
   { nome:'aprovar', pedido:'pode aprovar a auditoria, tá tudo provado', tem:[['aprovar', 'LW-1195']], quer:[] },
   { nome:'código → ler_codigo', pedido:'onde no código fica a validação do limite de itens por plano?', quer:[['ler_codigo', []]], semMuta:true },
   { nome:'pergunta sobre a tarefa ao lado (caso real: foi pra outra tarefa)', foco:{ id:'e', ctx:FOCO_1228 }, conversa:['Pessoa: me mostra as provas da 1228', 'Comando: [Comando mostrou: provas de LW-1228]'], pedido:'O que falta para começar as provas?', quer:[], naoPode:['LW-1208', 'LW-1195', 'LW-1168'], fala:/prova|requisito|teste|PR/i },
@@ -59,11 +68,21 @@ const CASOS = [
 ];
 const args = (sys) => ['--strict-mcp-config', '--tools', '', '--system-prompt', sys, '--setting-sources', '', '--no-session-persistence', '--model', process.env.CMD_MODEL || 'claude-sonnet-5', '--output-format', 'json'];
 let ok = 0, tempo = 0, custo = 0; const falhas = [];
+const CHEIO_REFS = Array.from({ length:42 }, (_, k) => ({ id:'x' + k, ref:'LW-' + (2000 + k), code:'LW-' + (2000 + k), title:['Relatório mensal de vendas por região', 'Migração do cadastro de clientes', 'Painel de estoque por depósito', 'Integração com a transportadora', 'Revisão das permissões de acesso', 'Cache das consultas de catálogo'][k % 6] + ' — parte ' + (k + 1), st:['rodando', 'pronta pra revisar', 'parou com erro', 'aguardando você'][k % 4], proj:'loja-web', criada:'há ' + (k + 2) + ' d', mexida:'há ' + (k + 1) + ' h', fatos:(k % 13) + ' de 13 requisitos com prova · sem PR · ' + (k % 9) + ' arquivos mexidos nesta sessão · última ação da IA há ' + (k + 1) + ' h · IA parada · plano 4 de 6 passos' }));
+const PAINEL = [['LW-300', 'Frete grátis acima de 200', 'Backlog', '', 'Hoje o frete é sempre cobrado. Regra nova: pedidos acima de R$ 200 têm frete grátis; abaixo, valor fixo.'], ['LW-301', 'Exportar pedidos em CSV', 'Backlog', 'ana lima', 'O financeiro precisa baixar a planilha de pedidos do mês com filtros de período e status.'], ['LW-302', 'Login social', 'Em andamento', 'bruno reis', 'Permitir entrar com a conta do Google e da Apple, vinculando ao cadastro existente pelo e-mail.'], ['LW-303', 'Tela de rastreio', 'Backlog', '', 'O cliente acompanha a entrega com o código da transportadora, em linha do tempo.'], ['LW-304', 'Cupom de primeira compra', 'Backlog', 'carla dias', 'Desconto de 10% automático no primeiro pedido de cada cliente novo.'], ['LW-305', 'Lentidão no carrinho', 'Bloqueada', 'ana lima', 'O carrinho demora mais de 4 segundos pra abrir quando há mais de 30 itens.']]
+  .concat(Array.from({ length:44 }, (_, k) => ['LW-' + (400 + k), ['Ajuste de layout no rodapé', 'Texto de ajuda do checkout', 'Ícones do menu lateral', 'Cor do botão de pagar'][k % 4] + ' ' + (k + 1), 'Backlog', '', 'Pequeno ajuste visual pedido pelo time de produto.'])).map(([code, title, st, who, text]) => ({ code, title, st, who, text }));
+const CHEIO_CONV = Array.from({ length:14 }, (_, k) => (k % 2 ? 'Comando: ' : 'Pessoa: ') + 'mensagem antiga número ' + k + ' sobre o andamento geral das tarefas, com bastante detalhe pra ocupar espaço e forçar o orçamento do pedido a trabalhar de verdade neste teste. '.repeat(3));
 for (const c of CASOS.filter(x => !process.env.CMD_SO || process.env.CMD_SO.split('|').some(k => x.nome.includes(k)))) {
   const refs = REFS.map(r => ({ ...r, foco: !!(c.foco && c.foco.id === r.id) }));
-  const prompt = C.cmdPlanPrompt({ proj:'loja-web', refs, epics:[], foco:(c.foco && c.foco.ctx) || '', conversa:c.conversa || [], pedido:c.pedido, minReq:c.minReq || 0, issues:c.issues || [] });
+  // MESMO CAMINHO DO APP: regras no sistema, dados orçados no pedido, e os tetos do Rust (comando_plan) por cima.
+  // c.cheio = volume de produção (dezenas de tarefas com fatos, painel inteiro, conversa longa) — o caso que quebrou em 25/11.
+  const extra = c.cheio ? CHEIO_REFS : [], painel = c.painel || (c.cheio ? PAINEL : []);
+  const todas = refs.concat(extra), docs = painel.map(i => ({ tipo:'issue', code:i.code, title:i.title, text:i.text || '', st:i.st, who:i.who })).concat(todas.map(r => ({ tipo:'tarefa', code:r.code, title:r.title, text:'', st:r.st }))).concat(c.docs || []);
+  const dados = { achados:C.cmdAchar(c.pedido, docs, 8), proj:'loja-web', refs:todas, epics:[], foco:(c.foco && c.foco.ctx) || '', conversa:(c.cheio ? CHEIO_CONV : []).concat(c.conversa || []), pedido:c.pedido, minReq:c.minReq || 0, issues:c.issues || painel.slice(0, 30) };
+  const sistema = (C.CMD_PLAN_SYS + '\n\n' + C.cmdPlanRegras({ minReq:c.minReq || 0 })).slice(0, 40000), prompt = C.cmdPlanDados(dados, 40000).slice(0, 80000);
+  if (!prompt.includes('PEDIDO DA PESSOA: ' + c.pedido) || !sistema.includes('REGRAS:')) { falhas.push({ caso:c.nome, erros:['o pedido ou as regras foram cortados antes de chegar na IA'] }); console.log('✗ CORTE  ' + c.nome); continue; }
   const t0 = Date.now();
-  const r = spawnSync('claude', ['-p', prompt, ...args(C.CMD_PLAN_SYS)], { cwd: tmpdir(), encoding:'utf8', stdio:['ignore', 'pipe', 'pipe'], env:{ ...process.env, ANTHROPIC_API_KEY:'' } });
+  const r = spawnSync('claude', ['-p', prompt, ...args(sistema)], { cwd: tmpdir(), encoding:'utf8', stdio:['ignore', 'pipe', 'pipe'], env:{ ...process.env, ANTHROPIC_API_KEY:'' } });
   const s = (Date.now() - t0) / 1000; tempo += s;
   let env = null; try { env = JSON.parse(r.stdout); } catch (_) { }
   custo += (env && env.total_cost_usd) || 0;
@@ -83,6 +102,8 @@ for (const c of CASOS.filter(x => !process.env.CMD_SO || process.env.CMD_SO.spli
     if (c.fala && !c.fala.test(P.fala)) erros.push('a fala não citou os fatos: "' + P.fala.slice(0, 100) + '"');
     if (c.nova) { const n = P.passos.find(p => p.acao === 'criar_demanda'); if (!n) erros.push('não propôs criar a tarefa'); else { if ((n.requisitos || []).length < c.nova.req) erros.push(`só ${(n.requisitos || []).length} requisitos`); if (!n.titulo) erros.push('sem título'); if (n.texto.length < 80) erros.push('objetivo curto demais'); if (c.nova.origem && !n.tarefas.some(t => t.replace(/\D/g, '') === c.nova.origem)) erros.push('não citou a tarefa de origem'); console.log('   título: ' + n.titulo + '\n   objetivo: ' + n.texto.slice(0, 300) + '\n   requisitos:\n     - ' + n.requisitos.join('\n     - ')); } }
     if (c.alvo && !P.passos.some(p => c.alvo.test(p.alvo))) erros.push('não levou o destino em alvo: ' + JSON.stringify(P.passos.map(p => p.alvo)));
+    if (c.semPassos && P.passos.length) erros.push('era só conversa, mas veio passo: ' + P.passos.map(p => p.acao).join(','));
+    if (c.semPassos && P.fala.length < 2) erros.push('não respondeu nada');
     if (c.falaMax && P.fala.length > c.falaMax) erros.push(`fala longa (${P.fala.length} caracteres)`);
     if (c.texto && !P.passos.some(p => c.texto.test(p.texto))) erros.push('o texto da instrução não levou o que a pessoa disse');
     if (/\bT\d+\b/.test(P.fala + P.duvida)) erros.push('vazou identificador interno (T1…)');

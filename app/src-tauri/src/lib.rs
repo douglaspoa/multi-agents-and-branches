@@ -5399,8 +5399,10 @@ fn ai_decompose(state: State<AppState>, text: String, guide: Option<String>) -> 
 fn comando_plan(state: State<AppState>, prompt: String, system: Option<String>) -> Result<String, String> {
     let p = prompt.trim();
     if p.is_empty() { return Err("sem pedido".to_string()); }
-    let p: String = p.chars().take(24000).collect();
-    let sys = system.map(|s| s.trim().chars().take(4000).collect::<String>()).filter(|s| !s.is_empty()).unwrap_or_else(|| "Você é o Comando do Starfork. Responda somente com o JSON pedido.".to_string());
+    // o front já orça o pedido (cmdPlanDados) e manda as regras no sistema: estes tetos são só rede de segurança.
+    // (25/11: o corte em 24 mil jogava fora o pedido da pessoa e as regras quando havia muitas tarefas.)
+    let p: String = p.chars().take(80000).collect();
+    let sys = system.map(|s| s.trim().chars().take(40000).collect::<String>()).filter(|s| !s.is_empty()).unwrap_or_else(|| "Você é o Comando do Starfork. Responda somente com o JSON pedido.".to_string());
     // MODO ENXUTO (medido em 12/11: de ~18 s e ~46 mil tokens pra ~4,6 s e ~1,2 mil): sem ferramentas, sem os servidores
     // conectados (MCP), sem ganchos/ajustes do usuário, instrução própria no lugar da padrão e sem gravar sessão.
     // Modelo médio: escolher ações numa lista não precisa do maior. Roda numa pasta neutra (não carrega o CLAUDE.md do repo).

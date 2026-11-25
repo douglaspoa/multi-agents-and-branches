@@ -298,3 +298,23 @@ test('PR que o agente abriu sozinho conta como PR', () => {
   assert.equal(C.cmdPrAgente([{ arg:'gh pr create', out:'error: no commits', err:true }]), '');
   assert.equal(C.cmdPrAgente([]), '');
 });
+
+// 25/11: no app real o pedido passava de 24 mil caracteres e o corte jogava fora o que a pessoa escreveu e as regras.
+test('o pedido e os achados nunca saem dos dados, mesmo com volume de produção', () => {
+  const JS2 = readFileSync(new URL('../src/js/89-comando.js', import.meta.url), 'utf8'), i = JS2.indexOf('// @comando-puro-inicio'), j = JS2.indexOf('// @comando-puro-fim');
+  const D = new Function(JS2.slice(i, j) + '\nreturn { cmdPlanRegras, cmdPlanDados, cmdBusca, cmdBuscaDecide, CMD_PLAN_SYS };')();
+  const refs = Array.from({ length:120 }, (_, k) => ({ ref:'LW-' + k, code:'LW-' + k, title:'Tarefa de título comprido número ' + k + ' com bastante detalhe', st:'pronta pra revisar', proj:'loja', criada:'ontem', mexida:'há 1 h', fatos:'13 de 13 requisitos com prova · sem PR · 8 arquivos mexidos · IA parada', foco:k === 3 }));
+  const tx = D.cmdPlanDados({ refs, epics:[], foco:'f'.repeat(9000), conversa:Array.from({ length:40 }, () => 'c'.repeat(900)), issues:Array.from({ length:30 }, (_, k) => ({ code:'LW-9' + k, title:'issue ' + k, st:'Backlog' })), achados:[{ tipo:'issue', code:'LW-777', title:'Login com Google' }], pedido:'o que diz a issue do google?' }, 40000);
+  assert.ok(tx.length <= 40000, 'passou do teto: ' + tx.length); assert.ok(tx.includes('PEDIDO DA PESSOA: o que diz a issue do google?')); assert.ok(tx.includes('LW-777')); assert.ok(tx.includes('LW-3 '));
+  const sys = D.CMD_PLAN_SYS + '\n\n' + D.cmdPlanRegras({ minReq:3 }); assert.ok(sys.length < 40000 && /REGRAS:/.test(sys) && /ACHAR SEM O CÓDIGO/.test(sys) && !/PEDIDO DA PESSOA/.test(sys));
+});
+test('busca por sentido acha por pedaço de título, de descrição, número e palavras fora de ordem', () => {
+  const JS2 = readFileSync(new URL('../src/js/89-comando.js', import.meta.url), 'utf8'), i = JS2.indexOf('// @comando-puro-inicio'), j = JS2.indexOf('// @comando-puro-fim');
+  const D = new Function(JS2.slice(i, j) + '\nreturn { cmdBusca, cmdBuscaDecide };')();
+  const docs = [{ tipo:'issue', code:'LW-302', title:'Login social', text:'Permitir entrar com a conta do Google e da Apple' }, { tipo:'issue', code:'LW-301', title:'Exportar pedidos em CSV', text:'O financeiro precisa baixar a planilha de pedidos' },
+    { tipo:'issue', code:'LW-305', title:'Lentidão no carrinho', text:'demora mais de 4 segundos' }, { tipo:'issue', code:'LW-401', title:'Ajuste de layout no rodapé 1', text:'' }, { tipo:'issue', code:'LW-402', title:'Ajuste de layout no rodapé 2', text:'' }];
+  assert.equal(D.cmdBusca('aquela issue de entrar com a conta do google', docs)[0].code, 'LW-302'); assert.equal(D.cmdBusca('planilha pro financeiro', docs)[0].code, 'LW-301');
+  assert.equal(D.cmdBusca('a 305', docs)[0].code, 'LW-305'); assert.equal(D.cmdBusca('exportação dos pedidos', docs)[0].code, 'LW-301'); assert.equal(D.cmdBusca('carrinho lento', docs)[0].code, 'LW-305');
+  assert.deepEqual(D.cmdBusca('banana nanica', docs), []); assert.deepEqual(D.cmdBusca('me mostra essa', docs), []);
+  assert.equal(D.cmdBuscaDecide(D.cmdBusca('login com google', docs)).um.code, 'LW-302'); assert.equal(D.cmdBuscaDecide(D.cmdBusca('ajuste de layout do rodapé', docs)).varios.length, 2); assert.equal(D.cmdBuscaDecide([]), null);
+});
