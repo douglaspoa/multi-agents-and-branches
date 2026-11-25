@@ -36,11 +36,15 @@ while :; do
 done
 kill $APID 2>/dev/null; sleep 2; kill -9 $APID 2>/dev/null || true
 pkill -f "$E/engine/cli.mjs" 2>/dev/null || true
-echo "--- o que o APP mandou pra IA (um por pedido)"; cat "$E/stub.log"
+echo "--- o que o APP mandou pra IA (um por pedido)"; cut -c1-260 "$E/stub.log"
 "$NODE" -e '
-const L=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").filter(Boolean).map(JSON.parse);
-const ruim=L.filter(x=>!x.temPedido||!x.temRegras||!x.temFormato||x.sysLen>=40000||x.promptLen>40000);
-console.log((L.length>=5&&!ruim.length?"OK   ":"FALHA ")+"o pedido e as regras chegaram inteiros nas "+L.length+" chamadas · regras "+Math.max(0,...L.map(x=>x.sysLen))+" de 40000 · maior pedido "+Math.max(0,...L.map(x=>x.promptLen))+" de 40000 caracteres");
-if(ruim.length||L.length<5) process.exit(1);' "$E/stub.log" | tee -a "$E/report.txt"
+const L=require("fs").readFileSync(process.argv[1],"utf8").trim().split("\n").filter(Boolean).map(JSON.parse), Pl=L.filter(x=>!x.agente), Ag=L.filter(x=>x.agente);
+const ruim=Pl.filter(x=>!x.temPedido||!x.temRegras||!x.temFormato||x.sysLen>=40000||x.promptLen>40000);
+console.log((Pl.length>=5&&!ruim.length?"OK   ":"FALHA ")+"planejador: o pedido e as regras chegaram inteiros nas "+Pl.length+" chamadas · regras "+Math.max(0,...Pl.map(x=>x.sysLen))+" de 40000 · maior pedido "+Math.max(0,...Pl.map(x=>x.promptLen))+" de 40000");
+const ruimA=Ag.filter(x=>!x.temContexto||!x.sysOk||!x.acoesOk||!/mcp__starfork__agir/.test(x.allowed||""));
+console.log((Ag.length>=8&&!ruimA.length?"OK   ":"FALHA ")+"agente: "+Ag.length+" chamadas com contexto, instrução, lista de ações e ferramentas liberadas");
+const comSessao=Ag.filter(x=>x.resume==="fake-ag-1").length;
+console.log((comSessao>=6?"OK   ":"FALHA ")+"agente: retoma a mesma conversa ("+comSessao+" de "+Ag.length+" chamadas com a sessão anterior)");
+if(ruim.length||Pl.length<5||ruimA.length||Ag.length<8||comSessao<6) process.exit(1);' "$E/stub.log" | tee -a "$E/report.txt"
 echo "prints em $E/shots · relatório em $E/report.txt"
 grep -q '^FALHA\|^ERRO\|TEMPO ESGOTADO\|APP SAIU' "$E/report.txt" && exit 1 || exit 0

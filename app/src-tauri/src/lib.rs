@@ -5467,6 +5467,80 @@ fn comando_portavoz_inner(app: tauri::AppHandle, state: State<AppState>, task_id
     run_claude_stream(&app, cmd, &PORTAVOZ_PID, "PORTAVOZ_STOPPED", 300, "portavoz-activity", usage_ledger::Tag::new("comando", &wt, &model, &session_id))
 }
 
+// ---------- COMANDO · AGENTE (25/11): o chat deixa de ser "frase → plano" e vira um agente com ferramentas ----------
+// O `claude` roda com UM servidor MCP nosso (comando-mcp.mjs: buscar, ver, agir, perguntar_agente). Cada chamada de
+// ferramenta vira um arquivo na PONTE (~/.constellation/comando-agente/ponte); o front lê (comando_ponte_ler), executa
+// com as mesmas funções das telas e devolve (comando_ponte_responder). A conversa tem memória (sessão do claude).
+static AGENTE_PID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+const COMANDO_MCP_JS: &str = include_str!("../comando-mcp.mjs");
+fn comando_agente_dir() -> PathBuf { PathBuf::from(home_dir_s()).join(".constellation").join("comando-agente") }
+fn comando_ponte_dir() -> PathBuf { comando_agente_dir().join("ponte") }
+fn ponte_id_ok(id: &str) -> bool { !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') }
+#[tauri::command(async)]
+fn comando_agente_stop() -> Result<bool, String> { Ok(stop_slot(&AGENTE_PID)) }
+#[tauri::command(async)]
+fn comando_agente(app: tauri::AppHandle, prompt: String, system: String, acoes: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
+    chat_logged("comando_agente", comando_agente_inner(app, prompt, system, acoes, session_id, model))
+}
+fn comando_agente_inner(app: tauri::AppHandle, prompt: String, system: String, acoes: String, session_id: Option<String>, model: Option<String>) -> Result<AiChat, String> {
+    let prompt: String = prompt.trim().chars().take(60000).collect();
+    if prompt.is_empty() { return Err("sem pedido".to_string()); }
+    let session_id = session_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let eng = chat_pick(&session_id).map_err(|e| repo_acesso::step("escolher a IA", e))?;
+    if eng != ai_once::AiEngine::Claude { return Err("AGENTE_SO_CLAUDE".to_string()); } // o front cai no planejador de uma chamada
+    let dir = comando_agente_dir(); let ponte = comando_ponte_dir();
+    std::fs::create_dir_all(&ponte).map_err(|e| e.to_string())?;
+    // pedidos de uma conversa anterior que ficaram pra trás não podem ser executados nesta
+    if let Ok(rd) = std::fs::read_dir(&ponte) { for e in rd.flatten() { let _ = std::fs::remove_file(e.path()); } }
+    let mcp_js = dir.join("comando-mcp.mjs");
+    std::fs::write(&mcp_js, COMANDO_MCP_JS).map_err(|e| e.to_string())?;
+    let cfg = serde_json::json!({ "mcpServers": { "starfork": { "command": node_bin(), "args": [mcp_js.to_string_lossy()], "env": { "STARFORK_PONTE": ponte.to_string_lossy(), "STARFORK_ACOES": acoes.chars().take(12000).collect::<String>() } } } });
+    let cfg_path = dir.join("mcp.json");
+    std::fs::write(&cfg_path, cfg.to_string()).map_err(|e| e.to_string())?;
+    let claude = claude_bin();
+    let sys: String = system.trim().chars().take(40000).collect();
+    let mut args: Vec<String> = vec![
+        "-p".to_string(), prompt,
+        "--output-format".to_string(), "stream-json".to_string(), "--verbose".to_string(),
+        "--system-prompt".to_string(), sys,
+        "--setting-sources".to_string(), "".to_string(), "--strict-mcp-config".to_string(),
+        "--mcp-config".to_string(), cfg_path.to_string_lossy().to_string(),
+        "--tools".to_string(), "".to_string(),
+        "--allowedTools".to_string(), "mcp__starfork__buscar,mcp__starfork__ver,mcp__starfork__agir,mcp__starfork__perguntar_agente".to_string(),
+    ];
+    if let Some(sid) = &session_id { args.push("--resume".to_string()); args.push(sid.clone()); }
+    push_model(&mut args, &model);
+    let mut cmd = claude_cmd(&claude);
+    // pasta fixa e neutra: a sessão do claude é guardada por pasta (precisa ser a mesma pra retomar) e não carrega CLAUDE.md de repo nenhum
+    cmd.args(&args).current_dir(&dir).env("MCP_TOOL_TIMEOUT", "900000").env("MCP_TIMEOUT", "20000");
+    run_claude_stream(&app, cmd, &AGENTE_PID, "AGENTE_STOPPED", 1200, "comando-agente-activity", usage_ledger::Tag::new("comando", &dir, &model, &session_id))
+}
+/// Pedidos de ferramenta que o agente fez e o app ainda não pegou. Pegar = renomear pra .run (ninguém pega duas vezes).
+#[tauri::command(async)]
+fn comando_ponte_ler() -> Result<Vec<serde_json::Value>, String> {
+    let ponte = comando_ponte_dir(); let mut out = vec![];
+    let Ok(rd) = std::fs::read_dir(&ponte) else { return Ok(out) };
+    let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).filter(|p| p.file_name().and_then(|n| n.to_str()).map(|n| n.ends_with(".req.json")).unwrap_or(false)).collect();
+    files.sort();
+    for f in files {
+        let Ok(txt) = std::fs::read_to_string(&f) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&txt) else { let _ = std::fs::remove_file(&f); continue };
+        let run = PathBuf::from(f.to_string_lossy().replace(".req.json", ".run.json"));
+        if std::fs::rename(&f, &run).is_ok() { out.push(v); }
+    }
+    Ok(out)
+}
+#[tauri::command(async)]
+fn comando_ponte_responder(id: String, texto: String) -> Result<(), String> {
+    if !ponte_id_ok(&id) { return Err("id inválido".to_string()); }
+    let ponte = comando_ponte_dir();
+    let tmp = ponte.join(format!("{id}.res.tmp")); let fin = ponte.join(format!("{id}.res.json"));
+    std::fs::write(&tmp, serde_json::json!({ "texto": texto }).to_string()).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &fin).map_err(|e| e.to_string())?;
+    let _ = std::fs::remove_file(ponte.join(format!("{id}.run.json")));
+    Ok(())
+}
+
 /// Gera um título curto de tarefa a partir da descrição (Haiku — rápido/barato).
 #[tauri::command(async)]
 fn ai_title(state: State<AppState>, text: String) -> Result<String, String> {
@@ -5869,6 +5943,11 @@ fn run_claude_stream(app: &tauri::AppHandle, mut cmd: Command, slot: &std::sync:
                             }
                         }
                     }
+                }
+                // servidor MCP que não subiu: sem as ferramentas o modelo "finge" que as usou. O front (agente do Comando) para e avisa.
+                "system" if v.get("subtype").and_then(|t| t.as_str()) == Some("init") => {
+                    let falhou = v.get("mcp_servers").and_then(|m| m.as_array()).map(|a| a.iter().any(|x| x.get("status").and_then(|s| s.as_str()).map(|s| s != "connected").unwrap_or(false))).unwrap_or(false);
+                    if falhou { let _ = app2.emit(&event, serde_json::json!({ "line": "__MCP_FALHOU__" })); }
                 }
                 "result" => {
                     result = v.get("result").and_then(|r| r.as_str()).unwrap_or("").to_string();
@@ -12075,6 +12154,10 @@ pub fn run() {
             comando_plan,
             comando_log,
             comando_portavoz,
+            comando_agente,
+            comando_agente_stop,
+            comando_ponte_ler,
+            comando_ponte_responder,
             comando_portavoz_stop,
             daily_digest,
             ai_daily,

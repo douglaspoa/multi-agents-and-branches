@@ -319,6 +319,7 @@ function cmdRestaura(arr, max){
   return arr.filter(m=>m && typeof m==='object' && (m.r==='you'||m.r==='bot'||m.r==='sys')).slice(-(max||120)).map(m=>{
     if(m.k==='pergunta' && m.state==='wait'){ m.state='timeout'; m.fim='interrompida ao fechar o app'; m.t1=m.t1||m.t0; (m.turns||(m.turns=[])).push({ w:'x', de:m.modo==='conferir'?'porta-voz':'executor', tx:'o app fechou antes da resposta', ts:m.t1 }); }
     if((m.k==='plano'||m.k==='proposta') && (!m.done || m.done==='run')) m.done='nao';
+    if(m.k==='agente'){ m.k='sys'; m.r='sys'; m.text='interrompido quando o app fechou — peça de novo'; }
     if(m.k==='time' && m.busy){ m.busy=''; m.tx=m.tx||'Interrompido quando o app fechou — peça de novo.'; }
     if(m.k==='ciclo' && m.busy){ m.busy=''; m.tx=m.tx||'Interrompido quando o app fechou — peça de novo.'; }
     return m; });
@@ -778,6 +779,7 @@ function cmdBotHtml(m){
   if(m.k==='arquivos') return cmdArquivosHtml(m);
   if(m.k==='aprovacao') return cmdProntasHtml(m);
   if(m.k==='radar') return cmdRadarHtml(m);
+  if(m.k==='agente') return typeof cmdAgenteHtml==='function'?cmdAgenteHtml(m):'';
   if(m.k==='md') return cmdMd(m.text||'');
   return `<p>${esc(m.text||'')}</p>`;
 }
@@ -850,7 +852,8 @@ const CMD_VOZ_ERRO={ 'not-allowed':'O macOS não liberou o microfone pro Starfor
 function cmdVoiceListen(on){
   const R=cmdVoiceApi(); if(!R) return;
   if(!on){ CMDV.live=false; clearTimeout(CMDV.cao); try{ if(CMDV.rec) CMDV.rec.abort(); }catch(_){ } CMDV.rec=null; return cmdVoicePaint(); }
-  if(CMDV.live || !CMDV.on || CMDV.speaking || CMD.busy) return;
+  // ocupado = não ouve — MENOS quando o agente espera um "sim"/"não" num cartão: aí a resposta falada é o clique
+  if(CMDV.live || !CMDV.on || CMDV.speaking || (CMD.busy && !(typeof CMDAG!=='undefined' && CMDAG.espera && !CMDAG.espera.done))) return;
   const r=new R(); r.lang='pt-BR'; r.interimResults=true; r.continuous=false; r.maxAlternatives=1; let ouviu=false, comecou=false;
   r.onstart=()=>{ comecou=true; cmdVozLog('começou'); cmdVozAviso('Ouvindo… pode falar.', 'ok'); };
   r.onaudiostart=()=>cmdVozLog('áudio chegando'); r.onspeechstart=()=>{ ouviu=true; cmdVozLog('fala detectada'); };
@@ -863,7 +866,7 @@ function cmdVoiceListen(on){
     cmdVoicePaint(); };
   r.onend=()=>{ clearTimeout(CMDV.cao); CMDV.live=false; if(CMDV.rec===r) CMDV.rec=null; cmdVozLog('terminou'+(comecou?'':' sem ter começado')+(ouviu?'':' sem fala'));
     if(!comecou && !CMDV.fatal){ CMDV.semInicio=(CMDV.semInicio||0)+1; if(CMDV.semInicio>=2){ CMDV.on=false; cmdVozAviso('O reconhecimento de fala não iniciou neste Mac. Enquanto isso, use o ditado do macOS no campo (tecla do microfone, ou Fn duas vezes) — eu continuo lendo as respostas em voz alta se você ligar a voz.', 'warn'); } } else CMDV.semInicio=0;
-    cmdVoicePaint(); if(CMDV.on && !CMDV.speaking && !CMD.busy) setTimeout(()=>cmdVoiceListen(true), 300); };
+    cmdVoicePaint(); if(CMDV.on && !CMDV.speaking) setTimeout(()=>cmdVoiceListen(true), 300); };
   CMDV.rec=r; CMDV.fatal=false;
   try{ r.start(); CMDV.live=true; cmdVozLog('pedi pra ouvir'); }catch(e){ CMDV.rec=null; cmdVozLog('start falhou: '+String((e&&e.message)||e).slice(0,160)); cmdVozAviso('Não consegui ligar o microfone: '+String((e&&e.message)||e).slice(0,120), 'warn'); CMDV.on=false; }
   // cão de guarda: pediu pra ouvir e o sistema não respondeu nada em 6 s (nem começou, nem deu erro)
@@ -921,7 +924,7 @@ function cmdMount(){
         if((e.key==='Enter'&&!e.shiftKey)||e.key==='Tab'){ e.preventDefault(); return cmdAcPick(CMDAC.sel); } if(e.key==='Escape'){ e.preventDefault(); CMDAC.on=false; $id('cmdAc').hidden=true; return; } }
       if(e.key==='Enter' && !e.shiftKey && !e.isComposing){ e.preventDefault(); cmdEnvia(); } });
     $id('cmdAc').addEventListener('mousedown', e=>{ const b=e.target.closest('[data-cmdac]'); if(b){ e.preventDefault(); cmdAcPick(+b.dataset.cmdac); } }); }
-  $id('cmdStop').onclick=()=>{ if(CMD.asking && CMD.pv){ invoke('comando_portavoz_stop').catch(()=>{}); return; } if(!CMD.busy) return; CMD.stopping=true; invoke('project_chat_stop').catch(()=>{}); };
+  $id('cmdStop').onclick=()=>{ if(typeof CMDAG!=='undefined' && CMDAG.on){ CMD.stopping=true; invoke('comando_agente_stop').catch(()=>{}); if(CMD.asking && CMD.pv) invoke('comando_portavoz_stop').catch(()=>{}); return; } if(CMD.asking && CMD.pv){ invoke('comando_portavoz_stop').catch(()=>{}); return; } if(!CMD.busy) return; CMD.stopping=true; invoke('project_chat_stop').catch(()=>{}); };
   $id('cmdMic').onclick=cmdVoiceToggle; cmdVoicePaint();
   $id('cmdVoz').onchange=(e)=>{ lsSet('cmdvoz', e.target.value||''); if(CMDV.on) cmdSpeak('Esta é a voz que vai ler as respostas.'); };
   pg.addEventListener('click', cmdClick);
@@ -1034,14 +1037,16 @@ function cmdPlanoCurto(P){ return ((P&&P.passos)||[]).map(p=>({ a:p.acao, t:(p.a
 function cmdRefs(){ let n=0; const home=cmdRepo(); return cmdTasks().map(t=>{ const code=cmdCode(t); return { id:t.id, ref:code||('T'+(++n)), code, title:mdTitle(t.title||''), st:stLabel(taskSt(t)),
   proj:(t.repo&&t.repo!==home)?pathBase(t.repo):'', repo:t.repo||home, criada:cmdDia(t.createdAt||t.created_at), mexida:cmdHa(t.updatedAt), foco:t.id===CMD.sel, q:(!t._cross&&cmdIsAsk(t))?cmdAskTitle(t):'', ops:(!t._cross&&cmdIsAsk(t))?((((cmdAsk(t)||{}).rows||[])[0]||{}).options||[]):[], fatos:cmdFatosCurtos(t) }; }); }
 function cmdFatosCurtos(t){ if(t._cross || !cmdTask(t.id)) return ''; const out=[]; try{ if(typeof reqProofCache!=='undefined' && reqProofCache[t.id]!==undefined){ const rq=cmdReqs(t); if(rq.length) out.push(`${rq.filter(r=>r.ok).length} de ${rq.length} requisitos com prova`); } else if(typeof apEnsure==='function') apEnsure(t); }catch(_){ } { const h=CMD.hist[t.id], pa=t.prUrl?'':cmdPrAgente((h&&h.items)||[]); out.push(t.prUrl?'PR aberto':pa?'PR aberto pelo agente ('+pa+')':'sem PR'); } return out.join(', '); }
-function cmdConversa(tudo){ return cmdMsgs().slice(-9, tudo?undefined:-1).map(m=>m.r==='you'?'Pessoa: '+cmdUma(m.text):m.r==='sys'?'':(m.k==='md'||m.k==='txt')?'Comando: '+cmdUma(m.text)
+/** UMA mensagem do chat em texto (o que a pessoa disse, o que o Comando respondeu ou mostrou). É a memória que a IA lê. */
+function cmdMsgTx(m){ return m.r==='you'?'Pessoa: '+cmdUma(m.text):m.r==='sys'?'':(m.k==='md'||m.k==='txt')?'Comando: '+cmdUma(m.text)
   :m.k==='plano'?'Comando propôs: '+(m.plan.passos||[]).map(p=>p.acao+(p.tarefas.length?' '+p.tarefas.join(', '):'')).join(' → ')+(m.done==='sim'?' (feito)':m.done==='nao'?' (a pessoa disse que não era isso)':'')
   :m.k==='pergunta'&&!m.text?'Comando '+(m.modo==='conferir'?'perguntou ao porta-voz':'entregou ao executor')+' da '+((cmdTaskAny(m.id)&&cmdCode(cmdTaskAny(m.id)))||'tarefa')+': «'+cmdUma(m.q)+'» (ainda sem resposta)'
   :m.k==='pergunta'&&m.text?(m.modo==='conferir'?'Porta-voz':'Executor')+' da '+((cmdTaskAny(m.id)&&cmdCode(cmdTaskAny(m.id)))||'tarefa')+' disse: '+String(m.text).replace(/\s+/g,' ').trim().slice(0,600)
   :m.k==='time'?'Comando mostrou ('+(m.titulo||'')+'): '+(m.tx||'')+(m.grupos||[]).map(g=>g.nome+' — '+(g.nota||'')+': '+(g.itens||[]).slice(0,4).map(i=>(i.code?i.code+' ':'')+String(i.titulo).slice(0,50)+(i.nota?' ('+i.nota+')':'')).join('; ')).join(' | ').slice(0,900)
   :m.k==='ciclo'?'Comando mostrou ('+(m.titulo||'')+(m.code?' de '+m.code:'')+'): '+String(m.tx||m.busy||'').slice(0,300)+((m.linhas||[]).some(l=>l.ok===false)?' — falhando: '+m.linhas.filter(l=>l.ok===false).map(l=>l.label).join(', '):'')
   :m.k==='aviso'?(m.ids||[]).map((id,i)=>{ const t=cmdTask(id); if(!t) return ''; const h=CMD.hist[id], say=h&&h.items?cmdLastSay(h.items):'', q=(m.tipos||[])[i]==='ask'?cmdAskTitle(t):'';
-      return 'Comando avisou: '+(cmdCode(t)||mdTitle(t.title||''))+' — '+(CMD_TIPO[(m.tipos||[])[i]]||'')+(q?'. Pergunta dela: «'+cmdUma(q)+'»':'')+(say?'. O executor disse: «'+String(say).replace(/\s+/g,' ').trim().slice(0,600)+'»':''); }).filter(Boolean).join('\n'):'[Comando mostrou: '+m.k+(m.id&&cmdTaskAny(m.id)?' de '+(cmdCode(cmdTaskAny(m.id))||''):'')+']').filter(Boolean); }
+      return 'Comando avisou: '+(cmdCode(t)||mdTitle(t.title||''))+' — '+(CMD_TIPO[(m.tipos||[])[i]]||'')+(q?'. Pergunta dela: «'+cmdUma(q)+'»':'')+(say?'. O executor disse: «'+String(say).replace(/\s+/g,' ').trim().slice(0,600)+'»':''); }).filter(Boolean).join('\n'):'[Comando mostrou: '+m.k+(m.id&&cmdTaskAny(m.id)?' de '+(cmdCode(cmdTaskAny(m.id))||''):'')+']'; }
+function cmdConversa(tudo){ return cmdMsgs().slice(-9, tudo?undefined:-1).map(cmdMsgTx).filter(Boolean); }
 async function cmdProjeto(repo){ if(!repo || repo===cmdRepo()) return true; if(!window.switchProject) return false; try{ await window.switchProject(repo); }catch(_){ return false; } return cmdRepo()===repo; }
 function cmdNovaHtml(p){ const o=(p.origem||[]).map(x=>esc(x.code||x.ref)).join(', ');
   return `<div class="cmdnova"><b>${esc(p.titulo||cmdUma(String(p.texto||'').split(/[.\n]/)[0]).slice(0,80))}</b>${p.texto?`<p>${esc(p.texto)}</p>`:''}${(p.requisitos||[]).length?`<div class="cmdhint">Pronto quando:</div><ul>${p.requisitos.map(r=>`<li>${esc(r)}</li>`).join('')}</ul>`:''}${o?`<div class="cmdhint">Referência: ${o}</div>`:''}</div>`; }
@@ -1165,7 +1170,7 @@ async function cmdCodigo(text){
   CMD.busy=false; CMD.stopping=false; cmdPaint(true);
 }
 async function cmdSay(text, modo){ const soIA=modo===true, chip=modo==='chip';
-  text=String(text||'').trim(); if(!text) return; if(CMD.busy){ toast('espere a resposta — ou pare','warn'); return; }
+  text=String(text||'').trim(); if(!text) return; if(typeof cmdAgDecide==='function' && cmdAgDecide(text)) return; if(CMD.busy){ toast('espere a resposta — ou pare','warn'); return; }
   cmdMsgs().push({ r:'you', text }); cmdPaint(true);
   if(soIA) return cmdCodigo(text);
   // COMANDO DIRETO ("/encerrar @FND-1 @FND-2"): sem IA, na hora; só o que não tem volta fácil pede o "sim"
@@ -1184,6 +1189,7 @@ async function cmdSay(text, modo){ const soIA=modo===true, chip=modo==='chip';
   // texto DIGITADO nunca é adivinhado por palavra (12/11: "o que falta pra começar as provas?" virou "provas" e foi pra outra tarefa).
   // Só o botão de sugestão — uma frase fixa, de sentido conhecido — responde na hora.
   if(chip){ const it=cmdResolve(text); if(it.k && it.k!=='ia' && await cmdDo(it)) return; }
+  if(typeof cmdAgente==='function' && lsGet('cmdmotor')!=='plano'){ const ok=await cmdAgente(text); if(ok!==false) return; }
   return cmdPlanejar(text);
 }
 function cmdPaint(down){
