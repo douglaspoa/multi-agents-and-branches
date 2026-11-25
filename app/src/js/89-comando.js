@@ -868,10 +868,13 @@ function cmdVoiceListen(on){
   r.onstart=()=>{ comecou=true; cmdVozLog('começou'); cmdVozAviso('Ouvindo… pode falar.', 'ok'); };
   r.onaudiostart=()=>cmdVozLog('áudio chegando'); r.onspeechstart=()=>{ ouviu=true; cmdVozLog('fala detectada'); };
   r.onresult=(e)=>{ ouviu=true; let fin='', mid=''; for(let k=e.resultIndex;k<e.results.length;k++){ const x=e.results[k]; if(x.isFinal) fin+=x[0].transcript; else mid+=x[0].transcript; }
-    const q=$id('cmdQ'); if(q){ q.value=(fin||mid).trim(); cmdGrow(); } if(fin.trim()){ cmdVozLog('entendeu '+fin.trim().length+' caracteres'); CMDV.vazias=0; cmdVozAviso(''); if(q){ q.value=''; cmdGrow(); } cmdSay(fin.trim()); } };
+    const q=$id('cmdQ'); if(q){ q.value=(fin||mid).trim(); cmdGrow(); } if(fin.trim()){ cmdVozLog('entendeu '+fin.trim().length+' caracteres'); CMDV.vazias=0; CMDV.abortos=0; cmdVozAviso(''); if(q){ q.value=''; cmdGrow(); } cmdSay(fin.trim()); } };
   r.onerror=(e)=>{ CMDV.live=false; const k=String(e&&e.error||''); cmdVozLog('erro '+k+(e&&e.message?' · '+String(e.message).slice(0,120):''));
     if(k==='no-speech'){ CMDV.vazias=(CMDV.vazias||0)+1; cmdVozAviso(CMDV.vazias>=3?'Não estou ouvindo nada. Confira se o microfone certo está escolhido em Ajustes do Sistema › Som › Entrada.':'Não ouvi nada — pode falar.', CMDV.vazias>=3?'warn':''); }
-    else if(k==='aborted'){ /* eu mesmo parei pra falar ou pra pensar */ }
+    // o macOS com Siri/Ditado desligados devolve "aborted" com esta mensagem — não é uma parada minha: sem o Ditado não há fala → texto
+    else if(/dictation|siri/i.test(String((e&&e.message)||''))){ CMDV.fatal=true; CMDV.on=false; try{ speechSynthesis.cancel(); }catch(_){ }
+      cmdVozAviso('O Ditado do macOS está desligado, e é ele que transforma a sua fala em texto. Ligue em Ajustes do Sistema › Teclado › Ditado (ou ative a Siri) e clique no microfone de novo.', 'warn'); }
+    else if(k==='aborted'){ CMDV.abortos=(CMDV.abortos||0)+1; if(CMDV.abortos>=4 && !ouviu){ CMDV.fatal=true; CMDV.on=false; cmdVozAviso('O reconhecimento de fala está sendo interrompido pelo macOS'+((e&&e.message)?' ('+String(e.message).slice(0,80)+')':'')+'. Confira Ajustes do Sistema › Teclado › Ditado.', 'warn'); } }
     else { CMDV.fatal=true; CMDV.on=false; cmdVozAviso(CMD_VOZ_ERRO[k]||('O reconhecimento de fala falhou ('+(k||'sem código')+').'), 'warn'); try{ speechSynthesis.cancel(); }catch(_){ } }
     cmdVoicePaint(); };
   r.onend=()=>{ clearTimeout(CMDV.cao); CMDV.live=false; if(CMDV.rec===r) CMDV.rec=null; cmdVozLog('terminou'+(comecou?'':' sem ter começado')+(ouviu?'':' sem fala'));
@@ -903,7 +906,7 @@ function cmdVoiceToggle(){
   CMDV.on=!CMDV.on;
   if(!CMDV.on){ CMDV.speaking=false; cmdVoiceListen(false); try{ speechSynthesis.cancel(); }catch(_){ } cmdVozAviso(''); cmdVozLog('desligada'); return cmdVoicePaint(); }
   CMD.spoken=cmdMsgs().length; // só fala o que vier a partir de agora
-  CMDV.vazias=0; CMDV.semInicio=0; CMDV.fatal=false; cmdVozLog('ligada · reconhecimento '+(cmdVoiceApi()?'disponível':'INDISPONÍVEL')+' · vozes '+(()=>{ try{ return speechSynthesis.getVoices().length; }catch(_){ return '?'; } })());
+  CMDV.vazias=0; CMDV.semInicio=0; CMDV.abortos=0; CMDV.fatal=false; cmdVozLog('ligada · reconhecimento '+(cmdVoiceApi()?'disponível':'INDISPONÍVEL')+' · vozes '+(()=>{ try{ return speechSynthesis.getVoices().length; }catch(_){ return '?'; } })());
   if(cmdVoiceApi()) cmdVoiceListen(true);
   else toast('Vou ler as respostas em voz alta. Pra falar, use o ditado do macOS neste campo (tecla do microfone, ou Fn duas vezes).','info');
   cmdVoicePaint();
