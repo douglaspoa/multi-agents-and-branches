@@ -5544,6 +5544,60 @@ fn roda_com_teto(mut cmd: Command, secs: u64) -> Result<Vec<u8>, String> {
     }
     Ok(leitor.join().unwrap_or_default())
 }
+/// Nome de voz do WebView → nome que o `say` aceita. Igual = usa; senão casa pelo 1º nome ("Luciana (Enhanced)" ↔
+/// "Luciana (Aprimorada)"), preferindo a variante melhor quando o pedido era de uma. Sem par: None (o app usa a do sistema).
+fn fala_voz_do_say(lista: &str, pedida: &str) -> Option<String> {
+    let nomes: Vec<String> = lista.lines().filter_map(|l| {
+        // "Luciana             pt_BR    # Olá…"  ·  "Eddy (Português (Brasil)) pt_BR    # …"
+        let antes = l.split('#').next().unwrap_or("").trim_end();
+        let corte = antes.rfind(char::is_whitespace)?;
+        let nome = antes[..corte].trim();
+        if nome.is_empty() { None } else { Some(nome.to_string()) }
+    }).collect();
+    let pedida = pedida.trim();
+    let melhor = |n: &str| { let l = n.to_lowercase(); l.contains("premium") || l.contains("enhanced") || l.contains("aprimorad") || l.contains("melhorad") };
+    if pedida.is_empty() {
+        // sem pedido: a melhor em português do Brasil — variante melhor, depois a natural (sem "(…)" de brincadeira)
+        let br: Vec<String> = lista.lines().filter_map(|l| {
+            let antes = l.split('#').next().unwrap_or("").trim_end();
+            let corte = antes.rfind(char::is_whitespace)?;
+            if antes[corte..].trim() != "pt_BR" { return None; }
+            let nome = antes[..corte].trim();
+            if nome.is_empty() { None } else { Some(nome.to_string()) }
+        }).collect();
+        return br.iter().find(|n| melhor(n)).or(br.iter().find(|n| !n.contains('('))).or(br.first()).cloned();
+    }
+    if let Some(n) = nomes.iter().find(|n| n.as_str() == pedida) { return Some(n.clone()); }
+    let base = |n: &str| n.split(['(', ' ']).next().unwrap_or("").to_lowercase();
+    let b = base(pedida);
+    if b.is_empty() { return None; }
+    let cand: Vec<&String> = nomes.iter().filter(|n| base(n) == b).collect();
+    cand.iter().find(|n| melhor(n) == melhor(pedida)).or(cand.first()).map(|n| (*n).clone())
+}
+
+/// A FALA do Comando com tratamento: o `say` do macOS grava a voz num WAV (nada sai da máquina) e o app aplica os
+/// filtros antes de tocar. Devolve o WAV em base64. Fora do macOS ou sem a voz: erro → o app fala pelo WebView.
+#[tauri::command(async)]
+fn comando_fala(texto: String, voz: String, ritmo: u32) -> Result<String, String> {
+    if !cfg!(target_os = "macos") { return Err("FALA_SO_MAC".into()); }
+    let texto: String = texto.chars().map(|c| if c.is_control() { ' ' } else { c }).take(900).collect();
+    let texto = texto.trim().to_string();
+    if texto.is_empty() { return Err("sem texto pra falar".into()); }
+    let lista = Command::new("/usr/bin/say").args(["-v", "?"]).output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
+    let voz = fala_voz_do_say(&lista, &voz).ok_or("FALA_SEM_VOZ")?;
+    let arq = std::env::temp_dir().join(format!("starfork-fala-{}-{}.wav", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)));
+    let mut cmd = Command::new("/usr/bin/say");
+    // o texto vai DEPOIS de `--`: nunca é lido como opção
+    cmd.arg("-v").arg(&voz).arg("-r").arg(ritmo.clamp(120, 320).to_string()).arg("-o").arg(&arq).args(["--file-format=WAVE", "--data-format=LEI16@22050", "--"]).arg(&texto);
+    let r = roda_com_teto(cmd, 25).map_err(|_| "a voz do sistema demorou demais".to_string());
+    let bytes = std::fs::read(&arq);
+    let _ = std::fs::remove_file(&arq);
+    r?;
+    let bytes = bytes.map_err(|_| "a voz do sistema não gravou o áudio".to_string())?;
+    if bytes.len() < 1000 { return Err("a voz do sistema não gravou o áudio".into()); }
+    Ok(base64_encode(&bytes))
+}
+
 #[tauri::command(async)]
 fn comando_pagina_foto(state: State<AppState>, task_id: String, url: String) -> Result<PaginaFoto, String> {
     let url = url.trim().to_string();
@@ -12245,6 +12299,7 @@ pub fn run() {
             comando_ponte_ler,
             comando_ponte_responder,
             comando_pagina_foto,
+            comando_fala,
             comando_portavoz_stop,
             daily_digest,
             ai_daily,
@@ -12401,6 +12456,30 @@ mod cardume_hygiene_tests {
         std::fs::create_dir_all(tmp.join("Starfork.app")).unwrap();
         assert_eq!(update_dest(&cur, &new_sf), cur);
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn fala_casa_a_voz_do_say() {
+        let lista = "Eddy (Português (Brasil)) pt_BR    # Olá, meu nome é Eddy.\nJoana               pt_PT    # Olá! Chamo-me Joana.\nLuciana             pt_BR    # Olá, meu nome é Luciana.\nLuciana (Aprimorada) pt_BR    # Olá, meu nome é Luciana.\nSamantha            en_US    # Hello!\n";
+        assert_eq!(fala_voz_do_say(lista, "Luciana").as_deref(), Some("Luciana"));
+        assert_eq!(fala_voz_do_say(lista, "Luciana (Enhanced)").as_deref(), Some("Luciana (Aprimorada)"));
+        assert_eq!(fala_voz_do_say(lista, "Eddy (Portuguese (Brazil))").as_deref(), Some("Eddy (Português (Brasil))"));
+        assert_eq!(fala_voz_do_say(lista, "Felipe"), None);
+        assert_eq!(fala_voz_do_say(lista, "").as_deref(), Some("Luciana (Aprimorada)"));
+        assert_eq!(fala_voz_do_say("Eddy (Português (Brasil)) pt_BR    # Olá\nLuciana             pt_BR    # Olá\n", "").as_deref(), Some("Luciana"));
+        assert_eq!(fala_voz_do_say("Samantha            en_US    # Hello!\n", ""), None);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn fala_grava_wav_de_verdade() {
+        let lista = Command::new("/usr/bin/say").args(["-v", "?"]).output().map(|o| String::from_utf8_lossy(&o.stdout).to_string()).unwrap_or_default();
+        let Some(voz) = lista.lines().find(|l| l.contains("pt_BR")).and_then(|l| fala_voz_do_say(&lista, l.split("pt_BR").next().unwrap_or("").trim())) else { return };
+        let b64 = comando_fala("--version não é opção: é só texto.".into(), voz, 190).unwrap();
+        assert!(b64.starts_with("UklGR"), "é um WAV (RIFF): {}", &b64[..12.min(b64.len())]);
+        assert!(b64.len() > 20_000, "tem áudio de verdade: {}", b64.len());
+        assert_eq!(comando_fala("   ".into(), "Luciana".into(), 190).unwrap_err(), "sem texto pra falar");
+        assert_eq!(comando_fala("oi".into(), "VozQueNaoExiste".into(), 190).unwrap_err(), "FALA_SEM_VOZ");
     }
 
     #[test]
