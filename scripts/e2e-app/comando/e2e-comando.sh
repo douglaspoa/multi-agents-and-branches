@@ -20,6 +20,16 @@ git init -q "$E/repo"; ( cd "$E/repo" && echo "# repo de teste" > README.md && g
 T=(--roles builder --agents Vega --engine claude --approve auto --no-tests --auto-pr no --no-start)
 N=("Relatório mensal de vendas por região" "Migração do cadastro de clientes" "Painel de estoque por depósito" "Integração com a transportadora" "Revisão das permissões de acesso" "Cache das consultas de catálogo")
 for i in $(seq 1 42); do "$NODE" --disable-warning=ExperimentalWarning "$E/engine/cli.mjs" new --id "t$i" --title "${N[$((i % 6))]} — parte $i, com um título comprido de propósito" "${T[@]}" --repo "$E/repo" >/dev/null; done
+# t3 editou código de verdade e entregou uma imagem: é o que o "abre o código / abre a imagem" vai abrir no app
+WT3="$(git -C "$E/repo" worktree list --porcelain | sed -n 's/^worktree \(.*\/t3\)$/\1/p' | head -1)"
+if [ -n "$WT3" ]; then
+  mkdir -p "$WT3/src" "$WT3/.cardume/artifacts"
+  printf 'export function frete(cep: string) {\n  return cep.startsWith("9") ? 12 : 25;\n}\n' > "$WT3/src/frete.ts"
+  printf 'export const versao = 2;\n' > "$WT3/src/versao.ts"
+  ( cd "$WT3" && git add src && git commit -qm "frete por CEP" )
+  printf 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAFklEQVR4nGNk+M+AFTBhFx6VGFESAOHfAQ8sqQb4AAAAAElFTkSuQmCC' | base64 -d > "$WT3/.cardume/artifacts/proof-1.png"
+  printf '# testes\n\n3 passaram\n' > "$WT3/.cardume/artifacts/tests.md"
+fi
 : > "$E/report.txt"; : > "$E/stub.log"
 mkdir -p "$E/site"; printf '<html><body><h1>Pedidos</h1><button id="exp">Exportar CSV</button><script>document.body.insertAdjacentHTML("beforeend","<p id=js>renderizado por JS</p>")</script></body></html>' > "$E/site/pedidos.html"
 ( cd "$E/site" && exec /usr/bin/python3 -m http.server 4191 --bind 127.0.0.1 >/dev/null 2>&1 ) & SITE=$!

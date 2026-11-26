@@ -361,3 +361,35 @@ struct OutMsg: Identifiable, Decodable, Equatable {
         return body
     }
 }
+
+// MARK: - Assistente por voz (regras puras — ConstellationTests)
+enum AssistLogic {
+    /// silêncio depois da última palavra que encerra a fala (s)
+    static let pause: Double = 1.4
+    /// sem o Mac pegar o pedido nesse tempo, desiste e avisa (s)
+    static let macGrace: Double = 20
+    /// teto de espera pela resposta depois que o Mac pegou (s)
+    static let replyCap: Double = 270
+
+    /// O que a pessoa falou vale como pedido? (ruído de 1 letra não)
+    static func worthSending(_ s: String) -> Bool {
+        s.trimmingCharacters(in: .whitespacesAndNewlines).filter { $0.isLetter || $0.isNumber }.count >= 2
+    }
+    /// A fala terminou? — tem texto e ficou `pause` sem mudar.
+    static func utteranceDone(text: String, lastChange: Date, now: Date = Date()) -> Bool {
+        worthSending(text) && now.timeIntervalSince(lastChange) >= pause
+    }
+    /// O que fazer enquanto espera: seguir, desistir (Mac fora) ou estourou o teto.
+    enum Wait: Equatable { case keep, macOff, tooLong }
+    static func wait(elapsed: Double, picked: Bool) -> Wait {
+        if !picked { return elapsed >= macGrace ? .macOff : .keep }
+        return elapsed >= replyCap ? .tooLong : .keep
+    }
+    /// Texto pra LER EM VOZ ALTA: sem símbolo que o sintetizador soletra.
+    static func speakable(_ s: String) -> String {
+        var t = s.replacingOccurrences(of: "`", with: "").replacingOccurrences(of: "*", with: "").replacingOccurrences(of: "#", with: "")
+        t = t.replacingOccurrences(of: "\n", with: " ")
+        while t.contains("  ") { t = t.replacingOccurrences(of: "  ", with: " ") }
+        return t.trimmingCharacters(in: .whitespaces)
+    }
+}

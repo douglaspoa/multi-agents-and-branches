@@ -35,7 +35,7 @@ const uuid = () => 'cccccccc-' + Math.random().toString(16).slice(2, 6) + '-4' +
 // ---------------- dados ----------------
 let db, seq, log;
 function seed() {
-  seq = { task_feed: 1000, task_messages: 10, task_activity: 50, questions: 0 };
+  seq = { task_feed: 1000, task_messages: 10, task_activity: 50, questions: 0, comando_msgs: 0 };
   log = [];
   const T = (id, o) => ({ id, local_id: 'l-' + id.slice(-4), team_id: TEAM, project_id: P_LOJA, created_by: ME, assignee: ME, flag: null,
     branch: null, pr_url: null, issue_url: null, cost_usd: 0, cost_tokens: 0, stage: null, epic_id: null, claim_mode: 'reserved',
@@ -78,6 +78,7 @@ function seed() {
     questions: [],
     task_feed: [],
     task_messages: [],
+    comando_msgs: [],
     task_activity: [],
     artifacts_meta: [
       { task_id: 'dddddddd-0000-4000-8000-000000000002', name: 'proof-login.png', kind: 'image', storage_path: 'demo/proof-login.png', created_at: ago(500) },
@@ -181,7 +182,9 @@ function insert(table, body, onConflict) {
     if (table === 'task_feed' && !r.at) r.at = now();
     if (table === 'task_messages' && !r.created_at) { r.created_at = now(); r.delivered_at = r.delivered_at ?? null; }
     if (table === 'tasks') { r.created_at = r.created_at || now(); r.updated_at = now(); r.flag = r.flag ?? null; r.pr_url = r.pr_url ?? null; r.cost_usd = r.cost_usd ?? 0; r.requirements_proof = null; }
+    if (table === 'comando_msgs') { r.created_at = r.created_at || now(); r.state = r.state || 'novo'; r.meta = r.meta || {}; r.reply_to = r.reply_to ?? null; }
     db[table].push(r); write(table, 'INSERT', r); out.push(r);
+    if (table === 'comando_msgs' && r.role === 'user') macAssistente(r);
   }
   return out;
 }
@@ -189,6 +192,28 @@ function patch(table, params, body) {
   const rows = query(table, params).map((r) => (db[table] || []).find((x) => x === r || (x.id != null && x.id === r.id) || (x.user_id && x.user_id === r.user_id && x.device_id === r.device_id)));
   for (const r of rows) { if (!r) continue; const old = { ...r }; Object.assign(r, body); write(table, 'UPDATE', r, old); }
   return rows.filter(Boolean);
+}
+
+// o "MAC" atendendo o ASSISTENTE: pega a fala (novo → atendendo) e grava a resposta do Comando (linha bot, reply_to).
+// Mac fora do ar: não pega — o app tem que desistir sozinho e tirar a fala da fila.
+function macAssistente(fala) {
+  if (!macOnline) return;
+  setTimeout(() => {
+    if (!macOnline || fala.state !== 'novo') return;
+    const old = { ...fala }; fala.state = 'atendendo'; write('comando_msgs', 'UPDATE', fala, old);
+    setTimeout(() => {
+      const t = String(fala.body).toLowerCase(); const abertas = db.tasks.filter((x) => !['merged', 'aborted'].includes(x.status));
+      const pend = db.comando_msgs.filter((m) => m.role === 'bot' && m.meta && m.meta.confirma).pop();
+      let body, meta = { confirma: false, projeto: 'loja-web' };
+      if (/^(sim|pode|confirmo)\b/.test(t) && pend && !pend.meta.decidido) { pend.meta.decidido = 'sim'; body = 'Pronto, encerrei a tarefa.'; }
+      else if (/^n[aã]o\b/.test(t) && pend && !pend.meta.decidido) { pend.meta.decidido = 'nao'; body = 'Tudo bem, não fiz nada.'; }
+      else if (/encerr|cancel/.test(t)) { body = 'Preciso da sua confirmação: encerrar sem entregar ' + (abertas[0] ? abertas[0].title : 'a tarefa') + '. Diga sim ou não.'; meta.confirma = true; }
+      else if (/como est|status|tarefa/.test(t)) body = `Você tem ${abertas.length} tarefas abertas no loja-web. ${db.questions.filter((q) => q.status === 'open').length} estão esperando uma resposta sua.`;
+      else body = 'Entendi: ' + String(fala.body).slice(0, 120) + '. Já estou cuidando disso no Mac.';
+      insert('comando_msgs', { role: 'bot', body, reply_to: fala.id, state: 'pronto', meta });
+      const o2 = { ...fala }; fala.state = 'pronto'; write('comando_msgs', 'UPDATE', fala, o2);
+    }, 1400);
+  }, 700);
 }
 
 // ---------------- Realtime (Phoenix v1) ----------------

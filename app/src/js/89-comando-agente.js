@@ -32,6 +32,7 @@ COMO VOCÊ TRABALHA
 - Criar tarefa ou issue: monte você o conteúdo inteiro (titulo curto; texto = objetivo completo e autossuficiente pra um agente que não viu a conversa; requisitos = 3 a 8 critérios verificáveis), com o que a conversa e os fatos já dizem. A pessoa confere no cartão.
 - Nunca invente tarefa, código, número ou fato. Se uma ferramenta falhar ou o app não responder, diga isso.
 - VOCÊ SÓ FEZ O QUE A FERRAMENTA CONFIRMOU. Se o resultado de "agir" for erro, "ação desconhecida", "não achei" ou "não deu", a ação NÃO aconteceu: corrija e tente de novo (com o nome certo da ação, que o próprio erro mostra) ou diga à pessoa que não conseguiu e por quê. Nunca responda "feito", "anotado", "enviado" sem um resultado de sucesso na mão.
+- ABRIR PRA ELA VER: quando ela pede pra ABRIR ou VER o código que a tarefa editou, use agir "abrir_codigo" (tarefas = a tarefa; alvo = nome ou pedaço do caminho, se ela disse qual). Pra imagem, print, prova, PDF, vídeo ou documento entregue, use agir "abrir_entrega" (alvo = nome do arquivo, ou "imagens"/"pdf"/"vídeo"). Pro app rodando, "abrir_ambiente"; pro celular, "abrir_simulador". Tudo abre numa aba do próprio Starfork (a tela muda pra ela) — diga o que abriu em uma frase. Se a ferramenta devolver uma lista perguntando qual, pergunte a ela.
 - Use os nomes das ações EXATAMENTE como estão na lista da ferramenta "agir" (ex.: anotar_memoria, ligar_skill, abrir_pr, mover_issue) — não invente variações.
 - RESPONDER x INSTRUIR: se a tarefa tem PERGUNTA ABERTA esperando a pessoa e o que ela disse responde a essa pergunta, use agir "responder" (texto = a resposta; com várias perguntas abertas, alvo = o número da pergunta que ela respondeu — uma chamada por pergunta). "instruir" é só pra mandar algo novo ao executor.
 
@@ -84,7 +85,7 @@ function cmdAgAlvos(p, incluiEncerradas){ const refs=cmdRefs(), todas=incluiEnce
   (p.tarefas||[]).forEach(q=>{ if(/^(todas|tudo)$/i.test(q)) return; let r=cmdRefTask(q, todas);
     if(!r){ const d=cmdBuscaDecide(cmdBusca(q, todas.map(x=>({ tipo:'tarefa', code:x.code||x.ref, id:x.id, title:x.title, text:'' })), 4)); if(d && d.um) r=todas.find(x=>x.id===d.um.id)||null; }
     if(r && !p.alvos.some(a=>a.id===r.id)) p.alvos.push(r); else if(!r) p.faltam.push(q); });
-  if(!p.alvos.length && !(p.tarefas||[]).length && p.alvo && !['abrir_pr','liberar_teto','epico','epico_acao','responder'].includes(p.acao)){ const r=cmdRefTask(p.alvo, todas); if(r) p.alvos.push(r); }
+  if(!p.alvos.length && !(p.tarefas||[]).length && p.alvo && !['abrir_pr','liberar_teto','epico','epico_acao','responder','abrir_codigo','abrir_entrega'].includes(p.acao)){ const r=cmdRefTask(p.alvo, todas); if(r) p.alvos.push(r); }
   if(p.acao==='responder' && !p.alvos.length && !(p.tarefas||[]).length && CMD.sel){ const r=todas.find(x=>x.id===CMD.sel); if(r) p.alvos.push(r); } // respondeu sem repetir a tarefa: é a que está em foco // "alvo" usado no lugar de "tarefas"
   return p; }
 /** Roda um passo pelo MESMO executor dos planos e devolve, em texto, o que apareceu no chat por causa dele. */
