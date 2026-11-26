@@ -76,6 +76,9 @@ function cmdAgFalta(p, nAlvos, desc){ p=p||{}; const falta=(CMD_AG_PRECISA[p.aca
   if(!falta.length && p.acao==='epico_acao' && !CMD_AG_EPICO_TX.includes(String(p.texto||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim())) return 'NADA foi feito: em epico_acao o campo texto tem que ser um destes: '+CMD_AG_EPICO_TX.join(' | ')+'. Se a pessoa não pediu pra agir num épico, a ação certa é outra.';
   if(!falta.length) return '';
   return 'NADA foi feito e a pessoa não viu nada: a ação “'+p.acao+'” veio sem '+falta.map(c=>c==='tarefas'?'a tarefa (campo tarefas = código)':'o campo '+c).join(' e ')+'.'+(desc?' O que ela faz: '+String(desc).slice(0,220)+'.':'')+' Confira se é esta a ação que a pessoa pediu e chame de novo com os campos preenchidos.'; }
+/** A pessoa (ou a IA) deu um CÓDIGO ou número ("FND-1260", "1260", "T3")? Código nunca é adivinhado por parecido:
+ *  26/11, uso real — "abrir o PR da 1260" (já entregue) virou cartão pra FND-1256, que é outra tarefa. Puro. */
+function cmdAgPareceCodigo(q){ return /^@?\s*(?:[a-z]{1,10}[_-]?|[a-z]{1,4}\s)?\d{1,7}$/i.test(String(q||'').trim()); }
 // @agente-puro-fim
 
 const CMDAG={ on:false, laco:0, fila:Promise.resolve(), msg:null, espera:null, semFerramentas:false };
@@ -96,7 +99,7 @@ function cmdAgMsgTx(m){ if(!m) return '';
 function cmdAgAlvos(p, incluiEncerradas){ const refs=cmdRefs(), todas=incluiEncerradas?refs.concat(cmdAllTasks().filter(t=>taskEncerrada(t) && !refs.some(r=>r.id===t.id)).map(t=>({ id:t.id, ref:cmdCode(t)||t.id, code:cmdCode(t), title:mdTitle(t.title||''), st:'encerrada' }))):refs;
   p.alvos=[]; p.faltam=[]; if(p.acao==='criar_demanda') p.origem=(p.tarefas||[]).map(q=>cmdRefTask(q, todas)).filter(Boolean); if(CMD_SEM_TAREFA.has(p.acao)) return p;
   (p.tarefas||[]).forEach(q=>{ if(/^(todas|tudo)$/i.test(q)) return; let r=cmdRefTask(q, todas);
-    if(!r){ const d=cmdBuscaDecide(cmdBusca(q, todas.map(x=>({ tipo:'tarefa', code:x.code||x.ref, id:x.id, title:x.title, text:'' })), 4)); if(d && d.um) r=todas.find(x=>x.id===d.um.id)||null; }
+    if(!r && !cmdAgPareceCodigo(q)){ const d=cmdBuscaDecide(cmdBusca(q, todas.map(x=>({ tipo:'tarefa', code:x.code||x.ref, id:x.id, title:x.title, text:'' })), 4)); if(d && d.um) r=todas.find(x=>x.id===d.um.id)||null; }
     if(r && !p.alvos.some(a=>a.id===r.id)) p.alvos.push(r); else if(!r) p.faltam.push(q); });
   if(!p.alvos.length && !(p.tarefas||[]).length && p.alvo && !['abrir_pr','liberar_teto','epico','epico_acao','responder','abrir_codigo','abrir_entrega'].includes(p.acao)){ const r=cmdRefTask(p.alvo, todas); if(r) p.alvos.push(r); }
   if(p.acao==='responder' && !p.alvos.length && !(p.tarefas||[]).length && CMD.sel){ const r=todas.find(x=>x.id===CMD.sel); if(r) p.alvos.push(r); } // respondeu sem repetir a tarefa: é a que está em foco // "alvo" usado no lugar de "tarefas"
@@ -133,7 +136,10 @@ async function cmdAgFerramenta(req){ const a=req.args||{}, t=req.tool;
       return await cmdAgRoda(p, { silencio:!mostrar }); }
     if(t==='agir'){ const p=cmdAgentePasso(a); if(!CMD_ACOES[p.acao]) return cmdAgAcaoErrada(p.acao, CMD_ACOES);
       if(Object.values(CMD_AG_VER).includes(p.acao) && !['plano','checks'].includes(p.acao)) return 'Isso é leitura: use a ferramenta "ver".';
-      cmdAgAlvos(p, false); if(p.faltam.length) return 'Não achei estas tarefas abertas: '+p.faltam.join(', ')+'. Use buscar pra achar o código certo (tarefa encerrada não aceita essa ação).';
+      cmdAgAlvos(p, false); if(p.faltam.length){ // a que falta pode existir e já estar ENCERRADA: diz isso com todas as letras, em vez de "não achei"
+        const enc=cmdAllTasks().filter(t=>taskEncerrada(t)).map(t=>({ id:t.id, ref:cmdCode(t)||t.id, code:cmdCode(t), title:mdTitle(t.title||''), st:stLabel(taskSt(t)) }));
+        const linhas=p.faltam.map(q=>{ const r=cmdRefTask(q, enc); return r?`${r.code||r.ref} "${cmdUma(r.title).slice(0,70)}" já está encerrada (${r.st}) — a ação “${p.acao}” só vale pra tarefa aberta`:`não achei “${q}” entre as tarefas abertas`; });
+        return 'NADA foi feito: '+linhas.join('; ')+'. Diga isso à pessoa como está; NÃO troque por outra tarefa parecida. Se ela quer algo novo a partir de uma tarefa encerrada (ex.: levar a entrega pra outra branch), proponha criar_demanda com a encerrada como origem.'; }
       cmdAgAtividade((CMD_ACAO_TX[p.acao]||p.acao)+(p.alvos.length?' '+p.alvos.map(x=>x.code||x.ref).join(', '):p.alvo?' '+p.alvo:'')+'…');
       { const f=cmdAgFalta(p, p.alvos.length, CMD_ACOES[p.acao]); if(f) return f; }
       if(p.acao==='epico_acao' && typeof cmdEpics==='function'){ const E=cmdEpics(), n=cmdNorm(p.alvo); if(!E.some(x=>cmdNorm(x.name)===n || (cmdNorm(x.name).includes(n) && p.alvo.length>=3))) return 'NADA foi feito: não existe épico chamado “'+p.alvo+'”. Épicos: '+(E.map(x=>x.name).slice(0,12).join(', ')||'nenhum')+'.'; }
