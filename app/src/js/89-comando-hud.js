@@ -35,7 +35,8 @@ function cmdHudPaint(){ const el=$id('cmdHud'); if(!el) return; const e=cmdHudAg
   if(E && E.textContent!==tx) E.textContent=tx; if(L && L.textContent!==ln) L.textContent=ln;
   const parado=window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   if(parado){ cmdHudDraw(0); return; }
-  if(!CMDH.raf && cmdAtiva() && !document.hidden) CMDH.raf=requestAnimationFrame(cmdHudLaco); }
+  if(!CMDH.raf && cmdAtiva() && !document.hidden) CMDH.raf=requestAnimationFrame(cmdHudLaco);
+  else if(!CMDH.raf) cmdHudDraw(performance.now()); } // janela escondida: um quadro parado, pra não aparecer vazio quando ela voltar
 function cmdHudLaco(ts){ CMDH.raf=0; const el=$id('cmdHud'); if(!el || el.hidden || !cmdAtiva() || document.hidden) return;
   // o estado mudou sem ninguém repintar (voz desligada por erro, fala que acabou): o núcleo se acerta sozinho — e some se a voz saiu
   if(cmdHudAgora()!==el.dataset.estado){ cmdHudPaint(); if(el.hidden) return; }
