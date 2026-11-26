@@ -318,3 +318,15 @@ test('busca por sentido acha por pedaço de título, de descrição, número e p
   assert.deepEqual(D.cmdBusca('banana nanica', docs), []); assert.deepEqual(D.cmdBusca('me mostra essa', docs), []);
   assert.equal(D.cmdBuscaDecide(D.cmdBusca('login com google', docs)).um.code, 'LW-302'); assert.equal(D.cmdBuscaDecide(D.cmdBusca('ajuste de layout do rodapé', docs)).varios.length, 2); assert.equal(D.cmdBuscaDecide([]), null);
 });
+
+test('voz padrão: a melhor em português, nunca as de brincadeira do macOS', () => {
+  const ini=JS.indexOf('const CMD_VOZ_RUIM='), fim=JS.indexOf('// as vozes instaladas no macOS');
+  const { cmdVozMelhor } = new Function(JS.slice(ini, fim)+'; return { cmdVozMelhor };')();
+  const V=(name, lang)=>({ name, lang });
+  const mac=[V('Eddy (Português (Brasil))','pt-BR'), V('Flo (Português (Brasil))','pt-BR'), V('Grandma (Português (Brasil))','pt-BR'), V('Joana','pt-PT'), V('Luciana','pt-BR'), V('Samantha','en-US')];
+  assert.equal(cmdVozMelhor(mac).name, 'Luciana');
+  assert.equal(cmdVozMelhor([...mac, V('Luciana (Enhanced)','pt-BR')]).name, 'Luciana (Enhanced)');
+  assert.equal(cmdVozMelhor([...mac, V('Luciana (Enhanced)','pt-BR'), V('Felipe (Premium)','pt-BR')]).name, 'Felipe (Premium)');
+  assert.equal(cmdVozMelhor([V('Eddy (Português (Brasil))','pt-BR'), V('Joana','pt-PT')]).name, 'Joana');
+  assert.equal(cmdVozMelhor([V('Samantha','en-US')]), null);
+});

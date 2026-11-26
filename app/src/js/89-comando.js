@@ -892,13 +892,21 @@ function cmdSpeak(text){
   if(!text || !window.speechSynthesis){ cmdVoiceListen(true); return; }
   try{ speechSynthesis.cancel(); cmdVoiceListen(false);
     const u=new SpeechSynthesisUtterance(text.length>500?text.slice(0,500):text); u.lang='pt-BR'; u.rate=1.05;
-    const vs=speechSynthesis.getVoices(), nome=lsGet('cmdvoz')||'', v=vs.find(x=>x.name===nome)||vs.find(x=>/^pt[-_]BR/i.test(x.lang)); if(v){ u.voice=v; u.lang=v.lang; }
+    const vs=speechSynthesis.getVoices(), nome=lsGet('cmdvoz')||'', v=vs.find(x=>x.name===nome)||cmdVozMelhor(vs); if(v){ u.voice=v; u.lang=v.lang; }
     CMDV.speaking=true; const fim=()=>{ if(!CMDV.speaking) return; CMDV.speaking=false; cmdVoicePaint(); if(CMDV.on) cmdVoiceListen(true); };
     u.onend=fim; u.onerror=fim; speechSynthesis.speak(u); cmdVoicePaint();
   }catch(_){ CMDV.speaking=false; cmdVoiceListen(true); }
 }
+// a voz padrão: a melhor em português que o sistema tem — Premium/Aprimorada primeiro, depois as naturais (Luciana…);
+// as de brincadeira do macOS (Eddy, Grandma, Rocko…) vêm antes no alfabeto e eram escolhidas — ficam por último
+const CMD_VOZ_RUIM=/^(eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|albert|bad news|bahh|bells|boing|bubbles|cellos|jester|organ|superstar|trinoids|whisper|wobble|zarvox|fred|junior|kathy|ralph)\b/i;
+function cmdVozNota(v){ const n=String(v&&v.name||''), l=String(v&&v.lang||''); let p=0;
+  if(/^pt[-_]BR/i.test(l)) p+=100; else if(/^pt/i.test(l)) p+=60; else return -1;
+  if(/premium/i.test(n)) p+=30; else if(/enhanced|aprimorad|melhorad/i.test(n)) p+=20;
+  if(CMD_VOZ_RUIM.test(n)) p-=50; return p; }
+function cmdVozMelhor(vs){ let m=null, mp=-1; for(const v of (vs||[])){ const p=cmdVozNota(v); if(p>mp){ m=v; mp=p; } } return m; }
 // as vozes instaladas no macOS (inclusive as que a pessoa baixou em Ajustes do Sistema): português primeiro
-function cmdVozes(){ let vs=[]; try{ vs=speechSynthesis.getVoices()||[]; }catch(_){ } const pt=x=>/^pt/i.test(x.lang)?0:1; return vs.slice().sort((a,b)=>pt(a)-pt(b) || a.name.localeCompare(b.name)); }
+function cmdVozes(){ let vs=[]; try{ vs=speechSynthesis.getVoices()||[]; }catch(_){ } return vs.slice().sort((a,b)=>cmdVozNota(b)-cmdVozNota(a) || a.name.localeCompare(b.name)); }
 function cmdVozPaint(){ const sel=$id('cmdVoz'); if(!sel) return; const vs=cmdVozes(), cur=lsGet('cmdvoz')||''; sel.hidden=!CMDV.on || !vs.length;
   const h=`<option value="">voz padrão</option>`+vs.map(v=>`<option value="${escA(v.name)}"${v.name===cur?' selected':''}>${esc(v.name)} · ${esc(v.lang)}</option>`).join(''); if(sel.__h!==h){ sel.__h=h; sel.innerHTML=h; } }
 try{ if(window.speechSynthesis) speechSynthesis.addEventListener('voiceschanged', ()=>cmdVozPaint()); }catch(_){ }
