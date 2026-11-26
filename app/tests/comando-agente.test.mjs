@@ -2,7 +2,7 @@
 import test from 'node:test'; import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const corta = (f, a, b) => { const s = readFileSync(new URL(f, import.meta.url), 'utf8'); return s.slice(s.indexOf(a), s.indexOf(b)); };
 const P = new Function(corta('../src/js/89-comando.js', '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { CMD_ACOES, CMD_MUTA };')();
-const A = new Function(corta('../src/js/89-comando-agente.js', '// @agente-puro-inicio', '// @agente-puro-fim') + '\nreturn { CMD_AG_CONFIRMA, CMD_AG_VER, cmdAgenteAcoes, cmdAgenteSys, cmdAgenteTurno, cmdAgentePasso, cmdAgenteSimNao, cmdAgAcaoErrada, cmdAgFalta, CMD_AG_PRECISA };')();
+const A = new Function(corta('../src/js/89-comando-agente.js', '// @agente-puro-inicio', '// @agente-puro-fim') + '\nreturn { CMD_AG_CONFIRMA, CMD_AG_VER, cmdAgenteAcoes, cmdAgenteSys, cmdAgenteTurno, cmdAgentePasso, cmdAgenteSimNao, cmdAgAcaoErrada, cmdAgFalta, CMD_AG_PRECISA, cmdAgPareceCodigo };')();
 
 test('toda leitura da ferramenta "ver" aponta pra uma ação que existe, e toda confirmação é de ação que mexe', () => {
   Object.values(A.CMD_AG_VER).forEach(a => assert.ok(P.CMD_ACOES[a], 'ação de leitura inexistente: ' + a));
@@ -50,4 +50,9 @@ test('chamada torta de "agir" volta pra IA em vez de virar cartão de confirmaç
   // toda ação com regra existe no catálogo, e toda que pede confirmação tem regra
   Object.keys(A.CMD_AG_PRECISA).forEach(a => assert.ok(P.CMD_ACOES[a], 'regra de ação que não existe: ' + a));
   [...A.CMD_AG_CONFIRMA].forEach(a => assert.ok(A.CMD_AG_PRECISA[a], 'pede confirmação sem regra do que precisa: ' + a));
+});
+
+test('código ou número nunca é adivinhado por parecido', () => {
+  for (const q of ['FND-1260', 'fnd 1260', '1260', 'T3', '@FND-1260', 'LW_47']) assert.ok(A.cmdAgPareceCodigo(q), q);
+  for (const q of ['a do frete', 'frete 2', 'seletor de pesquisas', '', 'FND-1260 e FND-1261']) assert.ok(!A.cmdAgPareceCodigo(q), q);
 });

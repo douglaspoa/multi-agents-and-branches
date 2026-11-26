@@ -142,6 +142,12 @@ try{
   { const t=cmdTasks().find(x=>cmdLinks(x).length), esperado=t?cmdLinks(t)[0][1]:'', r=t?cmdAgMsgTx({ k:'link', id:t.id }):'sem tarefa com link na fixture';
     await ok('agente: o resultado de "links" leva o endereço por escrito', !!esperado && String(r).includes(esperado) && /Links de /.test(r) && !/\[Comando mostrou/.test(r), String(r).slice(0,160));
     const h=cmdMd('[PR #12](https://example.com/org/repo/pull/12)'); await ok('agente: link escrito na resposta vira link clicável', /data-exthref="https:\/\/example\.com\/org\/repo\/pull\/12"/.test(h), h.slice(0,140)); }
+  // código que não está aberto NUNCA vira outra tarefa parecida (26/11: "PR da 1260" virou cartão da FND-1256)
+  { const n0=cmdMsgs().length, r=await cmdAgFerramenta({ tool:'agir', args:{ acao:'abrir_pr', tarefas:['T999'], alvo:'homol' } });
+    await ok('agente: código inexistente não é trocado por tarefa parecida, e não mostra cartão', /NADA foi feito/.test(r) && /T999/.test(r) && cmdMsgs().length===n0 && !CMDAG.espera, String(r).slice(0,140));
+    // encerrada própria do teste: as da fixture têm id t1,t2… que colide com as referências T1,T2 das abertas
+    const enc={ id:'zz-900', title:'Tarefa encerrada de teste', status:'merged', flag:'closed' }; state.tasks.push(enc); let r2; try{ r2=await cmdAgFerramenta({ tool:'agir', args:{ acao:'abrir_pr', tarefas:['zz-900'], alvo:'homol' } }); } finally { state.tasks.splice(state.tasks.indexOf(enc),1); }
+    await ok('agente: tarefa encerrada → diz que está encerrada, sem cartão', /já está encerrada/.test(r2) && cmdMsgs().length===n0 && !CMDAG.espera, String(r2).slice(0,160)); }
   // chamada torta de "agir" (caso real de 26/11): volta pra IA e a pessoa NÃO vê cartão de confirmação
   { const n0=cmdMsgs().length; const r=await cmdAgFerramenta({ tool:'agir', args:{ acao:'epico_acao', alvo:'' } });
     await ok('agente: ação sem os campos volta pra IA sem mostrar cartão', /NADA foi feito/.test(r) && cmdMsgs().length===n0 && !CMDAG.espera, String(r).slice(0,120)+' · msgs '+n0+'→'+cmdMsgs().length);
