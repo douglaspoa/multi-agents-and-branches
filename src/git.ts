@@ -15,6 +15,23 @@ export interface DiffStat {
   del: number;
 }
 
+/** Modelos de `.env` que são feitos pra ir pro repo (sem valor real). */
+const ENV_MODELO = /^\.env\.(example|sample|template|dist|defaults?|tpl|schema)$/i;
+/**
+ * O NOME do arquivo diz que ele guarda segredo? (`.env`, `.env.homol`, chave SSH, `.p12`…) — espelho de
+ * `is_secret_file` no Rust. Só o nome: quem lê conteúdo é a guarda (gitleaks), depois do commit.
+ */
+export function isSecretFile(path: string): boolean {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  if (/^\.env(\..+)?$/i.test(name)) return !ENV_MODELO.test(name);
+  if (/^id_(rsa|dsa|ecdsa|ed25519)$/i.test(name)) return true;
+  return /\.(p12|pfx|keystore|jks)$/i.test(name);
+}
+/** Caminho exato → linha do exclude (ancorada na raiz, com os curingas do gitignore escapados). */
+export function excludeLine(path: string): string {
+  return "/" + path.replace(/\\/g, "/").replace(/([*?\[\]!#\\ ])/g, "\\$1");
+}
+
 /**
  * Fina camada sobre o `git` CLI. Cada tarefa do Starfork vive numa worktree
  * isolada apontando para a sua branch — é o que permite N agentes editarem o
@@ -297,10 +314,32 @@ export class GitService {
     return out;
   }
 
-  /** Faz add -A e commit na worktree se houver mudanças. Retorna true se commitou. */
+  /** Arquivos de segredo que o último `commitAll` segurou fora do commit (vazio = nenhum). */
+  lastHeld: string[] = [];
+
+  /**
+   * Faz add -A e commit na worktree se houver mudanças. Retorna true se commitou.
+   * ARQUIVO DE SEGREDO NOVO NUNCA ENTRA: `.env*`, chave privada e afins que ainda não estavam no repo saem do
+   * índice e vão pro exclude local (o `add -A` levava os `.env` que o próprio Starfork semeia na worktree quando o
+   * `.gitignore` do projeto não cobre — e o push publicava). Arquivo já rastreado pelo projeto segue como está.
+   */
   async commitAll(worktree: string, message: string): Promise<boolean> {
+    this.lastHeld = [];
     await run("git", ["-C", worktree, "add", "-A"]);
-    const { stdout } = await run("git", ["-C", worktree, "status", "--porcelain"]);
+    try {
+      const { stdout: novos } = await run("git", ["-C", worktree, "diff", "--cached", "--name-only", "--diff-filter=A", "-z"]);
+      const held = novos.split("\0").filter((f) => f && isSecretFile(f));
+      if (held.length) {
+        for (let i = 0; i < held.length; i += 100) await run("git", ["-C", worktree, "rm", "--cached", "-q", "--", ...held.slice(i, i + 100)]);
+        await this.ensureExcluded(held.map(excludeLine));
+        this.lastHeld = held;
+      }
+    } catch (err) {
+      // não deu pra conferir o índice: melhor não commitar do que arriscar publicar segredo
+      await run("git", ["-C", worktree, "reset", "-q"]).catch(() => {});
+      throw new Error(`não consegui conferir se há arquivo de segredo no commit: ${(err as Error).message}`);
+    }
+    const { stdout } = await run("git", ["-C", worktree, "status", "--porcelain", "--untracked-files=no"]);
     if (!stdout.trim()) return false;
     await run("git", ["-C", worktree, "commit", "-m", message]);
     return true;
