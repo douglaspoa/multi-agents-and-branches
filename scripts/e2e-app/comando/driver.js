@@ -87,6 +87,20 @@ try{
   // áudio: o que este WebView oferece (não liga o microfone aqui — pediria permissão na tela)
   let vozes=0; try{ vozes=speechSynthesis.getVoices().length; }catch(_){ }
   await R('VOZ reconhecimento='+(cmdVoiceApi()?'disponível':'INDISPONÍVEL')+' · síntese='+(window.speechSynthesis?'sim':'não')+' · vozes='+vozes+' · linha de estado='+(!!document.getElementById('cmdVozSt')));
+  // abrir no próprio Starfork: o código que a tarefa editou (aba da tarefa, no arquivo) e a imagem entregue (aba Documento)
+  const ref3=((cmdRefs().find(r=>r.id==='t3'))||{}).ref||'t3';
+  { const n=cmdMsgs().length; cmdSay('abre o código da '+ref3); await until(()=>!CMD.busy && /ABRI: /.test(fala(cmdMsgs().slice(n))), 40000); await sleep(1500);
+    const tab=TABS.find(x=>x.id==='task:t3'), tx=fala(cmdMsgs().slice(n));
+    await ok('abrir código: o agente abre o arquivo mais alterado na aba da tarefa', !!tab && tab.path==='src/frete.ts' && activeTab==='task:t3' && /Abri src\/frete\.ts/.test(tx) && /versao\.ts/.test(tx), tx.slice(0,170)+' · aba='+(tab?tab.path:'não abriu')+' · ativa='+activeTab);
+    const visto=await until(()=>typeof fwPath!=='undefined' && fwPath==='src/frete.ts' && /startsWith/.test(String(fwContent||'')+document.body.innerText), 12000);
+    await ok('abrir código: o arquivo editado aparece na tela da tarefa', !!visto, 'fwPath='+(typeof fwPath!=='undefined'?fwPath:'?')); await sleep(400); await R('SHOT abrir-codigo'); await sleep(900);
+    openTab('comando'); await until(()=>document.getElementById('cmdQ'), 15000); await sleep(500); }
+  { const n=cmdMsgs().length; cmdSay('abre a imagem da '+ref3); await until(()=>!CMD.busy && /ABRI: /.test(fala(cmdMsgs().slice(n))), 40000); await sleep(1500);
+    const tab=TABS.find(x=>x.kind==='doc' && x.taskId==='t3' && x.ref==='art:proof-1.png'), tx=fala(cmdMsgs().slice(n));
+    await ok('abrir imagem: o agente abre a imagem entregue numa aba do Starfork', !!tab && /Abri proof-1\.png \(imagem\)/.test(tx), tx.slice(0,170)+' · aba='+(tab?tab.id:'não abriu'));
+    const img=await until(()=>[...document.querySelectorAll('.cvdoc img, .cvpb img')].find(i=>i.naturalWidth>0), 12000);
+    await ok('abrir imagem: a imagem carrega dentro do app, sem aviso de erro', !!img && !document.querySelector('.toast.warn, .toast.err, .toast.bad'), (img?img.naturalWidth+'px':'sem <img> carregada')+' · avisos='+[...document.querySelectorAll('.toast')].map(t=>t.textContent.slice(0,50)).join(' | ')); await sleep(400); await R('SHOT abrir-imagem'); await sleep(900);
+    openTab('comando'); await until(()=>document.getElementById('cmdQ'), 15000); await sleep(500); }
   // voz tratada: o app grava a fala com a voz do macOS, decodifica e toca pela cadeia de filtros (sem ligar o microfone)
   { let wav=''; try{ wav=await invokeQuiet('comando_fala',{ texto:'Teste da voz tratada.', voz:'', ritmo:190 }); }catch(e){ wav='ERRO '+String((e&&e.message)||e); }
     await ok('voz tratada: o app grava a fala do macOS em WAV', /^UklGR/.test(wav) && wav.length>20000, String(wav).slice(0,40)+' · '+String(wav).length);

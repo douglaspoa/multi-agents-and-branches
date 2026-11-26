@@ -29,8 +29,8 @@ targets:
           NSAllowsLocalNetworking: true   # DEBUG: nuvem falsa em 127.0.0.1 (mock-supabase.mjs); não abre nada da internet
         UIBackgroundModes: [fetch]
         BGTaskSchedulerPermittedIdentifiers: [dev.constellation.refresh]
-        NSMicrophoneUsageDescription: "Responder aos agentes por voz — sua fala vira texto no campo de resposta."
-        NSSpeechRecognitionUsageDescription: "Transcrever sua fala em texto pra responder as perguntas dos agentes."
+        NSMicrophoneUsageDescription: "Conversar com o Starfork por voz e responder aos agentes — sua fala vira texto."
+        NSSpeechRecognitionUsageDescription: "Transcrever sua fala em texto pra conversar com o Starfork e responder aos agentes."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.constellation.mobile

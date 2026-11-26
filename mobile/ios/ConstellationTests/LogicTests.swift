@@ -165,4 +165,23 @@ final class LogicTests: XCTestCase {
         XCTAssertEqual(OutMsg(id: 2, body: "[img] t/img.jpg | olha", deliveredAt: nil, createdAt: nil).shown, "📷 imagem: olha")
         XCTAssertEqual(OutMsg(id: 3, body: "oi", deliveredAt: nil, createdAt: nil).shown, "oi")
     }
+
+    // MARK: assistente por voz
+    func testAssistFalaTerminaNoSilencio() {
+        let t0 = Date()
+        XCTAssertFalse(AssistLogic.utteranceDone(text: "como estão as tarefas", lastChange: t0, now: t0.addingTimeInterval(0.6)))
+        XCTAssertTrue(AssistLogic.utteranceDone(text: "como estão as tarefas", lastChange: t0, now: t0.addingTimeInterval(1.5)))
+        XCTAssertFalse(AssistLogic.utteranceDone(text: "", lastChange: t0, now: t0.addingTimeInterval(9)), "silêncio sem fala não manda nada")
+        XCTAssertFalse(AssistLogic.worthSending(" a "))
+        XCTAssertTrue(AssistLogic.worthSending("ok"))
+    }
+    func testAssistEsperaDesisteSeOMacNaoPega() {
+        XCTAssertEqual(AssistLogic.wait(elapsed: 5, picked: false), .keep)
+        XCTAssertEqual(AssistLogic.wait(elapsed: 21, picked: false), .macOff)
+        XCTAssertEqual(AssistLogic.wait(elapsed: 120, picked: true), .keep, "o Mac pegou: pode demorar")
+        XCTAssertEqual(AssistLogic.wait(elapsed: 271, picked: true), .tooLong)
+    }
+    func testAssistTextoFalavel() {
+        XCTAssertEqual(AssistLogic.speakable("# Pronto\n**ABC-12** está `rodando`"), "Pronto ABC-12 está rodando")
+    }
 }

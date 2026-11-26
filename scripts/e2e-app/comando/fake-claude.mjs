@@ -34,6 +34,8 @@ if (argv.includes("--mcp-config")) {
   else if (/anota/i.test(pedido)) { const a1 = await ferramenta("agir", { acao: "anotar_memoria", titulo: "PR passa por homol", texto: "Todo PR vai pra homol antes da main.", alvo: "regra" }); const a2 = await ferramenta("ver", { o_que: "memoria", alvo: "homol antes da main" }); texto = "ANOTEI: " + a1 + " LI: " + a2; }
   else if (/skills/i.test(pedido)) texto = "SKILLS: " + await ferramenta("ver", { o_que: "skills" });
   else if (/olha a p[aá]gina/i.test(pedido)) texto = "OLHEI: " + await ferramenta("olhar_pagina", { tarefa: "t2", caminho: "/pedidos", pergunta: "o que o botão de exportar faz?" });
+  else if (/abre o c[oó]digo/i.test(pedido)) texto = "ABRI: " + await ferramenta("agir", { acao: "abrir_codigo", tarefas: [(/da (\S+)\s*$/.exec(pedido.trim()) || [])[1] || "t3"] });
+  else if (/abre a imagem/i.test(pedido)) texto = "ABRI: " + await ferramenta("agir", { acao: "abrir_entrega", tarefas: [(/da (\S+)\s*$/.exec(pedido.trim()) || [])[1] || "t3"], alvo: "as imagens" });
   else if (/nome errado/i.test(pedido)) texto = "RES: " + await ferramenta("agir", { acao: "memorizar", texto: "x" });
   else if (/desconhecida/i.test(pedido)) texto = "RES: " + await ferramenta("agir", { acao: "voar", tarefas: [] });
   linha({ type: "assistant", message: { content: [{ type: "text", text: texto }] } });

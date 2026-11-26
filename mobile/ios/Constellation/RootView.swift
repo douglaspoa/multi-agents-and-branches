@@ -1,7 +1,7 @@
 import SwiftUI
 import UserNotifications
 
-/// Abas: Central · Minhas · Time · Conta — TabView nativo (badge de perguntas abertas na Central).
+/// Abas: Assistente · Central · Minhas · Time · Conta — TabView nativo (badge de perguntas abertas na Central).
 struct RootView: View {
     @EnvironmentObject var supa: Supa
     @EnvironmentObject var router: PushRouter
@@ -14,10 +14,16 @@ struct RootView: View {
         case "minhas": return 1
         case "conta": return 3
         case "time": return 2
-        default: return 0
+        case "central": return 0
+        case "assistente": return 4
+        default: break
         }
+        // testes de UI e harness de prints antigos contam com a Central aberta; o app de verdade abre no Assistente
+        let env = ProcessInfo.processInfo.environment
+        if env["UITEST"] == "1" || env["DEMO_SESSION"] == "1" || env["DEMO_OPEN_TASK"] != nil || env["DEMO_NEW"] != nil || env["DEMO_QUESTION"] != nil { return env["DEMO_ASSIST"] != nil ? 4 : 0 }
+        return 4
         #else
-        return 0
+        return 4
         #endif
     }()
 
@@ -25,6 +31,9 @@ struct RootView: View {
         // barra de abas NATIVA (antes: barra própria num .safeAreaInset do TabView inteiro — ela subia com o
         // teclado e cobria o compositor do chat em toda tela empilhada). O detalhe esconde a barra.
         TabView(selection: $tab) {
+            NavigationStack { AssistantView() }
+                .tabItem { Label("Assistente", systemImage: "waveform.circle.fill") }
+                .tag(4)
             NavigationStack { CentralView() }
                 .tabItem { Label("Central", systemImage: "square.grid.2x2.fill") }
                 .badge(openCount)

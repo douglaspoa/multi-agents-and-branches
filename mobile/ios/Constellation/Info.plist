@@ -32,9 +32,9 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Responder aos agentes por voz — sua fala vira texto no campo de resposta.</string>
+	<string>Conversar com o Starfork por voz e responder aos agentes — sua fala vira texto.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Transcrever sua fala em texto pra responder as perguntas dos agentes.</string>
+	<string>Transcrever sua fala em texto pra conversar com o Starfork e responder aos agentes.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

@@ -31,6 +31,7 @@
 		D012A516A9B7287637A747EA /* TeamView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA6D1939927FD6490D5CD700 /* TeamView.swift */; };
 		D3C533444B71C46AA35E4976 /* Supa.swift in Sources */ = {isa = PBXBuildFile; fileRef = 192B4419693C35BD2702929E /* Supa.swift */; };
 		E4A79D707B8702C4837AC1CE /* QuestionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 35F8F6081FFC033EA789D55E /* QuestionsView.swift */; };
+		ED4D07C2FCBE6077B3D66043 /* AssistantView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D8A30C47F9983D9DFF38445 /* AssistantView.swift */; };
 		EFCA55ED8B91B4462E50EC04 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DEC089E05D5B5941A779A6FC /* Assets.xcassets */; };
 		F56813BE6263E24BE93B4D69 /* Skeleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7920F9B61E5E63B0E7C4B60 /* Skeleton.swift */; };
 		FACF0E792D6A88F6DE4C4821 /* TasksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4394FB044411B6D91726BA1E /* TasksView.swift */; };
@@ -55,6 +56,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		0D8A30C47F9983D9DFF38445 /* AssistantView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssistantView.swift; sourceTree = "<group>"; };
 		15609A2FE9DB55DA327F7617 /* PushManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushManager.swift; sourceTree = "<group>"; };
 		192B4419693C35BD2702929E /* Supa.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Supa.swift; sourceTree = "<group>"; };
 		1B0F622175E7CE49CFDDEC23 /* Logic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logic.swift; sourceTree = "<group>"; };
@@ -131,6 +133,7 @@
 			isa = PBXGroup;
 			children = (
 				DEC089E05D5B5941A779A6FC /* Assets.xcassets */,
+				0D8A30C47F9983D9DFF38445 /* AssistantView.swift */,
 				C676F8EF1536EC2AA4735422 /* CentralView.swift */,
 				24E3911EDDDC2995CFB26A47 /* Components.swift */,
 				55D4471DFA4C96C34D2F3800 /* Constellation.entitlements */,
@@ -325,6 +328,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ED4D07C2FCBE6077B3D66043 /* AssistantView.swift in Sources */,
 				0444AAF8100278E68229CB88 /* CentralView.swift in Sources */,
 				3B24267411CD08C3A61F1312 /* Components.swift in Sources */,
 				2EF14D8005488AB7157C4276 /* ConstellationApp.swift in Sources */,
