@@ -138,6 +138,10 @@ try{
   { const ms=cmdMsgs(), m={ r:'bot', k:'agente', ag:true, state:'wait', text:'', agora:'pensando…', acts:[] }; ms.push(m); CMD.busy=true; cmdPaint(true); await sleep(150);
     const n=document.querySelectorAll('#cmdLog .pltyping').length; ms.splice(ms.indexOf(m),1); cmdPaint(true); await sleep(100); const n2=document.querySelectorAll('#cmdLog .pltyping').length; CMD.busy=false; cmdPaint(true);
     await ok('agente: uma bolha de "pensando…" só enquanto trabalha (e a genérica continua pro planejador)', n===1 && n2===1, 'com agente='+n+' · sem agente='+n2); }
+  // "me manda o link": o endereço volta ESCRITO pro agente (26/11: voltava só "[Comando mostrou: link]")
+  { const t=cmdTasks().find(x=>cmdLinks(x).length), esperado=t?cmdLinks(t)[0][1]:'', r=t?cmdAgMsgTx({ k:'link', id:t.id }):'sem tarefa com link na fixture';
+    await ok('agente: o resultado de "links" leva o endereço por escrito', !!esperado && String(r).includes(esperado) && /Links de /.test(r) && !/\[Comando mostrou/.test(r), String(r).slice(0,160));
+    const h=cmdMd('[PR #12](https://example.com/org/repo/pull/12)'); await ok('agente: link escrito na resposta vira link clicável', /data-exthref="https:\/\/example\.com\/org\/repo\/pull\/12"/.test(h), h.slice(0,140)); }
   // chamada torta de "agir" (caso real de 26/11): volta pra IA e a pessoa NÃO vê cartão de confirmação
   { const n0=cmdMsgs().length; const r=await cmdAgFerramenta({ tool:'agir', args:{ acao:'epico_acao', alvo:'' } });
     await ok('agente: ação sem os campos volta pra IA sem mostrar cartão', /NADA foi feito/.test(r) && cmdMsgs().length===n0 && !CMDAG.espera, String(r).slice(0,120)+' · msgs '+n0+'→'+cmdMsgs().length);

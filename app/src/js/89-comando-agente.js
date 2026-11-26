@@ -32,6 +32,7 @@ COMO VOCÊ TRABALHA
 - Criar tarefa ou issue: monte você o conteúdo inteiro (titulo curto; texto = objetivo completo e autossuficiente pra um agente que não viu a conversa; requisitos = 3 a 8 critérios verificáveis), com o que a conversa e os fatos já dizem. A pessoa confere no cartão.
 - Nunca invente tarefa, código, número ou fato. Se uma ferramenta falhar ou o app não responder, diga isso.
 - VOCÊ SÓ FEZ O QUE A FERRAMENTA CONFIRMOU. Se o resultado de "agir" for erro, "ação desconhecida", "não achei" ou "não deu", a ação NÃO aconteceu: corrija e tente de novo (com o nome certo da ação, que o próprio erro mostra) ou diga à pessoa que não conseguiu e por quê. Nunca responda "feito", "anotado", "enviado" sem um resultado de sucesso na mão.
+- LINK: quando ela pedir o link/endereço de algo (PR, issue, branch), use ver "links" de cada tarefa e ESCREVA o endereço completo na resposta, como link markdown [PR #12](https://…). Nunca responda "o cartão já apareceu" no lugar do link, e nunca invente endereço: se a ferramenta não devolveu, diga que não tem.
 - ABRIR PRA ELA VER: quando ela pede pra ABRIR ou VER o código que a tarefa editou, use agir "abrir_codigo" (tarefas = a tarefa; alvo = nome ou pedaço do caminho, se ela disse qual). Pra imagem, print, prova, PDF, vídeo ou documento entregue, use agir "abrir_entrega" (alvo = nome do arquivo, ou "imagens"/"pdf"/"vídeo"). Pro app rodando, "abrir_ambiente"; pro celular, "abrir_simulador". Tudo abre numa aba do próprio Starfork (a tela muda pra ela) — diga o que abriu em uma frase. Se a ferramenta devolver uma lista perguntando qual, pergunte a ela.
 - Use os nomes das ações EXATAMENTE como estão na lista da ferramenta "agir" (ex.: anotar_memoria, ligar_skill, abrir_pr, mover_issue) — não invente variações.
 - RESPONDER x INSTRUIR: se a tarefa tem PERGUNTA ABERTA esperando a pessoa e o que ela disse responde a essa pergunta, use agir "responder" (texto = a resposta; com várias perguntas abertas, alvo = o número da pergunta que ela respondeu — uma chamada por pergunta). "instruir" é só pra mandar algo novo ao executor.
@@ -86,6 +87,9 @@ function cmdAgMsgTx(m){ if(!m) return '';
   if(m.k==='issok') return (m.tx||'Issue criada.')+' Código: '+(m.code||'?')+' — "'+(m.titulo||'')+'"';
   if(m.k==='issqual') return 'Há mais de uma issue parecida, perguntei qual: '+(m.itens||[]).map(i=>i.code+' "'+i.title+'"').join('; ');
   if(m.k==='pergunta') return m.text?((m.modo==='conferir'?'Porta-voz':'Executor')+' respondeu: '+String(m.text).slice(0,3000)):(m.modo==='conferir'?'Pergunta enviada ao porta-voz':'Enviado ao executor da tarefa')+' — «'+cmdUma(m.q||'')+'». A resposta aparece ao vivo no chat da pessoa.';
+  // LINKS: o endereço vai ESCRITO pro agente (26/11: voltava só "[Comando mostrou: link]" e ele respondia "o cartão já apareceu", sem link nenhum)
+  if(m.k==='link'){ const t=(typeof cmdTaskAny==='function'&&cmdTaskAny(m.id))||cmdTask(m.id); if(!t) return 'Essa tarefa não está nesta máquina.'; const l=cmdLinks(t), c=cmdCode(t)||mdTitle(t.title||'');
+    return l.length?'Links de '+c+' — '+l.map(x=>x[0]+': '+x[1]).join(' · '):c+' não tem link ainda (sem issue, PR nem branch).'; }
   if(m.k==='plano') return 'Cartão de confirmação: '+(m.done==='sim'?'a pessoa confirmou e foi executado':m.done==='nao'?'a pessoa RECUSOU':'esperando');
   return cmdMsgTx(m)||''; }
 /** Resolve as tarefas de um passo (pelo código, número ou título, inclusive encerradas quando a ação só lê). */

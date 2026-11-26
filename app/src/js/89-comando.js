@@ -777,7 +777,7 @@ function cmdBotHtml(m){
     const f=cmdFila(); return f.length?`<p>${nPl(f.length,'issue do painel ainda não virou tarefa','issues do painel ainda não viraram tarefa')}.${f.length>8?' As 8 mais recentes:':''}</p><div class="cmdisss">${f.slice(0,8).map(cmdIssueCard).join('')}</div>`:'<p>Nenhuma issue do painel esperando pra começar.</p>'; }
   if(m.k==='epicos'){ const E=cmdEpics(); return E.length?`<p>${nPl(E.length,'épico','épicos')} neste espaço.</p><div class="cmdisss">${E.map(cmdEpicCard).join('')}</div>`:'<p>Nenhum épico aberto. Um épico nasce em Nova demanda › Montar com IA, ou no quadro do time.</p>'; }
   if(m.k==='epico') return cmdEpicHtml(m.id);
-  if(m.k==='link'){ const t=cmdTask(m.id); if(!t) return '<p>Essa tarefa não está nesta máquina.</p>'; const l=cmdLinks(t);
+  if(m.k==='link'){ const t=cmdTaskAny(m.id)||cmdTask(m.id); if(!t) return '<p>Essa tarefa não está nesta máquina.</p>'; const l=cmdLinks(t);
     return l.length?`<p>Links da <b>${esc(cmdCode(t)||mdTitle(t.title||''))}</b>:</p>${cmdLinksHtml(l)}`:'<p>Essa tarefa ainda não tem issue ligada nem PR aberto.</p>'; }
   if(m.k==='isslink'){ const i=cmdIssue(m.code); return i&&i.url?`<p>Link da <b>${esc(m.code)}</b>:</p>${cmdLinksHtml([['Issue '+m.code, i.url]])}`:`<p>O painel não devolveu um link pra <b>${esc(m.code)}</b>.</p>`; }
   if(m.k==='provas'){ if(m.id){ const t=cmdTask(m.id); if(!t) return '<p>Essa tarefa não está nesta máquina.</p>';
