@@ -3,7 +3,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync,
 import { dirname, isAbsolute, join, relative } from "node:path";
 import { CoordinationBus } from "./bus.ts";
 import { globsOverlap } from "./glob.ts";
-import { GitService } from "./git.ts";
+import { excludeLine, GitService } from "./git.ts";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
 import { buildReview } from "./review.ts";
@@ -376,6 +376,9 @@ export class Orchestrator {
       }
     };
     await scan("", 0);
+    // o que EU plantei aqui nunca vai pro commit: `.env.homol` ou `servico/.env` fora do .gitignore do projeto
+    // entravam no `add -A` do fim do turno e o push publicava os segredos
+    if (seeded.length) await this.git.ensureExcluded(seeded.map(excludeLine));
     // conhecimento acumulado: RUNBOOK (como subir o ambiente — editável, volta
     // pro repo no fim do turno) e HISTORY (índice de tarefas passadas — grep).
     for (const doc of ["RUNBOOK.md", "HISTORY.md", "SPEC.md", "PREFS.md"]) {
@@ -824,6 +827,14 @@ export class Orchestrator {
   }
 
   /** Nota descartada por parecer segredo: avisa no chat da tarefa (nunca some calada). */
+  /** Avisa na tarefa quando o commit automático segurou arquivo de segredo (uma vez por arquivo: depois ele fica no exclude). */
+  private noteHeldSecrets(taskId: string): void {
+    const held = this.git.lastHeld;
+    if (!held.length) return;
+    const lista = held.slice(0, 5).join(", ") + (held.length > 5 ? ` e mais ${held.length - 5}` : "");
+    this.store.addEvent(taskId, "Sistema", "note", `segurei ${held.length} arquivo(s) de segredo fora do commit: ${lista} — continuam no disco e não vão pro PR`, false);
+  }
+
   private noteSecretDropped(taskId: string | undefined, what: string): void {
     const msg = `memória: descartei ${what} — parecia conter segredo (chave/senha/.env); nada foi gravado no cérebro`;
     console.warn(`[memória] ${msg}`);
@@ -1711,6 +1722,7 @@ export class Orchestrator {
           const d = await this.git.diffStat(task.worktree, task.base);
           this.store.setDiff(taskId, d.files, d.add, d.del);
         }
+        this.noteHeldSecrets(taskId);
       } catch { /* sem nada a commitar / hook recusou: o push leva o que já está commitado */ }
     };
     if (spec.prUrl && !o.auto) {
@@ -2782,6 +2794,7 @@ export class Orchestrator {
         if (await this.git.commitAll(task.worktree, `starfork(terminal): ${task.title}`)) {
           this.store.addEvent(taskId, agent, "note", "mudanças do turno commitadas na branch ✓", true, role?.role);
         }
+        this.noteHeldSecrets(taskId);
         const d = await this.git.diffStat(task.worktree, task.base);
         this.store.setDiff(taskId, d.files, d.add, d.del);
       } catch (err) {

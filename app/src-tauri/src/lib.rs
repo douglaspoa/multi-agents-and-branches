@@ -2452,6 +2452,8 @@ fn git_init_repo(state: State<AppState>) -> Result<String, String> {
         std::fs::write(&gi, format!("{prefix}.cardume/\n")).map_err(|e| e.to_string())?;
     }
     let _ = Command::new("git").arg("-C").arg(&repo).args(["add", "-A"]).output();
+    // pasta que já existia pode ter .env: o 1º commit não leva arquivo de segredo (fica no disco, fora do git)
+    unstage_secret_files(Path::new(&repo))?;
     // identidade: usa a do git; sem ela, fallback só neste commit (não grava config)
     let has_ident = Command::new("git").arg("-C").arg(&repo).args(["config", "user.email"]).output().map(|o| o.status.success() && !o.stdout.is_empty()).unwrap_or(false);
     let mut c = Command::new("git");
@@ -8310,12 +8312,39 @@ fn read_artifact_raw(state: State<AppState>, task_id: String, name: String) -> R
     Ok(ArtifactRaw { b64, mime: mime.to_string(), size: bytes.len() as u64 })
 }
 
+/// O NOME do arquivo diz que ele guarda segredo? (`.env`, `.env.homol`, chave SSH, `.p12`…) — espelho de `isSecretFile`
+/// em src/git.ts. Modelos (`.env.example` e afins) passam.
+fn is_secret_file(path: &str) -> bool {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or("").to_lowercase();
+    if name == ".env" { return true; }
+    if let Some(suf) = name.strip_prefix(".env.") {
+        return !suf.is_empty() && !["example", "sample", "template", "dist", "default", "defaults", "tpl", "schema"].contains(&suf);
+    }
+    if ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"].contains(&name.as_str()) { return true; }
+    [".p12", ".pfx", ".keystore", ".jks"].iter().any(|e| name.ends_with(e))
+}
+
+/// Depois de um `git add -A`: tira do índice todo arquivo de segredo NOVO (o que o projeto já rastreia fica) e devolve
+/// a lista. Erro = não deu pra conferir — quem chama NÃO commita.
+fn unstage_secret_files(repo: &Path) -> Result<Vec<String>, String> {
+    let out = Command::new("git").arg("-C").arg(repo).args(["diff", "--cached", "--name-only", "--diff-filter=A", "-z"]).output().map_err(|e| e.to_string())?;
+    if !out.status.success() { return Err(format!("não consegui conferir o que vai no commit: {}", String::from_utf8_lossy(&out.stderr).trim())); }
+    let held: Vec<String> = String::from_utf8_lossy(&out.stdout).split('\0').filter(|f| !f.is_empty() && is_secret_file(f)).map(|f| f.to_string()).collect();
+    for lote in held.chunks(100) {
+        let r = Command::new("git").arg("-C").arg(repo).args(["rm", "--cached", "-q", "--"]).args(lote).output().map_err(|e| e.to_string())?;
+        if !r.status.success() { return Err(format!("não consegui tirar o arquivo de segredo do commit: {}", String::from_utf8_lossy(&r.stderr).trim())); }
+    }
+    Ok(held)
+}
+
 /// Commita o que estiver solto na worktree e faz push da branch (atualiza o PR).
 #[tauri::command(async)]
 fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> {
     let (wt, _base) = task_wt_base(&state, &task_id)?;
     let _ = Command::new("git").arg("-C").arg(&wt).args(["add", "-A"]).output();
-    let st = Command::new("git").arg("-C").arg(&wt).args(["status", "--porcelain"]).output().map_err(|e| e.to_string())?;
+    // arquivo de segredo novo (.env e afins) nunca sobe: sai do índice antes do commit e fica só no disco
+    let held = unstage_secret_files(Path::new(&wt))?;
+    let st = Command::new("git").arg("-C").arg(&wt).args(["status", "--porcelain", "--untracked-files=no"]).output().map_err(|e| e.to_string())?;
     let mut committed = false;
     if !String::from_utf8_lossy(&st.stdout).trim().is_empty() {
         let c = Command::new("git").arg("-C").arg(&wt).args(["commit", "-m", "ajustes via Starfork"]).output().map_err(|e| e.to_string())?;
@@ -8332,7 +8361,8 @@ fn push_task(state: State<AppState>, task_id: String) -> Result<String, String> 
         return Err(format!("push falhou: {}", String::from_utf8_lossy(&p.stderr)));
     }
     let note = switched.map(|a| format!(" · {}", gh_contas::push_note(&a))).unwrap_or_default();
-    Ok(format!("{}push da {} feito ✓{note}", if committed { "commit + " } else { "" }, branch))
+    let seg = if held.is_empty() { String::new() } else { format!(" · {} arquivo(s) de segredo ficaram de fora ({})", held.len(), held.iter().take(3).cloned().collect::<Vec<_>>().join(", ")) };
+    Ok(format!("{}push da {} feito ✓{note}{seg}", if committed { "commit + " } else { "" }, branch))
 }
 
 /// Abre um artefato da tarefa no app padrão do sistema (ex.: mockup.html no navegador).
@@ -12371,6 +12401,27 @@ mod cardume_hygiene_tests {
         std::fs::create_dir_all(tmp.join("Starfork.app")).unwrap();
         assert_eq!(update_dest(&cur, &new_sf), cur);
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn segredo_novo_sai_do_commit() {
+        for f in [".env", ".env.homol", "lia-back/.env", "a/id_rsa", "loja.P12"] { assert!(is_secret_file(f), "{f}"); }
+        for f in [".env.example", "api/.env.sample", ".envrc", "id_rsa.pub", "src/env.ts"] { assert!(!is_secret_file(f), "{f}"); }
+        let d = std::env::temp_dir().join(format!("sf-segredo-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(d.join("ncm-pro")).unwrap();
+        let g = |a: &[&str]| assert!(Command::new("git").arg("-C").arg(&d).args(a).output().unwrap().status.success(), "{a:?}");
+        g(&["init", "-q"]);
+        std::fs::write(d.join("a.txt"), "x").unwrap();
+        std::fs::write(d.join(".env.homol"), "SENHA=ficticia").unwrap();
+        std::fs::write(d.join("ncm-pro/.env"), "TOKEN=ficticio").unwrap();
+        g(&["add", "-A"]);
+        let mut held = unstage_secret_files(&d).unwrap();
+        held.sort();
+        assert_eq!(held, vec![".env.homol".to_string(), "ncm-pro/.env".to_string()]);
+        let out = Command::new("git").arg("-C").arg(&d).args(["diff", "--cached", "--name-only"]).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "a.txt");
+        assert!(d.join(".env.homol").exists(), "continua no disco");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
