@@ -134,6 +134,10 @@ try{
       await sleep(200); await R('SHOT hud-trabalhando'); await sleep(500); CMD.busy=false; CMDAG.msg=m0;
     } finally { cmdVoiceListen=orig; CMDV.on=false; CMDV.live=false; CMDV.speaking=false; CMD.busy=false; cmdVozCala(); cmdVoicePaint(); }
     await sleep(200); await ok('núcleo: desligou a voz, some e para de animar', hud().hidden && !CMDH.raf && getComputedStyle(document.querySelector('.cmdchips')).display!=='none', 'hidden='+hud().hidden+' raf='+CMDH.raf); }
+  // enquanto o agente trabalha aparece UMA bolha de andamento, não duas (26/11)
+  { const ms=cmdMsgs(), m={ r:'bot', k:'agente', ag:true, state:'wait', text:'', agora:'pensando…', acts:[] }; ms.push(m); CMD.busy=true; cmdPaint(true); await sleep(150);
+    const n=document.querySelectorAll('#cmdLog .pltyping').length; ms.splice(ms.indexOf(m),1); cmdPaint(true); await sleep(100); const n2=document.querySelectorAll('#cmdLog .pltyping').length; CMD.busy=false; cmdPaint(true);
+    await ok('agente: uma bolha de "pensando…" só enquanto trabalha (e a genérica continua pro planejador)', n===1 && n2===1, 'com agente='+n+' · sem agente='+n2); }
   // chamada torta de "agir" (caso real de 26/11): volta pra IA e a pessoa NÃO vê cartão de confirmação
   { const n0=cmdMsgs().length; const r=await cmdAgFerramenta({ tool:'agir', args:{ acao:'epico_acao', alvo:'' } });
     await ok('agente: ação sem os campos volta pra IA sem mostrar cartão', /NADA foi feito/.test(r) && cmdMsgs().length===n0 && !CMDAG.espera, String(r).slice(0,120)+' · msgs '+n0+'→'+cmdMsgs().length);

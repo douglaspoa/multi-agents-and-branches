@@ -802,7 +802,8 @@ function cmdLogHtml(){
   return oi+ms.map(m=>m.r==='you'?`<div class="cmdmsg you"><div class="cmdbub">${esc(m.text)}</div></div>`
     :m.r==='sys'?`<div class="cmdmsg sys">${esc(m.text)}</div>`
     :`<div class="cmdmsg bot"><span class="cmdav">${IC.starfork||''}</span><div class="cmdbub">${cmdBotHtml(m)}</div></div>`).join('')
-    +(CMD.busy?`<div class="cmdmsg bot"><span class="cmdav">${IC.starfork||''}</span><div class="cmdbub"><span class="pltyping"><i></i><i></i><i></i></span> <span class="cmdhint">pensando…</span></div></div>`:'');
+    // o agente já tem a própria bolha de andamento ("pensando…", "procurando…"): a genérica só entra quando não há a dele (26/11: apareciam duas)
+    +(CMD.busy && !ms.some(m=>m.k==='agente')?`<div class="cmdmsg bot"><span class="cmdav">${IC.starfork||''}</span><div class="cmdbub"><span class="pltyping"><i></i><i></i><i></i></span> <span class="cmdhint">pensando…</span></div></div>`:'');
 }
 
 // ---------- painel: todos os agentes → visão geral da tarefa ----------
