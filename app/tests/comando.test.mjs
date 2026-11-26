@@ -330,3 +330,26 @@ test('voz padrão: a melhor em português, nunca as de brincadeira do macOS', ()
   assert.equal(cmdVozMelhor([V('Eddy (Português (Brasil))','pt-BR'), V('Joana','pt-PT')]).name, 'Joana');
   assert.equal(cmdVozMelhor([V('Samantha','en-US')]), null);
 });
+
+test('voz tratada: presets, ritmo compensa o tom, e a cadeia liga fonte → saída', () => {
+  const ini=JS.indexOf('const CMD_VOZ_FX='), fim=JS.indexOf('function cmdVozCtx()');
+  const mk=(ls)=>new Function('lsGet', JS.slice(ini, fim)+'; return { CMD_VOZ_FX, cmdVozFx, cmdVozFxRitmo, cmdVozCadeia };')((k)=>ls[k]);
+  const a=mk({});
+  assert.equal(a.cmdVozFx().nome, 'natural', 'padrão: natural');
+  assert.equal(mk({ cmdvozfx:'nenhum' }).cmdVozFx(), null);
+  assert.equal(mk({ cmdvozfx:'robo' }).cmdVozFx().nome, 'robô');
+  assert.equal(mk({ cmdvozfx:'lixo' }).cmdVozFx().nome, 'natural');
+  assert.equal(a.cmdVozFxRitmo(a.CMD_VOZ_FX.natural), 190);
+  assert.ok(a.cmdVozFxRitmo(a.CMD_VOZ_FX.robo) > 215, 'voz mais grossa fala mais rápido na gravação');
+  // contexto de áudio de mentira: confere que todo preset chega ao destino
+  for (const k of Object.keys(a.CMD_VOZ_FX)) {
+    const dest={ id:'destino' }, arestas=[];
+    const no=(tipo)=>({ tipo, frequency:{}, gain:{}, Q:{}, delayTime:{}, threshold:{}, ratio:{}, attack:{}, release:{}, connect(x){ arestas.push([this, x]); } });
+    const ctx={ destination:dest, createBiquadFilter:()=>no('biquad'), createGain:()=>no('gain'), createDelay:()=>no('delay'), createDynamicsCompressor:()=>no('comp') };
+    const src=no('fonte'); a.cmdVozCadeia(ctx, src, a.CMD_VOZ_FX[k]);
+    const visto=new Set([src]); let mudou=true; while(mudou){ mudou=false; for(const [de, para] of arestas) if(visto.has(de) && !visto.has(para)){ visto.add(para); mudou=true; } }
+    assert.ok(visto.has(dest), k+': o áudio chega na saída');
+    assert.ok(arestas.some(([de])=>de.tipo==='comp'), k+': passa pelo compressor');
+  }
+  assert.ok(/id="cmdVozFx"/.test(JS) && /invokeQuiet\('comando_fala'/.test(JS));
+});

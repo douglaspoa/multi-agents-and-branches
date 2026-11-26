@@ -87,6 +87,17 @@ try{
   // áudio: o que este WebView oferece (não liga o microfone aqui — pediria permissão na tela)
   let vozes=0; try{ vozes=speechSynthesis.getVoices().length; }catch(_){ }
   await R('VOZ reconhecimento='+(cmdVoiceApi()?'disponível':'INDISPONÍVEL')+' · síntese='+(window.speechSynthesis?'sim':'não')+' · vozes='+vozes+' · linha de estado='+(!!document.getElementById('cmdVozSt')));
+  // voz tratada: o app grava a fala com a voz do macOS, decodifica e toca pela cadeia de filtros (sem ligar o microfone)
+  { let wav=''; try{ wav=await invokeQuiet('comando_fala',{ texto:'Teste da voz tratada.', voz:'', ritmo:190 }); }catch(e){ wav='ERRO '+String((e&&e.message)||e); }
+    await ok('voz tratada: o app grava a fala do macOS em WAV', /^UklGR/.test(wav) && wav.length>20000, String(wav).slice(0,40)+' · '+String(wav).length);
+    CMDV.on=true; CMDV.fxFalhou=false; const antes=CMDV.falaSeq||0; let listen=0; const orig=cmdVoiceListen; cmdVoiceListen=(x)=>{ if(x) listen++; };
+    try{ cmdSpeak('Teste da voz tratada.'); const tocou=await until(()=>!!CMDV.src, 8000); const st=CMDV.ctx?CMDV.ctx.state:'sem contexto'; const dur=CMDV.src&&CMDV.src.buffer?CMDV.src.buffer.duration:0;
+      await ok('voz tratada: decodifica e começa a tocar pelos filtros', !!tocou && dur>0.5 && !CMDV.fxFalhou, 'contexto='+st+' · duração='+dur+' · falhou='+!!CMDV.fxFalhou);
+      const acabou=await until(()=>!CMDV.speaking, 9000);
+      await ok('voz tratada: ao terminar de falar volta a ouvir', st!=='running' || (!!acabou && listen>0), 'contexto='+st+' · acabou='+!!acabou+' · voltou a ouvir='+listen);
+      cmdSpeak('Outra frase mais comprida para dar tempo de interromper no meio da fala.'); await until(()=>!!CMDV.src, 8000); cmdVozCala();
+      await ok('voz tratada: calar interrompe na hora', !CMDV.src && (CMDV.falaSeq||0)>antes); }
+    finally{ cmdVoiceListen=orig; CMDV.on=false; CMDV.speaking=false; cmdVozCala(); } }
   // menu do "/": fecha ao apagar
   { const q=document.getElementById('cmdQ'), b=document.getElementById('cmdAc'); q.value='/'; q.setSelectionRange(1,1); q.dispatchEvent(new Event('input')); const aberto=getComputedStyle(b).display!=='none'; q.value=''; q.dispatchEvent(new Event('input'));
     await ok('menu do "/" abre e fecha', aberto && getComputedStyle(b).display==='none'); }

@@ -872,10 +872,10 @@ function cmdVoiceListen(on){
   r.onerror=(e)=>{ CMDV.live=false; const k=String(e&&e.error||''); cmdVozLog('erro '+k+(e&&e.message?' · '+String(e.message).slice(0,120):''));
     if(k==='no-speech'){ CMDV.vazias=(CMDV.vazias||0)+1; cmdVozAviso(CMDV.vazias>=3?'Não estou ouvindo nada. Confira se o microfone certo está escolhido em Ajustes do Sistema › Som › Entrada.':'Não ouvi nada — pode falar.', CMDV.vazias>=3?'warn':''); }
     // o macOS com Siri/Ditado desligados devolve "aborted" com esta mensagem — não é uma parada minha: sem o Ditado não há fala → texto
-    else if(/dictation|siri/i.test(String((e&&e.message)||''))){ CMDV.fatal=true; CMDV.on=false; try{ speechSynthesis.cancel(); }catch(_){ }
+    else if(/dictation|siri/i.test(String((e&&e.message)||''))){ CMDV.fatal=true; CMDV.on=false; cmdVozCala();
       cmdVozAviso('O Ditado do macOS está desligado, e é ele que transforma a sua fala em texto. Ligue em Ajustes do Sistema › Teclado › Ditado (ou ative a Siri) e clique no microfone de novo.', 'warn'); }
     else if(k==='aborted'){ CMDV.abortos=(CMDV.abortos||0)+1; if(CMDV.abortos>=4 && !ouviu){ CMDV.fatal=true; CMDV.on=false; cmdVozAviso('O reconhecimento de fala está sendo interrompido pelo macOS'+((e&&e.message)?' ('+String(e.message).slice(0,80)+')':'')+'. Confira Ajustes do Sistema › Teclado › Ditado.', 'warn'); } }
-    else { CMDV.fatal=true; CMDV.on=false; cmdVozAviso(CMD_VOZ_ERRO[k]||('O reconhecimento de fala falhou ('+(k||'sem código')+').'), 'warn'); try{ speechSynthesis.cancel(); }catch(_){ } }
+    else { CMDV.fatal=true; CMDV.on=false; cmdVozAviso(CMD_VOZ_ERRO[k]||('O reconhecimento de fala falhou ('+(k||'sem código')+').'), 'warn'); cmdVozCala(); }
     cmdVoicePaint(); };
   r.onend=()=>{ clearTimeout(CMDV.cao); CMDV.live=false; if(CMDV.rec===r) CMDV.rec=null; cmdVozLog('terminou'+(comecou?'':' sem ter começado')+(ouviu?'':' sem fala'));
     if(!comecou && !CMDV.fatal){ CMDV.semInicio=(CMDV.semInicio||0)+1; if(CMDV.semInicio>=2){ CMDV.on=false; cmdVozAviso('O reconhecimento de fala não iniciou neste Mac. Enquanto isso, use o ditado do macOS no campo (tecla do microfone, ou Fn duas vezes) — eu continuo lendo as respostas em voz alta se você ligar a voz.', 'warn'); } } else CMDV.semInicio=0;
@@ -887,14 +887,66 @@ function cmdVoiceListen(on){
     cmdVozAviso('O macOS não respondeu ao pedido de ouvir. Veja se apareceu um pedido de permissão do Starfork, ou libere em Ajustes do Sistema › Privacidade e Segurança › Microfone e Reconhecimento de Fala.', 'warn'); cmdVoicePaint(); } }, 6000);
   cmdVoicePaint();
 }
+// ── VOZ TRATADA: a voz do próprio macOS, gravada pelo `say` (nada sai da máquina) e passada por filtros no app ──
+// tom = velocidade de reprodução (abaixo de 1 engrossa a voz; o ritmo do `say` sobe junto pra fala não ficar lenta)
+const CMD_VOZ_FX={
+  natural:{ nome:'natural', tom:1, grave:4, cortes:[[3200,1.2,-5],[6500,1,-3]], comp:[-20,3] },
+  grave:{ nome:'grave', tom:0.92, grave:5, cortes:[[3000,1.2,-5]], comp:[-20,3] },
+  estudio:{ nome:'estúdio', tom:1, grave:3, cortes:[[3200,1.2,-4]], comp:[-22,4], eco:[[0.035,0.18],[0.07,0.10]] },
+  robo:{ nome:'robô', tom:0.86, grave:7, cortes:[[2800,1,-3]], comp:[-24,5], pente:[[0.009,0.45],[0.013,0.35]] },
+};
+const CMD_VOZ_RITMO=190; // palavras por minuto do `say` com tom 1
+function cmdVozFx(){ const k=lsGet('cmdvozfx'); if(k==='nenhum') return null; return CMD_VOZ_FX[k]||CMD_VOZ_FX.natural; }
+function cmdVozFxRitmo(fx){ return Math.round(CMD_VOZ_RITMO/((fx&&fx.tom)||1)); }
+// monta a cadeia de filtros entre a fonte e a saída; devolve o último nó (já ligado ao destino)
+function cmdVozCadeia(ctx, src, fx){
+  let n=src; const liga=(x)=>{ n.connect(x); n=x; return x; };
+  const hp=ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=80; liga(hp);
+  const ls=ctx.createBiquadFilter(); ls.type='lowshelf'; ls.frequency.value=170; ls.gain.value=fx.grave||0; liga(ls);
+  for(const [f,q,g] of (fx.cortes||[])){ const b=ctx.createBiquadFilter(); b.type='peaking'; b.frequency.value=f; b.Q.value=q; b.gain.value=g; liga(b); }
+  const ecos=(fx.eco||[]).concat(fx.pente||[]);
+  if(ecos.length){ const soma=ctx.createGain(); n.connect(soma);
+    for(const [t,g] of ecos){ const d=ctx.createDelay(1); d.delayTime.value=t; const gg=ctx.createGain(); gg.gain.value=g; n.connect(d); d.connect(gg); gg.connect(soma);
+      if(fx.pente){ const fb=ctx.createGain(); fb.gain.value=Math.min(0.4,g); gg.connect(fb); fb.connect(d); } }
+    n=soma; }
+  const c=ctx.createDynamicsCompressor(); c.threshold.value=(fx.comp||[-20,3])[0]; c.ratio.value=(fx.comp||[-20,3])[1]; c.attack.value=0.008; c.release.value=0.16; liga(c);
+  const out=ctx.createGain(); out.gain.value=1.5; liga(out); n.connect(ctx.destination); return n;
+}
+function cmdVozCtx(){ try{ if(!CMDV.ctx){ const C=window.AudioContext||window.webkitAudioContext; if(!C) return null; CMDV.ctx=new C(); } if(CMDV.ctx.state==='suspended') CMDV.ctx.resume().catch(()=>{}); return CMDV.ctx; }catch(_){ return null; } }
+// cala tudo que estiver falando (voz do WebView e voz tratada) e invalida fala que ainda esteja sendo preparada
+function cmdVozCala(){ CMDV.falaSeq=(CMDV.falaSeq||0)+1; try{ speechSynthesis.cancel(); }catch(_){ } const s=CMDV.src; CMDV.src=null; if(s){ try{ s.onended=null; s.stop(); }catch(_){ } } }
+function cmdVozNome(){ let vs=[]; try{ vs=speechSynthesis.getVoices()||[]; }catch(_){ } const nome=lsGet('cmdvoz')||''; const v=vs.find(x=>x.name===nome)||cmdVozMelhor(vs); return v?v.name:''; }
+async function cmdSpeakFx(text, fx, fim){
+  const seq=CMDV.falaSeq, ctx=cmdVozCtx(), voz=cmdVozNome();
+  if(!ctx || typeof invokeQuiet!=='function') return false;
+  let b64; try{ b64=await invokeQuiet('comando_fala',{ texto:text, voz, ritmo:cmdVozFxRitmo(fx) }); }catch(e){ cmdVozLog('voz tratada indisponível ('+String((e&&e.message)||e).slice(0,60)+') · usando a do sistema'); CMDV.fxFalhou=true; return false; }
+  if(seq!==CMDV.falaSeq) return true; // calaram ou veio outra fala enquanto gravava
+  try{
+    const bin=atob(b64), u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+    const buf=await new Promise((ok,no)=>{ try{ const p=ctx.decodeAudioData(u8.buffer, ok, no); if(p&&p.then) p.then(ok,no); }catch(e){ no(e); } });
+    if(seq!==CMDV.falaSeq) return true;
+    const src=ctx.createBufferSource(); src.buffer=buf; src.playbackRate.value=fx.tom||1; cmdVozCadeia(ctx, src, fx);
+    CMDV.src=src; src.onended=()=>{ if(CMDV.src===src) CMDV.src=null; fim(); }; src.start();
+    cmdVozLog('falando com tratamento '+fx.nome+' · '+(voz||'voz do sistema')+' · '+buf.duration.toFixed(1)+'s');
+    return true;
+  }catch(e){ cmdVozLog('voz tratada falhou ao tocar ('+String((e&&e.message)||e).slice(0,60)+') · usando a do sistema'); CMDV.fxFalhou=true; return false; }
+}
+function cmdSpeakSistema(text, fim){
+  const u=new SpeechSynthesisUtterance(text); u.lang='pt-BR'; u.rate=1.05;
+  const vs=speechSynthesis.getVoices(), nome=lsGet('cmdvoz')||'', v=vs.find(x=>x.name===nome)||cmdVozMelhor(vs); if(v){ u.voice=v; u.lang=v.lang; }
+  u.onend=fim; u.onerror=fim; speechSynthesis.speak(u);
+}
 function cmdSpeak(text){
   text=String(text||'').replace(/\s+/g,' ').trim(); if(!CMDV.on) return;
   if(!text || !window.speechSynthesis){ cmdVoiceListen(true); return; }
-  try{ speechSynthesis.cancel(); cmdVoiceListen(false);
-    const u=new SpeechSynthesisUtterance(text.length>500?text.slice(0,500):text); u.lang='pt-BR'; u.rate=1.05;
-    const vs=speechSynthesis.getVoices(), nome=lsGet('cmdvoz')||'', v=vs.find(x=>x.name===nome)||cmdVozMelhor(vs); if(v){ u.voice=v; u.lang=v.lang; }
-    CMDV.speaking=true; const fim=()=>{ if(!CMDV.speaking) return; CMDV.speaking=false; cmdVoicePaint(); if(CMDV.on) cmdVoiceListen(true); };
-    u.onend=fim; u.onerror=fim; speechSynthesis.speak(u); cmdVoicePaint();
+  if(text.length>500) text=text.slice(0,500);
+  try{ cmdVozCala(); cmdVoiceListen(false);
+    CMDV.speaking=true; const seq=CMDV.falaSeq;
+    const fim=()=>{ if(!CMDV.speaking || seq!==CMDV.falaSeq) return; CMDV.speaking=false; cmdVoicePaint(); if(CMDV.on) cmdVoiceListen(true); };
+    const fx=CMDV.fxFalhou?null:cmdVozFx();
+    if(fx) cmdSpeakFx(text, fx, fim).then(ok=>{ if(!ok && seq===CMDV.falaSeq && CMDV.on) cmdSpeakSistema(text, fim); });
+    else cmdSpeakSistema(text, fim);
+    cmdVoicePaint();
   }catch(_){ CMDV.speaking=false; cmdVoiceListen(true); }
 }
 // a voz padrão: a melhor em português que o sistema tem — Premium/Aprimorada primeiro, depois as naturais (Luciana…);
@@ -907,13 +959,15 @@ function cmdVozNota(v){ const n=String(v&&v.name||''), l=String(v&&v.lang||''); 
 function cmdVozMelhor(vs){ let m=null, mp=-1; for(const v of (vs||[])){ const p=cmdVozNota(v); if(p>mp){ m=v; mp=p; } } return m; }
 // as vozes instaladas no macOS (inclusive as que a pessoa baixou em Ajustes do Sistema): português primeiro
 function cmdVozes(){ let vs=[]; try{ vs=speechSynthesis.getVoices()||[]; }catch(_){ } return vs.slice().sort((a,b)=>cmdVozNota(b)-cmdVozNota(a) || a.name.localeCompare(b.name)); }
-function cmdVozPaint(){ const sel=$id('cmdVoz'); if(!sel) return; const vs=cmdVozes(), cur=lsGet('cmdvoz')||''; sel.hidden=!CMDV.on || !vs.length;
+function cmdVozPaint(){ const fxs=$id('cmdVozFx'); if(fxs){ const cur=lsGet('cmdvozfx')||'natural'; fxs.hidden=!CMDV.on || !!CMDV.fxFalhou; const h=Object.keys(CMD_VOZ_FX).map(k=>`<option value="${k}"${k===cur?' selected':''}>voz ${esc(CMD_VOZ_FX[k].nome)}</option>`).join('')+`<option value="nenhum"${cur==='nenhum'?' selected':''}>sem tratamento</option>`; if(fxs.__h!==h){ fxs.__h=h; fxs.innerHTML=h; } }
+  const sel=$id('cmdVoz'); if(!sel) return; const vs=cmdVozes(), cur=lsGet('cmdvoz')||''; sel.hidden=!CMDV.on || !vs.length;
   const h=`<option value="">voz padrão</option>`+vs.map(v=>`<option value="${escA(v.name)}"${v.name===cur?' selected':''}>${esc(v.name)} · ${esc(v.lang)}</option>`).join(''); if(sel.__h!==h){ sel.__h=h; sel.innerHTML=h; } }
 try{ if(window.speechSynthesis) speechSynthesis.addEventListener('voiceschanged', ()=>cmdVozPaint()); }catch(_){ }
 function cmdVoiceToggle(){
   CMDV.on=!CMDV.on;
-  if(!CMDV.on){ CMDV.speaking=false; cmdVoiceListen(false); try{ speechSynthesis.cancel(); }catch(_){ } cmdVozAviso(''); cmdVozLog('desligada'); return cmdVoicePaint(); }
+  if(!CMDV.on){ CMDV.speaking=false; cmdVoiceListen(false); cmdVozCala(); cmdVozAviso(''); cmdVozLog('desligada'); return cmdVoicePaint(); }
   CMD.spoken=cmdMsgs().length; // só fala o que vier a partir de agora
+  CMDV.fxFalhou=false; cmdVozCtx(); // o clique libera o áudio do app; voz tratada tenta de novo a cada vez que liga
   CMDV.vazias=0; CMDV.semInicio=0; CMDV.abortos=0; CMDV.fatal=false; cmdVozLog('ligada · reconhecimento '+(cmdVoiceApi()?'disponível':'INDISPONÍVEL')+' · vozes '+(()=>{ try{ return speechSynthesis.getVoices().length; }catch(_){ return '?'; } })());
   if(cmdVoiceApi()) cmdVoiceListen(true);
   else toast('Vou ler as respostas em voz alta. Pra falar, use o ditado do macOS neste campo (tecla do microfone, ou Fn duas vezes).','info');
@@ -934,7 +988,7 @@ function cmdMount(){
   pg.innerHTML=`<div class="cmdpg"><section class="cmdchat" aria-label="Comando">
       <div class="cmdlog" id="cmdLog" aria-live="polite"></div>
       <div class="cmdcomp"><div class="cmdchips">${CMD_CHIPS.map(c=>`<button type="button" class="cmdchip" data-cmdchip="${escA(c)}">${esc(c)}</button>`).join('')}</div>
-        <div class="cmdvozst" id="cmdVozSt" role="status" aria-live="polite" hidden></div><div class="cmdac" id="cmdAc" role="listbox" aria-label="sugestões" hidden></div><form class="cmdbar" id="cmdForm"><textarea class="in" id="cmdQ" rows="1" placeholder="${CMD_PH}" autocomplete="off" spellcheck="false" aria-label="comando"></textarea><select class="in cmdvoz" id="cmdVoz" hidden aria-label="voz que lê as respostas" title="Voz que lê as respostas — as que você baixa em Ajustes do Sistema › Acessibilidade › Conteúdo Falado aparecem aqui"></select><button type="button" class="btn sm cmdmic" id="cmdMic" aria-pressed="false"></button><button type="button" class="btn sm" id="cmdStop" style="display:none">${IC.stop||''} parar</button><button class="btn primary sm" id="cmdSend">enviar</button></form></div>
+        <div class="cmdvozst" id="cmdVozSt" role="status" aria-live="polite" hidden></div><div class="cmdac" id="cmdAc" role="listbox" aria-label="sugestões" hidden></div><form class="cmdbar" id="cmdForm"><textarea class="in" id="cmdQ" rows="1" placeholder="${CMD_PH}" autocomplete="off" spellcheck="false" aria-label="comando"></textarea><select class="in cmdvoz cmdvozfx" id="cmdVozFx" hidden aria-label="tratamento da voz" title="Tratamento aplicado à voz — tudo feito aqui na máquina"></select><select class="in cmdvoz" id="cmdVoz" hidden aria-label="voz que lê as respostas" title="Voz que lê as respostas — as que você baixa em Ajustes do Sistema › Acessibilidade › Conteúdo Falado aparecem aqui"></select><button type="button" class="btn sm cmdmic" id="cmdMic" aria-pressed="false"></button><button type="button" class="btn sm" id="cmdStop" style="display:none">${IC.stop||''} parar</button><button class="btn primary sm" id="cmdSend">enviar</button></form></div>
     </section><aside class="cmdside" id="cmdSide" aria-label="painel dos agentes"></aside></div>`;
   // a caixa cresce com a mensagem (até ~8 linhas, depois rola): Enter envia, Shift+Enter quebra linha
   const cmdEnvia=()=>{ const q=$id('cmdQ'); const v=q.value; q.value=''; cmdGrow(); cmdSay(v); };
@@ -947,6 +1001,7 @@ function cmdMount(){
     $id('cmdAc').addEventListener('mousedown', e=>{ const b=e.target.closest('[data-cmdac]'); if(b){ e.preventDefault(); cmdAcPick(+b.dataset.cmdac); } }); }
   $id('cmdStop').onclick=()=>{ if(typeof CMDAG!=='undefined' && CMDAG.on){ CMD.stopping=true; invoke('comando_agente_stop').catch(()=>{}); if(CMD.asking && CMD.pv) invoke('comando_portavoz_stop').catch(()=>{}); return; } if(CMD.asking && CMD.pv){ invoke('comando_portavoz_stop').catch(()=>{}); return; } if(!CMD.busy) return; CMD.stopping=true; invoke('project_chat_stop').catch(()=>{}); };
   $id('cmdMic').onclick=cmdVoiceToggle; cmdVoicePaint();
+  $id('cmdVozFx').onchange=(e)=>{ lsSet('cmdvozfx', e.target.value||'natural'); if(CMDV.on) cmdSpeak('Esta é a voz que vai ler as respostas.'); };
   $id('cmdVoz').onchange=(e)=>{ lsSet('cmdvoz', e.target.value||''); if(CMDV.on) cmdSpeak('Esta é a voz que vai ler as respostas.'); };
   pg.addEventListener('click', cmdClick);
   pg.addEventListener('submit', e=>{
