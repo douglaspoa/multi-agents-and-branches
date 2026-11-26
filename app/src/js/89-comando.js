@@ -853,7 +853,7 @@ const CMD_MIC='<svg viewBox="0 0 16 16" width="14" height="14" fill="none" strok
 function cmdVoiceApi(){ return window.SpeechRecognition||window.webkitSpeechRecognition||null; }
 function cmdVoicePaint(){ const b=$id('cmdMic'); if(!b) return; b.classList.toggle('on', CMDV.on); b.setAttribute('aria-pressed', String(CMDV.on));
   cmdVozPaint();
-  b.innerHTML=CMD_MIC+(CMDV.on?`<span>${CMDV.speaking?'falando…':CMDV.live?'ouvindo…':'voz ligada'}</span>`:''); b.title=CMDV.on?'Desligar a conversa por voz':'Conversar por voz: você fala, eu respondo em voz alta'; }
+  b.innerHTML=CMD_MIC+(CMDV.on?`<span>${CMDV.speaking?'falando…':CMDV.live?'ouvindo…':'voz ligada'}</span>`:''); b.title=CMDV.on?'Desligar a conversa por voz':'Conversar por voz: você fala, eu respondo em voz alta'; if(typeof cmdHudPaint==='function') cmdHudPaint(); }
 // VOZ COM DIAGNÓSTICO (25/11): "cliquei no microfone e nada aconteceu" — todo evento do reconhecimento vai pro log
 // ([voz] …) e todo erro vira uma frase na tela, em vez de reiniciar em silêncio.
 function cmdVozLog(tx){ try{ invoke('web_log',{ line:'[voz] '+tx }); }catch(_){ } }
@@ -871,7 +871,7 @@ function cmdVoiceListen(on){
   r.onstart=()=>{ comecou=true; cmdVozLog('começou'); cmdVozAviso('Ouvindo… pode falar.', 'ok'); };
   r.onaudiostart=()=>cmdVozLog('áudio chegando'); r.onspeechstart=()=>{ ouviu=true; cmdVozLog('fala detectada'); };
   r.onresult=(e)=>{ ouviu=true; let fin='', mid=''; for(let k=e.resultIndex;k<e.results.length;k++){ const x=e.results[k]; if(x.isFinal) fin+=x[0].transcript; else mid+=x[0].transcript; }
-    const q=$id('cmdQ'); if(q){ q.value=(fin||mid).trim(); cmdGrow(); } if(fin.trim()){ cmdVozLog('entendeu '+fin.trim().length+' caracteres'); CMDV.vazias=0; CMDV.abortos=0; cmdVozAviso(''); if(q){ q.value=''; cmdGrow(); } cmdSay(fin.trim()); } };
+    const q=$id('cmdQ'); if(q){ q.value=(fin||mid).trim(); cmdGrow(); } if(typeof cmdHudOuve==='function') cmdHudOuve((fin||mid).trim()); if(fin.trim()){ cmdVozLog('entendeu '+fin.trim().length+' caracteres'); CMDV.vazias=0; CMDV.abortos=0; cmdVozAviso(''); if(q){ q.value=''; cmdGrow(); } cmdSay(fin.trim()); } };
   r.onerror=(e)=>{ CMDV.live=false; const k=String(e&&e.error||''); cmdVozLog('erro '+k+(e&&e.message?' · '+String(e.message).slice(0,120):''));
     if(k==='no-speech'){ CMDV.vazias=(CMDV.vazias||0)+1; cmdVozAviso(CMDV.vazias>=3?'Não estou ouvindo nada. Confira se o microfone certo está escolhido em Ajustes do Sistema › Som › Entrada.':'Não ouvi nada — pode falar.', CMDV.vazias>=3?'warn':''); }
     // o macOS com Siri/Ditado desligados devolve "aborted" com esta mensagem — não é uma parada minha: sem o Ditado não há fala → texto
@@ -913,7 +913,9 @@ function cmdVozCadeia(ctx, src, fx){
       if(fx.pente){ const fb=ctx.createGain(); fb.gain.value=Math.min(0.4,g); gg.connect(fb); fb.connect(d); } }
     n=soma; }
   const c=ctx.createDynamicsCompressor(); c.threshold.value=(fx.comp||[-20,3])[0]; c.ratio.value=(fx.comp||[-20,3])[1]; c.attack.value=0.008; c.release.value=0.16; liga(c);
-  const out=ctx.createGain(); out.gain.value=1.5; liga(out); n.connect(ctx.destination); return n;
+  const out=ctx.createGain(); out.gain.value=1.5; liga(out); n.connect(ctx.destination);
+  try{ const an=ctx.createAnalyser(); an.fftSize=128; an.smoothingTimeConstant=0.72; n.connect(an); CMDV.analisa=an; }catch(_){ }
+  return n;
 }
 function cmdVozCtx(){ try{ if(!CMDV.ctx){ const C=window.AudioContext||window.webkitAudioContext; if(!C) return null; CMDV.ctx=new C(); } if(CMDV.ctx.state==='suspended') CMDV.ctx.resume().catch(()=>{}); return CMDV.ctx; }catch(_){ return null; } }
 // cala tudo que estiver falando (voz do WebView e voz tratada) e invalida fala que ainda esteja sendo preparada
@@ -944,7 +946,7 @@ function cmdSpeak(text){
   if(!text || !window.speechSynthesis){ cmdVoiceListen(true); return; }
   if(text.length>500) text=text.slice(0,500);
   try{ cmdVozCala(); cmdVoiceListen(false);
-    CMDV.speaking=true; const seq=CMDV.falaSeq;
+    CMDV.speaking=true; CMDV.falaTx=text; const seq=CMDV.falaSeq;
     const fim=()=>{ if(!CMDV.speaking || seq!==CMDV.falaSeq) return; CMDV.speaking=false; cmdVoicePaint(); if(CMDV.on) cmdVoiceListen(true); };
     const fx=CMDV.fxFalhou?null:cmdVozFx();
     if(fx) cmdSpeakFx(text, fx, fim).then(ok=>{ if(!ok && seq===CMDV.falaSeq && CMDV.on) cmdSpeakSistema(text, fim); });
@@ -990,7 +992,7 @@ function cmdMount(){
   const pg=$id('comandoPage'); if(!pg || CMD.mounted) return; CMD.mounted=true;
   pg.innerHTML=`<div class="cmdpg"><section class="cmdchat" aria-label="Comando">
       <div class="cmdlog" id="cmdLog" aria-live="polite"></div>
-      <div class="cmdcomp"><div class="cmdchips">${CMD_CHIPS.map(c=>`<button type="button" class="cmdchip" data-cmdchip="${escA(c)}">${esc(c)}</button>`).join('')}</div>
+      <div class="cmdcomp">${typeof cmdHudHtml==='function'?cmdHudHtml():''}<div class="cmdchips">${CMD_CHIPS.map(c=>`<button type="button" class="cmdchip" data-cmdchip="${escA(c)}">${esc(c)}</button>`).join('')}</div>
         <div class="cmdvozst" id="cmdVozSt" role="status" aria-live="polite" hidden></div><div class="cmdac" id="cmdAc" role="listbox" aria-label="sugestões" hidden></div><form class="cmdbar" id="cmdForm"><textarea class="in" id="cmdQ" rows="1" placeholder="${CMD_PH}" autocomplete="off" spellcheck="false" aria-label="comando"></textarea><select class="in cmdvoz cmdvozfx" id="cmdVozFx" hidden aria-label="tratamento da voz" title="Tratamento aplicado à voz — tudo feito aqui na máquina"></select><select class="in cmdvoz" id="cmdVoz" hidden aria-label="voz que lê as respostas" title="Voz que lê as respostas — as que você baixa em Ajustes do Sistema › Acessibilidade › Conteúdo Falado aparecem aqui"></select><button type="button" class="btn sm cmdmic" id="cmdMic" aria-pressed="false"></button><button type="button" class="btn sm" id="cmdStop" style="display:none">${IC.stop||''} parar</button><button class="btn primary sm" id="cmdSend">enviar</button></form></div>
     </section><aside class="cmdside" id="cmdSide" aria-label="painel dos agentes"></aside></div>`;
   // a caixa cresce com a mensagem (até ~8 linhas, depois rola): Enter envia, Shift+Enter quebra linha
@@ -1285,7 +1287,7 @@ function cmdPaint(down){
     CMD.sideHtml=b; side.innerHTML=b; side.scrollTop=sc;
     keep.forEach(x=>{ const n=$id(x.k); if(!n) return; n.value=x.v; if(x.f){ try{ n.focus({ preventScroll:true }); n.setSelectionRange(x.a, x.a); }catch(_){ } } });
     try{ if(typeof apRestore==='function') apRestore(side); }catch(_){ } }
-  const st=$id('cmdStop'), sd=$id('cmdSend'); if(st) st.style.display=(CMD.busy||(CMD.asking&&CMD.pv))?'':'none'; if(sd) sd.disabled=CMD.busy;
+  const st=$id('cmdStop'), sd=$id('cmdSend'); if(st) st.style.display=(CMD.busy||(CMD.asking&&CMD.pv))?'':'none'; if(sd) sd.disabled=CMD.busy; if(typeof cmdHudPaint==='function') cmdHudPaint();
   // a pergunta aberta da tarefa selecionada: a MESMA folha do terminal, encaixada no painel
   if(typeof tlAskPaint==='function') log.querySelectorAll('[data-tlinline]').forEach(slot=>{ const t=cmdTask(slot.dataset.tlinline); if(t) try{ tlAskPaint(t); }catch(e){ console.warn('comando ask', e); } });
 }

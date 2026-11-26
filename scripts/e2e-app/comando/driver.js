@@ -112,6 +112,33 @@ try{
       cmdSpeak('Outra frase mais comprida para dar tempo de interromper no meio da fala.'); await until(()=>!!CMDV.src, 8000); cmdVozCala();
       await ok('voz tratada: calar interrompe na hora', !CMDV.src && (CMDV.falaSeq||0)>antes); }
     finally{ cmdVoiceListen=orig; CMDV.on=false; CMDV.speaking=false; cmdVozCala(); } }
+  // NÚCLEO DA VOZ: com a voz ligada aparece o anel; ele segue quem está com a palavra e desenha o áudio real da fala
+  { const hud=()=>document.getElementById('cmdHud'), tinta=()=>{ const cv=document.getElementById('cmdHudCv'); try{ const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let n=0; for(let i=3;i<d.length;i+=4) if(d[i]>40) n++; return n; }catch(_){ return -1; } };
+    await sleep(300); // a voz foi desligada no bloco acima SEM repintar: o núcleo tem que se acertar sozinho no quadro seguinte
+    await ok('núcleo: com a voz desligada não aparece nem anima', hud() && hud().hidden && !CMDH.raf, 'hidden='+(hud()&&hud().hidden)+' raf='+CMDH.raf);
+    const orig=cmdVoiceListen; cmdVoiceListen=()=>{}; CMDV.on=true; CMDV.fxFalhou=false;
+    try{
+      const frase='Três tarefas abertas: a do frete está rodando, a do login espera a sua resposta e a da versão está pronta para aprovar.';
+      cmdSpeak(frase); await until(()=>!!CMDV.src, 8000); await sleep(700);
+      let pico=0; try{ const f=new Uint8Array(CMDV.analisa.frequencyBinCount); for(let k=0;k<12 && pico<20;k++){ CMDV.analisa.getByteFrequencyData(f); pico=Math.max(pico, ...f); await sleep(80); } }catch(_){ }
+      const rodando=CMDV.ctx && CMDV.ctx.state==='running';
+      await ok('núcleo: falando — aparece, mostra a frase e o anel está desenhado', !hud().hidden && hud().dataset.estado==='falando' && document.getElementById('cmdHudL').textContent===frase && tinta()>300, 'estado='+hud().dataset.estado+' · tinta='+tinta()+' · linha='+document.getElementById('cmdHudL').textContent.slice(0,40));
+      await ok('núcleo: as barras leem o áudio REAL da fala (analisador)', !rodando || pico>20, 'contexto='+(CMDV.ctx&&CMDV.ctx.state)+' · pico='+pico);
+      await ok('núcleo: no modo voz as sugestões saem da frente', getComputedStyle(document.querySelector('.cmdchips')).display==='none');
+      await sleep(300); await R('SHOT hud-falando'); await sleep(500); cmdVozCala(); CMDV.speaking=false;
+      CMDV.live=true; cmdHudOuve('abre o código da tarefa do frete'); await sleep(300);
+      await ok('núcleo: ouvindo — o que foi entendido aparece ao vivo', hud().dataset.estado==='ouvindo' && /abre o código/.test(document.getElementById('cmdHudL').textContent) && CMDH.energia>0.05, 'estado='+hud().dataset.estado+' · energia='+CMDH.energia);
+      await sleep(200); await R('SHOT hud-ouvindo'); await sleep(500);
+      CMDV.live=false; CMD.busy=true; const m0=CMDAG.msg; CMDAG.msg={ agora:'procurando “frete”…', acts:[] }; cmdHudPaint(); await sleep(300);
+      await ok('núcleo: trabalhando — diz o que o agente faz agora', hud().dataset.estado==='pensando' && /procurando/.test(document.getElementById('cmdHudL').textContent), 'estado='+hud().dataset.estado);
+      await sleep(200); await R('SHOT hud-trabalhando'); await sleep(500); CMD.busy=false; CMDAG.msg=m0;
+    } finally { cmdVoiceListen=orig; CMDV.on=false; CMDV.live=false; CMDV.speaking=false; CMD.busy=false; cmdVozCala(); cmdVoicePaint(); }
+    await sleep(200); await ok('núcleo: desligou a voz, some e para de animar', hud().hidden && !CMDH.raf && getComputedStyle(document.querySelector('.cmdchips')).display!=='none', 'hidden='+hud().hidden+' raf='+CMDH.raf); }
+  // chamada torta de "agir" (caso real de 26/11): volta pra IA e a pessoa NÃO vê cartão de confirmação
+  { const n0=cmdMsgs().length; const r=await cmdAgFerramenta({ tool:'agir', args:{ acao:'epico_acao', alvo:'' } });
+    await ok('agente: ação sem os campos volta pra IA sem mostrar cartão', /NADA foi feito/.test(r) && cmdMsgs().length===n0 && !CMDAG.espera, String(r).slice(0,120)+' · msgs '+n0+'→'+cmdMsgs().length);
+    const r2=await cmdAgFerramenta({ tool:'agir', args:{ acao:'epico_acao', alvo:'Épico que não existe', texto:'comecar' } });
+    await ok('agente: épico inexistente volta pra IA sem mostrar cartão', /não existe épico/.test(r2) && cmdMsgs().length===n0 && !CMDAG.espera, String(r2).slice(0,120)); }
   // menu do "/": fecha ao apagar
   { const q=document.getElementById('cmdQ'), b=document.getElementById('cmdAc'); q.value='/'; q.setSelectionRange(1,1); q.dispatchEvent(new Event('input')); const aberto=getComputedStyle(b).display!=='none'; q.value=''; q.dispatchEvent(new Event('input'));
     await ok('menu do "/" abre e fecha', aberto && getComputedStyle(b).display==='none'); }

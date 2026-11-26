@@ -310,3 +310,25 @@ button.cmdrad-r:hover{background:var(--surface-2)}
 /* agente trabalhando: o que ele está fazendo agora */
 .cmdag{display:flex;flex-direction:column;gap:3px;font-size:var(--fs-sm);color:var(--muted)}
 .cmdag-a.done{opacity:.7}
+
+/* NÚCLEO DA VOZ (26/11): com a voz ligada a conversa ganha um anel que reage a quem está com a palavra */
+.cmdhud{max-width:820px;width:100%;margin:0 auto;display:flex;align-items:center;gap:18px;padding:8px 18px 8px 12px;position:relative;color:var(--accent);
+  border:1px solid color-mix(in srgb,currentColor 30%,transparent);border-radius:var(--r);
+  background:radial-gradient(130% 160% at 0% 50%,color-mix(in srgb,currentColor 11%,transparent),transparent 62%),var(--surface);transition:color .35s ease}
+.cmdhud::before,.cmdhud::after{content:"";position:absolute;width:16px;height:16px;border:2px solid currentColor;opacity:.75;pointer-events:none}
+.cmdhud::before{left:-1px;top:-1px;border-right:0;border-bottom:0;border-top-left-radius:var(--r)}
+.cmdhud::after{right:-1px;bottom:-1px;border-left:0;border-top:0;border-bottom-right-radius:var(--r)}
+.cmdhud[data-estado="pensando"]{color:var(--warn)}
+.cmdhud[data-estado="confirmar"]{color:var(--st-ask)}
+.cmdhud[data-estado="pronto"]{color:var(--muted)}
+.cmdhud-cv{width:112px;height:112px;flex:none;display:block}
+.cmdhud-tx{min-width:0;flex:1;display:flex;flex-direction:column;gap:7px}
+.cmdhud-e{font-family:var(--mono);font-size:var(--fs-xs);letter-spacing:.2em;display:flex;align-items:center;gap:8px}
+.cmdhud-e::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor;animation:cmdhudp 1.6s ease-in-out infinite}
+.cmdhud-l{color:var(--text,var(--fg,inherit));font-size:15px;line-height:1.4;min-height:1.4em;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+@keyframes cmdhudp{50%{opacity:.3}}
+/* no modo voz a conversa é falada: as sugestões e o aviso "ouvindo" (o núcleo já diz) saem da frente */
+.cmdhud:not([hidden]) ~ .cmdchips{display:none}
+.cmdhud:not([hidden]) ~ .cmdvozst[data-tom="ok"]{display:none}
+@media (max-width:720px){ .cmdhud{gap:12px;padding:6px 12px 6px 8px} .cmdhud-cv{width:84px;height:84px} .cmdhud-l{font-size:14px;-webkit-line-clamp:2} }
+@media (prefers-reduced-motion:reduce){ .cmdhud-e::before{animation:none} .cmdhud{transition:none} }

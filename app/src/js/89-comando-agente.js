@@ -66,6 +66,15 @@ function cmdAgenteSimNao(tx){ const s=String(tx||'').normalize('NFD').replace(/[
 function cmdAgAcaoErrada(nome, acoes){ const n=String(nome||'').toLowerCase(), ks=Object.keys(acoes||{}).filter(k=>!Object.values(CMD_AG_VER).includes(k) || k==='plano'), toks=n.split(/[^a-z]+/).filter(w=>w.length>=4).map(w=>w.slice(0,5));
   const per=ks.filter(k=>toks.some(w=>k.includes(w)) || toks.some(w=>String(acoes[k]).toLowerCase().includes(w))).slice(0,6);
   return 'Ação desconhecida: “'+nome+'”. NADA foi feito.'+(per.length?' Você quis dizer: '+per.map(k=>k+' ('+String(acoes[k]).slice(0,70)+')').join('; ')+'?':'')+' Nomes válidos: '+ks.join(', ')+'.'; }
+/** Chamada de "agir" SEM o que a ação precisa → mensagem que ensina o que falta. A pessoa nunca vê cartão de confirmação
+ *  de uma chamada torta (26/11, uso real: "No épico" vazio apareceu pra confirmar no meio de um "criar issue"). Puro. → '' = ok */
+const CMD_AG_PRECISA={ epico_acao:['alvo','texto'], criar_issue:['titulo'], criar_demanda:['titulo'], criar_epico:['titulo'], criar_skill:['titulo'], apagar_memoria:['alvo'], mandar_time:['alvo'], devolver_cartao:['alvo'], comecar_issue:['alvo'],
+  encerrar:['tarefas'], aprovar:['tarefas'], refazer:['tarefas'], liberar_teto:['tarefas'], abrir_pr:['tarefas'] };
+const CMD_AG_EPICO_TX=['comecar','liberar','verificar','entregar'];
+function cmdAgFalta(p, nAlvos, desc){ p=p||{}; const falta=(CMD_AG_PRECISA[p.acao]||[]).filter(c=>c==='tarefas'?!(nAlvos>0):!String(p[c]||'').trim());
+  if(!falta.length && p.acao==='epico_acao' && !CMD_AG_EPICO_TX.includes(String(p.texto||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim())) return 'NADA foi feito: em epico_acao o campo texto tem que ser um destes: '+CMD_AG_EPICO_TX.join(' | ')+'. Se a pessoa não pediu pra agir num épico, a ação certa é outra.';
+  if(!falta.length) return '';
+  return 'NADA foi feito e a pessoa não viu nada: a ação “'+p.acao+'” veio sem '+falta.map(c=>c==='tarefas'?'a tarefa (campo tarefas = código)':'o campo '+c).join(' e ')+'.'+(desc?' O que ela faz: '+String(desc).slice(0,220)+'.':'')+' Confira se é esta a ação que a pessoa pediu e chame de novo com os campos preenchidos.'; }
 // @agente-puro-fim
 
 const CMDAG={ on:false, laco:0, fila:Promise.resolve(), msg:null, espera:null, semFerramentas:false };
@@ -122,6 +131,8 @@ async function cmdAgFerramenta(req){ const a=req.args||{}, t=req.tool;
       if(Object.values(CMD_AG_VER).includes(p.acao) && !['plano','checks'].includes(p.acao)) return 'Isso é leitura: use a ferramenta "ver".';
       cmdAgAlvos(p, false); if(p.faltam.length) return 'Não achei estas tarefas abertas: '+p.faltam.join(', ')+'. Use buscar pra achar o código certo (tarefa encerrada não aceita essa ação).';
       cmdAgAtividade((CMD_ACAO_TX[p.acao]||p.acao)+(p.alvos.length?' '+p.alvos.map(x=>x.code||x.ref).join(', '):p.alvo?' '+p.alvo:'')+'…');
+      { const f=cmdAgFalta(p, p.alvos.length, CMD_ACOES[p.acao]); if(f) return f; }
+      if(p.acao==='epico_acao' && typeof cmdEpics==='function'){ const E=cmdEpics(), n=cmdNorm(p.alvo); if(!E.some(x=>cmdNorm(x.name)===n || (cmdNorm(x.name).includes(n) && p.alvo.length>=3))) return 'NADA foi feito: não existe épico chamado “'+p.alvo+'”. Épicos: '+(E.map(x=>x.name).slice(0,12).join(', ')||'nenhum')+'.'; }
       if(p.acao==='ambiente_subir'){ if(!p.alvos.length) return 'Diga de qual tarefa subir o ambiente.'; const r=await cmdAgAmbiente(p.alvos[0].id); return r.url?`Ambiente da ${p.alvos[0].code||p.alvos[0].ref} ${r.jaEstava?'já estava':'está'} no ar: ${r.url}`:'Não consegui subir o ambiente: '+r.erro; }
       if(CMD_AG_CONFIRMA.has(p.acao)){ const ms=cmdMsgs(), m={ r:'bot', k:'plano', agente:true, plan:{ passos:[p], pedido:'', fala:'', duvida:'', refs:[] } }, n0=ms.length; ms.push(m); CMDAG.espera=m; cmdAgAtividade('esperando a sua confirmação…'); cmdPaint(true); if(typeof cmdAgFalaConfirma==='function') cmdAgFalaConfirma(p);
         const t0=Date.now(); while(m.done!=='sim' && m.done!=='nao' && CMDAG.on && Date.now()-t0<12*60000) await new Promise(r=>setTimeout(r, 200)); CMDAG.espera=null;
@@ -176,9 +187,9 @@ async function cmdAgente(text){
     try{ cmdLog({ via:'agente', pedido:text, ms:m.ms, fala:m.text.slice(0,300) }); }catch(_){ }
     fim(true); CMD.spoken=cmdMsgs().length; cmdPaint(true); if(CMDV.on) cmdSpeak(m.text.replace(/[*_`#>]/g,'').replace(/\[([^\]]+)\]\([^)]+\)/g,'$1')); return true;
   }catch(e){ const msg=String((e&&e.message)||e||''); fim(false); const i=ms.indexOf(m);
-    if(CMDAG.semFerramentas){ CMDAG.semFerramentas=false; if(i>=0) ms.splice(i,1); cmdPaint(true); return false; }
+    if(CMDAG.semFerramentas){ CMDAG.semFerramentas=false; try{ cmdLog({ via:'agente', pedido:text, erro:'servidor de ferramentas não conectou — atendido pelo planejador' }); }catch(_){ } if(i>=0) ms.splice(i,1); cmdPaint(true); return false; }
     if(CMD.stopping || /AGENTE_STOPPED/.test(msg)){ if(i>=0) ms.splice(i,1); ms.push({ r:'sys', text:'parado' }); cmdPaint(true); return true; }
-    if(i>=0) ms.splice(i,1); try{ invoke('web_log',{ line:'[agente] falhou: '+msg.slice(0,300) }); }catch(_){ }
+    if(i>=0) ms.splice(i,1); try{ invoke('web_log',{ line:'[agente] falhou: '+msg.slice(0,300) }); }catch(_){ } try{ cmdLog({ via:'agente', pedido:text, ms:Date.now()-t0, erro:msg.slice(0,300) }); }catch(_){ }
     if(/AGENTE_SO_CLAUDE/.test(msg)) return false; // outra IA: o planejador de uma chamada atende
     const h=humanErr(msg); ms.push({ r:'sys', text:'Não consegui responder agora: '+(h&&h.msg?h.msg:msg.slice(0,240)) }); if(h&&h.action) showErr(e); cmdPaint(true); return true; }
 }
