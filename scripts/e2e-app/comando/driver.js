@@ -115,6 +115,7 @@ try{
   // NÚCLEO DA VOZ: com a voz ligada aparece o anel; ele segue quem está com a palavra e desenha o áudio real da fala
   { const hud=()=>document.getElementById('cmdHud'), tinta=()=>{ const cv=document.getElementById('cmdHudCv'); try{ const d=cv.getContext('2d').getImageData(0,0,cv.width,cv.height).data; let n=0; for(let i=3;i<d.length;i+=4) if(d[i]>40) n++; return n; }catch(_){ return -1; } };
     await sleep(300); // a voz foi desligada no bloco acima SEM repintar: o núcleo tem que se acertar sozinho no quadro seguinte
+    if(document.hidden) cmdHudPaint(); // janela de teste coberta: o quadro de animação não roda, quem acerta é a próxima pintura
     await ok('núcleo: com a voz desligada não aparece nem anima', hud() && hud().hidden && !CMDH.raf, 'hidden='+(hud()&&hud().hidden)+' raf='+CMDH.raf);
     const orig=cmdVoiceListen; cmdVoiceListen=()=>{}; CMDV.on=true; CMDV.fxFalhou=false;
     try{
@@ -148,6 +149,29 @@ try{
     // encerrada própria do teste: as da fixture têm id t1,t2… que colide com as referências T1,T2 das abertas
     const enc={ id:'zz-900', title:'Tarefa encerrada de teste', status:'merged', flag:'closed' }; state.tasks.push(enc); let r2; try{ r2=await cmdAgFerramenta({ tool:'agir', args:{ acao:'abrir_pr', tarefas:['zz-900'], alvo:'homol' } }); } finally { state.tasks.splice(state.tasks.indexOf(enc),1); }
     await ok('agente: tarefa encerrada → diz que está encerrada, sem cartão', /já está encerrada/.test(r2) && cmdMsgs().length===n0 && !CMDAG.espera, String(r2).slice(0,160)); }
+  // VARREDURA: tudo o que a ferramenta "ver" devolve tem CONTEÚDO — nunca um "[Comando mostrou: …]" vazio, nunca "carregando"
+  { const r3=(cmdRefs().find(r=>r.id==='t3')||cmdRefs()[2]||{}).ref, n0=cmdMsgs().length; const ruins=[];
+    for(const o of Object.keys(CMD_AG_VER)){ const precisa=['tarefa','plano','provas','arquivos','pr_ci','porque_parou','o_que_foi_feito','links'].includes(o);
+      const args=o==='issue'?{ o_que:o, alvo:'LW-302' }:o==='epico'?{ o_que:o, alvo:'x' }:precisa?{ o_que:o, alvo:r3 }:{ o_que:o, periodo:'hoje' };
+      let r=''; try{ r=String(await Promise.race([cmdAgFerramenta({ tool:'ver', args }), new Promise(x=>setTimeout(()=>x('DEMOROU mais de 40 s'), 40000))])); }catch(e){ r='EXCEÇÃO '+e; }
+      await R('VER '+o+' → '+r.replace(/\n/g,' ⏎ ').slice(0,260));
+      if(/\[Comando mostrou|carregando|lendo o que|^Feito \(sem mensagem\)|^DEMOROU|^EXCEÇÃO|undefined|\[object/i.test(r) || r.trim().length<8) ruins.push(o); }
+    await ok('agente: as '+Object.keys(CMD_AG_VER).length+' leituras da ferramenta "ver" devolvem conteúdo de verdade', !ruins.length, 'sem conteúdo: '+(ruins.join(', ')||'nenhuma'));
+    await ok('agente: ler sem "mostrar" não enche o chat de cartão', cmdMsgs().length===n0, 'msgs '+n0+'→'+cmdMsgs().length); CMD.sel=null; CMD.view=''; cmdPaint(true); }
+  // PR DE BRANCH pra outro destino numa tarefa ENCERRADA (26/11: "abre o PR da 1260 pra homol também")
+  { const enc={ id:'zz-901', title:'Seletor de pesquisas à esquerda', status:'merged', flag:'closed', branch:'fix/zz-901-ajuste' }; const poe=()=>{ if(!state.tasks.includes(enc)) state.tasks.push(enc); }; poe(); const eraOn=CMDAG.on; CMDAG.on=true; const vigia=setInterval(poe, 50); // o refresh do app troca a lista: a tarefa de teste volta
+    try{
+      const pr=cmdAgFerramenta({ tool:'agir', args:{ acao:'pr_de_branch', tarefas:['zz-901'], alvo:'homol' } });
+      const card=await until(()=>CMDAG.espera && !CMDAG.espera.done, 8000); await sleep(200);
+      const el=[...document.querySelectorAll('#cmdLog .cmdmsg.bot')].pop(), tx=el?el.textContent:'';
+      await ok('pr de branch: tarefa encerrada mostra o cartão certo e espera o sim', !!card && /Abrir um PR da branch pra homol/.test(tx) && /da branch fix\/zz-901-ajuste/.test(tx) && /zz-901|Seletor de pesquisas/.test(tx), tx.replace(/\s+/g,' ').slice(0,160));
+      await R('SHOT pr-de-branch'); await sleep(400); cmdAgDecide('não'); const r=await pr;
+      await ok('pr de branch: "não" cancela e nada é aberto', /RECUSOU/.test(r), String(r).slice(0,100));
+      poe(); const pr2=cmdAgFerramenta({ tool:'agir', args:{ acao:'pr_de_branch', tarefas:['zz-901'], alvo:'homol', texto:'fix/zz-901-ajuste' } }); await until(()=>CMDAG.espera && !CMDAG.espera.done, 8000); await sleep(200); cmdAgDecide('sim'); const r2=String(await Promise.race([pr2, new Promise(x=>setTimeout(()=>x('DEMOROU'), 90000))]));
+      await ok('pr de branch: "sim" chama o GitHub e o resultado (PR ou o motivo) volta pro agente', /confirmou/.test(r2) && /(PR aberto|Já existia um PR aberto) de fix\/zz-901-ajuste pra homol: http|Não abri o PR: /.test(r2), r2.slice(0,220));
+      const r3=await cmdAgFerramenta({ tool:'agir', args:{ acao:'pr_de_branch', tarefas:['zz-901'] } });
+      await ok('pr de branch: sem destino volta pra IA, sem cartão', /NADA foi feito/.test(r3) && /campo alvo/.test(r3) && !CMDAG.espera, String(r3).slice(0,120));
+    } finally { clearInterval(vigia); CMDAG.on=eraOn; CMDAG.espera=null; { const i=state.tasks.indexOf(enc); if(i>=0) state.tasks.splice(i,1); } cmdPaint(true); } }
   // chamada torta de "agir" (caso real de 26/11): volta pra IA e a pessoa NÃO vê cartão de confirmação
   { const n0=cmdMsgs().length; const r=await cmdAgFerramenta({ tool:'agir', args:{ acao:'epico_acao', alvo:'' } });
     await ok('agente: ação sem os campos volta pra IA sem mostrar cartão', /NADA foi feito/.test(r) && cmdMsgs().length===n0 && !CMDAG.espera, String(r).slice(0,120)+' · msgs '+n0+'→'+cmdMsgs().length);

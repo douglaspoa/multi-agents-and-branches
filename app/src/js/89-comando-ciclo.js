@@ -44,6 +44,19 @@ function cmdCicloHtml(m){
 }
 
 /** Executa UMA ação do ciclo numa tarefa. p: passo do plano; x: alvo { id, code, ref, title }; say: fala curta no chat. */
+/** PR DE UMA BRANCH QUE JÁ EXISTE pra outro destino — vale também pra tarefa ENCERRADA (26/11: "abre o PR da 1260 pra homol
+ *  também", com a 1260 já integrada na main). alvo = destino; texto = a branch, quando não é a da tarefa. */
+async function cmdPrDeBranch(p, x, say){
+  const t=cmdTaskAny(x.id)||cmdAllTasks().find(k=>k.id===x.id), code=x.code||x.ref||'tarefa'; if(!t) return say(`A ${code} não está nesta máquina.`);
+  const base=cmdPrBase(p.alvo); if(!base) return say('Pra qual branch é o PR? (ex.: homol)');
+  const head=String(p.texto||'').trim()||String(t.branch||'').trim(); if(!head) return say(`A ${code} não tem branch registrada — diga o nome da branch.`);
+  if(!/^[A-Za-z0-9._\/-]{1,200}$/.test(head) || head.startsWith('-')) return say(`“${head.slice(0,60)}” não é um nome de branch. Diga só o nome dela (ex.: fix/LW-47-ajuste).`);
+  const m=cmdCicloCard({ titulo:'Pull request → '+base, code, busy:'abrindo o PR de '+head+' pra '+base+'…' });
+  try{ const tit=(x.code?x.code+': ':'')+cmdUma(mdTitle(t.title||'')).slice(0,90)+' (→ '+base+')';
+    const r=await invoke('pr_de_branch',{ taskId:t.id, head, base, title:tit, body:`Mesmo trabalho da ${code}, levado pra \`${base}\` a partir da branch \`${head}\`.\n\nAberto pelo Comando do Starfork a pedido de quem coordena.` });
+    m.busy=''; m.tx=r.url?`${r.jaExistia?'Já existia um PR aberto':'PR aberto'} de ${r.head} pra ${r.base}: ${r.url}`:`O PR de ${head} pra ${base} foi criado, mas não recebi o endereço.`; m.acts=r.url?[{ t:'Ver o PR', p:1, url:r.url }]:[];
+  }catch(e){ m.busy=''; m.tx='Não abri o PR: '+String((e&&e.message)||e).replace(/^GH_NO_ACCESS:\s*/,'').slice(0,260); }
+  cmdPaint(true); }
 async function cmdCiclo(p, x, say){
   const t=cmdTask(x.id), code=x.code||x.ref||'tarefa'; if(!t) return say(`A ${code} não está nesta máquina.`);
   const nao=cmdCicloPode(p.acao, { status:t.status, needsPlano:!!(t.spec&&t.spec.needsYou&&t.spec.needsYou.kind==='plano') }); if(nao) return say(`A ${code} ${nao}.`);
@@ -89,6 +102,6 @@ async function cmdCiclo(p, x, say){
         const ok=await chkOverride(t, g, motivo); if(!ok){ m.busy=''; m.tx='Não liberei a verificação — o PR não foi aberto.'; return cmdPaint(true); } }
       m.busy='enviando a branch…'; cmdPaint();
       const url=await prCreateRun(t, base, (n, st, tx)=>{ if(st==='run'){ m.busy=String(tx||'').replace(/<[^>]+>/g,''); cmdPaint(); } });
-      m.busy=''; m.tx=url?'PR aberto pra '+base+'.':'O PR foi criado, mas não recebi o endereço.'; m.acts=(url?[{ t:'Ver o PR', p:1, url }]:[]).concat([{ t:'Como está o CI?', dizer:`como está o CI da ${code}?` }]); return cmdPaint(true); }
+      m.busy=''; m.tx=url?'PR aberto pra '+base+': '+url:'O PR foi criado, mas não recebi o endereço.'; m.acts=(url?[{ t:'Ver o PR', p:1, url }]:[]).concat([{ t:'Como está o CI?', dizer:`como está o CI da ${code}?` }]); return cmdPaint(true); }
   }catch(e){ const ms=cmdMsgs(), u=ms[ms.length-1]; if(u && u.k==='ciclo' && u.busy){ u.busy=''; u.tx='Não deu certo: '+erro(e); if(p.acao==='abrir_pr' && typeof invoke==='function'){ try{ const cu=await invoke('pr_compare_url',{ taskId:t.id, base:cmdPrBase(p.alvo)||lsGet('prBase:'+t.id)||'main' }); if(cu) u.acts=[{ t:'Abrir no GitHub', url:cu }]; }catch(_){ } } cmdPaint(true); } else say(`Não deu certo na ${code}: ${erro(e)}`); }
 }

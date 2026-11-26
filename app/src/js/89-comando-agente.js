@@ -4,7 +4,7 @@
 // comando_ponte_ler/responder) e é executada aqui com as MESMAS funções das telas (cmdRunPlan e companhia).
 // @agente-puro-inicio
 /** Ações que pedem o "sim" da pessoa na tela antes de rodar: o que não tem volta fácil ou cria coisa nova. O resto vai direto. */
-const CMD_AG_CONFIRMA=new Set(['apagar_memoria','criar_skill','criar_epico','encerrar','aprovar','refazer','liberar_teto','abrir_pr','criar_demanda','criar_issue','mandar_time','devolver_cartao','epico_acao','comecar_issue']);
+const CMD_AG_CONFIRMA=new Set(['apagar_memoria','criar_skill','criar_epico','encerrar','aprovar','refazer','liberar_teto','abrir_pr','pr_de_branch','criar_demanda','criar_issue','mandar_time','devolver_cartao','epico_acao','comecar_issue']);
 /** O que a ferramenta "ver" aceita → a ação interna que desenha/le aquilo. */
 const CMD_AG_VER={ geral:'status', tarefa:'tarefa', issue:'issue', fila_issues:'fila_issues', epicos:'epicos', epico:'epico', memoria:'memoria', aprendizados:'aprendizados', skills:'skills', plano:'plano', provas:'provas', arquivos:'arquivos', pr_ci:'ci', porque_parou:'porque', o_que_foi_feito:'feito', links:'link',
   time:'time', entregas:'entregas', uso:'uso', prontas_pra_aprovar:'prontas', conflitos:'radar', esperando_voce:'esperando' };
@@ -33,6 +33,7 @@ COMO VOCÊ TRABALHA
 - Nunca invente tarefa, código, número ou fato. Se uma ferramenta falhar ou o app não responder, diga isso.
 - VOCÊ SÓ FEZ O QUE A FERRAMENTA CONFIRMOU. Se o resultado de "agir" for erro, "ação desconhecida", "não achei" ou "não deu", a ação NÃO aconteceu: corrija e tente de novo (com o nome certo da ação, que o próprio erro mostra) ou diga à pessoa que não conseguiu e por quê. Nunca responda "feito", "anotado", "enviado" sem um resultado de sucesso na mão.
 - LINK: quando ela pedir o link/endereço de algo (PR, issue, branch), use ver "links" de cada tarefa e ESCREVA o endereço completo na resposta, como link markdown [PR #12](https://…). Nunca responda "o cartão já apareceu" no lugar do link, e nunca invente endereço: se a ferramenta não devolveu, diga que não tem.
+- PR DE TAREFA ENCERRADA: "abre o PR da X pra homol" com a X já encerrada/integrada → agir "pr_de_branch" (tarefas = X; alvo = o destino; texto = o nome da branch só se ela citou uma branch diferente da branch da tarefa — ex.: uma branch de correção aberta depois). Não diga que "não dá" nem empurre uma demanda nova pra isso. abrir_pr continua sendo o caminho da tarefa ABERTA (ele roda a verificação antes).
 - ABRIR PRA ELA VER: quando ela pede pra ABRIR ou VER o código que a tarefa editou, use agir "abrir_codigo" (tarefas = a tarefa; alvo = nome ou pedaço do caminho, se ela disse qual). Pra imagem, print, prova, PDF, vídeo ou documento entregue, use agir "abrir_entrega" (alvo = nome do arquivo, ou "imagens"/"pdf"/"vídeo"). Pro app rodando, "abrir_ambiente"; pro celular, "abrir_simulador". Tudo abre numa aba do próprio Starfork (a tela muda pra ela) — diga o que abriu em uma frase. Se a ferramenta devolver uma lista perguntando qual, pergunte a ela.
 - Use os nomes das ações EXATAMENTE como estão na lista da ferramenta "agir" (ex.: anotar_memoria, ligar_skill, abrir_pr, mover_issue) — não invente variações.
 - RESPONDER x INSTRUIR: se a tarefa tem PERGUNTA ABERTA esperando a pessoa e o que ela disse responde a essa pergunta, use agir "responder" (texto = a resposta; com várias perguntas abertas, alvo = o número da pergunta que ela respondeu — uma chamada por pergunta). "instruir" é só pra mandar algo novo ao executor.
@@ -70,7 +71,7 @@ function cmdAgAcaoErrada(nome, acoes){ const n=String(nome||'').toLowerCase(), k
 /** Chamada de "agir" SEM o que a ação precisa → mensagem que ensina o que falta. A pessoa nunca vê cartão de confirmação
  *  de uma chamada torta (26/11, uso real: "No épico" vazio apareceu pra confirmar no meio de um "criar issue"). Puro. → '' = ok */
 const CMD_AG_PRECISA={ epico_acao:['alvo','texto'], criar_issue:['titulo'], criar_demanda:['titulo'], criar_epico:['titulo'], criar_skill:['titulo'], apagar_memoria:['alvo'], mandar_time:['alvo'], devolver_cartao:['alvo'], comecar_issue:['alvo'],
-  encerrar:['tarefas'], aprovar:['tarefas'], refazer:['tarefas'], liberar_teto:['tarefas'], abrir_pr:['tarefas'] };
+  encerrar:['tarefas'], aprovar:['tarefas'], refazer:['tarefas'], liberar_teto:['tarefas'], abrir_pr:['tarefas'], pr_de_branch:['tarefas','alvo'] };
 const CMD_AG_EPICO_TX=['comecar','liberar','verificar','entregar'];
 function cmdAgFalta(p, nAlvos, desc){ p=p||{}; const falta=(CMD_AG_PRECISA[p.acao]||[]).filter(c=>c==='tarefas'?!(nAlvos>0):!String(p[c]||'').trim());
   if(!falta.length && p.acao==='epico_acao' && !CMD_AG_EPICO_TX.includes(String(p.texto||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim())) return 'NADA foi feito: em epico_acao o campo texto tem que ser um destes: '+CMD_AG_EPICO_TX.join(' | ')+'. Se a pessoa não pediu pra agir num épico, a ação certa é outra.';
@@ -79,6 +80,17 @@ function cmdAgFalta(p, nAlvos, desc){ p=p||{}; const falta=(CMD_AG_PRECISA[p.aca
 /** A pessoa (ou a IA) deu um CÓDIGO ou número ("FND-1260", "1260", "T3")? Código nunca é adivinhado por parecido:
  *  26/11, uso real — "abrir o PR da 1260" (já entregue) virou cartão pra FND-1256, que é outra tarefa. Puro. */
 function cmdAgPareceCodigo(q){ return /^@?\s*(?:[a-z]{1,10}[_-]?|[a-z]{1,4}\s)?\d{1,7}$/i.test(String(q||'').trim()); }
+/** O HTML de um cartão do chat → o TEXTO que a pessoa lê nele (botões de ação fora; endereços dos links dentro).
+ *  É o que o agente recebe de qualquer cartão sem texto próprio: ele sabe exatamente o que apareceu na tela, em vez de
+ *  um "[Comando mostrou: …]" vazio que o fazia responder "o cartão já apareceu" sem saber o que tinha nele. Puro. */
+function cmdHtmlTexto(html, max){ let s=String(html||'');
+  s=s.replace(/<(script|style|svg)\b[\s\S]*?<\/\1>/gi,' ');
+  s=s.replace(/<a\b[^>]*\bhref="(https?:[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi,(m,u,t)=>{ const tx=t.replace(/<[^>]+>/g,'').trim(); return tx && tx!==u?tx+' ('+u+')':u; });
+  s=s.replace(/<button\b[^>]*\bdata-cmdlk="([^"]+)"[^>]*>[\s\S]*?<\/button>/gi,' ').replace(/<button\b[^>]*\bclass="btn\b[^"]*"[^>]*>[\s\S]*?<\/button>/gi,' ');
+  s=s.replace(/<img\b[^>]*\balt="([^"]*)"[^>]*>/gi,(m,a)=>a?' [imagem: '+a+'] ':' [imagem] ').replace(/<li\b[^>]*>/gi,'\n- ').replace(/<(br|hr)\b[^>]*>/gi,'\n').replace(/<\/(p|div|li|tr|h[1-6]|ul|ol|table|section|button|summary|details)>/gi,'\n').replace(/<\/(td|th)>/gi,' · ');
+  s=s.replace(/<\/?(b|strong|em|i|code|u|mark)\b[^>]*>/gi,'').replace(/<[^>]+>/g,' ').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
+  s=s.split('\n').map(l=>l.replace(/[ \t\u00a0]+/g,' ').replace(/( · )+$/,'').trim()).filter(Boolean).join('\n');
+  max=max||3000; return s.length>max?s.slice(0,max).replace(/\s+\S*$/,'')+' …(cortado)':s; }
 // @agente-puro-fim
 
 const CMDAG={ on:false, laco:0, fila:Promise.resolve(), msg:null, espera:null, semFerramentas:false };
@@ -94,19 +106,26 @@ function cmdAgMsgTx(m){ if(!m) return '';
   if(m.k==='link'){ const t=(typeof cmdTaskAny==='function'&&cmdTaskAny(m.id))||cmdTask(m.id); if(!t) return 'Essa tarefa não está nesta máquina.'; const l=cmdLinks(t), c=cmdCode(t)||mdTitle(t.title||'');
     return l.length?'Links de '+c+' — '+l.map(x=>x[0]+': '+x[1]).join(' · '):c+' não tem link ainda (sem issue, PR nem branch).'; }
   if(m.k==='plano') return 'Cartão de confirmação: '+(m.done==='sim'?'a pessoa confirmou e foi executado':m.done==='nao'?'a pessoa RECUSOU':'esperando');
-  return cmdMsgTx(m)||''; }
+  const tx=cmdMsgTx(m)||'';
+  // cartão sem texto próprio: o agente lê o que a pessoa lê nele
+  if(/^\[Comando mostrou: /.test(tx)){ let lido=''; try{ lido=cmdHtmlTexto(cmdBotHtml(m)); }catch(_){ } if(lido) return 'O cartão mostra:\n'+lido; }
+  return tx; }
 /** Resolve as tarefas de um passo (pelo código, número ou título, inclusive encerradas quando a ação só lê). */
 function cmdAgAlvos(p, incluiEncerradas){ const refs=cmdRefs(), todas=incluiEncerradas?refs.concat(cmdAllTasks().filter(t=>taskEncerrada(t) && !refs.some(r=>r.id===t.id)).map(t=>({ id:t.id, ref:cmdCode(t)||t.id, code:cmdCode(t), title:mdTitle(t.title||''), st:'encerrada' }))):refs;
   p.alvos=[]; p.faltam=[]; if(p.acao==='criar_demanda') p.origem=(p.tarefas||[]).map(q=>cmdRefTask(q, todas)).filter(Boolean); if(CMD_SEM_TAREFA.has(p.acao)) return p;
   (p.tarefas||[]).forEach(q=>{ if(/^(todas|tudo)$/i.test(q)) return; let r=cmdRefTask(q, todas);
     if(!r && !cmdAgPareceCodigo(q)){ const d=cmdBuscaDecide(cmdBusca(q, todas.map(x=>({ tipo:'tarefa', code:x.code||x.ref, id:x.id, title:x.title, text:'' })), 4)); if(d && d.um) r=todas.find(x=>x.id===d.um.id)||null; }
     if(r && !p.alvos.some(a=>a.id===r.id)) p.alvos.push(r); else if(!r) p.faltam.push(q); });
-  if(!p.alvos.length && !(p.tarefas||[]).length && p.alvo && !['abrir_pr','liberar_teto','epico','epico_acao','responder','abrir_codigo','abrir_entrega'].includes(p.acao)){ const r=cmdRefTask(p.alvo, todas); if(r) p.alvos.push(r); }
+  if(!p.alvos.length && !(p.tarefas||[]).length && p.alvo && !['abrir_pr','pr_de_branch','liberar_teto','epico','epico_acao','responder','abrir_codigo','abrir_entrega'].includes(p.acao)){ const r=cmdRefTask(p.alvo, todas); if(r) p.alvos.push(r); }
   if(p.acao==='responder' && !p.alvos.length && !(p.tarefas||[]).length && CMD.sel){ const r=todas.find(x=>x.id===CMD.sel); if(r) p.alvos.push(r); } // respondeu sem repetir a tarefa: é a que está em foco // "alvo" usado no lugar de "tarefas"
   return p; }
 /** Roda um passo pelo MESMO executor dos planos e devolve, em texto, o que apareceu no chat por causa dele. */
 async function cmdAgRoda(p, o){ o=o||{}; const ms=cmdMsgs(), n0=ms.length;
   await cmdRunPlan({ passos:[p], pedido:'', fala:'', duvida:'' });
+  // cartão que ainda está carregando (radar de conflitos, PR, verificação): o agente espera o conteúdo, não lê "lendo…"
+  { const t0=Date.now(), carregando=()=>ms.slice(n0).some(m=>m.busy || (m.k==='radar' && CMD.radar && CMD.radar.loading)); while(carregando() && Date.now()-t0<90000) await new Promise(r=>setTimeout(r, 150)); }
+  // cartão de tarefa que depende da sessão da IA ("por que parou", "o que foi feito"): lê a sessão antes, senão o texto é "lendo o que a IA fez…"
+  for(const m of ms.slice(n0)){ if(m.id && ['tarefa','porque','feito'].includes(m.k) && cmdTask(m.id) && !cmdHistReady(m.id)){ try{ await Promise.race([cmdHistFetch(m.id), new Promise(r=>setTimeout(r, 15000))]); }catch(_){ } } }
   const novos=ms.slice(n0), tx=novos.map(cmdAgMsgTx).filter(Boolean).join('\n');
   if(o.silencio){ novos.forEach(m=>{ const i=ms.indexOf(m); if(i>=0 && !(m.k==='pergunta')) ms.splice(i,1); }); cmdPaint(true); }
   return tx || 'Feito (sem mensagem).'; }
@@ -136,10 +155,10 @@ async function cmdAgFerramenta(req){ const a=req.args||{}, t=req.tool;
       return await cmdAgRoda(p, { silencio:!mostrar }); }
     if(t==='agir'){ const p=cmdAgentePasso(a); if(!CMD_ACOES[p.acao]) return cmdAgAcaoErrada(p.acao, CMD_ACOES);
       if(Object.values(CMD_AG_VER).includes(p.acao) && !['plano','checks'].includes(p.acao)) return 'Isso é leitura: use a ferramenta "ver".';
-      cmdAgAlvos(p, false); if(p.faltam.length){ // a que falta pode existir e já estar ENCERRADA: diz isso com todas as letras, em vez de "não achei"
+      cmdAgAlvos(p, p.acao==='pr_de_branch'); if(p.faltam.length){ // a que falta pode existir e já estar ENCERRADA: diz isso com todas as letras, em vez de "não achei"
         const enc=cmdAllTasks().filter(t=>taskEncerrada(t)).map(t=>({ id:t.id, ref:cmdCode(t)||t.id, code:cmdCode(t), title:mdTitle(t.title||''), st:stLabel(taskSt(t)) }));
         const linhas=p.faltam.map(q=>{ const r=cmdRefTask(q, enc); return r?`${r.code||r.ref} "${cmdUma(r.title).slice(0,70)}" já está encerrada (${r.st}) — a ação “${p.acao}” só vale pra tarefa aberta`:`não achei “${q}” entre as tarefas abertas`; });
-        return 'NADA foi feito: '+linhas.join('; ')+'. Diga isso à pessoa como está; NÃO troque por outra tarefa parecida. Se ela quer algo novo a partir de uma tarefa encerrada (ex.: levar a entrega pra outra branch), proponha criar_demanda com a encerrada como origem.'; }
+        return 'NADA foi feito: '+linhas.join('; ')+'. Diga isso à pessoa como está; NÃO troque por outra tarefa parecida. Se ela quer um PR da branch dessa tarefa pra outro destino (ex.: levar pra homol), a ação é pr_de_branch, que vale pra tarefa encerrada. Pra trabalho NOVO a partir dela, proponha criar_demanda com a encerrada como origem.'; }
       cmdAgAtividade((CMD_ACAO_TX[p.acao]||p.acao)+(p.alvos.length?' '+p.alvos.map(x=>x.code||x.ref).join(', '):p.alvo?' '+p.alvo:'')+'…');
       { const f=cmdAgFalta(p, p.alvos.length, CMD_ACOES[p.acao]); if(f) return f; }
       if(p.acao==='epico_acao' && typeof cmdEpics==='function'){ const E=cmdEpics(), n=cmdNorm(p.alvo); if(!E.some(x=>cmdNorm(x.name)===n || (cmdNorm(x.name).includes(n) && p.alvo.length>=3))) return 'NADA foi feito: não existe épico chamado “'+p.alvo+'”. Épicos: '+(E.map(x=>x.name).slice(0,12).join(', ')||'nenhum')+'.'; }

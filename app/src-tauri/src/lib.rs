@@ -8668,6 +8668,108 @@ fn open_pr(state: State<AppState>, task_id: String, base: String, title: String,
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Nome de branch que pode ir pro `git`/`gh` como argumento: nunca começa com '-', sem espaço, sem "..", só [A-Za-z0-9._/-].
+fn branch_segura(b: &str) -> bool {
+    !b.is_empty() && b.len() <= 200 && !b.starts_with('-') && !b.starts_with('/') && !b.ends_with('/') && !b.contains("..")
+        && b.chars().all(|c| c.is_ascii_alphanumeric() || "._/-".contains(c))
+}
+#[derive(Serialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct PrDeBranch { url: String, ja_existia: bool, head: String, base: String }
+/// PR DE UMA BRANCH QUE JÁ EXISTE pra outra base (26/11, uso real: a tarefa já tinha sido integrada na main e a pessoa
+/// queria o MESMO trabalho num PR pra homol — "abrir PR" só valia pra tarefa aberta). Não mexe em tarefa nenhuma: só
+/// garante a branch no GitHub e abre (ou devolve, se já existir) o PR head → base. `head` vazio = a branch da tarefa.
+#[tauri::command(async)]
+fn pr_de_branch(state: State<AppState>, task_id: String, head: String, base: String, title: String, body: String) -> Result<PrDeBranch, String> {
+    let repo = repo_of(&state)?;
+    let head = if head.trim().is_empty() { task_branch(&state, &task_id)? } else { head.trim().to_string() };
+    pr_de_branch_em(&gh_bin(), &repo, head.trim(), base.trim(), title.trim(), &body)
+}
+fn pr_de_branch_em(gh: &str, repo: &PathBuf, head: &str, base: &str, title: &str, body: &str) -> Result<PrDeBranch, String> {
+    if !branch_segura(head) || !branch_segura(base) { return Err("nome de branch inválido".into()); }
+    if head == base { return Err(format!("a branch e o destino são a mesma ({base})")); }
+    if title.is_empty() { return Err("o PR precisa de um título".into()); }
+    let ra = gh_repo_args(repo);
+    let feito = |url: String, ja: bool| PrDeBranch { url, ja_existia: ja, head: head.to_string(), base: base.to_string() };
+    // já existe PR aberto desta branch pra este destino? devolve ele (nunca abre dois iguais)
+    let existente = || -> Option<String> {
+        let mut v = gh_contas::gh_in_with(gh, repo);
+        v.args(["pr", "list", "--head", head, "--base", base, "--state", "open", "--json", "url", "-q", ".[0].url"]).args(&ra).current_dir(repo);
+        let o = output_timeout(v, 20).ok()?;
+        let u = String::from_utf8_lossy(&o.stdout).trim().to_string();
+        (o.status.success() && u.starts_with("http")).then_some(u)
+    };
+    if let Some(u) = existente() { return Ok(feito(u, true)); }
+    // a branch existe nesta máquina: garante que o GitHub tem ela (sem forçar; se o remoto já está na frente, segue)
+    let local = Command::new("git").arg("-C").arg(repo).args(["rev-parse", "--verify", "--quiet", &format!("refs/heads/{head}")]).output().map(|o| o.status.success()).unwrap_or(false);
+    if local { let _ = gh_contas::git_push_any_account(repo, &["push", "-u", "origin", head]); }
+    let mut c = gh_contas::gh_in_with(gh, repo);
+    c.args(["pr", "create", "--head", head, "--base", base, "--title", title, "--body", body]).args(&ra).current_dir(repo);
+    let out = output_timeout(c, 60).map_err(|e| format!("gh indisponível: {e}"))?;
+    if out.status.success() {
+        let u = String::from_utf8_lossy(&out.stdout).lines().rev().find(|l| l.trim().starts_with("http")).unwrap_or("").trim().to_string();
+        return Ok(feito(u, false));
+    }
+    let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    if err.contains("already exists") { if let Some(u) = existente() { return Ok(feito(u, true)); } }
+    if err.contains("No commits between") { return Err(format!("a {head} não tem nada que a {base} ainda não tenha — não há o que abrir")); }
+    if err.to_lowercase().contains("head ref must be a branch") || err.contains("Head sha can't be blank") || err.contains("not found") && err.contains(head) {
+        return Err(format!("a branch {head} não existe no GitHub{}", if local { " (o envio dela falhou)" } else { " nem nesta máquina" }));
+    }
+    if err.contains("Base ref must be a branch") { return Err(format!("a branch de destino {base} não existe no GitHub")); }
+    if let Some(r) = gh_no_repo_access(&err) { return Err(format!("GH_NO_ACCESS: o gh logado não enxerga {r}")); }
+    Err(format!("gh pr create: {}", err.chars().take(300).collect::<String>()))
+}
+#[cfg(all(test, unix))]
+mod pr_de_branch_tests {
+    use super::*;
+    /// gh de mentira: `pr list` devolve o que estiver em lista.txt; `pr create` grava os argumentos e devolve o que estiver em cria.txt (ou falha com erro.txt)
+    fn cena(nome: &str) -> (PathBuf, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let d = std::env::temp_dir().join(format!("sf-prbranch-{nome}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d); std::fs::create_dir_all(&d).unwrap();
+        let gh = d.join("gh");
+        std::fs::write(&gh, format!("#!/bin/sh\nD='{}'\nif [ \"$1 $2\" = 'pr list' ]; then cat \"$D/lista.txt\" 2>/dev/null; exit 0; fi\nif [ \"$1 $2\" = 'pr create' ]; then echo \"$@\" > \"$D/criou.txt\"; if [ -f \"$D/erro.txt\" ]; then cat \"$D/erro.txt\" >&2; exit 1; fi; cat \"$D/cria.txt\"; exit 0; fi\nexit 0\n", d.display())).unwrap();
+        std::fs::set_permissions(&gh, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let repo = d.join("repo"); std::fs::create_dir_all(&repo).unwrap();
+        assert!(Command::new("git").arg("-C").arg(&repo).args(["init", "-q"]).status().unwrap().success());
+        (repo, gh.display().to_string())
+    }
+    #[test]
+    fn branch_segura_barra_opcao_e_refspec() {
+        for b in ["homol", "fix/FND-1260-ajuste", "release/1.2.x", "main"] { assert!(branch_segura(b), "{b}"); }
+        for b in ["", "-D", "--force", "a b", "a..b", "a:b", "+main", "x;rm", "/x", "x/", "a~1"] { assert!(!branch_segura(b), "{b}"); }
+    }
+    #[test]
+    fn abre_o_pr_da_branch_pro_destino_pedido() {
+        let (repo, gh) = cena("abre"); let d = repo.parent().unwrap();
+        std::fs::write(d.join("cria.txt"), "Creating pull request\nhttps://github.com/o/r/pull/31\n").unwrap();
+        let r = pr_de_branch_em(&gh, &repo, "fix/LW-47-ajuste", "homol", "LW-47: ajuste (homol)", "corpo").unwrap();
+        assert_eq!(r.url, "https://github.com/o/r/pull/31"); assert!(!r.ja_existia); assert_eq!(r.base, "homol");
+        let args = std::fs::read_to_string(d.join("criou.txt")).unwrap();
+        assert!(args.contains("--head fix/LW-47-ajuste --base homol"), "{args}");
+    }
+    #[test]
+    fn pr_que_ja_existe_volta_sem_abrir_outro() {
+        let (repo, gh) = cena("existe"); let d = repo.parent().unwrap();
+        std::fs::write(d.join("lista.txt"), "https://github.com/o/r/pull/30\n").unwrap();
+        let r = pr_de_branch_em(&gh, &repo, "fix/LW-47-ajuste", "homol", "t", "").unwrap();
+        assert!(r.ja_existia); assert_eq!(r.url, "https://github.com/o/r/pull/30"); assert!(!d.join("criou.txt").exists(), "não pode criar outro");
+    }
+    #[test]
+    fn erros_viram_frase_e_entrada_ruim_nem_chega_no_gh() {
+        let (repo, gh) = cena("erros"); let d = repo.parent().unwrap();
+        assert!(pr_de_branch_em(&gh, &repo, "--force", "homol", "t", "").is_err());
+        assert!(pr_de_branch_em(&gh, &repo, "homol", "homol", "t", "").unwrap_err().contains("mesma"));
+        assert!(pr_de_branch_em(&gh, &repo, "fix/x", "homol", "", "").unwrap_err().contains("título"));
+        assert!(!d.join("criou.txt").exists());
+        std::fs::write(d.join("erro.txt"), "pull request create failed: GraphQL: No commits between homol and fix/x (createPullRequest)").unwrap();
+        assert!(pr_de_branch_em(&gh, &repo, "fix/x", "homol", "t", "").unwrap_err().contains("não tem nada que a homol"));
+        std::fs::write(d.join("erro.txt"), "pull request create failed: GraphQL: Head sha can't be blank, Base sha can't be blank, Head ref must be a branch (createPullRequest)").unwrap();
+        assert!(pr_de_branch_em(&gh, &repo, "fix/x", "homol", "t", "").unwrap_err().contains("não existe no GitHub"));
+    }
+}
+
 #[derive(Serialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 struct PrComment {
@@ -12314,6 +12416,7 @@ pub fn run() {
             read_ref,
             list_branches,
             open_pr,
+            pr_de_branch,
             pr_attach_proofs,
             pr_update_report,
             provas_setting,

@@ -2,7 +2,7 @@
 import test from 'node:test'; import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const corta = (f, a, b) => { const s = readFileSync(new URL(f, import.meta.url), 'utf8'); return s.slice(s.indexOf(a), s.indexOf(b)); };
 const P = new Function(corta('../src/js/89-comando.js', '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { CMD_ACOES, CMD_MUTA };')();
-const A = new Function(corta('../src/js/89-comando-agente.js', '// @agente-puro-inicio', '// @agente-puro-fim') + '\nreturn { CMD_AG_CONFIRMA, CMD_AG_VER, cmdAgenteAcoes, cmdAgenteSys, cmdAgenteTurno, cmdAgentePasso, cmdAgenteSimNao, cmdAgAcaoErrada, cmdAgFalta, CMD_AG_PRECISA, cmdAgPareceCodigo };')();
+const A = new Function(corta('../src/js/89-comando-agente.js', '// @agente-puro-inicio', '// @agente-puro-fim') + '\nreturn { CMD_AG_CONFIRMA, CMD_AG_VER, cmdAgenteAcoes, cmdAgenteSys, cmdAgenteTurno, cmdAgentePasso, cmdAgenteSimNao, cmdAgAcaoErrada, cmdAgFalta, CMD_AG_PRECISA, cmdAgPareceCodigo, cmdHtmlTexto };')();
 
 test('toda leitura da ferramenta "ver" aponta pra uma ação que existe, e toda confirmação é de ação que mexe', () => {
   Object.values(A.CMD_AG_VER).forEach(a => assert.ok(P.CMD_ACOES[a], 'ação de leitura inexistente: ' + a));
@@ -55,4 +55,14 @@ test('chamada torta de "agir" volta pra IA em vez de virar cartão de confirmaç
 test('código ou número nunca é adivinhado por parecido', () => {
   for (const q of ['FND-1260', 'fnd 1260', '1260', 'T3', '@FND-1260', 'LW_47']) assert.ok(A.cmdAgPareceCodigo(q), q);
   for (const q of ['a do frete', 'frete 2', 'seletor de pesquisas', '', 'FND-1260 e FND-1261']) assert.ok(!A.cmdAgPareceCodigo(q), q);
+});
+
+test('o texto de um cartão é o que a pessoa lê nele — com os endereços e sem os botões', () => {
+  const h = '<p>Links da <b>LW-47</b>:</p><div class="cmdlks"><div class="cmdlk"><span class="cmdlk-l">Pull request</span><span class="cmdlk-v mono">https://example.com/o/r/pull/12</span><button type="button" class="btn sm quiet" data-cmdlk="https://example.com/o/r/pull/12">abrir ↗</button><button type="button" class="btn sm quiet" data-cmdcopy="x">copiar</button></div></div>';
+  const t = A.cmdHtmlTexto(h); assert.match(t, /Links da LW-47:/); assert.match(t, /Pull request https:\/\/example\.com\/o\/r\/pull\/12/); assert.doesNotMatch(t, /copiar|abrir ↗/);
+  assert.equal(A.cmdHtmlTexto('<ul><li>um &amp; dois</li><li>tr&ecirc;s &lt;b&gt;</li></ul>'), '- um & dois\n- tr&ecirc;s <b>');
+  assert.equal(A.cmdHtmlTexto('<p>Veja <a href="https://example.com/x" data-exthref="https://example.com/x">o PR</a></p>'), 'Veja o PR (https://example.com/x)');
+  assert.equal(A.cmdHtmlTexto('<button type="button" class="cmdrow" data-cmdsel="t1"><span>LW-1</span><span>Frete</span></button>'), 'LW-1 Frete'); // linha de tarefa é conteúdo, não botão de ação
+  assert.match(A.cmdHtmlTexto('<p>' + 'a '.repeat(4000) + '</p>', 200), /…\(cortado\)$/);
+  assert.equal(A.cmdHtmlTexto('<svg><path d="M0"/></svg><script>x()</script>'), '');
 });
