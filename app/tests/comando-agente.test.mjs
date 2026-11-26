@@ -2,7 +2,7 @@
 import test from 'node:test'; import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const corta = (f, a, b) => { const s = readFileSync(new URL(f, import.meta.url), 'utf8'); return s.slice(s.indexOf(a), s.indexOf(b)); };
 const P = new Function(corta('../src/js/89-comando.js', '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { CMD_ACOES, CMD_MUTA };')();
-const A = new Function(corta('../src/js/89-comando-agente.js', '// @agente-puro-inicio', '// @agente-puro-fim') + '\nreturn { CMD_AG_CONFIRMA, CMD_AG_VER, cmdAgenteAcoes, cmdAgenteSys, cmdAgenteTurno, cmdAgentePasso, cmdAgenteSimNao, cmdAgAcaoErrada };')();
+const A = new Function(corta('../src/js/89-comando-agente.js', '// @agente-puro-inicio', '// @agente-puro-fim') + '\nreturn { CMD_AG_CONFIRMA, CMD_AG_VER, cmdAgenteAcoes, cmdAgenteSys, cmdAgenteTurno, cmdAgentePasso, cmdAgenteSimNao, cmdAgAcaoErrada, cmdAgFalta, CMD_AG_PRECISA };')();
 
 test('toda leitura da ferramenta "ver" aponta pra uma ação que existe, e toda confirmação é de ação que mexe', () => {
   Object.values(A.CMD_AG_VER).forEach(a => assert.ok(P.CMD_ACOES[a], 'ação de leitura inexistente: ' + a));
@@ -34,4 +34,20 @@ test('"sim" e "não" falados ou digitados valem como o clique — frase comprida
 test('nome de ação errado ensina o certo', () => {
   const e = A.cmdAgAcaoErrada('memorizar', P.CMD_ACOES); assert.match(e, /NADA foi feito/); assert.match(e, /anotar_memoria/); assert.match(e, /Nomes válidos: .*abrir_pr/);
   assert.match(A.cmdAgAcaoErrada('voar', P.CMD_ACOES), /Nomes válidos/);
+});
+
+test('chamada torta de "agir" volta pra IA em vez de virar cartão de confirmação', () => {
+  // o caso real de 26/11: epico_acao com alvo vazio no meio de um "criar issue"
+  const f = A.cmdAgFalta({ acao: 'epico_acao', alvo: '', texto: '' }, 0, 'agir no épico');
+  assert.match(f, /NADA foi feito/); assert.match(f, /campo alvo/); assert.match(f, /campo texto/);
+  assert.match(A.cmdAgFalta({ acao: 'epico_acao', alvo: 'Frete', texto: 'voar' }, 0), /comecar \| liberar/);
+  assert.equal(A.cmdAgFalta({ acao: 'epico_acao', alvo: 'Frete', texto: 'Começar' }, 0), '');
+  assert.match(A.cmdAgFalta({ acao: 'criar_issue', texto: 'algo' }, 0), /campo titulo/);
+  assert.equal(A.cmdAgFalta({ acao: 'criar_issue', titulo: 'Calcular frete' }, 0), '');
+  assert.match(A.cmdAgFalta({ acao: 'aprovar' }, 0), /a tarefa/);
+  assert.equal(A.cmdAgFalta({ acao: 'aprovar' }, 1), '');
+  assert.equal(A.cmdAgFalta({ acao: 'parar' }, 0), '');
+  // toda ação com regra existe no catálogo, e toda que pede confirmação tem regra
+  Object.keys(A.CMD_AG_PRECISA).forEach(a => assert.ok(P.CMD_ACOES[a], 'regra de ação que não existe: ' + a));
+  [...A.CMD_AG_CONFIRMA].forEach(a => assert.ok(A.CMD_AG_PRECISA[a], 'pede confirmação sem regra do que precisa: ' + a));
 });
