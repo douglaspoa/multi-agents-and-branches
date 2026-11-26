@@ -42,7 +42,7 @@ while :; do
     seen=$n
   fi
   grep -q '^FIM' "$E/report.txt" && break
-  [ $(( $(date +%s) - t0 )) -gt "${E2E_MAX:-420}" ] && { echo "TEMPO ESGOTADO"; break; }
+  [ $(( $(date +%s) - t0 )) -gt "${E2E_MAX:-1500}" ] && { echo "TEMPO ESGOTADO"; break; }
   kill -0 $APID 2>/dev/null || { echo "APP SAIU"; break; }
   sleep 0.5
 done

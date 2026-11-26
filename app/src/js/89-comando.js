@@ -354,6 +354,14 @@ function cmdBuscaDecide(achados){ const L=achados||[]; if(!L.length) return null
 function cmdAchar(pedido, docs, n){ const q=cmdBuscaTok(pedido);
   return cmdBusca(pedido, docs, n||8).map(a=>{ const tx=String(a.text||''), low=tx.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase(), k=q.map(w=>low.indexOf(w.length>5?w.slice(0,w.length-2):w)).filter(x=>x>=0).sort((x,y)=>x-y)[0];
     return { tipo:a.tipo, code:a.code, id:a.id, title:a.title, st:a.st, who:a.who, nota:a.nota, trecho:k>=0?tx.slice(Math.max(0,k-50), k+140).replace(/\s+/g,' ').trim():'' }; }); }
+/** Com VÁRIAS perguntas abertas e sem a pessoa dizer o número: qual delas a resposta atende? Só devolve o índice quando
+ *  UMA casa claramente melhor (palavras em comum); empate ou resposta genérica ("sim", "pode") → -1 e o app pergunta qual.
+ *  26/11, avaliação com IA real: sem isso a ferramenta recusava, e a IA às vezes dizia "respondi" mesmo assim. Puro. */
+function cmdQualPergunta(resposta, perguntas){
+  const pal=(s)=>new Set(String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().split(/[^a-z0-9]+/).filter(w=>w.length>=4 && !/^(para|pode|posso|essa|esse|esta|este|isso|como|qual|quando|onde|voce|agora|ainda|mesmo|entao|pela|pelo|numa|nesse|nesta|neste|sobre|tambem)$/.test(w)).map(w=>w.slice(0,5)));
+  const R=pal(resposta); if(!R.size) return -1;
+  const notas=(perguntas||[]).map(q=>{ let n=0; pal(q).forEach(w=>{ if(R.has(w)) n++; }); return n; }), ord=notas.map((n,i)=>[n,i]).sort((a,b)=>b[0]-a[0]);
+  if(!ord.length || ord[0][0]<2) return -1; if(ord.length>1 && ord[0][0]-ord[1][0]<2) return -1; return ord[0][1]; }
 // @comando-puro-fim
 
 const CMD={ msgs:{}, sel:'', hist:{}, busy:false, stopping:false, starting:'', asking:'', sugerindo:'', spoken:0, unread:0, outrosAt:0, logHtml:'', sideHtml:'', mounted:false };
@@ -424,12 +432,13 @@ function cmdProvasFrescas(id, ttl){ if(typeof loadReqProofs!=='function' || type
 async function cmdEntregar(id, texto, qual){
   const t=cmdTask(id); if(!t) return { ok:false, nota:'essa tarefa não está nesta máquina' };
   texto=String(texto||'').replace(/\s+/g,' ').trim(); if(!texto) return { ok:false, nota:'faltou o texto' };
-  const g=cmdAsk(t), rows=(g&&g.rows)||[], k=parseInt(qual, 10);
+  const g=cmdAsk(t), rows=(g&&g.rows)||[]; let k=parseInt(qual, 10), auto=false;
+  if(rows.length>1 && !(k>=1 && k<=rows.length)){ const a=cmdQualPergunta(texto, rows.map(cmdPerguntaTx)); if(a>=0){ k=a+1; auto=true; } } // a resposta deixa claro de qual pergunta é
   // várias perguntas abertas: responde a que foi indicada (1, 2…); sem indicar, diz quais são em vez de chutar
   if(rows.length>1 && !(k>=1 && k<=rows.length)){ CMD.sel=id; return { ok:false, nota:'ela tem '+rows.length+' perguntas abertas — diga qual está respondendo (alvo = o número): '+rows.map((r,i)=>(i+1)+') '+cmdUma(cmdPerguntaTx(r)).slice(0,140)).join(' · ') }; }
   const row=rows.length>1?rows[k-1]:rows[0];
   const antes=(await cmdHistFetch(id)).length;
-  if(row){ await invoke('resolve_pending', { id:row.id, answer:texto }); state.pending=(state.pending||[]).filter(q=>q.id!==row.id); try{ lastSig=''; }catch(_){ } refresh().catch(()=>{}); return { ok:true, via:'resposta', antes, restam:rows.length-1 }; }
+  if(row){ await invoke('resolve_pending', { id:row.id, answer:texto }); state.pending=(state.pending||[]).filter(q=>q.id!==row.id); try{ lastSig=''; }catch(_){ } refresh().catch(()=>{}); return { ok:true, via:'resposta', antes, restam:rows.length-1, nota:rows.length>1?'respondida a pergunta '+k+' («'+cmdUma(cmdPerguntaTx(row)).slice(0,90)+'»)'+(auto?', que é a que a resposta atende':'')+'; ainda '+nPl(rows.length-1,'pergunta aberta','perguntas abertas'):'' }; }
   const ok=(await tiSend(id, texto))!==false; return ok?{ ok:true, via:'mensagem', antes }:{ ok:false, nota:'não consegui escrever no terminal dela' };
 }
 function cmdPerguntaTx(p){ try{ return tlAskSplit(p.prompt||'', p.header, p.q).title||String(p.prompt||''); }catch(_){ return String((p&&p.prompt)||''); } }
@@ -1093,7 +1102,11 @@ async function cmdDo(it){
 function cmdLog(o){ try{ invokeQuiet('comando_log',{ line:JSON.stringify(Object.assign({ t:Date.now(), proj:pathBase(cmdRepo()) }, o)) }).catch(()=>{}); }catch(_){ } }
 function cmdPlanoCurto(P){ return ((P&&P.passos)||[]).map(p=>({ a:p.acao, t:(p.alvos||[]).map(x=>x.code||x.ref), f:p.faltam&&p.faltam.length?p.faltam:undefined })); }
 // as tarefas que a IA pode citar, cada uma com um identificador estável (o código, ou T1, T2… quando não tem)
-function cmdRefs(){ let n=0; const home=cmdRepo(); return cmdTasks().map(t=>{ const code=cmdCode(t); return { id:t.id, ref:code||('T'+(++n)), code, title:mdTitle(t.title||''), st:stLabel(taskSt(t)),
+// Tarefa SEM código ganha um número (T1, T2…) que é DELA até o app fechar. Antes era a posição na lista: a lista reordena
+// quando uma tarefa muda de estado, e o "T6" que o agente leu num passo virava OUTRA tarefa no passo seguinte (varredura de 26/11).
+const CMD_REFN={ de:{}, n:0 };
+function cmdRefDe(id){ return CMD_REFN.de[id] || (CMD_REFN.de[id]='T'+(++CMD_REFN.n)); }
+function cmdRefs(){ const home=cmdRepo(); return cmdTasks().map(t=>{ const code=cmdCode(t); return { id:t.id, ref:code||cmdRefDe(t.id), code, title:mdTitle(t.title||''), st:stLabel(taskSt(t)),
   proj:(t.repo&&t.repo!==home)?pathBase(t.repo):'', repo:t.repo||home, criada:cmdDia(t.createdAt||t.created_at), mexida:cmdHa(t.updatedAt), foco:t.id===CMD.sel, q:(!t._cross&&cmdIsAsk(t))?cmdAskTitle(t):'', ops:(!t._cross&&cmdIsAsk(t))?((((cmdAsk(t)||{}).rows||[])[0]||{}).options||[]):[], fatos:cmdFatosCurtos(t) }; }); }
 function cmdFatosCurtos(t){ if(t._cross || !cmdTask(t.id)) return ''; const out=[]; try{ if(typeof reqProofCache!=='undefined' && reqProofCache[t.id]!==undefined){ const rq=cmdReqs(t); if(rq.length) out.push(`${rq.filter(r=>r.ok).length} de ${rq.length} requisitos com prova`); } else if(typeof apEnsure==='function') apEnsure(t); }catch(_){ } { const h=CMD.hist[t.id], pa=t.prUrl?'':cmdPrAgente((h&&h.items)||[]); out.push(t.prUrl?'PR aberto':pa?'PR aberto pelo agente ('+pa+')':'sem PR'); } return out.join(', '); }
 /** UMA mensagem do chat em texto (o que a pessoa disse, o que o Comando respondeu ou mostrou). É a memória que a IA lê. */
@@ -1163,7 +1176,7 @@ async function cmdRunPlan(P){
         if(!await cmdProjeto(x.repo) || !cmdTask(x.id)){ if(res){ res.itens.push({ code:x.code||x.ref, title:tit, ok:false, nota:'não consegui abrir o projeto dela' }); cmdPaint(true); } else say(`Não consegui abrir o projeto da ${x.code||x.ref} pra agir nela.`); continue; }
         if(res && ['aprovar','pedir_alteracao','responder'].includes(p.acao)){ let ok=false, nota='';
           try{ if(p.acao==='aprovar'){ ok=!!(await aprovarTarefa(x.id)); if(!ok) nota='não está pronta pra aprovar (veja o aviso do app)'; }
-            else if(p.acao==='pedir_alteracao'){ if(!p.texto) nota='faltou dizer o que mudar'; else { ok=!!(await pedirAlteracao(x.id, String(p.texto).replace(/\s+/g,' ').trim())); if(!ok) nota='o pedido não foi enviado'; } }
+            else if(p.acao==='pedir_alteracao'){ if(!p.texto) nota='faltou dizer o que mudar'; else { const tk=cmdTask(x.id), g=(tk && typeof rqChangeGate==='function')?rqChangeGate(tk):{ ok:true }; if(!g.ok) nota=cmdUma(g.why||'esta tarefa não aceita pedido de alteração agora').slice(0,140); else { ok=!!(await pedirAlteracao(x.id, String(p.texto).replace(/\s+/g,' ').trim())); if(!ok) nota='o pedido não foi enviado'; } } }
             else { const r=await cmdEntregar(x.id, p.texto, p.alvo); ok=r.ok; nota=r.nota||(r.restam?'ainda '+nPl(r.restam,'pergunta aberta','perguntas abertas'):''); }
           }catch(e){ nota=String((e&&e.message)||e).slice(0,120); }
           res.itens.push({ code:x.code||x.ref, title:tit, ok, nota }); cmdPaint(true); continue; }

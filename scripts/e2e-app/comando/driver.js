@@ -181,6 +181,50 @@ try{
   { const q=document.getElementById('cmdQ'), b=document.getElementById('cmdAc'); q.value='/'; q.setSelectionRange(1,1); q.dispatchEvent(new Event('input')); const aberto=getComputedStyle(b).display!=='none'; q.value=''; q.dispatchEvent(new Event('input'));
     await ok('menu do "/" abre e fecha', aberto && getComputedStyle(b).display==='none'); }
   await ok('sem barra de destino nem painel lateral', !document.getElementById('cmdAlvo') && (document.getElementById('cmdSide')||{ hidden:true }).hidden!==false);
+  // referência de tarefa sem código é DELA: a lista reordenar não muda quem é o "T7" (antes era a posição)
+  { const antes=cmdRefs().map(r=>r.id+'='+r.ref).sort().join(','); state.tasks.reverse(); const depois=cmdRefs().map(r=>r.id+'='+r.ref).sort().join(','); state.tasks.reverse();
+    await ok('referência de tarefa não muda quando a lista reordena', antes===depois && new Set(cmdRefs().map(r=>r.ref)).size===cmdRefs().length, cmdRefs().slice(0,3).map(r=>r.id+'='+r.ref).join(' ')); }
+  // ═══ VARREDURA DO "AGIR" (26/11): TODA ação × 5 jeitos de chamar (sem campos, código que não existe, descrição que não
+  // existe, tarefa encerrada, chamada boa). O que se cobra: resposta com conteúdo, nenhum cartão de confirmação em chamada
+  // ruim, e NUNCA agir numa tarefa diferente da pedida. Todo cartão é respondido com "não" — nada destrutivo roda aqui.
+  { const VER=new Set(Object.values(CMD_AG_VER)), ACS=Object.keys(CMD_ACOES).filter(a=>(!VER.has(a) || a==='plano' || a==='checks') && !['trocar_projeto','abertas','erros','perguntar_agente','tela'].includes(a));
+    const enc={ id:'zz-902', title:'Tarefa de teste já integrada', status:'merged', flag:'closed', branch:'fix/zz-902-ajuste' }, poe=()=>{ if(!state.tasks.includes(enc)) state.tasks.push(enc); }; poe();
+    const boa=cmdRefs().find(r=>r.id==='t7')||cmdRefs()[5], eraOn=CMDAG.on; CMDAG.on=true; let cartao='';
+    const vigia=setInterval(()=>{ poe(); const m=CMDAG.espera; if(m && !m.done){ const els=[...document.querySelectorAll('#cmdLog .cmdmsg.bot')]; cartao=(els.length?els[els.length-1].textContent:'cartão').replace(/\s+/g,' ').slice(0,160); cmdAgDecide('não'); } }, 80);
+    const sig=()=>JSON.stringify(state.tasks.filter(t=>t!==enc).map(t=>[t.id,t.status,t.flag||''])), NEG=/n[aã]o achei|NADA foi feito|Diga |encerrada|n[aã]o existe|n[aã]o est[aá]|N[aã]o consegui|[Qq]ual |n[aã]o conhe|nenhum|Nenhum|n[aã]o tem|precisa|Procurei|n[aã]o combinou|RECUSOU|Use buscar|faltou|n[aã]o deu|N[ÃA]O deu|Isso é leitura|n[aã]o abr|sem /;
+    const RUIM=/\[Comando mostrou|^Feito \(sem mensagem\)|undefined|\[object|NaN|Deu erro ao executar|^DEMOROU|carregando…|lendo o que/;
+    const BOM={ comecar_issue:{ alvo:'LW-303' }, issue:{ alvo:'LW-303' }, mover_issue:{ alvo:'LW-303', texto:'Em andamento' }, atribuir_issue:{ alvo:'LW-303', texto:'ana lima' }, comentar_issue:{ alvo:'LW-303', texto:'comentário de teste' }, mandar_time:{ alvo:'LW-303' },
+      abrir_pr:{ alvo:'homol' }, pr_de_branch:{ alvo:'homol' }, liberar_teto:{ alvo:'5', texto:'teste' }, epico:{ alvo:'x' }, epico_acao:{ alvo:'x', texto:'comecar' }, apagar_memoria:{ alvo:'PR passa por homol' }, memoria:{ alvo:'homol' },
+      ligar_skill:{ alvo:'x' }, desligar_skill:{ alvo:'x' }, vincular_epico:{ alvo:'x' }, desvincular_epico:{ alvo:'x' }, passar_cartao:{ alvo:'LW-303', texto:'ana lima' }, devolver_cartao:{ alvo:'LW-303', texto:'teste' }, aceitar_aprendizado:{ alvo:'1' }, descartar_aprendizado:{ alvo:'1' }, responder:{ alvo:'1' } };
+    const VAR={ vazio:()=>({}), codigo:()=>({ tarefas:['ZZ-99999'], alvo:'ZZ-99999' }), descricao:()=>({ tarefas:['unicórnio roxo voador'], alvo:'unicórnio roxo voador' }), encerrada:()=>({ tarefas:['zz-902'] }),
+      boa:(a)=>Object.assign({ tarefas:[boa.ref], texto:'texto de teste da varredura', titulo:'Título de teste da varredura', requisitos:['um critério verificável de teste'] }, BOM[a]||{}) };
+    let n=0, flags=0; const t00=Date.now();
+    for(const v of Object.keys(VAR)){ for(const acao of ACS){ const antes=sig(), n0=cmdMsgs().length, t0=Date.now(); cartao=''; n++;
+        let r=''; try{ r=String(await Promise.race([cmdAgFerramenta({ tool:'agir', args:Object.assign({ acao }, VAR[v](acao)) }), new Promise(x=>setTimeout(()=>x('DEMOROU mais de 45 s'), 45000))])); }catch(e){ r='EXCEÇÃO '+String((e&&e.message)||e); }
+        await sleep(60); const ms=Date.now()-t0, mudou=sig()!==antes, semTarefa=CMD_SEM_TAREFA.has(acao), f=[];
+        if(RUIM.test(r) || r.trim().length<6 || /^EXCEÇÃO/.test(r)) f.push('SEM-CONTEÚDO');
+        if(cartao && v==='vazio') f.push('CARTÃO-EM-CHAMADA-VAZIA');
+        if(cartao && (v==='codigo' || v==='descricao')) f.push('CARTÃO-PRA-ALVO-QUE-NÃO-EXISTE');
+        if(cartao && v==='encerrada' && acao!=='pr_de_branch' && !semTarefa && acao!=='criar_demanda') f.push('CARTÃO-PRA-ENCERRADA');
+        if(mudou && v!=='boa') f.push('MUDOU-TAREFA-EM-CHAMADA-RUIM');
+        if(v!=='boa' && !semTarefa && !cartao && !NEG.test(r) && !['criar_demanda','abrir_ambiente','abrir_simulador','ler_codigo'].includes(acao)) f.push('NÃO-DISSE-QUE-NÃO-ACHOU');
+        if(ms>30000) f.push('LENTO-'+Math.round(ms/1000)+'s');
+        if(f.length) flags++;
+        await R('AG '+(f.length?'⚑ '+f.join(',')+' ':'')+acao+' ['+v+']'+(cartao?' {cartão: '+cartao.slice(0,90)+'}':'')+' → '+r.replace(/\n/g,' ⏎ ').slice(0,v==='boa'||f.length?210:120));
+        // limpa o que a chamada deixou no chat pra próxima não herdar
+        cmdMsgs().splice(n0); CMD.sel=null; CMD.view=''; if(CMD.busy && !CMDAG.espera) CMD.busy=false; } }
+    clearInterval(vigia); CMDAG.on=eraOn; CMDAG.espera=null; { const i=state.tasks.indexOf(enc); if(i>=0) state.tasks.splice(i,1); } try{ openTab('comando'); }catch(_){ } cmdPaint(true);
+    await ok('varredura do agir: '+ACS.length+' ações × 5 jeitos de chamar ('+n+' chamadas em '+Math.round((Date.now()-t00)/1000)+' s) sem nenhum alerta', flags===0, flags+' com alerta — veja as linhas "AG ⚑"'); }
+  // VARREDURA DO "VER" EM ALVO RUIM: código que não existe, descrição que não existe e tarefa encerrada — nunca lê OUTRA tarefa no lugar
+  { const enc={ id:'zz-903', title:'Tarefa de teste já integrada', status:'merged', flag:'closed', branch:'fix/zz-903-ajuste' }, poe=()=>{ if(!state.tasks.includes(enc)) state.tasks.push(enc); }; poe(); const vigia=setInterval(poe, 60); const ruins=[]; let n=0;
+    for(const o of ['tarefa','plano','provas','arquivos','pr_ci','porque_parou','o_que_foi_feito','links','issue','epico']){ for(const [v, alvo] of [['codigo','ZZ-99999'],['descricao','unicórnio roxo voador'],['encerrada','zz-903'],['vazio','']]){ n++; const n0=cmdMsgs().length;
+        let r=''; try{ r=String(await Promise.race([cmdAgFerramenta({ tool:'ver', args:{ o_que:o, alvo } }), new Promise(x=>setTimeout(()=>x('DEMOROU mais de 40 s'), 40000))])); }catch(e){ r='EXCEÇÃO '+e; }
+        const outra=/\bT\d+\b|Migração|Painel de estoque|Relatório mensal|Integração com|Revisão das|Cache das/.test(r) && v!=='vazio' && !(v==='encerrada');
+        const neg=/[Nn]ão achei|Diga de qual|não está|não existe|encerrada|integrada|zz-903|Nenhum|não tem|ainda não/.test(r), ruim=/\[Comando mostrou|undefined|\[object|^DEMOROU|^EXCEÇÃO|lendo o que|carregando…/.test(r) || r.trim().length<6;
+        const f=(outra?'LEU-OUTRA-TAREFA ':'')+(ruim?'SEM-CONTEÚDO ':'')+(!neg && v!=='encerrada' && !(v==='vazio' && o==='provas')?'NÃO-DISSE-QUE-NÃO-ACHOU ':'');
+        if(f) ruins.push(o+'['+v+']'); await R('VR '+(f?'⚑ '+f:'')+o+' ['+v+'] → '+r.replace(/\n/g,' ⏎ ').slice(0,170)); cmdMsgs().splice(n0); CMD.sel=null; CMD.view=''; } }
+    clearInterval(vigia); { const i=state.tasks.indexOf(enc); if(i>=0) state.tasks.splice(i,1); } cmdPaint(true);
+    await ok('varredura do ver em alvo ruim: '+n+' leituras sem nenhum alerta', !ruins.length, ruins.join(', ')||'nenhum'); }
 }catch(e){ await R('ERRO roteiro '+String((e&&e.stack)||e).slice(0,400)); }
 await R('FIM');
 })();

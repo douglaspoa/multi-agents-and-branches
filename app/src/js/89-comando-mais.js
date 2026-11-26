@@ -41,7 +41,7 @@ async function cmdMaisDo(p, say){
         await invoke('create_skill',{ name:nome, description:quando, body:String(p.texto||'') }); return say(`Skill “${nome}” criada na biblioteca. Diga "liga a skill ${nome}" pra valer neste projeto.`); }
       const L=(await invoke('list_skills'))||[];
       if(p.acao==='skills') return say(L.length?'Skills ('+L.filter(x=>x.active).length+' ligadas de '+L.length+'):\n'+L.slice(0,60).map(x=>`- ${x.active?'[ligada]':'[desligada]'} ${x.name}${x.description?': '+cmdUma(x.description).slice(0,120):''}`).join('\n'):'Nenhuma skill na biblioteca.');
-      const s=cmdMaisAcha(L, x=>x.name, p.alvo||p.texto); if(!s) return say('Não achei essa skill. Existem: '+L.slice(0,20).map(x=>x.name).join(', ')+'.'); if(s.varios) return say('Qual skill? '+s.varios.map(x=>x.name).join(', '));
+      const s=cmdMaisAcha(L, x=>x.name, p.alvo||p.texto); if(!s) return say(L.length?'Não achei essa skill. Existem: '+L.slice(0,20).map(x=>x.name).join(', ')+'.':'Não achei essa skill: a biblioteca de skills deste projeto está vazia.'); if(s.varios) return say('Qual skill? '+s.varios.map(x=>x.name).join(', '));
       const on=p.acao==='ligar_skill'; if(!!s.active===on) return say(`A skill ${s.name} já está ${on?'ligada':'desligada'}.`); s.active=on;
       await invoke('set_active_skills',{ skills:L.filter(x=>x.active).map(x=>({ name:x.name, description:x.description||'' })) }); try{ if(typeof skList!=='undefined') skList=L; }catch(_){ } return say(`Skill ${s.name} ${on?'ligada':'desligada'} neste projeto.`); }
     // ---------- épico (time) ----------
