@@ -47,7 +47,7 @@ async function cmdIssuesDo(p, say){
       if(i.status===s.id) return say(`A ${i.code} já está em ${s.label||s.id}.`); await trkMove(i.code, s.id);
       if(i.status!==s.id) return say(`Não consegui mover a ${i.code}: ${(typeof trkErr!=='undefined'&&trkErr)||'o painel recusou'}.`); return say(`Movi a ${i.code} pra ${s.label||s.id}.`); }
     if(p.acao==='atribuir_issue'){ const eu=trkCtx().email, w=cmdPessoaDe(trkPeopleList(), p.texto, eu);
-      if(!w) return say('Não achei “'+(p.texto||'')+'” entre as pessoas do painel: '+trkPeopleList().map(x=>x.name).slice(0,12).join(', ')+'.');
+      if(!w){ const P=trkPeopleList().map(x=>x.name).slice(0,12); return say(P.length?'Não achei “'+(p.texto||'')+'” entre as pessoas do painel: '+P.join(', ')+'.':'Não achei “'+(p.texto||'')+'”: o painel de issues não devolveu a lista de pessoas.'); }
       if(w.varios) return say('Tem mais de uma pessoa com esse nome: '+w.varios.map(x=>x.name).join(', ')+'. Qual delas?');
       const antes=i.assignee; await trkAssign(i.code, w.id); if(typeof trkErr!=='undefined' && /^Não troquei/.test(trkErr||'')) return say(trkErr+'.'); return say(`A ${i.code} agora está com ${w.name}${antes&&antes!==i.assignee?' (antes: '+trkPretty(antes)+')':''}.`); }
     if(p.acao==='comentar_issue'){ const t=String(p.texto||'').trim(); if(!t) return say('Diga o texto do comentário.'); if(!trkOp('addComment')) return say('O conector deste painel não tem a operação de comentar.');

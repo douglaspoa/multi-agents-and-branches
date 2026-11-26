@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 const read = (f) => readFileSync(new URL('../src/' + f, import.meta.url), 'utf8');
 const cut = (src, a, b) => { const i = src.indexOf(a), j = src.indexOf(b, i); assert.ok(i >= 0 && j > i, 'marcadores ' + a); return src.slice(i, j); };
 const JS = read('js/89-comando.js'), HTML = read('index.html');
-const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, cmdSlash, cmdToken, cmdRepasse, cmdRestaura, cmdPrAgente, CMD_PERIGO, CMD_SEM_TAREFA, CMD_PLAN_SYS, CMD_SLASH, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot };')();
+const C = new Function(cut(JS, '// @comando-puro-inicio', '// @comando-puro-fim') + '\nreturn { cmdIntent, cmdAcaoDe, cmdNeeds, cmdNovos, cmdSugestaoDe, cmdDireto, cmdPrecisaOk, cmdRefTask, cmdPlanParse, cmdPlanPrompt, cmdSemRefs, cmdLinkCodes, cmdFalaUtil, cmdSlash, cmdToken, cmdRepasse, cmdRestaura, cmdPrAgente, CMD_PERIGO, CMD_SEM_TAREFA, CMD_PLAN_SYS, CMD_SLASH, CMD_MUTA, CMD_ACOES, cmdPlan, cmdDecisions, cmdFiles, cmdPath, cmdLastErr, cmdSnapshot, cmdQualPergunta };')();
 const T = [{ id:'a', code:'LW-47', title:'Avisos de estoque baixo' }, { id:'b', code:'LW-97', title:'Prévia do frete' }];
 
 test('intenção: estado sai dos dados; só o texto livre vai pra IA', () => {
@@ -352,4 +352,15 @@ test('voz tratada: presets, ritmo compensa o tom, e a cadeia liga fonte → saí
     assert.ok(arestas.some(([de])=>de.tipo==='comp'), k+': passa pelo compressor');
   }
   assert.ok(/id="cmdVozFx"/.test(JS) && /invokeQuiet\('comando_fala'/.test(JS));
+});
+
+test('várias perguntas abertas: a resposta aponta a pergunta — ou ninguém chuta', () => {
+  const Q = ['O login expirou; posso rodar o login neste terminal?', 'Uso a base de homol ou a local?'];
+  const f = C.cmdQualPergunta;
+  assert.equal(f('pode rodar o login no terminal sim', Q), 0);
+  assert.equal(f('usa a base de homol', Q), 1);
+  assert.equal(f('sim', Q), -1, 'resposta genérica não escolhe');
+  assert.equal(f('pode', Q), -1);
+  assert.equal(f('roda o login na base de homol', Q), -1, 'empate não escolhe');
+  assert.equal(f('qualquer coisa', []), -1);
 });

@@ -66,3 +66,18 @@ test('o texto de um cartão é o que a pessoa lê nele — com os endereços e s
   assert.match(A.cmdHtmlTexto('<p>' + 'a '.repeat(4000) + '</p>', 200), /…\(cortado\)$/);
   assert.equal(A.cmdHtmlTexto('<svg><path d="M0"/></svg><script>x()</script>'), '');
 });
+
+test('lista de ações: por assunto, criar primeiro, épico por último — e nenhuma fica de fora ou repetida', () => {
+  const L = A.cmdAgenteAcoes(P.CMD_ACOES), nomes = [...L.matchAll(/^- ([a-z_]+):/gm)].map(m => m[1]);
+  assert.equal(nomes[0], 'criar_demanda', 'a 1ª ação é a mais pedida, não uma rara');
+  assert.ok(nomes.indexOf('criar_issue') < 3 && nomes.indexOf('epico_acao') > nomes.length / 2, 'épico não pode vir antes das comuns');
+  assert.equal(new Set(nomes).size, nomes.length, 'ação repetida');
+  const fora = new Set(Object.values(A.CMD_AG_VER).concat(['abertas', 'erros', 'perguntar_agente', 'tela', 'trocar_projeto_x']));
+  Object.keys(P.CMD_ACOES).filter(k => !fora.has(k)).forEach(k => assert.ok(nomes.includes(k), 'ficou de fora da lista: ' + k));
+  assert.match(L, /^CRIAR\n- criar_demanda/); assert.ok(L.length < 12000, 'a lista é cortada em 12000 no Rust');
+});
+test('apelido natural de ação vira o nome do catálogo', () => {
+  assert.equal(A.cmdAgentePasso({ acao: 'criar_tarefa', titulo: 'x' }).acao, 'criar_demanda');
+  assert.equal(A.cmdAgentePasso({ acao: 'Pausar' }).acao, 'parar');
+  assert.equal(A.cmdAgentePasso({ acao: 'abrir_pr' }).acao, 'abrir_pr');
+});

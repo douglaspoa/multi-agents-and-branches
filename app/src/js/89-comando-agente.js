@@ -10,7 +10,22 @@ const CMD_AG_VER={ geral:'status', tarefa:'tarefa', issue:'issue', fila_issues:'
   time:'time', entregas:'entregas', uso:'uso', prontas_pra_aprovar:'prontas', conflitos:'radar', esperando_voce:'esperando' };
 /** As ações que entram na ferramenta "agir" (as de leitura ficam na "ver"; perguntar ao agente tem ferramenta própria). Puro. */
 function cmdAgenteAcoes(acoes){ const fora=new Set(Object.values(CMD_AG_VER).concat(['abertas','erros','perguntar_agente','tela','trocar_projeto_x']));
-  return Object.keys(acoes||{}).filter(k=>!fora.has(k)).map(k=>'- '+k+': '+acoes[k]+(CMD_AG_CONFIRMA.has(k)?' [pede confirmação da pessoa]':'')).join('\n'); }
+  // POR ASSUNTO e do mais usado pro mais raro. Antes saía na ordem do catálogo, e a 1ª linha era "epico_acao": com pressa a
+  // IA pegava a primeira — criar tarefa/issue virava "agir no épico" (26/11, visto no uso real e na avaliação com IA real).
+  const ks=Object.keys(acoes||{}).filter(k=>!fora.has(k)), usados=new Set(), linha=k=>'- '+k+': '+acoes[k]+(CMD_AG_CONFIRMA.has(k)?' [pede confirmação da pessoa]':'');
+  const blocos=CMD_AG_GRUPOS.map(([nome, L])=>{ const l=L.filter(k=>ks.includes(k) && !usados.has(k)); l.forEach(k=>usados.add(k)); return l.length?nome+'\n'+l.map(linha).join('\n'):''; }).filter(Boolean);
+  const resto=ks.filter(k=>!usados.has(k)); if(resto.length) blocos.push('OUTRAS\n'+resto.map(linha).join('\n'));
+  return blocos.join('\n'); }
+const CMD_AG_GRUPOS=[
+  ['CRIAR', ['criar_demanda','criar_issue','comecar_issue']],
+  ['TOCAR UMA TAREFA', ['responder','instruir','continuar','parar','iniciar','pedir_alteracao','pedir_prova','aprovar_plano','refazer','liberar_teto','encerrar']],
+  ['ENTREGAR', ['aprovar','abrir_pr','pr_de_branch','checks','corrigir_ci','resolver_conflito']],
+  ['ABRIR PRA PESSOA VER', ['abrir_codigo','abrir_entrega','abrir_ambiente','abrir_simulador','ambiente_subir','ambiente_desligar','abrir']],
+  ['ISSUES E TIME', ['mover_issue','atribuir_issue','comentar_issue','mandar_time','passar_cartao','devolver_cartao']],
+  ['MEMÓRIA, SKILLS E ÉPICOS', ['anotar_memoria','apagar_memoria','aceitar_aprendizado','descartar_aprendizado','ligar_skill','desligar_skill','criar_skill','criar_epico','vincular_epico','desvincular_epico','epico_acao']],
+];
+/** Nomes que a IA usa naturalmente no lugar do nome do catálogo ("tarefa" é a palavra da pessoa; o catálogo diz "demanda"). */
+const CMD_AG_APELIDO={ criar_tarefa:'criar_demanda', nova_tarefa:'criar_demanda', nova_demanda:'criar_demanda', criar_task:'criar_demanda', abrir_pull_request:'abrir_pr', criar_pr:'abrir_pr', pausar:'parar', retomar:'continuar', cancelar:'encerrar', enviar_instrucao:'instruir', comentar:'comentar_issue', mover:'mover_issue', atribuir:'atribuir_issue' };
 /** A instrução do agente. Puro. o: { voz } */
 function cmdAgenteSys(o){ o=o||{};
   return `Você é o Comando do Starfork: o assistente pessoal de quem coordena várias tarefas de software tocadas por agentes de IA. A pessoa conversa com você como conversaria com um colega muito bom: você entende o que ela quer, descobre o que precisa, age e conta o que aconteceu. Ela NÃO deve precisar abrir outra tela, saber códigos de cor nem repetir o que já disse.
@@ -55,7 +70,7 @@ function cmdAgenteTurno(o){ o=o||{};
 }
 /** Os argumentos da ferramenta "agir" → um passo do plano que o executor do app entende. Puro. */
 function cmdAgentePasso(a){ a=a||{}; const arr=x=>(Array.isArray(x)?x:(x?[x]:[])).map(v=>String(v||'').trim()).filter(Boolean);
-  const p={ acao:String(a.acao||'').trim().toLowerCase(), tarefas:arr(a.tarefas), texto:String(a.texto||'').trim(), alvo:String(a.alvo||'').trim() };
+  const p={ acao:(x=>CMD_AG_APELIDO[x]||x)(String(a.acao||'').trim().toLowerCase()), tarefas:arr(a.tarefas), texto:String(a.texto||'').trim(), alvo:String(a.alvo||'').trim() };
   // "responder": alvo é o NÚMERO da pergunta. Se a IA pôs o código da tarefa em alvo, ele vai pro lugar certo.
   if(p.acao==='responder' && !p.tarefas.length && p.alvo && !/^\d{1,2}$/.test(p.alvo)){ p.tarefas=[p.alvo]; p.alvo=''; }
   if(a.titulo) p.titulo=String(a.titulo).replace(/\s+/g,' ').trim().slice(0,90); const rq=arr(a.requisitos).map(x=>x.replace(/\s+/g,' ')).filter(x=>x.length>3).slice(0,12); if(rq.length || p.acao==='criar_demanda' || p.acao==='criar_issue') p.requisitos=rq;
@@ -71,10 +86,13 @@ function cmdAgAcaoErrada(nome, acoes){ const n=String(nome||'').toLowerCase(), k
 /** Chamada de "agir" SEM o que a ação precisa → mensagem que ensina o que falta. A pessoa nunca vê cartão de confirmação
  *  de uma chamada torta (26/11, uso real: "No épico" vazio apareceu pra confirmar no meio de um "criar issue"). Puro. → '' = ok */
 const CMD_AG_PRECISA={ epico_acao:['alvo','texto'], criar_issue:['titulo'], criar_demanda:['titulo'], criar_epico:['titulo'], criar_skill:['titulo'], apagar_memoria:['alvo'], mandar_time:['alvo'], devolver_cartao:['alvo'], comecar_issue:['alvo'],
-  encerrar:['tarefas'], aprovar:['tarefas'], refazer:['tarefas'], liberar_teto:['tarefas'], abrir_pr:['tarefas'], pr_de_branch:['tarefas','alvo'] };
+  encerrar:['tarefas'], aprovar:['tarefas'], refazer:['tarefas'], liberar_teto:['tarefas'], abrir_pr:['tarefas'], pr_de_branch:['tarefas','alvo'],
+  instruir:['tarefas','texto'], pedir_alteracao:['tarefas','texto'], responder:['texto'], mover_issue:['alvo','texto'], atribuir_issue:['alvo','texto'], comentar_issue:['alvo','texto'], passar_cartao:['alvo','texto'], ler_codigo:['texto'], anotar_memoria:['texto'],
+  ligar_skill:['alvo'], desligar_skill:['alvo'], vincular_epico:['alvo','tarefas'], desvincular_epico:['tarefas'], epico:['alvo'] };
 const CMD_AG_EPICO_TX=['comecar','liberar','verificar','entregar'];
 function cmdAgFalta(p, nAlvos, desc){ p=p||{}; const falta=(CMD_AG_PRECISA[p.acao]||[]).filter(c=>c==='tarefas'?!(nAlvos>0):!String(p[c]||'').trim());
   if(!falta.length && p.acao==='epico_acao' && !CMD_AG_EPICO_TX.includes(String(p.texto||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim())) return 'NADA foi feito: em epico_acao o campo texto tem que ser um destes: '+CMD_AG_EPICO_TX.join(' | ')+'. Se a pessoa não pediu pra agir num épico, a ação certa é outra.';
+  if(!falta.length && p.acao==='pr_de_branch' && String(p.texto||'').trim() && !/^[A-Za-z0-9._\/][A-Za-z0-9._\/-]{0,199}$/.test(String(p.texto).trim())) return 'NADA foi feito: em pr_de_branch o campo texto é SÓ o nome da branch (ex.: fix/LW-47-ajuste), ou vazio pra usar a branch da própria tarefa.';
   if(!falta.length) return '';
   return 'NADA foi feito e a pessoa não viu nada: a ação “'+p.acao+'” veio sem '+falta.map(c=>c==='tarefas'?'a tarefa (campo tarefas = código)':'o campo '+c).join(' e ')+'.'+(desc?' O que ela faz: '+String(desc).slice(0,220)+'.':'')+' Confira se é esta a ação que a pessoa pediu e chame de novo com os campos preenchidos.'; }
 /** A pessoa (ou a IA) deu um CÓDIGO ou número ("FND-1260", "1260", "T3")? Código nunca é adivinhado por parecido:
@@ -97,7 +115,7 @@ const CMDAG={ on:false, laco:0, fila:Promise.resolve(), msg:null, espera:null, s
 function cmdAgSidKey(){ return 'cmdagsid:'+cmdRepo(); }
 /** Uma mensagem do chat em texto pro agente — com mais detalhe que o resumo da conversa nos cartões que ele acabou de causar. */
 function cmdAgMsgTx(m){ if(!m) return '';
-  if(m.k==='resultado') return (m.titulo||'Resultado')+': '+(m.itens||[]).map(i=>(i.code||'')+' '+(i.ok?'ok':'NÃO deu'+(i.nota?' ('+i.nota+')':''))).join('; ');
+  if(m.k==='resultado') return ((m.itens||[]).length && (m.itens||[]).every(i=>!i.ok)?'NADA foi feito — não diga que fez. ':'')+(m.titulo||'Resultado')+': '+(m.itens||[]).map(i=>(i.code||'')+' '+(i.ok?'ok':'NÃO deu'+(i.nota?' ('+i.nota+')':''))).join('; ');
   if(m.k==='issdet'){ const i=cmdIssue(m.code); if(!i) return 'Issue '+m.code+' não está mais no painel.'; const sp=trkIssueSpec(i), sts=((trk&&trk.connector)||{}).statuses||[]; return `Issue ${i.code} "${i.title||''}" — ${((sts.find(x=>x.id===i.status)||{}).label)||i.status||'?'} · ${i.assignee?trkPretty(i.assignee):'sem responsável'} · ${cmdIssueTask(i.code)?'já é tarefa aberta':'ainda não virou tarefa'}\nDescrição: ${String(sp.objective||'').trim().slice(0,2500)||'(vazia)'}\nRequisitos: ${(sp.reqs||[]).length?sp.reqs.map(r=>'\n- '+r).join(''):'nenhum'}`; }
   if(m.k==='issok') return (m.tx||'Issue criada.')+' Código: '+(m.code||'?')+' — "'+(m.titulo||'')+'"';
   if(m.k==='issqual') return 'Há mais de uma issue parecida, perguntei qual: '+(m.itens||[]).map(i=>i.code+' "'+i.title+'"').join('; ');
@@ -128,7 +146,7 @@ async function cmdAgRoda(p, o){ o=o||{}; const ms=cmdMsgs(), n0=ms.length;
   for(const m of ms.slice(n0)){ if(m.id && ['tarefa','porque','feito'].includes(m.k) && cmdTask(m.id) && !cmdHistReady(m.id)){ try{ await Promise.race([cmdHistFetch(m.id), new Promise(r=>setTimeout(r, 15000))]); }catch(_){ } } }
   const novos=ms.slice(n0), tx=novos.map(cmdAgMsgTx).filter(Boolean).join('\n');
   if(o.silencio){ novos.forEach(m=>{ const i=ms.indexOf(m); if(i>=0 && !(m.k==='pergunta')) ms.splice(i,1); }); cmdPaint(true); }
-  return tx || 'Feito (sem mensagem).'; }
+  return tx || 'A ação rodou, mas o app não mostrou nenhum resultado. NÃO diga que deu certo: confira o estado com a ferramenta ver antes de afirmar qualquer coisa.'; }
 /** A bolha do agente fica SEMPRE por último: os cartões que ele causa (e o "sim"/"não" da pessoa) aparecem antes da resposta. */
 function cmdAgPorUltimo(){ const m=CMDAG.msg, ms=cmdMsgs(); if(!m) return; const i=ms.indexOf(m); if(i>=0 && i!==ms.length-1){ ms.splice(i,1); ms.push(m); } }
 function cmdAgAtividade(tx){ const m=CMDAG.msg; if(!m) return; cmdAgPorUltimo(); m.agora=tx; (m.acts||(m.acts=[])).push(tx); if(m.acts.length>5) m.acts.shift(); if(cmdAtiva()) cmdPaint(); }
@@ -150,7 +168,7 @@ async function cmdAgFerramenta(req){ const a=req.args||{}, t=req.tool;
       if(p.faltam.length) return 'Não achei a tarefa “'+p.faltam.join(', ')+'”. Use buscar pra achar o código.';
       if(acao==='tarefa' && p.alvos.length){ const tk=cmdTask(p.alvos[0].id)||cmdAllTasks().find(x=>x.id===p.alvos[0].id); if(!tk) return 'Essa tarefa não está nesta máquina.'; CMD.sel=tk.id;
         if(cmdTask(tk.id)){ try{ await cmdProvasFrescas(tk.id, 8000); }catch(_){ } if(!cmdHistReady(tk.id)){ try{ await cmdHistFetch(tk.id); }catch(_){ } } }
-        let ctx=''; try{ ctx=cmdTaskContext(tk); }catch(_){ } { const q=cmdTask(tk.id)?cmdPerguntasAbertas(tk):[]; if(q.length) ctx+='\nPERGUNTAS ABERTAS esperando a pessoa ('+q.length+'):\n'+q.join('\n'); } if(mostrar){ cmdMsgs().push({ r:'bot', k:'tarefa', id:tk.id }); cmdPaint(true); } return ctx||('Tarefa '+(cmdCode(tk)||tk.id)+': '+stLabel(taskSt(tk))); }
+        let ctx=''; try{ ctx=cmdTaskContext(tk); }catch(_){ } if(/^\s*"/.test(ctx)) ctx=(p.alvos[0].ref||'')+' '+ctx.trimStart(); /* tarefa sem código: o texto começa pela referência dela */ { const q=cmdTask(tk.id)?cmdPerguntasAbertas(tk):[]; if(q.length) ctx+='\nPERGUNTAS ABERTAS esperando a pessoa ('+q.length+'):\n'+q.join('\n'); } if(mostrar){ cmdMsgs().push({ r:'bot', k:'tarefa', id:tk.id }); cmdPaint(true); } return ctx||('Tarefa '+(cmdCode(tk)||tk.id)+': '+stLabel(taskSt(tk))); }
       if(!CMD_SEM_TAREFA.has(acao) && !p.alvos.length && ['plano','provas','arquivos','ci','porque','feito','link','tarefa'].includes(acao)) return 'Diga de qual tarefa (alvo = código). Use buscar se não souber o código.';
       return await cmdAgRoda(p, { silencio:!mostrar }); }
     if(t==='agir'){ const p=cmdAgentePasso(a); if(!CMD_ACOES[p.acao]) return cmdAgAcaoErrada(p.acao, CMD_ACOES);
@@ -160,7 +178,24 @@ async function cmdAgFerramenta(req){ const a=req.args||{}, t=req.tool;
         const linhas=p.faltam.map(q=>{ const r=cmdRefTask(q, enc); return r?`${r.code||r.ref} "${cmdUma(r.title).slice(0,70)}" já está encerrada (${r.st}) — a ação “${p.acao}” só vale pra tarefa aberta`:`não achei “${q}” entre as tarefas abertas`; });
         return 'NADA foi feito: '+linhas.join('; ')+'. Diga isso à pessoa como está; NÃO troque por outra tarefa parecida. Se ela quer um PR da branch dessa tarefa pra outro destino (ex.: levar pra homol), a ação é pr_de_branch, que vale pra tarefa encerrada. Pra trabalho NOVO a partir dela, proponha criar_demanda com a encerrada como origem.'; }
       cmdAgAtividade((CMD_ACAO_TX[p.acao]||p.acao)+(p.alvos.length?' '+p.alvos.map(x=>x.code||x.ref).join(', '):p.alvo?' '+p.alvo:'')+'…');
-      { const f=cmdAgFalta(p, p.alvos.length, CMD_ACOES[p.acao]); if(f) return f; }
+      { const f=cmdAgFalta(p, p.alvos.length || (CMD_SEM_TAREFA.has(p.acao)?(p.tarefas||[]).length:0), CMD_ACOES[p.acao]); if(f) return f; }
+      // ação que mexe em TAREFA e veio sem nenhuma: nada roda (antes voltava "Feito (sem mensagem)" e o agente dizia que fez)
+      if(!CMD_SEM_TAREFA.has(p.acao) && !p.alvos.length && !(p.tarefas||[]).some(q=>/^(todas|tudo)$/i.test(q))) return 'NADA foi feito: a ação “'+p.acao+'” precisa da tarefa (campo tarefas = o código dela). Use buscar se não souber o código.';
+      // issue/cartão/nota que a ação cita tem que EXISTIR antes de qualquer cartão de confirmação
+      if(['comecar_issue','mandar_time'].includes(p.acao)){ try{ await Promise.race([cmdIssuesEnsure(), new Promise(r=>setTimeout(r, 4000))]); }catch(_){ } if(!cmdTrkOn()) return 'NADA foi feito: o painel de issues não está conectado neste projeto.';
+        const i=cmdIssueAcha(p.alvo); if(!i) return 'NADA foi feito: não achei a issue “'+p.alvo+'” no painel. Use buscar.'; if(i.varios) return 'NADA foi feito: mais de uma issue parecida com “'+p.alvo+'”: '+i.varios.map(x=>x.code+' "'+x.title+'"').join('; ')+'. Pergunte qual.'; p.alvo=i.code; }
+      // a tarefa tem que estar num estado em que a ação FAZ sentido — antes do cartão, não depois do "sim"
+      { const nao=[]; for(const x of p.alvos){ const tk=cmdTask(x.id); if(!tk) continue; const c=x.code||x.ref;
+          if(p.acao==='aprovar' && typeof apAprovavel==='function' && !apAprovavel(tk)) nao.push(c+' não está pronta pra aprovar (está '+stLabel(taskSt(tk))+')');
+          else if(typeof CMD_CICLO!=='undefined' && CMD_CICLO.has(p.acao) && typeof cmdCicloPode==='function'){ const m=cmdCicloPode(p.acao, { status:tk.status, needsPlano:!!(tk.spec&&tk.spec.needsYou&&tk.spec.needsYou.kind==='plano') }); if(m) nao.push(c+' '+m); } }
+        if(nao.length && nao.length===p.alvos.length) return 'NADA foi feito: '+nao.join('; ')+'. Diga isso à pessoa.';
+        if(nao.length) return 'NADA foi feito: nem todas aceitam “'+p.acao+'” agora — '+nao.join('; ')+'. Chame de novo só com as que aceitam, ou pergunte à pessoa.'; }
+      if(p.acao==='devolver_cartao' && typeof cmdCartaoDe==='function'){ if(typeof temTime==='function' && !temTime()) return 'NADA foi feito: isso é do quadro do time e esta conta não está num time.';
+        if(typeof semBuscaTime==='function'){ try{ await Promise.race([semBuscaTime(false), new Promise(r=>setTimeout(r, 6000))]); }catch(_){ } }
+        const x=cmdCartaoDe(typeof semItens==='function'?semItens():[], p.alvo); if(!x) return 'NADA foi feito: não achei o cartão “'+p.alvo+'” no quadro do time.'; if(x.varios) return 'NADA foi feito: mais de um cartão parecido: '+x.varios.map(v=>(v.code||'')+' '+String(v.titulo).slice(0,40)).join(' · ')+'. Pergunte qual.';
+        if(typeof semMotivoOk==='function' && !semMotivoOk(String(p.texto||'').trim())) return 'NADA foi feito: pra devolver um cartão precisa do motivo (texto), com pelo menos três palavras — pergunte o motivo à pessoa.'; }
+      if(p.acao==='apagar_memoria' && typeof cmdMaisAcha==='function'){ let notas=[]; try{ notas=((await invoke('memory_list',{ repo:cmdRepo(), withBody:false }))||{}).notes||[]; }catch(_){ }
+        const n=cmdMaisAcha(notas, x=>x.title||x.slug, p.alvo); if(!n) return 'NADA foi feito: não achei a nota “'+p.alvo+'” na memória.'+(notas.length?' Notas: '+notas.slice(0,20).map(x=>'“'+x.title+'”').join(', ')+'.':' A memória está vazia.'); if(n.varios) return 'NADA foi feito: mais de uma nota parecida: '+n.varios.map(x=>'“'+x.title+'”').join(', ')+'. Pergunte qual.'; }
       if(p.acao==='epico_acao' && typeof cmdEpics==='function'){ const E=cmdEpics(), n=cmdNorm(p.alvo); if(!E.some(x=>cmdNorm(x.name)===n || (cmdNorm(x.name).includes(n) && p.alvo.length>=3))) return 'NADA foi feito: não existe épico chamado “'+p.alvo+'”. Épicos: '+(E.map(x=>x.name).slice(0,12).join(', ')||'nenhum')+'.'; }
       if(p.acao==='ambiente_subir'){ if(!p.alvos.length) return 'Diga de qual tarefa subir o ambiente.'; const r=await cmdAgAmbiente(p.alvos[0].id); return r.url?`Ambiente da ${p.alvos[0].code||p.alvos[0].ref} ${r.jaEstava?'já estava':'está'} no ar: ${r.url}`:'Não consegui subir o ambiente: '+r.erro; }
       if(CMD_AG_CONFIRMA.has(p.acao)){ const ms=cmdMsgs(), m={ r:'bot', k:'plano', agente:true, plan:{ passos:[p], pedido:'', fala:'', duvida:'', refs:[] } }, n0=ms.length; ms.push(m); CMDAG.espera=m; cmdAgAtividade('esperando a sua confirmação…'); cmdPaint(true); if(typeof cmdAgFalaConfirma==='function') cmdAgFalaConfirma(p);
